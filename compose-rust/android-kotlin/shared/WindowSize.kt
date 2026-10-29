@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.runtime
 
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
@@ -70,7 +71,7 @@ fun windowHeightClassOf(heightDp: Float): WindowHeightClass = when {
  * because a Host that needs pixel-by-pixel sizes is asking for work that belongs in
  * Compose's own layout.
  */
-class WindowSizeReporter {
+class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
     private var lastHeightClass: WindowHeightClass = WindowHeightClass.Compact
 
@@ -89,7 +90,7 @@ class WindowSizeReporter {
         lastHeightClass = heightClass
         dispatcher.dispatch(
             HostEvent.WindowSizeChanged(
-                nodeId = 0,
+                nodeId = nodeId,
                 handlerId = 0,
                 widthDp = widthDp,
                 heightDp = heightDp,
@@ -100,3 +101,10 @@ class WindowSizeReporter {
         return true
     }
 }
+
+/**
+ * The `Window` node the content being composed is drawn in, or 0 for the one window
+ * of a single window application. The events a window names itself by - its size class, its
+ * zoom - carry this as their node id, and the theme and zoom level are looked up under it.
+ */
+val LocalWindowNodeId = staticCompositionLocalOf { 0 }

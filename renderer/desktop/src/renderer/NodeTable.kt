@@ -88,6 +88,10 @@ data class TableError(val code: Int, val message: String) {
         const val INVALID_ANIMATION = 11
         /** A code editor record or edit whose range, version or kind could not be honoured. */
         const val INVALID_CODE_EDIT = 12
+        /** A `Window` node placed anywhere but directly under the root. */
+        const val MISPLACED_WINDOW = 13
+        /** A node moved from the content of one `Window` into another, or out of its window. */
+        const val MOVE_BETWEEN_WINDOWS = 14
     }
 }
 
@@ -104,6 +108,15 @@ class NodeTable {
     private val codeNodes = LinkedHashMap<Int, Node>()
     private val rootChildren = mutableStateListOf<Int>()
     private val errors = mutableListOf<TableError>()
+
+    /**
+     * The theme each `Window` node overrides the application's with. A window with
+     * no entry follows [theme]. Dropped with the node, so a closed window leaves nothing here.
+     */
+    private val windowThemes = mutableStateMapOf<Int, Theme>()
+
+    /** The `FocusWindow` commands of the batch just applied; the window manager drains them. */
+    private val focusRequests = mutableListOf<Int>()
 
     /**
      * What applying a batch gave a code editor to say: the change an edit from the Host
@@ -162,6 +175,49 @@ class NodeTable {
     var window: Window? by mutableStateOf(null)
         private set
 
+    /** The theme the window drawn for the `Window` node [windowId] uses; node 0 is the application's. */
+    fun themeFor(windowId: Int): Theme? =
+        if (windowId == ROOT_ID) theme else windowThemes[windowId] ?: theme
+
+    /** True when [windowId] has a theme of its own over the application's. */
+    internal fun overridesTheme(windowId: Int): Boolean = windowThemes.containsKey(windowId)
+
+    /** How many windows hold a theme override; zero once they are all gone. */
+    internal val windowThemeCount: Int get() = windowThemes.size
+
+    /**
+     * The zoom level the application asked for the window [windowId], or null where it left
+     * the level to the renderer. Node 0 is the single window of `SetWindow`.
+     */
+    fun zoomLevelFor(windowId: Int): Int? {
+        if (windowId == ROOT_ID) return window?.zoomLevel
+        val level = (nodes[windowId]?.props?.get(PropertyKind.WindowZoomLevel) as? PropertyValue.Integer)?.value
+        return level?.toInt()?.coerceIn(-8, 8)
+    }
+
+    /**
+     * The `Window` node the node [nodeId] is drawn in, itself included, or null for a node
+     * that sits in none (every node of a single window application).
+     */
+    fun windowOf(nodeId: Int): Int? {
+        var current = nodeId
+        var steps = nodes.size + 1
+        while (current != ROOT_ID && steps-- > 0) {
+            val node = nodes[current] ?: return null
+            if (node.widget == WidgetKind.Window) return current
+            current = node.parentId
+        }
+        return null
+    }
+
+    /** The `FocusWindow` commands applied since the last call, in order. */
+    internal fun drainFocusRequests(): List<Int> {
+        if (focusRequests.isEmpty()) return emptyList()
+        val drained = focusRequests.toList()
+        focusRequests.clear()
+        return drained
+    }
+
     /** Top-level nodes, in creation order until the Host parents them. */
     val roots: List<Int> get() = rootChildren
 
@@ -203,6 +259,8 @@ class NodeTable {
         rootChildren.clear()
         errors.clear()
         outbox.clear()
+        windowThemes.clear()
+        focusRequests.clear()
         assets.clear()
         messages.clear()
         theme = null
@@ -237,11 +295,12 @@ class NodeTable {
             // the batch is applied the window already looks the way it says. Keeping it
             // here as well is what lets a later rebuild change it.
             is Mutation.SetWindow -> window = mutation.window
-            // A theme for one window, and bringing one forward. Both name a platform
-            // window, which the platform layer opens and this table does not hold yet, so the
-            // records are decoded and nothing is applied.
-            is Mutation.SetWindowTheme -> Unit
-            is Mutation.FocusWindow -> Unit
+            // A theme for one window, and bringing one forward. The theme is kept with the
+            // window's node and read by the scene drawn for it; the focus request waits for
+            // the window manager, which owns the platform windows, and is acted on after
+            // the batch.
+            is Mutation.SetWindowTheme -> setWindowTheme(mutation)
+            is Mutation.FocusWindow -> focusWindow(mutation)
             // The bytes are read here, once, and never again: what a frame carries is the
             // id. A kind this Renderer cannot read, or a release of something that was
             // never registered, is reported and the rest of the batch still applies.
@@ -301,6 +360,31 @@ class NodeTable {
                 collectCode(node)
             }
         }
+    }
+
+    private fun windowNode(nodeId: Int, command: String): Node? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        if (node.widget != WidgetKind.Window) {
+            fail(TableError.UNSUPPORTED_PROPERTY, "$command on ${node.widget}")
+            return null
+        }
+        return node
+    }
+
+    private fun setWindowTheme(mutation: Mutation.SetWindowTheme) {
+        windowNode(mutation.nodeId, "SetWindowTheme") ?: return
+        windowThemes[mutation.nodeId] = mutation.theme
+        mutation.theme.paletteProblems.forEach { problem ->
+            fail(TableError.INVALID_PALETTE, "window ${mutation.nodeId} theme palette: $problem")
+        }
+    }
+
+    private fun focusWindow(mutation: Mutation.FocusWindow) {
+        windowNode(mutation.nodeId, "FocusWindow") ?: return
+        focusRequests += mutation.nodeId
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -471,6 +555,22 @@ class NodeTable {
             fail(TableError.UNKNOWN_NODE, "Insert into unknown parent $parentId")
             return
         }
+        // A window is a child of the root and nothing else, and what is drawn in one
+        // window cannot be moved into another: a composition is per window and Compose has
+        // no way to hand a node from one scene to the next. Both are the Host's
+        // mistake; the tree is left as it was and the process goes on.
+        if (nodes[nodeId]?.widget == WidgetKind.Window && parentId != ROOT_ID) {
+            fail(TableError.MISPLACED_WINDOW, "Window $nodeId must be a child of the root, not of $parentId")
+            return
+        }
+        val from = windowOf(nodes[nodeId]?.parentId ?: ROOT_ID)
+        if (from != null && from != windowOf(parentId)) {
+            fail(
+                TableError.MOVE_BETWEEN_WINDOWS,
+                "node $nodeId cannot move from window $from to $parentId",
+            )
+            return
+        }
         // A node cannot be placed under itself or under one of its own descendants: the
         // parent chain would then have no root, and anything that follows it, drawing the
         // tree or walking up from a node, recurses until the stack runs out. The tree the
@@ -508,6 +608,7 @@ class NodeTable {
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
         codeNodes.remove(nodeId)
+        if (node.widget == WidgetKind.Window) windowThemes.remove(nodeId)
         animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
