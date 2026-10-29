@@ -196,7 +196,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // with no overflow rule rounds the decoration and leaves the content alone.
             is ProtocolModifier.CornerEach -> chain
             is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
-                chain.boxShadow(value, brush, corners)
+                chain.boxShadow(value, brush, corners, shape)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
@@ -442,6 +442,32 @@ private fun boxOutline(size: Size, density: Density, corners: CornerEachShape?):
     corners?.roundRect(size, density) ?: RoundRect(0f, 0f, size.width, size.height)
 
 /**
+ * The outline a shadow is cast by: [box] for the radii the spread grows, and [exact] when
+ * the shape is a path with no radii to read (a continuous corner), which is used as it is.
+ */
+private class ShadowOutline(val box: RoundRect, val exact: Path?)
+
+/**
+ * The node's outline for its shadows: the corners an HTML box named, else the shape its
+ * `Shape` or `ShapeRole` gave (the same shape its background and clip use), else the
+ * rectangle. A container with a corner radius therefore casts a rounded shadow.
+ */
+private fun shadowOutline(
+    size: Size,
+    density: Density,
+    direction: LayoutDirection,
+    corners: CornerEachShape?,
+    shape: Shape,
+): ShadowOutline {
+    if (corners != null) return ShadowOutline(corners.roundRect(size, density), null)
+    return when (val outline = shape.createOutline(size, direction, density)) {
+        is Outline.Rounded -> ShadowOutline(outline.roundRect, null)
+        is Outline.Rectangle -> ShadowOutline(RoundRect(outline.rect), null)
+        is Outline.Generic -> ShadowOutline(RoundRect(outline.path.getBounds()), outline.path)
+    }
+}
+
+/**
  * A border with its own width and paint on each side, drawn the way CSS draws one.
  *
  * The border is the ring between the node's outline and the same outline brought in by each
@@ -552,18 +578,23 @@ private fun Modifier.borderEach(
  *
  * Later shadows draw over earlier ones, because a modifier list draws in its order. CSS
  * draws the first shadow in its list on top, so a Host sends a CSS list last to first.
+ * number of shadows is any number of these.
+ *
+ * The outline is the node's own: its `CornerEach` corners, else its `Shape` or `ShapeRole`.
  */
 private fun Modifier.boxShadow(
     value: ProtocolModifier.Shadow,
     brush: Brush,
     corners: CornerEachShape?,
+    shape: Shape,
 ): Modifier = drawWithCache {
     val spread = value.spread.dp.toPx()
     val blur = value.blur.dp.toPx().coerceAtLeast(0f)
     val dx = value.x.dp.toPx()
     val dy = value.y.dp.toPx()
-    val box = boxOutline(size, this, corners)
-    val boxPath = Path().apply { addRoundRect(box) }
+    val cast = shadowOutline(size, this, layoutDirection, corners, shape)
+    val box = cast.box
+    val boxPath = cast.exact ?: Path().apply { addRoundRect(box) }
     val shadowWidth = size.width + 2f * spread
     val shadowHeight = size.height + 2f * spread
     if (shadowWidth <= 0f || shadowHeight <= 0f) {
@@ -572,7 +603,7 @@ private fun Modifier.boxShadow(
     // The spread grows each corner's radius with it, by the rule CSS gives so that a small
     // radius does not jump to a large one when the spread is large.
     fun grown(radius: CornerRadius) = CornerRadius(spreadRadius(radius.x, spread), spreadRadius(radius.y, spread))
-    val shape = RoundRect(
+    val grownBox = RoundRect(
         left = 0f,
         top = 0f,
         right = shadowWidth,
@@ -582,7 +613,7 @@ private fun Modifier.boxShadow(
         bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
         bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
     )
-    val shapePath = Path().apply { addRoundRect(shape) }
+    val shapePath = if (spread == 0f && cast.exact != null) cast.exact else Path().apply { addRoundRect(grownBox) }
     if (blur == 0f) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {

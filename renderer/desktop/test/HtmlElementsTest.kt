@@ -301,6 +301,56 @@ class HtmlElementsTest {
     }
 
     /**
+     * Several shadows on one node are several `Shadow` modifiers, each drawn as its
+     * own layer, a later one over an earlier one, all outside the node.
+     */
+    @Test
+    fun fr42_shadow_every_shadow_of_a_node_is_drawn_as_a_layer_in_order() = runComposeUiTest {
+        show(
+            page {
+                node(
+                    2, ROOT, 0,
+                    ProtocolModifier.Offset(100f, 60f),
+                    ProtocolModifier.RequiredSize(40f, 40f),
+                    ProtocolModifier.Shadow(0f, 0f, 0f, 30f, Paint.Literal(RED)),
+                    ProtocolModifier.Shadow(0f, 0f, 0f, 20f, Paint.Literal(GREEN)),
+                    ProtocolModifier.Shadow(0f, 0f, 0f, 10f, Paint.Literal(BLUE)),
+                )
+            },
+        )
+        val pixels = picture()
+        // The widest layer is drawn first, so each narrower one lies over it.
+        assertColor(RED, pixels[100 - 25, 80], "the outer layer, only red reaches here")
+        assertColor(GREEN, pixels[100 - 15, 80], "the middle layer over the outer one")
+        assertColor(BLUE, pixels[100 - 5, 80], "the inner layer over both")
+        assertColor(WHITE, pixels[100 - 35, 80], "beyond every layer")
+        assertColor(WHITE, pixels[120, 80], "under the node, where every layer is cut away")
+    }
+
+    /**
+     * A node with a corner radius of its own (a `Shape`, not `CornerEach`) casts a
+     * shadow with that radius, grown by the spread, rather than a rectangle.
+     */
+    @Test
+    fun fr42_shadow_a_shadow_follows_the_nodes_corner_radius() = runComposeUiTest {
+        show(
+            page {
+                node(
+                    2, ROOT, 0,
+                    ProtocolModifier.Offset(50f, 50f),
+                    ProtocolModifier.RequiredSize(100f, 100f),
+                    ProtocolModifier.Shadow(0f, 0f, 0f, 10f, Paint.Literal(BLACK)),
+                    ProtocolModifier.Shape(20f, 20f, 20f, 20f),
+                )
+            },
+        )
+        val pixels = picture()
+        // The shadow is 120 square at (40, 40) with a radius of 30, so its corner is cut.
+        assertColor(WHITE, pixels[42, 42], "the corner a rectangular shadow would fill")
+        assertColor(BLACK, pixels[45, 100], "the middle of the shadow's left edge")
+    }
+
+    /**
      * `overflow: hidden`: a rectangle where the node has no corners, its rounded shape
      * where it has them, and nothing cut at all when the clip is off.
      */
