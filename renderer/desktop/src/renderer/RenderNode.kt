@@ -36,6 +36,9 @@ import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
+import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.ui.pressable
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ToggleRole
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalGlassDepth
@@ -106,6 +109,17 @@ internal object RenderNodeObserver {
     var onMeasure: ((Int) -> Unit)? = null
 }
 
+/** The containers whose `OnClick` makes them buttons (FR-55). */
+private val CLICKABLE_CONTAINERS = setOf(
+    WidgetKind.Column,
+    WidgetKind.Row,
+    WidgetKind.Box,
+    WidgetKind.Card,
+    WidgetKind.Surface,
+    WidgetKind.ScrollColumn,
+    WidgetKind.ScrollRow,
+)
+
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
@@ -144,7 +158,33 @@ fun RenderNode(
     }
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
-    val modifier = platformFileDrop(withKeys, node, dispatcher)
+    // A container that was given an `OnClick` is a button (FR-55). One that was not is left
+    // exactly as it was: no focus stop, no semantics, no pointer handling.
+    // A node that also carries the `Clickable` modifier is already pressable there, once.
+    val clickHandler = if (node.widget in CLICKABLE_CONTAINERS &&
+        node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+    ) {
+        node.handler(PropertyKind.OnClick)
+    } else {
+        null
+    }
+    val pressable = if (clickHandler == null) {
+        withKeys
+    } else {
+        withKeys.pressable(
+            nodeId,
+            clickHandler,
+            node.flag(PropertyKind.Enabled, default = true),
+            dispatcher,
+            theme,
+            when (node.widget) {
+                WidgetKind.Card -> node.containerShape(theme.rules.container(ContainerRole.Card, theme), theme)
+                WidgetKind.Surface -> node.containerShape(theme.rules.container(ContainerRole.Surface, theme), theme)
+                else -> node.modifiers.resolvedShape(theme)
+            },
+        )
+    }
+    val modifier = platformFileDrop(pressable, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
