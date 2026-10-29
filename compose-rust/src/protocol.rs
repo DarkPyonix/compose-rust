@@ -2422,7 +2422,7 @@ mod tests {
         assert_eq!(decode_batch(bytes).unwrap(), expected);
     }
 
-    /// FR-42.3: a node's shadows are several `Shadow` records at consecutive chain positions,
+    /// A node's shadows are several `Shadow` records at consecutive chain positions,
     /// each with its own offset, blur, spread and paint (alpha included), and every one
     /// survives a round trip in the order it was written.
     #[test]

@@ -301,7 +301,7 @@ class HtmlElementsTest {
     }
 
     /**
-     * FR-42.3: several shadows on one node are several `Shadow` modifiers, each drawn as its
+     * Several shadows on one node are several `Shadow` modifiers, each drawn as its
      * own layer, a later one over an earlier one, all outside the node.
      */
     @Test
@@ -328,7 +328,7 @@ class HtmlElementsTest {
     }
 
     /**
-     * FR-42.3: a node with a corner radius of its own (a `Shape`, not `CornerEach`) casts a
+     * A node with a corner radius of its own (a `Shape`, not `CornerEach`) casts a
      * shadow with that radius, grown by the spread, rather than a rectangle.
      */
     @Test
