@@ -41,24 +41,36 @@ fn Clickables() {
         let c = count.clone();
         Row()
             .on_click(move || c.update(|n| *n += 1))
-            .content(|| Text("row"));
+            .content(|| {
+                Text("row");
+            });
         let c = count.clone();
         Box()
             .on_click(move || c.update(|n| *n += 10))
-            .content(|| Text("box"));
+            .content(|| {
+                Text("box");
+            });
         let c = count.clone();
         Card()
             .on_click(move || c.update(|n| *n += 100))
-            .content(|| Text("card"));
+            .content(|| {
+                Text("card");
+            });
         let c = count.clone();
         Surface()
             .on_click(move || c.update(|n| *n += 1000))
-            .content(|| Text("surface"));
+            .content(|| {
+                Text("surface");
+            });
         let c = count.clone();
         Column()
             .on_click(move || c.update(|n| *n += 10000))
-            .content(|| Text("column"));
-        Row().content(|| Text("plain row"));
+            .content(|| {
+                Text("column");
+            });
+        Row().content(|| {
+                Text("plain row");
+            });
     });
 }
 
