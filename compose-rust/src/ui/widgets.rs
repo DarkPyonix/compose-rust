@@ -657,7 +657,7 @@ impl TextScope {
                     },
                 ));
                 attrs.push(("font", font_bytes(&font)));
-                attrs.push(("word_break", role_or_zero(word_break)));
+                attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("text", OwnedAttr::Text(text)));
                 attrs.push(("type_role", role_or_zero(type_role)));
                 attrs.push(("font_size", dp_or_zero(font_size)));
