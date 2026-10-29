@@ -378,6 +378,11 @@ fun RenderNode(
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine
             // has decided all of it, and a second layout pass could only disagree with it.
+            // A platform window. Opening one is the platform layer's job, and until that
+            // layer exists the interpreter draws a window's children where the node stands, so
+            // the tree is whole and a protocol test can walk it.
+            WidgetKind.Window -> Box(modifier) { Children(node, table, dispatcher) }
+
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
                     // The root of an HTML island names the factor it is drawn at. Only the
