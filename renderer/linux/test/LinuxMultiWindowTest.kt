@@ -148,4 +148,24 @@ class LinuxMultiWindowTest {
             backend.closeAll()
         }
     }
+
+    @Test
+    fun fr53_linux_focus_follows_the_key_window() {
+        if (!hasDisplay()) return
+        val backend = backend()
+        val told = ArrayList<Boolean>()
+        backend.onApplicationFocus = { told += it }
+        try {
+            val first = backend.open(config(1), Recorder()) as LinuxPlatformWindow
+            val second = backend.open(config(2), Recorder()) as LinuxPlatformWindow
+            val firstKey = backend.turnsUntil { first.focus(); first.isKey }
+            assertTrue(firstKey, "the first window never became the key window")
+            val secondKey = backend.turnsUntil { second.focus(); second.isKey && !first.isKey }
+            assertTrue(secondKey, "focus did not move to the second window")
+            assertEquals(listOf(second), backend.keyWindows, "exactly the key window is reported as key")
+            assertFalse(told.lastOrNull() == false, "the application lost focus while one of its windows is key")
+        } finally {
+            backend.closeAll()
+        }
+    }
 }

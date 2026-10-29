@@ -122,6 +122,7 @@ private fun runWindows(
             return RendererApi.RUN_FAILED
         }
         backend.onTurn = { host.table.notifications.pump() }
+        backend.onApplicationFocus = { host.table.notifications.windowFocusChanged(it) }
         frames.launch {
             serveFrameRequests(
                 FrameRequests.global.counter,

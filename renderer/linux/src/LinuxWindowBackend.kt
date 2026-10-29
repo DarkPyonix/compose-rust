@@ -42,6 +42,17 @@ internal class LinuxWindowBackend(
     /** The number of windows open, so that a test can see that closing them leaves none. */
     internal val openCount: Int get() = windows.size
 
+    /**
+     * Told when the application gains or loses the keyboard: true while any of its windows is
+     * the key window. Taken from the windows themselves, not from each scene.
+     */
+    var onApplicationFocus: (Boolean) -> Unit = {}
+
+    private var applicationFocused = true
+
+    /** The nodes of the windows that are the key window now, which is at most one. */
+    internal val keyWindows: List<LinuxPlatformWindow> get() = windows.filter { it.isKey }
+
     /** Once per turn, after the connection was heard and before the windows draw. */
     var onTurn: () -> Unit = {}
 
@@ -106,6 +117,11 @@ internal class LinuxWindowBackend(
             pumper.x11.pump(FRAME_MILLISECONDS)
         }
         for (window in windows.toList()) window.window.pollFocus()
+        val anyKey = windows.any { it.isKey }
+        if (anyKey != applicationFocused) {
+            applicationFocused = anyKey
+            onApplicationFocus(anyKey)
+        }
         onTurn()
         val woken = work.takeWake()
         work.runPending()
