@@ -770,6 +770,17 @@ composed_on_drop!(TextFieldScope);
 
 // ----- buttons and controls ---------------------------------------------------------------
 
+/// The label's line limit and overflow, written only when they were set, so a widget that
+/// never asks for them sends what it always sent.
+fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, attrs: &mut Attrs) {
+    if let Some(lines) = max_lines {
+        attrs.push(("max_lines", OwnedAttr::Int(i64::from(lines))));
+    }
+    if overflow.is_some() {
+        attrs.push(("overflow", role_or_zero(overflow)));
+    }
+}
+
 /// A `Button` and its builder.
 pub struct ButtonScope {
     modifier: Modifier,
@@ -779,6 +790,8 @@ pub struct ButtonScope {
     variant: Option<ButtonVariant>,
     kind: Option<ButtonKind>,
     color: Option<Paint>,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -797,6 +810,8 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         variant: None,
         kind: None,
         color: None,
+        max_lines: None,
+        overflow: None,
         on_click: None,
         done: false,
     }
@@ -826,6 +841,19 @@ impl ButtonScope {
         self
     }
 
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// Korean label is never broken between syllables by a squeezed parent.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
     /// The label's colour, for the rare button whose meaning is not its variant's.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
@@ -848,6 +876,7 @@ impl ButtonScope {
         let text = std::mem::take(&mut self.text);
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -860,6 +889,7 @@ impl ButtonScope {
                 attrs.push(("variant", role_or_zero(variant)));
                 attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
+                lines_and_overflow(max_lines, overflow, attrs);
             },
             listeners,
             content,
@@ -2034,6 +2064,8 @@ pub struct ChipScope {
     icon: Option<IconRole>,
     selected: bool,
     enabled: bool,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2046,6 +2078,8 @@ pub fn Chip(text: impl Into<String>) -> ChipScope {
         icon: None,
         selected: false,
         enabled: true,
+        max_lines: None,
+        overflow: None,
         on_click: None,
         done: false,
     }
@@ -2067,6 +2101,19 @@ impl ChipScope {
         self
     }
 
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// chip label is one line unless this says more.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
     pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -2075,6 +2122,7 @@ impl ChipScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
         let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
         emit(
             widget_key("compose_rust::ui::Chip"),
@@ -2085,6 +2133,7 @@ impl ChipScope {
                 attrs.push(("icon", super::role(icon)));
                 attrs.push(("checked", OwnedAttr::Bool(selected)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                lines_and_overflow(max_lines, overflow, attrs);
             },
             vec![("onclick", unit(self.on_click.take()))],
             content,

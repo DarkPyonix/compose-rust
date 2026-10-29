@@ -682,6 +682,11 @@ class NodeTable {
                 -> widget == WidgetKind.Text ||
                     widget == WidgetKind.Button ||
                     widget == WidgetKind.TextField ||
+                    // A chip's label takes a line limit and an overflow, as a button's does.
+                    (
+                        widget == WidgetKind.Chip &&
+                            (property == PropertyKind.MaxLines || property == PropertyKind.Overflow)
+                        ) ||
                     // An icon takes a tint through the same Paint attribute text does, and
                     // so does a destination: its icon and label are properties rather than
                     // a child tree, so there is no Text node underneath to colour instead.
