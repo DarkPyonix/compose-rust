@@ -332,6 +332,17 @@ fun ComposeRustContent(
     }
 }
 
+/**
+ * Whether the content below serves the Host's frame requests itself. True for a single window,
+ * which has always done so; a multi-window renderer provides false and serves them once for
+ * every window.
+ */
+internal val LocalServesFrames = staticCompositionLocalOf { true }
+
+/** What a window's content draws: the roots of the tree for window 0, else the children of `Window` node [windowNodeId]. */
+internal fun NodeTable.rootsOf(windowNodeId: Int): List<Int> =
+    if (windowNodeId == 0) roots else node(windowNodeId)?.children ?: emptyList()
+
 @Composable
 private fun ComposeRustTree(
     host: ComposeRustHost,
@@ -339,7 +350,9 @@ private fun ComposeRustTree(
     caption: WindowCaption,
 ) {
     val frames = LocalFrameRequests.current
-    LaunchedEffect(host, frames) {
+    // A multi-window process serves the Host's frame requests once, from the window manager
+    // (serveWindowFrames), so a window's own content must not also serve them.
+    if (LocalServesFrames.current) LaunchedEffect(host, frames) {
         // Counted from the Host's start, not from the moment this loop began listening. The
         // platform starts the Host before there is a window, and work the Host schedules in
         // its first render (an effect, a task spawned at startup) asks for a frame right then.
@@ -374,6 +387,9 @@ private fun ComposeRustTree(
     // only when the measured size differs, and the reporter drops everything that does
     // not change the class, so a drag across one class costs no boundary calls.
     val windowNodeId = LocalWindowNodeId.current
+    // The roots this content draws: the application's for a single window, the children of
+    // its own `Window` node for one window of several.
+    val roots = host.table.rootsOf(windowNodeId)
     val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
     val zoom = LocalZoom.current
@@ -402,7 +418,7 @@ private fun ComposeRustTree(
     // window is stood up with the platform's own material behind it. The design system is
     // told the answer, because chrome that sits straight on the desktop is drawn
     // differently from chrome over the application's own page.
-    val asked = host.table.asksForWindowMaterial(host.roots)
+    val asked = host.table.asksForWindowMaterial(roots)
     val theme = resolveTheme(
         host.table.themeFor(windowNodeId),
         platform,
@@ -482,15 +498,15 @@ private fun ComposeRustTree(
     val navigation = theme.rules.navigation(sizeClass, theme)
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
+        host.table.opensWithANavigation(roots)
     val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
-        (host.table.opensWithABar(host.roots) || stripTakesTheTop)
+        (host.table.opensWithABar(roots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
+        host.table.opensWithANavigation(roots)
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
@@ -540,13 +556,13 @@ private fun ComposeRustTree(
                 modifier
                     .then(measured)
                     .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
-                    .background(host.table.windowFill(host.roots, theme)),
+                    .background(host.table.windowFill(roots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)
-                    host.roots.forEach { rootId ->
+                    roots.forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {
                             RenderNode(rootId, host.table, host)
                         }
