@@ -3691,6 +3691,20 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-61 `Row`와 `Column`의 교차축 내재 크기 맞춤 (`Agreed`, 이슈 #389)
+
+요청한 쪽: Ember(워크스페이스 카드 줄, 칸 사이의 세로 구분선). 높이를 따로 정하지 않은 `Row` 안에 `Modifier::new().fill_max_height()`를 가진 자식을 두면, Compose의 `Row`는 교차축 상한이 무한대일 때 `fillMaxHeight`를 풀지 못하거나 바깥 창 높이를 채웁니다. 가장 키가 큰 형제의 높이에 맞춰 다른 자식이나 세로 `Divider`가 늘어나려면 `Row`가 교차축 내재 크기(`IntrinsicSize.Min`)로 재어져야 합니다.
+
+- `RowScope`와 `ColumnScope`에 `.intrinsic_size(bool)`을 두고, `RowScope::equal_height(bool)`와 `ColumnScope::equal_width(bool)`를 같은 뜻의 별칭으로 둡니다. 참이면 그 노드에 `Collapsible(true)` 속성을 보냅니다(새 속성 번호를 쓰지 않고 `PropertyKind::Collapsible`을 `Row`와 `Column`에도 허용합니다).
+- Renderer는 다음 두 경우 중 하나일 때 `Row`에 `Modifier.height(IntrinsicSize.Min)`을, `Column`에 `Modifier.width(IntrinsicSize.Min)`을 적용합니다:
+  1. 노드의 `Collapsible` 속성이 참일 때.
+  2. `Row` 자신이 높이를 정하지 않았고(`Height`, `Size`, `RequiredSize`, `FillMaxHeight`가 없음) 직접 자식 중 하나 이상이 `FillMaxHeight` 수정자를 가질 때(`Column`은 자신의 너비를 정하지 않았고 직접 자식 중 하나 이상이 `FillMaxWidth`를 가질 때).
+- 내재 크기 수정자는 노드의 자체 수정자 사슬 안쪽(`chain` 뒤)에 붙어, `Row`나 `Column`에 준 바깥 여백과 크기 제약이 그대로 지켜집니다.
+
+수용 기준.
+1. 높이를 정하지 않은 `Row` 안에 줄 수가 다른 두 카드와 세로 구분선(`fill_max_height`)을 나란히 놓으면, 짧은 카드와 구분선의 그려진 높이가 긴 카드의 높이와 같습니다(`fr_61_row_children_with_fill_max_height_match_tallest_sibling`).
+2. `Row().intrinsic_size(true)`(또는 `.equal_height(true)`)는 `Collapsible(true)` 속성을 내보내고, 기본 `Row()`는 이 속성을 내보내지 않습니다(`fr61_row_intrinsic_size_writes_collapsible_property`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)

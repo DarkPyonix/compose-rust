@@ -922,8 +922,12 @@ class NodeTable {
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
 
-                // Whether a split pane's side pane may be folded away.
-                PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
+                // Whether a split pane's side pane may be folded away, or whether a linear
+                // layout sizes its cross axis to its largest child.
+                PropertyKind.Collapsible ->
+                    widget == WidgetKind.SplitPane ||
+                        widget == WidgetKind.Row ||
+                        widget == WidgetKind.Column
 
                 // What a button is apart from its emphasis: a plain one, or a key of a
                 // dense grid. Only a button has a kind; a chip or a floating action is
