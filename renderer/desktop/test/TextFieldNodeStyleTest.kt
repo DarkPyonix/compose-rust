@@ -73,7 +73,7 @@ class TextFieldNodeStyleTest {
                 6 to ProtocolModifier.Background(Paint.Literal(RED)),
             ),
         )
-        assertNotEquals(RED, pixels[1, 1].toArgbInt(), "the corner pixel is outside a 20 dp arc")
+        assertNotEquals(RED, pixels[0, 0].toArgbInt(), "the corner pixel is outside a 20 dp corner")
         assertEquals(RED, pixels[pixels.width - 8, pixels.height / 2].toArgbInt())
     }
 }
