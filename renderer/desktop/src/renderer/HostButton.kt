@@ -28,14 +28,17 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -63,8 +66,20 @@ internal fun HostButton(
 ) {
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnClick)
-    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let {
-        if (LocalInAMenu.current) theme.rules.menuEntry(it, theme) else it
+    val inMenu = LocalInAMenu.current || node.property(PropertyKind.Checked) != null
+    val checked = node.flag(PropertyKind.Checked, default = false)
+    val alignStart = inMenu ||
+        node.role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray()) == TextAlign.Start
+    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let { base ->
+        val entry = if (inMenu) theme.rules.menuEntry(base, theme) else base
+        if (inMenu && node.variant() == ButtonVariant.Text) {
+            entry.copy(
+                container = if (checked) theme.color(ColorRole.SurfaceVariant) else entry.container,
+                content = theme.color(ColorRole.OnSurface),
+            )
+        } else {
+            entry
+        }
     }
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
@@ -142,6 +157,7 @@ internal fun HostButton(
         .labelPadding(
             horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
             vertical = style.verticalPadding,
+            alignStart = alignStart,
         )
 
     // The variant decides the label colour, unless the node names one itself. A
@@ -160,12 +176,13 @@ internal fun HostButton(
     // A button with a glyph and no word is still a button with a name. The role is what
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
-    val named = if (icon != null && text.isEmpty()) {
-        decorated.semantics { contentDescription = icon.name }
-    } else {
-        decorated
-    }
-    Box(named, contentAlignment = Alignment.Center) {
+    val named = decorated
+        .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
+        .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
+    Box(
+        named,
+        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center,
+    ) {
         if (icon == null) {
             BasicText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
@@ -225,7 +242,11 @@ private fun Int.dpPx(density: Float): Float = this * density
  * down to nothing, so the content keeps its whole height and sits centred. Only when even
  * no padding fits does the content overflow and get clipped by the button's shape.
  */
-internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = layout { measurable, constraints ->
+internal fun Modifier.labelPadding(
+    horizontal: Dp,
+    vertical: Dp,
+    alignStart: Boolean = false,
+): Modifier = layout { measurable, constraints ->
     val sides = horizontal.roundToPx()
     val wanted = vertical.roundToPx()
     val inner = Constraints(
@@ -243,7 +264,8 @@ internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = lay
     val padding = minOf(wanted, room)
     val width = (placeable.width + 2 * sides).coerceIn(constraints.minWidth, constraints.maxWidth)
     val height = (placeable.height + 2 * padding).coerceIn(constraints.minHeight, constraints.maxHeight)
+    val x = if (alignStart) sides.coerceAtMost((width - placeable.width).coerceAtLeast(0)) else (width - placeable.width) / 2
     layout(width, height) {
-        placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+        placeable.place(x, (height - placeable.height) / 2)
     }
 }

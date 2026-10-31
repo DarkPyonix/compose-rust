@@ -847,9 +847,9 @@ class NodeTable {
                     widget == WidgetKind.Checkbox ||
                         widget == WidgetKind.RadioButton ||
                         widget == WidgetKind.Switch ||
-                        // A chosen chip is the same fact again. It is the Host's, so it
-                        // arrives here and is never set by the chip itself.
-                        widget == WidgetKind.Chip
+                        // A chosen chip or a selected menu item is the same fact again.
+                        widget == WidgetKind.Chip ||
+                        widget == WidgetKind.Button
 
                 PropertyKind.Steps -> widget == WidgetKind.Slider
 
@@ -922,8 +922,10 @@ class NodeTable {
                 // How many a badge counts. Nothing else counts anything.
                 PropertyKind.Count -> widget == WidgetKind.Badge
 
-                // Whether a split pane's side pane may be folded away.
-                PropertyKind.Collapsible -> widget == WidgetKind.SplitPane
+                // Whether a split pane's side pane may be folded away, or a dropdown rests as
+                // a closed field on every design system.
+                PropertyKind.Collapsible ->
+                    widget == WidgetKind.SplitPane || widget == WidgetKind.Dropdown
 
                 // What a button is apart from its emphasis: a plain one, or a key of a
                 // dense grid. Only a button has a kind; a chip or a floating action is

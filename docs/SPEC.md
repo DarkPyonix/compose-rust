@@ -3691,6 +3691,21 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-64 닫힌 선택 필드와 메뉴 항목 (`Agreed`, 이슈 #383)
+
+요청한 쪽: darkpyonix-ember(모델 고르기 막대, 프로젝트 고르기 막대, 컨텍스트 메뉴). 도구 막대의 한 줄에 들어가는 선택 컨트롤은 평소에는 닫힌 필드 한 줄이어야 하고, 노드가 스스로 배경과 테두리와 모서리와 여백을 정했을 때는 그 모양으로 그려져야 하며, 열렸을 때 팝업이 앵커 아래에 떠야 합니다. 메뉴 안의 항목은 알약 버튼이 아니라 왼쪽 정렬된 행이어야 합니다.
+
+- **`Select(selected_index)`와 `Dropdown::closed(bool)`.** `DropdownScope::closed(true)`(속성 `Collapsible=true`)와 `Select(selected_index)`는 디자인 시스템의 기본 선택기 모양이 바퀴(`ChoicePresentation.Wheel`)여도 닫힌 필드 한 줄로 그리고, 누르면 항목 목록을 팝업으로 엽니다.
+- **닫힌 필드의 자체 꾸밈.** `Dropdown` 노드가 `Background`, `Border`, `Shape`, `Padding` 수정자를 직접 가졌을 때는 닫힌 필드가 기본 `Surface` 채움과 `1dp Outline` 테두리를 덧칠하지 않고 노드가 정한 모양을 따릅니다.
+- **앵커 아래 팝업 배치.** `Menu`와 닫힌 `Dropdown`이 여는 팝업은 앵커의 아래쪽 가장자리(`anchorBounds.bottom`)에 맞춰 열리고, 창 아래쪽이 모자랄 때만 위로 뒤집힙니다.
+- **`MenuItem(text)`.** 메뉴 행 빌더로 `.icon(IconRole)`, `.selected(bool)`, `.enabled(bool)`, `.color(Paint)`, `.color_if(Option<Paint>)`, `.on_click(FnMut())`, `.modifier(Modifier)`를 가집니다. `Button` 노드에 `Variant=Text`, `TextAlign=Start`, `Checked=selected`를 실어 보내고, Renderer는 왼쪽 정렬된 본문 색 행으로 그리며 `Checked=true`이면 선택 강조 배경과 선택 의미 정보를 붙입니다.
+
+수용 기준.
+1. `LiquidGlass`와 `Cupertino`에서 `Select(0)`(또는 `Dropdown(0).closed(true)`)은 바퀴가 아니라 닫힌 한 줄 필드로 그려지고, 누르면 팝업이 필드 아래에 열립니다.
+2. `Dropdown`에 `Modifier.background(...)`와 `Modifier.border(...)`를 주면 닫힌 필드가 기본 `Surface` 상자로 덮이지 않고 지정한 배경과 테두리로 그려집니다.
+3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
+4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
