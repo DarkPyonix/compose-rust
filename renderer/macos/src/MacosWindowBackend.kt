@@ -109,7 +109,7 @@ class MacosWindowBackend(
 
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
         NSApplication.sharedApplication()
-        MacosApplicationDelegate.install()
+        installMacosApplicationDelegate()
         val chrome = MacosWindowChrome.of(config.chrome, config.titleBar)
         val x = config.x
         val y = config.y
@@ -407,6 +407,18 @@ internal class MacosPlatformWindow(
     }
 }
 
+// The delegate is weak on the AppKit side, and Kotlin/Native forbids fields on the companion
+// of an Objective-C subclass.
+private var installedDelegate: MacosApplicationDelegate? = null
+
+internal fun installMacosApplicationDelegate() {
+    val app = NSApplication.sharedApplication()
+    if (installedDelegate != null || app.delegate != null) return
+    val delegate = MacosApplicationDelegate()
+    installedDelegate = delegate
+    app.delegate = delegate
+}
+
 /**
  * The application delegate of a multi-window application: a click on the Dock icon reaches the
  * application, and the application does not end because its last window closed (53.6; the
@@ -419,19 +431,6 @@ internal class MacosApplicationDelegate : NSObject(), NSApplicationDelegateProto
     }
 
     override fun applicationShouldTerminateAfterLastWindowClosed(sender: NSApplication): Boolean = false
-
-    companion object {
-        // The delegate is weak on the AppKit side.
-        private var installed: MacosApplicationDelegate? = null
-
-        fun install() {
-            val app = NSApplication.sharedApplication()
-            if (installed != null || app.delegate != null) return
-            val delegate = MacosApplicationDelegate()
-            installed = delegate
-            app.delegate = delegate
-        }
-    }
 }
 
 /** The height of the primary screen, the one with the menu bar, which is the first of `NSScreen.screens`. */
