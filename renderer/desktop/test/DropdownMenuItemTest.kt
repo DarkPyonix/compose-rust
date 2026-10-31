@@ -92,7 +92,7 @@ class DropdownMenuItemTest {
             Mutation.Create(1, WidgetKind.Column),
             Mutation.SetModifier(1, 0, Modifier.Width(240f)),
             Mutation.Create(2, WidgetKind.Button),
-            Mutation.SetModifier(2, 0, Modifier.FillMaxWidth(true)),
+            Mutation.SetModifier(2, 0, Modifier.FillMaxWidth),
             Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("Open")),
             Mutation.SetProp(2, PropertyKind.Variant, PropertyValue.Integer(ButtonVariant.Text.ordinal.toLong() + 1L)),
             Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Start.ordinal.toLong() + 1L)),
