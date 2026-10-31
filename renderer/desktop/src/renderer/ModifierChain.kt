@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.semantics.Role
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -366,13 +367,15 @@ private fun Modifier.reportUnknownBrush(
 internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
     for (index in indices.reversed()) {
         when (val value = this[index]) {
-            // A radius the Host named is still cut the way the running design system cuts
-            // corners. The Host asked for a size, not for an arc.
-            is ProtocolModifier.Shape -> return theme.shapeOfRadii(
-                topStart = value.topStart,
-                topEnd = value.topEnd,
-                bottomEnd = value.bottomEnd,
-                bottomStart = value.bottomStart,
+            // A radius the Host wrote as a number is a circular arc of that many dp in every
+            // design system, as CSS `border-radius` is. Only a corner chosen by
+            // role follows the system's own curve: a continuous corner of 14 dp measures
+            // about 8 px with a ruler, so a number would not mean what it says.
+            is ProtocolModifier.Shape -> return RoundedCornerShape(
+                topStart = value.topStart.dp,
+                topEnd = value.topEnd.dp,
+                bottomEnd = value.bottomEnd.dp,
+                bottomStart = value.bottomStart.dp,
             )
 
             is ProtocolModifier.ShapeRole -> return theme.shape(value.role)
