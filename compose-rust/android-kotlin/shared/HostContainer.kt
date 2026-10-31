@@ -51,7 +51,7 @@ import dev.darkpyonix.composerust.design.liftsOffThePage
  * design system's corner for this kind of container otherwise.
  */
 internal fun Node.containerShape(style: ContainerStyle, theme: ResolvedTheme): Shape =
-    if (modifiers.any { it is ProtocolModifier.Shape || it is ProtocolModifier.ShapeRole }) {
+    if (modifiers.any { it is ProtocolModifier.Shape || it is ProtocolModifier.ShapeRole || it is ProtocolModifier.CornerEach }) {
         modifiers.resolvedShape(theme)
     } else {
         style.shape
@@ -73,6 +73,16 @@ internal fun Node.setsOwnElevation(): Boolean =
  */
 internal fun Node.setsOwnBackground(): Boolean =
     modifiers.any { it is ProtocolModifier.Background }
+
+internal fun Node.setsOwnBorder(): Boolean =
+    modifiers.any { it is ProtocolModifier.Border || it is ProtocolModifier.BorderEach }
+
+internal fun Node.setsOwnPadding(): Boolean =
+    modifiers.any {
+        it is ProtocolModifier.Padding ||
+            it is ProtocolModifier.PaddingEach ||
+            it is ProtocolModifier.PaddingRole
+    }
 
 /**
  * Background, corner, stroke, resting height and inner padding for a container role.
@@ -96,37 +106,44 @@ internal fun Modifier.containerDecoration(
     } else {
         theme.rules.elevation(this, style.elevation, shape, theme)
     }
-    // A Host that named its own Background has already had it applied, so painting the
-    // design system's fill here would cover it. The corner, stroke and inner padding still
-    // come from the system: only the colour is the application's.
-    if (node.setsOwnBackground()) return raised
     val material = style.material
-    val filled = if (material == null) {
-        raised.clip(shape).background(style.container, shape)
-    } else {
-        // A glass surface paints its own fill and its own lit edge, because the two are
-        // one effect: the tint is what lets the backdrop through and the edge is what
-        // gives the sheet thickness. Clipping still happens first so a child cannot spill
-        // past the corner.
-        //
-        // The lift goes before the clip, because it is drawn outside the outline and a
-        // clip earlier in the chain cuts it off. Only an overlay gets one: a menu is a
-        // sheet held clear of what it covers and the shadow is what says so, and a shadow
-        // under every glass surface in a tree turns a page into a pile of cards.
-        raised
-            .then(if (liftsOffThePage(material, overlay)) Modifier.glassLift(material, shape) else Modifier)
-            .clip(shape)
-            .glassSurface(material, shape)
+    // A Host that named its own Background has already had it applied, so painting the
+    // design system's fill here would cover it. Clipping, stroke and inner padding still
+    // come from the system unless the Host named its own: only the colour is the application's.
+    val filled = when {
+        node.setsOwnBackground() -> raised.clip(shape)
+        material == null -> raised.clip(shape).background(style.container, shape)
+        else -> {
+            // A glass surface paints its own fill and its own lit edge, because the two are
+            // one effect: the tint is what lets the backdrop through and the edge is what
+            // gives the sheet thickness. Clipping still happens first so a child cannot spill
+            // past the corner.
+            //
+            // The lift goes before the clip, because it is drawn outside the outline and a
+            // clip earlier in the chain cuts it off. Only an overlay gets one: a menu is a
+            // sheet held clear of what it covers and the shadow is what says so, and a shadow
+            // under every glass surface in a tree turns a page into a pile of cards.
+            raised
+                .then(if (liftsOffThePage(material, overlay)) Modifier.glassLift(material, shape) else Modifier)
+                .clip(shape)
+                .glassSurface(material, shape)
+        }
     }
     return filled
         .then(
-            if (style.borderWidth.value > 0f) {
+            if (!node.setsOwnBorder() && style.borderWidth.value > 0f) {
                 Modifier.border(style.borderWidth, style.borderColor, shape)
             } else {
                 Modifier
             },
         )
-        .padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)
+        .then(
+            if (node.setsOwnPadding()) {
+                Modifier
+            } else {
+                Modifier.padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)
+            },
+        )
 }
 
 /**

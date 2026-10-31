@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 16;
+const MODIFIER_SLOTS: usize = 17;
 
 /// Node id 0 is the "no node" sentinel: a placeholder, which draws nothing and takes no
 /// slot in the Compose tree. It is also the root every top-level node is inserted under.
@@ -276,14 +276,15 @@ impl NodeWriter {
         const TRANSFORM: u16 = 5;
         const ALPHA: u16 = 6;
         const SHAPE: u16 = 7;
-        const BACKGROUND: u16 = 8;
-        const BORDER: u16 = 9;
-        const ELEVATION: u16 = 10;
-        const CLICKABLE: u16 = 11;
-        const PADDING: u16 = 12;
-        const OBSERVE_SIZE: u16 = 13;
-        const MOTION: u16 = 14;
-        const MATERIAL: u16 = 15;
+        const CLIP: u16 = 8;
+        const BACKGROUND: u16 = 9;
+        const BORDER: u16 = 10;
+        const ELEVATION: u16 = 11;
+        const CLICKABLE: u16 = 12;
+        const PADDING: u16 = 13;
+        const OBSERVE_SIZE: u16 = 14;
+        const MOTION: u16 = 15;
+        const MATERIAL: u16 = 16;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -302,7 +303,8 @@ impl NodeWriter {
             "fill_max_height" => Some(FILL_MAX_HEIGHT),
             "width" => Some(WIDTH),
             "height" => Some(HEIGHT),
-            "shape_role" | "corner_radius" => Some(SHAPE),
+            "shape_role" | "corner_radius" | "corner_radii" => Some(SHAPE),
+            "clip" => Some(CLIP),
             "background" | "animated_background" => Some(BACKGROUND),
             "transform" | "animated_offset" => Some(TRANSFORM),
             "alpha" | "animated_alpha" => Some(ALPHA),
@@ -392,6 +394,39 @@ impl NodeWriter {
                         top_end: radius,
                         bottom_end: radius,
                         bottom_start: radius,
+                    },
+                )))
+            }
+            "corner_radii" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut words = [0.0_f32; 4];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word =
+                        f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
+                }
+                let [top_start, top_end, bottom_end, bottom_start] = words;
+                Some(Some((
+                    SHAPE,
+                    Modifier::Shape {
+                        top_start,
+                        top_end,
+                        bottom_end,
+                        bottom_start,
+                    },
+                )))
+            }
+            "clip" => {
+                let AttrValue::Bool(enabled) = value else {
+                    return Some(None);
+                };
+                Some(Some((
+                    CLIP,
+                    if *enabled {
+                        Modifier::Clip(true)
+                    } else {
+                        Modifier::Empty
                     },
                 )))
             }

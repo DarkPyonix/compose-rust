@@ -202,7 +202,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
             // where it has none.
             is ProtocolModifier.Clip ->
-                if (value.enabled) chain.clip(corners ?: RectangleShape) else chain
+                if (value.enabled) chain.clip(corners ?: shape) else chain
 
             // CSS `transform`: drawn through layers, so the layout is untouched and a
             // pointer is tested against the shape that is drawn.
