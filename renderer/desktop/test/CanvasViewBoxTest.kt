@@ -6,10 +6,10 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
-import dev.darkpyonix.composerust.protocol.DrawCommand
-import dev.darkpyonix.composerust.protocol.DrawCommands
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Paint
@@ -36,18 +36,17 @@ class CanvasViewBoxTest {
 
     @Test
     fun fr_63_fractional_canvas_scales_commands_to_each_container_width() = runComposeUiTest {
-        val halfRect = DrawCommands.encode(
-            listOf(
-                DrawCommand.Rect(
-                    paint = ink,
-                    x = 0f,
-                    y = 0f,
-                    width = 0.5f,
-                    height = 1f,
-                    strokeWidth = 0f,
-                ),
-            ),
-        )
+        val halfRect = ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putShort(2)
+            putShort(36)
+            putLong((2L shl 32) or (0xFFE03020L and 0xFFFFFFFFL))
+            putFloat(0f)
+            putFloat(0f)
+            putFloat(0.5f)
+            putFloat(1f)
+            putFloat(0f)
+            putFloat(0f)
+        }.array()
         val batch = listOf(
             Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
             Mutation.Create(1, WidgetKind.Column),
