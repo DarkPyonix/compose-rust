@@ -540,6 +540,6 @@ class SplitPaneTest {
         )) {
             assertTrue(NodeTable.supportsProperty(WidgetKind.SplitPane, property), "$property")
         }
-        assertFalse(NodeTable.supportsProperty(WidgetKind.Column, PropertyKind.Collapsible))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.Box, PropertyKind.Collapsible))
     }
 }
