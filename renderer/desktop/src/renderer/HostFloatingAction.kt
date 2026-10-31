@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -109,7 +108,7 @@ internal fun HostFloatingAction(
     ) {
         if (icon != null) RoleIcon(icon, style.content, theme)
         if (label.isNotEmpty()) {
-            BasicText(text = label, style = node.textStyle(theme, style.typeRole).copy(color = style.content))
+            ThemedText(text = label, style = node.textStyle(theme, style.typeRole).copy(color = style.content))
         }
     }
 }

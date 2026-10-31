@@ -26,17 +26,29 @@ internal object TinyIconFont {
 
     private const val LATIN_A = 0x41
 
-    fun build(codePoint: Int = CODE_POINT): ByteArray {
+    /**
+     * The font, with its one glyph at [codePoint] and at `A`.
+     *
+     * [family] is the family name the file gives, [weight] the weight it declares, and
+     * [advance] how wide the glyph is in units, so a test can tell two faces apart by the
+     * width of what they draw.
+     */
+    fun build(
+        codePoint: Int = CODE_POINT,
+        family: String = "Tiny Icons",
+        weight: Int = 400,
+        advance: Int = ADVANCE,
+    ): ByteArray {
         val tables = sortedMapOf(
-            "OS/2" to os2(codePoint),
+            "OS/2" to os2(codePoint, weight, advance),
             "cmap" to cmap(codePoint),
-            "glyf" to glyf(),
-            "head" to head(),
-            "hhea" to hhea(),
-            "hmtx" to hmtx(),
+            "glyf" to glyf(advance),
+            "head" to head(advance),
+            "hhea" to hhea(advance),
+            "hmtx" to hmtx(advance),
             "loca" to loca(),
             "maxp" to maxp(),
-            "name" to name(),
+            "name" to name(family),
             "post" to post(),
         )
         val count = tables.size
@@ -89,7 +101,7 @@ internal object TinyIconFont {
         putShort(value.toShort())
     }
 
-    private fun head() = table(54) {
+    private fun head(advance: Int) = table(54) {
         putInt(0x00010000)
         putInt(0x00010000)
         putInt(0)
@@ -100,7 +112,7 @@ internal object TinyIconFont {
         putLong(0)
         short(0)
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(800)
         short(0)
         short(8)
@@ -109,15 +121,15 @@ internal object TinyIconFont {
         short(0)
     }
 
-    private fun hhea() = table(36) {
+    private fun hhea(advance: Int) = table(36) {
         putInt(0x00010000)
         short(800)
         short(-200)
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(0)
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(1)
         short(0)
         short(0)
@@ -137,27 +149,27 @@ internal object TinyIconFont {
     }
 
     /** The empty `.notdef` and the block, with no side bearing. */
-    private fun hmtx() = table(8) {
+    private fun hmtx(advance: Int) = table(8) {
         short(UNITS_PER_EM / 2)
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(0)
     }
 
     /** One contour, four points on the curve, from the origin to the advance by 800 units. */
-    private fun glyf() = table(36) {
+    private fun glyf(advance: Int) = table(36) {
         short(1)
         short(0)
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(800)
         short(3)
         short(0)
         repeat(4) { put(1) }
         short(0)
-        short(ADVANCE)
+        short(advance)
         short(0)
-        short(-ADVANCE)
+        short(-advance)
         short(0)
         short(0)
         short(800)
@@ -202,8 +214,8 @@ internal object TinyIconFont {
         short(0)
     }
 
-    private fun name(): ByteArray {
-        val family = "Tiny Icons".toByteArray(Charsets.UTF_16BE)
+    private fun name(familyName: String): ByteArray {
+        val family = familyName.toByteArray(Charsets.UTF_16BE)
         val style = "Regular".toByteArray(Charsets.UTF_16BE)
         return table(6 + 24 + family.size + style.size) {
             short(0)
@@ -231,10 +243,10 @@ internal object TinyIconFont {
         repeat(4) { putInt(0) }
     }
 
-    private fun os2(codePoint: Int) = table(96) {
+    private fun os2(codePoint: Int, weight: Int, advance: Int) = table(96) {
         short(4)
-        short(ADVANCE)
-        short(400)
+        short(advance)
+        short(weight)
         short(5)
         short(0)
         for (value in listOf(650, 600, 0, 75, 650, 600, 0, 350, 50, 300)) short(value)

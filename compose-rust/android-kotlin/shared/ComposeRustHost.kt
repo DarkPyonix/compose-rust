@@ -409,6 +409,7 @@ private fun ComposeRustTree(
         systemDark,
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
+        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
     )

@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +33,16 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import dev.darkpyonix.composerust.ui.node.FontChain
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
+import dev.darkpyonix.composerust.protocol.FontRefRecords
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.AnnotatedString
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import androidx.compose.runtime.withFrameNanos
@@ -66,7 +75,12 @@ import dev.darkpyonix.composerust.design.LocalGlassDepth
  * "commit the composition", not "submit".
  */
 @Composable
-internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDispatcher) {
+internal fun HostTextField(
+    node: Node,
+    modifier: Modifier,
+    dispatcher: EventDispatcher,
+    assets: AssetCache? = null,
+) {
     val nodeId = node.id
     var value by remember(nodeId) {
         mutableStateOf(TextFieldValue(node.text(PropertyKind.Text)))
@@ -86,7 +100,25 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
     // The field takes its type role and its colours from the design system, the same way a
     // Text does.
     val theme = LocalDesignTheme.current
-    val textStyle = node.textStyle(theme)
+    // A field with no role names its own fonts, as a `Text` with no role does; a field with
+    // a role is set in the theme's font for it, which may be a stack. Either way the letters
+    // the first family lacks are set in the next family of the chain that has them.
+    val fontBlob = node.bytes(PropertyKind.Font)
+    val ownChain = remember(fontBlob, assets?.size) {
+        val noRole = (node.property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value ==
+            TYPE_ROLE_NONE.toLong()
+        if (!noRole || fontBlob == null || assets == null) {
+            null
+        } else {
+            FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
+        }
+    }
+    val roleStyle = node.textStyle(theme)
+    val textStyle = if (ownChain != null) roleStyle.copy(fontFamily = ownChain.primary) else roleStyle
+    val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
+    val fallbackFonts = remember(chain) {
+        chain?.let { FontChainTransformation(it) } ?: VisualTransformation.None
+    }
 
     // A Host SetText is applied only once the composition has finished: replacing the text
     // mid-composition would destroy the syllable being assembled.
@@ -205,6 +237,7 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         enabled = enabled,
         singleLine = !multiline,
         textStyle = textStyle,
+        visualTransformation = fallbackFonts,
         cursorBrush = SolidColor(frame.cursor),
         decorationBox = { inner ->
             Box(
@@ -227,7 +260,7 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                 contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
-                    BasicText(
+                    ThemedText(
                         placeholder,
                         style = textStyle.copy(
                             color = theme.color(ColorRole.OnSurfaceVariant)
@@ -305,4 +338,27 @@ internal fun shouldSubmitOnEnter(
     !hasSubmitHandler -> false
     multiline && shiftPressed -> false
     else -> true
+}
+
+/**
+ * Sets each letter of a field's text the first family of [chain] lacks in the next family
+ * that has it, as a `Text` in the same font would be set.
+ *
+ * Only styles, never characters: the offsets map one to one, so the caret, the selection
+ * and an input method's composition land where they would without it.
+ */
+private class FontChainTransformation(private val chain: FontChain) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val spans = chain.spans(text.text)
+        if (spans.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
+        val styled = buildAnnotatedString {
+            append(text)
+            for (span in spans) addStyle(span.item, span.start, span.end)
+        }
+        return TransformedText(styled, OffsetMapping.Identity)
+    }
+
+    override fun equals(other: Any?): Boolean = other is FontChainTransformation && other.chain === chain
+
+    override fun hashCode(): Int = chain.hashCode()
 }

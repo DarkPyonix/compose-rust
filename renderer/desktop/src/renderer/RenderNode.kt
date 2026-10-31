@@ -235,7 +235,7 @@ fun RenderNode(
             // selectable region around them: a label is pressed, not copied. Outside a region
             // it adds nothing.
             WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
-            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
+            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher, table.assets) }
             WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
 
             // The same window as a list, rounded to whole rows because a row is what a grid

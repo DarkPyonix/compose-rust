@@ -70,7 +70,7 @@ pub use code::{
 };
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
-pub use fonts::{FontRef, FontRefs};
+pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
 pub use notification::{

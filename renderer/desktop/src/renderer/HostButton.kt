@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -167,7 +166,7 @@ internal fun HostButton(
     }
     Box(named, contentAlignment = Alignment.Center) {
         if (icon == null) {
-            BasicText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
                 // The gap between the glyph and the word is the design system's smallest step,
@@ -176,7 +175,7 @@ internal fun HostButton(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RoleIcon(icon, tint, theme)
-                if (text.isNotEmpty()) BasicText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
+                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
         }
     }

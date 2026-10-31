@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -169,13 +168,13 @@ internal fun HostMessages(
                 lineHeight = token.composeLineHeight,
                 letterSpacing = token.composeLetterSpacing,
             )
-            BasicText(
+            ThemedText(
                 text = message.text,
                 modifier = Modifier.testTag(MESSAGE_TEST_TAG),
                 style = base.copy(color = style.content),
             )
             if (message.action.isNotEmpty()) {
-                BasicText(
+                ThemedText(
                     text = message.action,
                     modifier = Modifier
                         .testTag(MESSAGE_ACTION_TEST_TAG)

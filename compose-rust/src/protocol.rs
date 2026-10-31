@@ -2706,6 +2706,43 @@ mod tests {
         }
     }
 
+    /// One font for the whole screen: every role but code takes it, and code stays
+    /// monospaced until a font is named for it.
+    #[test]
+    fn fr52_a_default_font_names_every_role_but_mono() {
+        let theme = Theme::unified(DesignSystem::Material3).with_default_font(5);
+        for role in [
+            TypeRole::Display,
+            TypeRole::Headline,
+            TypeRole::Title,
+            TypeRole::Subtitle,
+            TypeRole::Body,
+            TypeRole::BodyStrong,
+            TypeRole::Label,
+            TypeRole::Caption,
+        ] {
+            assert_eq!(theme.font(role), Some(5), "{role:?}");
+        }
+        assert_eq!(theme.font(TypeRole::Mono), None);
+        assert_eq!(theme.font(TypeRole::None), None);
+
+        let both = theme
+            .with_font(TypeRole::Mono, 9)
+            .with_font(TypeRole::Display, 3);
+        assert_eq!(both.font(TypeRole::Mono), Some(9));
+        assert_eq!(
+            both.font(TypeRole::Display),
+            Some(3),
+            "the role named last wins"
+        );
+        assert_eq!(both.font(TypeRole::Body), Some(5));
+
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&Mutation::SetTheme(theme)).unwrap();
+        let bytes = encoder.finish().unwrap();
+        assert_eq!(decode_batch(bytes).unwrap(), [Mutation::SetTheme(theme)]);
+    }
+
     /// An out-of-range theme tag is an error, never a panic.
     #[test]
     fn fr14_rejects_unknown_theme_tags() {
