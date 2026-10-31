@@ -240,13 +240,14 @@ macro_rules! container {
 
 // ----- layout ---------------------------------------------------------------------------
 
-/// The four properties a linear layout takes.
+/// The properties a linear layout takes.
 #[derive(Default)]
 struct Linear {
     arrangement: Option<Arrangement>,
     spacing: Option<f32>,
     space_role: Option<SpaceRole>,
     alignment: Option<Alignment>,
+    intrinsic_size: Option<bool>,
 }
 
 impl Linear {
@@ -255,6 +256,9 @@ impl Linear {
         attrs.push(("spacing", dp_or_zero(self.spacing)));
         attrs.push(("space_role", role_or_zero(self.space_role)));
         attrs.push(("alignment", role_or_zero(self.alignment)));
+        if let Some(intrinsic) = self.intrinsic_size {
+            attrs.push(("collapsible", OwnedAttr::Bool(intrinsic)));
+        }
     }
 }
 
@@ -307,6 +311,14 @@ macro_rules! linear {
                 self
             }
 
+            /// Sizes the cross axis to the tallest child in a `Row` or the widest child in
+            /// a `Column`, so children with `fill_max_height` or `fill_max_width` match the
+            /// largest sibling without an explicit container size.
+            pub fn intrinsic_size(mut self, enabled: bool) -> Self {
+                self.linear.intrinsic_size = Some(enabled);
+                self
+            }
+
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
                 let linear = std::mem::take(&mut self.linear);
@@ -340,6 +352,22 @@ macro_rules! linear {
 
 linear!(ColumnScope, Column, "compose_rust::ui::Column");
 linear!(RowScope, Row, "compose_rust::ui::Row");
+
+impl RowScope {
+    /// Sizes the row to its tallest child so children with `fill_max_height` match their
+    /// siblings' height.
+    pub fn equal_height(self, enabled: bool) -> Self {
+        self.intrinsic_size(enabled)
+    }
+}
+
+impl ColumnScope {
+    /// Sizes the column to its widest child so children with `fill_max_width` match their
+    /// siblings' width.
+    pub fn equal_width(self, enabled: bool) -> Self {
+        self.intrinsic_size(enabled)
+    }
+}
 
 /// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
 /// this module would otherwise hide.

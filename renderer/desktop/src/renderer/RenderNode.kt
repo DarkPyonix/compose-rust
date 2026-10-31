@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -196,13 +199,13 @@ fun RenderNode(
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
             WidgetKind.Column -> Column(
-                modifier = modifier,
+                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.width(IntrinsicSize.Min) else modifier,
                 verticalArrangement = node.verticalArrangement(theme),
                 horizontalAlignment = node.horizontalAlignment(),
             ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
             WidgetKind.Row -> Row(
-                modifier = modifier,
+                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.height(IntrinsicSize.Min) else modifier,
                 horizontalArrangement = node.horizontalArrangement(theme),
                 verticalAlignment = node.verticalAlignment(),
             ) { OnGlass(glass) { Children(node, table, dispatcher) } }
@@ -616,6 +619,40 @@ internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(node
 private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { value ->
     value is ProtocolModifier.Material &&
         theme.rules.material(value.role, theme) is SurfaceMaterial.Glass
+}
+
+/**
+ * Whether a Row or Column sizes its cross axis to its largest child, so siblings with
+ * `FillMaxHeight` or `FillMaxWidth` match the tallest or widest sibling when the container
+ * was not given a fixed cross-axis size of its own.
+ */
+private fun Node.usesIntrinsicCrossAxis(table: NodeTable): Boolean {
+    if (flag(PropertyKind.Collapsible, default = false)) return true
+    return when (widget) {
+        WidgetKind.Row -> {
+            val boundedHeight = modifiers.any {
+                it is ProtocolModifier.Height ||
+                    it is ProtocolModifier.Size ||
+                    it is ProtocolModifier.RequiredSize ||
+                    it is ProtocolModifier.FillMaxHeight
+            }
+            !boundedHeight && children.any { childId ->
+                table.node(childId)?.modifiers?.any { it is ProtocolModifier.FillMaxHeight } == true
+            }
+        }
+        WidgetKind.Column -> {
+            val boundedWidth = modifiers.any {
+                it is ProtocolModifier.Width ||
+                    it is ProtocolModifier.Size ||
+                    it is ProtocolModifier.RequiredSize ||
+                    it is ProtocolModifier.FillMaxWidth
+            }
+            !boundedWidth && children.any { childId ->
+                table.node(childId)?.modifiers?.any { it is ProtocolModifier.FillMaxWidth } == true
+            }
+        }
+        else -> false
+    }
 }
 
 /**
