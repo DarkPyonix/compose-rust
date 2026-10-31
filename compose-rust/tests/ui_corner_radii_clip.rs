@@ -23,9 +23,7 @@ fn fr_60_corner_radii_sends_one_shape_modifier_with_four_corners() {
     });
     let dump = tree.dump();
     assert!(
-        dump.contains(
-            "Shape { top_start: 8.0, top_end: 8.0, bottom_end: 0.0, bottom_start: 0.0 }"
-        ),
+        dump.contains("Shape { top_start: 8.0, top_end: 8.0, bottom_end: 0.0, bottom_start: 0.0 }"),
         "{dump}"
     );
 }
