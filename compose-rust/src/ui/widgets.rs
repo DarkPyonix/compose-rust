@@ -490,13 +490,15 @@ impl ScrollState {
     /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
     pub fn scroll_to(&self, dp: f32) {
         let (revision, _, _) = self.command.get_untracked();
-        self.command.set((revision.wrapping_add(1).max(1), dp.max(0.0), false));
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), false));
     }
 
     /// Smoothly scrolls to `dp` (clamped by the Renderer to `0.0..=max_offset`).
     pub fn animate_scroll_to(&self, dp: f32) {
         let (revision, _, _) = self.command.get_untracked();
-        self.command.set((revision.wrapping_add(1).max(1), dp.max(0.0), true));
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), true));
     }
 }
 
