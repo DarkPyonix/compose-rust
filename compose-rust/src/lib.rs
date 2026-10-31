@@ -95,6 +95,7 @@ pub use schema::{
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
+pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSize, node_size, window_size};
 pub use windows::{
     DragFromPointer, LastWindowClosed, WindowDragEvent, WindowDragOver, WindowDragOverKind,

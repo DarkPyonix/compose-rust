@@ -3691,6 +3691,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-62 `ScrollColumn`과 `ScrollRow`의 프로그래밍 방식 스크롤 (`Agreed`, 이슈 #385)
+
+요청한 쪽: Ember(대화 로그, 터미널 출력, 탭 스트립에서 새 항목이나 끝으로 스크롤하고 현재 스크롤 위치에 따라 "아래로 이동" 버튼을 보이기). `ScrollColumn`과 `ScrollRow`의 스크롤 상태는 Renderer에 있으나(INTENT D5), 앱이 스크롤 위치를 읽거나 목표 위치로 이동을 요청할 손잡이가 없었습니다.
+
+- `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
+  - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
+  - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
+  - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
+- `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
+- 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
+  - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+
+수용 기준.
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
