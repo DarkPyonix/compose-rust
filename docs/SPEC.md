@@ -3691,6 +3691,18 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-60 모서리별 반지름과 컨테이너 자르기 (`Agreed`, 이슈 #392)
+
+요청한 쪽: darkpyonix-ember#220. 한 컨테이너 안의 이어진 행(사이드바 목록의 위끝·아래끝 행, 팝오버의 위·아래 줄)은 일부 모서리만 둥글고 나머지는 직각이어야 하며, 컨테이너의 자식이 그 모서리와 테두리 안쪽으로 잘려야 합니다.
+
+- `Modifier::corner_radii([top_start, top_end, bottom_end, bottom_start])`를 추가합니다. 와이어에는 이미 있는 `Modifier::Shape { top_start, top_end, bottom_end, bottom_start }`(FR-13.3)로 내려가며, `corner_radius` 및 `shape_role`과 같은 모양 슬롯을 공유합니다.
+- `Modifier::clip(bool)`을 추가합니다. 와이어에는 이미 있는 `Modifier::Clip { enabled }`로 내려가며, `Clip(true)`는 노드가 가진 모서리(`CornerEach` 또는 `Shape`/`ShapeRole`)가 있으면 그 모양으로, 없으면 직사각형으로 자릅니다.
+- `Card`와 `Surface`가 자체 `Background`를 가질 때도(`setsOwnBackground`), 컨테이너의 모양으로 자르고 시스템이 정한 테두리와 안쪽 여백을 유지합니다(시스템의 채움만 건너뜁니다).
+
+수용 기준.
+1. `Modifier::corner_radii([8.0, 8.0, 0.0, 0.0])`는 네 모서리 값이 그대로 담긴 `Shape` 수정자 한 건을 보내고, `Modifier::clip(true)`는 `Clip(true)` 수정자 한 건을 보냅니다.
+2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
