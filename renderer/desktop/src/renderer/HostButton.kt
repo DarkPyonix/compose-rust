@@ -40,6 +40,7 @@ import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
@@ -90,13 +91,20 @@ internal fun HostButton(
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
 
+    // A button that cannot be pressed has to look it. Without this the only way to find
+    // out was to press it, because refusing the click was all `enabled` did. The whole
+    // control fades as one group rather than each variant naming a disabled colour, so a
+    // design system owes one number instead of four, the faded colours are still its own,
+    // and a background or border the Host set on the node's modifier chain fades with the
+    // label instead of staying opaque behind it.
+    val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val clickable = if (handlerId == null) {
-        modifier
+        available.then(modifier)
     } else {
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        modifier.clickable(
+        available.then(modifier).clickable(
             interactionSource = interactions,
             indication = null,
             enabled = enabled,
@@ -104,11 +112,6 @@ internal fun HostButton(
         ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
     }
 
-    // A button that cannot be pressed has to look it. Without this the only way to find
-    // out was to press it, because refusing the click was all `enabled` did. The whole
-    // control fades rather than each variant naming a disabled colour, so a design system
-    // owes one number instead of four and the faded colours are still its own.
-    val available = if (enabled) Modifier else Modifier.alpha(style.disabledAlpha)
     // A Host that named its own Background has already had it applied to this node's
     // modifier chain, so painting the variant's fill here would cover it. The shape, the
     // border, the resting height and the padding still come from the design system: only
@@ -122,7 +125,7 @@ internal fun HostButton(
     val wordless = node.text(PropertyKind.Text).isEmpty() &&
         node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
     val decorated = theme.rules
-        .elevation(clickable.then(available), elevation, style.shape, theme)
+        .elevation(clickable, elevation, style.shape, theme)
         .clip(style.shape)
         .then(if (ownFill) Modifier else Modifier.background(container, style.shape))
         .then(
