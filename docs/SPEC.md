@@ -3691,6 +3691,22 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-63 `Canvas`의 기준 좌표계(`view_box`)와 비율 좌표 그리기 (`Agreed`, 이슈 #388)
+
+요청한 쪽: Ember(사용량 게이지, 스트라이프 배경, 스파크라인 차트처럼 `fill_max_width` 컨테이너 크기에 맞춰 늘어나는 `Canvas` 그림). `DrawList`의 명령은 고정 dp 좌표만 받아, 컨테이너 폭을 컴파일 시점에 알 수 없는 화면에서 왼쪽 구석에만 그려지거나 폭을 어림잡아 넘치게 그려야 했습니다.
+
+- `DrawListBuilder`와 `CanvasScope`에 `.view_box(width: f32, height: f32)`와 `.fractional()`(`.view_box(1.0, 1.0)`의 별칭)을 둡니다.
+- `view_box(w, h)`가 지정되면 `Canvas` 노드에 `Min(w)`와 `Max(h)` 속성을 보냅니다(새 속성 태그를 쓰지 않고 `PropertyKind::Min`과 `PropertyKind::Max`를 `WidgetKind::Canvas`에도 허용합니다). 지정하지 않은 `Canvas`는 두 속성을 내보내지 않고 지금처럼 명령 좌표를 dp로 해석합니다.
+- Renderer의 `HostCanvas`는 `Min(view_w)`와 `Max(view_h)`가 모두 양수일 때:
+  - 가로 좌표(`x`, `x1`, `x2`, `width`, `centerX`)에 `size.width / view_w`를 곱해 픽셀 위치로 바꿉니다.
+  - 세로 좌표(`y`, `y1`, `y2`, `height`, `centerY`)에 `size.height / view_h`를 곱해 픽셀 위치로 바꿉니다.
+  - 반지름(`radius`)에 `min(size.width / view_w, size.height / view_h)`를 곱합니다.
+  - 선 두께(`strokeWidth`)는 캔버스 가로세로 비율이 달라도 찌그러지지 않도록 기존대로 dp(`strokeWidth.dp.toPx()`)로 그립니다.
+
+수용 기준.
+1. `DrawList::builder().fractional().rect(paint, 0.0, 0.0, 0.5, 1.0, 0.0).build()`를 80dp와 160dp 폭의 두 `Canvas`에 그리면 각각 왼쪽 절반(40dp, 80dp)만 채워집니다(`fr_63_fractional_canvas_scales_commands_to_each_container_width`).
+2. `view_box(100.0, 50.0)` 또는 `fractional()`을 쓴 `Canvas`는 `Min`과 `Max` 속성을 내보내고, 기본 `Canvas`는 내보내지 않습니다(`fr63_canvas_view_box_writes_min_and_max_properties`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
