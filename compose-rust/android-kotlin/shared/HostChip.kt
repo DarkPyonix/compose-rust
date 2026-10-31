@@ -30,6 +30,8 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.overflow
+import dev.darkpyonix.composerust.ui.intProp
 
 /**
  * A chip drawn by the active design system's rules.
@@ -99,14 +101,15 @@ internal fun HostChip(
         val leading = if (chosen && style.leadingCheck) IconRole.Check else icon
         if (leading != null) RoleIcon(leading, content, theme)
         if (label.isNotEmpty()) {
-            // One line, never wrapped: a wrapped chip label is measured at one syllable of
-            // Hangul and its second line is clipped by the chip's height.
+            // One line unless the Host asked for more: a wrapped chip label is measured at one
+            // syllable of Hangul and its second line is clipped by the chip's height.
+            val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
             BasicText(
                 text = label,
                 style = node.textStyle(theme, style.typeRole).copy(color = content),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = lines,
+                softWrap = lines > 1,
+                overflow = node.overflow(TextOverflow.Ellipsis),
             )
         }
     }
