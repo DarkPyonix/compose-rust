@@ -1225,6 +1225,7 @@ composed_on_drop!(AssetScope);
 pub struct CanvasScope {
     modifier: Modifier,
     commands: DrawList,
+    view_box: Option<(f32, f32)>,
     done: bool,
 }
 
@@ -1232,23 +1233,43 @@ pub struct CanvasScope {
 /// value rather than a callback: drawing code cannot cross into the Renderer, and an equal
 /// list costs no record.
 pub fn Canvas(commands: DrawList) -> CanvasScope {
+    let view_box = commands.view_box();
     CanvasScope {
         modifier: Modifier::new(),
         commands,
+        view_box,
         done: false,
     }
 }
 
 impl CanvasScope {
+    /// Scales the command list's coordinates from `(width, height)` to the `Canvas`'s
+    /// measured width and height. Stroke widths stay in dp.
+    pub fn view_box(mut self, width: f32, height: f32) -> Self {
+        self.view_box = Some((width, height));
+        self
+    }
+
+    /// Scales the command list's coordinates as `0.0..=1.0` fractions of the `Canvas`'s
+    /// measured width and height. Stroke widths stay in dp.
+    pub fn fractional(self) -> Self {
+        self.view_box(1.0, 1.0)
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let commands = std::mem::take(&mut self.commands);
+        let view_box = self.view_box;
         emit(
             widget_key("compose_rust::ui::Canvas"),
             WidgetKind::Canvas,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("commands", OwnedAttr::Draw(commands)));
+                if let Some((width, height)) = view_box {
+                    attrs.push(("min", OwnedAttr::Float(f64::from(width))));
+                    attrs.push(("max", OwnedAttr::Float(f64::from(height))));
+                }
             },
             Vec::new(),
             content,

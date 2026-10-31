@@ -431,16 +431,20 @@ impl DrawCommand {
 ///
 /// Cloning shares the bytes, and equality compares them, so a frame that rebuilds the same
 /// list produces no `SetProp` at all: the runtime compares the attribute and skips it.
-#[derive(Clone, Default, Eq, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct DrawList {
     bytes: Option<Rc<[u8]>>,
+    view_box: Option<(f32, f32)>,
 }
+
+impl Eq for DrawList {}
 
 impl std::fmt::Debug for DrawList {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("DrawList")
             .field("bytes", &self.as_bytes().len())
+            .field("view_box", &self.view_box)
             .finish()
     }
 }
@@ -454,7 +458,14 @@ impl DrawList {
     pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
         Self {
             bytes: Some(bytes.into()),
+            view_box: None,
         }
+    }
+
+    /// The reference `(width, height)` coordinate space this list's commands were written
+    /// in, or `None` when coordinates are in dp.
+    pub fn view_box(&self) -> Option<(f32, f32)> {
+        self.view_box
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -509,6 +520,7 @@ pub fn decode_commands(bytes: &[u8]) -> Result<Vec<DrawCommand>, ProtocolError> 
 pub struct DrawListBuilder {
     records: Vec<u8>,
     text: Vec<u8>,
+    view_box: Option<(f32, f32)>,
 }
 
 impl DrawListBuilder {
@@ -516,7 +528,21 @@ impl DrawListBuilder {
         Self {
             records: Vec::with_capacity(commands * COMMAND_LEN),
             text: Vec::with_capacity(text_bytes),
+            view_box: None,
         }
+    }
+
+    /// Interprets command coordinates in a `(width, height)` reference coordinate space
+    /// scaled to the `Canvas` container's measured size. Stroke widths stay in dp.
+    pub fn view_box(mut self, width: f32, height: f32) -> Self {
+        self.view_box = Some((width, height));
+        self
+    }
+
+    /// Interprets command coordinates as `0.0..=1.0` fractions of the `Canvas` container's
+    /// width and height. Stroke widths stay in dp.
+    pub fn fractional(self) -> Self {
+        self.view_box(1.0, 1.0)
     }
 
     /// Appends any command. `TextAt` offsets are fixed up by [`DrawListBuilder::build`],
@@ -669,7 +695,9 @@ impl DrawListBuilder {
             position += COMMAND_LEN;
         }
         self.records.append(&mut self.text);
-        DrawList::from_bytes(self.records)
+        let mut list = DrawList::from_bytes(self.records);
+        list.view_box = self.view_box;
+        list
     }
 }
 

@@ -839,7 +839,13 @@ class NodeTable {
                     // over.
                     widget == WidgetKind.SplitPane ||
                     // An indicator's value is how far along it is, and it has no range.
-                    (property == PropertyKind.Value && widget == WidgetKind.ProgressIndicator)
+                    (property == PropertyKind.Value && widget == WidgetKind.ProgressIndicator) ||
+                    // A Canvas's reference coordinate space (width in Min, height in Max)
+                    // when its commands are written in fractional or view-box coordinates.
+                    (
+                        (property == PropertyKind.Min || property == PropertyKind.Max) &&
+                            widget == WidgetKind.Canvas
+                        )
 
                 // One boolean for the three toggles: a selected radio button and a switch
                 // that is on are the same fact.
