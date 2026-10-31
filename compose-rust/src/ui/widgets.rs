@@ -1414,6 +1414,7 @@ pub struct DropdownScope {
     modifier: Modifier,
     selected_index: usize,
     enabled: bool,
+    closed: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
     done: bool,
 }
@@ -1424,14 +1425,28 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         modifier: Modifier::new(),
         selected_index,
         enabled: true,
+        closed: false,
         on_change: None,
         done: false,
     }
 }
 
+/// A compact closed-field selector that always rests as a single line and opens its
+/// options in a popup below the field on every design system.
+pub fn Select(selected_index: usize) -> DropdownScope {
+    Dropdown(selected_index).closed(true)
+}
+
 impl DropdownScope {
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Keeps the control as a closed single-line field that opens a popup menu on click,
+    /// even on design systems whose default picker presentation is a wheel.
+    pub fn closed(mut self, closed: bool) -> Self {
+        self.closed = closed;
         self
     }
 
@@ -1442,7 +1457,7 @@ impl DropdownScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
-        let (selected_index, enabled) = (self.selected_index, self.enabled);
+        let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler((value as i64).max(0) as usize)
@@ -1456,6 +1471,9 @@ impl DropdownScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                if closed {
+                    attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
             },
             vec![("onchange", handler)],
             content,
@@ -1464,6 +1482,94 @@ impl DropdownScope {
 }
 
 container!(DropdownScope);
+
+/// A `MenuItem` and its builder.
+pub struct MenuItemScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    selected: bool,
+    enabled: bool,
+    color: Option<Paint>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A single row in a `Menu` or action list: left-aligned label, optional leading icon,
+/// and optional selected state.
+pub fn MenuItem(text: impl Into<String>) -> MenuItemScope {
+    MenuItemScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        selected: false,
+        enabled: true,
+        color: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl MenuItemScope {
+    /// Leading semantic icon for this menu row.
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Marks this row as the currently selected option.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Overrides the row's label and icon colour (for example, a destructive action).
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// Conditional colour override.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
+        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        emit(
+            widget_key("compose_rust::ui::MenuItem"),
+            WidgetKind::Button,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("variant", role_or_zero(Some(ButtonVariant::Text))));
+                attrs.push(("text_align", role_or_zero(Some(TextAlign::Start))));
+                attrs.push(("checked", OwnedAttr::Bool(selected)));
+                attrs.push(("color", super::paint(color)));
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+composed_on_drop!(MenuItemScope);
 
 // ----- surfaces that come and go ----------------------------------------------------------
 

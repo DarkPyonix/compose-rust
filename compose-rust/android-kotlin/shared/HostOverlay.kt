@@ -21,7 +21,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 import dev.darkpyonix.composerust.design.ContainerRole
@@ -125,7 +130,7 @@ internal fun HostMenu(
         }
         if (open.value) {
             Popup(
-                alignment = Alignment.BottomStart,
+                popupPositionProvider = BelowAnchorPositionProvider,
                 properties = PopupProperties(focusable = true),
                 onDismissRequest = {
                     open.set(false)
@@ -164,6 +169,32 @@ internal fun HostMenu(
  * than a menu on a desktop.
  */
 val LocalInAMenu = compositionLocalOf { false }
+
+/**
+ * Places a menu or dropdown popup directly below its anchor's leading edge, flipping above
+ * the anchor only when there is not enough room below in the window.
+ */
+internal object BelowAnchorPositionProvider : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left.coerceAtMost((windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        } else {
+            (anchorBounds.right - popupContentSize.width).coerceAtLeast(0)
+        }
+        val belowY = anchorBounds.bottom
+        val y = if (belowY + popupContentSize.height <= windowSize.height || anchorBounds.top < popupContentSize.height) {
+            belowY
+        } else {
+            (anchorBounds.top - popupContentSize.height).coerceAtLeast(0)
+        }
+        return IntOffset(x, y)
+    }
+}
 
 /** Test tag of the popup half of a menu, which is its own window, not part of the anchor. */
 fun menuPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-popup"
