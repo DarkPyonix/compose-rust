@@ -138,11 +138,11 @@ class DisabledButtonTest {
                     ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
                 }
                 waitForIdle()
-                // Sample inside the circle away from the centred glyph: on the root's white
-                // ground, an unfaded ink circle stays at 0x18 while a faded one blends toward
-                // white.
+                // Sample inside the 36x36 button (placed at TopStart of the 80x80 root)
+                // away from the centred glyph: on the root's white ground, an unfaded ink
+                // circle stays at 0x18 while a faded one blends toward white.
                 val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
-                val rgb = image.getRGB(image.width / 2, 6)
+                val rgb = image.getRGB(18, 6)
                 green = (rgb ushr 8) and 0xFF
             }
             return green
