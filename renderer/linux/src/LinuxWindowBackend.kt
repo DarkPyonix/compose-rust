@@ -14,7 +14,7 @@ import org.thisisthepy.compose.window.linux.X11Window
 import platform.posix.usleep
 
 /**
- * The window system of the Linux renderer for an application of several windows (FR-53): one
+ * The window system of the Linux renderer for an application of several windows: one
  * [LinuxWindow], an X11 window with a scene of its own, for each `Window` node.
  *
  * The windows of the process share one X11 connection that the fork's window module routes

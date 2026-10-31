@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 import platform.posix.getenv
 
 /**
- * FR-53 on X11: the Linux backend over the fork's X11 window, against a real server (CI runs
+ * Multi-window tests on X11: the Linux backend over the fork's X11 window, against a real server (CI runs
  * these under Xvfb). Skipped where there is no display. Every test closes every window it
  * opened, because the windows of a process share one connection that closes with the last one
  * and `LinuxWindowTest` needs there to be none open when it looks for a display.

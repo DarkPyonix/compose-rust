@@ -94,9 +94,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 }
 
 /**
- * Runs an application of several windows (FR-53): one X11 window for each `Window` node, kept
+ * Runs an application of several windows: one X11 window for each `Window` node, kept
  * in step with the node table by the window manager, until the last one is gone under the
- * `Exit` policy, which is the default on this platform (53.6).
+ * `Exit` policy, which is the default on this platform.
  *
  * The Host's frame requests are served here, once for the process: the first of all the
  * windows to draw is the frame clock, one `render_frame` is made, and the batch it returns is

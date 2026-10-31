@@ -301,8 +301,8 @@ fun ComposeRustContent(
     modifier: Modifier = Modifier,
     caption: WindowCaption = WindowCaption.None,
     /**
-     * The `Window` node whose content this draws, for one window of a multi-window application
-     * (FR-53), or 0 for the one window of a single window application. A window of the first
+     * The `Window` node whose content this draws, for one window of a multi-window application,
+     * or 0 for the one window of a single window application. A window of the first
      * kind draws the children of its node, and the process serves the Host's frame requests once
      * for all of them (the window manager's `awaitFrame`), not once per window.
      */

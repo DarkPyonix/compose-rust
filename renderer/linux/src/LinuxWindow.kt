@@ -229,8 +229,8 @@ internal class LinuxWindow private constructor(
     }
 
     /**
-     * The window manager of a multi-window application, which is told what the window hears
-     * (FR-53). Null for the one window of a single window application, which closes when asked.
+     * The window manager of a multi-window application, which is told what the window hears.
+     * Null for the one window of a single window application, which closes when asked.
      */
     internal var platformListener: PlatformWindowListener? = null
 
