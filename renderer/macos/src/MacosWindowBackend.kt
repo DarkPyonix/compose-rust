@@ -23,6 +23,7 @@ import platform.AppKit.NSWindow
 import platform.AppKit.NSWindowDidMoveNotification
 import platform.AppKit.NSWindowDidResizeNotification
 import platform.AppKit.NSWindowStyleMaskResizable
+import platform.AppKit.postEvent
 import platform.CoreGraphics.CGPointMake
 import platform.Foundation.NSMakeSize
 import platform.Foundation.NSNotificationCenter
@@ -32,8 +33,8 @@ import platform.Foundation.NSRunLoopCommonModes
 import platform.Foundation.NSTimer
 import platform.darwin.NSObject
 
-// The window system of the Kotlin/Native macOS renderer for several windows in one process
-// (FR-53). It is the adapter between the contract in WindowBackend.kt and the fork's window
+// The window system of the Kotlin/Native macOS renderer for several windows in one process.
+// It is the adapter between the contract in WindowBackend.kt and the fork's window
 // module (org.thisisthepy.compose.window.macos):
 //
 //   PlatformWindow members            the fork's MacosWindow / NSWindow, in screen points

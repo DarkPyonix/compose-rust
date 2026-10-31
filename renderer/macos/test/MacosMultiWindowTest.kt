@@ -45,7 +45,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-// FR-53 on the Kotlin/Native macOS renderer: the Host's `Window` nodes as NSWindows, through the
+// Multi-window tests on the Kotlin/Native macOS renderer: the Host's `Window` nodes as NSWindows, through the
 // fork's window module. The coordinate arithmetic is tested as plain functions, because the
 // runner has no pointer to move. The rest opens real windows, as the fork's own tests do.
 

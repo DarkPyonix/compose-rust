@@ -1,6 +1,6 @@
 package dev.darkpyonix.composerust.ui.platform
 
-// Screen coordinates for the multi-window backend (FR-53.3, 53.8).
+// Screen coordinates for the multi-window backend.
 //
 // The renderer measures a screen from the top left of the primary screen with y growing
 // downward, in dp. On macOS a dp is a point. AppKit measures from the bottom left of the primary
@@ -43,7 +43,7 @@ internal fun primaryButtonDown(pressedMouseButtons: ULong): Boolean = (pressedMo
 internal const val KEY_CODE_ESCAPE = 53
 
 /** The bit of an `NSEventMask` for key down events (`NSEventTypeKeyDown` is 10). */
-internal const val EVENT_MASK_KEY_DOWN = 1uL shl 10
+internal const val EVENT_MASK_KEY_DOWN = 1024uL
 
 /**
  * A frame the user or the system moved, as the bounds the manager is told: the whole points the

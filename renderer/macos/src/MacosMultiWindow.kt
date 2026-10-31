@@ -34,7 +34,7 @@ import org.thisisthepy.compose.window.macos.systemIsDark
 import platform.AppKit.NSApplication
 
 /**
- * The multi-window run of the macOS renderer (FR-53, `SetWindow` mode `Windows`).
+ * The multi-window run of the macOS renderer (`SetWindow` mode `Windows`).
  *
  * The single window run in [runRenderer] is not touched by any of this. Here the Host's
  * `Window` nodes are the windows: a [WindowManager] opens one `MacosWindow` per node through
