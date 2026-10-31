@@ -447,17 +447,162 @@ macro_rules! plain_container {
     };
 }
 
-plain_container!(
+/// The scroll position of a [`ScrollColumn`] or [`ScrollRow`], and a handle to move it.
+///
+/// The Renderer owns the scroll physics and the scrollbar; this handle reads the current
+/// offset and maximum offset in dp as observable states and sends target scroll requests.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScrollState {
+    offset: crate::runtime::MutableState<f32>,
+    max_offset: crate::runtime::MutableState<f32>,
+    command: crate::runtime::MutableState<(i64, f32, bool)>,
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScrollState {
+    /// Creates a new scroll state starting at 0 dp.
+    pub fn new() -> Self {
+        Self {
+            offset: crate::runtime::mutable_state_of(0.0),
+            max_offset: crate::runtime::mutable_state_of(0.0),
+            command: crate::runtime::mutable_state_of((0, 0.0, false)),
+        }
+    }
+
+    /// The current scroll offset in dp. A composable that reads this runs again when the
+    /// user or a programmatic scroll moves the container.
+    pub fn offset(&self) -> f32 {
+        self.offset.get()
+    }
+
+    /// The furthest offset in dp the container can scroll to (`0.0` when the content fits
+    /// inside the viewport). A composable that reads this runs again when the content or
+    /// viewport size changes the scrollable distance.
+    pub fn max_offset(&self) -> f32 {
+        self.max_offset.get()
+    }
+
+    /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command.set((revision.wrapping_add(1).max(1), dp.max(0.0), false));
+    }
+
+    /// Smoothly scrolls to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn animate_scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command.set((revision.wrapping_add(1).max(1), dp.max(0.0), true));
+    }
+}
+
+/// Remembers a [`ScrollState`] across recompositions. Compose's `rememberScrollState`.
+pub fn remember_scroll_state() -> ScrollState {
+    crate::runtime::remember(ScrollState::new)
+}
+
+fn scroll_state_input(
+    state: Option<ScrollState>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    let (revision, target, animate) = state.command.get();
+    if revision > 0 {
+        attrs.push(("value", OwnedAttr::Float(f64::from(target))));
+        attrs.push(("determinate", OwnedAttr::Bool(animate)));
+        attrs.push(("count", OwnedAttr::Int(revision)));
+    }
+    let offset = state.offset.clone();
+    let max_offset = state.max_offset.clone();
+    listeners.push((
+        "onrangerequest",
+        EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
+            let next_offset = f32::from_bits(range.start() as u32);
+            let next_max = f32::from_bits(range.count() as u32);
+            if next_offset.is_finite() {
+                offset.set(next_offset);
+            }
+            if next_max.is_finite() {
+                max_offset.set(next_max);
+            }
+        }))),
+    ));
+}
+
+macro_rules! scroll_container {
+    ($name:ident, $widget:ident, $key:literal, $doc:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            scroll_state: Option<ScrollState>,
+            pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
+            done: bool,
+        }
+
+        #[doc = $doc]
+        pub fn $widget() -> $name {
+            $name {
+                modifier: Modifier::new(),
+                scroll_state: None,
+                pointer: None,
+                on_click: None,
+                done: false,
+            }
+        }
+
+        impl $name {
+            /// Binds a [`ScrollState`] so the application can read `offset()` and
+            /// `max_offset()` or call `scroll_to` and `animate_scroll_to`.
+            pub fn scroll_state(mut self, state: &ScrollState) -> Self {
+                self.scroll_state = Some(state.clone());
+                self
+            }
+
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let scroll_state = self.scroll_state.take();
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                scroll_state_input(scroll_state, &mut subscription, &mut listeners);
+                pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, Mods::Standard, attrs);
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
+                    content,
+                );
+            }
+        }
+
+        container!($name);
+        pointer_subscription!($name);
+        click_handler!($name);
+    };
+}
+
+scroll_container!(
     ScrollColumnScope,
     ScrollColumn,
-    Mods::Standard,
     "compose_rust::ui::ScrollColumn",
     "All of its content, with a vertical scroll the Renderer owns."
 );
-plain_container!(
+scroll_container!(
     ScrollRowScope,
     ScrollRow,
-    Mods::Standard,
     "compose_rust::ui::ScrollRow",
     "All of its content, with a horizontal scroll the Renderer owns."
 );
