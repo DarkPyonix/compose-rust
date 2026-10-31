@@ -43,7 +43,7 @@ class ScrollStateTest {
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
         waitForIdle()
 
-        val reports = connection.dispatchedEvents.filterIsInstance<HostEvent.RangeRequested>()
+        val reports = connection.events.filterIsInstance<HostEvent.RangeRequested>()
         assertTrue(reports.isNotEmpty(), "ScrollColumn reports its offset and max offset")
         val last = reports.last()
         val offsetDp = Float.fromBits(last.start)
