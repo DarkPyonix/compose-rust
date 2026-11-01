@@ -107,6 +107,14 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     internal var requestsBeforeStart: Long = 0L
         private set
 
+    /**
+     * Called once a batch has been applied and its errors reported, on the thread the Host
+     * runs on. The window manager of a multi-window application hangs here to open,
+     * close and update platform windows from the nodes the batch changed. Null for every
+     * other application, which is what keeps a single window's path as it was.
+     */
+    internal var afterBatch: (() -> Unit)? = null
+
     fun start() = start(FrameRequests.global)
 
     internal fun start(frames: FrameRequestSource) {
@@ -207,6 +215,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // the refusal. After the batch for the same reason as the errors above, and each in
         // its own call, because the Host answers each one with a batch of its own.
         editorEvents.forEach { event -> dispatch(event) }
+        afterBatch?.invoke()
     }
 
     private companion object {
@@ -291,7 +300,20 @@ fun ComposeRustContent(
     host: ComposeRustHost,
     modifier: Modifier = Modifier,
     caption: WindowCaption = WindowCaption.None,
+    /**
+     * The `Window` node whose content this draws, for one window of a multi-window application,
+     * or 0 for the one window of a single window application. A window of the first
+     * kind draws the children of its node, and the process serves the Host's frame requests once
+     * for all of them (the window manager's `awaitFrame`), not once per window.
+     */
+    windowNodeId: Int = 0,
 ) {
+    if (windowNodeId != 0) {
+        CompositionLocalProvider(LocalWindowNodeId provides windowNodeId) {
+            ComposeRustContent(host, modifier, caption, 0)
+        }
+        return
+    }
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
@@ -330,7 +352,15 @@ private fun ComposeRustTree(
     caption: WindowCaption,
 ) {
     val frames = LocalFrameRequests.current
-    LaunchedEffect(host, frames) {
+    // The `Window` node this scene draws, or 0 for the one window of a single window
+    // application. A window of a multi-window application draws its own node and nothing
+    // else, and does not serve the Host's frame requests: the platform layer has one driver
+    // for the whole process (`serveWindowFrames`), because the Host is asked once per frame
+    // however many windows there are.
+    val windowNodeId = LocalWindowNodeId.current
+    val pageRoots = if (windowNodeId == 0) host.roots else host.table.node(windowNodeId)?.children?.toList().orEmpty()
+    LaunchedEffect(host, frames, windowNodeId) {
+        if (windowNodeId != 0) return@LaunchedEffect
         // Counted from the Host's start, not from the moment this loop began listening. The
         // platform starts the Host before there is a window, and work the Host schedules in
         // its first render (an effect, a task spawned at startup) asks for a frame right then.
@@ -350,7 +380,9 @@ private fun ComposeRustTree(
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
     val windowFocused = LocalWindowInfo.current.isWindowFocused
-    SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
+    // One window of several does not report: its scene knows only itself, and the last to say
+    // would win. The platform layer reports for the application, from the window that is key.
+    if (windowNodeId == 0) SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
     val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
@@ -364,7 +396,7 @@ private fun ComposeRustTree(
     // the Host only when it crosses a size class boundary. onSizeChanged already fires
     // only when the measured size differs, and the reporter drops everything that does
     // not change the class, so a drag across one class costs no boundary calls.
-    val reporter = remember(host) { WindowSizeReporter() }
+    val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
     val zoom = LocalZoom.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
@@ -392,9 +424,9 @@ private fun ComposeRustTree(
     // window is stood up with the platform's own material behind it. The design system is
     // told the answer, because chrome that sits straight on the desktop is drawn
     // differently from chrome over the application's own page.
-    val asked = host.table.asksForWindowMaterial(host.roots)
+    val asked = host.table.asksForWindowMaterial(pageRoots)
     val theme = resolveTheme(
-        host.table.theme,
+        host.table.themeFor(windowNodeId),
         platform,
         systemDark,
         sizeClass,
@@ -472,15 +504,15 @@ private fun ComposeRustTree(
     val navigation = theme.rules.navigation(sizeClass, theme)
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
+        host.table.opensWithANavigation(pageRoots)
     val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
-        (host.table.opensWithABar(host.roots) || stripTakesTheTop)
+        (host.table.opensWithABar(pageRoots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
+        host.table.opensWithANavigation(pageRoots)
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
@@ -530,13 +562,13 @@ private fun ComposeRustTree(
                 modifier
                     .then(measured)
                     .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
-                    .background(host.table.windowFill(host.roots, theme)),
+                    .background(host.table.windowFill(pageRoots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
                     // Beside the roots, under the same locals, so a node measured here is
                     // measured as the page lays it out. It takes no room.
                     MeasuringStationLayout(station)
-                    host.roots.forEach { rootId ->
+                    (if (windowNodeId == 0) host.roots else listOf(windowNodeId)).forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {
                             RenderNode(rootId, host.table, host)
                         }
