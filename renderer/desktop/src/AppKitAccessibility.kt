@@ -56,8 +56,15 @@ private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEle
     val config = config
     if (config.getOrNull(SemanticsProperties.HideFromAccessibility) != null) return null
     val editable = config.getOrNull(SemanticsProperties.EditableText)
-    val label = config.getOrNull(SemanticsProperties.ContentDescription)?.firstOrNull()
-        ?: config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text
+    val label = config.getOrNull(SemanticsProperties.ContentDescription)
+        ?.filter { it.isNotEmpty() }
+        ?.joinToString(" ")
+        ?.takeIf { it.isNotEmpty() }
+        ?: config.getOrNull(SemanticsProperties.Text)
+            ?.map { it.text }
+            ?.filter { it.isNotEmpty() }
+            ?.joinToString(" ")
+            ?.takeIf { it.isNotEmpty() }
         ?: editable?.text
     val composeRole = config.getOrNull(SemanticsProperties.Role)
     val toggle = config.getOrNull(SemanticsProperties.ToggleableState)
