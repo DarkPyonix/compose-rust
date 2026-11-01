@@ -131,6 +131,12 @@ class MacosWindowBackend(
         if (content != null) {
             @Suppress("DEPRECATION")
             created.setContent(content)
+            created.listenForReader()
+            val previousOnFrameDrawn = created.onFrameDrawn
+            created.onFrameDrawn = { width, height ->
+                previousOnFrameDrawn?.invoke(width, height)
+                created.host?.describeForReaders(drew = true)
+            }
         } else {
             created.initWindow()
         }
@@ -197,6 +203,9 @@ internal class MacosPlatformWindow(
 
     /** The AppKit window, for a test that acts on it as a user would. */
     val nativeWindow: NSWindow get() = native
+
+    /** Whether the window's accessibility tree is active for external readers. */
+    val accessibilityActive: Boolean get() = window.accessibilityActive
 
     init {
         window.onClose = {
