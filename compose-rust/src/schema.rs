@@ -1739,6 +1739,25 @@ impl Theme {
         self
     }
 
+    /// Resolves every type role but `Mono` to one registered font: the application's own
+    /// typeface, set once for the whole screen.
+    ///
+    /// The font is usually a [`crate::FontStack`], so a role is set in the first family and
+    /// each letter it lacks comes from the next, with the machine's fonts after the last.
+    /// `Mono` is left alone because code set in a proportional face is columns that no
+    /// longer line up; name a font for it with [`Theme::with_font`]. A role named before or
+    /// after this with `with_font` keeps whichever was said last.
+    pub const fn with_default_font(mut self, asset: u32) -> Self {
+        let mut index = 0;
+        while index < TYPE_ROLE_COUNT {
+            if index != TypeRole::Mono as usize - 1 {
+                self.fonts[index] = asset;
+            }
+            index += 1;
+        }
+        self
+    }
+
     /// Lays the application's own colours over the design system.
     ///
     /// Only colour roles change. Shape, type, spacing, elevation, motion and how each
