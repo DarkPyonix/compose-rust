@@ -18,7 +18,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 
-private const val FIELD = 1
+private const val ROOT = 1
+private const val FIELD = 2
 private const val RED = 0xFFD01010.toInt()
 private const val BLUE = 0xFF1010D0.toInt()
 
@@ -26,9 +27,11 @@ private const val BLUE = 0xFF1010D0.toInt()
 @OptIn(ExperimentalTestApi::class)
 class TextFieldNodeStyleTest {
     private fun pixelsOf(vararg modifiers: Pair<Int, ProtocolModifier>) = buildList {
+        add(Mutation.Create(ROOT, WidgetKind.Box))
         add(Mutation.Create(FIELD, WidgetKind.TextField))
         add(Mutation.SetModifier(FIELD, 0, ProtocolModifier.Size(120f, 40f)))
         modifiers.forEach { (slot, value) -> add(Mutation.SetModifier(FIELD, slot, value)) }
+        add(Mutation.Insert(ROOT, FIELD, 0))
     }
 
     private fun capture(batch: List<Mutation>) = run {
@@ -36,7 +39,7 @@ class TextFieldNodeStyleTest {
         runComposeUiTest {
             setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch))) }
             waitForIdle()
-            image = onNodeWithTag(nodeTestTag(FIELD)).captureToImage()
+            image = onNodeWithTag(nodeTestTag(ROOT)).captureToImage()
         }
         image!!.toPixelMap()
     }
