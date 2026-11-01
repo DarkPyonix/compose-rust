@@ -949,10 +949,14 @@ class NodeTable {
                         widget == WidgetKind.ScrollColumn ||
                         widget == WidgetKind.ScrollRow
 
-                // Whether a split pane's side pane may be folded away, or a dropdown rests as
-                // a closed field on every design system.
+                // Whether a split pane's side pane may be folded away, a dropdown rests as
+                // a closed field on every design system, or a linear layout sizes its cross
+                // axis to its largest child.
                 PropertyKind.Collapsible ->
-                    widget == WidgetKind.SplitPane || widget == WidgetKind.Dropdown
+                    widget == WidgetKind.SplitPane ||
+                        widget == WidgetKind.Dropdown ||
+                        widget == WidgetKind.Row ||
+                        widget == WidgetKind.Column
 
                 // What a button is apart from its emphasis: a plain one, or a key of a
                 // dense grid. Only a button has a kind; a chip or a floating action is
