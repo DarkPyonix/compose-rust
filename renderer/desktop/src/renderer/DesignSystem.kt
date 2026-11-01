@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.design
 
+import dev.darkpyonix.composerust.ui.node.FontChain
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -171,7 +172,28 @@ class ResolvedTheme(
      * brand colour is drawn the way this system draws a colour.
      */
     val applicationColors: List<Color?> = emptyList(),
+
+    /**
+     * The font stacks the roles are set in, for the roles the application set in one.
+     *
+     * A stack's first family is a family of its own, so the family a piece of text was
+     * given is enough to find the rest of the stack: see [chainFor].
+     */
+    val fontChains: List<FontChain> = emptyList(),
 ) {
+    /**
+     * The stack [family] is the first family of, or null where it is not one.
+     *
+     * Asked by identity, not by equality, because the first family of a stack and the
+     * face it was made from can be equal and must not be confused: only the stack carries
+     * the families after it.
+     */
+    fun chainFor(family: FontFamily?): FontChain? =
+        if (family == null) null else fontChains.firstOrNull { it.primary === family }
+
+    /** The stack this role is set in, or null where the role is set in one face. */
+    fun chain(role: TypeRole): FontChain? = chainFor(fonts[role])
+
     fun color(role: ColorRole): Color =
         applicationColors.getOrNull(role.ordinal) ?: systemColor(role)
 
@@ -1610,6 +1632,12 @@ fun resolveTheme(
      * set aside and the design system's own colours are drawn.
      */
     highContrast: () -> Boolean = { dev.darkpyonix.composerust.ui.node.platformHighContrast() },
+    /**
+     * The stack a registered font asset is, or null where it is a single face or nothing.
+     * A role set in a stack is drawn in the stack's first family, and the letters that
+     * family lacks in the families after it.
+     */
+    chainOf: (Int) -> FontChain? = { null },
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1632,6 +1660,10 @@ fun resolveTheme(
             }
         }
     }
+    // Each stack once, however many roles are set in it.
+    val chains = theme?.let { asked ->
+        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
+    }.orEmpty()
     val tokens = DesignTokens.of(system)
     val rules = rulesFor(system)
     // The same palette goes onto whichever system was chosen, and both of its schemes are
@@ -1651,6 +1683,7 @@ fun resolveTheme(
         windowBackdrop,
         platform,
         application,
+        chains,
     )
 }
 

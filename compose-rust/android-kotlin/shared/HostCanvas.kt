@@ -38,13 +38,20 @@ import dev.darkpyonix.composerust.ui.node.Node
 internal fun HostCanvas(node: Node, modifier: Modifier, theme: ResolvedTheme) {
     val bytes = node.bytes(PropertyKind.Commands)
     val commands = remember(bytes) { bytes?.let(DrawCommands::decode) ?: emptyList() }
+    val viewWidth = node.number(PropertyKind.Min)
+    val viewHeight = node.number(PropertyKind.Max)
     val measurer = rememberTextMeasurer()
     if (commands.isEmpty()) {
         Canvas(modifier) {}
         return
     }
     Canvas(modifier) {
-        commands.forEach { command -> draw(command, theme, bytes, measurer) }
+        val scaled = viewWidth != null && viewWidth > 0f && viewHeight != null && viewHeight > 0f
+        val scaleX = if (scaled) size.width / viewWidth!! else 1f
+        val scaleY = if (scaled) size.height / viewHeight!! else 1f
+        commands.forEach { command ->
+            draw(command, theme, bytes, measurer, scaled, scaleX, scaleY)
+        }
     }
 }
 
@@ -62,48 +69,54 @@ private fun DrawScope.draw(
     theme: ResolvedTheme,
     bytes: ByteArray?,
     measurer: TextMeasurer,
+    scaled: Boolean,
+    scaleX: Float,
+    scaleY: Float,
 ) {
+    fun x(value: Float): Float = if (scaled) value * scaleX else dp(value)
+    fun y(value: Float): Float = if (scaled) value * scaleY else dp(value)
+    fun r(value: Float): Float = if (scaled) value * minOf(scaleX, scaleY) else dp(value)
     val color = theme.color(command.paint)
     when (command) {
         is DrawCommand.Line -> drawLine(
             color = color,
-            start = Offset(dp(command.x1), dp(command.y1)),
-            end = Offset(dp(command.x2), dp(command.y2)),
+            start = Offset(x(command.x1), y(command.y1)),
+            end = Offset(x(command.x2), y(command.y2)),
             strokeWidth = dp(command.strokeWidth),
         )
 
         is DrawCommand.Rect -> drawRect(
             color = color,
-            topLeft = Offset(dp(command.x), dp(command.y)),
-            size = Size(dp(command.width), dp(command.height)),
+            topLeft = Offset(x(command.x), y(command.y)),
+            size = Size(x(command.width), y(command.height)),
             style = strokeOrFill(command.strokeWidth, this),
         )
 
         is DrawCommand.RoundRect -> drawRoundRect(
             color = color,
-            topLeft = Offset(dp(command.x), dp(command.y)),
-            size = Size(dp(command.width), dp(command.height)),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(dp(command.radius)),
+            topLeft = Offset(x(command.x), y(command.y)),
+            size = Size(x(command.width), y(command.height)),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r(command.radius)),
             style = strokeOrFill(command.strokeWidth, this),
         )
 
         is DrawCommand.Circle -> drawCircle(
             color = color,
-            radius = dp(command.radius),
-            center = Offset(dp(command.centerX), dp(command.centerY)),
+            radius = r(command.radius),
+            center = Offset(x(command.centerX), y(command.centerY)),
             style = strokeOrFill(command.strokeWidth, this),
         )
 
         is DrawCommand.Arc -> {
-            val radius = dp(command.radius)
+            val radius = r(command.radius)
             drawArc(
                 color = color,
                 startAngle = command.startDegrees,
                 sweepAngle = command.sweepDegrees,
                 useCenter = command.strokeWidth <= 0f,
                 topLeft = Offset(
-                    dp(command.centerX) - radius,
-                    dp(command.centerY) - radius,
+                    x(command.centerX) - radius,
+                    y(command.centerY) - radius,
                 ),
                 size = Size(radius * 2f, radius * 2f),
                 style = strokeOrFill(command.strokeWidth, this),
@@ -119,7 +132,7 @@ private fun DrawScope.draw(
             drawText(
                 textMeasurer = measurer,
                 text = if (bytes == null) "" else DrawCommands.textOf(bytes, command),
-                topLeft = Offset(dp(command.x), dp(command.y)),
+                topLeft = Offset(x(command.x), y(command.y)),
                 style = TextStyle(
                     color = color,
                     fontSize = token.size.sp,
