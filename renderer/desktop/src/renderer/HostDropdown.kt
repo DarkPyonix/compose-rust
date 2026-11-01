@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -191,7 +190,7 @@ private fun OpeningList(
             }
         }
         Box(Modifier.align(Alignment.CenterEnd).padding(end = theme.space(SpaceRole.Xs))) {
-            BasicText(
+            ThemedText(
                 text = marker,
                 style = theme.pickerTextStyle(color = theme.color(ColorRole.OnSurfaceVariant)),
             )

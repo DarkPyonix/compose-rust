@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -274,12 +273,16 @@ private fun BadgeMark(
             .padding(horizontal = style.horizontalPadding),
         contentAlignment = Alignment.Center,
     ) {
-        BasicText(
+        ThemedText(
             text = label,
             style = TextStyle(
                 color = ink,
                 fontSize = style.labelSize,
                 fontWeight = style.labelWeight,
+                // The badge's own size and weight, in the application's typeface like
+                // every other label.
+                fontFamily = dev.darkpyonix.composerust.design.LocalDesignTheme.current
+                    .family(dev.darkpyonix.composerust.protocol.TypeRole.Label),
                 textAlign = TextAlign.Center,
             ),
             maxLines = 1,
