@@ -3691,6 +3691,22 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-56 TextField가 노드의 채움, 테두리, 모양, 안쪽 여백을 따릅니다 (`Agreed`, 이슈 #376)
+
+요청한 쪽: darkpyonix-ember#220. `TextField`는 노드의 `Background`, `Border`, `Shape`, `Padding`을 무시하고 디자인 시스템의 틀(채움, 선, 모서리, 안쪽 여백)을 늘 그렸습니다. 같은 일을 `Card`와 `Surface`는 `setsOwnBackground`로 이미 합니다.
+
+- 노드가 `Background`를 가지면 시스템의 채움을 그리지 않고 그 채움을 씁니다. 시스템의 밑줄도 그리지 않습니다.
+- 노드가 `Border` 또는 `BorderEach`를 가지면 시스템의 선과 밑줄을 그리지 않습니다. 포커스일 때 선이 바뀌는 시스템 규칙도 함께 꺼집니다. 포커스 표시가 필요하면 앱이 `Border`를 바꿔 보냅니다.
+- 노드가 `Shape`, `ShapeRole`, `CornerEach`를 가지면 그 모양으로 자릅니다.
+- 노드가 `Padding`, `PaddingEach`, `PaddingRole`을 가지면 시스템의 안쪽 여백을 더하지 않습니다(이중 여백 방지).
+- 아무것도 말하지 않은 필드는 지금과 똑같이 시스템의 틀을 그립니다. 글자 크기와 글꼴 지정은 #374(`font`, `span_fonts`, `word_break` 빌더)입니다.
+
+수용 기준.
+1. `Background`를 준 필드의 빈 자리 픽셀이 그 색입니다.
+2. `Border`와 `Background`를 준 필드의 가장자리 픽셀이 테두리 색이고 그 안쪽이 채움 색입니다.
+3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
+4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
+
 ### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
 
 요청한 쪽: darkpyonix-ember#220, #208. 한글 라벨을 가진 Button과 Chip이 폭 추정 없이 쓰이도록, 앱이 줄 수와 넘침 처리를 직접 말할 수 있어야 합니다.
@@ -3716,6 +3732,22 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. 층 여섯을 주면 네 개만 나갑니다.
 3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
 4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
+
+### FR-63 `Canvas`의 기준 좌표계(`view_box`)와 비율 좌표 그리기 (`Agreed`, 이슈 #388)
+
+요청한 쪽: Ember(사용량 게이지, 스트라이프 배경, 스파크라인 차트처럼 `fill_max_width` 컨테이너 크기에 맞춰 늘어나는 `Canvas` 그림). `DrawList`의 명령은 고정 dp 좌표만 받아, 컨테이너 폭을 컴파일 시점에 알 수 없는 화면에서 왼쪽 구석에만 그려지거나 폭을 어림잡아 넘치게 그려야 했습니다.
+
+- `DrawListBuilder`와 `CanvasScope`에 `.view_box(width: f32, height: f32)`와 `.fractional()`(`.view_box(1.0, 1.0)`의 별칭)을 둡니다.
+- `view_box(w, h)`가 지정되면 `Canvas` 노드에 `Min(w)`와 `Max(h)` 속성을 보냅니다(새 속성 태그를 쓰지 않고 `PropertyKind::Min`과 `PropertyKind::Max`를 `WidgetKind::Canvas`에도 허용합니다). 지정하지 않은 `Canvas`는 두 속성을 내보내지 않고 지금처럼 명령 좌표를 dp로 해석합니다.
+- Renderer의 `HostCanvas`는 `Min(view_w)`와 `Max(view_h)`가 모두 양수일 때:
+  - 가로 좌표(`x`, `x1`, `x2`, `width`, `centerX`)에 `size.width / view_w`를 곱해 픽셀 위치로 바꿉니다.
+  - 세로 좌표(`y`, `y1`, `y2`, `height`, `centerY`)에 `size.height / view_h`를 곱해 픽셀 위치로 바꿉니다.
+  - 반지름(`radius`)에 `min(size.width / view_w, size.height / view_h)`를 곱합니다.
+  - 선 두께(`strokeWidth`)는 캔버스 가로세로 비율이 달라도 찌그러지지 않도록 기존대로 dp(`strokeWidth.dp.toPx()`)로 그립니다.
+
+수용 기준.
+1. `DrawList::builder().fractional().rect(paint, 0.0, 0.0, 0.5, 1.0, 0.0).build()`를 80dp와 160dp 폭의 두 `Canvas`에 그리면 각각 왼쪽 절반(40dp, 80dp)만 채워집니다(`fr_63_fractional_canvas_scales_commands_to_each_container_width`).
+2. `view_box(100.0, 50.0)` 또는 `fractional()`을 쓴 `Canvas`는 `Min`과 `Max` 속성을 내보내고, 기본 `Canvas`는 내보내지 않습니다(`fr63_canvas_view_box_writes_min_and_max_properties`).
 
 ## 4. 경계 프로토콜
 
