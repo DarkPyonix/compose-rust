@@ -3601,6 +3601,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 메뉴(FR-30)의 자리. macOS의 메뉴 막대는 앱에 하나이고 Windows와 Linux의 메뉴는 창마다입니다. 키 창이 바뀔 때 메뉴를 바꾸는 규칙이 필요합니다.
 - 창의 위치와 크기를 다음 실행에 되살리는 일을 Renderer가 할지(FR-43의 확대 수준처럼), 앱이 `WindowMoved`로 들고 있다가 `Position`으로 돌려줄지.
 
+### FR-62 `ScrollColumn`과 `ScrollRow`의 프로그래밍 방식 스크롤 (`Agreed`, 이슈 #385)
+
+요청한 쪽: Ember(대화 로그, 터미널 출력, 탭 스트립에서 새 항목이나 끝으로 스크롤하고 현재 스크롤 위치에 따라 "아래로 이동" 버튼을 보이기). `ScrollColumn`과 `ScrollRow`의 스크롤 상태는 Renderer에 있으나(INTENT D5), 앱이 스크롤 위치를 읽거나 목표 위치로 이동을 요청할 손잡이가 없었습니다.
+
+- `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
+  - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
+  - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
+  - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
+- `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
+- 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
+  - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+
+수용 기준.
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+
 ### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
 
 요청한 쪽: 소유자(2026-10-26, "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해."). 결정과 폐기한 대안은 INTENT D24입니다. 화면 하나, 또는 상태를 정한 컴포넌트 하나를 1440, 1024, 768, 390 폭과 라이트, 다크에서 저장 후 몇 초 안에 보고, 같은 그림을 창 없이 PNG로 뽑아 목업과 나란히 놓거나 CI 이미지 시험에 씁니다. dioxus-compose의 rsx 화면에 대한 빠른 길(컴파일 없는 템플릿 반영)은 dioxus-compose SPEC FR-54입니다.

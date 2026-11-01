@@ -845,6 +845,12 @@ class NodeTable {
                     widget == WidgetKind.SplitPane ||
                     // An indicator's value is how far along it is, and it has no range.
                     (property == PropertyKind.Value && widget == WidgetKind.ProgressIndicator) ||
+                    // A scroll container's target scroll offset in dp when the Host asks
+                    // to jump or animate to a position.
+                    (
+                        property == PropertyKind.Value &&
+                            (widget == WidgetKind.ScrollColumn || widget == WidgetKind.ScrollRow)
+                        ) ||
                     // A Canvas's reference coordinate space (width in Min, height in Max)
                     // when its commands are written in fractional or view-box coordinates.
                     (
@@ -866,7 +872,13 @@ class NodeTable {
 
                 PropertyKind.Determinate,
                 PropertyKind.Circular,
-                -> widget == WidgetKind.ProgressIndicator
+                -> widget == WidgetKind.ProgressIndicator ||
+                    // On a scroll container, Determinate says whether a requested scroll
+                    // animates or jumps immediately.
+                    (
+                        property == PropertyKind.Determinate &&
+                            (widget == WidgetKind.ScrollColumn || widget == WidgetKind.ScrollRow)
+                        )
 
                 PropertyKind.Vertical -> widget == WidgetKind.Divider
 
@@ -931,8 +943,11 @@ class NodeTable {
                 // How large an HTML island is drawn. Only the island's root has one.
                 PropertyKind.IslandZoom -> widget == WidgetKind.AbsoluteBox
 
-                // How many a badge counts. Nothing else counts anything.
-                PropertyKind.Count -> widget == WidgetKind.Badge
+                // How many a badge counts, or the revision of a programmatic scroll request.
+                PropertyKind.Count ->
+                    widget == WidgetKind.Badge ||
+                        widget == WidgetKind.ScrollColumn ||
+                        widget == WidgetKind.ScrollRow
 
                 // Whether a split pane's side pane may be folded away, or a dropdown rests as
                 // a closed field on every design system.
