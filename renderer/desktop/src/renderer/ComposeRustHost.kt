@@ -300,7 +300,20 @@ fun ComposeRustContent(
     host: ComposeRustHost,
     modifier: Modifier = Modifier,
     caption: WindowCaption = WindowCaption.None,
+    /**
+     * The `Window` node whose content this draws, for one window of a multi-window application,
+     * or 0 for the one window of a single window application. A window of the first
+     * kind draws the children of its node, and the process serves the Host's frame requests once
+     * for all of them (the window manager's `awaitFrame`), not once per window.
+     */
+    windowNodeId: Int = 0,
 ) {
+    if (windowNodeId != 0) {
+        CompositionLocalProvider(LocalWindowNodeId provides windowNodeId) {
+            ComposeRustContent(host, modifier, caption, 0)
+        }
+        return
+    }
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
@@ -367,7 +380,9 @@ private fun ComposeRustTree(
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
     val windowFocused = LocalWindowInfo.current.isWindowFocused
-    SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
+    // One window of several does not report: its scene knows only itself, and the last to say
+    // would win. The platform layer reports for the application, from the window that is key.
+    if (windowNodeId == 0) SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
     val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
