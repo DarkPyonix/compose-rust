@@ -6,9 +6,13 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.platform.Font
 import androidx.compose.ui.text.platform.Typeface
 import org.jetbrains.skia.Data
 import org.jetbrains.skia.FontMgr
+import org.jetbrains.skia.FontSlant
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.svg.SVGDOM
 
@@ -34,9 +38,28 @@ internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? =
  * Null where the bytes are not a font Skia can read, which is reported and leaves the
  * role on the system face. A screen in the wrong typeface is a great deal better than no
  * screen, and the report is what tells the application which it got.
+ *
+ * The face is handed to Compose as a font with an identity of its own, made from its
+ * bytes, and the weight and slant the file declares. Compose registers a face under its
+ * identity, so two weights of one typeface stay two faces: named by the family name the
+ * file gives, the second weight registered would have drawn as the first.
  */
-internal fun decodeFontAsset(bytes: ByteArray): FontFamily? =
-    FontMgr.default.makeFromData(Data.makeFromBytes(bytes))?.let { FontFamily(Typeface(it)) }
+internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
+    val typeface = FontMgr.default.makeFromData(Data.makeFromBytes(bytes)) ?: return null
+    val declared = typeface.fontStyle
+    val weight = declared.weight.coerceIn(1, 1000)
+    val italic = declared.slant != FontSlant.UPRIGHT
+    val font = Font(
+        identity = "compose-rust-font-${bytes.size}-${bytes.contentHashCode()}",
+        getData = { bytes },
+        weight = FontWeight(weight),
+        style = if (italic) FontStyle.Italic else FontStyle.Normal,
+    )
+    return Asset.Font(
+        family = FontFamily(font),
+        face = Asset.Font.Face(font, weight, italic) { codePoint -> typeface.getUTF32Glyph(codePoint) != 0.toShort() },
+    )
+}
 
 /**
  * The installed family called [name], or null where this machine has none by that name.
