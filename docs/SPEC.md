@@ -3707,6 +3707,18 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
 4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
 
+### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
+
+요청한 쪽: darkpyonix-ember#220, #208. 한글 라벨을 가진 Button과 Chip이 폭 추정 없이 쓰이도록, 앱이 줄 수와 넘침 처리를 직접 말할 수 있어야 합니다.
+
+- `ui::Button`과 `ui::Chip` 빌더에 `max_lines(u32)`와 `overflow(TextOverflow)`가 있습니다. 부르면 `MaxLines`와 `Overflow` 속성을 보내고, 부르지 않으면 지금까지처럼 아무것도 보내지 않습니다.
+- Renderer의 Chip도 Button처럼 `MaxLines`와 `Overflow`를 읽습니다. 말하지 않은 라벨은 한 줄에 말줄임표입니다.
+- `label_min_width`는 스키마에 속성이 없고(이슈의 `AttrKey::LabelMinWidth`는 존재하지 않습니다), 한 줄 기본값이 라벨을 음절 사이에서 끊는 일을 이미 막습니다. 속성을 새로 내는 일은 이 항목의 범위 밖이고, 필요한 사례가 나오면 별도 이슈로 다룹니다.
+
+수용 기준.
+1. Button과 Chip에 `max_lines`, `overflow`를 주면 같은 이름의 속성이 한 번씩 나가고, 주지 않으면 나가지 않습니다.
+2. 폭이 좁은 Chip의 긴 한글 라벨은 기본이 한 줄이고, `MaxLines = 3`이면 더 큽니다.
+
 ### FR-58 앱 작성 API의 그림자, 오프셋, 글꼴, 단어 나눔 (`Agreed`, 이슈 #374, #375)
 
 요청한 쪽: darkpyonix-ember#220. 와이어에 이미 있는 `Shadow`, `Offset` 수정자와 `Font`, `SpanFonts`, `WordBreak` 속성을 `compose_rust::ui` 빌더에서도 쓸 수 있어야 합니다.
