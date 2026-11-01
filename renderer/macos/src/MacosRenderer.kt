@@ -43,6 +43,7 @@ import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WindowMode
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run`
@@ -116,6 +117,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // this renderer happens to be called, which is the library's name and not any
     // application's, and a measurement of zero means it did not ask.
     val asked = host.table.window
+    // Several windows in one process: the Host's `Window` nodes are the windows, and
+    // everything below is the single window's path, which stays as it was.
+    if (asked?.mode == WindowMode.Windows) return runWindows(application, host, asked)
     // How the title bar is built, by the same decision the native image's window takes, so
     // both macOS renderers have the same corners and start the content at the same height.
     val chrome = MacosWindowChrome.of(
