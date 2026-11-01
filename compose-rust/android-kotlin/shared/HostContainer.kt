@@ -1,6 +1,5 @@
 package dev.darkpyonix.composerust.foundation
 
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.text.style.TextOverflow
 import dev.darkpyonix.composerust.design.CaptionTitleAlignment
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -362,7 +361,7 @@ private val HAIRLINE = 1.dp
  */
 @Composable
 private fun BarTitle(node: Node, title: String, theme: ResolvedTheme) {
-    BasicText(
+    ThemedText(
         text = title,
         style = node.textStyle(theme, TypeRole.Subtitle),
         maxLines = 1,
