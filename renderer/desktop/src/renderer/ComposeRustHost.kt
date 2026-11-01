@@ -345,6 +345,17 @@ fun ComposeRustContent(
     }
 }
 
+/**
+ * Whether the content below serves the Host's frame requests itself. True for a single window,
+ * which has always done so; a multi-window renderer provides false and serves them once for
+ * every window.
+ */
+internal val LocalServesFrames = staticCompositionLocalOf { true }
+
+/** What a window's content draws: the roots of the tree for window 0, else the children of `Window` node [windowNodeId]. */
+internal fun NodeTable.rootsOf(windowNodeId: Int): List<Int> =
+    if (windowNodeId == 0) roots else node(windowNodeId)?.children ?: emptyList()
+
 @Composable
 private fun ComposeRustTree(
     host: ComposeRustHost,
@@ -352,6 +363,7 @@ private fun ComposeRustTree(
     caption: WindowCaption,
 ) {
     val frames = LocalFrameRequests.current
+    val servesFrames = LocalServesFrames.current
     // The `Window` node this scene draws, or 0 for the one window of a single window
     // application. A window of a multi-window application draws its own node and nothing
     // else, and does not serve the Host's frame requests: the platform layer has one driver
@@ -359,8 +371,8 @@ private fun ComposeRustTree(
     // however many windows there are.
     val windowNodeId = LocalWindowNodeId.current
     val pageRoots = if (windowNodeId == 0) host.roots else host.table.node(windowNodeId)?.children?.toList().orEmpty()
-    LaunchedEffect(host, frames, windowNodeId) {
-        if (windowNodeId != 0) return@LaunchedEffect
+    LaunchedEffect(host, frames, windowNodeId, servesFrames) {
+        if (windowNodeId != 0 || !servesFrames) return@LaunchedEffect
         // Counted from the Host's start, not from the moment this loop began listening. The
         // platform starts the Host before there is a window, and work the Host schedules in
         // its first render (an effect, a task spawned at startup) asks for a frame right then.
