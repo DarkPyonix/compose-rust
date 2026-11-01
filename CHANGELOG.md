@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## v0.0.5
+
+### Multiple windows in one process
+
+An application can open, focus, move, resize and close several windows in one process on macOS,
+Linux and Windows, and tear a tab out into its own window or merge it back into another window's
+tab bar ([#355](https://github.com/DarkPyonix/compose-rust/issues/355), FR-53).
+
+### Accessibility tree and immediate input turns on macOS
+
+The Kotlin/Native macOS renderer exports the Compose semantics tree (roles, labels, states,
+focus and actions) to `NSAccessibility` so VoiceOver and `AXPress` automation see and activate
+controls, and mouse and keyboard events drive a host turn immediately without waiting for the
+100 ms idle timer ([#418](https://github.com/DarkPyonix/compose-rust/issues/418)).
+
+### Authoring toolkit and widget styling
+
+- Containers (`Row`, `Column`, `Box`, `Card`, `Surface`, `ScrollColumn`, `ScrollRow`) accept
+  `on_click`, gaining keyboard focus, Enter/Space activation, `Button` semantics and hover/press
+  feedback ([#372](https://github.com/DarkPyonix/compose-rust/issues/372)).
+- `Button` and `Chip` builders expose `max_lines` and `overflow` ([#373](https://github.com/DarkPyonix/compose-rust/issues/373)),
+  and disabled `Button` and `IconButton` controls honour explicit `color` and `background_color`
+  overrides ([#387](https://github.com/DarkPyonix/compose-rust/issues/387)).
+- `TextField` honours node `Background`, `Border`, `Shape` and `Padding` modifiers ([#376](https://github.com/DarkPyonix/compose-rust/issues/376)).
+- `Modifier` exposes `shadow`, `shadows`, `offset`, `corner_radii` and `clip`, and `Text` and
+  `TextField` expose `font` and `word_break` ([#374](https://github.com/DarkPyonix/compose-rust/issues/374),
+  [#375](https://github.com/DarkPyonix/compose-rust/issues/375),
+  [#378](https://github.com/DarkPyonix/compose-rust/issues/378),
+  [#392](https://github.com/DarkPyonix/compose-rust/issues/392)).
+- Apps can register bundled font stacks as the theme default ([#304](https://github.com/DarkPyonix/compose-rust/issues/304)).
+- Small circular `ProgressIndicator` rings scale their stroke width in proportion to their size ([#377](https://github.com/DarkPyonix/compose-rust/issues/377)).
+- `Select`, `Dropdown::closed(true)` and `MenuItem` draw closed-field selectors and left-aligned
+  menu rows with below-anchor popups ([#383](https://github.com/DarkPyonix/compose-rust/issues/383)).
+- `ScrollState` and `remember_scroll_state()` read and drive `ScrollColumn` and `ScrollRow`
+  offsets ([#385](https://github.com/DarkPyonix/compose-rust/issues/385)).
+- `Canvas` and `DrawListBuilder` support `view_box(w, h)` and `fractional()` coordinate scaling ([#388](https://github.com/DarkPyonix/compose-rust/issues/388)).
+- `Row` and `Column` size their cross axis to `IntrinsicSize.Min` when `equal_height` /
+  `equal_width` is set or when a child carries `fill_max_height` / `fill_max_width` ([#389](https://github.com/DarkPyonix/compose-rust/issues/389)).
 
 ### A shadow follows the corner radius of the node that casts it
 
