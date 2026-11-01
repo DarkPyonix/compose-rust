@@ -355,8 +355,8 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 
 - **`Enabled = false`는 입력을 막고 동시에 흐려집니다.** 여섯 시스템 모두 비활성 컨트롤을 흐리게 그립니다. 얼마나 흐린지는 디자인 시스템의 값이고(FR-14.1), `ComponentRules`가 컨트롤에 대해 이미 답하고 있는 것과 같은 이름으로 버튼에 대해서도 답합니다. Host가 지정할 속성은 없습니다.
 - **새 태그도 새 이벤트도 없습니다.** 이미 보내고 있는 속성을 Renderer가 마저 읽는 것입니다.
-- 흐려지는 것은 컨테이너와 라벨 전체입니다. variant마다 비활성 색을 따로 두면 디자인 시스템 하나가 답해야 할 값이 네 개로 늘고, 일곱 번째 시스템이 들어올 때 그만큼 늘어납니다.
-  - 수용 기준: `fr13_a_disabled_button_is_drawn_faded_in_every_design_system`.
+- 흐려지는 것은 컨테이너와 라벨 전체입니다. variant마다 비활성 색을 따로 두면 디자인 시스템 하나가 답해야 할 값이 네 개로 늘고, 일곱 번째 시스템이 들어올 때 그만큼 늘어납니다. 노드가 스스로 `Background`나 `Border` 수정자, 또는 `Color` 속성을 지정한 버튼도 비활성이면 그 지정한 채움, 테두리, 글자·아이콘 색을 그대로 두고 같은 비활성 불투명도로 함께 흐려집니다(이슈 #387).
+  - 수용 기준: `fr13_a_disabled_button_is_drawn_faded_in_every_design_system`, `fr13_a_disabled_button_fades_the_fill_the_host_named`.
 
 #### 13.11 버튼과 칩의 라벨은 잘리지 않습니다 (`Agreed`)
 높이를 40dp 아래로 준 `Button`이 디자인 시스템의 세로 안쪽 여백을 그대로 두면 라벨의 아랫부분이 잘립니다('검색'이 '거새'로 읽힙니다). 컨테이너 자신의 여백이 라벨을 자르는 것은 버그입니다. 여백은 라벨을 컨테이너에서 떼어 놓으려는 것이지, 라벨이 들어갈 자리를 빼앗는 값이 아닙니다.
@@ -3354,7 +3354,7 @@ FR-49의 24바이트 값에 아직 없는 CSS 마스크 속성입니다. 버리�
 #### 50.2 적용 범위
 
 - 디자인 시스템과 상관없습니다. 모든 디자인 시스템에서 같은 노드의 **배경, 테두리, 그림자, 자르기(`Clip`)**가 같은 모양을 씁니다. 네 가지가 서로 다른 모양이면 배경이 테두리 밖으로 삐져나오므로, 렌더러는 노드마다 모양을 한 번 만들어 넷이 함께 씁니다.
-- 반지름은 `CornerEach`(FR-42.3) 또는 `Shape`/`corner_radius`가 정하고, `CornerCurve`는 곡선만 바꿉니다. 반지름이 없는 노드(0)에는 아무 일도 하지 않습니다. 디자인 시스템이 이미 연속 모서리를 고르는 노드(LiquidGlass, Cupertino)에서는 `CornerCurve`가 그 디자인 시스템의 값보다 앞서고, 없으면 디자인 시스템의 값을 씁니다.
+- 반지름은 `CornerEach`(FR-42.3) 또는 `Shape`/`corner_radius`가 정하고, `CornerCurve`는 곡선만 바꿉니다. 반지름이 없는 노드(0)에는 아무 일도 하지 않습니다. 디자인 시스템이 이미 연속 모서리를 고르는 노드(LiquidGlass, Cupertino)에서는 `CornerCurve`가 그 디자인 시스템의 값보다 앞서고, 없으면 디자인 시스템의 값을 씁니다. **단, 앱이 반지름을 dp 숫자로 직접 쓴 `Shape`(`corner_radius`)는 어느 디자인 시스템에서도 원호입니다**(이슈 #378, 2026-10-29). 연속 모서리는 같은 반지름이라도 눈으로 재면 절반 정도로 보여(8dp가 5px, 14dp가 8px) 숫자를 쓴 앱이 CSS `border-radius`와 같은 크기를 얻지 못했습니다. 디자인 시스템의 연속 모서리는 역할(`ShapeRole`)로 고른 모서리에만 적용됩니다.
 - 앱 작성 API에서는 `Modifier.corner_curve(smoothing)`이 이 수정자로 내려갑니다.
 
 #### 50.3 모양
@@ -3690,6 +3690,20 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. 노드의 의미 정보 역할이 `Button`이고 클릭 동작이 있습니다.
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
+
+### FR-58 앱 작성 API의 그림자, 오프셋, 글꼴, 단어 나눔 (`Agreed`, 이슈 #374, #375)
+
+요청한 쪽: darkpyonix-ember#220. 와이어에 이미 있는 `Shadow`, `Offset` 수정자와 `Font`, `SpanFonts`, `WordBreak` 속성을 `compose_rust::ui` 빌더에서도 쓸 수 있어야 합니다.
+
+- `ui::Shadow { x, y, blur, spread, paint }`, `Modifier::shadow(Shadow)`, `Modifier::shadows(iter)`, `Modifier::offset(x, y)`. `ui::Modifier`는 `Copy`이므로 그림자 층은 고정 개수(`MAX_SHADOWS = 4`)이고, 넘는 층은 무시합니다. 층은 더한 순서대로 아래에서 위로 그립니다(FR-42.3).
+- 슬롯: 사슬에서 `Offset`과 `Shadow` 층이 `Shape`, `Background` 바깥에 오도록 수정자 슬롯 번호를 다시 매겼습니다(번호는 한 실행 안에서만 맞으면 됩니다). 줄어든 목록은 남은 층의 슬롯을 비웁니다. 그림자를 쓰지 않는 노드는 아무 기록도 늘지 않습니다.
+- `Text::font(FontRefs)`, `Text::word_break(WordBreak)`, `TextField::font(FontRefs)`. 글꼴 목록은 역할이 `None`인 글에만 적용됩니다. 스팬이 이름 붙인 글꼴은 `TextSpans`의 글꼴 표로 `SpanFonts`에 실립니다. `TextField::word_break`는 Renderer의 TextField가 단어 나눔을 읽지 않으므로 만들지 않았습니다.
+
+수용 기준.
+1. 층이 둘인 `Modifier`는 `Shadow` 수정자 둘을 보내고, 층 수가 줄면 슬롯이 비워집니다.
+2. 층 여섯을 주면 네 개만 나갑니다.
+3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
+4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
 
 ### FR-63 `Canvas`의 기준 좌표계(`view_box`)와 비율 좌표 그리기 (`Agreed`, 이슈 #388)
 
@@ -4095,7 +4109,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
-| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**(그 측정은 지금 배포되지 않는 AWT native-image 빌드에서 했습니다), VoiceOver 수동 확인은 미완료(§7). AWT 없는 빌드에서 CI가 트리를 걷는 곳은 Kotlin/Native Linux뿐입니다(실행 38823417678의 "linux-x64 static renderer") | Agreed |
+| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 Kotlin/Native 정적 렌더러, NFR-14)의 접근성 트리가 플랫폼 접근성 API(macOS `NSAccessibility`, Linux `AT-SPI2`, Windows `UI Automation`)로 역할, 라벨, 값, 상태, 포커스, 부모·자식 계층과 컨트롤 동작(`AXPress` 등)까지 노출되고, 접근성 동작 호출이 Host 사건으로 이어져 화면을 바꿀 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). 규격과 수용 기준은 §7 (#418, #419) | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Linux는 "Native renderer test" 실행 38823417678의 "One executable on linux-x64"와 "One executable on linux-arm64" 잡이 릴리스 모양의 타르볼로 소비자 크레이트를 빌드해 실행하는 것까지 확인했습니다. Windows는 실행 확인 미완료 | Agreed |
@@ -4509,13 +4523,26 @@ Objective-C 쪽은 Java의 역할(role)을 **클래스 이름 문자열**로 바
 
 `desktop/scripts/tests/accessibility-link.test.sh`가 아카이브의 클래스와 빌드된 라이브러리의 클래스를 비교해 누락이 있으면 실패합니다. 빌드도 스모크 테스트도 둘 다 통과하므로, 이 검사가 없으면 부재를 알 방법이 없습니다. CI의 macOS 빌드 뒤에 붙였습니다.
 
-### 남은 수용 기준
+### 7.2 Kotlin/Native 데스크톱 렌더러 접근성 (#418, #419)
+
+2026-10-03부터 배포되는 데스크톱 렌더러는 AWT 없는 Kotlin/Native 정적 라이브러리입니다(NFR-14). 각 플랫폼 창은 Compose semantics 트리를 플랫폼 접근성 트리로 내보내고, 화면 판독기와 자동화 도구가 요청하는 동작을 Compose semantics 동작과 Host 사건으로 연결해야 합니다.
+
+- **macOS (`NSAccessibility`, #418)**:
+  - 단일 창(`runRenderer`)과 다중 창(`MacosWindowBackend`) 모두 런루프 턴(`pumpHost`)을 돌아 포인터·키보드·접근성 사건을 Compose 장면으로 전달하고, 매 프레임 뒤에 `NSAccessibility` 트리(`AppKitAccessibilityTree`, `backdrop.accessibilityChildren`)를 갱신합니다.
+  - `Button`과 클릭 가능한 컨테이너(`Row`, `Column`, `Box`, `Surface`, `Card`에 `OnClick`이 붙은 노드, FR-46)가 모두 `AXButton` 역할과 자식 텍스트를 합친 라벨로 노출됩니다.
+  - 외부 프로세스(`System Events` / `AXUIElement`)나 프로세스 안 스냅샷(`accessibilitySnapshot`)이 창을 처음 질의할 때부터 트리가 채워져 있어야 하며, `AXPress`(`accessibilityPerformPress`), 값 설정(`setAccessibilityValue`), 포커스 이동(`setAccessibilityFocused`)을 호출하면 `HostEvent`가 전달되고 새 프레임과 갱신된 접근성 트리가 그려집니다.
+- **Linux (`AT-SPI2`)**: 세션 버스에 `org.a11y.atspi.Accessible`, `Component`, `Action`, `Value`, `Text`, `EditableText` 인터페이스로 역할, 라벨, 상태, 동작을 노출합니다.
+- **Windows (`UI Automation`, #419)**: `WM_GETOBJECT` / `IRawElementProviderSimple`에서 역할과 이름뿐 아니라 컨트롤 패턴(`IInvokeProvider`, `IValueProvider`, `IToggleProvider`, `IRangeValueProvider`), 상태, 포커스, 계층(`IRawElementProviderFragment`), 동작 라우팅을 노출해야 합니다(미완료, #419).
+- **iOS (`UIAccessibility`) / Android (`AccessibilityNodeProvider`)**: 각 플랫폼의 Compose UI 기본 접근성 브리지가 semantics 트리를 그대로 노출합니다.
+
+### 수용 기준
 
 - [x] native-image의 접근성 트리가 JVM과 같은 구조로 노출됨
 - [x] 트리를 질의해도 프로세스가 중단되지 않음
+- [x] Kotlin/Native macOS 렌더러(단일 창·다중 창)가 `NSAccessibility` 트리에 `AXButton`, `AXStaticText`, `AXTextField`, `AXCheckBox` 역할과 라벨·값·상태를 노출하고, `AXPress`(`accessibilityPerformPress`)와 포인터 클릭으로 `HostEvent.Clicked`가 전달되어 화면과 접근성 트리가 바뀌는 자동 테스트(`renderer/macos/test/MacosAccessibilityTest.kt`)가 통과함 (#418)
 - [ ] macOS VoiceOver가 Text와 Button 라벨을 읽음: **사람이 확인해야 합니다**
 - [ ] Tab 키 포커스 순회
-- [ ] Windows Narrator: Windows 빌드 검증 후
+- [ ] Windows UI Automation 컨트롤 패턴·상태·계층·동작 노출 및 Narrator 확인 (#419)
 
 VoiceOver 수동 절차는 `experiments/accessibility/README.md`에 있습니다. 오늘까지는 VoiceOver를 켜는 것만으로 프로세스가 죽어서 2단계를 넘어갈 수 없었고, 이제 끝까지 진행할 수 있습니다.
 

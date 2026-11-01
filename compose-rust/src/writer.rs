@@ -28,7 +28,13 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 16;
+const MODIFIER_SLOTS: usize = 21;
+
+/// The first of the slots a node's shadow layers take, and how many there are.
+const SHADOW_BASE: u16 = 8;
+const SHADOW_LAYERS: usize = 4;
+/// Bytes one shadow layer takes in the `shadows` attribute: four floats and a paint.
+const SHADOW_BYTES: usize = 24;
 
 /// Node id 0 is the "no node" sentinel: a placeholder, which draws nothing and takes no
 /// slot in the Compose tree. It is also the root every top-level node is inserted under.
@@ -212,6 +218,10 @@ impl NodeWriter {
     /// This is the whole of what an attribute means on the wire, and both front ends call
     /// it with the same names and the same values for the same widget.
     pub fn set_attribute(&mut self, node_id: u32, name: &'static str, value: &AttrValue<'_>) {
+        if name == "shadows" {
+            self.set_shadows(node_id, value);
+            return;
+        }
         if let Some(slot) = self.modifier_for(node_id, name, value) {
             if let Some((index, modifier)) = slot {
                 self.write(Mutation::SetModifier {
@@ -223,6 +233,50 @@ impl NodeWriter {
             return;
         }
         self.set_property(node_id, name, value);
+    }
+
+    /// Writes a node's shadow layers, one modifier slot each, and clears the slots a
+    /// shorter list leaves behind. A slot is cleared only if a shadow wrote it, so a node
+    /// that never had one costs nothing.
+    fn set_shadows(&mut self, node_id: u32, value: &AttrValue<'_>) {
+        let mut layers: Vec<crate::Modifier> = Vec::new();
+        if let AttrValue::Bytes(bytes) = value {
+            for chunk in bytes.chunks_exact(SHADOW_BYTES).take(SHADOW_LAYERS) {
+                let float = |at: usize| f32::from_le_bytes(chunk[at..at + 4].try_into().unwrap());
+                let bits = u64::from_le_bytes(chunk[16..24].try_into().unwrap());
+                if let Some(paint) = crate::Paint::from_bits(bits) {
+                    layers.push(crate::Modifier::Shadow {
+                        x: float(0),
+                        y: float(4),
+                        blur: float(8),
+                        spread: float(12),
+                        paint,
+                    });
+                }
+            }
+        }
+        let mut writes = Vec::new();
+        let owners = self
+            .modifier_slots
+            .entry(node_id)
+            .or_insert([""; MODIFIER_SLOTS]);
+        for layer in 0..SHADOW_LAYERS {
+            let slot = SHADOW_BASE as usize + layer;
+            if let Some(modifier) = layers.get(layer) {
+                owners[slot] = "shadows";
+                writes.push((slot as u16, modifier.clone()));
+            } else if owners[slot] == "shadows" {
+                owners[slot] = "";
+                writes.push((slot as u16, crate::Modifier::Empty));
+            }
+        }
+        for (index, modifier) in writes {
+            self.write(Mutation::SetModifier {
+                node_id,
+                index,
+                modifier,
+            });
+        }
     }
 
     /// Writes the handler id of an event listener under the property the Renderer fires
@@ -275,15 +329,18 @@ impl NodeWriter {
         const HEIGHT: u16 = 4;
         const TRANSFORM: u16 = 5;
         const ALPHA: u16 = 6;
-        const SHAPE: u16 = 7;
-        const BACKGROUND: u16 = 8;
-        const BORDER: u16 = 9;
-        const ELEVATION: u16 = 10;
-        const CLICKABLE: u16 = 11;
-        const PADDING: u16 = 12;
-        const OBSERVE_SIZE: u16 = 13;
-        const MOTION: u16 = 14;
-        const MATERIAL: u16 = 15;
+        // The displacement and the shadow layers (8 to 11) sit outside the shape and the
+        // fill, so a shadow is cast behind the background and under the padding.
+        const OFFSET: u16 = 7;
+        const SHAPE: u16 = 12;
+        const BACKGROUND: u16 = 13;
+        const BORDER: u16 = 14;
+        const ELEVATION: u16 = 15;
+        const CLICKABLE: u16 = 16;
+        const PADDING: u16 = 17;
+        const OBSERVE_SIZE: u16 = 18;
+        const MOTION: u16 = 19;
+        const MATERIAL: u16 = 20;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -306,6 +363,7 @@ impl NodeWriter {
             "background" | "animated_background" => Some(BACKGROUND),
             "transform" | "animated_offset" => Some(TRANSFORM),
             "alpha" | "animated_alpha" => Some(ALPHA),
+            "offset" => Some(OFFSET),
             "border_width" | "border_color" => Some(BORDER),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
@@ -440,6 +498,14 @@ impl NodeWriter {
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
+            "offset" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let x = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let y = f32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+                Some(Some((OFFSET, Modifier::Offset { x, y })))
+            }
             // CSS `matrix(a, b, c, d, e, f)` and the origin it turns about, eight floats.
             "transform" => {
                 let AttrValue::Bytes(bytes) = value else {
