@@ -8,14 +8,17 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
@@ -30,7 +33,12 @@ import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.roundToInt
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -258,21 +266,27 @@ fun RenderNode(
                     LinearProgressIndicator(progress = { progress }, modifier = modifier)
                 }
             }
-            WidgetKind.ScrollColumn -> Column(
-                modifier = modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = node.verticalArrangement(theme),
-                horizontalAlignment = node.horizontalAlignment(),
-            ) { Children(node, table, dispatcher) }
+            WidgetKind.ScrollColumn -> {
+                val scrollState = rememberHostScrollState(node, dispatcher)
+                Column(
+                    modifier = modifier.verticalScroll(scrollState),
+                    verticalArrangement = node.verticalArrangement(theme),
+                    horizontalAlignment = node.horizontalAlignment(),
+                ) { Children(node, table, dispatcher) }
+            }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
             // so every child is materialised. Use LazyRow when the strip is long. The scroll
             // state is remembered here, under the node's own key, so a recomposition of the
             // row or of any child leaves the position where the user put it.
-            WidgetKind.ScrollRow -> Row(
-                modifier = modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = node.horizontalArrangement(theme),
-                verticalAlignment = node.verticalAlignment(),
-            ) { Children(node, table, dispatcher) }
+            WidgetKind.ScrollRow -> {
+                val scrollState = rememberHostScrollState(node, dispatcher)
+                Row(
+                    modifier = modifier.horizontalScroll(scrollState),
+                    horizontalArrangement = node.horizontalArrangement(theme),
+                    verticalAlignment = node.verticalAlignment(),
+                ) { Children(node, table, dispatcher) }
+            }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
             // each one names the kind of container it is and the design system decides what
@@ -616,6 +630,50 @@ internal fun NodeTable.stackingAxis(nodeId: Int): StackingAxis = when (node(node
 private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { value ->
     value is ProtocolModifier.Material &&
         theme.rules.material(value.role, theme) is SurfaceMaterial.Glass
+}
+
+/**
+ * Remembers the Compose [ScrollState] of a [WidgetKind.ScrollColumn] or [WidgetKind.ScrollRow]
+ * and wires the Host's optional scroll commands (`Value`, `Determinate`, `Count`) and scroll
+ * position reporting (`OnRangeRequested`).
+ */
+@Composable
+private fun rememberHostScrollState(node: Node, dispatcher: EventDispatcher): ScrollState {
+    val state = rememberScrollState()
+    val density = LocalDensity.current
+    val revision = (node.property(PropertyKind.Count) as? PropertyValue.Integer)?.value ?: 0L
+    if (revision > 0L) {
+        LaunchedEffect(node.id, revision, density) {
+            val targetDp = node.number(PropertyKind.Value) ?: 0f
+            val targetPx = with(density) { targetDp.coerceAtLeast(0f).dp.toPx() }.roundToInt()
+            if (node.flag(PropertyKind.Determinate, default = false)) {
+                state.animateScrollTo(targetPx)
+            } else {
+                state.scrollTo(targetPx)
+            }
+        }
+    }
+    val handlerId = node.handler(PropertyKind.OnRangeRequested)
+    if (handlerId != null) {
+        LaunchedEffect(node.id, state, handlerId, density, dispatcher) {
+            snapshotFlow { state.value to state.maxValue }
+                .distinctUntilChanged()
+                .collect { (valuePx, maxPx) ->
+                    val clampedMax = if (maxPx == Int.MAX_VALUE) 0 else maxPx.coerceAtLeast(0)
+                    val offsetDp = with(density) { valuePx.coerceAtLeast(0).toDp().value }
+                    val maxDp = with(density) { clampedMax.toDp().value }
+                    dispatcher.dispatch(
+                        HostEvent.RangeRequested(
+                            node.id,
+                            handlerId,
+                            offsetDp.toBits(),
+                            maxDp.toBits(),
+                        ),
+                    )
+                }
+        }
+    }
+    return state
 }
 
 /**
