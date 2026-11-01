@@ -4079,7 +4079,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
 | NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
-| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 렌더러, NFR-14)의 접근성 트리가 JVM 개발 셸과 같은 구조로 노출될 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). **2026-09-21 트리 노출 충족**(그 측정은 지금 배포되지 않는 AWT native-image 빌드에서 했습니다), VoiceOver 수동 확인은 미완료(§7). AWT 없는 빌드에서 CI가 트리를 걷는 곳은 Kotlin/Native Linux뿐입니다(실행 38823417678의 "linux-x64 static renderer") | Agreed |
+| NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 Kotlin/Native 정적 렌더러, NFR-14)의 접근성 트리가 플랫폼 접근성 API(macOS `NSAccessibility`, Linux `AT-SPI2`, Windows `UI Automation`)로 역할, 라벨, 값, 상태, 포커스, 부모·자식 계층과 컨트롤 동작(`AXPress` 등)까지 노출되고, 접근성 동작 호출이 Host 사건으로 이어져 화면을 바꿀 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). 규격과 수용 기준은 §7 (#418, #419) | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
 | NFR-10 | 렌더러 탐색 경로 | `COMPOSE_RUST_RENDERER_DIR` → 워크스페이스 빌드 결과물 → 버전·타깃별 캐시 → 릴리스 다운로드 순서로 찾음. 규격과 수용 기준은 §5.3. **2026-09-21 충족** | Done |
 | NFR-11 | 배포 | 크레이트는 crates.io, 렌더러는 플랫폼별 체크섬 릴리스 아티팩트. 설치는 `Cargo.toml` 한 줄이 전부이고 빌드 스크립트가 아티팩트를 가져옵니다. 규격과 수용 기준은 §5.3 (INTENT D10). **2026-09-21 macOS에서 충족**, Linux는 "Native renderer test" 실행 38823417678의 "One executable on linux-x64"와 "One executable on linux-arm64" 잡이 릴리스 모양의 타르볼로 소비자 크레이트를 빌드해 실행하는 것까지 확인했습니다. Windows는 실행 확인 미완료 | Agreed |
@@ -4493,13 +4493,26 @@ Objective-C 쪽은 Java의 역할(role)을 **클래스 이름 문자열**로 바
 
 `desktop/scripts/tests/accessibility-link.test.sh`가 아카이브의 클래스와 빌드된 라이브러리의 클래스를 비교해 누락이 있으면 실패합니다. 빌드도 스모크 테스트도 둘 다 통과하므로, 이 검사가 없으면 부재를 알 방법이 없습니다. CI의 macOS 빌드 뒤에 붙였습니다.
 
-### 남은 수용 기준
+### 7.2 Kotlin/Native 데스크톱 렌더러 접근성 (#418, #419)
+
+2026-10-03부터 배포되는 데스크톱 렌더러는 AWT 없는 Kotlin/Native 정적 라이브러리입니다(NFR-14). 각 플랫폼 창은 Compose semantics 트리를 플랫폼 접근성 트리로 내보내고, 화면 판독기와 자동화 도구가 요청하는 동작을 Compose semantics 동작과 Host 사건으로 연결해야 합니다.
+
+- **macOS (`NSAccessibility`, #418)**:
+  - 단일 창(`runRenderer`)과 다중 창(`MacosWindowBackend`) 모두 런루프 턴(`pumpHost`)을 돌아 포인터·키보드·접근성 사건을 Compose 장면으로 전달하고, 매 프레임 뒤에 `NSAccessibility` 트리(`AppKitAccessibilityTree`, `backdrop.accessibilityChildren`)를 갱신합니다.
+  - `Button`과 클릭 가능한 컨테이너(`Row`, `Column`, `Box`, `Surface`, `Card`에 `OnClick`이 붙은 노드, FR-46)가 모두 `AXButton` 역할과 자식 텍스트를 합친 라벨로 노출됩니다.
+  - 외부 프로세스(`System Events` / `AXUIElement`)나 프로세스 안 스냅샷(`accessibilitySnapshot`)이 창을 처음 질의할 때부터 트리가 채워져 있어야 하며, `AXPress`(`accessibilityPerformPress`), 값 설정(`setAccessibilityValue`), 포커스 이동(`setAccessibilityFocused`)을 호출하면 `HostEvent`가 전달되고 새 프레임과 갱신된 접근성 트리가 그려집니다.
+- **Linux (`AT-SPI2`)**: 세션 버스에 `org.a11y.atspi.Accessible`, `Component`, `Action`, `Value`, `Text`, `EditableText` 인터페이스로 역할, 라벨, 상태, 동작을 노출합니다.
+- **Windows (`UI Automation`, #419)**: `WM_GETOBJECT` / `IRawElementProviderSimple`에서 역할과 이름뿐 아니라 컨트롤 패턴(`IInvokeProvider`, `IValueProvider`, `IToggleProvider`, `IRangeValueProvider`), 상태, 포커스, 계층(`IRawElementProviderFragment`), 동작 라우팅을 노출해야 합니다(미완료, #419).
+- **iOS (`UIAccessibility`) / Android (`AccessibilityNodeProvider`)**: 각 플랫폼의 Compose UI 기본 접근성 브리지가 semantics 트리를 그대로 노출합니다.
+
+### 수용 기준
 
 - [x] native-image의 접근성 트리가 JVM과 같은 구조로 노출됨
 - [x] 트리를 질의해도 프로세스가 중단되지 않음
+- [x] Kotlin/Native macOS 렌더러(단일 창·다중 창)가 `NSAccessibility` 트리에 `AXButton`, `AXStaticText`, `AXTextField`, `AXCheckBox` 역할과 라벨·값·상태를 노출하고, `AXPress`(`accessibilityPerformPress`)와 포인터 클릭으로 `HostEvent.Clicked`가 전달되어 화면과 접근성 트리가 바뀌는 자동 테스트(`renderer/macos/test/MacosAccessibilityTest.kt`)가 통과함 (#418)
 - [ ] macOS VoiceOver가 Text와 Button 라벨을 읽음: **사람이 확인해야 합니다**
 - [ ] Tab 키 포커스 순회
-- [ ] Windows Narrator: Windows 빌드 검증 후
+- [ ] Windows UI Automation 컨트롤 패턴·상태·계층·동작 노출 및 Narrator 확인 (#419)
 
 VoiceOver 수동 절차는 `experiments/accessibility/README.md`에 있습니다. 오늘까지는 VoiceOver를 켜는 것만으로 프로세스가 죽어서 2단계를 넘어갈 수 없었고, 이제 끝까지 진행할 수 있습니다.
 

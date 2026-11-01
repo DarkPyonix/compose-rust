@@ -41,8 +41,12 @@ import platform.AppKit.NSWorkspace
 import platform.AppKit.accessibilityDisplayShouldReduceMotion
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
+import platform.Foundation.NSRunLoop
+import platform.Foundation.NSRunLoopCommonModes
+import platform.Foundation.NSTimer
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WindowMode
 
 /**
  * Runs the renderer's Compose application. This is what `compose_rust_renderer_run`
@@ -116,6 +120,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // this renderer happens to be called, which is the library's name and not any
     // application's, and a measurement of zero means it did not ask.
     val asked = host.table.window
+    // Several windows in one process: the Host's `Window` nodes are the windows, and
+    // everything below is the single window's path, which stays as it was.
+    if (asked?.mode == WindowMode.Windows) return runWindows(application, host, asked)
     // How the title bar is built, by the same decision the native image's window takes, so
     // both macOS renderers have the same corners and start the content at the same height.
     val chrome = MacosWindowChrome.of(
@@ -201,13 +208,53 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     val opened = window.measure()
     WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
     WindowStartReport.sceneCreated(opened.width, opened.height, opened.scale)
-    window.onFrameDrawn = { width, height -> WindowStartReport.frameDrawn(width, height) }
+    window.onFrameDrawn = { width, height ->
+        WindowStartReport.frameDrawn(width, height)
+        window.host?.describeForReaders(drew = true)
+    }
+    startSingleWindowTurns(window)
     // The made-up input of a parity run, when `DXC_SYNTH` asks for it.
     startParityRun(window)
 
     application.activateIgnoringOtherApps(true)
     application.run()
     return 0
+}
+
+/** How often the single-window scene takes a turn on the main run loop. */
+private const val SINGLE_WINDOW_TURN_SECONDS = 1.0 / 60.0
+
+/**
+ * Starts the run-loop turns and accessibility updates for the single-window Kotlin/Native
+ * macOS path.
+ *
+ * The fork's window queues input events in its host log and drains them inside `pumpHost`.
+ * `NSApplication.run()` never calls `pumpHost` on its own, so a timer on the main run loop
+ * (in the common modes, so it also runs during a live resize or menu tracking) takes one turn
+ * per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
+ * populated from the first frame for VoiceOver and external `AXUIElement` / `System Events`
+ * clients without waiting for an in-process `accessibilityChildren()` call.
+ */
+internal fun startSingleWindowTurns(window: MacosWindow): NSTimer {
+    window.listenForReader()
+    val previousOnFrameDrawn = window.onFrameDrawn
+    window.onFrameDrawn = { width, height ->
+        previousOnFrameDrawn?.invoke(width, height)
+        window.host?.describeForReaders(drew = true)
+    }
+    var turning = false
+    val timer = NSTimer.timerWithTimeInterval(interval = SINGLE_WINDOW_TURN_SECONDS, repeats = true) { _: NSTimer? ->
+        if (!turning) {
+            turning = true
+            try {
+                window.pumpHost(0L)
+            } finally {
+                turning = false
+            }
+        }
+    }
+    NSRunLoop.mainRunLoop.addTimer(timer, forMode = NSRunLoopCommonModes)
+    return timer
 }
 
 /**
