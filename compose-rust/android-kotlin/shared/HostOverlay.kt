@@ -7,7 +7,6 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
@@ -210,7 +209,7 @@ internal fun HostTooltip(
                         .testTag(tooltipPopupTestTag(node.id))
                         .containerDecoration(node, style, theme, overlay = true),
                 ) {
-                    BasicText(
+                    ThemedText(
                         text = description,
                         style = node.textStyle(theme, style.typeRole).copy(color = style.content),
                     )

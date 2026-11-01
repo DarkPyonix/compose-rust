@@ -3601,6 +3601,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 메뉴(FR-30)의 자리. macOS의 메뉴 막대는 앱에 하나이고 Windows와 Linux의 메뉴는 창마다입니다. 키 창이 바뀔 때 메뉴를 바꾸는 규칙이 필요합니다.
 - 창의 위치와 크기를 다음 실행에 되살리는 일을 Renderer가 할지(FR-43의 확대 수준처럼), 앱이 `WindowMoved`로 들고 있다가 `Position`으로 돌려줄지.
 
+### FR-62 `ScrollColumn`과 `ScrollRow`의 프로그래밍 방식 스크롤 (`Agreed`, 이슈 #385)
+
+요청한 쪽: Ember(대화 로그, 터미널 출력, 탭 스트립에서 새 항목이나 끝으로 스크롤하고 현재 스크롤 위치에 따라 "아래로 이동" 버튼을 보이기). `ScrollColumn`과 `ScrollRow`의 스크롤 상태는 Renderer에 있으나(INTENT D5), 앱이 스크롤 위치를 읽거나 목표 위치로 이동을 요청할 손잡이가 없었습니다.
+
+- `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
+  - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
+  - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
+  - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
+- `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
+- 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
+  - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+
+수용 기준.
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+
 ### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
 
 요청한 쪽: 소유자(2026-10-26, "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해."). 결정과 폐기한 대안은 INTENT D24입니다. 화면 하나, 또는 상태를 정한 컴포넌트 하나를 1440, 1024, 768, 390 폭과 라이트, 다크에서 저장 후 몇 초 안에 보고, 같은 그림을 창 없이 PNG로 뽑아 목업과 나란히 놓거나 CI 이미지 시험에 씁니다. dioxus-compose의 rsx 화면에 대한 빠른 길(컴파일 없는 템플릿 반영)은 dioxus-compose SPEC FR-54입니다.
@@ -3691,6 +3709,22 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-56 TextField가 노드의 채움, 테두리, 모양, 안쪽 여백을 따릅니다 (`Agreed`, 이슈 #376)
+
+요청한 쪽: darkpyonix-ember#220. `TextField`는 노드의 `Background`, `Border`, `Shape`, `Padding`을 무시하고 디자인 시스템의 틀(채움, 선, 모서리, 안쪽 여백)을 늘 그렸습니다. 같은 일을 `Card`와 `Surface`는 `setsOwnBackground`로 이미 합니다.
+
+- 노드가 `Background`를 가지면 시스템의 채움을 그리지 않고 그 채움을 씁니다. 시스템의 밑줄도 그리지 않습니다.
+- 노드가 `Border` 또는 `BorderEach`를 가지면 시스템의 선과 밑줄을 그리지 않습니다. 포커스일 때 선이 바뀌는 시스템 규칙도 함께 꺼집니다. 포커스 표시가 필요하면 앱이 `Border`를 바꿔 보냅니다.
+- 노드가 `Shape`, `ShapeRole`, `CornerEach`를 가지면 그 모양으로 자릅니다.
+- 노드가 `Padding`, `PaddingEach`, `PaddingRole`을 가지면 시스템의 안쪽 여백을 더하지 않습니다(이중 여백 방지).
+- 아무것도 말하지 않은 필드는 지금과 똑같이 시스템의 틀을 그립니다. 글자 크기와 글꼴 지정은 #374(`font`, `span_fonts`, `word_break` 빌더)입니다.
+
+수용 기준.
+1. `Background`를 준 필드의 빈 자리 픽셀이 그 색입니다.
+2. `Border`와 `Background`를 준 필드의 가장자리 픽셀이 테두리 색이고 그 안쪽이 채움 색입니다.
+3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
+4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
+
 ### FR-58 앱 작성 API의 그림자, 오프셋, 글꼴, 단어 나눔 (`Agreed`, 이슈 #374, #375)
 
 요청한 쪽: darkpyonix-ember#220. 와이어에 이미 있는 `Shadow`, `Offset` 수정자와 `Font`, `SpanFonts`, `WordBreak` 속성을 `compose_rust::ui` 빌더에서도 쓸 수 있어야 합니다.
@@ -3705,23 +3739,21 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
 4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
 
-### FR-62 `ScrollColumn`과 `ScrollRow`의 프로그래밍 방식 스크롤 (`Agreed`, 이슈 #385)
+### FR-63 `Canvas`의 기준 좌표계(`view_box`)와 비율 좌표 그리기 (`Agreed`, 이슈 #388)
 
-요청한 쪽: Ember(대화 로그, 터미널 출력, 탭 스트립에서 새 항목이나 끝으로 스크롤하고 현재 스크롤 위치에 따라 "아래로 이동" 버튼을 보이기). `ScrollColumn`과 `ScrollRow`의 스크롤 상태는 Renderer에 있으나(INTENT D5), 앱이 스크롤 위치를 읽거나 목표 위치로 이동을 요청할 손잡이가 없었습니다.
+요청한 쪽: Ember(사용량 게이지, 스트라이프 배경, 스파크라인 차트처럼 `fill_max_width` 컨테이너 크기에 맞춰 늘어나는 `Canvas` 그림). `DrawList`의 명령은 고정 dp 좌표만 받아, 컨테이너 폭을 컴파일 시점에 알 수 없는 화면에서 왼쪽 구석에만 그려지거나 폭을 어림잡아 넘치게 그려야 했습니다.
 
-- `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
-  - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
-  - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
-  - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
-  - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
-- `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
-- 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
-  - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
-  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+- `DrawListBuilder`와 `CanvasScope`에 `.view_box(width: f32, height: f32)`와 `.fractional()`(`.view_box(1.0, 1.0)`의 별칭)을 둡니다.
+- `view_box(w, h)`가 지정되면 `Canvas` 노드에 `Min(w)`와 `Max(h)` 속성을 보냅니다(새 속성 태그를 쓰지 않고 `PropertyKind::Min`과 `PropertyKind::Max`를 `WidgetKind::Canvas`에도 허용합니다). 지정하지 않은 `Canvas`는 두 속성을 내보내지 않고 지금처럼 명령 좌표를 dp로 해석합니다.
+- Renderer의 `HostCanvas`는 `Min(view_w)`와 `Max(view_h)`가 모두 양수일 때:
+  - 가로 좌표(`x`, `x1`, `x2`, `width`, `centerX`)에 `size.width / view_w`를 곱해 픽셀 위치로 바꿉니다.
+  - 세로 좌표(`y`, `y1`, `y2`, `height`, `centerY`)에 `size.height / view_h`를 곱해 픽셀 위치로 바꿉니다.
+  - 반지름(`radius`)에 `min(size.width / view_w, size.height / view_h)`를 곱합니다.
+  - 선 두께(`strokeWidth`)는 캔버스 가로세로 비율이 달라도 찌그러지지 않도록 기존대로 dp(`strokeWidth.dp.toPx()`)로 그립니다.
 
 수용 기준.
-1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
-2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+1. `DrawList::builder().fractional().rect(paint, 0.0, 0.0, 0.5, 1.0, 0.0).build()`를 80dp와 160dp 폭의 두 `Canvas`에 그리면 각각 왼쪽 절반(40dp, 80dp)만 채워집니다(`fr_63_fractional_canvas_scales_commands_to_each_container_width`).
+2. `view_box(100.0, 50.0)` 또는 `fractional()`을 쓴 `Canvas`는 `Min`과 `Max` 속성을 내보내고, 기본 `Canvas`는 내보내지 않습니다(`fr63_canvas_view_box_writes_min_and_max_properties`).
 
 ## 4. 경계 프로토콜
 
@@ -4551,3 +4583,27 @@ VoiceOver 수동 절차는 `experiments/accessibility/README.md`에 있습니다
 ## 8. 열린 질문 추적
 
 [PROJECT.md](../PROJECT.md#열린-질문)의 열린 질문 표를 참고하세요. 결정이 나면 해당 SPEC 항목을 `Agreed`로 올리고 INTENT에 결정을 기록합니다.
+
+### FR-52 앱 글꼴: 글꼴 스택과 테마 기본 글꼴 (`Agreed`, 이슈 #304)
+
+근거: 리더 판단, 소유자 위임 2026-10-26, 기록 #299.
+
+요청한 쪽: Ember. 번들한 Inter와 Pretendard가 macOS, Windows, Linux의 모든 화면에서 쓰여야 한다. 지금은 역할마다 글꼴 파일 하나만 이름 붙일 수 있고, 그 글꼴에 없는 글자(Inter의 한글)는 기계의 글꼴(Apple SD Gothic Neo, 맑은 고딕)에서 온다. Skia는 등록한 글꼴을 시스템 글꼴보다 뒤에 찾기 때문이다.
+
+#### 52.1 규칙
+
+1. **글꼴 스택은 `AssetKind::Font` 에셋이다.** 바이트는 `CRFS` 매직, 버전 1, 패밀리 수, 패밀리마다 얼굴 수와 얼굴 id(전부 little endian `u32`)다. 어떤 글꼴 형식도 `CRFS`로 시작하지 않으므로 새 에셋 종류도 스키마 해시 변경도 없다. 작성 API는 `FontStack::new().family([...]).register()`다.
+2. 패밀리 하나는 한 서체의 얼굴들이고, 굵기와 기울임은 각 파일에서 읽는다. 텍스트는 첫 패밀리로 쓰고, 첫 패밀리에 글리프가 없는 글자는 그 글자를 가진 다음 패밀리로 쓴다. 어느 패밀리에도 없으면 플랫폼 대체 글꼴이다.
+3. 등록하지 않은 얼굴 id를 담은 스택은 통째로 거절하고 `ProtocolError`를 보낸다.
+4. **`Theme::with_default_font(id)`** 는 `Mono`를 뺀 모든 역할을 그 글꼴로 해석한다. 역할이 없는 텍스트가 글꼴 목록을 주지 않으면 테마의 `Body` 글꼴을 쓴다.
+5. 글자 단위 대체는 `Text`, `Button`, `Chip`, 라벨을 그리는 모든 위젯, `TextField`에 같이 적용되고, 측정 호출과 그리기가 같은 값을 낸다. FR-48.1 규칙 3(글꼴 목록의 글자 단위 대체)도 같은 구현이다.
+6. 역할이 없는 `TextField`는 `Text`처럼 `font` 목록을 받는다.
+7. 같은 패밀리 이름의 두 얼굴은 두 얼굴로 남는다.
+
+#### 52.2 수용 기준
+
+1. 스택 바이트가 왕복하고 글꼴 파일과 섞이지 않는다(fr52_a_font_stack_round_trips_in_order, fr52_font_stack_bytes_are_never_a_font_file).
+2. `with_default_font`가 `Mono`를 뺀 모든 역할을 채운다(fr52_a_default_font_names_every_role_but_mono).
+3. 스택으로 쓴 `Text`, `Button`, `Chip`, `TextField`의 한글이 번들한 한글 얼굴로 그려진다(fr52_text_in_a_stack_takes_hangul_from_the_shipped_korean_face 등). 한글 얼굴이 없으면 그렇지 않다(fr52_without_the_korean_face_hangul_comes_from_the_machine).
+4. 글꼴 목록의 다음 글꼴로 넘어간 글자의 측정값이 그린 값과 같다(fr48_missing_glyph_falls_to_next_font).
+5. 데스크톱 렌더러 셋(macOS, Linux, Windows Kotlin/Native와 GraalVM)은 같은 인터프리터 파일로 빌드되므로 위 테스트가 그 셋을 덮는다. 실제 창에서 본 확인은 Ember 화면으로 따로 한다.

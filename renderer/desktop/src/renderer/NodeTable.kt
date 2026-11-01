@@ -845,6 +845,12 @@ class NodeTable {
                     (
                         property == PropertyKind.Value &&
                             (widget == WidgetKind.ScrollColumn || widget == WidgetKind.ScrollRow)
+                        ) ||
+                    // A Canvas's reference coordinate space (width in Min, height in Max)
+                    // when its commands are written in fractional or view-box coordinates.
+                    (
+                        (property == PropertyKind.Min || property == PropertyKind.Max) &&
+                            widget == WidgetKind.Canvas
                         )
 
                 // One boolean for the three toggles: a selected radio button and a switch
@@ -917,9 +923,10 @@ class NodeTable {
 
                 // What text laid out by CSS needs: its own fonts, where its lines may
                 // break, its tab stops, sizes the system's font scale leaves alone, and
-                // whether it wraps at all. Only a Text: a control's label is set by the
-                // design system.
-                PropertyKind.Font,
+                // whether it wraps at all. A Text, and its own list of fonts on a TextField
+                // A control's label is set by the design system.
+                PropertyKind.Font -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
                 PropertyKind.SpanFonts,
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
