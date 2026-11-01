@@ -42,6 +42,7 @@ import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
 import dev.darkpyonix.composerust.ui.overflow
@@ -149,13 +150,27 @@ internal fun resolveText(
     // way that stays right where the font scale is not linear.
     fun sized(value: Float): TextUnit = value.sp
 
+    // The families this text's letters are drawn from. For text with no role, its own font
+    // list; for text with a role, the theme's, where the theme set the role in a stack.
+    // Text with no role that names no font is set in the application's own font where the
+    // theme gave one, the way a page with no font-family is set in the browser's default.
+    val chain = if (input.noRole) {
+        val appFont = theme.fonts[TypeRole.Body]?.takeIf { input.fonts.isEmpty() }
+        if (appFont != null) {
+            theme.chainFor(appFont) ?: FontChain(listOf(FontChain.Member(appFont, null)))
+        } else {
+            resolveFontChain(input.fonts, assets, problems)
+        }
+    } else {
+        theme.chainFor(theme.family(input.role ?: input.defaultRole))
+    }
     val style = if (input.noRole) {
         TextStyle(
             fontSize = sized(input.fontSize ?: TextInput.NO_ROLE_FONT_SIZE),
             fontWeight = FontWeight(input.fontWeight ?: TextInput.NO_ROLE_FONT_WEIGHT),
             lineHeight = input.lineHeight?.let(::sized) ?: TextUnit.Unspecified,
             letterSpacing = input.letterSpacing?.let(::sized) ?: TextUnit.Unspecified,
-            fontFamily = resolveFontFamily(input.fonts, assets, problems),
+            fontFamily = chain?.primary,
         )
     } else {
         val role = input.role ?: input.defaultRole
@@ -193,7 +208,7 @@ internal fun resolveText(
         WordBreak.BreakAll -> BreakMode.BreakAll
         WordBreak.Normal, null -> BreakMode.Normal
     }
-    val text = annotate(input, runs, mode, theme, assets, density, ::sized, link, problems)
+    val text = annotate(input, runs, mode, chain, theme, assets, density, ::sized, link, problems)
     val (placeholders, inline) = tabStops(text, style, input.tabSize, density, fontFamilyResolver)
 
     // Breaking anywhere only matters to the narrowest width: laid out at any width, a word
@@ -201,7 +216,7 @@ internal fun resolveText(
     // made only for that question, and only where the answer differs.
     val anywhere = input.overflowWrap == OverflowWrap.Anywhere && mode != BreakMode.BreakAll
     val minContent = if (anywhere) {
-        annotate(input, runs, BreakMode.BreakAll, theme, assets, density, ::sized, null, mutableListOf())
+        annotate(input, runs, BreakMode.BreakAll, chain, theme, assets, density, ::sized, null, mutableListOf())
     } else {
         null
     }
@@ -232,30 +247,59 @@ internal fun textDensity(input: TextInput, density: Density): Density =
     if (input.absoluteSize && density.fontScale != 1f) Density(density.density, 1f) else density
 
 /**
- * The first candidate that resolves, as a CSS font list is read.
- *
- * A registered font asset that is not there is reported and passed over. An installed
- * family is asked for by name, and a name the machine does not have is passed over without
- * a report, because a list that names fonts it may not find is what a font list is for.
- * Nothing resolving is a sans serif.
+ * The text's family, as a CSS font list is read: the first candidate that resolves.
  */
 internal fun resolveFontFamily(
     refs: List<FontRef>,
     assets: AssetCache,
     problems: MutableList<String>,
-): FontFamily {
+): FontFamily = resolveFontChain(refs, assets, problems).primary
+
+/**
+ * The candidates that resolve, in order, as a CSS font list is read: the text is set in
+ * the first, and a letter it has no glyph for comes from the next one that has it.
+ *
+ * A registered font asset that is not there is reported and passed over, and a registered
+ * stack contributes all of its families. An installed family is asked for by name, and a
+ * name the machine does not have is passed over without a report, because a list that
+ * names fonts it may not find is what a font list is for. An installed or a generic family
+ * takes every letter left, so the list stops there. Nothing resolving is a sans serif.
+ */
+internal fun resolveFontChain(
+    refs: List<FontRef>,
+    assets: AssetCache,
+    problems: MutableList<String>,
+): FontChain {
+    val members = ArrayList<FontChain.Member>()
     for (ref in refs) {
         when (ref) {
             is FontRef.Asset -> {
                 val font = assets.asset(ref.assetId) as? Asset.Font
-                if (font != null) return font.family
-                problems += "font asset ${ref.assetId} is not a registered font; the next font in the list is used"
+                if (font == null) {
+                    problems += "font asset ${ref.assetId} is not a registered font; the next font in the list is used"
+                    continue
+                }
+                val chain = font.chain
+                if (chain != null) {
+                    members += chain.members
+                } else {
+                    members += FontChain.Member(font.family, font.face?.hasGlyph)
+                    if (font.face == null) break
+                }
             }
-            is FontRef.System -> systemFontFamily(ref.name)?.let { return it }
-            is FontRef.Generic -> return genericFontFamily(ref.family)
+            is FontRef.System -> {
+                val family = systemFontFamily(ref.name) ?: continue
+                members += FontChain.Member(family, null)
+                break
+            }
+            is FontRef.Generic -> {
+                members += FontChain.Member(genericFontFamily(ref.family), null)
+                break
+            }
         }
     }
-    return FontFamily.SansSerif
+    if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
+    return FontChain(members)
 }
 
 /** Which installed family each generic name is, which is the platform's answer. */
@@ -328,6 +372,7 @@ private fun annotate(
     input: TextInput,
     runs: List<TextRun>,
     mode: BreakMode,
+    chain: FontChain?,
     theme: ResolvedTheme,
     assets: AssetCache,
     density: Density,
@@ -337,7 +382,10 @@ private fun annotate(
 ): AnnotatedString {
     val broken = breakText(input.text, mode)
     val hasTabs = broken.text.indexOf('\t') >= 0
-    if (runs.isEmpty() && !hasTabs) return AnnotatedString(broken.text)
+    // Letters the text's first family lacks, set in the family of its chain that has them.
+    // Added before the runs, so a run that names its own font sets its letters in that.
+    val fallback = chain?.spans(broken.text).orEmpty()
+    if (runs.isEmpty() && !hasTabs && fallback.isEmpty()) return AnnotatedString(broken.text)
     val utf8 = if (runs.isEmpty()) null else input.text.encodeToByteArray()
     return buildAnnotatedString {
         // Tabs become placeholders, each standing in place of its own character, so the
@@ -350,15 +398,17 @@ private fun annotate(
                 append(char)
             }
         }
+        for (span in fallback) addStyle(span.item, span.start, span.end)
         if (utf8 == null) return@buildAnnotatedString
         runs.forEachIndexed { index, run ->
             val from = broken.position(utf8.decodeToString(0, run.start).length)
             val to = broken.position(utf8.decodeToString(0, run.start + run.length).length)
             // A run of text with no role may name its own font. Where the text has a
             // role, or the run does, the font is the theme's.
-            val family = input.runFonts[index]
+            val runChain = input.runFonts[index]
                 ?.takeIf { input.noRole && run.role == null }
-                ?.let { resolveFontFamily(it, assets, problems) }
+                ?.let { resolveFontChain(it, assets, problems) }
+            val family = runChain?.primary
             val style = SpanStyle(
                 color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
                 // Behind this run's letters only, line by line where it wraps. The line's
@@ -377,6 +427,9 @@ private fun annotate(
                 },
             )
             addStyle(style, from, to)
+            runChain?.spans(broken.text.substring(from, to))?.forEach { span ->
+                addStyle(span.item, from + span.start, from + span.end)
+            }
             if (link != null && run.handlerId != 0L) addLink(link(run), from, to)
         }
     }

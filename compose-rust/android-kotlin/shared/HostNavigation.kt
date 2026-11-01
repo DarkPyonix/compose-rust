@@ -32,7 +32,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -456,7 +455,7 @@ private fun BarStrip(
 @Composable
 private fun SectionHeading(name: String, style: NavigationStyle, theme: ResolvedTheme) {
     val token = theme.type(TypeRole.Caption)
-    BasicText(
+    ThemedText(
         text = name,
         style = TextStyle(
             fontSize = token.fontSize,
@@ -887,7 +886,7 @@ private fun DestinationLabel(
 ) {
     if (!show) return
     val rung = node.textStyle(theme, style.typeRole)
-    BasicText(
+    ThemedText(
         text = label,
         style = rung.copy(color = tint, fontWeight = style.destinationWeight ?: rung.fontWeight),
     )

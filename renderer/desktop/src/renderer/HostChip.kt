@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -104,7 +103,7 @@ internal fun HostChip(
             // One line unless the Host asked for more: a wrapped chip label is measured at one
             // syllable of Hangul and its second line is clipped by the chip's height.
             val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
-            BasicText(
+            ThemedText(
                 text = label,
                 style = node.textStyle(theme, style.typeRole).copy(color = content),
                 maxLines = lines,
