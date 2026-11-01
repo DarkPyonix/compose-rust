@@ -3691,6 +3691,20 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+### FR-58 앱 작성 API의 그림자, 오프셋, 글꼴, 단어 나눔 (`Agreed`, 이슈 #374, #375)
+
+요청한 쪽: darkpyonix-ember#220. 와이어에 이미 있는 `Shadow`, `Offset` 수정자와 `Font`, `SpanFonts`, `WordBreak` 속성을 `compose_rust::ui` 빌더에서도 쓸 수 있어야 합니다.
+
+- `ui::Shadow { x, y, blur, spread, paint }`, `Modifier::shadow(Shadow)`, `Modifier::shadows(iter)`, `Modifier::offset(x, y)`. `ui::Modifier`는 `Copy`이므로 그림자 층은 고정 개수(`MAX_SHADOWS = 4`)이고, 넘는 층은 무시합니다. 층은 더한 순서대로 아래에서 위로 그립니다(FR-42.3).
+- 슬롯: 사슬에서 `Offset`과 `Shadow` 층이 `Shape`, `Background` 바깥에 오도록 수정자 슬롯 번호를 다시 매겼습니다(번호는 한 실행 안에서만 맞으면 됩니다). 줄어든 목록은 남은 층의 슬롯을 비웁니다. 그림자를 쓰지 않는 노드는 아무 기록도 늘지 않습니다.
+- `Text::font(FontRefs)`, `Text::word_break(WordBreak)`, `TextField::font(FontRefs)`. 글꼴 목록은 역할이 `None`인 글에만 적용됩니다. 스팬이 이름 붙인 글꼴은 `TextSpans`의 글꼴 표로 `SpanFonts`에 실립니다. `TextField::word_break`는 Renderer의 TextField가 단어 나눔을 읽지 않으므로 만들지 않았습니다.
+
+수용 기준.
+1. 층이 둘인 `Modifier`는 `Shadow` 수정자 둘을 보내고, 층 수가 줄면 슬롯이 비워집니다.
+2. 층 여섯을 주면 네 개만 나갑니다.
+3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
+4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
