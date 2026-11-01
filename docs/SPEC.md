@@ -3601,6 +3601,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 메뉴(FR-30)의 자리. macOS의 메뉴 막대는 앱에 하나이고 Windows와 Linux의 메뉴는 창마다입니다. 키 창이 바뀔 때 메뉴를 바꾸는 규칙이 필요합니다.
 - 창의 위치와 크기를 다음 실행에 되살리는 일을 Renderer가 할지(FR-43의 확대 수준처럼), 앱이 `WindowMoved`로 들고 있다가 `Position`으로 돌려줄지.
 
+### FR-62 `ScrollColumn`과 `ScrollRow`의 프로그래밍 방식 스크롤 (`Agreed`, 이슈 #385)
+
+요청한 쪽: Ember(대화 로그, 터미널 출력, 탭 스트립에서 새 항목이나 끝으로 스크롤하고 현재 스크롤 위치에 따라 "아래로 이동" 버튼을 보이기). `ScrollColumn`과 `ScrollRow`의 스크롤 상태는 Renderer에 있으나(INTENT D5), 앱이 스크롤 위치를 읽거나 목표 위치로 이동을 요청할 손잡이가 없었습니다.
+
+- `ScrollState`와 `remember_scroll_state() -> ScrollState`를 둡니다.
+  - `state.offset() -> f32`: 현재 스크롤 위치(dp). 읽은 스코프는 위치가 바뀔 때 다시 실행됩니다.
+  - `state.max_offset() -> f32`: 스크롤할 수 있는 최대 거리(dp). 읽은 스코프는 최대 거리가 바뀔 때 다시 실행됩니다.
+  - `state.scroll_to(dp: f32)`: 주어진 위치(dp)로 즉시 이동을 요청합니다.
+  - `state.animate_scroll_to(dp: f32)`: 주어진 위치(dp)로 부드러운 이동을 요청합니다.
+- `ScrollColumnScope`와 `ScrollRowScope`에 `.scroll_state(&ScrollState)`를 둡니다. 붙이지 않은 `ScrollColumn`과 `ScrollRow`는 어떤 속성도 핸들러도 더 내보내지 않습니다.
+- 와이어 표현은 새 태그를 만들지 않고 기존 속성과 이벤트를 재사용합니다:
+  - 이동 요청이 있을 때 `Value(target_dp)`, `Determinate(animate)`, `Count(revision)`를 `ScrollColumn`/`ScrollRow` 노드에 보냅니다(`revision`이 증가하므로 같은 `0.0` 위치로 거듭 `scroll_to(0.0)`을 불러도 매번 실행됩니다).
+  - `OnRangeRequested` 핸들러가 붙은 `ScrollColumn`/`ScrollRow`는 스크롤 위치나 최대 스크롤 거리가 바뀔 때 `RangeRequested(node_id, handler_id, offset_dp.to_bits() as i32, max_offset_dp.to_bits() as i32)`로 두 `f32`(dp)를 정확히 보고합니다.
+
+수용 기준.
+1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
+2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+
 ### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
 
 요청한 쪽: 소유자(2026-10-26, "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해."). 결정과 폐기한 대안은 INTENT D24입니다. 화면 하나, 또는 상태를 정한 컴포넌트 하나를 1440, 1024, 768, 390 폭과 라이트, 다크에서 저장 후 몇 초 안에 보고, 같은 그림을 창 없이 PNG로 뽑아 목업과 나란히 놓거나 CI 이미지 시험에 씁니다. dioxus-compose의 rsx 화면에 대한 빠른 길(컴파일 없는 템플릿 반영)은 dioxus-compose SPEC FR-54입니다.
@@ -3670,6 +3688,21 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 14. macOS arm64, Linux x64, Windows x64에서 `watch`가 창을 열고 `export`가 PNG를 씁니다. Windows는 확인한 날짜를 따로 적습니다.
 15. compose-rust의 풀 리퀘스트에서 CI가 샘플 미리보기 PNG를 아티팩트로 올립니다(Linux x64, macOS arm64).
 
+### FR-64 닫힌 선택 필드와 메뉴 항목 (`Agreed`, 이슈 #383)
+
+요청한 쪽: darkpyonix-ember(모델 고르기 막대, 프로젝트 고르기 막대, 컨텍스트 메뉴). 도구 막대의 한 줄에 들어가는 선택 컨트롤은 평소에는 닫힌 필드 한 줄이어야 하고, 노드가 스스로 배경과 테두리와 모서리와 여백을 정했을 때는 그 모양으로 그려져야 하며, 열렸을 때 팝업이 앵커 아래에 떠야 합니다. 메뉴 안의 항목은 알약 버튼이 아니라 왼쪽 정렬된 행이어야 합니다.
+
+- **`Select(selected_index)`와 `Dropdown::closed(bool)`.** `DropdownScope::closed(true)`(속성 `Collapsible=true`)와 `Select(selected_index)`는 디자인 시스템의 기본 선택기 모양이 바퀴(`ChoicePresentation.Wheel`)여도 닫힌 필드 한 줄로 그리고, 누르면 항목 목록을 팝업으로 엽니다.
+- **닫힌 필드의 자체 꾸밈.** `Dropdown` 노드가 `Background`, `Border`, `Shape`, `Padding` 수정자를 직접 가졌을 때는 닫힌 필드가 기본 `Surface` 채움과 `1dp Outline` 테두리를 덧칠하지 않고 노드가 정한 모양을 따릅니다.
+- **앵커 아래 팝업 배치.** `Menu`와 닫힌 `Dropdown`이 여는 팝업은 앵커의 아래쪽 가장자리(`anchorBounds.bottom`)에 맞춰 열리고, 창 아래쪽이 모자랄 때만 위로 뒤집힙니다.
+- **`MenuItem(text)`.** 메뉴 행 빌더로 `.icon(IconRole)`, `.selected(bool)`, `.enabled(bool)`, `.color(Paint)`, `.color_if(Option<Paint>)`, `.on_click(FnMut())`, `.modifier(Modifier)`를 가집니다. `Button` 노드에 `Variant=Text`, `TextAlign=Start`, `Checked=selected`를 실어 보내고, Renderer는 왼쪽 정렬된 본문 색 행으로 그리며 `Checked=true`이면 선택 강조 배경과 선택 의미 정보를 붙입니다.
+
+수용 기준.
+1. `LiquidGlass`와 `Cupertino`에서 `Select(0)`(또는 `Dropdown(0).closed(true)`)은 바퀴가 아니라 닫힌 한 줄 필드로 그려지고, 누르면 팝업이 필드 아래에 열립니다.
+2. `Dropdown`에 `Modifier.background(...)`와 `Modifier.border(...)`를 주면 닫힌 필드가 기본 `Surface` 상자로 덮이지 않고 지정한 배경과 테두리로 그려집니다.
+3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
+4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
@@ -3721,6 +3754,18 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
 4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
 
+### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
+
+요청한 쪽: darkpyonix-ember#220, #208. 한글 라벨을 가진 Button과 Chip이 폭 추정 없이 쓰이도록, 앱이 줄 수와 넘침 처리를 직접 말할 수 있어야 합니다.
+
+- `ui::Button`과 `ui::Chip` 빌더에 `max_lines(u32)`와 `overflow(TextOverflow)`가 있습니다. 부르면 `MaxLines`와 `Overflow` 속성을 보내고, 부르지 않으면 지금까지처럼 아무것도 보내지 않습니다.
+- Renderer의 Chip도 Button처럼 `MaxLines`와 `Overflow`를 읽습니다. 말하지 않은 라벨은 한 줄에 말줄임표입니다.
+- `label_min_width`는 스키마에 속성이 없고(이슈의 `AttrKey::LabelMinWidth`는 존재하지 않습니다), 한 줄 기본값이 라벨을 음절 사이에서 끊는 일을 이미 막습니다. 속성을 새로 내는 일은 이 항목의 범위 밖이고, 필요한 사례가 나오면 별도 이슈로 다룹니다.
+
+수용 기준.
+1. Button과 Chip에 `max_lines`, `overflow`를 주면 같은 이름의 속성이 한 번씩 나가고, 주지 않으면 나가지 않습니다.
+2. 폭이 좁은 Chip의 긴 한글 라벨은 기본이 한 줄이고, `MaxLines = 3`이면 더 큽니다.
+
 ### FR-58 앱 작성 API의 그림자, 오프셋, 글꼴, 단어 나눔 (`Agreed`, 이슈 #374, #375)
 
 요청한 쪽: darkpyonix-ember#220. 와이어에 이미 있는 `Shadow`, `Offset` 수정자와 `Font`, `SpanFonts`, `WordBreak` 속성을 `compose_rust::ui` 빌더에서도 쓸 수 있어야 합니다.
@@ -3734,6 +3779,18 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. 층 여섯을 주면 네 개만 나갑니다.
 3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
 4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
+
+### FR-59 작은 진행 표시 고리의 획 굵기 (`Agreed`, 이슈 #377)
+
+요청한 쪽: darkpyonix-ember#220. 14dp 고리가 디자인 시스템의 4dp 굵기로 그려져 목업의 12px 고리, 2px 획과 맞지 않았습니다.
+
+- 원형 `ProgressIndicator`가 `Size`, `Width`, `Height` 수정자로 크기를 말하면(둘 다면 작은 쪽) 획 굵기는 `min(시스템 굵기, 지름 x 0.15)`입니다. 크기를 말하지 않았거나 큰 고리는 시스템의 굵기 그대로입니다.
+- **`stroke_width` 속성과 트랙, 표시 색 속성은 만들지 않습니다.** 새 속성은 스키마 해시와 생성 파일을 바꾸는 일이고, 크기에 비례하는 굵기가 요청의 한 갈래(`thickness following the size`)를 채웁니다. 색은 디자인 시스템의 것입니다. 앱이 색까지 정해야 하는 사례가 나오면 별도 이슈로 다룹니다.
+
+수용 기준.
+1. 지름 14dp, 시스템 굵기 4dp이면 획은 2.1dp입니다.
+2. 크기를 말하지 않은 고리는 시스템 굵기입니다.
+3. 80dp 고리는 시스템 굵기입니다.
 
 ### FR-63 `Canvas`의 기준 좌표계(`view_box`)와 비율 좌표 그리기 (`Agreed`, 이슈 #388)
 
@@ -3750,6 +3807,18 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 수용 기준.
 1. `DrawList::builder().fractional().rect(paint, 0.0, 0.0, 0.5, 1.0, 0.0).build()`를 80dp와 160dp 폭의 두 `Canvas`에 그리면 각각 왼쪽 절반(40dp, 80dp)만 채워집니다(`fr_63_fractional_canvas_scales_commands_to_each_container_width`).
 2. `view_box(100.0, 50.0)` 또는 `fractional()`을 쓴 `Canvas`는 `Min`과 `Max` 속성을 내보내고, 기본 `Canvas`는 내보내지 않습니다(`fr63_canvas_view_box_writes_min_and_max_properties`).
+
+### FR-60 모서리별 반지름과 컨테이너 자르기 (`Agreed`, 이슈 #392)
+
+요청한 쪽: darkpyonix-ember#220. 한 컨테이너 안의 이어진 행(사이드바 목록의 위끝·아래끝 행, 팝오버의 위·아래 줄)은 일부 모서리만 둥글고 나머지는 직각이어야 하며, 컨테이너의 자식이 그 모서리와 테두리 안쪽으로 잘려야 합니다.
+
+- `Modifier::corner_radii([top_start, top_end, bottom_end, bottom_start])`를 추가합니다. 와이어에는 이미 있는 `Modifier::Shape { top_start, top_end, bottom_end, bottom_start }`(FR-13.3)로 내려가며, `corner_radius` 및 `shape_role`과 같은 모양 슬롯을 공유합니다.
+- `Modifier::clip(bool)`을 추가합니다. 와이어에는 이미 있는 `Modifier::Clip { enabled }`로 내려가며, `Clip(true)`는 노드가 가진 모서리(`CornerEach` 또는 `Shape`/`ShapeRole`)가 있으면 그 모양으로, 없으면 직사각형으로 자릅니다.
+- `Card`와 `Surface`가 자체 `Background`를 가질 때도(`setsOwnBackground`), 컨테이너의 모양으로 자르고 시스템이 정한 테두리와 안쪽 여백을 유지합니다(시스템의 채움만 건너뜁니다).
+
+수용 기준.
+1. `Modifier::corner_radii([8.0, 8.0, 0.0, 0.0])`는 네 모서리 값이 그대로 담긴 `Shape` 수정자 한 건을 보내고, `Modifier::clip(true)`는 `Clip(true)` 수정자 한 건을 보냅니다.
+2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
 
 ## 4. 경계 프로토콜
 

@@ -110,6 +110,7 @@ pub struct Modifier {
     background: Option<Paint>,
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
+    corner_radii: Option<[f32; 4]>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     elevation: Option<f32>,
@@ -120,6 +121,7 @@ pub struct Modifier {
     animated_offset: Option<crate::Animated<(f32, f32)>>,
     cursor: Option<crate::Cursor>,
     user_select: Option<crate::UserSelect>,
+    clip: bool,
     offset: Option<(f32, f32)>,
     shadows: [Option<Shadow>; MAX_SHADOWS],
     fill_max_width: bool,
@@ -145,6 +147,7 @@ impl Modifier {
             background: None,
             shape_role: None,
             corner_radius: None,
+            corner_radii: None,
             border_width: None,
             border_color: None,
             elevation: None,
@@ -155,6 +158,7 @@ impl Modifier {
             animated_offset: None,
             cursor: None,
             user_select: None,
+            clip: false,
             offset: None,
             shadows: [None; MAX_SHADOWS],
             fill_max_width: false,
@@ -247,6 +251,21 @@ impl Modifier {
     /// A literal corner, in dp. Wins over `shape_role`.
     pub const fn corner_radius(mut self, dp: f32) -> Self {
         self.corner_radius = Some(dp);
+        self.corner_radii = None;
+        self
+    }
+
+    /// Individual corner radii `[top_start, top_end, bottom_end, bottom_start]`, in dp.
+    /// Wins over `shape_role` and `corner_radius`.
+    pub const fn corner_radii(mut self, radii: [f32; 4]) -> Self {
+        self.corner_radii = Some(radii);
+        self.corner_radius = None;
+        self
+    }
+
+    /// Clips the node and its children to its shape, or to its rectangle when it has none.
+    pub const fn clip(mut self, clip: bool) -> Self {
+        self.clip = clip;
         self
     }
 
@@ -464,6 +483,19 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(standard, "shape_role", role(modifier.shape_role));
     push(standard, "corner_radius", float(modifier.corner_radius));
+    push(
+        false,
+        "corner_radii",
+        modifier.corner_radii.map_or(OwnedAttr::None, |values| {
+            OwnedAttr::Bytes(
+                values
+                    .iter()
+                    .flat_map(|value| value.to_le_bytes())
+                    .collect(),
+            )
+        }),
+    );
+    push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
     push(standard, "elevation", float(modifier.elevation));

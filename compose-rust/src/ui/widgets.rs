@@ -476,17 +476,164 @@ macro_rules! plain_container {
     };
 }
 
-plain_container!(
+/// The scroll position of a [`ScrollColumn`] or [`ScrollRow`], and a handle to move it.
+///
+/// The Renderer owns the scroll physics and the scrollbar; this handle reads the current
+/// offset and maximum offset in dp as observable states and sends target scroll requests.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScrollState {
+    offset: crate::runtime::MutableState<f32>,
+    max_offset: crate::runtime::MutableState<f32>,
+    command: crate::runtime::MutableState<(i64, f32, bool)>,
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScrollState {
+    /// Creates a new scroll state starting at 0 dp.
+    pub fn new() -> Self {
+        Self {
+            offset: crate::runtime::mutable_state_of(0.0),
+            max_offset: crate::runtime::mutable_state_of(0.0),
+            command: crate::runtime::mutable_state_of((0, 0.0, false)),
+        }
+    }
+
+    /// The current scroll offset in dp. A composable that reads this runs again when the
+    /// user or a programmatic scroll moves the container.
+    pub fn offset(&self) -> f32 {
+        self.offset.get()
+    }
+
+    /// The furthest offset in dp the container can scroll to (`0.0` when the content fits
+    /// inside the viewport). A composable that reads this runs again when the content or
+    /// viewport size changes the scrollable distance.
+    pub fn max_offset(&self) -> f32 {
+        self.max_offset.get()
+    }
+
+    /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), false));
+    }
+
+    /// Smoothly scrolls to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn animate_scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), true));
+    }
+}
+
+/// Remembers a [`ScrollState`] across recompositions. Compose's `rememberScrollState`.
+pub fn remember_scroll_state() -> ScrollState {
+    crate::runtime::remember(ScrollState::new)
+}
+
+fn scroll_state_input(
+    state: Option<ScrollState>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    let (revision, target, animate) = state.command.get();
+    if revision > 0 {
+        attrs.push(("value", OwnedAttr::Float(f64::from(target))));
+        attrs.push(("determinate", OwnedAttr::Bool(animate)));
+        attrs.push(("count", OwnedAttr::Int(revision)));
+    }
+    let offset = state.offset.clone();
+    let max_offset = state.max_offset.clone();
+    listeners.push((
+        "onrangerequest",
+        EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
+            let next_offset = f32::from_bits(range.start() as u32);
+            let next_max = f32::from_bits(range.count() as u32);
+            if next_offset.is_finite() {
+                offset.set(next_offset);
+            }
+            if next_max.is_finite() {
+                max_offset.set(next_max);
+            }
+        }))),
+    ));
+}
+
+macro_rules! scroll_container {
+    ($name:ident, $widget:ident, $key:literal, $doc:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            scroll_state: Option<ScrollState>,
+            pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
+            done: bool,
+        }
+
+        #[doc = $doc]
+        pub fn $widget() -> $name {
+            $name {
+                modifier: Modifier::new(),
+                scroll_state: None,
+                pointer: None,
+                on_click: None,
+                done: false,
+            }
+        }
+
+        impl $name {
+            /// Binds a [`ScrollState`] so the application can read `offset()` and
+            /// `max_offset()` or call `scroll_to` and `animate_scroll_to`.
+            pub fn scroll_state(mut self, state: &ScrollState) -> Self {
+                self.scroll_state = Some(state.clone());
+                self
+            }
+
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let scroll_state = self.scroll_state.take();
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                scroll_state_input(scroll_state, &mut subscription, &mut listeners);
+                pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, Mods::Standard, attrs);
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
+                    content,
+                );
+            }
+        }
+
+        container!($name);
+        pointer_subscription!($name);
+        click_handler!($name);
+    };
+}
+
+scroll_container!(
     ScrollColumnScope,
     ScrollColumn,
-    Mods::Standard,
     "compose_rust::ui::ScrollColumn",
     "All of its content, with a vertical scroll the Renderer owns."
 );
-plain_container!(
+scroll_container!(
     ScrollRowScope,
     ScrollRow,
-    Mods::Standard,
     "compose_rust::ui::ScrollRow",
     "All of its content, with a horizontal scroll the Renderer owns."
 );
@@ -850,6 +997,17 @@ composed_on_drop!(TextFieldScope);
 
 // ----- buttons and controls ---------------------------------------------------------------
 
+/// The label's line limit and overflow, written only when they were set, so a widget that
+/// never asks for them sends what it always sent.
+fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, attrs: &mut Attrs) {
+    if let Some(lines) = max_lines {
+        attrs.push(("max_lines", OwnedAttr::Int(i64::from(lines))));
+    }
+    if overflow.is_some() {
+        attrs.push(("overflow", role_or_zero(overflow)));
+    }
+}
+
 /// A `Button` and its builder.
 pub struct ButtonScope {
     modifier: Modifier,
@@ -859,6 +1017,8 @@ pub struct ButtonScope {
     variant: Option<ButtonVariant>,
     kind: Option<ButtonKind>,
     color: Option<Paint>,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -877,6 +1037,8 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         variant: None,
         kind: None,
         color: None,
+        max_lines: None,
+        overflow: None,
         on_click: None,
         done: false,
     }
@@ -906,6 +1068,19 @@ impl ButtonScope {
         self
     }
 
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// Korean label is never broken between syllables by a squeezed parent.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
     /// The label's colour, for the rare button whose meaning is not its variant's.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
@@ -928,6 +1103,7 @@ impl ButtonScope {
         let text = std::mem::take(&mut self.text);
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -940,6 +1116,7 @@ impl ButtonScope {
                 attrs.push(("variant", role_or_zero(variant)));
                 attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
+                lines_and_overflow(max_lines, overflow, attrs);
             },
             listeners,
             content,
@@ -1515,6 +1692,7 @@ pub struct DropdownScope {
     modifier: Modifier,
     selected_index: usize,
     enabled: bool,
+    closed: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
     done: bool,
 }
@@ -1525,14 +1703,28 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         modifier: Modifier::new(),
         selected_index,
         enabled: true,
+        closed: false,
         on_change: None,
         done: false,
     }
 }
 
+/// A compact closed-field selector that always rests as a single line and opens its
+/// options in a popup below the field on every design system.
+pub fn Select(selected_index: usize) -> DropdownScope {
+    Dropdown(selected_index).closed(true)
+}
+
 impl DropdownScope {
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Keeps the control as a closed single-line field that opens a popup menu on click,
+    /// even on design systems whose default picker presentation is a wheel.
+    pub fn closed(mut self, closed: bool) -> Self {
+        self.closed = closed;
         self
     }
 
@@ -1543,7 +1735,7 @@ impl DropdownScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
-        let (selected_index, enabled) = (self.selected_index, self.enabled);
+        let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler((value as i64).max(0) as usize)
@@ -1557,6 +1749,9 @@ impl DropdownScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                if closed {
+                    attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
             },
             vec![("onchange", handler)],
             content,
@@ -1565,6 +1760,94 @@ impl DropdownScope {
 }
 
 container!(DropdownScope);
+
+/// A `MenuItem` and its builder.
+pub struct MenuItemScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    selected: bool,
+    enabled: bool,
+    color: Option<Paint>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A single row in a `Menu` or action list: left-aligned label, optional leading icon,
+/// and optional selected state.
+pub fn MenuItem(text: impl Into<String>) -> MenuItemScope {
+    MenuItemScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        selected: false,
+        enabled: true,
+        color: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl MenuItemScope {
+    /// Leading semantic icon for this menu row.
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Marks this row as the currently selected option.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Overrides the row's label and icon colour (for example, a destructive action).
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// Conditional colour override.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
+        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        emit(
+            widget_key("compose_rust::ui::MenuItem"),
+            WidgetKind::Button,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("variant", role_or_zero(Some(ButtonVariant::Text))));
+                attrs.push(("text_align", role_or_zero(Some(TextAlign::Start))));
+                attrs.push(("checked", OwnedAttr::Bool(selected)));
+                attrs.push(("color", super::paint(color)));
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+composed_on_drop!(MenuItemScope);
 
 // ----- surfaces that come and go ----------------------------------------------------------
 
@@ -2135,6 +2418,8 @@ pub struct ChipScope {
     icon: Option<IconRole>,
     selected: bool,
     enabled: bool,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2147,6 +2432,8 @@ pub fn Chip(text: impl Into<String>) -> ChipScope {
         icon: None,
         selected: false,
         enabled: true,
+        max_lines: None,
+        overflow: None,
         on_click: None,
         done: false,
     }
@@ -2168,6 +2455,19 @@ impl ChipScope {
         self
     }
 
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// chip label is one line unless this says more.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
     pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_click = Some(std::boxed::Box::new(handler));
         self
@@ -2176,6 +2476,7 @@ impl ChipScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
         let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
         emit(
             widget_key("compose_rust::ui::Chip"),
@@ -2186,6 +2487,7 @@ impl ChipScope {
                 attrs.push(("icon", super::role(icon)));
                 attrs.push(("checked", OwnedAttr::Bool(selected)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                lines_and_overflow(max_lines, overflow, attrs);
             },
             vec![("onclick", unit(self.on_click.take()))],
             content,
