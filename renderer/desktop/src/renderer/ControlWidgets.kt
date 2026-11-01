@@ -122,6 +122,12 @@ interface ControlWidgets {
         circular: Boolean,
         modifier: Modifier,
         theme: ResolvedTheme,
+        /**
+         * How wide the ring was asked to be, when the node named a size. A small ring is
+         * drawn with a stroke in proportion to it, so a 14 dp spinner is not a 14 dp disc
+         * with a 4 dp line.
+         */
+        diameter: Dp? = null,
     )
 
     /** A rule, along whichever axis [vertical] names. */
@@ -352,8 +358,10 @@ internal object DrawnControlWidgets : ControlWidgets {
         circular: Boolean,
         modifier: Modifier,
         theme: ResolvedTheme,
+        diameter: Dp?,
     ) {
         val style = theme.rules.controls(theme).progress
+        val thickness = ringThickness(style.thickness, diameter)
         val sweep by rememberInfiniteTransition(label = "progress").animateFloat(
             initialValue = 0f,
             targetValue = 1f,
@@ -371,8 +379,8 @@ internal object DrawnControlWidgets : ControlWidgets {
         if (circular) {
             Box(
                 modifier.size(style.diameter).drawBehind {
-                    val stroke = Stroke(width = style.thickness.toPx(), cap = cap)
-                    val inset = style.thickness.toPx() / 2f
+                    val stroke = Stroke(width = thickness.toPx(), cap = cap)
+                    val inset = thickness.toPx() / 2f
                     val box = Size(size.width - inset * 2f, size.height - inset * 2f)
                     drawArc(
                         color = style.track,
@@ -513,3 +521,13 @@ private val ToggleRole.semanticsRole: Role
         ToggleRole.RadioButton -> Role.RadioButton
         ToggleRole.Switch -> Role.Switch
     }
+
+/** The share of a ring's diameter its stroke takes when the ring is small. */
+private const val RING_STROKE_SHARE = 0.15f
+
+/**
+ * The stroke of a ring: the design system's [thickness], or less when the ring is small
+ * enough that the system's would swallow it.
+ */
+internal fun ringThickness(thickness: Dp, diameter: Dp?): Dp =
+    if (diameter == null) thickness else minOf(thickness, diameter * RING_STROKE_SHARE)

@@ -3,8 +3,10 @@ package dev.darkpyonix.composerust.design
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.unit.Dp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
@@ -123,20 +125,24 @@ internal object Material3ControlWidgets : ControlWidgets {
         circular: Boolean,
         modifier: Modifier,
         theme: ResolvedTheme,
+        diameter: Dp?,
     ) {
         val indicator = theme.color(ColorRole.Primary)
         val track = theme.color(ColorRole.SurfaceVariant)
+        val stroke = ringThickness(ProgressIndicatorDefaults.CircularStrokeWidth, diameter)
         when {
             circular && determinate -> CircularProgressIndicator(
                 progress = { value },
                 modifier = modifier,
                 color = indicator,
+                strokeWidth = stroke,
                 trackColor = track,
             )
 
             circular -> CircularProgressIndicator(
                 modifier = modifier,
                 color = indicator,
+                strokeWidth = stroke,
                 trackColor = track,
             )
 
