@@ -4,40 +4,78 @@
 
 ### Multiple windows in one process
 
-An application can open, focus, move, resize and close several windows in one process on macOS,
-Linux and Windows, and tear a tab out into its own window or merge it back into another window's
-tab bar ([#355](https://github.com/DarkPyonix/compose-rust/issues/355), FR-53).
+An application can open, focus, move, resize and close several windows in one process on macOS
+([#394](https://github.com/DarkPyonix/compose-rust/pull/394)), Linux
+([#393](https://github.com/DarkPyonix/compose-rust/pull/393)) and Windows
+([#395](https://github.com/DarkPyonix/compose-rust/pull/395)), and tear a tab out into its own
+window or merge it back into another window's tab bar
+([#355](https://github.com/DarkPyonix/compose-rust/issues/355),
+[#370](https://github.com/DarkPyonix/compose-rust/pull/370),
+[#382](https://github.com/DarkPyonix/compose-rust/pull/382), FR-53).
+
+### Slot table buffer pool leak fixed and Compose fork pinned to 1.11.1-ext.2
+
+- `Recomposer` and `NodeWriter` no longer grow their attribute and child-list buffer pools by one
+  empty buffer per node update and group creation, and `NodeWriter::forget` clears per-node
+  property, border, modifier-slot and size-token maps when a node is removed
+  ([#362](https://github.com/DarkPyonix/compose-rust/issues/362),
+  [#363](https://github.com/DarkPyonix/compose-rust/pull/363), NFR-17).
+- The Compose fork and window modules are pinned to `1.11.1-ext.2` with multi-window window-host
+  support ([#360](https://github.com/DarkPyonix/compose-rust/pull/360),
+  [#369](https://github.com/DarkPyonix/compose-rust/pull/369)).
 
 ### Accessibility tree and immediate input turns on macOS
 
 The Kotlin/Native macOS renderer exports the Compose semantics tree (roles, labels, states,
 focus and actions) to `NSAccessibility` so VoiceOver and `AXPress` automation see and activate
 controls, and mouse and keyboard events drive a host turn immediately without waiting for the
-100 ms idle timer ([#418](https://github.com/DarkPyonix/compose-rust/issues/418)).
+100 ms idle timer ([#418](https://github.com/DarkPyonix/compose-rust/issues/418),
+[#420](https://github.com/DarkPyonix/compose-rust/pull/420), NFR-8).
 
 ### Authoring toolkit and widget styling
 
 - Containers (`Row`, `Column`, `Box`, `Card`, `Surface`, `ScrollColumn`, `ScrollRow`) accept
   `on_click`, gaining keyboard focus, Enter/Space activation, `Button` semantics and hover/press
-  feedback ([#372](https://github.com/DarkPyonix/compose-rust/issues/372)).
-- `Button` and `Chip` builders expose `max_lines` and `overflow` ([#373](https://github.com/DarkPyonix/compose-rust/issues/373)),
+  feedback ([#372](https://github.com/DarkPyonix/compose-rust/issues/372),
+  [#379](https://github.com/DarkPyonix/compose-rust/pull/379), FR-55).
+- `Button` and `Chip` builders expose `max_lines` and `overflow`
+  ([#373](https://github.com/DarkPyonix/compose-rust/issues/373),
+  [#386](https://github.com/DarkPyonix/compose-rust/pull/386), FR-57),
   and disabled `Button` and `IconButton` controls honour explicit `color` and `background_color`
-  overrides ([#387](https://github.com/DarkPyonix/compose-rust/issues/387)).
-- `TextField` honours node `Background`, `Border`, `Shape` and `Padding` modifiers ([#376](https://github.com/DarkPyonix/compose-rust/issues/376)).
+  overrides ([#387](https://github.com/DarkPyonix/compose-rust/issues/387),
+  [#411](https://github.com/DarkPyonix/compose-rust/pull/411)).
+- `TextField` honours node `Background`, `Border`, `Shape` and `Padding` modifiers
+  ([#376](https://github.com/DarkPyonix/compose-rust/issues/376),
+  [#381](https://github.com/DarkPyonix/compose-rust/pull/381), FR-56).
 - `Modifier` exposes `shadow`, `shadows`, `offset`, `corner_radii` and `clip`, and `Text` and
-  `TextField` expose `font` and `word_break` ([#374](https://github.com/DarkPyonix/compose-rust/issues/374),
+  `TextField` expose `font` and `word_break`
+  ([#374](https://github.com/DarkPyonix/compose-rust/issues/374),
   [#375](https://github.com/DarkPyonix/compose-rust/issues/375),
+  [#390](https://github.com/DarkPyonix/compose-rust/pull/390), FR-58;
   [#378](https://github.com/DarkPyonix/compose-rust/issues/378),
-  [#392](https://github.com/DarkPyonix/compose-rust/issues/392)).
-- Apps can register bundled font stacks as the theme default ([#304](https://github.com/DarkPyonix/compose-rust/issues/304)).
-- Small circular `ProgressIndicator` rings scale their stroke width in proportion to their size ([#377](https://github.com/DarkPyonix/compose-rust/issues/377)).
+  [#380](https://github.com/DarkPyonix/compose-rust/pull/380);
+  [#392](https://github.com/DarkPyonix/compose-rust/issues/392),
+  [#412](https://github.com/DarkPyonix/compose-rust/pull/412), FR-60).
+- Apps can register bundled font stacks as the theme default
+  ([#304](https://github.com/DarkPyonix/compose-rust/issues/304),
+  [#349](https://github.com/DarkPyonix/compose-rust/pull/349), FR-52).
+- Small circular `ProgressIndicator` rings scale their stroke width in proportion to their size
+  ([#377](https://github.com/DarkPyonix/compose-rust/issues/377),
+  [#391](https://github.com/DarkPyonix/compose-rust/pull/391), FR-59).
 - `Select`, `Dropdown::closed(true)` and `MenuItem` draw closed-field selectors and left-aligned
-  menu rows with below-anchor popups ([#383](https://github.com/DarkPyonix/compose-rust/issues/383)).
+  menu rows with below-anchor popups
+  ([#383](https://github.com/DarkPyonix/compose-rust/issues/383),
+  [#416](https://github.com/DarkPyonix/compose-rust/pull/416), FR-64).
 - `ScrollState` and `remember_scroll_state()` read and drive `ScrollColumn` and `ScrollRow`
-  offsets ([#385](https://github.com/DarkPyonix/compose-rust/issues/385)).
-- `Canvas` and `DrawListBuilder` support `view_box(w, h)` and `fractional()` coordinate scaling ([#388](https://github.com/DarkPyonix/compose-rust/issues/388)).
+  offsets ([#385](https://github.com/DarkPyonix/compose-rust/issues/385),
+  [#414](https://github.com/DarkPyonix/compose-rust/pull/414), FR-62).
+- `Canvas` and `DrawListBuilder` support `view_box(w, h)` and `fractional()` coordinate scaling
+  ([#388](https://github.com/DarkPyonix/compose-rust/issues/388),
+  [#415](https://github.com/DarkPyonix/compose-rust/pull/415), FR-63).
 - `Row` and `Column` size their cross axis to `IntrinsicSize.Min` when `equal_height` /
-  `equal_width` is set or when a child carries `fill_max_height` / `fill_max_width` ([#389](https://github.com/DarkPyonix/compose-rust/issues/389)).
+  `equal_width` is set or when a child carries `fill_max_height` / `fill_max_width`
+  ([#389](https://github.com/DarkPyonix/compose-rust/issues/389),
+  [#413](https://github.com/DarkPyonix/compose-rust/pull/413), FR-61).
 
 ### A shadow follows the corner radius of the node that casts it
 
