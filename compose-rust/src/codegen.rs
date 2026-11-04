@@ -2978,7 +2978,11 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             theme: Theme::unified(DesignSystem::Material3).with_color_scheme(ColorScheme::Dark),
         },
         Mutation::FocusWindow { node_id: 20 },
-        Mutation::SetModifier { node_id: 8, index: 8, modifier: Modifier::MatchParentSize },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 8,
+            modifier: Modifier::MatchParentSize,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {

@@ -507,7 +507,11 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
     push(standard, "elevation", float(modifier.elevation));
-    push(false, "match_parent_size", OwnedAttr::Bool(modifier.match_parent_size));
+    push(
+        false,
+        "match_parent_size",
+        OwnedAttr::Bool(modifier.match_parent_size),
+    );
     push(
         chip,
         "fill_max_width",
