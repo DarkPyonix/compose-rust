@@ -33,6 +33,7 @@ import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.thisisthepy.compose.window.AccessibleAction
 import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowEvent
@@ -57,7 +58,8 @@ import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
-import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitElement
+import org.thisisthepy.compose.window.graalvm.macos.ACCESSIBILITY_ACTION_EVENT
+import org.thisisthepy.compose.window.graalvm.macos.takeAccessibilityArgument
 
 // A window that is ours, drawn into with Skia and with no toolkit in between.
 //
@@ -190,7 +192,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
         synthetic?.noteElements(elements)
-        window.describeTo(elements.map { AppKitElement(it.role, it.x, it.y, it.width, it.height, it.label) })
+        window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
     // queue, and the Host this renderer talks to is on this thread and invisible from
@@ -278,6 +280,14 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             LatencyTrace.mark("synthetic ${event.kind} sent")
         }
         for (event in events) {
+            // A reader asked a control to do something. It goes to the control, not to the
+            // scene as input; a new value arrives apart from the event because it can be
+            // longer than an event's text.
+            if (event.kind == ACCESSIBILITY_ACTION_EVENT) {
+                val argument = if (event.codePoint == AccessibleAction.SET_VALUE) takeAccessibilityArgument() else null
+                if (semantics.perform(event.keyCode, event.codePoint, argument)) heard = true
+                continue
+            }
             if (report && event.kind != WindowEvent.POINTER_MOVE) {
                 System.err.println("compose-rust: window heard $event")
             }
@@ -356,7 +366,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // tree that changed on the last one is a tree nobody has been told about, and
             // a window that has gone still is exactly where that would be forgotten.
             // Costs a comparison when nothing has changed, which is almost always.
-            semantics.pushIfChanged(afterDrawing = drew)
+            semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             reportCaret(textInput)
         }
         LatencyTrace.summary()

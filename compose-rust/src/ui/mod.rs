@@ -59,6 +59,32 @@ use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::runtime::{group_guard, with_composer, with_composer_if_idle};
 use crate::schema::WidgetKind;
 
+/// The most shadow layers one node can carry through this API.
+pub const MAX_SHADOWS: usize = 4;
+
+/// One layer of a drop shadow, as CSS `box-shadow` writes it: an offset, a blur, a spread
+/// and a colour with its alpha. It follows the corners of the node that casts it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shadow {
+    pub x: f32,
+    pub y: f32,
+    pub blur: f32,
+    pub spread: f32,
+    pub paint: Paint,
+}
+
+impl Shadow {
+    pub const fn new(x: f32, y: f32, blur: f32, spread: f32, paint: Paint) -> Self {
+        Self {
+            x,
+            y,
+            blur,
+            spread,
+            paint,
+        }
+    }
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -84,6 +110,7 @@ pub struct Modifier {
     background: Option<Paint>,
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
+    corner_radii: Option<[f32; 4]>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     elevation: Option<f32>,
@@ -94,6 +121,9 @@ pub struct Modifier {
     animated_offset: Option<crate::Animated<(f32, f32)>>,
     cursor: Option<crate::Cursor>,
     user_select: Option<crate::UserSelect>,
+    clip: bool,
+    offset: Option<(f32, f32)>,
+    shadows: [Option<Shadow>; MAX_SHADOWS],
     fill_max_width: bool,
     fill_max_height: bool,
 }
@@ -117,6 +147,7 @@ impl Modifier {
             background: None,
             shape_role: None,
             corner_radius: None,
+            corner_radii: None,
             border_width: None,
             border_color: None,
             elevation: None,
@@ -127,6 +158,9 @@ impl Modifier {
             animated_offset: None,
             cursor: None,
             user_select: None,
+            clip: false,
+            offset: None,
+            shadows: [None; MAX_SHADOWS],
             fill_max_width: false,
             fill_max_height: false,
         }
@@ -217,6 +251,21 @@ impl Modifier {
     /// A literal corner, in dp. Wins over `shape_role`.
     pub const fn corner_radius(mut self, dp: f32) -> Self {
         self.corner_radius = Some(dp);
+        self.corner_radii = None;
+        self
+    }
+
+    /// Individual corner radii `[top_start, top_end, bottom_end, bottom_start]`, in dp.
+    /// Wins over `shape_role` and `corner_radius`.
+    pub const fn corner_radii(mut self, radii: [f32; 4]) -> Self {
+        self.corner_radii = Some(radii);
+        self.corner_radius = None;
+        self
+    }
+
+    /// Clips the node and its children to its shape, or to its rectangle when it has none.
+    pub const fn clip(mut self, clip: bool) -> Self {
+        self.clip = clip;
         self
     }
 
@@ -248,6 +297,34 @@ impl Modifier {
     /// What this node's surface is made of. The effect is the design system's.
     pub const fn material(mut self, role: MaterialRole) -> Self {
         self.material = Some(role);
+        self
+    }
+
+    /// Moves the node from where it was laid out, in dp, without moving anything else.
+    pub const fn offset(mut self, x: f32, y: f32) -> Self {
+        self.offset = Some((x, y));
+        self
+    }
+
+    /// Adds a shadow layer. Layers are drawn in the order they are added, the first at
+    /// the bottom. A node takes at most [`MAX_SHADOWS`]; a layer past that is ignored.
+    pub const fn shadow(mut self, shadow: Shadow) -> Self {
+        let mut index = 0;
+        while index < MAX_SHADOWS {
+            if self.shadows[index].is_none() {
+                self.shadows[index] = Some(shadow);
+                break;
+            }
+            index += 1;
+        }
+        self
+    }
+
+    /// Adds several shadow layers, in order.
+    pub fn shadows(mut self, shadows: impl IntoIterator<Item = Shadow>) -> Self {
+        for shadow in shadows {
+            self = self.shadow(shadow);
+        }
         self
     }
 
@@ -406,6 +483,19 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(standard, "shape_role", role(modifier.shape_role));
     push(standard, "corner_radius", float(modifier.corner_radius));
+    push(
+        false,
+        "corner_radii",
+        modifier.corner_radii.map_or(OwnedAttr::None, |values| {
+            OwnedAttr::Bytes(
+                values
+                    .iter()
+                    .flat_map(|value| value.to_le_bytes())
+                    .collect(),
+            )
+        }),
+    );
+    push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
     push(standard, "elevation", float(modifier.elevation));
@@ -458,6 +548,33 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         match modifier.user_select {
             Some(crate::UserSelect::Auto) | None => OwnedAttr::None,
             Some(select) => OwnedAttr::Int(i64::from(u16::from(select))),
+        },
+    );
+    // The layers and the displacement, written only when they are set.
+    push(
+        false,
+        "offset",
+        modifier.offset.map_or(OwnedAttr::None, |(x, y)| {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&x.to_le_bytes());
+            bytes.extend_from_slice(&y.to_le_bytes());
+            OwnedAttr::Bytes(bytes)
+        }),
+    );
+    push(
+        false,
+        "shadows",
+        if modifier.shadows[0].is_none() {
+            OwnedAttr::None
+        } else {
+            let mut bytes = Vec::new();
+            for shadow in modifier.shadows.iter().flatten() {
+                for value in [shadow.x, shadow.y, shadow.blur, shadow.spread] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes.extend_from_slice(&shadow.paint.to_bits().to_le_bytes());
+            }
+            OwnedAttr::Bytes(bytes)
         },
     );
     push(

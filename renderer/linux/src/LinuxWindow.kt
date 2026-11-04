@@ -15,12 +15,10 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
-import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import java.lang.System
-import platform.posix.getuid
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowConfig
@@ -28,15 +26,11 @@ import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
 import org.thisisthepy.compose.window.WindowListener
 import org.thisisthepy.compose.window.candidateSpot
-import org.thisisthepy.compose.window.atspi.AtspiActions
-import org.thisisthepy.compose.window.atspi.AtspiBridge
-import org.thisisthepy.compose.window.atspi.AtspiSemanticsSource
 import org.thisisthepy.compose.window.linux.CURSOR_ARROW
 import org.thisisthepy.compose.window.linux.CURSOR_CROSSHAIR
 import org.thisisthepy.compose.window.linux.CURSOR_HAND
 import org.thisisthepy.compose.window.linux.CURSOR_TEXT
 import org.thisisthepy.compose.window.linux.X11Window
-import org.thisisthepy.compose.window.linux.PosixBusConnection as AccessibilityBusConnection
 
 /**
  * The Compose half of the window this renderer opens on X11: the scene, what is typed into it
@@ -57,7 +51,7 @@ import org.thisisthepy.compose.window.linux.PosixBusConnection as AccessibilityB
  * frame started on top of one already being drawn.
  */
 internal class LinuxWindow private constructor(
-    private val x11: X11Window,
+    internal val x11: X11Window,
     private val title: String,
     /**
      * Where the scene's own work runs: here, on the thread that draws, once a frame.
@@ -98,8 +92,8 @@ internal class LinuxWindow private constructor(
 
     /**
      * What the window would tell a reader who cannot see it, as the platform-neutral list the
-     * other desktops hand their reader. Kept for the frame report below; what a Linux screen
-     * reader is answered from is [atspiSource], which keeps the tree rather than a list.
+     * other desktops hand their reader. Kept for the frame report below; the window itself
+     * serves it on the AT-SPI bus and hands a reader's requests back to [onAccessibilityAction].
      */
     private var described: List<org.thisisthepy.compose.window.AccessibleElement> = emptyList()
 
@@ -109,6 +103,7 @@ internal class LinuxWindow private constructor(
     private val semantics = NativeSemantics { elements ->
         described = elements
         synthetic?.noteElements(elements)
+        x11.setAccessibility(elements)
         if (reportFrames) {
             System.err.println(
                 "compose-rust: the window holds ${described.size} things to say" +
@@ -116,35 +111,6 @@ internal class LinuxWindow private constructor(
             )
         }
     }
-
-    /** The scene's semantics, read into the tree AT-SPI serves. */
-    private val atspiSource = AtspiSemanticsSource()
-
-    /** Both listeners hear every change: the scene has one place to report to. */
-    private val semanticsListeners: PlatformContext.SemanticsOwnerListener = object : PlatformContext.SemanticsOwnerListener {
-        override fun onSemanticsOwnerAppended(semanticsOwner: SemanticsOwner) {
-            semantics.onSemanticsOwnerAppended(semanticsOwner)
-            atspiSource.onSemanticsOwnerAppended(semanticsOwner)
-        }
-
-        override fun onSemanticsOwnerRemoved(semanticsOwner: SemanticsOwner) {
-            semantics.onSemanticsOwnerRemoved(semanticsOwner)
-            atspiSource.onSemanticsOwnerRemoved(semanticsOwner)
-        }
-
-        override fun onSemanticsChange(semanticsOwner: SemanticsOwner) {
-            semantics.onSemanticsChange(semanticsOwner)
-            atspiSource.onSemanticsChange(semanticsOwner)
-        }
-
-        override fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int) {
-            semantics.onLayoutChange(semanticsOwner, semanticsNodeId)
-            atspiSource.onLayoutChange(semanticsOwner, semanticsNodeId)
-        }
-    }
-
-    /** This window's place on the accessibility bus, once [startAccessibility] has joined it. */
-    private var accessibility: AtspiBridge? = null
 
     /** The field that asked to be typed into, kept to ask where its caret is. */
     private var inputRequest: PlatformTextInputMethodRequest? = null
@@ -158,7 +124,7 @@ internal class LinuxWindow private constructor(
     private val platformContext: PlatformContext =
         object : PlatformContext by PlatformContext.Empty() {
             override val windowInfo get() = this@LinuxWindow.windowInfo
-            override val semanticsOwnerListener get() = semanticsListeners
+            override val semanticsOwnerListener get() = semantics
 
             override suspend fun startInputMethod(
                 request: PlatformTextInputMethodRequest,
@@ -243,6 +209,11 @@ internal class LinuxWindow private constructor(
             // is the whole of what keeps a dragged edge attached to what is inside it.
             x11.present(width, height)
             WindowStartReport.frameDrawn(width, height)
+            if (frameWaiters.isNotEmpty()) {
+                val waiting = frameWaiters.toList()
+                frameWaiters.clear()
+                for (waiter in waiting) waiter(nanos)
+            }
         } else {
             x11.noFrame()
         }
@@ -257,7 +228,55 @@ internal class LinuxWindow private constructor(
         heard.add(event)
     }
 
-    override fun onCloseRequested(): Boolean = true
+    /**
+     * The window manager of a multi-window application, which is told what the window hears.
+     * Null for the one window of a single window application, which closes when asked.
+     */
+    internal var platformListener: PlatformWindowListener? = null
+
+    /** Whether [close] has run, so that a second call does nothing. */
+    private var closed = false
+
+    /** Who waits for the next frame to be drawn, the process's frame driver among them. */
+    private val frameWaiters = ArrayList<(Long) -> Unit>()
+
+    /** Calls [onFrame] with the frame time once this window has drawn its next frame. */
+    internal fun addFrameWaiter(onFrame: (Long) -> Unit): (Long) -> Unit {
+        frameWaiters.add(onFrame)
+        return onFrame
+    }
+
+    internal fun removeFrameWaiter(waiter: (Long) -> Unit) {
+        frameWaiters.remove(waiter)
+    }
+
+    /**
+     * A close request is passed to the manager and the window stays: only the application
+     * removing the node closes it. With no manager it is the user's word and the window closes.
+     */
+    override fun onCloseRequested(): Boolean {
+        val listener = platformListener ?: return true
+        listener.onCloseRequested()
+        return false
+    }
+
+    override fun onFocusChanged(focused: Boolean) {
+        platformListener?.onFocusChanged(focused)
+    }
+
+    override fun onMoved(bounds: org.thisisthepy.compose.window.WindowBounds) {
+        platformListener?.onMoved(
+            ScreenBounds(bounds.x.toFloat(), bounds.y.toFloat(), bounds.width.toFloat(), bounds.height.toFloat()),
+        )
+    }
+
+    override fun onFollowEnded(cancelled: Boolean) {
+        platformListener?.onFollowEnded(cancelled)
+    }
+
+    /** A screen reader asked a control to do something; the window serves the bus, the scene does it. */
+    override fun onAccessibilityAction(id: Int, action: Int, argument: String?): Boolean =
+        semantics.perform(id, action, argument)
 
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent(content)
@@ -295,9 +314,6 @@ internal class LinuxWindow private constructor(
                 x11.pump(FRAME_MILLISECONDS)
                 focused = x11.isFocused
                 onTurn()
-                // A reader's questions are answered between frames, on this thread, so that
-                // a press it asks for happens where every other press does.
-                accessibility?.pump()
                 // Before the events and before the drawing. What is waiting here is the scene's
                 // own work and whatever was sent to `Dispatchers.Main`, and a list that asked for
                 // rows on the last frame wants them in hand before this one is measured. Work sent
@@ -319,43 +335,7 @@ internal class LinuxWindow private constructor(
                     LatencyTrace.phase = "idle"
                 }
                 if (synthetic != null && synthetic.exitDue(System.nanoTime())) break
-                val turnHeard = heard.isNotEmpty() || woken
-                for (event in heard) {
-                    if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
-                        System.err.println("compose-rust: window heard $event")
-                    }
-                    if (event.kind == WindowEvent.FILES_ENTERED ||
-                        event.kind == WindowEvent.FILES_DROPPED ||
-                        event.kind == WindowEvent.FILES_EXITED
-                    ) {
-                        routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
-                            event.text
-                        }
-                    }
-                    scene.receive(event)
-                    textInput.receive(event)
-                }
-                heard.clear()
-                // Only when there is something to draw. A window that is being resized has
-                // already had its frame drawn by the resize, and a window where nothing is
-                // happening should leave the screen alone.
-                val drew = if (!painted || turnHeard || scene.hasInvalidations()) {
-                    frames.draw()
-                } else {
-                    false
-                }
-                // Every frame, and after the drawing. After, because that is when what is in the
-                // window has been placed and can say where it is. Every frame, because a tree
-                // that changed on the last one is a tree nobody has been told about, and a window
-                // that has gone still is exactly where that would be forgotten.
-                semantics.pushIfChanged(afterDrawing = drew)
-                accessibility?.let { bridge ->
-                    // After the drawing, for the reason the line above is: what is read is where
-                    // everything was placed.
-                    atspiSource.capture(title)?.let { bridge.update(it) }
-                    bridge.windowActive(focused)
-                }
-                updateInputMethod()
+                processTurn(woken)
             }
         } finally {
             work.wakeLoop = {}
@@ -363,6 +343,51 @@ internal class LinuxWindow private constructor(
             if (System.getenv("DXC_REPORT_RESIZE") != null) System.err.println(x11.resizeStats.report())
             close()
         }
+    }
+
+    /** Reads whether the server says the window has the keyboard, for a loop that drives [processTurn]. */
+    internal fun pollFocus() {
+        focused = x11.isFocused
+    }
+
+    /**
+     * What one turn does for this window once the connection has been pumped and the shared
+     * work has run: hand the scene what the window heard, draw if there is a reason to, and
+     * tell the reader and the input method. [woken] is whether work sent from another thread
+     * arrived this turn, which is news to every window.
+     */
+    internal fun processTurn(woken: Boolean) {
+        val turnHeard = heard.isNotEmpty() || woken
+        for (event in heard) {
+            if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            if (event.kind == WindowEvent.FILES_ENTERED ||
+                event.kind == WindowEvent.FILES_DROPPED ||
+                event.kind == WindowEvent.FILES_EXITED
+            ) {
+                routeFileDrop(event.kind, androidx.compose.ui.geometry.Offset(event.x, event.y)) {
+                    event.text
+                }
+            }
+            scene.receive(event)
+            textInput.receive(event)
+        }
+        heard.clear()
+        // Only when there is something to draw. A window that is being resized has
+        // already had its frame drawn by the resize, and a window where nothing is
+        // happening should leave the screen alone.
+        val drew = if (!painted || turnHeard || scene.hasInvalidations() || frameWaiters.isNotEmpty()) {
+            frames.draw()
+        } else {
+            false
+        }
+        // Every frame, and after the drawing. After, because that is when what is in the
+        // window has been placed and can say where it is. Every frame, because a tree
+        // that changed on the last one is a tree nobody has been told about, and a window
+        // that has gone still is exactly where that would be forgotten.
+        semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
+        updateInputMethod()
     }
 
     /**
@@ -381,35 +406,9 @@ internal class LinuxWindow private constructor(
         x11.setImeSpot(spot.first, spot.second)
     }
 
-    /**
-     * Joins the accessibility bus, so that a screen reader that is already running reads this
-     * window from its first frame. Nothing happens where there is no accessibility bus.
-     */
-    fun startAccessibility(applicationName: String) {
-        if (accessibility != null || System.getenv("NO_AT_BRIDGE") == "1") return
-        val actions = object : AtspiActions {
-            override fun click(id: Int) = atspiSource.click(id)
-            override fun focus(id: Int) = atspiSource.focus(id)
-            override fun windowOrigin(): Pair<Int, Int> = x11.originOnScreen()
-        }
-        val bridge = AtspiBridge(
-            openSession = { AccessibilityBusConnection.open() },
-            openAccessibility = { address -> AccessibilityBusConnection.open(address) },
-            userId = getuid().toLong(),
-            applicationName = applicationName,
-            actions = actions,
-        )
-        if (bridge.start()) {
-            accessibility = bridge
-            if (reportFrames) System.err.println("compose-rust: joined the accessibility bus as ${bridge.busName}")
-        } else if (reportFrames) {
-            System.err.println("compose-rust: no accessibility bus to join")
-        }
-    }
-
-    private fun close() {
-        accessibility?.close()
-        accessibility = null
+    internal fun close() {
+        if (closed) return
+        closed = true
         scene.close()
         x11.close()
     }
@@ -452,6 +451,21 @@ internal class LinuxWindow private constructor(
             }
 
             override fun onCloseRequested(): Boolean = target?.onCloseRequested() ?: true
+
+            override fun onFocusChanged(focused: Boolean) {
+                target?.onFocusChanged(focused)
+            }
+
+            override fun onMoved(bounds: org.thisisthepy.compose.window.WindowBounds) {
+                target?.onMoved(bounds)
+            }
+
+            override fun onFollowEnded(cancelled: Boolean) {
+                target?.onFollowEnded(cancelled)
+            }
+
+            override fun onAccessibilityAction(id: Int, action: Int, argument: String?): Boolean =
+                target?.onAccessibilityAction(id, action, argument) ?: false
         }
 
         private const val FRAME_MILLISECONDS = 16L

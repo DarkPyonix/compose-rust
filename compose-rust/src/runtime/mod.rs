@@ -53,8 +53,8 @@ pub use seam::{Batch, Runtime};
 pub use state::{
     DerivedState, MutableState, SnapshotMutationPolicy, State, current_design_system,
     current_notification_permission, current_window_size, derived_state_of, mutable_state_of,
-    mutable_state_of_with_policy, never_equal_policy, on_notification_activated,
-    remember_node_size, structural_equality_policy,
+    mutable_state_of_with_policy, never_equal_policy, on_application_reopen,
+    on_notification_activated, on_window_requested, remember_node_size, structural_equality_policy,
 };
 
 use composer::{Composer, GroupId};

@@ -283,13 +283,20 @@ jobs:
           ./scripts/publish-skiko-awt.sh "$RUNNER_TEMP/skiko-awt"
           find ~/.m2/repository/org/thisisthepy/compose -name '*.jar' | sort
 
+      - name: Mark the artifact root
+        # upload-artifact roots the artifact at the common parent of its paths. skiko-awt now
+        # sits inside org/thisisthepy/compose, so this marker keeps the root at org, and the
+        # download into ~/.m2/repository/org restores the org/thisisthepy/compose prefix.
+        run: touch ~/.m2/repository/org/.compose-fork-desktop
+
       - name: Keep the published modules
         uses: actions/upload-artifact@v4
         with:
           name: compose-fork-desktop
+          include-hidden-files: true
           path: |
             ~/.m2/repository/org/thisisthepy/compose
-            ~/.m2/repository/org/jetbrains/skiko/skiko-awt
+            ~/.m2/repository/org/.compose-fork-desktop
           retention-days: 7
 
   linux-x64:

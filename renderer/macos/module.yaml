@@ -32,16 +32,16 @@ apply:
 
 dependencies:
   # The fork's runtime: a stub with no classes that points at androidx.compose.runtime.
-  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.1
+  - org.thisisthepy.compose.runtime:runtime:1.11.1-ext.2
   # The fork's Compose. Not `$compose.foundation` and the rest: those are JetBrains', and the two
   # side by side would be the same classes twice under two groups.
-  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.1
-  - org.thisisthepy.compose.material3:material3:1.11.0-alpha07-ext.1
-  - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
+  - org.thisisthepy.compose.foundation:foundation:1.11.1-ext.2
+  - org.thisisthepy.compose.material3:material3:1.11.1-ext.2
+  - org.thisisthepy.compose.ui:ui:1.11.1-ext.2
   # The window: AppKit and Metal, and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
-  - org.thisisthepy.compose.window:common:0.1.0
-  - org.thisisthepy.compose.window:native-macos:0.1.0
+  - org.thisisthepy.compose.window:common:1.11.1-ext.2
+  - org.thisisthepy.compose.window:native-macos:1.11.1-ext.2
 
 test-dependencies:
   - $kotlin.test

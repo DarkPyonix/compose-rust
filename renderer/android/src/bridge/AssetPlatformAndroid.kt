@@ -32,11 +32,29 @@ internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? = null
  * directory once, at registration. The file is deleted as soon as the face is built: the
  * typeface holds the parsed font, not the path.
  */
-internal fun decodeFontAsset(bytes: ByteArray): FontFamily? {
+internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
     val file = File.createTempFile("dxc-font", ".ttf")
     return try {
         file.writeBytes(bytes)
-        FontFamily(android.graphics.Typeface.createFromFile(file))
+        val typeface = android.graphics.Typeface.createFromFile(file)
+        // The weight a face declares is only readable from API 28. Below it, bold or not is
+        // all there is to go on.
+        val weight = if (android.os.Build.VERSION.SDK_INT >= 28) {
+            typeface.weight
+        } else if (typeface.isBold) {
+            700
+        } else {
+            400
+        }
+        val paint = android.graphics.Paint().apply { this.typeface = typeface }
+        Asset.Font(
+            family = FontFamily(typeface),
+            // No Compose font here: Android builds a family from a typeface, not from
+            // faces, so a font stack sets each of its families in its regular face.
+            face = Asset.Font.Face(null, weight, typeface.isItalic) { codePoint ->
+                paint.hasGlyph(String(Character.toChars(codePoint)))
+            },
+        )
     } catch (error: RuntimeException) {
         // An unreadable font is the application's mistake and is reported as one.
         null

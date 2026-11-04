@@ -45,7 +45,7 @@ fi
 # hour of someone else's build. Where that has not been done the gate leaves it out, and
 # where it has the gate builds it; its tests run only on Windows.
 echo "$declared" | grep -qx mingwX64 || fail "no module declares mingwX64 any more"
-if [[ -d "$HOME/.m2/repository/org/jetbrains/compose/ui/ui-mingwx64" ]]; then
+if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-mingwx64" ]]; then
     echo "$listed" | grep -qx mingwX64 ||
         fail "Compose for mingwX64 is published here and the gate leaves mingwX64 out"
 else

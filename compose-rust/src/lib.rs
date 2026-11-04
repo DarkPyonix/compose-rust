@@ -48,6 +48,7 @@ pub mod theme;
 pub mod tokens;
 pub mod ui;
 pub mod window;
+pub mod windows;
 mod writer;
 pub mod zoom;
 
@@ -69,7 +70,7 @@ pub use code::{
 };
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
-pub use fonts::{FontRef, FontRefs};
+pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
 pub use notification::{
@@ -94,7 +95,13 @@ pub use schema::{
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use theme::ThemeHandle;
+pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSize, node_size, window_size};
+pub use windows::{
+    DragFromPointer, LastWindowClosed, WindowDragEvent, WindowDragOver, WindowDragOverKind,
+    WindowDragPhase, WindowEvent, WindowFrame, WindowHandle, WindowMode, WindowRequest,
+    current_window,
+};
 pub use zoom::{Zoom, ZoomHandle, zoom};
 
 /// Declares the entry point an iOS application starts at.

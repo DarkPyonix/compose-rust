@@ -719,3 +719,23 @@ int32_t dxc_win32_window_zoomed(void *window) {
     return 0;
 }
 #endif
+
+/*
+ * The names the fork's other desktop wrappers declare, which this image links without ever
+ * calling. A wrapper's file is reached by the platform switch that names all three loops, and a
+ * name no C file in the image defines is a link that fails on Linux and Windows.
+ */
+#ifndef __APPLE__
+int32_t dxc_native_metal_allocated_mb(void *device_pointer) {
+    (void)device_pointer;
+    return -1;
+}
+#endif
+
+#ifndef __linux__
+void dxc_native_window_begin_drag_at(int32_t edge, float x, float y) {
+    (void)edge;
+    (void)x;
+    (void)y;
+}
+#endif
