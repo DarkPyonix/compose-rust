@@ -3820,6 +3820,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 1. `Modifier::corner_radii([8.0, 8.0, 0.0, 0.0])`는 네 모서리 값이 그대로 담긴 `Shape` 수정자 한 건을 보내고, `Modifier::clip(true)`는 `Clip(true)` 수정자 한 건을 보냅니다.
 2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
 
+### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
+
+요청한 쪽: dioxus-compose(HTML 마운트된 요소의 `focus()`, `blur()`와 `TextField`의 `oncompositionstart`, `oncompositionend`). Host가 특정 노드에 키보드 포커스를 요청하거나 현재 포커스를 거두고, `TextField`에서도 `CodeEditor`(FR-38.9)와 같은 조합 상태 이벤트를 받을 수 있어야 합니다.
+
+- **`Mutation::RequestFocus { node_id: u32 }`** (태그 25, 8바이트 고정 레코드: `tag=25, len=8, node_id: u32`).
+  - `node_id != 0`이면 Renderer는 그 노드에 `FocusRequester.requestFocus()`로 키보드 포커스를 옮깁니다. `TextField`, `Button`, `CodeEditor`뿐 아니라 컨테이너(`Box`, `Row`, `Column` 등)에도 포커스를 줄 수 있습니다. 존재하지 않는 `node_id`는 `TableError.UNKNOWN_NODE`(`ProtocolError`)로 보고하고 프로세스를 죽이지 않습니다.
+  - `node_id == 0`이면 Renderer는 `FocusManager.clearFocus()`로 현재 창의 포커스를 거둡니다.
+  - `runtime::Batch::request_focus(&mut self, node_id: u32)`가 이 명령을 배치에 기록합니다.
+- **`TextField`의 `PropertyKind::OnCompositionChange`** (태그 133).
+  - 이미 `CodeEditor`에 있는 `PropertyKind::OnCompositionChange`(태그 133)와 `HostEvent::CompositionChanged { composing: bool }`(태그 38)를 `WidgetKind::TextField`에도 허용합니다.
+  - `TextField`의 `TextFieldValue.composition`이 `null`에서 범위 값으로 바뀌면 `CompositionChanged(composing = true)`를, 범위 값에서 `null`로 확정되거나 취소되면 `CompositionChanged(composing = false)`를 한 번 보냅니다. `OnCompositionChange` 핸들러를 등록하지 않은 `TextField`는 아무 이벤트도 보내지 않습니다.
+  - `ui::TextFieldScope::on_composition_change(impl FnMut(bool) + 'static)`와 `writer::event_property`의 `"compositionchange" | "oncompositionchange"` 매핑을 제공합니다.
+
+수용 기준.
+1. `Mutation::RequestFocus { node_id }`가 배치로 인코딩·디코딩되고, Renderer에 두 개의 `TextField`(또는 포커스 가능 노드)가 있을 때 `RequestFocus(b)`를 적용하면 포커스가 `b`로 옮겨가며 `RequestFocus(0)`을 적용하면 포커스가 해제됩니다(`fr65_request_focus_moves_and_clears_focus`).
+2. 존재하지 않는 노드에 대한 `RequestFocus`는 `UNKNOWN_NODE` 오류로 보고되고 죽지 않습니다(`fr65_request_focus_unknown_node_reports_error`).
+3. `OnCompositionChange` 핸들러가 붙은 `TextField`에서 조합 범위가 생기면 `CompositionChanged(true)`가, 조합이 끝나면 `CompositionChanged(false)`가 그 핸들러 id로 전달됩니다(`fr65_text_field_reports_composition_changes`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)

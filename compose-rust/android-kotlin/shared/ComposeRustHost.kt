@@ -25,6 +25,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
@@ -371,6 +372,11 @@ private fun ComposeRustTree(
     // however many windows there are.
     val windowNodeId = LocalWindowNodeId.current
     val pageRoots = if (windowNodeId == 0) host.roots else host.table.node(windowNodeId)?.children?.toList().orEmpty()
+    val focusManager = LocalFocusManager.current
+    val clearFocusRevision = host.table.focusClearRevision
+    LaunchedEffect(clearFocusRevision) {
+        if (clearFocusRevision > 0L) focusManager.clearFocus()
+    }
     LaunchedEffect(host, frames, windowNodeId, servesFrames) {
         if (windowNodeId != 0 || !servesFrames) return@LaunchedEffect
         // Counted from the Host's start, not from the moment this loop began listening. The
