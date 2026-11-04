@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Modifier `match_parent_size`
+
+`Modifier` has a new `MatchParentSize` (wire tag 31) for a child of a `Box`: it fills exactly the parent's bounds without enlarging the parent, so an overlay such as a press tint needs no size or radius restated ([#431](https://github.com/DarkPyonix/compose-rust/issues/431)). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
 ## v0.0.5
 
 ### Multiple windows in one process

@@ -119,6 +119,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         when (value) {
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> chain.padding(value.value.dp)
+            is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
             is ProtocolModifier.Width -> chain.width(value.value.dp)
