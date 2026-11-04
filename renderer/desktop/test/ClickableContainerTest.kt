@@ -169,4 +169,47 @@ class ClickableContainerTest {
             kotlin.test.assertNotEquals(hovered, pressed, "press is drawn apart from hover")
         }
     }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.paddedContainer(): () -> Int {
+        val connection = FakeHostConnection(
+            tree(WidgetKind.Box, clickable = true) + listOf(
+                Mutation.SetModifier(CONTAINER, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(80f, 40f)),
+                Mutation.SetModifier(CONTAINER, 1, dev.darkpyonix.composerust.protocol.Modifier.Padding(16f)),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        return { onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[40, 1].toArgb() }
+    }
+
+    @Test
+    fun fr_55_focus_ring_is_not_drawn_after_a_pointer_click() {
+        runComposeUiTest {
+            val edgePixel = paddedContainer()
+            val resting = edgePixel()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput {
+                moveTo(center)
+                press()
+                release()
+                moveTo(androidx.compose.ui.geometry.Offset(-20f, -20f))
+            }
+            waitForIdle()
+            assertEquals(resting, edgePixel(), "pointer click must not leave a focus ring")
+        }
+    }
+
+    @Test
+    fun fr_55_focus_ring_is_drawn_on_keyboard_focus_at_outer_padded_bounds() {
+        runComposeUiTest {
+            val edgePixel = paddedContainer()
+            val resting = edgePixel()
+            onNodeWithTag(nodeTestTag(CONTAINER)).requestFocus()
+            waitForIdle()
+            kotlin.test.assertNotEquals(
+                resting,
+                edgePixel(),
+                "keyboard focus ring is drawn at the outer edge even when Padding is present",
+            )
+        }
+    }
 }
