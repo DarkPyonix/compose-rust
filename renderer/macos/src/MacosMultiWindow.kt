@@ -124,7 +124,7 @@ private fun MacosWindowScene(
         LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { dark.value },
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
-            NSApplication.sharedApplication().currentEvent?.let { window.window.performWindowDragWithEvent(it) }
+            beginMacosWindowDrag(window.window)
         },
         LocalClipboard provides clipboard,
         LocalClipboardManager provides clipboardManager,
