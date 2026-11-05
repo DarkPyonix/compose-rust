@@ -185,7 +185,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback;",
-    "keys=Enter;",
+    "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
@@ -557,6 +557,8 @@ pub struct Selection {
 // Compose key identities supported by the M0 schema.
 define_wire_enum!(KEY_SCHEMA, Key {
     Enter = 1,
+    // Any key the enum does not name. The event's `code` and `text` say which one.
+    Other = 2,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -2876,6 +2878,12 @@ pub enum EventPayload<'a> {
         ctrl_key: bool,
         alt_key: bool,
         meta_key: bool,
+        /// True when the event comes from a held key repeating.
+        repeat: bool,
+        /// The physical key as a USB HID usage value, the same on every layout.
+        code: u32,
+        /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+        text: &'a str,
     },
     /// The Renderer asks the Host to materialise the visible item range.
     RangeRequested {
