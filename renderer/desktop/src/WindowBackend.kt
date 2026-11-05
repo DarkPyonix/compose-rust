@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui.platform
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
 
 // What the operating system layers (macOS, Windows, Linux) implement so that one process can
 // hold several windows, and the only thing the window manager knows about them.
@@ -206,5 +207,12 @@ fun interface DropTargets {
 
     companion object {
         val None = DropTargets { _, _, _ -> null }
+    }
+
+    object Registered : DropTargets {
+        override fun targetAt(windowId: Int, x: Float, y: Float): DropTarget? =
+            WindowDropTargets.find(windowId, x, y)?.let { (id, local) ->
+                DropTarget(id, local.first, local.second)
+            }
     }
 }
