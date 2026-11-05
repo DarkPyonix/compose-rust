@@ -134,6 +134,10 @@ fn every_modifier() -> Vec<Modifier> {
             origin_y: 0.25,
         },
         Modifier::MatchParentSize,
+        Modifier::PressFeedback {
+            scale: 0.975,
+            tint_alpha: 0.07,
+        },
     ]
 }
 

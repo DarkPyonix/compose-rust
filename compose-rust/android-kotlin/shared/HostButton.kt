@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
@@ -41,6 +42,9 @@ import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
+import dev.darkpyonix.composerust.design.compositeOver
+import dev.darkpyonix.composerust.design.ensureContrast
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -48,6 +52,7 @@ import dev.darkpyonix.composerust.ui.node.Children
 import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.pressFeedback
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
@@ -117,7 +122,8 @@ internal fun HostButton(
     // control fades as one group rather than each variant naming a disabled colour, so a
     // design system owes one number instead of four, the faded colours are still its own,
     // and a background or border the Host set on the node's modifier chain fades with the
-    // label instead of staying opaque behind it.
+    // label instead of staying opaque behind it. The label is the exception: it is drawn
+    // again outside the fade, in a colour that keeps its contrast with the faded fill.
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val clickable = if (handlerId == null) {
         available.then(modifier)
@@ -125,7 +131,11 @@ internal fun HostButton(
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        available.then(modifier).clickable(
+        available.then(modifier).pressFeedback(
+            interactions, enabled, theme, style.shape,
+            node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
+            node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
+        ).clickable(
             interactionSource = interactions,
             indication = null,
             enabled = enabled,
@@ -173,7 +183,20 @@ internal fun HostButton(
     // destructive action is the case that needs it: it is a plain button in every design
     // system, and what marks it is that its label is the error colour.
     val content = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content
-    val tint = content.copy(alpha = content.alpha * contentAlpha)
+    val tint = if (enabled) {
+        content.copy(alpha = content.alpha * contentAlpha)
+    } else {
+        val fill = node.modifiers.filterIsInstance<ProtocolModifier.Background>().lastOrNull()
+            ?.let { theme.color(it.paint) } ?: container
+        // The surface behind the button is not known here, so the label has to hold its
+        // contrast over each surface a screen puts a button on: the page, a card, a raised card.
+        val parents = listOf(ColorRole.Background, ColorRole.Surface, ColorRole.SurfaceContainer)
+            .map { theme.color(it) }
+        val faded = parents.map { compositeOver(fill.copy(alpha = fill.alpha * style.disabledAlpha), it) }
+        var result = compositeOver(content.copy(alpha = content.alpha * style.disabledAlpha), faded.first())
+        repeat(2) { for (f in faded) result = ensureContrast(result, f, MIN_DISABLED_LABEL_CONTRAST) }
+        result
+    }
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
@@ -188,10 +211,10 @@ internal fun HostButton(
     val named = decorated
         .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
-    Box(
-        named,
-        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center,
-    ) {
+    // The row gap between the glyph and the word is the design system's smallest step, so a
+    // dense language sets them closer than a roomy one does.
+    @Composable
+    fun ButtonLabel() {
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
             // a weighted Spacer pushes whatever follows it to the button's inner edge.
@@ -204,8 +227,6 @@ internal fun HostButton(
             ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
-                // The gap between the glyph and the word is the design system's smallest step,
-                // so a dense language sets them closer than a roomy one does.
                 horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -214,7 +235,31 @@ internal fun HostButton(
             }
         }
     }
+
+    val alignment = if (alignStart) Alignment.CenterStart else Alignment.Center
+    if (enabled) {
+        Box(named, contentAlignment = alignment) { ButtonLabel() }
+    } else {
+        Box {
+            Box(named, contentAlignment = alignment) {
+                // Only here to give the button its size; the label assistive technology
+                // reads and the user sees is the one drawn on top.
+                Box(Modifier.alpha(0f).clearAndSetSemantics { }) { ButtonLabel() }
+            }
+            Box(
+                Modifier.matchParentSize().labelPadding(
+                    horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
+                    vertical = style.verticalPadding,
+                    alignStart = alignStart,
+                ),
+                contentAlignment = alignment,
+            ) { ButtonLabel() }
+        }
+    }
 }
+
+// Slightly above 3:1 so anti-aliased glyph edges still measure 3:1.
+private const val MIN_DISABLED_LABEL_CONTRAST = 3.3f
 
 /**
  * How a button of this variant and kind looks under this design system.
