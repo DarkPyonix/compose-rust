@@ -164,19 +164,6 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
-    val chain = profiled
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
-        .testTag(nodeTestTag(nodeId))
-    // The TextField wires its own key handling, because it has an editor to intercept and a
-    // composition to protect; everything else routes keys here.
-    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
-        chain
-    } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
-    }
-    // Only where the node said it is a place files may be dropped. Everywhere else this
-    // adds nothing to the chain and the platform shows no drop cursor.
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -187,17 +174,26 @@ fun RenderNode(
     } else {
         null
     }
-    val pressable = if (clickHandler == null) {
-        withKeys
-    } else {
-        withKeys.pressable(
-            nodeId,
-            clickHandler,
-            node.flag(PropertyKind.Enabled, default = true),
-            dispatcher,
-            theme,
-            node.pressedShape(theme),
+    val chain = profiled
+        .then(
+            node.modifiers.toComposeModifier(
+                nodeId,
+                dispatcher,
+                theme,
+                animated = { table.animations.animated(nodeId) },
+                containerClickHandler = clickHandler,
+                containerEnabled = node.flag(PropertyKind.Enabled, default = true),
+                containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
+            ),
         )
+        .testTag(nodeTestTag(nodeId))
+    // The TextField wires its own key handling, because it has an editor to intercept and a
+    // composition to protect; everything else routes keys here.
+    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val pressable = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+        chain
+    } else {
+        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
     }
     val modifier = platformFileDrop(pressable, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of

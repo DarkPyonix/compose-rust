@@ -5,11 +5,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
@@ -83,10 +87,14 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
     animated: (() -> dev.darkpyonix.composerust.ui.node.AnimatedNode)? = null,
+    containerClickHandler: Long? = null,
+    containerEnabled: Boolean = true,
+    containerShape: Shape? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
     val shape = resolvedShape(theme)
+    val pressShape = containerShape ?: shape
     // What this node's surface is made of is its surface, so it is drawn round the whole
     // node the way a background is: under the padding, and outside the clip so a surface
     // that floats can cast its lift beyond its own edge. Taken at its place in the list it
@@ -115,10 +123,23 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     var backgroundSeen = false
     var transformSeen = false
     var borderSeen = false
-    return fold(surface) { chain, value ->
+    var pressableAttached = false
+    fun attachPressableIfNeeded(chain: Modifier): Modifier {
+        if (pressableAttached || containerClickHandler == null) return chain
+        pressableAttached = true
+        return chain.pressable(
+            nodeId,
+            containerClickHandler,
+            containerEnabled,
+            dispatcher,
+            theme,
+            pressShape,
+        )
+    }
+    val folded = fold(surface) { chain, value ->
         when (value) {
             is ProtocolModifier.Empty -> chain
-            is ProtocolModifier.Padding -> chain.padding(value.value.dp)
+            is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
@@ -133,11 +154,15 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 backgroundSeen = true
                 if (holder == null) chain.background(brush, shape) else chain.animatedBackground(brush, shape, holder)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
-            is ProtocolModifier.Clickable -> chain.pressable(nodeId, value.handlerId, true, dispatcher, theme, shape)
+            is ProtocolModifier.Clickable -> {
+                pressableAttached = true
+                chain.pressable(nodeId, value.handlerId, true, dispatcher, theme, shape)
+            }
 
             is ProtocolModifier.PaddingEach ->
-                chain.padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
-            is ProtocolModifier.PaddingRole -> chain.padding(theme.space(value.role))
+                attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+            is ProtocolModifier.PaddingRole ->
+                attachPressableIfNeeded(chain).padding(theme.space(value.role))
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
@@ -249,6 +274,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             }
         }
     }
+    return attachPressableIfNeeded(folded)
 }
 
 /**
@@ -695,7 +721,30 @@ internal fun Modifier.pressable(
     val source = remember(nodeId, handlerId) { MutableInteractionSource() }
     val hovered by source.collectIsHoveredAsState()
     val pressed by source.collectIsPressedAsState()
-    val focused by source.collectIsFocusedAsState()
+    var keyboardFocused by remember(source) { mutableStateOf(false) }
+    LaunchedEffect(source) {
+        var pressActive = false
+        var focusedByPointer = false
+        source.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    pressActive = true
+                    keyboardFocused = false
+                }
+                is PressInteraction.Release, is PressInteraction.Cancel -> {
+                    pressActive = false
+                }
+                is FocusInteraction.Focus -> {
+                    focusedByPointer = pressActive
+                    keyboardFocused = !focusedByPointer
+                }
+                is FocusInteraction.Unfocus -> {
+                    focusedByPointer = false
+                    keyboardFocused = false
+                }
+            }
+        }
+    }
     val ink = theme.color(ColorRole.OnSurface)
     val ring = theme.color(ColorRole.Primary)
     this
@@ -714,16 +763,30 @@ internal fun Modifier.pressable(
                 hovered -> HOVER_LAYER
                 else -> 0f
             }
-            if (layer > 0f || focused) {
+            if (layer > 0f) {
                 val outline = shape.createOutline(size, layoutDirection, this)
-                if (layer > 0f) drawOutline(outline, ink.copy(alpha = layer))
-                if (focused) drawOutline(outline, ring, style = Stroke(2.dp.toPx()))
+                drawOutline(outline, ink.copy(alpha = layer))
+            }
+            if (keyboardFocused) {
+                val stroke = FOCUS_RING_WIDTH.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
+                if (stroke > 0f) {
+                    val half = stroke / 2f
+                    val inner = Size(
+                        (size.width - stroke).coerceAtLeast(0f),
+                        (size.height - stroke).coerceAtLeast(0f),
+                    )
+                    val innerOutline = shape.createOutline(inner, layoutDirection, this)
+                    translate(half, half) {
+                        drawOutline(innerOutline, ring, style = Stroke(stroke))
+                    }
+                }
             }
         }
 }
 
 private const val HOVER_LAYER = 0.08f
 private const val PRESSED_LAYER = 0.12f
+private val FOCUS_RING_WIDTH = 2.dp
 
 /**
  * Reports this node's width when the class it falls in changes.
