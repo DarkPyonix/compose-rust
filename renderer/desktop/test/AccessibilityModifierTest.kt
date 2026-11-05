@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsActions
@@ -22,6 +23,8 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
+import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -247,6 +250,46 @@ class AccessibilityModifierTest {
             val config = onNodeWithTag(nodeTestTag(switch)).fetchSemanticsNode().config
             assertEquals(listOf("Notifications"), config.getOrNull(SemanticsProperties.ContentDescription))
             assertEquals(ToggleableState.On, config.getOrNull(SemanticsProperties.ToggleableState))
+        }
+    }
+
+    @Test
+    fun fr68_removing_the_accessible_name_returns_the_default_name() {
+        val button = 1
+        fun iconButton(vararg extra: Mutation) = listOf(
+            Mutation.Create(button, WidgetKind.Button),
+            Mutation.SetProp(button, PropertyKind.Text, name("")),
+            Mutation.SetProp(button, PropertyKind.Icon, PropertyValue.Integer(IconRole.Search.ordinal + 1L)),
+            Mutation.SetProp(button, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+        ) + extra
+        fun ComposeUiTest.description() = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode()
+            .config.getOrNull(SemanticsProperties.ContentDescription)
+
+        // The name of the same button when it never had one of its own.
+        var defaultName: List<String>? = null
+        runComposeUiTest {
+            show(iconButton())
+            defaultName = description()
+        }
+
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val connection = FakeHostConnection(
+                iconButton(Mutation.SetProp(button, PropertyKind.AccessibleName, name("가져오기"))),
+            )
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            assertEquals(listOf("가져오기"), description())
+
+            connection.scheduleFrame(listOf(Mutation.SetProp(button, PropertyKind.AccessibleName, PropertyValue.None)))
+            frames.request()
+            waitForIdle()
+            assertEquals(defaultName, description(), "the name after the removal is not the default one")
+            assertTrue(description() != listOf("가져오기"), "the removed name is still spoken")
         }
     }
 }
