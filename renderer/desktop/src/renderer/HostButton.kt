@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,6 +23,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -41,7 +44,10 @@ import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.Children
+import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
@@ -61,6 +67,7 @@ import dev.darkpyonix.composerust.ui.variant
 internal fun HostButton(
     node: Node,
     modifier: Modifier,
+    table: NodeTable,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
@@ -185,7 +192,15 @@ internal fun HostButton(
         named,
         contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center,
     ) {
-        if (icon == null) {
+        if (node.children.isNotEmpty()) {
+            // Children replace the label. They are laid out as a Row centred vertically, so
+            // a weighted Spacer pushes whatever follows it to the button's inner edge.
+            CompositionLocalProvider(LocalInheritedTextColor provides ColorProducer { tint }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Children(node, table, dispatcher)
+                }
+            }
+        } else if (icon == null) {
             ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(

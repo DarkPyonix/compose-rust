@@ -241,7 +241,7 @@ fun RenderNode(
             // The controls are drawn through `Unselectable`, which leaves them out of a
             // selectable region around them: a label is pressed, not copied. Outside a region
             // it adds nothing.
-            WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
+            WidgetKind.Button -> Unselectable { HostButton(node, modifier, table, dispatcher, theme) }
             WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher, table.assets) }
             WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
 
@@ -750,7 +750,7 @@ private fun ColumnScope.WeightedChild(childId: Int, table: NodeTable, dispatcher
 }
 
 @Composable
-private fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+internal fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
     node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
 }
 

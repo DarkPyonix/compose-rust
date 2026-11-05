@@ -1019,6 +1019,8 @@ pub struct ButtonScope {
     color: Option<Paint>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    text_align: Option<TextAlign>,
+    font_size: Option<f32>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -1039,12 +1041,28 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         color: None,
         max_lines: None,
         overflow: None,
+        text_align: None,
+        font_size: None,
         on_click: None,
         done: false,
     }
 }
 
 impl ButtonScope {
+    /// Where the label sits in the button. A button that never calls this sends nothing
+    /// and keeps its label centred.
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = Some(align);
+        self
+    }
+
+    /// The label's size in sp. A button that never calls this sends nothing and takes the
+    /// design system's size for its variant.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
     /// The meaning of the glyph on it, never a picture.
     pub fn icon(mut self, icon: IconRole) -> Self {
         self.icon = Some(icon);
@@ -1104,6 +1122,7 @@ impl ButtonScope {
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
+        let (text_align, font_size) = (self.text_align, self.font_size);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -1117,6 +1136,12 @@ impl ButtonScope {
                 attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
                 lines_and_overflow(max_lines, overflow, attrs);
+                if text_align.is_some() {
+                    attrs.push(("text_align", role_or_zero(text_align)));
+                }
+                if font_size.is_some() {
+                    attrs.push(("font_size", dp_or_zero(font_size)));
+                }
             },
             listeners,
             content,
@@ -1124,7 +1149,7 @@ impl ButtonScope {
     }
 }
 
-composed_on_drop!(ButtonScope);
+container!(ButtonScope);
 
 /// A two-state control, for Checkbox, RadioButton and Switch alike: the Host owns the
 /// value, the control draws exactly what it is told and reports what the user asked for.
