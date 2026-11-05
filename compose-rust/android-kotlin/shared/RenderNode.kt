@@ -781,7 +781,8 @@ private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDis
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                RenderNode(childId, table, dispatcher)
+                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
             }
         }
     }

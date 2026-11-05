@@ -285,6 +285,24 @@ class InterpreterTest {
     }
 
     @Test
+    fun fr_matchparent_fills_box_without_sizing_it() = runComposeUiTest {
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(COLUMN, WidgetKind.Box),
+            Mutation.Create(LEFT, WidgetKind.Box),
+            Mutation.SetModifier(LEFT, 0, ProtocolModifier.Size(40f, 20f)),
+            Mutation.Insert(COLUMN, LEFT, 0),
+            Mutation.Create(RIGHT, WidgetKind.Box),
+            Mutation.SetModifier(RIGHT, 0, ProtocolModifier.MatchParentSize),
+            Mutation.Insert(COLUMN, RIGHT, 1),
+        ))
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        onNodeWithTag(nodeTestTag(COLUMN)).assertWidthIsEqualTo(40.dp)
+        onNodeWithTag(nodeTestTag(COLUMN)).assertHeightIsEqualTo(20.dp)
+        onNodeWithTag(nodeTestTag(RIGHT)).assertWidthIsEqualTo(40.dp)
+        onNodeWithTag(nodeTestTag(RIGHT)).assertHeightIsEqualTo(20.dp)
+    }
+
+    @Test
     fun fr12_handler_result_is_returned_to_compose() = runComposeUiTest {
         val connection = FakeHostConnection(twoTextColumn())
         connection.respondWith { HostResponse(result = 1) }

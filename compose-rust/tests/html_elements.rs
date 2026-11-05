@@ -132,6 +132,7 @@ fn every_modifier() -> Vec<Modifier> {
             origin_x: 0.5,
             origin_y: 0.25,
         },
+        Modifier::MatchParentSize,
         Modifier::PressFeedback {
             scale: 0.975,
             tint_alpha: 0.07,
@@ -186,6 +187,18 @@ fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
             len,
             "modifier {tag} has the wrong record length in the schema"
         );
+    }
+}
+
+#[test]
+fn fr_matchparent_round_trips_with_sparse_tag() {
+    let record = set_modifier(Modifier::MatchParentSize);
+    let bytes = encode(std::slice::from_ref(&record));
+    assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 31);
+    assert_eq!(bytes.len(), 40);
+    assert_eq!(decode_batch(&bytes), Ok(vec![record]));
+    for tag in 27..31 {
+        assert_eq!(modifier_extra_words(tag), None);
     }
 }
 

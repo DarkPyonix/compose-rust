@@ -154,6 +154,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.PressFeedback -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
+            is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
             is ProtocolModifier.Width -> chain.width(value.value.dp)

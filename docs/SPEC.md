@@ -3019,6 +3019,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | `CornerEach` | 모서리마다 반지름 (dp) | `RoundedCornerShape(a, b, c, d)` | `border-radius` 네 값 |
 | `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
 | `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
+| `MatchParentSize` | 값 없음, 태그 31 | `Box` 계열 부모의 크기를 늘리지 않고 부모의 경계에 맞춥니다. `Box` 계열의 자식에서만 사용합니다 |
 | `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
 | `BackgroundBrush` | 사각형(x, y, w, h, dp, 노드 기준), `Paint`, 타일 방식(`NoRepeat=1`, `Repeat=2`, `RepeatX=3`, `RepeatY=4`), 타일 크기(w, h, dp) | 위치와 크기를 가진 브러시를 그리는 그리기 수정자 | `background-position`, `background-size`, `background-repeat`. 수정자 태그 28 |
 
