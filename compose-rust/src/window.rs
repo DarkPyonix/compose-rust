@@ -10,6 +10,14 @@ use crate::schema::{WindowHeightClass, WindowSizeClass};
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
+/// Insets in dp needed to avoid the window controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WindowSafeArea {
+    pub top: f32,
+    pub leading: f32,
+    pub trailing: f32,
+}
+
 /// The window's size, as the Renderer last measured it.
 ///
 /// `width_dp` and `height_dp` are density-independent pixels, the same unit gesture
@@ -22,6 +30,7 @@ pub struct WindowSize {
     pub height_dp: f32,
     pub class: WindowSizeClass,
     pub height_class: WindowHeightClass,
+    pub safe_area: WindowSafeArea,
 }
 
 impl WindowSize {
@@ -36,7 +45,17 @@ impl WindowSize {
             height_dp,
             class,
             height_class,
+            safe_area: WindowSafeArea {
+                top: 0.0,
+                leading: 0.0,
+                trailing: 0.0,
+            },
         }
+    }
+
+    pub const fn with_safe_area(mut self, safe_area: WindowSafeArea) -> Self {
+        self.safe_area = safe_area;
+        self
     }
 
     /// Phone-shaped: narrower than 600dp. One column.
@@ -104,6 +123,7 @@ thread_local! {
         height_dp: 0.0,
         class: WindowSizeClass::Compact,
         height_class: WindowHeightClass::Compact,
+        safe_area: WindowSafeArea { top: 0.0, leading: 0.0, trailing: 0.0 },
     }) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     /// What each window of a multi-window application last measured, by the id of its
@@ -424,6 +444,27 @@ impl Drop for NodeSizeSubscription {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fr19_9_safe_area_only_change_republishes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        reset_window_size();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let _subscription = subscribe(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        let size = WindowSize::default().with_safe_area(WindowSafeArea {
+            top: 28.0,
+            leading: 70.0,
+            trailing: 0.0,
+        });
+        assert!(publish(size));
+        assert_eq!(window_size(), size);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!publish(size));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn fr20_window_size_starts_compact_before_the_renderer_measures_anything() {

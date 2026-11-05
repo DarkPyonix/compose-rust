@@ -69,7 +69,7 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
         val nodeId = config.nodeId
         val body: @Composable () -> Unit = {
             MacosWindowScene(
-                host, nodeId, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset,
+                host, nodeId, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
             )
         }
         body
@@ -117,11 +117,15 @@ private fun MacosWindowScene(
     cursorBlink: Boolean,
     dockIcon: DockIcon<*>,
     iconAsset: Int,
+    fullSize: Boolean,
 ) {
     CompositionLocalProvider(
         LocalWindowNodeId provides nodeId,
         LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { dark.value },
+        dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
+            beginMacosWindowDrag(window.window)
+        },
         LocalClipboard provides clipboard,
         LocalClipboardManager provides clipboardManager,
     ) {
@@ -148,6 +152,7 @@ private fun MacosWindowScene(
                 buttonsAtStart = strip.buttonsAtStart,
                 insetTop = strip.insetTop,
                 cornerRadius = strip.cornerRadius,
+                fullSize = fullSize,
             ),
         )
     }

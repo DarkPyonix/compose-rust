@@ -52,7 +52,7 @@ enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, 
 
 enum class MessageDuration { Short, Long }
 
-enum class Chrome { Modern, System }
+enum class Chrome { Modern, System, FullSize }
 
 enum class TitleBar { Normal, Simple }
 
@@ -1021,6 +1021,8 @@ sealed interface Modifier {
     data class Clip(val enabled: Boolean) : Modifier
     data class Alpha(val value: kotlin.Float) : Modifier
     data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
+    data object MatchParentSize : Modifier
+    data class WindowDrag(val enabled: Boolean) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1260,7 +1262,7 @@ sealed interface HostEvent {
     data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
     data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
-    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass) : HostEvent
+    data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float) : HostEvent
     data class Resync(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStart(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class LifecycleStop(override val nodeId: Int, override val handlerId: Long) : HostEvent
@@ -1298,7 +1300,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2165073138301532475L
+    const val SCHEMA_HASH: Long = -6084149434501294276L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1763,7 +1765,7 @@ object Protocol {
                 is HostEvent.KeyDown -> 20
                 is HostEvent.RangeRequested -> 24
                 is HostEvent.ValueChanged -> 24
-                is HostEvent.WindowSizeChanged -> 32
+                is HostEvent.WindowSizeChanged -> 44
                 is HostEvent.Resync -> 16
                 is HostEvent.LifecycleStart -> 16
                 is HostEvent.LifecycleStop -> 16
@@ -1875,6 +1877,9 @@ object Protocol {
                     out.putFloat(event.heightDp)
                     out.putInt(windowSizeClassTag(event.sizeClass))
                     out.putInt(windowHeightClassTag(event.heightClass))
+                    out.putFloat(event.safeAreaTop)
+                    out.putFloat(event.safeAreaLeading)
+                    out.putFloat(event.safeAreaTrailing)
                 }
                 is HostEvent.Resync -> Unit
                 is HostEvent.LifecycleStart -> Unit
@@ -2545,6 +2550,7 @@ object Protocol {
     private fun chrome(tag: Int, offset: Int): Chrome = when (tag) {
         1 -> Chrome.Modern
         2 -> Chrome.System
+        3 -> Chrome.FullSize
         else -> throw ProtocolException("unknown Chrome tag $tag", offset)
     }
 
@@ -2862,6 +2868,8 @@ object Protocol {
         24 -> 0
         25 -> 0
         26 -> 2
+        31 -> 0
+        32 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -2896,6 +2904,8 @@ object Protocol {
             24 -> Modifier.Clip(flag(first, offset))
             25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
             26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
+            31 -> Modifier.MatchParentSize
+            32 -> Modifier.WindowDrag(flag(first, offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

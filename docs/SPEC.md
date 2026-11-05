@@ -3019,6 +3019,7 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 | `CornerEach` | 모서리마다 반지름 (dp) | `RoundedCornerShape(a, b, c, d)` | `border-radius` 네 값 |
 | `Shadow` | x, y, blur, spread (dp), `Paint` | 그림자 그리기 수정자 | `box-shadow` 하나. 여럿이면 수정자를 여러 개 |
 | `Clip` | 켜짐/꺼짐 | `Modifier.clip(shape)` | `overflow: hidden`. 같은 노드에 `CornerEach`가 있으면 그 둥근 모양으로 자르고, 없으면 사각형으로 자릅니다. CSS도 `border-radius`가 있는 상자의 `overflow: hidden`은 둥근 모양으로 자릅니다 |
+| `MatchParentSize` | 값 없음, 태그 31 | `Box` 계열 부모의 크기를 늘리지 않고 부모의 경계에 맞춥니다. `Box` 계열의 자식에서만 사용합니다 |
 | `Alpha` | 0..1 | `Modifier.alpha`(`graphicsLayer`) | `opacity`. 자식까지 한 묶음으로 합성한 뒤 한 번 적용합니다. 자식마다 따로 적용하지 않습니다. CSS `opacity`도 같은 방식입니다 |
 | `BackgroundBrush` | 사각형(x, y, w, h, dp, 노드 기준), `Paint`, 타일 방식(`NoRepeat=1`, `Repeat=2`, `RepeatX=3`, `RepeatY=4`), 타일 크기(w, h, dp) | 위치와 크기를 가진 브러시를 그리는 그리기 수정자 | `background-position`, `background-size`, `background-repeat`. 수정자 태그 28 |
 
@@ -3703,6 +3704,58 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
 
+### FR-66 Button이 행이 되는 방법: 왼쪽 정렬 라벨, 글자 크기, 내용 슬롯 (`Draft`, 이슈 #425)
+
+요청한 쪽: darkpyonix-ember(목업 `style.css`의 `.nav`: 높이 38px, 가로 여백 `--sp3`, 라벨과 아이콘과 개수가 한 줄, 개수는 오른쪽 끝). 목록 행, 내비게이션 행, 트리 행은 눌리는 면 전체가 컨트롤이어야 합니다. 지금은 `Button(text)`가 라벨을 가운데에 놓고 자기 글자 크기를 정해서, 앱이 Button 위에 칠한 행과 클릭 영역을 따로 얹어야 합니다.
+
+- `ui::Button`에 `text_align(TextAlign)`와 `font_size(Fs)`가 있습니다. 부르면 `TextAlign`과 `FontSize` 속성을 보내고, 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. FR-64의 `MenuItem`이 이미 쓰는 `TextAlign=Start` 경로를 Button 일반으로 넓힌 것입니다.
+- `Button`은 자식을 받을 수 있습니다(`Button { ... }` 형태). 자식이 있으면 Renderer는 라벨 대신 그 자식을 Compose `Button`의 content 슬롯에 그리고, 눌림 표시, 포커스, 비활성, 접근성 동작은 Button의 것을 그대로 씁니다. 자식과 `Text`가 함께 오면 자식이 이깁니다.
+- 라벨 정렬이 `Start`이면 라벨은 Button 안쪽 여백에서 시작하고, 자식 슬롯은 `Row` 배치(세로 가운데)로 놓입니다.
+
+수용 기준.
+1. `Button("변경 사항").variant(Text).text_align(Start).font_size(Sm).modifier(fill_max_width().height(40.0))`에서 라벨의 왼쪽 가장자리가 Button의 왼쪽 안쪽 여백에 있고, 글자 크기가 `Sm`입니다.
+2. `text_align`, `font_size`를 부르지 않으면 두 속성이 나가지 않고 렌더러 결과가 바뀌지 않습니다.
+3. 자식으로 `Icon`, `Text`, `Spacer.weight(1.0)`, 개수 `Text`를 가진 Button에서 개수가 Button의 오른쪽 안쪽 가장자리에 붙고, Button 전체를 누르면 `on_click`이 한 번 옵니다.
+
+### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Draft`, 이슈 #426, #428)
+
+요청한 쪽: darkpyonix-ember(목업 `style.css`). 값: `.switch`는 36x20px 알약, 꺼짐 트랙 `--track`(라이트 `#ecebe6`, 다크 `#2f2e2b`), 켜짐 트랙 `--ink`(`#1c1b19` / `#f0eee9`), 손잡이 16px 원(`--surface`, 위치 2px, 켜짐은 왼쪽 18px). `.track`은 높이 6px, 반지름 3px, 배경 `--track`, 채움 색 따로. 체크박스는 18x18 `--ink` 사각형에 흰 체크(diff 줄의 변형은 14x14). 툴킷 `Switch`는 54x32에 플랫폼 초록 트랙이고, `Slider` 트랙은 카드 면과 구분되지 않으며, `Checkbox`는 체크되어도 속이 빈 동그라미라서 목업과 맞출 수 없습니다.
+
+- 세 위젯 빌더에 색 역할 또는 `Paint`로 주는 `track_color`, `thumb_color`(Switch, Slider), `active_track_color`(Slider), `container_color`, `check_color`(Checkbox)와 크기 `size(Dp)`(Switch는 `size(width, height)`)가 있습니다. 부르지 않으면 속성이 나가지 않고 디자인 시스템 기본 모양입니다.
+- Renderer는 이 값이 하나라도 오면 Compose의 `SwitchDefaults.colors`, `SliderDefaults.colors`, `CheckboxDefaults.colors`와 크기 수정자로 그립니다. 값이 오지 않은 칸은 기본값을 씁니다.
+- 선택된 `Checkbox`는 `container_color`로 채운 사각형(모서리 반지름은 `Shape` 수정자를 따름)에 `check_color` 체크를 그립니다.
+
+수용 기준.
+1. `Switch(true).size(36.0, 20.0).track_color(ink).thumb_color(surface)`의 측정 크기가 36x20dp이고 켜진 트랙 픽셀이 `ink`입니다.
+2. `Slider`에 `active_track_color`와 `track_color`를 주면 채워진 구간과 남은 구간이 그 색으로 그려집니다.
+3. 체크된 `Checkbox.size(18.0).container_color(ink).check_color(white)`는 18x18dp 채워진 사각형과 흰 체크를 그립니다.
+4. 색과 크기를 하나도 주지 않은 세 위젯은 지금과 같은 속성을 보냅니다.
+
+### FR-68 어느 노드에나 붙는 접근성 수정자 (`Draft`, 이슈 #429, #426)
+
+요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
+
+- `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`가 있습니다. 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
+- `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
+- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+
+수용 기준.
+1. 화면 트리를 그려 접근성 트리를 뽑는 시험에서, 포커스를 받을 수 있는 모든 노드(Button, 누를 수 있는 컨테이너, 토글, Slider)가 비어 있지 않은 이름을 가진다는 검사가 있고, 이름 없는 노드가 있으면 실패하며 노드를 알려 줍니다.
+2. `Box.modifier(label("새로고침").role(Button))`의 접근성 노드가 그 이름과 역할을 가집니다.
+3. `Button("").icon(Refresh).accessible_name("가져오기")`의 접근성 이름이 "가져오기"입니다.
+4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
+
+### FR-69 비활성 Button의 라벨 대비 (`Draft`, 이슈 #432)
+
+요청한 쪽: darkpyonix-ember#249(버전 관리의 커밋 버튼). `Primary` 종류의 비활성 Button(채움 `--ink`)이 검은 바탕에 회색 라벨로 그려져 읽기 어렵습니다.
+
+- 비활성 Button은 채움은 흐리게 하되 라벨이 채움 위에서 WCAG 대비 3:1 이상을 지킵니다. 모자라면 라벨 색을 대비를 맞추는 쪽으로 옮깁니다.
+- 대비 계산은 이미 있는 `contrast.rs`와 같은 식을 씁니다.
+
+수용 기준.
+1. 라이트와 다크, `Primary`와 `Secondary`와 `Text`, 모든 디자인 시스템의 비활성 Button에서 라벨과 채움(채움이 없으면 바탕)의 대비가 3:1 이상입니다. 모든 조합을 도는 시험입니다.
+2. 활성 Button의 모양은 바뀌지 않습니다.
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
@@ -3713,7 +3766,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
   - 키보드 포커스를 받습니다. Tab 순회에 들어가고, 눌러도 포커스가 옵니다.
   - 포커스를 가진 채 Enter 또는 Space를 누르면 `Clicked`가 한 번 갑니다.
   - 접근성 역할은 버튼이고 클릭 동작을 가집니다. 자손의 텍스트는 이름으로 합쳐집니다.
-  - 마우스를 올리면 `OnSurface` 색이 8%, 누르는 동안 12%로 노드 모양 위에 덮입니다. 포커스가 있으면 `Primary` 색 2dp 테두리가 노드 모양을 따라 그려집니다. 지표 값은 디자인 시스템이 바꿀 수 있도록 Renderer 한 곳에 상수로 둡니다.
+  - 마우스를 올리면 `OnSurface` 색이 8%, 누르는 동안 12%로 노드 모양 위에 덮입니다. 키보드(또는 프로그래밍 방식 포커스 요청)로 포커스가 들어왔을 때만 `Primary` 색 2dp 테두리가 노드의 클립/모양 크기 안쪽을 따라 그려지며, 포인터로 눌러 포커스를 얻은 경우에는 포커스 테두리를 그리지 않습니다. `Padding`이 `Clickable`이나 컨테이너의 `on_click`과 함께 쓰여도 호버·눌림 층과 포커스 테두리는 안쪽 여백이 줄이기 전의 노드 모양 크기에 맞춰 그려집니다. 지표 값은 디자인 시스템이 바꿀 수 있도록 Renderer 한 곳에 상수로 둡니다.
   - `Enabled`가 거짓이면 포커스, 클릭, 표시가 모두 꺼집니다.
 - 호버와 눌림은 Host에 이벤트를 보내지 않습니다.
 

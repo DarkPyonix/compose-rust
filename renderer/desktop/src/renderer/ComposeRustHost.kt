@@ -1,5 +1,10 @@
 package dev.darkpyonix.composerust.runtime
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +76,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import dev.darkpyonix.composerust.design.HostPlatform
+
+internal class WindowDragExclusion { var downKey: Pair<Long, Long>? = null }
+internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }
 
 /**
  * Sends one event to the Host and reports whether the Host consumed it.
@@ -431,11 +439,12 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
-            reporter.report(widthDp, size.height.toDp().value, host)
+            measuredSize = size
         }
     }
     // Whether anything in the tree asked to be made of a material, and so whether the
@@ -524,7 +533,7 @@ private fun ComposeRustTree(
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
         host.table.opensWithANavigation(pageRoots)
-    val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
+    val barIsCaption = !caption.fullSize && (caption.height > 0.dp || bars.top > 0.dp) &&
         (host.table.opensWithABar(pageRoots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
@@ -539,6 +548,18 @@ private fun ComposeRustTree(
     // bar.
     LaunchedEffect(theme.dark) { systemChrome?.setDarkIcons(!theme.dark) }
     val captionStyle = theme.rules.caption(theme)
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
+        val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
+            captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
+        val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
+            captionStyle.side == CaptionSide.Start
+        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
+    }
+    SideEffect {
+        measuredSize?.let { size ->
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea) }
+        }
+    }
     // How much room the buttons take and at which end. The platform's own are at the
     // leading edge and the renderer's are wherever this design system puts them, so the
     // bar cannot assume either.
@@ -560,8 +581,27 @@ private fun ComposeRustTree(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
+    val dragWindow = LocalWindowDrag.current
+    val dragExclusion = remember { WindowDragExclusion() }
+    val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+            if (!down.isConsumed && dragExclusion.downKey != (down.id.value to down.uptimeMillis) && down.position.y < caption.height.toPx()) {
+                while (true) {
+                    val change = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.isConsumed || !change.pressed) break
+                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        change.consume()
+                        dragWindow()
+                        break
+                    }
+                }
+            }
+        }
+    } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
@@ -580,6 +620,7 @@ private fun ComposeRustTree(
             Box(
                 modifier
                     .then(measured)
+                    .then(dragStrip)
                     .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
                     .background(host.table.windowFill(pageRoots, theme)),
             ) {
@@ -704,6 +745,7 @@ data class WindowCaption(
      * A strip laid along the window's edge cuts its own corner concentric with this one.
      */
     val cornerRadius: Dp = 0.dp,
+    val fullSize: Boolean = false,
 ) {
     companion object {
         /** No strip to avoid: a system title bar, or a platform without one. */
@@ -1011,7 +1053,7 @@ internal fun pageInsets(
     // Never below nothing, whatever a platform measured. This is a padding, and a negative
     // one does not draw oddly: it throws, from inside composition, and takes the window
     // with it.
-    val top = if (barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
+    val top = if (caption.fullSize || barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
     val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
     return top to bottom
 }
