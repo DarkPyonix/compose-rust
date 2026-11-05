@@ -116,3 +116,63 @@ fn fr68_the_widget_name_wins_over_the_modifier_label_and_the_icon() {
     assert!(dump.contains("AccessibleName=\"Save the draft\""), "{dump}");
     assert!(!dump.contains("From the modifier"), "{dump}");
 }
+
+#[composable]
+fn Renaming() {
+    let named = remember(|| mutable_state_of(true));
+    Column().content(|| {
+        let flip = named.clone();
+        Row()
+            .on_click(move || flip.update(|n| *n = !*n))
+            .content(|| {
+                Text("flip");
+            });
+        let button = Button("").icon(IconRole::Add).on_click(|| {});
+        if named.get() {
+            button.accessible_name("Import")
+        } else {
+            button
+        };
+    });
+}
+
+#[test]
+fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{EventPayload, PropertyKind};
+
+    let mut host = ComposeHost::with_content(Renaming);
+    let mut tree = Tree::default();
+    tree.apply(host.rebuild().expect("the first batch encodes"));
+    assert!(tree.dump().contains("AccessibleName=\"Import\""));
+
+    let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
+    let mut batches = Vec::new();
+    let (batch, _) = host
+        .dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::Clicked,
+        })
+        .expect("the click is accepted");
+    batches.push(batch.to_vec());
+    batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
+
+    let mut removed = 0;
+    for batch in &batches {
+        for mutation in decode_batch(batch).expect("the batch decodes") {
+            if let Mutation::SetProp {
+                property: PropertyKind::AccessibleName,
+                value,
+                ..
+            } = mutation
+            {
+                assert_eq!(value, PropertyValue::None);
+                removed += 1;
+            }
+        }
+        tree.apply(batch);
+    }
+    assert_eq!(removed, 1, "one removal of the name was expected");
+    assert!(!tree.dump().contains("AccessibleName"), "{}", tree.dump());
+}
