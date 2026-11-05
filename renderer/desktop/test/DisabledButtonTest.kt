@@ -104,12 +104,13 @@ class DisabledButtonTest {
         for (system in DesignSystem.entries) {
             for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
                 for (variant in listOf(ButtonVariant.Filled, ButtonVariant.Tonal, ButtonVariant.Text)) {
+                  for (parent in listOf(ColorRole.Background, ColorRole.Surface, ColorRole.SurfaceContainer)) {
                     runComposeUiTest {
                         val mutations = batch(system, false).toMutableList().apply {
                             this[0] = Mutation.SetTheme(Theme(system, system, scheme, false))
                             this[3] = Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("MMMM"))
                             this[4] = Mutation.SetProp(button, PropertyKind.Variant, PropertyValue.Integer(variant.ordinal + 1L))
-                            add(Mutation.SetModifier(root, 0, ProtocolModifier.Background(Paint.Role(ColorRole.Background))))
+                            add(Mutation.SetModifier(root, 0, ProtocolModifier.Background(Paint.Role(parent))))
                         }
                         setContent {
                             ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
@@ -124,6 +125,8 @@ class DisabledButtonTest {
                             }
                         }
                         val fill = androidx.compose.ui.graphics.Color(frequencies.maxBy { it.value }.key)
+                        // The button here has a word and no glyph or border, so every pixel that
+                        // differs from the fill belongs to the label.
                         var best = 1f
                         for (y in image.height / 3 until image.height * 2 / 3) {
                             for (x in image.width / 3 until image.width * 2 / 3) {
@@ -131,8 +134,9 @@ class DisabledButtonTest {
                                 best = maxOf(best, dev.darkpyonix.composerust.design.contrastRatio(fill, pixel))
                             }
                         }
-                        assertTrue(best >= 3f, "$system $scheme $variant: contrast $best")
+                        assertTrue(best >= 3f, "$system $scheme $variant on $parent: contrast $best")
                     }
+                  }
                 }
             }
         }

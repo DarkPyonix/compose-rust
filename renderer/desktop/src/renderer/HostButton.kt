@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
@@ -108,7 +109,13 @@ internal fun HostButton(
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
 
-    // Fade the decoration as a group, including any background supplied by the Host.
+    // A button that cannot be pressed has to look it. Without this the only way to find
+    // out was to press it, because refusing the click was all `enabled` did. The whole
+    // control fades as one group rather than each variant naming a disabled colour, so a
+    // design system owes one number instead of four, the faded colours are still its own,
+    // and a background or border the Host set on the node's modifier chain fades with the
+    // label instead of staying opaque behind it. The label is the exception: it is drawn
+    // again outside the fade, in a colour that keeps its contrast with the faded fill.
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val clickable = if (handlerId == null) {
         available.then(modifier)
@@ -167,12 +174,16 @@ internal fun HostButton(
     val tint = if (enabled) {
         content.copy(alpha = content.alpha * contentAlpha)
     } else {
-        val page = theme.color(ColorRole.Background)
         val fill = node.modifiers.filterIsInstance<ProtocolModifier.Background>().lastOrNull()
             ?.let { theme.color(it.paint) } ?: container
-        val fadedFill = compositeOver(fill.copy(alpha = fill.alpha * style.disabledAlpha), page)
-        val fadedContent = compositeOver(content.copy(alpha = content.alpha * style.disabledAlpha), fadedFill)
-        ensureContrast(fadedContent, fadedFill, 3.3f)
+        // The surface behind the button is not known here, so the label has to hold its
+        // contrast over each surface a screen puts a button on: the page, a card, a raised card.
+        val parents = listOf(ColorRole.Background, ColorRole.Surface, ColorRole.SurfaceContainer)
+            .map { theme.color(it) }
+        val faded = parents.map { compositeOver(fill.copy(alpha = fill.alpha * style.disabledAlpha), it) }
+        var result = compositeOver(content.copy(alpha = content.alpha * style.disabledAlpha), faded.first())
+        repeat(2) { for (f in faded) result = ensureContrast(result, f, MIN_DISABLED_LABEL_CONTRAST) }
+        result
     }
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
@@ -188,6 +199,8 @@ internal fun HostButton(
     val named = decorated
         .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
+    // The row gap between the glyph and the word is the design system's smallest step, so a
+    // dense language sets them closer than a roomy one does.
     @Composable
     fun ButtonLabel() {
         if (icon == null) {
@@ -209,7 +222,9 @@ internal fun HostButton(
     } else {
         Box {
             Box(named, contentAlignment = alignment) {
-                Box(Modifier.alpha(0f)) { ButtonLabel() }
+                // Only here to give the button its size; the label assistive technology
+                // reads and the user sees is the one drawn on top.
+                Box(Modifier.alpha(0f).clearAndSetSemantics { }) { ButtonLabel() }
             }
             Box(
                 Modifier.matchParentSize().labelPadding(
@@ -222,6 +237,9 @@ internal fun HostButton(
         }
     }
 }
+
+// Slightly above 3:1 so anti-aliased glyph edges still measure 3:1.
+private const val MIN_DISABLED_LABEL_CONTRAST = 3.3f
 
 /**
  * How a button of this variant and kind looks under this design system.
