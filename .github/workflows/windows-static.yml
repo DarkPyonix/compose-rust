@@ -26,8 +26,10 @@ on:
   # that calls it.
   workflow_dispatch:
 
+  # A called workflow takes its caller's name as github.workflow, so each caller gets its own
+  # group: the native renderer test and the Windows package host no longer cancel each other.
 concurrency:
-  group: windows-static-${{ github.event.pull_request.number || github.ref }}
+  group: windows-static-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -273,6 +275,13 @@ jobs:
         run: |
           ls -la renderer/build/windows renderer/build/windows/*/
           du -sh renderer/build/windows
+
+      - name: Hand the renderer kit to workflows that call this one
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+          retention-days: 3
 
       - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
         if: always() && steps.renderer.outcome == 'success'
