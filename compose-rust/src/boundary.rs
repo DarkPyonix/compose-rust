@@ -688,12 +688,20 @@ impl Host {
             height_dp,
             class,
             height_class,
+            safe_area_top,
+            safe_area_leading,
+            safe_area_trailing,
         } = event.payload
         {
             // Node id zero is the window; anything else is one of its nodes. One event
             // for both, because they are the same fact measured at two scales and a
             // second way of saying it would be a second thing to keep in step.
-            let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
+            let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class)
+                .with_safe_area(crate::window::WindowSafeArea {
+                    top: safe_area_top,
+                    leading: safe_area_leading,
+                    trailing: safe_area_trailing,
+                });
             // A window's report names the window's node, and that is not an
             // observed node: it is the same fact for a window of its own.
             if event.node_id != 0 && self.runtime.is_window(event.node_id) {

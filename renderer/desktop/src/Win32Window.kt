@@ -464,7 +464,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     val caption = if (systemChrome) {
         dev.darkpyonix.composerust.runtime.WindowCaption.None
     } else {
-        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT)
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize)
     }
     @Suppress("DEPRECATION")
     scene.setContent {

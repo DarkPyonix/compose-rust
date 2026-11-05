@@ -1,6 +1,12 @@
 package dev.darkpyonix.composerust.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import dev.darkpyonix.composerust.runtime.LocalWindowDragExclusion
+import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -138,6 +144,24 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     }
     val folded = fold(surface) { chain, value ->
         when (value) {
+            is ProtocolModifier.WindowDrag -> chain.composed {
+                val drag = LocalWindowDrag.current
+                val exclusion = LocalWindowDragExclusion.current
+                pointerInput(value.enabled, drag, exclusion) {
+                    awaitEachGesture {
+                        if (value.enabled) {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+                            if (!down.isConsumed) {
+                                down.consume()
+                                drag()
+                            }
+                        } else {
+                            // Mark this down for the strip without consuming it, so ancestors can click.
+                            val excluded = awaitFirstDown(requireUnconsumed = false); exclusion?.downKey = excluded.id.value to excluded.uptimeMillis
+                        }
+                    }
+                }
+            }
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
             is ProtocolModifier.MatchParentSize -> chain
@@ -821,6 +845,9 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
                         heightDp = heightDp,
                         sizeClass = sizeClass,
                         heightClass = heightClass,
+                        safeAreaTop = 0f,
+                        safeAreaLeading = 0f,
+                        safeAreaTrailing = 0f,
                     ),
                 )
             }
