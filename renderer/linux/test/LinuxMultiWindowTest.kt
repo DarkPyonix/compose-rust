@@ -2,6 +2,11 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.ZoomLevelStore
+import dev.darkpyonix.composerust.runtime.appZoomScale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -26,9 +31,11 @@ class LinuxMultiWindowTest {
         val moves = ArrayList<ScreenBounds>()
         override fun onCloseRequested() { closeRequests++ }
         val focusEvents = ArrayList<Boolean>()
+        val zoomEvents = ArrayList<Triple<Float, Float, Int>>()
         override fun onFocusChanged(focused: Boolean) { focusEvents += focused }
         override fun onMoved(bounds: ScreenBounds) { moves += bounds }
         override fun onFollowEnded(cancelled: Boolean) {}
+        override fun onZoomChanged(k: Float, os: Float, level: Int) { zoomEvents += Triple(k, os, level) }
     }
 
     private fun hasDisplay(): Boolean {
@@ -37,7 +44,7 @@ class LinuxMultiWindowTest {
         return false
     }
 
-    private fun backend() = LinuxWindowBackend(mainForTests()) { { } }
+    private fun backend() = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom() }) { { } }
 
     private fun config(id: Int, width: Float = 320f, height: Float = 240f) =
         PlatformWindowConfig(nodeId = id, title = "window $id", width = width, height = height)
@@ -49,6 +56,70 @@ class LinuxMultiWindowTest {
             if (done()) return true
         }
         return done()
+    }
+
+    @Test
+    fun fr53_53_3_linux_zoom_at_open_and_after_open_is_local_to_each_window() {
+        if (!hasDisplay()) return
+        val densities = mutableMapOf<Int, Float>()
+        val backend = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom() }) { id ->
+            {
+                val density = LocalDensity.current.density
+                SideEffect { densities[id] = density }
+            }
+        }
+        try {
+            val firstEvents = Recorder()
+            val secondEvents = Recorder()
+            val first = backend.open(config(1).copy(zoomLevel = 2), firstEvents)!!
+            val second = backend.open(config(2).copy(zoomLevel = 0), secondEvents)!!
+            assertEquals(2, firstEvents.zoomEvents.last().third)
+            assertEquals(0, secondEvents.zoomEvents.last().third)
+            assertTrue(backend.turnsUntil { densities.size == 2 })
+            val base = densities.getValue(2)
+            assertEquals(base * appZoomScale(2), densities.getValue(1), 0.001f)
+
+            first.setZoomLevel(-1)
+            assertEquals(-1, firstEvents.zoomEvents.last().third)
+            assertTrue(backend.turnsUntil { kotlin.math.abs(densities.getValue(1) - base * appZoomScale(-1)) < 0.001f })
+            assertEquals(base, densities.getValue(2), 0.001f)
+            assertEquals(listOf(0), secondEvents.zoomEvents.map { it.third })
+
+            first.setZoomLevel(100)
+            assertEquals(8, firstEvents.zoomEvents.last().third)
+            val count = firstEvents.zoomEvents.size
+            first.setZoomLevel(9)
+            assertEquals(count, firstEvents.zoomEvents.size)
+            second.close()
+            first.close()
+            first.setZoomLevel(0)
+            assertEquals(count, firstEvents.zoomEvents.size)
+        } finally {
+            backend.closeAll()
+        }
+    }
+
+    @Test
+    fun fr53_53_3_linux_new_window_reads_the_last_saved_zoom() {
+        if (!hasDisplay()) return
+        val store = object : ZoomLevelStore {
+            var saved: Int? = 3
+            override fun load(): Int? = saved
+            override fun save(level: Int) { saved = level }
+        }
+        val backend = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom(store = store) }) { { } }
+        try {
+            val firstEvents = Recorder()
+            val first = backend.open(config(1), firstEvents)!!
+            assertEquals(3, firstEvents.zoomEvents.last().third)
+            first.setZoomLevel(-2)
+            val secondEvents = Recorder()
+            backend.open(config(2), secondEvents)!!
+            assertEquals(-2, secondEvents.zoomEvents.last().third)
+            assertEquals(-2, store.saved)
+        } finally {
+            backend.closeAll()
+        }
     }
 
     @Test
