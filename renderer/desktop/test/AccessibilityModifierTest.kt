@@ -57,6 +57,12 @@ private fun ComposeUiTest.show(mutations: List<Mutation>) {
     waitForIdle()
 }
 
+/**
+ * Widgets the every-operable-node-has-a-name check does not cover.
+ * Sliders are left out until the design system's Slider exposes a range semantics node: thisisthepy/compose-multiplatform-core-extended#180.
+ */
+private val LEFT_OUT_OF_THE_CHECK = setOf(WidgetKind.Slider)
+
 /** A column holding one of every kind of control, each given a name unless it names itself. */
 private fun everyOperable(named: Boolean) = buildList {
     add(Mutation.Create(TREE_ROOT, WidgetKind.Column))
@@ -99,7 +105,7 @@ private fun everyOperable(named: Boolean) = buildList {
             ) + label(it, "$kind option")
         }
     }
-    child(WidgetKind.Slider) {
+    if (WidgetKind.Slider !in LEFT_OUT_OF_THE_CHECK) child(WidgetKind.Slider) {
         listOf(
             Mutation.SetProp(it, PropertyKind.Value, PropertyValue.Float(0.5f)),
             Mutation.SetProp(it, PropertyKind.Min, PropertyValue.Float(0f)),
@@ -132,9 +138,8 @@ class AccessibilityModifierTest {
         runComposeUiTest {
             show(everyOperable(named = false))
             val missing = unnamed()
-            // The pressable container and the three toggles say nothing by themselves. The slider
-            // is left out: the design system's slider publishes no range semantics yet, so it is
-            // not an operable node to this check.
+            // The pressable container and the three toggles say nothing by themselves. Sliders
+            // are in LEFT_OUT_OF_THE_CHECK.
             assertTrue(missing.size >= 4, "an unnamed control went unnoticed: $missing")
             assertTrue(missing.all { it.startsWith(TAG_PREFIX) }, "$missing")
         }
@@ -165,6 +170,29 @@ class AccessibilityModifierTest {
             val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
             assertEquals(null, config.getOrNull(SemanticsProperties.ContentDescription))
             assertEquals(null, config.getOrNull(SemanticsProperties.Role))
+        }
+    }
+
+    @Test
+    fun fr68_a_box_with_a_label_and_a_role_is_one_semantics_node() {
+        val box = 1
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Refresh")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Button, 0)),
+                ),
+            )
+            val nodes = onAllNodes(SemanticsMatcher("carries the label or the role") {
+                it.tag() == nodeTestTag(box) ||
+                    it.config.getOrNull(SemanticsProperties.ContentDescription) == listOf("Refresh") ||
+                    it.config.getOrNull(SemanticsProperties.Role) == Role.Button
+            }, useUnmergedTree = true).fetchSemanticsNodes()
+            assertEquals(1, nodes.size, "the label and the role must sit on one node: $nodes")
+            val config = nodes.single().config
+            assertEquals(listOf("Refresh"), config.getOrNull(SemanticsProperties.ContentDescription))
+            assertEquals(Role.Button, config.getOrNull(SemanticsProperties.Role))
         }
     }
 
