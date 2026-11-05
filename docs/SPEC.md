@@ -1545,7 +1545,7 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 
 20.4의 규칙은 클래스(와 19.9의 안전 영역)가 바뀔 때만 `WindowSizeChanged`를 보냅니다. 창 크기로 페이지를 짜는 Host(HTML과 CSS 호스트)는 클래스 안에서 1280x820이 1000x620으로 줄어도 다시 배치할 수 없습니다. `window_size()`가 마지막 클래스 변경 때의 크기를 계속 돌려주기 때문입니다.
 
-- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window::new().report_size(true)`입니다.
+- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window(on_close).report_size(true)`입니다. `Window` 노드가 없는 암묵적 단일 창(루트)은 옵트인할 수 없고 항상 지금의 동작입니다.
 - **켠 창**: 클래스와 안전 영역이 그대로여도, 창의 폭 또는 높이가 **반올림한 dp**로 바뀌면 같은 `WindowSizeChanged`를 보냅니다. 레코드와 이벤트 태그는 바뀌지 않고 이미 실린 `width_dp`, `height_dp`가 새 크기입니다.
 - **반올림 규칙**: 폭과 높이를 각각 가장 가까운 정수 dp로 반올림합니다(0.5는 올림). 직전에 보낸 값과 반올림한 값이 같으면 보내지 않으므로 1dp 미만의 흔들림은 무시합니다. `Float`를 그대로 비교하지 않습니다. 보내는 `width_dp`와 `height_dp`는 반올림하지 않은 측정값입니다.
 - **끈 창**: 지금과 한 바이트도 다르지 않습니다. 기본 동작, 호출 수, 할당이 그대로입니다.
