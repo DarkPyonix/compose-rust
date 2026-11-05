@@ -31,6 +31,10 @@ import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import dev.darkpyonix.composerust.ui.pressFeedbackTarget
+import dev.darkpyonix.composerust.ui.pressReleaseDelay
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 
 private const val CONTAINER = 1
 private const val LABEL = 2
@@ -167,6 +171,118 @@ class ClickableContainerTest {
             val pressed = corner()
             kotlin.test.assertNotEquals(resting, hovered, "hover is drawn")
             kotlin.test.assertNotEquals(hovered, pressed, "press is drawn apart from hover")
+        }
+    }
+
+    @Test
+    fun fr51_press_tint_changes_the_surface_without_an_event() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                tree(WidgetKind.Box, clickable = true) +
+                    Mutation.SetModifier(CONTAINER, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(80f, 80f)),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center) }
+            waitForIdle()
+            fun pixel() = onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[70, 70].toArgb()
+            val hover = pixel()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { press() }
+            waitForIdle()
+            kotlin.test.assertNotEquals(hover, pixel())
+            assertEquals(0, connection.events.filterIsInstance<HostEvent.Clicked>().size)
+        }
+    }
+
+    @Test
+    fun fr51_press_feedback_can_be_turned_off() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                tree(WidgetKind.Box, clickable = true) + listOf(
+                    Mutation.SetModifier(CONTAINER, 0, dev.darkpyonix.composerust.protocol.Modifier.Size(80f, 80f)),
+                    Mutation.SetModifier(CONTAINER, 1, dev.darkpyonix.composerust.protocol.Modifier.PressFeedback(1f, 0f)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center) }
+            waitForIdle()
+            fun pixel() = onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[70, 70].toArgb()
+            val hover = pixel()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { press() }
+            waitForIdle()
+            assertEquals(hover, pixel())
+        }
+    }
+
+    @Test
+    fun fr51_press_scale_and_release_timing() {
+        val pressed = pressFeedbackTarget(true, true, false, false, null)
+        assertEquals(0.975f, pressed.scale, 0.0001f)
+        assertEquals(0.07f, pressed.tint, 0.0001f)
+        assertEquals(120L, pressReleaseDelay(0))
+        assertEquals(20L, pressReleaseDelay(100))
+        assertEquals(0L, pressReleaseDelay(200))
+        val released = pressFeedbackTarget(false, true, false, false, null)
+        assertEquals(1f, released.scale)
+        assertEquals(0f, released.tint)
+    }
+
+    @Test
+    fun fr51_reduced_motion_disabled_and_custom_feedback() {
+        val reduced = pressFeedbackTarget(true, true, true, true, null)
+        assertEquals(1f, reduced.scale)
+        assertEquals(0.10f, reduced.tint, 0.0001f)
+        val disabled = pressFeedbackTarget(true, false, false, false, null)
+        assertEquals(1f, disabled.scale)
+        assertEquals(0f, disabled.tint)
+        val invisible = pressFeedbackTarget(true, true, false, false, ProtocolModifier.PressFeedback(1f, 0f))
+        assertEquals(1f, invisible.scale)
+        assertEquals(0f, invisible.tint)
+    }
+
+    @Test
+    fun fr51_transparent_row_draws_tint_and_restores_hover_after_release() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                tree(WidgetKind.Row, clickable = true) +
+                    Mutation.SetModifier(CONTAINER, 0, ProtocolModifier.Size(80f, 80f)),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            fun pixel() = onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[70, 70].toArgb()
+            val resting = pixel()
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center) }
+            waitForIdle()
+            val hover = pixel()
+            assertNotEquals(resting, hover)
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { press() }
+            waitForIdle()
+            assertNotEquals(hover, pixel())
+            onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { release() }
+            mainClock.advanceTimeBy(500)
+            waitForIdle()
+            assertEquals(hover, pixel())
+        }
+    }
+
+    @Test
+    fun fr51_button_draws_press_feedback_and_disabled_button_does_not() {
+        listOf(true, false).forEach { enabled ->
+            runComposeUiTest {
+                val connection = FakeHostConnection(listOf(
+                    Mutation.Create(CONTAINER, WidgetKind.Button),
+                    Mutation.SetProp(CONTAINER, PropertyKind.OnClick, PropertyValue.Integer(HANDLER)),
+                    Mutation.SetProp(CONTAINER, PropertyKind.Enabled, PropertyValue.Bool(enabled)),
+                    Mutation.SetModifier(CONTAINER, 0, ProtocolModifier.Size(80f, 80f)),
+                ))
+                setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { moveTo(center) }
+                waitForIdle()
+                fun pixel() = onNodeWithTag(nodeTestTag(CONTAINER)).captureToImage().toPixelMap()[40, 40].toArgb()
+                val before = pixel()
+                onNodeWithTag(nodeTestTag(CONTAINER)).performMouseInput { press() }
+                waitForIdle()
+                if (enabled) assertNotEquals(before, pixel()) else assertEquals(before, pixel())
+                assertEquals(0, connection.events.filterIsInstance<HostEvent.Clicked>().size)
+            }
         }
     }
 

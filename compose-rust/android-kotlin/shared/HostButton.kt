@@ -42,6 +42,7 @@ import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.pressFeedback
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.overflow
@@ -118,7 +119,11 @@ internal fun HostButton(
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        available.then(modifier).clickable(
+        available.then(modifier).pressFeedback(
+            interactions, enabled, theme, style.shape,
+            node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
+            node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
+        ).clickable(
             interactionSource = interactions,
             indication = null,
             enabled = enabled,

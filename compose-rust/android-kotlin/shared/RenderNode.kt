@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -184,6 +185,8 @@ fun RenderNode(
                 containerClickHandler = clickHandler,
                 containerEnabled = node.flag(PropertyKind.Enabled, default = true),
                 containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
+                pressColor = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: theme.color(ColorRole.OnSurface),
+                allowPress = node.widget != WidgetKind.TextField,
             ),
         )
         .testTag(nodeTestTag(nodeId))

@@ -10,6 +10,10 @@
 
 `Chrome::FullSize` lets content start at the top of the window, with no caption strip and no bar discovery, on macOS first ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)). The window size event carries `WindowSafeArea { top, leading, trailing }` in dp, so the app can keep clear of the window buttons, and a new `WindowDrag(bool)` modifier (wire tag 32) makes a node a drag region or removes it from the default drag strip. The schema hash changes (the `WindowSizeChanged` record grows from 32 to 44 bytes), so a renderer and a crate from before this change no longer agree. Windows and Linux dragging follows in a later release.
 
+### Press feedback
+
+Every pressable surface (`on_click` containers, `Clickable` nodes and the toolkit `Button`) scales to 0.975 and shows a faint tint while pressed, inside the renderer with no Host round trip, and `Modifier::PressFeedback { scale, tint_alpha }` (wire tag 33) changes or turns it off ([#305](https://github.com/DarkPyonix/compose-rust/issues/305)). The schema hash changes.
+
 ## v0.0.5
 
 ### Multiple windows in one process
