@@ -42,7 +42,7 @@ done
 repository="${DXC_M2_REPOSITORY:-$HOME/.m2/repository}/org/thisisthepy/compose/window"
 class_pattern='java/awt|javax/swing|sun/awt'
 for artifact in common-jvm graalvm-macos graalvm-linux; do
-    jar="$repository/$artifact/0.1.0/$artifact-0.1.0.jar"
+    jar="$repository/$artifact/1.11.1-ext.2/$artifact-1.11.1-ext.2.jar"
     if [ ! -f "$jar" ]; then
         fail "$jar is missing; run renderer/scripts/publish-window.sh first"
         continue

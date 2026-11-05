@@ -5,7 +5,7 @@
 # Usage: ./scripts/publish-skiko-awt.sh <work-dir>
 #
 # The fork's extended/skiko/build-skiko-awt.sh, at the pinned commit, builds skiko-awt with the
-# AWT switch and publishes it under a version of its own (0.144.6.1), with its natives still
+# AWT switch and publishes it as org.thisisthepy.compose.skiko:skiko-awt on the fork's version, with its natives still
 # named at JetBrains' 0.144.6. Under JetBrains' own 0.144.6, a resolver that already holds
 # JetBrains' jar (Amper's cache does) would never look at the local repository, and the image
 # would carry an unpatched skiko-awt and keep the Java toolkit. This checks that what the fork
@@ -27,6 +27,23 @@ published="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$fork/extended/skiko/bu
 }
 "$fork/extended/skiko/build-skiko-awt.sh" "$1"
 
-jar="$HOME/.m2/repository/org/jetbrains/skiko/skiko-awt/$version/skiko-awt-$version.jar"
+# The fork's metadata lists JetBrains' skiko-awt as a second capability of every variant, so Gradle
+# keeps one of the two. Amper takes a variant only when its capabilities are exactly its own
+# coordinate, so with the second one it finds no variant and stops with "Platform is not supported
+# by the library". The renderer is resolved by Amper alone and filters JetBrains' skiko-awt off
+# its class path itself, so the extra capability is dropped from the published copy.
+module="$HOME/.m2/repository/$(tr . / <<< "org.thisisthepy.compose.skiko")/skiko-awt/$version/skiko-awt-$version.module"
+[[ -f "$module" ]] || { echo "error: no $module after the build" >&2; exit 1; }
+python3 - "$module" <<'PY'
+import json, sys
+path = sys.argv[1]
+metadata = json.load(open(path, encoding="utf-8"))
+for variant in metadata.get("variants", []):
+    if "capabilities" in variant:
+        variant["capabilities"] = variant["capabilities"][:1]
+json.dump(metadata, open(path, "w", encoding="utf-8"), indent=2)
+PY
+
+jar="$HOME/.m2/repository/org/thisisthepy/compose/skiko/skiko-awt/$version/skiko-awt-$version.jar"
 [[ -f "$jar" ]] || { echo "error: no $jar after the build" >&2; exit 1; }
 echo "published $jar"

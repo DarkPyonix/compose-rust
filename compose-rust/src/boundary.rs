@@ -1,6 +1,6 @@
 use crate::Selection;
 use crate::measure::MeasureResult;
-use crate::protocol::{HostEvent, ProtocolError, decode_event};
+use crate::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError, decode_event};
 use crate::runtime::Runtime;
 use crate::schema::{
     AssetKind, EventPayload, IconRole, LoopMode, PROTOCOL_VERSION, SCHEMA_HASH, Theme,
@@ -350,6 +350,8 @@ impl Host {
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
+        // The windows' commands and registrations belong to the Host that queued them.
+        crate::windows::reset_windows();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -371,6 +373,13 @@ impl Host {
             frame_waker: Waker::from(Arc::new(FrameWake)),
             pending_appends: Vec::new(),
         }
+    }
+
+    /// Replaces the window settings this Host was made with, which are the launch's. For a
+    /// test or a tool that builds a Host without launching an application, such as one
+    /// that wants several windows: `Window::new().with_windows()`.
+    pub fn set_window(&mut self, window: crate::schema::Window) {
+        self.window = window;
     }
 
     fn batch(&mut self) -> &mut crate::runtime::Batch {
@@ -521,6 +530,54 @@ impl Host {
         self.empty_batch()
     }
 
+    /// Records how large one window is drawing, and wakes the components in that window
+    /// that read it.
+    fn publish_window_zoom(
+        &mut self,
+        window: u32,
+        k: f32,
+        os: f32,
+        level: i32,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
+        if crate::zoom::publish_window(window, crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
+    /// Hands a window nobody has a node for to the components that listen for one.
+    fn window_requested(&mut self, key: &str, request: u32) -> Result<(&[u8], i64), ProtocolError> {
+        let requested = crate::windows::WindowRequest {
+            key: key.to_owned(),
+            request,
+        };
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime
+                .run_in_context(&mut || delivered = crate::windows::deliver_request(&requested));
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Tells the components that listen that the application was opened with no window.
+    fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime
+                .run_in_context(&mut || delivered = crate::windows::deliver_reopen());
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
         let _call = HostCallGuard::enter();
         // These address the Host itself: no node, no handler, and an answer before
@@ -594,10 +651,32 @@ impl Host {
                 return self.render_and_finish(0);
             }
             EventPayload::ZoomChanged { k, os, level } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                // In a multi-window application the report names the window it is about
+                //; a single window's is node 0.
+                if event.node_id != 0 {
+                    if !self.runtime.is_window(event.node_id) {
+                        return Err(ProtocolError::InvalidValueKind(0));
+                    }
+                    return self.publish_window_zoom(event.node_id, k, os, level);
+                }
+                return self.publish_zoom(k, os, level);
+            }
+            // The two events that belong to the application and to no window: no node and
+            // no handler, and an answer before anything is looked up.
+            EventPayload::WindowRequested { key, request } => {
                 if event.node_id != 0 || event.handler_id != 0 {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
-                return self.publish_zoom(k, os, level);
+                return self.window_requested(key, request);
+            }
+            EventPayload::ApplicationReopen => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.application_reopen();
             }
             _ => {}
         }
@@ -615,6 +694,14 @@ impl Host {
             // for both, because they are the same fact measured at two scales and a
             // second way of saying it would be a second thing to keep in step.
             let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
+            // A window's report names the window's node, and that is not an
+            // observed node: it is the same fact for a window of its own.
+            if event.node_id != 0 && self.runtime.is_window(event.node_id) {
+                if !crate::window::publish_window(event.node_id, size) {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
+            }
             if event.node_id != 0 {
                 let woke = self
                     .runtime
@@ -713,6 +800,26 @@ impl Host {
             self.window.zoom_level = Some(level);
             let window = self.window;
             self.batch().set_window(window);
+        }
+        // What the application asked of a window that happens once: forward, a theme of its
+        // own, a zoom level of its own.
+        {
+            let batch = self.runtime.batch_mut();
+            crate::windows::drain_commands(|command| match command {
+                crate::windows::Command::Focus(node_id) => {
+                    batch.write(Mutation::FocusWindow { node_id });
+                }
+                crate::windows::Command::Theme(node_id, theme) => {
+                    batch.write(Mutation::SetWindowTheme { node_id, theme });
+                }
+                crate::windows::Command::ZoomLevel(node_id, level) => {
+                    batch.write(Mutation::SetProp {
+                        node_id,
+                        property: crate::schema::PropertyKind::WindowZoomLevel,
+                        value: PropertyValue::Integer(i64::from(level)),
+                    });
+                }
+            });
         }
         let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the
@@ -928,7 +1035,32 @@ impl LaunchBuilder {
     /// be said here is short on purpose: nothing names a colour, a corner, or where the
     /// window buttons go.
     pub fn with_window(mut self, window: crate::schema::Window) -> Self {
+        let (mode, policy) = (self.window.mode, self.window.last_window_closed);
         self.window = window;
+        // A builder that already asked for windows keeps asking, whichever order the two
+        // calls came in.
+        if mode == crate::schema::WindowMode::Windows {
+            self.window.mode = mode;
+            self.window.last_window_closed = policy;
+        }
+        self
+    }
+
+    /// Runs several windows in one process: the root's children are `Window`
+    /// nodes, each a platform window, and they share one composition and one set of
+    /// states. Without this the root's content fills the one window.
+    ///
+    /// The window that closes last ends the application, except on macOS where the
+    /// application stays; [`LaunchBuilder::on_last_window_closed`] chooses.
+    pub fn windows(mut self) -> Self {
+        self.window = self.window.with_windows();
+        self
+    }
+
+    /// What happens when the last `Window` node is removed. Mobile platforms
+    /// ignore it: the system decides how long the process lives.
+    pub fn on_last_window_closed(mut self, policy: crate::schema::LastWindowClosed) -> Self {
+        self.window = self.window.with_last_window_closed(policy);
         self
     }
 

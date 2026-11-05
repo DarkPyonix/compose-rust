@@ -56,7 +56,7 @@ absent 'Thread\.sleep' "$loop_file" \
 # these is a defect that has been found on that one: a window that hears nothing, a list
 # whose rows are fetched on a thread with no Host, a screen redrawn sixty times a second
 # while an input method is trying to reach the process, a tree nobody was told about.
-for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(afterDrawing'; do
+for call in 'work.runPending()' 'scene.hasInvalidations()' 'semantics.pushIfChanged(scene.density.density, afterDrawing'; do
     grep -Fq "$call" "$model_file" ||
         fail "AppKitWindow.kt no longer does '$call', so this test is comparing against nothing"
     grep -Fq "$call" "$loop_file" || fail "the X11 loop does not do '$call' per frame"
@@ -140,7 +140,7 @@ grep -Fq "'-H:NativeLinkerOption=-lXext'" "$build_script" ||
 # first time the pointer crosses into a text field.
 for symbol in dxc_native_window_open dxc_native_window_size dxc_native_frame_begin \
               dxc_native_frame_end dxc_native_poll_event dxc_native_pump \
-              dxc_native_window_closed dxc_native_set_cursor dxc_native_set_accessibility \
+              dxc_native_window_closed dxc_native_set_cursor \
               dxc_native_set_frame_callback dxc_native_wake dxc_native_window_origin \
               dxc_native_window_focused dxc_native_ime_reset dxc_native_resize_serial \
               dxc_native_window_server_size dxc_native_debug_resize; do

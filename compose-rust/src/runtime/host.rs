@@ -75,6 +75,11 @@ impl Recomposer {
         self.composition.composer.borrow().writer.arena()
     }
 
+    /// Whether `node_id` is a `Window` node.
+    pub fn is_window(&self, node_id: u32) -> bool {
+        self.composition.composer.borrow().writer.is_window(node_id)
+    }
+
     /// The application's name for a node it asked to have measured, if it asked.
     pub fn size_token(&self, node_id: u32) -> Option<u32> {
         self.composition
@@ -126,6 +131,10 @@ impl Recomposer {
         if node != event.node_id {
             return Err(ProtocolError::InvalidValueKind(0));
         }
+        // A call to `window_size()` or `zoom()` from the handler means the window the
+        // handler's node is in.
+        let window = with_composer(|composer| composer.writer.window_of(node)).unwrap_or(0);
+        let _window = crate::windows::DispatchWindow::enter(window);
         deliver(&callback, &event.payload)
     }
 
@@ -167,6 +176,15 @@ impl Recomposer {
     }
 
     fn after_composition(&mut self) {
+        // What the composition kept for a window that closed goes with it. The entries are
+        // buried and dropped below, with the composer free.
+        with_composer(|composer| {
+            for window in composer.writer.take_forgotten_windows() {
+                if let Some(entry) = composer.ambient.windows.remove(&window) {
+                    composer.graveyard.push(Box::new(entry));
+                }
+            }
+        });
         drain_graveyard();
         effects::apply_effects();
         drain_graveyard();
@@ -206,6 +224,13 @@ impl ComposeHost {
     /// The same, in the given theme.
     pub fn with_theme(content: fn(), theme: Theme) -> Self {
         Self(Host::with_theme(recomposer_for(content), theme))
+    }
+
+    /// The same Host with other window settings than the launch's, such as
+    /// `Window::new().with_windows()` for an application of several windows.
+    pub fn with_window(mut self, window: crate::schema::Window) -> Self {
+        self.0.set_window(window);
+        self
     }
 
     /// A Host for a closure rather than a function, for tests that compose something
@@ -363,6 +388,12 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (EventCallback::Files(handler), EventPayload::FilesDropped(paths)) => {
             (*handler.borrow_mut())(crate::FileDrop::new(paths))
         }
+        (EventCallback::Window(handler), payload) => {
+            let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {
+                return Err(ProtocolError::InvalidValueKind(0));
+            };
+            (*handler.borrow_mut())(event)
+        }
         _ => return Err(ProtocolError::InvalidValueKind(0)),
     }
     Ok(0)
@@ -404,6 +435,10 @@ impl Runtime for Recomposer {
 
     fn size_token(&self, node_id: u32) -> Option<u32> {
         Recomposer::size_token(self, node_id)
+    }
+
+    fn is_window(&self, node_id: u32) -> bool {
+        Recomposer::is_window(self, node_id)
     }
 
     fn run_in_context(&mut self, action: &mut dyn FnMut()) {

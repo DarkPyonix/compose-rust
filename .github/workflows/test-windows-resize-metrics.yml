@@ -61,7 +61,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           key: compose-mingwx64-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork-mingw.changes') }}
 
       - name: Make room for the Compose build
@@ -120,7 +120,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           key: ${{ steps.kit-cache.outputs.cache-primary-key }}
 
       - name: Report what was published
@@ -141,7 +141,7 @@ jobs:
             ~/.m2/repository
             .scratch/skiko-build/out/windows-x64/skiko-bridges.lib
             .scratch/skiko-build/out/windows-x64/skia
-            .scratch/skiko-build/out/windows-x64/embedded_icu.cpp
+            .scratch/skiko-build/out/windows-x64/embedded_icu.obj
           if-no-files-found: error
           retention-days: 3
 
@@ -199,7 +199,7 @@ jobs:
           rm -rf ~/.m2/repository .scratch/skiko-build/out/windows-x64
           mv "$m2" ~/.m2/repository
           mv "$skiko" .scratch/skiko-build/out/windows-x64
-          ls ~/.m2/repository/org/jetbrains/compose/ui | head
+          ls ~/.m2/repository/org/thisisthepy/compose/ui | head
           ls -la .scratch/skiko-build/out/windows-x64
 
       - name: Restore the Kotlin toolchain

@@ -100,6 +100,9 @@ class ProtocolVectorsTest {
                 is Mutation.SetTheme -> false
                 // Nor does the window: it is about the frame around the tree.
                 is Mutation.SetWindow -> false
+                // A window's theme and bringing one forward name a node the vector created.
+                is Mutation.SetWindowTheme -> mutation.nodeId !in created
+                is Mutation.FocusWindow -> mutation.nodeId !in created
                 is Mutation.Create -> false
                 is Mutation.RegisterAsset -> true
                 is Mutation.ReleaseAsset -> true
@@ -241,6 +244,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Clip(true),
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
+                ProtocolModifier.MatchParentSize,
             ),
             modifiers,
         )
@@ -259,7 +263,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..7).toList(), onBox.map { it.index })
+        assertEquals((0..8).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -276,7 +280,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
             lengths,
         )
     }
@@ -567,7 +571,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(726, bytes.size)
+        assertEquals(940, bytes.size)
     }
 
     /**

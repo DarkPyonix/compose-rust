@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -20,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import dev.darkpyonix.composerust.design.ChipStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -29,6 +29,8 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.overflow
+import dev.darkpyonix.composerust.ui.intProp
 
 /**
  * A chip drawn by the active design system's rules.
@@ -98,7 +100,16 @@ internal fun HostChip(
         val leading = if (chosen && style.leadingCheck) IconRole.Check else icon
         if (leading != null) RoleIcon(leading, content, theme)
         if (label.isNotEmpty()) {
-            BasicText(text = label, style = node.textStyle(theme, style.typeRole).copy(color = content))
+            // One line unless the Host asked for more: a wrapped chip label is measured at one
+            // syllable of Hangul and its second line is clipped by the chip's height.
+            val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
+            ThemedText(
+                text = label,
+                style = node.textStyle(theme, style.typeRole).copy(color = content),
+                maxLines = lines,
+                softWrap = lines > 1,
+                overflow = node.overflow(TextOverflow.Ellipsis),
+            )
         }
     }
 }

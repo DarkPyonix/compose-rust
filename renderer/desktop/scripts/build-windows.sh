@@ -103,7 +103,7 @@ KOTLIN_WRAPPER="$PROJECT_DIR/kotlin"
     "It is the self-bootstrapping Kotlin Toolchain wrapper; no separate install is needed."
 
 SKIKO_OUT="${DXC_SKIKO_BUILD:-$REPO_DIR/.scratch/skiko-build}/out/windows-x64"
-for needed in skiko-bridges.lib skia/skia.lib skia/icudtl.dat embedded_icu.cpp; do
+for needed in skiko-bridges.lib skia/skia.lib embedded_icu.obj; do
     [[ -f "$SKIKO_OUT/$needed" ]] || die "no $needed in $SKIKO_OUT" \
         "Run renderer/scripts/build-compose.sh --target mingwX64 first: it builds" \
         "skiko for Windows and leaves its C++ half there."
@@ -286,8 +286,9 @@ c_dir="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window/windows
 compile "$c_dir/win32_window.c" "$OUT_DIR/native/win32_window.obj" "/I$(tool_path "$c_dir")"
 compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"
-compile "$SKIKO_OUT/embedded_icu.cpp" "$OUT_DIR/native/embedded_icu.obj" \
-    /std:c++17 /GR- -Wno-c23-extensions "/clang:--embed-dir=$(tool_path "$SKIKO_OUT/skia")"
+# Skia's ICU data, compiled in by the fork's skiko build (embedded_icu.obj), so no icudtl.dat sits
+# beside the executable. Taken as it is built: the fork compiles it with the flags clang 19 needs.
+cp "$SKIKO_OUT/embedded_icu.obj" "$OUT_DIR/native/embedded_icu.obj"
 # Apart from the rest: only an application that links the UCRT statically links it.
 static_ucrt_object="$OUT_DIR/static-ucrt/mingw_bridge_static_ucrt.obj"
 mkdir -p "$OUT_DIR/static-ucrt"

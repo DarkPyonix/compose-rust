@@ -77,17 +77,20 @@ grep -q 'GetProcAddress' "$renderer/windows/src/HostSymbolLookup.kt" ||
 # Every Compose module this target is given is one the build script publishes.
 # ---------------------------------------------------------------------------
 
-asked="$(grep -oE 'org\.jetbrains\.compose\.[a-z0-9]+:[a-z0-9-]+-mingwx64' "$module" |
-    sed -E 's/^org\.jetbrains\.compose\.([a-z0-9]+):([a-z0-9-]+)-mingwx64$/compose:\1:\2/' | sort -u)"
-published="$(awk '/^    mingwX64\)/ { inside = 1; next } inside && /;;/ { exit } inside' "$compose_script" |
-    grep -oE 'compose:[a-z0-9]+:[a-z0-9-]+' | sort -u)"
+asked="$(grep -oE 'org\.thisisthepy\.compose\.[a-z0-9]+:[a-z0-9-]+-mingwx64:[^ ]+' "$module" | sort -u)"
 [[ -n "$asked" ]] || fail "the windows module asks for no Compose module by its mingwx64 coordinate"
-[[ -n "$published" ]] || fail "build-compose.sh publishes nothing for mingwX64"
-if [[ -n "$asked" && -n "$published" && "$asked" != "$published" ]]; then
-    fail "the windows module and build-compose.sh --target mingwX64 disagree:
-       only asked for: $(comm -23 <(echo "$asked") <(echo "$published") | tr '\n' ' ')
-       only published: $(comm -13 <(echo "$asked") <(echo "$published") | tr '\n' ' ')"
-fi
+# The fork publishes mingwX64 through its own publish-local.sh like every other target, so what
+# this module may name is every module of the fork's list, all at the version the pin publishes.
+compose_as="$(sed -n 's/^COMPOSE_AS="\(.*\)"$/\1/p' "$compose_script")"
+while IFS= read -r coordinate; do
+    version="${coordinate##*:}"
+    [[ "$version" == "$compose_as" ]] ||
+        fail "the windows module asks for ${coordinate%:*} at $version, and the pin publishes $compose_as"
+done <<< "$asked"
+grep -q 'org\.jetbrains\.compose\.' "$module" &&
+    fail "the windows module still names a JetBrains Compose coordinate, which the fork no longer publishes for mingwX64"
+awk '/^    mingwX64\)/ { inside = 1; next } inside && /;;/ { exit } inside' "$compose_script" |
+    grep -q 'publish_targets=(mingwX64)' || fail "build-compose.sh does not publish mingwX64 through the fork's publish-local.sh"
 
 # The Windows pin has to be one with the skiko build in it, and the script has to run that
 # build before Compose, which resolves skiko from the local repository.

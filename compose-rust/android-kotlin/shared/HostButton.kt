@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -28,17 +27,24 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ButtonVariant
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.groupAlpha
+import dev.darkpyonix.composerust.ui.intProp
+import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
@@ -60,8 +66,20 @@ internal fun HostButton(
 ) {
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val handlerId = node.handler(PropertyKind.OnClick)
-    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let {
-        if (LocalInAMenu.current) theme.rules.menuEntry(it, theme) else it
+    val inMenu = LocalInAMenu.current || node.property(PropertyKind.Checked) != null
+    val checked = node.flag(PropertyKind.Checked, default = false)
+    val alignStart = inMenu ||
+        node.role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray()) == TextAlign.Start
+    val style = buttonStyle(node.variant(), node.buttonKind(), theme).let { base ->
+        val entry = if (inMenu) theme.rules.menuEntry(base, theme) else base
+        if (inMenu && node.variant() == ButtonVariant.Text) {
+            entry.copy(
+                container = if (checked) theme.color(ColorRole.SurfaceVariant) else entry.container,
+                content = theme.color(ColorRole.OnSurface),
+            )
+        } else {
+            entry
+        }
     }
     val interactions = remember { MutableInteractionSource() }
     val pressed by interactions.collectIsPressedAsState()
@@ -87,13 +105,20 @@ internal fun HostButton(
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
 
+    // A button that cannot be pressed has to look it. Without this the only way to find
+    // out was to press it, because refusing the click was all `enabled` did. The whole
+    // control fades as one group rather than each variant naming a disabled colour, so a
+    // design system owes one number instead of four, the faded colours are still its own,
+    // and a background or border the Host set on the node's modifier chain fades with the
+    // label instead of staying opaque behind it.
+    val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val clickable = if (handlerId == null) {
-        modifier
+        available.then(modifier)
     } else {
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        modifier.clickable(
+        available.then(modifier).clickable(
             interactionSource = interactions,
             indication = null,
             enabled = enabled,
@@ -101,11 +126,6 @@ internal fun HostButton(
         ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
     }
 
-    // A button that cannot be pressed has to look it. Without this the only way to find
-    // out was to press it, because refusing the click was all `enabled` did. The whole
-    // control fades rather than each variant naming a disabled colour, so a design system
-    // owes one number instead of four and the faded colours are still its own.
-    val available = if (enabled) Modifier else Modifier.alpha(style.disabledAlpha)
     // A Host that named its own Background has already had it applied to this node's
     // modifier chain, so painting the variant's fill here would cover it. The shape, the
     // border, the resting height and the padding still come from the design system: only
@@ -119,7 +139,7 @@ internal fun HostButton(
     val wordless = node.text(PropertyKind.Text).isEmpty() &&
         node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
     val decorated = theme.rules
-        .elevation(clickable.then(available), elevation, style.shape, theme)
+        .elevation(clickable, elevation, style.shape, theme)
         .clip(style.shape)
         .then(if (ownFill) Modifier else Modifier.background(container, style.shape))
         .then(
@@ -139,6 +159,7 @@ internal fun HostButton(
         .labelPadding(
             horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
             vertical = style.verticalPadding,
+            alignStart = alignStart,
         )
 
     // The variant decides the label colour, unless the node names one itself. A
@@ -149,17 +170,23 @@ internal fun HostButton(
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
+    // A label is one line unless the Host asked for more. Left to wrap, a squeezed button
+    // is measured at the narrowest a Hangul label can be, one syllable, and '보내' breaks
+    // into '보' over '내'. With no soft wrap the label's narrowest width is its whole line.
+    val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
+    val ellipsis = node.overflow(ComposeOverflow.Ellipsis)
     // A button with a glyph and no word is still a button with a name. The role is what
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
-    val named = if (icon != null && text.isEmpty()) {
-        decorated.semantics { contentDescription = icon.name }
-    } else {
-        decorated
-    }
-    Box(named, contentAlignment = Alignment.Center) {
+    val named = decorated
+        .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
+        .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
+    Box(
+        named,
+        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center,
+    ) {
         if (icon == null) {
-            BasicText(text = text, style = label)
+            ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
                 // The gap between the glyph and the word is the design system's smallest step,
@@ -168,7 +195,7 @@ internal fun HostButton(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RoleIcon(icon, tint, theme)
-                if (text.isNotEmpty()) BasicText(text = text, style = label)
+                if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
         }
     }
@@ -217,7 +244,11 @@ private fun Int.dpPx(density: Float): Float = this * density
  * down to nothing, so the content keeps its whole height and sits centred. Only when even
  * no padding fits does the content overflow and get clipped by the button's shape.
  */
-internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = layout { measurable, constraints ->
+internal fun Modifier.labelPadding(
+    horizontal: Dp,
+    vertical: Dp,
+    alignStart: Boolean = false,
+): Modifier = layout { measurable, constraints ->
     val sides = horizontal.roundToPx()
     val wanted = vertical.roundToPx()
     val inner = Constraints(
@@ -235,7 +266,8 @@ internal fun Modifier.labelPadding(horizontal: Dp, vertical: Dp): Modifier = lay
     val padding = minOf(wanted, room)
     val width = (placeable.width + 2 * sides).coerceIn(constraints.minWidth, constraints.maxWidth)
     val height = (placeable.height + 2 * padding).coerceIn(constraints.minHeight, constraints.maxHeight)
+    val x = if (alignStart) sides.coerceAtMost((width - placeable.width).coerceAtLeast(0)) else (width - placeable.width) / 2
     layout(width, height) {
-        placeable.place((width - placeable.width) / 2, (height - placeable.height) / 2)
+        placeable.place(x, (height - placeable.height) / 2)
     }
 }

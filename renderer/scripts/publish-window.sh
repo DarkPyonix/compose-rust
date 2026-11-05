@@ -4,7 +4,7 @@
 # Usage: publish-window.sh
 #
 # The window code is the Compose fork's, at the commit build-compose.sh pins. The renderer
-# depends on it as org.thisisthepy.compose.window:<module>:0.1.0, so the modules are built
+# depends on it as org.thisisthepy.compose.window:<module>:1.11.1-ext.2, so the modules are built
 # from that commit and published under ~/.m2 before the renderer is, the same way the patched
 # Compose is. common is published on every machine. The GraalVM window modules and the scene
 # they name are published wherever the fork's desktop Compose is in the local repository, which
@@ -39,6 +39,9 @@ fi
 case "$(uname -s)" in
     Darwin)
         if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-macosarm64" ]]; then
+            # native/macos names ../../scene, so scene is published with it even on a Mac that
+            # has only the macosArm64 Compose and not the desktop one.
+            [[ " ${modules[*]} " == *" scene "* ]] || modules+=(scene)
             modules+=(native/macos)
         fi ;;
     # The Windows window's Kotlin/Native layer, for mingwX64. Its C is compiled by MSVC from
@@ -87,13 +90,20 @@ case "$(uname -s)" in
         rm -f "$window/common/module.yaml.orig"
         ;;
 esac
-# The GraalVM modules need scene's JVM half alone, and nothing this renderer builds uses its
-# other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
-# only the JVM half is built.
+# scene is built for the JVM, which the GraalVM window modules compile against, and on a Mac that
+# also has the fork's Compose for macosArm64 for macosArm64 as well, because native/macos depends
+# on it. The Linux and Windows layers do not: native/linux-scene is published by
+# publish-native-linux.sh with its own scene, and nothing else asks for scene's native halves.
 if [[ " ${modules[*]} " == *" scene "* ]]; then
+    scene_platforms=()
+    # The JVM half compiles against the fork's desktop Compose, and the macosArm64 half against
+    # its macosArm64 Compose: each is built only where that Compose is in the local repository.
+    [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]] && scene_platforms+=(jvm)
+    [[ " ${modules[*]} " == *" native/macos "* ]] && scene_platforms+=(macosArm64)
+    scene_platforms_list="$(IFS=,; echo "${scene_platforms[*]}" | sed 's/,/, /g')"
     # A suffix for -i and the copy removed after, because BSD sed on macOS takes the next
     # argument to -i as one.
-    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
+    sed -i.orig "s/^  platforms: \\[.*\\]\$/  platforms: [ $scene_platforms_list ]/" "$window/scene/module.yaml"
     rm -f "$window/scene/module.yaml.orig"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories

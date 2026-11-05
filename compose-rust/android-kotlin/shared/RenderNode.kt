@@ -4,18 +4,24 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
@@ -30,12 +36,21 @@ import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.roundToInt
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
+import androidx.compose.ui.graphics.Shape
+import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.ui.pressable
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ToggleRole
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalGlassDepth
@@ -106,6 +121,24 @@ internal object RenderNodeObserver {
     var onMeasure: ((Int) -> Unit)? = null
 }
 
+/** The containers whose `OnClick` makes them buttons. */
+private val CLICKABLE_CONTAINERS = setOf(
+    WidgetKind.Column,
+    WidgetKind.Row,
+    WidgetKind.Box,
+    WidgetKind.Card,
+    WidgetKind.Surface,
+    WidgetKind.ScrollColumn,
+    WidgetKind.ScrollRow,
+)
+
+/** The outline a pressable container is drawn in, which hover and focus follow. */
+private fun Node.pressedShape(theme: ResolvedTheme): Shape = when (widget) {
+    WidgetKind.Card -> containerShape(theme.rules.container(ContainerRole.Card, theme), theme)
+    WidgetKind.Surface -> containerShape(theme.rules.container(ContainerRole.Surface, theme), theme)
+    else -> modifiers.resolvedShape(theme)
+}
+
 /** Test tag every interpreted node carries, so tests can address nodes by Host node id. */
 fun nodeTestTag(nodeId: Int): String = "compose-node-$nodeId"
 
@@ -131,20 +164,38 @@ fun RenderNode(
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
     val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // A container that was given an `OnClick` is a button. One that was not is left
+    // exactly as it was: no focus stop, no semantics, no pointer handling.
+    // A node that also carries the `Clickable` modifier is already pressable there, once.
+    val clickHandler = if (node.widget in CLICKABLE_CONTAINERS &&
+        node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+    ) {
+        node.handler(PropertyKind.OnClick)
+    } else {
+        null
+    }
     val chain = profiled
-        .then(node.modifiers.toComposeModifier(nodeId, dispatcher, theme) { table.animations.animated(nodeId) })
+        .then(
+            node.modifiers.toComposeModifier(
+                nodeId,
+                dispatcher,
+                theme,
+                animated = { table.animations.animated(nodeId) },
+                containerClickHandler = clickHandler,
+                containerEnabled = node.flag(PropertyKind.Enabled, default = true),
+                containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
+            ),
+        )
         .testTag(nodeTestTag(nodeId))
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+    val pressable = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
         chain
     } else {
         chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
     }
-    // Only where the node said it is a place files may be dropped. Everywhere else this
-    // adds nothing to the chain and the platform shows no drop cursor.
-    val modifier = platformFileDrop(withKeys, node, dispatcher)
+    val modifier = platformFileDrop(pressable, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
@@ -152,13 +203,13 @@ fun RenderNode(
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
             WidgetKind.Column -> Column(
-                modifier = modifier,
+                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.width(IntrinsicSize.Min) else modifier,
                 verticalArrangement = node.verticalArrangement(theme),
                 horizontalAlignment = node.horizontalAlignment(),
             ) { OnGlass(glass) { Children(node, table, dispatcher) } }
 
             WidgetKind.Row -> Row(
-                modifier = modifier,
+                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.height(IntrinsicSize.Min) else modifier,
                 horizontalArrangement = node.horizontalArrangement(theme),
                 verticalAlignment = node.verticalAlignment(),
             ) { OnGlass(glass) { Children(node, table, dispatcher) } }
@@ -191,7 +242,7 @@ fun RenderNode(
             // selectable region around them: a label is pressed, not copied. Outside a region
             // it adds nothing.
             WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
-            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher) }
+            WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher, table.assets) }
             WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
 
             // The same window as a list, rounded to whole rows because a row is what a grid
@@ -214,21 +265,27 @@ fun RenderNode(
                     LinearProgressIndicator(progress = { progress }, modifier = modifier)
                 }
             }
-            WidgetKind.ScrollColumn -> Column(
-                modifier = modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = node.verticalArrangement(theme),
-                horizontalAlignment = node.horizontalAlignment(),
-            ) { Children(node, table, dispatcher) }
+            WidgetKind.ScrollColumn -> {
+                val scrollState = rememberHostScrollState(node, dispatcher)
+                Column(
+                    modifier = modifier.verticalScroll(scrollState),
+                    verticalArrangement = node.verticalArrangement(theme),
+                    horizontalAlignment = node.horizontalAlignment(),
+                ) { Children(node, table, dispatcher) }
+            }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
             // so every child is materialised. Use LazyRow when the strip is long. The scroll
             // state is remembered here, under the node's own key, so a recomposition of the
             // row or of any child leaves the position where the user put it.
-            WidgetKind.ScrollRow -> Row(
-                modifier = modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = node.horizontalArrangement(theme),
-                verticalAlignment = node.verticalAlignment(),
-            ) { Children(node, table, dispatcher) }
+            WidgetKind.ScrollRow -> {
+                val scrollState = rememberHostScrollState(node, dispatcher)
+                Row(
+                    modifier = modifier.horizontalScroll(scrollState),
+                    horizontalArrangement = node.horizontalArrangement(theme),
+                    verticalAlignment = node.verticalAlignment(),
+                ) { Children(node, table, dispatcher) }
+            }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
             // each one names the kind of container it is and the design system decides what
@@ -334,6 +391,11 @@ fun RenderNode(
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine
             // has decided all of it, and a second layout pass could only disagree with it.
+            // A platform window. Opening one is the platform layer's job, and until that
+            // layer exists the interpreter draws a window's children where the node stands, so
+            // the tree is whole and a protocol test can walk it.
+            WidgetKind.Window -> Box(modifier) { Children(node, table, dispatcher) }
+
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
                     // The root of an HTML island names the factor it is drawn at. Only the
@@ -570,6 +632,84 @@ private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { 
 }
 
 /**
+ * Whether a Row or Column sizes its cross axis to its largest child, so siblings with
+ * `FillMaxHeight` or `FillMaxWidth` match the tallest or widest sibling when the container
+ * was not given a fixed cross-axis size of its own.
+ */
+private fun Node.usesIntrinsicCrossAxis(table: NodeTable): Boolean {
+    if (flag(PropertyKind.Collapsible, default = false)) return true
+    return when (widget) {
+        WidgetKind.Row -> {
+            val boundedHeight = modifiers.any {
+                it is ProtocolModifier.Height ||
+                    it is ProtocolModifier.Size ||
+                    it is ProtocolModifier.RequiredSize ||
+                    it is ProtocolModifier.FillMaxHeight
+            }
+            !boundedHeight && children.any { childId ->
+                table.node(childId)?.modifiers?.any { it is ProtocolModifier.FillMaxHeight } == true
+            }
+        }
+        WidgetKind.Column -> {
+            val boundedWidth = modifiers.any {
+                it is ProtocolModifier.Width ||
+                    it is ProtocolModifier.Size ||
+                    it is ProtocolModifier.RequiredSize ||
+                    it is ProtocolModifier.FillMaxWidth
+            }
+            !boundedWidth && children.any { childId ->
+                table.node(childId)?.modifiers?.any { it is ProtocolModifier.FillMaxWidth } == true
+            }
+        }
+        else -> false
+    }
+}
+
+/**
+ * Remembers the Compose [ScrollState] of a [WidgetKind.ScrollColumn] or [WidgetKind.ScrollRow]
+ * and wires the Host's optional scroll commands (`Value`, `Determinate`, `Count`) and scroll
+ * position reporting (`OnRangeRequested`).
+ */
+@Composable
+private fun rememberHostScrollState(node: Node, dispatcher: EventDispatcher): ScrollState {
+    val state = rememberScrollState()
+    val density = LocalDensity.current
+    val revision = (node.property(PropertyKind.Count) as? PropertyValue.Integer)?.value ?: 0L
+    if (revision > 0L) {
+        LaunchedEffect(node.id, revision, density) {
+            val targetDp = node.number(PropertyKind.Value) ?: 0f
+            val targetPx = with(density) { targetDp.coerceAtLeast(0f).dp.toPx() }.roundToInt()
+            if (node.flag(PropertyKind.Determinate, default = false)) {
+                state.animateScrollTo(targetPx)
+            } else {
+                state.scrollTo(targetPx)
+            }
+        }
+    }
+    val handlerId = node.handler(PropertyKind.OnRangeRequested)
+    if (handlerId != null) {
+        LaunchedEffect(node.id, state, handlerId, density, dispatcher) {
+            snapshotFlow { state.value to state.maxValue }
+                .distinctUntilChanged()
+                .collect { (valuePx, maxPx) ->
+                    val clampedMax = if (maxPx == Int.MAX_VALUE) 0 else maxPx.coerceAtLeast(0)
+                    val offsetDp = with(density) { valuePx.coerceAtLeast(0).toDp().value }
+                    val maxDp = with(density) { clampedMax.toDp().value }
+                    dispatcher.dispatch(
+                        HostEvent.RangeRequested(
+                            node.id,
+                            handlerId,
+                            offsetDp.toBits(),
+                            maxDp.toBits(),
+                        ),
+                    )
+                }
+        }
+    }
+    return state
+}
+
+/**
  * Runs [content] one glass layer deeper where [glass] is true, and unchanged otherwise.
  *
  * Unchanged is the ordinary case and costs nothing: no provider is composed for a node
@@ -638,7 +778,8 @@ private fun BoxScope.Children(node: Node, table: NodeTable, dispatcher: EventDis
             if (table.node(childId)?.widget == WidgetKind.FloatingAction) {
                 FloatingActionArea(LocalDesignTheme.current) { RenderNode(childId, table, dispatcher) }
             } else {
-                RenderNode(childId, table, dispatcher)
+                val matchesParent = table.node(childId)?.modifiers?.any { it is ProtocolModifier.MatchParentSize } == true
+                RenderNode(childId, table, dispatcher, if (matchesParent) Modifier.matchParentSize() else Modifier)
             }
         }
     }

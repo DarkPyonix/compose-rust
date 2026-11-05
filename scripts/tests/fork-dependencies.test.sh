@@ -3,7 +3,7 @@
 # its own (COMPOSE_AS in renderer/scripts/build-compose.sh), and every module names its siblings
 # at that version. A sibling that is not there, because a build stopped half way or a module was
 # left off the fork's publish-local.sh, sends the Kotlin toolchain to the network for a coordinate
-# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.1.pom", kept in
+# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.2.pom", kept in
 # its own cache after that.
 #
 # This runs build-compose.sh in a copy of the tree with git stubbed and a fake fork checkout
