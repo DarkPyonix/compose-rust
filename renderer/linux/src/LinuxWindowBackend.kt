@@ -144,7 +144,7 @@ internal class LinuxWindowBackend(
         minHeight = config.minHeight.toInt(),
         resizable = config.resizable,
         chrome = when (config.chrome) {
-            Chrome.Modern -> WindowChrome.Modern
+            Chrome.Modern, Chrome.FullSize -> WindowChrome.Modern
             Chrome.System -> WindowChrome.System
         },
         titleBar = when (config.titleBar) {

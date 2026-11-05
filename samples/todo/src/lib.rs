@@ -925,6 +925,9 @@ mod tests {
                     height_dp: 900.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
                     height_class: WindowHeightClass::from_height_dp(900.0),
+                    safe_area_top: 0.0,
+                    safe_area_leading: 0.0,
+                    safe_area_trailing: 0.0,
                 },
             });
             compose_rust::window::reset_window_size();
@@ -1091,6 +1094,9 @@ mod tests {
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
                 height_class: WindowHeightClass::from_height_dp(900.0),
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         encode_event(&event, &mut screen.event).expect("the resize did not encode");
@@ -1120,6 +1126,9 @@ mod tests {
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
                 height_class: WindowHeightClass::from_height_dp(900.0),
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let mut bytes = Vec::new();

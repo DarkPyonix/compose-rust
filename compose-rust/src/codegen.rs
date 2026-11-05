@@ -490,7 +490,7 @@ sealed interface Mutation {
             EventPayloadType::Double => output.push_str(", val value: Double"),
             EventPayloadType::WindowSize => {
                 output.push_str(
-                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass",
+                    ", val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float",
                 );
             }
             EventPayloadType::DesignSystem => output.push_str(", val system: DesignSystem"),
@@ -1064,7 +1064,7 @@ object Protocol {
             EventPayloadType::KeyDown => 20,
             EventPayloadType::Range => 24,
             EventPayloadType::Double => 24,
-            EventPayloadType::WindowSize => 32,
+            EventPayloadType::WindowSize => 44,
             // A tag and the padding that keeps the record a multiple of four.
             EventPayloadType::DesignSystem => 20,
             // A word and a string reference, the protocol error's shape.
@@ -1394,6 +1394,9 @@ object Protocol {
                 output.push_str(
                     "                    out.putInt(windowHeightClassTag(event.heightClass))\n",
                 );
+                output.push_str("                    out.putFloat(event.safeAreaTop)\n");
+                output.push_str("                    out.putFloat(event.safeAreaLeading)\n");
+                output.push_str("                    out.putFloat(event.safeAreaTrailing)\n");
                 output.push_str("                }\n");
             }
         }
@@ -2978,6 +2981,11 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             theme: Theme::unified(DesignSystem::Material3).with_color_scheme(ColorScheme::Dark),
         },
         Mutation::FocusWindow { node_id: 20 },
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 8,
+            modifier: Modifier::MatchParentSize,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3048,6 +3056,9 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 height_dp: 600.0,
                 class: crate::schema::WindowSizeClass::Expanded,
                 height_class: crate::schema::WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         },
         HostEvent {
@@ -3266,7 +3277,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 102,
+    "recordCount": 103,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -3288,31 +3299,31 @@ pub fn generate_vector_description() -> String {
       {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
       {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
       {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 32, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium" }},
-      {{ "type": "NotificationActivated", "offset": 225, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 262, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "CodeChanged", "offset": 282, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
-      {{ "type": "CodeEditRejected", "offset": 330, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
-      {{ "type": "CodeHovered", "offset": 374, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
-      {{ "type": "CodeSaveRequested", "offset": 410, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
-      {{ "type": "DecorationActivated", "offset": 434, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
-      {{ "type": "AnimationEvent", "offset": 458, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 498, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 518, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
-      {{ "type": "SelectionChanged", "offset": 590, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 626, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 654, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 678, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 702, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
-      {{ "type": "WindowCloseRequested", "offset": 726, "length": 16, "nodeId": 20, "handlerId": 201 }},
-      {{ "type": "WindowFocusChanged", "offset": 742, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
-      {{ "type": "WindowMoved", "offset": 762, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
-      {{ "type": "WindowDrag", "offset": 794, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
-      {{ "type": "WindowDragOver", "offset": 826, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
-      {{ "type": "WindowUnavailable", "offset": 858, "length": 16, "nodeId": 20, "handlerId": 205 }},
-      {{ "type": "WindowClosed", "offset": 874, "length": 16, "nodeId": 20, "handlerId": 206 }},
-      {{ "type": "WindowRequested", "offset": 890, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 924, "length": 16, "nodeId": 0, "handlerId": 0 }}
+      {{ "type": "WindowSizeChanged", "offset": 193, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
+      {{ "type": "NotificationActivated", "offset": 237, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
+      {{ "type": "NotificationPermissionChanged", "offset": 274, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
+      {{ "type": "CodeChanged", "offset": 294, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 342, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 386, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 422, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 446, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 470, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 510, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 530, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 602, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 638, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 666, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 690, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 714, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 738, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 754, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 774, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 806, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 838, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }}
     ]
   }}
 }}

@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.0.6
+
+### Focus ring only for keyboard focus
+
+A pressable container draws its focus ring only for keyboard focus, at the node's own outer bounds, so a mouse click no longer leaves a ring ([#430](https://github.com/DarkPyonix/compose-rust/issues/430), [#433](https://github.com/DarkPyonix/compose-rust/pull/433)).
+
+### A weighted `Row` or `Column` fills the remaining space
+
+A `Row` with a weight in a `Column` (or a `Column` with a weight in a `Row`) is no longer clamped to its content size on the cross axis, so the content no longer collects at the start when the window grows ([#439](https://github.com/DarkPyonix/compose-rust/issues/439), [#440](https://github.com/DarkPyonix/compose-rust/pull/440)).
+
+### Modifier `match_parent_size`
+
+`Modifier` has a new `MatchParentSize` (wire tag 31) for a child of a `Box`: it fills exactly the parent's bounds without enlarging the parent, so an overlay such as a press tint needs no size or radius restated ([#431](https://github.com/DarkPyonix/compose-rust/issues/431)). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### Content under the window buttons (`Chrome::FullSize`)
+
+`Chrome::FullSize` lets content start at the top of the window, with no caption strip and no bar discovery, on macOS first ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)). The window size event carries `WindowSafeArea { top, leading, trailing }` in dp, so the app can keep clear of the window buttons, and a new `WindowDrag(bool)` modifier (wire tag 32) makes a node a drag region or removes it from the default drag strip. The schema hash changes (the `WindowSizeChanged` record grows from 32 to 44 bytes), so a renderer and a crate from before this change no longer agree. Windows and Linux dragging follows in a later release.
+
+### Press feedback
+
+Every pressable surface (`on_click` containers, `Clickable` nodes and the toolkit `Button`) scales to 0.975 and shows a faint tint while pressed, inside the renderer with no Host round trip, and `Modifier::PressFeedback { scale, tint_alpha }` (wire tag 33) changes or turns it off ([#305](https://github.com/DarkPyonix/compose-rust/issues/305)). The schema hash changes.
+
+### Schema hash and known test issue
+
+The schema hash changes in this release: a `Modifier` gains `MatchParentSize` (tag 31), `WindowDrag` (tag 32) and `PressFeedback` (tag 33), and the `WindowSizeChanged` event record grows from 32 to 44 bytes. A renderer and a crate from different versions no longer agree, so upgrade both together. Three `fr33_1_*` paste and menu tests fail on a Mac with a non-English locale. They fail the same way on `develop` without these changes, so this is not a regression ([#436](https://github.com/DarkPyonix/compose-rust/issues/436)).
+
 ## v0.0.5
 
 ### Multiple windows in one process
