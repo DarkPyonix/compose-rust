@@ -3,8 +3,10 @@ package dev.darkpyonix.composerust.test
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -120,5 +122,36 @@ class ButtonRowTest {
     fun fr66_font_size_sizes_the_label_and_its_absence_changes_nothing() {
         assertTrue(widthOf(30f, TextAlign.Start) > widthOf(null, TextAlign.Start), "a larger FontSize widens the label")
         assertEquals(widthOf(null, null), widthOf(null, TextAlign.Start), "alignment alone does not resize an unconstrained button")
+    }
+
+    private fun labelBounds(width: Float, fontSize: Float?, align: TextAlign?): Pair<DpRect, DpRect> {
+        lateinit var result: Pair<DpRect, DpRect>
+        runComposeUiTest {
+            val mutations = buildList {
+                add(theme())
+                add(Mutation.Create(root, WidgetKind.Box))
+                addAll(buttonNode(width))
+                add(Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("Changes")))
+                if (fontSize != null) add(Mutation.SetProp(button, PropertyKind.FontSize, PropertyValue.Float(fontSize)))
+                if (align != null) add(Mutation.SetProp(button, PropertyKind.TextAlign, PropertyValue.Integer(align.ordinal + 1L)))
+                add(Mutation.Insert(root, button, 0))
+            }
+            setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+            waitForIdle()
+            result = onNodeWithTag(nodeTestTag(button)).getBoundsInRoot() to
+                onNodeWithText("Changes", useUnmergedTree = true).getBoundsInRoot()
+        }
+        return result
+    }
+
+    @Test
+    fun fr66_start_alignment_puts_the_label_at_the_inner_padding_and_font_size_sets_its_height() {
+        val (outer, start) = labelBounds(300f, 13f, TextAlign.Start)
+        val (_, centred) = labelBounds(300f, 13f, null)
+        assertTrue(start.left - outer.left in 0.dp..32.dp, "a Start label sits at the inner padding: ${start.left - outer.left}")
+        assertTrue(centred.left - outer.left > 60.dp, "an unaligned label stays centred: ${centred.left - outer.left}")
+        val (_, small) = labelBounds(300f, 13f, TextAlign.Start)
+        val (_, large) = labelBounds(300f, 26f, TextAlign.Start)
+        assertTrue(large.bottom - large.top > small.bottom - small.top, "FontSize sets the label size")
     }
 }
