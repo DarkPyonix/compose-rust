@@ -1,13 +1,17 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.width
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
@@ -22,10 +26,13 @@ import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
+import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 /**
  * A Switch, Slider and Checkbox draw with the colours and the size the Host named, and
@@ -144,6 +151,99 @@ class ControlColoursTest {
                 for (y in 2 until 16) for (x in 2 until 16) if (image.getRGB(x, y) == white) whitePixels++
                 check(whitePixels > 8) { "$system: no white check inside the box ($whitePixels)" }
             }
+        }
+    }
+
+    /** The measured size of the control and the page around it, after the Host sent `afterwards`, if it did. */
+    private class Snapshot(val width: Float, val height: Float, val pixels: List<Int>)
+
+    private fun snapshot(
+        system: DesignSystem,
+        widget: WidgetKind,
+        properties: List<Pair<PropertyKind, PropertyValue>>,
+        afterwards: List<Mutation> = emptyList(),
+        extra: List<Mutation> = emptyList(),
+    ): Snapshot {
+        lateinit var result: Snapshot
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val mutations = buildList {
+                add(Mutation.SetTheme(Theme(system, system, ColorScheme.Light, false)))
+                add(Mutation.Create(root, WidgetKind.Box))
+                add(Mutation.SetModifier(root, 0, ProtocolModifier.Size(240f, 80f)))
+                add(Mutation.SetModifier(root, 1, ProtocolModifier.Background(Paint.Literal(white))))
+                add(Mutation.Create(control, widget))
+                properties.forEach { (kind, value) -> add(Mutation.SetProp(control, kind, value)) }
+                addAll(extra)
+                add(Mutation.Insert(root, control, 0))
+            }
+            val connection = FakeHostConnection(mutations)
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            if (afterwards.isNotEmpty()) {
+                connection.scheduleFrame(afterwards)
+                frames.request()
+                waitForIdle()
+            }
+            val bounds = onNodeWithTag(nodeTestTag(control)).getUnclippedBoundsInRoot()
+            val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
+            val pixels = buildList { for (y in 0 until image.height) for (x in 0 until image.width) add(image.getRGB(x, y)) }
+            result = Snapshot(bounds.width.value, bounds.height.value, pixels)
+        }
+        return result
+    }
+
+    @Test
+    fun fr67_removing_the_colours_and_size_returns_the_defaults() {
+        val named = listOf(
+            PropertyKind.ControlSize to size(36f, 20f),
+            PropertyKind.TrackColor to literal(ink),
+            PropertyKind.ThumbColor to literal(red),
+        )
+        DesignSystem.entries.forEach { system ->
+            val checked = PropertyKind.Checked to PropertyValue.Bool(true)
+            val reference = snapshot(system, WidgetKind.Switch, listOf(checked))
+            val styled = snapshot(system, WidgetKind.Switch, listOf(checked) + named)
+            assertEquals(36f, styled.width, "$system: the size was applied")
+            assertNotEquals(reference.pixels, styled.pixels, "$system: the colours were applied")
+            val removed = snapshot(
+                system,
+                WidgetKind.Switch,
+                listOf(checked) + named,
+                afterwards = named.map { (kind, _) -> Mutation.SetProp(control, kind, PropertyValue.None) },
+            )
+            assertEquals(reference.width, removed.width, "$system: the width after the removal")
+            assertEquals(reference.height, removed.height, "$system: the height after the removal")
+            assertEquals(reference.pixels, removed.pixels, "$system: the pixels after the removal")
+        }
+    }
+
+    @Test
+    fun fr67_removing_the_checkbox_colours_and_size_returns_the_defaults() {
+        val named = listOf(
+            PropertyKind.ControlSize to size(30f, 30f),
+            PropertyKind.ContainerColor to literal(ink),
+            PropertyKind.CheckColor to literal(red),
+        )
+        DesignSystem.entries.forEach { system ->
+            val checked = PropertyKind.Checked to PropertyValue.Bool(true)
+            val reference = snapshot(system, WidgetKind.Checkbox, listOf(checked))
+            val styled = snapshot(system, WidgetKind.Checkbox, listOf(checked) + named)
+            assertEquals(30f, styled.width, "$system: the size was applied")
+            assertNotEquals(reference.pixels, styled.pixels, "$system: the colours were applied")
+            val removed = snapshot(
+                system,
+                WidgetKind.Checkbox,
+                listOf(checked) + named,
+                afterwards = named.map { (kind, _) -> Mutation.SetProp(control, kind, PropertyValue.None) },
+            )
+            assertEquals(reference.width, removed.width, "$system: the width after the removal")
+            assertEquals(reference.height, removed.height, "$system: the height after the removal")
+            assertEquals(reference.pixels, removed.pixels, "$system: the pixels after the removal")
         }
     }
 }
