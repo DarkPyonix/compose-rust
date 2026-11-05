@@ -3,8 +3,8 @@
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
-    modifier_extra_words,
+    Paint, PropertyKind, SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole,
+    TYPE_ROLE_COUNT, Theme, WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -2290,6 +2290,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::PressFeedback { scale, tint_alpha } => {
             (33, two_words(pack_floats(*scale, *tint_alpha), 0))
         }
+        Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::Transform {
             a,
             b,
@@ -2440,6 +2441,16 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             scale: unpack_low(first),
             tint_alpha: unpack_high(first),
         }),
+        34 => {
+            let state = u32::try_from(second)
+                .ok()
+                .filter(|state| state & !SEMANTICS_STATE_MASK == 0)
+                .ok_or(ProtocolError::InvalidModifier(34))?;
+            Ok(Modifier::Semantics {
+                role: decode_role::<SemanticsRole>(first)?,
+                state,
+            })
+        }
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -2603,6 +2614,29 @@ mod tests {
                 index: 0,
                 modifier: Modifier::Background(Paint::Literal(crate::schema::Color::rgb(0x1b1b1f))),
             }]
+        );
+    }
+
+    #[test]
+    fn fr68_semantics_round_trips_and_refuses_unknown_state_bits() {
+        let expected = Modifier::Semantics {
+            role: SemanticsRole::Switch,
+            state: (2 << crate::schema::SEMANTICS_CHECKED_SHIFT)
+                | (1 << crate::schema::SEMANTICS_SELECTED_SHIFT),
+        };
+        let mutation = Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: expected.clone(),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+
+        let words = [SemanticsRole::Button as u64, 0x10, 0, 0, 0, 0];
+        assert_eq!(
+            decode_modifier(34, &words),
+            Err(ProtocolError::InvalidModifier(34))
         );
     }
 

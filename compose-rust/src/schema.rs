@@ -183,8 +183,8 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,accessible_name;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -822,6 +822,19 @@ define_wire_enum!(MATERIAL_ROLE_SCHEMA, MaterialRole {
     Chrome = 4,
 });
 
+// What a node is to assistive technology. Compose's own `Role` names, so the Renderer maps
+// each one to the platform's. `None` leaves the role the widget already has.
+define_wire_enum!(SEMANTICS_ROLE_SCHEMA, SemanticsRole {
+    None = 1,
+    Button = 2,
+    Checkbox = 3,
+    Switch = 4,
+    RadioButton = 5,
+    Tab = 6,
+    Image = 7,
+    DropdownList = 8,
+});
+
 // Density roles, because dp density differs per design system.
 define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     None = 1,
@@ -1252,6 +1265,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "MaterialRole",
         variants: MATERIAL_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "SemanticsRole",
+        variants: SEMANTICS_ROLE_SCHEMA,
     },
     RoleEnumSchema {
         name: "SpaceRole",
@@ -1943,7 +1960,23 @@ pub enum Modifier {
         scale: f32,
         tint_alpha: f32,
     },
+    /// What this node is to assistive technology: its role, and whether it is checked or
+    /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
+    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
+    /// accessible name is the `AccessibleName` property, because a string does not fit in
+    /// a modifier's words.
+    Semantics {
+        role: SemanticsRole,
+        state: u32,
+    },
 }
+
+/// Where the checked field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_CHECKED_SHIFT: u32 = 0;
+/// Where the selected field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_SELECTED_SHIFT: u32 = 2;
+/// Every bit `Modifier::Semantics::state` may set.
+pub const SEMANTICS_STATE_MASK: u32 = 0b1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
@@ -2420,6 +2453,19 @@ const PRESS_FEEDBACK_FIELDS: &[FieldSchema] = &[
     },
 ];
 
+const SEMANTICS_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "role",
+        ty: FieldType::Role("SemanticsRole"),
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "state",
+        ty: FieldType::U32,
+        slot: FieldSlot::SecondLow,
+    },
+];
+
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
@@ -2605,6 +2651,12 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 33,
         extra_words: 0,
         fields: PRESS_FEEDBACK_FIELDS,
+    },
+    VariantSchema {
+        name: "Semantics",
+        tag: 34,
+        extra_words: 0,
+        fields: SEMANTICS_FIELDS,
     },
 ];
 
@@ -2858,6 +2910,10 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // into a window of its own, named by it.
     OnWindowDragOver = 167,
     TearOffKey = 168,
+    // The name assistive technology reads for a node, a string. On a widget it overrides
+    // the visible label, and on an icon-only button it beats the name the icon's meaning
+    // would give. 119 is the first free number after the island block.
+    AccessibleName = 119,
 });
 
 #[derive(Clone, Debug, PartialEq)]

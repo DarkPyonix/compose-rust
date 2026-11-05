@@ -1008,6 +1008,30 @@ fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, at
     }
 }
 
+/// Writes a widget's own accessible name. It replaces one the Modifier gave, so the name
+/// said on the widget is the one that reaches assistive technology.
+fn push_accessible_name(name: Option<String>, attrs: &mut Attrs) {
+    if let Some(name) = name.filter(|name| !name.is_empty()) {
+        attrs.retain(|(key, _)| *key != "accessible_name");
+        attrs.push(("accessible_name", OwnedAttr::Text(name)));
+    }
+}
+
+/// Adds `accessible_name` to a builder that has an `accessible_name` field.
+macro_rules! accessible_name {
+    ($name:ident) => {
+        impl $name {
+            /// The name assistive technology reads. With no visible label it is the
+            /// control's name; with one it replaces the label, and on an icon-only button
+            /// it is read instead of the icon's meaning.
+            pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+                self.accessible_name = Some(name.into());
+                self
+            }
+        }
+    };
+}
+
 /// A `Button` and its builder.
 pub struct ButtonScope {
     modifier: Modifier,
@@ -1019,6 +1043,7 @@ pub struct ButtonScope {
     color: Option<Paint>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    accessible_name: Option<String>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -1039,10 +1064,13 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         color: None,
         max_lines: None,
         overflow: None,
+        accessible_name: None,
         on_click: None,
         done: false,
     }
 }
+
+accessible_name!(ButtonScope);
 
 impl ButtonScope {
     /// The meaning of the glyph on it, never a picture.
@@ -1104,6 +1132,7 @@ impl ButtonScope {
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
+        let accessible_name = self.accessible_name.take();
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -1117,6 +1146,7 @@ impl ButtonScope {
                 attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
                 lines_and_overflow(max_lines, overflow, attrs);
+                push_accessible_name(accessible_name, attrs);
             },
             listeners,
             content,
@@ -1135,6 +1165,7 @@ macro_rules! toggle {
             modifier: Modifier,
             checked: bool,
             enabled: bool,
+            accessible_name: Option<String>,
             on_change: Option<Box<dyn FnMut(bool)>>,
             done: bool,
         }
@@ -1145,10 +1176,13 @@ macro_rules! toggle {
                 modifier: Modifier::new(),
                 checked: $setter,
                 enabled: true,
+                accessible_name: None,
                 on_change: None,
                 done: false,
             }
         }
+
+        accessible_name!($name);
 
         impl $name {
             pub fn enabled(mut self, enabled: bool) -> Self {
@@ -1166,6 +1200,7 @@ macro_rules! toggle {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
                 let (checked, enabled) = (self.checked, self.enabled);
+                let accessible_name = self.accessible_name.take();
                 let handler: EventCallback = match self.on_change.take() {
                     Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(
                         // Off is 0.0 and on is anything else, so a Renderer that reports a
@@ -1181,6 +1216,7 @@ macro_rules! toggle {
                         push_modifiers(&modifier, Mods::Standard, attrs);
                         attrs.push(("checked", OwnedAttr::Bool(checked)));
                         attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                        push_accessible_name(accessible_name, attrs);
                     },
                     vec![("onchange", handler)],
                     content,
@@ -1223,6 +1259,7 @@ pub struct SliderScope {
     max: f32,
     steps: u32,
     enabled: bool,
+    accessible_name: Option<String>,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1238,10 +1275,13 @@ pub fn Slider(value: f32) -> SliderScope {
         max: 1.0,
         steps: 0,
         enabled: true,
+        accessible_name: None,
         on_change: None,
         done: false,
     }
 }
+
+accessible_name!(SliderScope);
 
 impl SliderScope {
     /// The two ends. Compose's `valueRange`.
@@ -1283,6 +1323,7 @@ impl SliderScope {
             self.steps,
             self.enabled,
         );
+        let accessible_name = self.accessible_name.take();
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler(value as f32)
@@ -1300,6 +1341,7 @@ impl SliderScope {
                 attrs.push(("max", OwnedAttr::Float(f64::from(max))));
                 attrs.push(("steps", OwnedAttr::Int(i64::from(steps))));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                push_accessible_name(accessible_name, attrs);
             },
             vec![("onchange", handler)],
             content,

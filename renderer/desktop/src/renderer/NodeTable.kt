@@ -694,6 +694,9 @@ class NodeTable {
 
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
+                // The name assistive technology reads can be given to any node.
+                PropertyKind.AccessibleName -> true
+
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
                 PropertyKind.OnValueChange,

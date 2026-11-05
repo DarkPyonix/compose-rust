@@ -34,10 +34,11 @@ pub use crate::brush::{Brush, Stop, brush};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
+pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
-    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, ShapeRole, SpaceRole,
-    TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
+    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, SemanticsRole, ShapeRole,
+    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -85,6 +86,53 @@ impl Shadow {
     }
 }
 
+/// Whether a node is checked or selected, for assistive technology. Each is unset until
+/// it is given a value, and an unset one sends nothing.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticsState {
+    pub checked: Option<bool>,
+    pub selected: Option<bool>,
+}
+
+impl SemanticsState {
+    pub const fn checked(checked: bool) -> Self {
+        Self {
+            checked: Some(checked),
+            selected: None,
+        }
+    }
+
+    pub const fn selected(selected: bool) -> Self {
+        Self {
+            checked: None,
+            selected: Some(selected),
+        }
+    }
+}
+
+/// The text of an accessible name, kept for as long as the program runs so a `Modifier`
+/// can stay `Copy`. Equal names share one allocation, so a name that is written on every
+/// frame costs one lookup and no memory; only a name never seen before is kept.
+fn keep_label(label: &str) -> Option<&'static str> {
+    use std::collections::HashSet;
+    use std::sync::{Mutex, OnceLock};
+
+    if label.is_empty() {
+        return None;
+    }
+    static LABELS: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
+    let mut labels = LABELS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(kept) = labels.get(label) {
+        return Some(*kept);
+    }
+    let kept: &'static str = Box::leak(label.to_owned().into_boxed_str());
+    labels.insert(kept);
+    Some(kept)
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -116,6 +164,9 @@ pub struct Modifier {
     elevation: Option<f32>,
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
+    semantics_role: Option<SemanticsRole>,
+    semantics_label: Option<&'static str>,
+    semantics_state: SemanticsState,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
     animated_background: Option<crate::Animated<Paint>>,
@@ -156,6 +207,12 @@ impl Modifier {
             elevation: None,
             alpha: None,
             press_feedback: None,
+            semantics_role: None,
+            semantics_label: None,
+            semantics_state: SemanticsState {
+                checked: None,
+                selected: None,
+            },
             transform: None,
             animated_alpha: None,
             animated_background: None,
@@ -358,6 +415,39 @@ impl Modifier {
         self
     }
 
+    /// The name assistive technology reads for this node. On a widget with a visible label
+    /// it replaces that label; an empty name is the same as none.
+    pub fn label(mut self, label: &str) -> Self {
+        self.semantics_label = keep_label(label);
+        self
+    }
+
+    /// What this node is to assistive technology, for a node that is not a widget with
+    /// a role of its own: a `Box` that is pressed is a button.
+    pub const fn role(mut self, role: Role) -> Self {
+        self.semantics_role = Some(role);
+        self
+    }
+
+    /// Whether the node is checked, as a toggle announces it.
+    pub const fn checked(mut self, checked: bool) -> Self {
+        self.semantics_state.checked = Some(checked);
+        self
+    }
+
+    /// Whether the node is the selected one of its group.
+    pub const fn selected(mut self, selected: bool) -> Self {
+        self.semantics_state.selected = Some(selected);
+        self
+    }
+
+    /// The role, the name and the state in one call.
+    pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
+        let mut named = self.role(role).label(label);
+        named.semantics_state = state;
+        named
+    }
+
     /// Compose's `graphicsLayer`: a rotation, a scale and a translation about an origin,
     /// drawn without moving the layout, and an opacity for the whole group. A pointer is
     /// tested against the shape that is drawn.
@@ -469,6 +559,25 @@ pub(crate) fn optional_text(value: Option<String>) -> OwnedAttr {
     value.map_or(OwnedAttr::None, OwnedAttr::Text)
 }
 
+/// The role and state of a Modifier as the one integer the `semantics` attribute carries,
+/// or none when neither was given.
+fn semantics_bits(modifier: &Modifier) -> Option<i64> {
+    use crate::schema::{SEMANTICS_CHECKED_SHIFT, SEMANTICS_SELECTED_SHIFT};
+
+    let state = modifier.semantics_state;
+    if modifier.semantics_role.is_none() && state.checked.is_none() && state.selected.is_none() {
+        return None;
+    }
+    let tri = |value: Option<bool>| value.map_or(0_i64, |on| if on { 2 } else { 1 });
+    let role = i64::from(u16::from(
+        modifier.semantics_role.unwrap_or(SemanticsRole::None),
+    ));
+    Some(
+        role | (tri(state.checked) << (16 + SEMANTICS_CHECKED_SHIFT))
+            | (tri(state.selected) << (16 + SEMANTICS_SELECTED_SHIFT)),
+    )
+}
+
 /// Writes the Modifier attributes, in the order the `rsx!` widgets write them.
 pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     let container = mods == Mods::Container;
@@ -555,6 +664,20 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             .map_or(OwnedAttr::None, |(scale, alpha)| {
                 OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
             }),
+    );
+    // The role and state travel as one integer, the role in the low 16 bits; the name is a
+    // property of the node because a string does not fit in a modifier's words.
+    push(
+        false,
+        "semantics",
+        semantics_bits(modifier).map_or(OwnedAttr::None, OwnedAttr::Int),
+    );
+    push(
+        false,
+        "accessible_name",
+        modifier
+            .semantics_label
+            .map_or(OwnedAttr::None, |label| OwnedAttr::Text(label.to_owned())),
     );
     push(
         false,

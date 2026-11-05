@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Accessibility modifier and `accessible_name`
+
+`Modifier` has `label`, `role`, `checked`, `selected` and `semantics(role, label, state)`, so any node can be given a role, a name and a checked or selected state for assistive technology ([#429](https://github.com/DarkPyonix/compose-rust/issues/429)). `Button`, `Switch`, `Checkbox`, `RadioButton` and `Slider` have `accessible_name`, which replaces a visible label and is read instead of an icon-only button's icon name. On the wire this is a new `Semantics` modifier (tag 34) and a new `AccessibleName` property (119). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
 ### Modifier `match_parent_size`
 
 `Modifier` has a new `MatchParentSize` (wire tag 31) for a child of a `Box`: it fills exactly the parent's bounds without enlarging the parent, so an overlay such as a press tint needs no size or radius restated ([#431](https://github.com/DarkPyonix/compose-rust/issues/431)). The schema hash changes, so a renderer and a crate from before this change no longer agree.
