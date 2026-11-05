@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.foundation.protocolKey
 import dev.darkpyonix.composerust.foundation.shouldDispatchKeyDown
+import dev.darkpyonix.composerust.foundation.shouldDispatchKeyUp
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
@@ -139,5 +140,126 @@ class KeyEventTest {
             listOf(HostEvent.TextSubmitted(FIELD, SUBMIT_HANDLER, "")),
             connection.nodeEvents,
         )
+    }
+
+    /**
+     * A focused `TextField` sends `FocusGained` once when focus arrives and `FocusLost`
+     * when focus moves to another control.
+     */
+    @Test
+    fun fr45_focus_gained_and_lost_pair() = runComposeUiTest {
+        val otherField = 2
+        val gainedHandler = 51L
+        val lostHandler = 52L
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(10, WidgetKind.Column),
+                Mutation.Create(FIELD, WidgetKind.TextField),
+                Mutation.SetProp(FIELD, PropertyKind.OnFocusGained, PropertyValue.Integer(gainedHandler)),
+                Mutation.SetProp(FIELD, PropertyKind.OnFocusLost, PropertyValue.Integer(lostHandler)),
+                Mutation.Create(otherField, WidgetKind.TextField),
+                Mutation.Insert(10, FIELD, 0),
+                Mutation.Insert(10, otherField, 1),
+                Mutation.Insert(0, 10, 0),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        waitForIdle()
+        assertEquals(
+            listOf(HostEvent.FocusGained(FIELD, gainedHandler)),
+            connection.nodeEvents,
+        )
+
+        onNodeWithTag(nodeTestTag(otherField)).requestFocus()
+        waitForIdle()
+        assertEquals(
+            listOf(
+                HostEvent.FocusGained(FIELD, gainedHandler),
+                HostEvent.FocusLost(FIELD, lostHandler),
+            ),
+            connection.nodeEvents,
+        )
+    }
+
+    /**
+     * Pressing and releasing a key sends `KeyDown` followed by `KeyUp` with the same key
+     * and modifiers, and never while an IME composition is in progress.
+     */
+    @Test
+    fun fr45_key_up_follows_key_down() = runComposeUiTest {
+        val keyUpHandler = 43L
+        assertFalse(
+            shouldDispatchKeyUp(composing = true, isKeyUp = true, key = ProtocolKey.Enter),
+            "Key-up during a composition must not be offered to the Host",
+        )
+        assertTrue(
+            shouldDispatchKeyUp(composing = false, isKeyUp = true, key = ProtocolKey.Enter),
+        )
+
+        val connection = FakeHostConnection(
+            keyField(
+                Mutation.SetProp(FIELD, PropertyKind.OnKeyUp, PropertyValue.Integer(keyUpHandler)),
+            ),
+        )
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput { pressKey(Key.Enter) }
+        waitForIdle()
+
+        assertEquals(
+            listOf(
+                HostEvent.KeyDown(
+                    nodeId = FIELD,
+                    handlerId = KEY_HANDLER,
+                    key = ProtocolKey.Enter,
+                    shiftKey = false,
+                    ctrlKey = false,
+                    altKey = false,
+                    metaKey = false,
+                ),
+                HostEvent.KeyUp(
+                    nodeId = FIELD,
+                    handlerId = keyUpHandler,
+                    key = ProtocolKey.Enter,
+                    shiftKey = false,
+                    ctrlKey = false,
+                    altKey = false,
+                    metaKey = false,
+                ),
+            ),
+            connection.nodeEvents,
+        )
+    }
+
+    /**
+     * A node with neither focus nor key handlers registered sends nothing across the boundary
+     * when focused, blurred, or typed into.
+     */
+    @Test
+    fun fr45_unregistered_nodes_get_no_events() = runComposeUiTest {
+        val otherField = 2
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(10, WidgetKind.Column),
+                Mutation.Create(FIELD, WidgetKind.TextField),
+                Mutation.SetProp(FIELD, PropertyKind.Multiline, PropertyValue.Bool(true)),
+                Mutation.Create(otherField, WidgetKind.TextField),
+                Mutation.Insert(10, FIELD, 0),
+                Mutation.Insert(10, otherField, 1),
+                Mutation.Insert(0, 10, 0),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput { pressKey(Key.Enter) }
+        onNodeWithTag(nodeTestTag(otherField)).requestFocus()
+        waitForIdle()
+
+        assertEquals(emptyList(), connection.nodeEvents)
     }
 }

@@ -22,9 +22,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
@@ -173,10 +177,34 @@ fun RenderNode(
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val withKeys = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val withKeys = if ((keyDownHandler == null && keyUpHandler == null) ||
+        node.widget == WidgetKind.TextField
+    ) {
         chain
     } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+        chain.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
+    }
+    // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
+    // itself and any focusable descendant inside it.
+    val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
+    val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
+    var hasFocusWithin by remember(nodeId) { mutableStateOf(false) }
+    val withFocusEvents = if ((focusGainedHandler == null && focusLostHandler == null) ||
+        node.widget == WidgetKind.TextField
+    ) {
+        withKeys
+    } else {
+        withKeys.onFocusChanged { state ->
+            val nowFocused = state.hasFocus
+            if (!hasFocusWithin && nowFocused && focusGainedHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
+            }
+            if (hasFocusWithin && !nowFocused && focusLostHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
+            }
+            hasFocusWithin = nowFocused
+        }
     }
     // Only where the node said it is a place files may be dropped. Everywhere else this
     // adds nothing to the chain and the platform shows no drop cursor.
@@ -191,9 +219,9 @@ fun RenderNode(
         null
     }
     val pressable = if (clickHandler == null) {
-        withKeys
+        withFocusEvents
     } else {
-        withKeys.pressable(
+        withFocusEvents.pressable(
             nodeId,
             clickHandler,
             node.flag(PropertyKind.Enabled, default = true),

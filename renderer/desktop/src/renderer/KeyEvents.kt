@@ -85,6 +85,53 @@ internal fun dispatchKeyDown(
 }
 
 /**
+ * Whether a key release may be offered to the Host at all.
+ *
+ * Key-up only, a key the schema can name, and never while an IME composition is in progress.
+ */
+internal fun shouldDispatchKeyUp(
+    composing: Boolean,
+    isKeyUp: Boolean,
+    key: ProtocolKey?,
+): Boolean = !composing && isKeyUp && key != null
+
+/** [shouldDispatchKeyUp] applied to a Compose key event. */
+internal fun isDispatchableKeyUp(event: ComposeKeyEvent, composing: Boolean): Boolean =
+    shouldDispatchKeyUp(
+        composing = composing,
+        isKeyUp = event.type == KeyEventType.KeyUp,
+        key = protocolKey(event.key),
+    )
+
+/**
+ * Sends one key release to the Host and returns its consumption result.
+ *
+ * Returns false without calling the Host whenever [isDispatchableKeyUp] says no, so a
+ * composition keystroke never reaches Rust.
+ */
+internal fun dispatchKeyUp(
+    nodeId: Int,
+    handlerId: Long,
+    event: ComposeKeyEvent,
+    composing: Boolean,
+    dispatcher: EventDispatcher,
+): Boolean {
+    if (!isDispatchableKeyUp(event, composing)) return false
+    val key = protocolKey(event.key) ?: return false
+    return dispatcher.dispatch(
+        HostEvent.KeyUp(
+            nodeId = nodeId,
+            handlerId = handlerId,
+            key = key,
+            shiftKey = event.isShiftPressed,
+            ctrlKey = event.isCtrlPressed,
+            altKey = event.isAltPressed,
+            metaKey = event.isMetaPressed,
+        ),
+    )
+}
+
+/**
  * `Modifier.onKeyEvent` for a widget that owns no text composition.
  *
  * `onKeyEvent` rather than `onPreviewKeyEvent`: preview is for interception, and a widget
@@ -93,8 +140,26 @@ internal fun dispatchKeyDown(
  */
 internal fun Modifier.hostKeyEvents(
     nodeId: Int,
-    handlerId: Long,
+    keyDownHandler: Long?,
+    keyUpHandler: Long?,
     dispatcher: EventDispatcher,
 ): Modifier = onKeyEvent { event ->
-    dispatchKeyDown(nodeId, handlerId, event, composing = false, dispatcher = dispatcher)
+    when {
+        keyDownHandler != null && isDispatchableKeyDown(event, composing = false) ->
+            dispatchKeyDown(nodeId, keyDownHandler, event, composing = false, dispatcher = dispatcher)
+        keyUpHandler != null && isDispatchableKeyUp(event, composing = false) ->
+            dispatchKeyUp(nodeId, keyUpHandler, event, composing = false, dispatcher = dispatcher)
+        else -> false
+    }
 }
+
+internal fun Modifier.hostKeyEvents(
+    nodeId: Int,
+    handlerId: Long,
+    dispatcher: EventDispatcher,
+): Modifier = hostKeyEvents(
+    nodeId = nodeId,
+    keyDownHandler = handlerId,
+    keyUpHandler = null,
+    dispatcher = dispatcher,
+)
