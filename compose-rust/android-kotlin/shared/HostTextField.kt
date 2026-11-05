@@ -166,6 +166,7 @@ internal fun HostTextField(
         }
     }
 
+    val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
         .onFocusChanged { state ->
             if (focused && !state.isFocused && focusLostHandler != null) {
@@ -182,10 +183,10 @@ internal fun HostTextField(
         .onPreviewKeyEvent { event ->
             val composingNow = value.composition != null
             val consumedByHandler = keyDownHandler != null &&
-                dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher)
+                dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher, heldKeys)
             if (consumedByHandler) {
                 true
-            } else if (!isDispatchableKeyDown(event, composingNow)) {
+            } else if (!isEnterKeyDown(event, composingNow)) {
                 false
             } else if (!shouldSubmitOnEnter(
                     composing = composingNow,

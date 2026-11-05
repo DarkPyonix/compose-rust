@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
@@ -18,6 +19,8 @@ import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.foundation.HeldKeys
+import dev.darkpyonix.composerust.foundation.keyName
 import dev.darkpyonix.composerust.foundation.protocolKey
 import dev.darkpyonix.composerust.foundation.shouldDispatchKeyDown
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -63,6 +66,9 @@ class KeyEventTest {
                     ctrlKey = false,
                     altKey = false,
                     metaKey = false,
+                    repeat = false,
+                    code = 0x28,
+                    text = "Enter",
                 ),
             ),
             connection.nodeEvents,
@@ -88,7 +94,7 @@ class KeyEventTest {
         )
     }
 
-    /** Key-up is not a key-down, and an unnameable key cannot cross the schema. */
+    /** Key-up is not a key-down, and a key the enum does not name travels as `Other`. */
     @Test
     fun fr12_only_schema_key_downs_cross_the_boundary() {
         assertFalse(
@@ -97,7 +103,7 @@ class KeyEventTest {
         assertFalse(shouldDispatchKeyDown(composing = false, isKeyDown = true, key = null))
         assertEquals(ProtocolKey.Enter, protocolKey(Key.Enter))
         assertEquals(ProtocolKey.Enter, protocolKey(Key.NumPadEnter))
-        assertEquals(null, protocolKey(Key.A))
+        assertEquals(ProtocolKey.Other, protocolKey(Key.A))
     }
 
     /** A Host that does not consume leaves the key to the editor. */
@@ -139,5 +145,90 @@ class KeyEventTest {
             listOf(HostEvent.TextSubmitted(FIELD, SUBMIT_HANDLER, "")),
             connection.nodeEvents,
         )
+    }
+
+    /** Arrows, Escape, Tab and letters each arrive with their HID usage and DOM key string. */
+    @Test
+    fun fr12_every_key_reaches_the_host_with_code_and_text() = runComposeUiTest {
+        val connection = FakeHostConnection(keyField())
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        val pressed = listOf(
+            Key.DirectionDown to (0x51 to "ArrowDown"),
+            Key.DirectionUp to (0x52 to "ArrowUp"),
+            Key.Escape to (0x29 to "Escape"),
+            Key.Tab to (0x2B to "Tab"),
+            Key.A to (0x04 to "a"),
+        )
+        for ((key, _) in pressed) {
+            onNodeWithTag(nodeTestTag(FIELD)).performKeyInput { pressKey(key) }
+        }
+        waitForIdle()
+
+        val events = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
+        assertEquals(pressed.map { it.second }, events.map { it.code to it.text })
+        assertTrue(events.all { !it.repeat })
+        assertEquals(ProtocolKey.Other, events.first().key)
+        assertEquals("A", keyName(Key.A, shift = true).text)
+    }
+
+    /** Only the first down of a held key is a first press; the rest are repeats. */
+    @Test
+    fun fr12_held_key_marks_repeat() = runComposeUiTest {
+        val held = HeldKeys()
+        assertFalse(held.observe(KeyEventType.KeyDown, Key.DirectionDown))
+        assertTrue(held.observe(KeyEventType.KeyDown, Key.DirectionDown))
+        assertTrue(held.observe(KeyEventType.KeyDown, Key.DirectionDown))
+        assertFalse(held.observe(KeyEventType.KeyUp, Key.DirectionDown))
+        assertFalse(held.observe(KeyEventType.KeyDown, Key.DirectionDown), "a new press after release")
+
+        val connection = FakeHostConnection(keyField())
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            keyDown(Key.DirectionDown)
+            advanceEventTime(1_000)
+            keyUp(Key.DirectionDown)
+        }
+        waitForIdle()
+
+        val events = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
+        assertEquals(false, events.first().repeat)
+        assertTrue(events.drop(1).isNotEmpty() && events.drop(1).all { it.repeat }, "held key produced no repeats: ${events.map { it.repeat }}")
+    }
+
+    /** No key of any kind is offered to the Host while a composition is in progress. */
+    @Test
+    fun fr12_no_key_reaches_the_host_during_composition() {
+        for (key in listOf(Key.Enter, Key.DirectionDown, Key.Escape, Key.Tab, Key.A)) {
+            assertFalse(
+                shouldDispatchKeyDown(composing = true, isKeyDown = true, key = protocolKey(key)),
+                "$key reached the Host during a composition",
+            )
+            assertTrue(
+                shouldDispatchKeyDown(composing = false, isKeyDown = true, key = protocolKey(key)),
+            )
+        }
+    }
+
+    /** A key the Host consumes is not handled by the editor, whatever key it is. */
+    @Test
+    fun fr12_consumed_key_is_not_handled_by_the_renderer() = runComposeUiTest {
+        val connection = FakeHostConnection(keyField())
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            pressKey(Key.A)
+            pressKey(Key.Enter)
+        }
+        waitForIdle()
+
+        assertEquals(2, connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().size)
+        onNodeWithTag(nodeTestTag(FIELD)).assertTextEquals("")
     }
 }

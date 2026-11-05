@@ -18,11 +18,11 @@ fn fr7_generated_kotlin_matches_schema() {
     assert!(generated.contains("27 -> PropertyKind.Progress"));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown widget tag $tag\""));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown property tag $tag\""));
-    assert!(generated.contains("enum class Key { Enter }"));
+    assert!(generated.contains("enum class Key { Enter, Other }"));
     assert!(generated.contains(
-        "data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent"
+        "data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent"
     ));
-    assert!(generated.contains("is HostEvent.KeyDown -> 20"));
+    assert!(generated.contains("is HostEvent.KeyDown -> 32"));
     for (field, mask) in [
         ("shiftKey", "0x01"),
         ("ctrlKey", "0x02"),
@@ -89,12 +89,12 @@ fn fr7_generated_vectors_match_schema() {
 #[test]
 fn fr12_keydown_roundtrips_through_vectors() {
     let bytes = include_bytes!("vectors/events.bin");
-    for (offset, length) in [(0, 16), (16, 30), (46, 28), (74, 16), (90, 35), (125, 20)] {
+    for (offset, length) in [(0, 16), (16, 30), (46, 28), (74, 16), (90, 35), (125, 37)] {
         decode_event(&bytes[offset..offset + length]).unwrap();
     }
 
-    let key_down = &bytes[125..145];
-    assert_eq!(&key_down[0..4], &[6, 0, 20, 0]);
+    let key_down = &bytes[125..162];
+    assert_eq!(&key_down[0..4], &[6, 0, 32, 0]);
     assert_eq!(key_down[18], 0x0f);
 
     let expected = HostEvent {
@@ -106,6 +106,9 @@ fn fr12_keydown_roundtrips_through_vectors() {
             ctrl_key: true,
             alt_key: true,
             meta_key: true,
+            repeat: true,
+            code: 0x28,
+            text: "Enter",
         },
     };
     assert_eq!(decode_event(key_down).unwrap(), expected);
@@ -118,7 +121,7 @@ fn fr12_keydown_roundtrips_through_vectors() {
 #[test]
 fn fr8_range_requested_roundtrips_through_vectors() {
     let bytes = include_bytes!("vectors/events.bin");
-    let range_requested = &bytes[145..169];
+    let range_requested = &bytes[162..186];
     assert_eq!(&range_requested[0..4], &[7, 0, 24, 0]);
 
     let expected = HostEvent {

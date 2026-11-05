@@ -10,7 +10,7 @@ enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyC
 
 enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, Progress }
 
-enum class Key { Enter }
+enum class Key { Enter, Other }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -1257,7 +1257,7 @@ sealed interface HostEvent {
     data class TextSubmitted(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class FocusLost(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class ProtocolError(override val nodeId: Int, override val handlerId: Long, val code: Int, val message: String) : HostEvent
-    data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
+    data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
     data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float) : HostEvent
@@ -1298,7 +1298,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 554621546583655284L
+    const val SCHEMA_HASH: Long = -1976155757607335122L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1713,7 +1713,7 @@ object Protocol {
                 is HostEvent.TextSubmitted -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FocusLost -> null
                 is HostEvent.ProtocolError -> event.message.toByteArray(StandardCharsets.UTF_8)
-                is HostEvent.KeyDown -> null
+                is HostEvent.KeyDown -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.RangeRequested -> null
                 is HostEvent.ValueChanged -> null
                 is HostEvent.WindowSizeChanged -> null
@@ -1755,7 +1755,7 @@ object Protocol {
                 is HostEvent.TextSubmitted -> 24
                 is HostEvent.FocusLost -> 16
                 is HostEvent.ProtocolError -> 28
-                is HostEvent.KeyDown -> 20
+                is HostEvent.KeyDown -> 32
                 is HostEvent.RangeRequested -> 24
                 is HostEvent.ValueChanged -> 24
                 is HostEvent.WindowSizeChanged -> 44
@@ -1858,7 +1858,9 @@ object Protocol {
                     if (event.altKey) modifiers = modifiers or 0x04
                     if (event.metaKey) modifiers = modifiers or 0x08
                     out.put(modifiers.toByte())
-                    out.put(0.toByte())
+                    out.put((if (event.repeat) 1 else 0).toByte())
+                    out.putInt(event.code)
+                    writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.RangeRequested -> {
                     out.putInt(event.start)
@@ -2192,6 +2194,7 @@ object Protocol {
 
     private fun keyTag(key: Key): Int = when (key) {
         Key.Enter -> 1
+        Key.Other -> 2
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {

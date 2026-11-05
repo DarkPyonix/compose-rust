@@ -407,9 +407,10 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             code: read_u32(bytes, 16)?,
             message: read_string(bytes, 20, record_len)?,
         },
-        EVENT_KEY_DOWN if record_len == 20 => {
+        EVENT_KEY_DOWN if record_len == 32 => {
             let raw_key = read_u16(bytes, 16)?;
             let modifiers = *bytes.get(18).ok_or(ProtocolError::Truncated)?;
+            let repeat = *bytes.get(19).ok_or(ProtocolError::Truncated)? != 0;
             crate::schema::EventPayload::KeyDown {
                 key: Key::try_from(raw_key)
                     .map_err(|()| ProtocolError::InvalidValueKind(raw_key))?,
@@ -417,6 +418,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ctrl_key: modifiers & MODIFIER_CTRL != 0,
                 alt_key: modifiers & MODIFIER_ALT != 0,
                 meta_key: modifiers & MODIFIER_META != 0,
+                repeat,
+                code: read_u32(bytes, 20)?,
+                text: read_string(bytes, 24, record_len)?,
             }
         }
         EVENT_RANGE_REQUESTED if record_len == 24 => crate::schema::EventPayload::RangeRequested {
@@ -687,10 +691,13 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         ctrl_key,
         alt_key,
         meta_key,
+        repeat,
+        code,
+        text,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_KEY_DOWN.to_le_bytes());
-        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&32_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&(key as u16).to_le_bytes());
@@ -699,7 +706,12 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             | (u8::from(alt_key) * MODIFIER_ALT)
             | (u8::from(meta_key) * MODIFIER_META);
         output.push(modifiers);
-        output.push(0);
+        output.push(u8::from(repeat));
+        output.extend_from_slice(&code.to_le_bytes());
+        let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&32_u32.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::ValueChanged(value) = event.payload {
@@ -2843,6 +2855,9 @@ mod tests {
                     ctrl_key: false,
                     alt_key: true,
                     meta_key: false,
+                    repeat: true,
+                    code: 0x28,
+                    text: "Enter",
                 },
             },
         ];
@@ -2872,6 +2887,42 @@ mod tests {
         encode_event(&event, &mut bytes).unwrap();
         assert_eq!(bytes.len(), 44);
         assert_eq!(decode_event(&bytes).unwrap(), event);
+    }
+
+    #[test]
+    fn nfr7_malformed_key_down_text_is_a_protocol_error() {
+        let event = HostEvent {
+            node_id: 1,
+            handler_id: 2,
+            payload: crate::EventPayload::KeyDown {
+                key: Key::Enter,
+                shift_key: false,
+                ctrl_key: false,
+                alt_key: false,
+                meta_key: false,
+                repeat: false,
+                code: 0x51,
+                text: "ArrowDown",
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(decode_event(&bytes).unwrap(), event);
+        // The text points past the end of the record.
+        let mut past_end = bytes.clone();
+        past_end[28..32].copy_from_slice(&200_u32.to_le_bytes());
+        assert_eq!(decode_event(&past_end), Err(ProtocolError::InvalidStringRange));
+        // The text starts inside the header, before the string area.
+        let mut inside_header = bytes.clone();
+        inside_header[24..28].copy_from_slice(&8_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&inside_header),
+            Err(ProtocolError::InvalidStringRange)
+        );
+        // The text is not UTF-8.
+        let mut not_utf8 = bytes;
+        not_utf8[32] = 0xff;
+        assert_eq!(decode_event(&not_utf8), Err(ProtocolError::InvalidUtf8));
     }
 
     #[test]
