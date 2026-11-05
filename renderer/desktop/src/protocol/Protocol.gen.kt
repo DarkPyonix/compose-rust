@@ -1023,6 +1023,7 @@ sealed interface Modifier {
     data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
     data object MatchParentSize : Modifier
     data class WindowDrag(val enabled: Boolean) : Modifier
+    data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1300,7 +1301,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6084149434501294276L
+    const val SCHEMA_HASH: Long = -1297132866241875313L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2870,6 +2871,7 @@ object Protocol {
         26 -> 2
         31 -> 0
         32 -> 0
+        33 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -2906,6 +2908,7 @@ object Protocol {
             26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
             31 -> Modifier.MatchParentSize
             32 -> Modifier.WindowDrag(flag(first, offset))
+            33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
