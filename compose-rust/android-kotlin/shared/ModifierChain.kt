@@ -4,6 +4,8 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import dev.darkpyonix.composerust.runtime.LocalWindowDragExclusion
 import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -144,11 +146,19 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         when (value) {
             is ProtocolModifier.WindowDrag -> chain.composed {
                 val drag = LocalWindowDrag.current
-                pointerInput(value.enabled, drag) {
+                val exclusion = LocalWindowDragExclusion.current
+                pointerInput(value.enabled, drag, exclusion) {
                     awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        if (value.enabled) drag()
-                        down.consume()
+                        if (value.enabled) {
+                            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+                            if (!down.isConsumed) {
+                                down.consume()
+                                drag()
+                            }
+                        } else {
+                            // Mark this down for the strip without consuming it, so ancestors can click.
+                            exclusion?.down = awaitFirstDown(requireUnconsumed = false)
+                        }
                     }
                 }
             }

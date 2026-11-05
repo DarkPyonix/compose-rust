@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
@@ -112,7 +113,7 @@ class WindowSizeTest {
                     caption = WindowCaption(height = 32.dp, fullSize = true))
             }
         }
-        onNodeWithText("excluded").performMouseInput { moveTo(center); press(); release() }
+        onNodeWithText("excluded").performMouseInput { moveTo(center); press(); moveBy(Offset(30f, 0f)); release() }
         assertEquals(0, drags)
     }
 
@@ -134,6 +135,70 @@ class WindowSizeTest {
         }
         onNodeWithText("button", useUnmergedTree = true).performMouseInput { moveTo(center); press(); release() }
         assertEquals(0, drags)
+    }
+
+    @Test
+    fun fr19_9_clickable_descendant_of_drag_region_receives_click() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Box),
+            Mutation.SetModifier(LABEL, 0, ProtocolModifier.WindowDrag(true)),
+            Mutation.Create(2, WidgetKind.Box),
+            Mutation.SetProp(2, PropertyKind.OnClick, PropertyValue.Integer(1L)),
+            Mutation.Create(3, WidgetKind.Text),
+            Mutation.SetProp(3, PropertyKind.Text, PropertyValue.Text("child click")),
+            Mutation.Insert(2, 3, 0),
+            Mutation.Insert(LABEL, 2, 0),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp))
+            }
+        }
+        onNodeWithText("child click", useUnmergedTree = true).performMouseInput { moveTo(center); press(); release() }
+        assertEquals(0, drags)
+        assertEquals(1, connection.events.filterIsInstance<HostEvent.Clicked>().size)
+    }
+
+    @Test
+    fun fr19_9_excluded_child_does_not_block_ancestor_click() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Box),
+            Mutation.SetProp(LABEL, PropertyKind.OnClick, PropertyValue.Integer(1L)),
+            Mutation.Create(2, WidgetKind.Text),
+            Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("excluded child")),
+            Mutation.SetModifier(2, 0, ProtocolModifier.WindowDrag(false)),
+            Mutation.Insert(LABEL, 2, 0),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp),
+                    caption = WindowCaption(height = 32.dp, fullSize = true))
+            }
+        }
+        onNodeWithText("excluded child", useUnmergedTree = true).performMouseInput { moveTo(center); press(); release() }
+        assertEquals(0, drags)
+        assertEquals(1, connection.events.filterIsInstance<HostEvent.Clicked>().size)
+    }
+
+    @Test
+    fun fr19_9_unconsumed_strip_drag_starts_once_after_slop() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("strip")),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp),
+                    caption = WindowCaption(height = 32.dp, fullSize = true))
+            }
+        }
+        onNodeWithText("strip").performMouseInput {
+            moveTo(center); press(); moveBy(Offset(30f, 0f)); moveBy(Offset(30f, 0f)); release()
+        }
+        assertEquals(1, drags)
     }
 
     @Test

@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.runtime
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 
@@ -75,6 +76,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import dev.darkpyonix.composerust.design.HostPlatform
+
+internal class WindowDragExclusion { var down: PointerInputChange? = null }
+internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }
 
 /**
  * Sends one event to the Host and reports whether the Host consumed it.
@@ -573,14 +577,26 @@ private fun ComposeRustTree(
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
     val dragWindow = LocalWindowDrag.current
+    val dragExclusion = remember { WindowDragExclusion() }
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-            if (!down.isConsumed && down.position.y < caption.height.toPx()) dragWindow()
+            if (!down.isConsumed && dragExclusion.down !== down && down.position.y < caption.height.toPx()) {
+                while (true) {
+                    val change = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.isConsumed || !change.pressed) break
+                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        change.consume()
+                        dragWindow()
+                        break
+                    }
+                }
+            }
         }
     } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
