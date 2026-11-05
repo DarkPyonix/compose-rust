@@ -7,6 +7,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,9 +19,12 @@ import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import java.lang.System
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
+import org.thisisthepy.compose.window.SystemTheme
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
@@ -66,6 +70,14 @@ internal class LinuxWindow private constructor(
 
     private val reportFrames = System.getenv("DXC_REPORT_FRAMES") != null
     private val reportInput = System.getenv("DXC_REPORT_INPUT") != null
+
+    internal var colorScheme by mutableStateOf(ColorScheme.FollowSystem)
+
+    internal fun resolvedDark(): Boolean = when (colorScheme) {
+        ColorScheme.Dark -> true
+        ColorScheme.Light -> false
+        ColorScheme.FollowSystem -> x11.systemTheme() == SystemTheme.Dark
+    }
 
     /**
      * Whether this window has the keyboard, as the window last said.
@@ -279,7 +291,11 @@ internal class LinuxWindow private constructor(
         semantics.perform(id, action, argument)
 
     fun setContent(content: @Composable () -> Unit) {
-        scene.setContent(content)
+        scene.setContent {
+            CompositionLocalProvider(LocalSystemDarkObserver provides { resolvedDark() }) {
+                content()
+            }
+        }
     }
 
     /**
