@@ -641,9 +641,10 @@ private fun Node.isMadeOfGlass(theme: ResolvedTheme): Boolean = modifiers.any { 
  */
 private fun Node.usesIntrinsicCrossAxis(table: NodeTable): Boolean {
     if (flag(PropertyKind.Collapsible, default = false)) return true
+    val weightedAxis = if (modifiers.weightOf() != null) table.stackingAxis(parentId) else StackingAxis.None
     return when (widget) {
         WidgetKind.Row -> {
-            val boundedHeight = modifiers.any {
+            val boundedHeight = weightedAxis == StackingAxis.Vertical || modifiers.any {
                 it is ProtocolModifier.Height ||
                     it is ProtocolModifier.Size ||
                     it is ProtocolModifier.RequiredSize ||
@@ -654,7 +655,7 @@ private fun Node.usesIntrinsicCrossAxis(table: NodeTable): Boolean {
             }
         }
         WidgetKind.Column -> {
-            val boundedWidth = modifiers.any {
+            val boundedWidth = weightedAxis == StackingAxis.Horizontal || modifiers.any {
                 it is ProtocolModifier.Width ||
                     it is ProtocolModifier.Size ||
                     it is ProtocolModifier.RequiredSize ||
