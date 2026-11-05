@@ -1008,6 +1008,55 @@ fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, at
     }
 }
 
+/// The colours and size a Switch, Slider or Checkbox was asked to draw with. Each is sent
+/// only when it was set, so a control that sets none sends the properties it always has
+/// and the design system draws it.
+#[derive(Clone, Copy, Default)]
+struct ControlLook {
+    track: Option<Paint>,
+    thumb: Option<Paint>,
+    active_track: Option<Paint>,
+    container: Option<Paint>,
+    check: Option<Paint>,
+    size: Option<(f32, f32)>,
+}
+
+impl ControlLook {
+    fn push(&self, attrs: &mut Attrs) {
+        let paints = [
+            ("track_color", self.track),
+            ("thumb_color", self.thumb),
+            ("active_track_color", self.active_track),
+            ("container_color", self.container),
+            ("check_color", self.check),
+        ];
+        for (name, paint) in paints {
+            if let Some(paint) = paint {
+                attrs.push((name, super::paint(Some(paint))));
+            }
+        }
+        if let Some((width, height)) = self.size {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&width.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&height.to_bits().to_le_bytes());
+            attrs.push(("control_size", OwnedAttr::Bytes(bytes)));
+        }
+    }
+}
+
+/// Adds a colour setter that fills one slot of `look`.
+macro_rules! control_colour {
+    ($name:ident, $slot:ident, $setter:ident, $doc:literal) => {
+        impl $name {
+            #[doc = $doc]
+            pub fn $setter(mut self, paint: Paint) -> Self {
+                self.look.$slot = Some(paint);
+                self
+            }
+        }
+    };
+}
+
 /// Writes a widget's own accessible name. It replaces one the Modifier gave, so the name
 /// said on the widget is the one that reaches assistive technology.
 fn push_accessible_name(name: Option<String>, attrs: &mut Attrs) {
@@ -1166,6 +1215,7 @@ macro_rules! toggle {
             checked: bool,
             enabled: bool,
             accessible_name: Option<String>,
+            look: ControlLook,
             on_change: Option<Box<dyn FnMut(bool)>>,
             done: bool,
         }
@@ -1177,6 +1227,7 @@ macro_rules! toggle {
                 checked: $setter,
                 enabled: true,
                 accessible_name: None,
+                look: ControlLook::default(),
                 on_change: None,
                 done: false,
             }
@@ -1201,6 +1252,7 @@ macro_rules! toggle {
                 let modifier = self.modifier;
                 let (checked, enabled) = (self.checked, self.enabled);
                 let accessible_name = self.accessible_name.take();
+                let look = self.look;
                 let handler: EventCallback = match self.on_change.take() {
                     Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(
                         // Off is 0.0 and on is anything else, so a Renderer that reports a
@@ -1217,6 +1269,7 @@ macro_rules! toggle {
                         attrs.push(("checked", OwnedAttr::Bool(checked)));
                         attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                         push_accessible_name(accessible_name, attrs);
+                        look.push(attrs);
                     },
                     vec![("onchange", handler)],
                     content,
@@ -1226,6 +1279,39 @@ macro_rules! toggle {
 
         composed_on_drop!($name);
     };
+}
+
+control_colour!(
+    SwitchScope,
+    track,
+    track_color,
+    "The track, whichever state it is in. The Host owns the state, so it passes the colour \
+     that goes with it."
+);
+control_colour!(SwitchScope, thumb, thumb_color, "The thumb that travels along the track.");
+
+impl SwitchScope {
+    /// The track's width and height in dp. The thumb scales with the height.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.look.size = Some((width, height));
+        self
+    }
+}
+
+control_colour!(
+    CheckboxScope,
+    container,
+    container_color,
+    "The box when it is checked."
+);
+control_colour!(CheckboxScope, check, check_color, "The check mark.");
+
+impl CheckboxScope {
+    /// The length of the box's side in dp.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
 }
 
 toggle!(
@@ -1260,6 +1346,7 @@ pub struct SliderScope {
     steps: u32,
     enabled: bool,
     accessible_name: Option<String>,
+    look: ControlLook,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1276,12 +1363,21 @@ pub fn Slider(value: f32) -> SliderScope {
         steps: 0,
         enabled: true,
         accessible_name: None,
+        look: ControlLook::default(),
         on_change: None,
         done: false,
     }
 }
 
 accessible_name!(SliderScope);
+control_colour!(SliderScope, track, track_color, "The part of the track that is not filled.");
+control_colour!(SliderScope, thumb, thumb_color, "The thumb.");
+control_colour!(
+    SliderScope,
+    active_track,
+    active_track_color,
+    "The part of the track up to the thumb."
+);
 
 impl SliderScope {
     /// The two ends. Compose's `valueRange`.
@@ -1324,6 +1420,7 @@ impl SliderScope {
             self.enabled,
         );
         let accessible_name = self.accessible_name.take();
+        let look = self.look;
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler(value as f32)
@@ -1342,6 +1439,7 @@ impl SliderScope {
                 attrs.push(("steps", OwnedAttr::Int(i64::from(steps))));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 push_accessible_name(accessible_name, attrs);
+                look.push(attrs);
             },
             vec![("onchange", handler)],
             content,

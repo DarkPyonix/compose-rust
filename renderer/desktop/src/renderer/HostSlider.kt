@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import dev.darkpyonix.composerust.design.ResolvedTheme
+import dev.darkpyonix.composerust.design.controlLook
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -71,6 +72,7 @@ internal fun HostSlider(
         onChange = report,
         modifier = modifier,
         theme = theme,
+        look = node.controlLook(theme),
     )
 }
 

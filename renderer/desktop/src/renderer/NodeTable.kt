@@ -697,6 +697,19 @@ class NodeTable {
                 // The name assistive technology reads can be given to any node.
                 PropertyKind.AccessibleName -> true
 
+                // Colours and size of the selection controls.
+                PropertyKind.TrackColor,
+                PropertyKind.ThumbColor,
+                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+
+                PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+
+                PropertyKind.ContainerColor,
+                PropertyKind.CheckColor,
+                -> widget == WidgetKind.Checkbox
+
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
                 PropertyKind.OnValueChange,
