@@ -874,6 +874,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "windowunavailable" | "onwindowunavailable" => Some(PropertyKind::OnWindowUnavailable),
         "windowclosed" | "onwindowclosed" => Some(PropertyKind::OnWindowClosed),
         "windowdragover" | "onwindowdragover" => Some(PropertyKind::OnWindowDragOver),
+        "compositionchange" | "oncompositionchange" => Some(PropertyKind::OnCompositionChange),
         "change" | "onchange" => Some(PropertyKind::OnValueChange),
         _ => None,
     }

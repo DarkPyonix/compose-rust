@@ -35,6 +35,7 @@ const TAG_SET_FOLDED: u16 = 22;
 // 23 and 24 are the windows': a theme for one window, and bringing one forward.
 const TAG_SET_WINDOW_THEME: u16 = 23;
 const TAG_FOCUS_WINDOW: u16 = 24;
+const TAG_REQUEST_FOCUS: u16 = 25;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -238,6 +239,10 @@ pub enum Mutation<'a> {
     /// Brings a window forward and makes it the key window. A command and not a
     /// property: it happens once.
     FocusWindow {
+        node_id: u32,
+    },
+    /// Moves input focus to `node_id`, or clears focus when `node_id` is 0.
+    RequestFocus {
         node_id: u32,
     },
 }
@@ -1347,6 +1352,10 @@ impl BatchEncoder {
                 self.begin_record(TAG_FOCUS_WINDOW, 4);
                 self.put_u32(*node_id);
             }
+            Mutation::RequestFocus { node_id } => {
+                self.begin_record(TAG_REQUEST_FOCUS, 4);
+                self.put_u32(*node_id);
+            }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
                 self.put_u16(window.chrome as u16);
@@ -1786,6 +1795,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_FOCUS_WINDOW if len == 8 => Mutation::FocusWindow {
                 node_id: read_u32(bytes, payload)?,
             },
+            TAG_REQUEST_FOCUS if len == 8 => Mutation::RequestFocus {
+                node_id: read_u32(bytes, payload)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -1954,7 +1966,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_FOCUS_WINDOW => {
+            | TAG_SET_WINDOW_THEME..=TAG_REQUEST_FOCUS => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -3209,5 +3221,86 @@ mod tests {
             crate::schema::Window::new().with_zoom_level(20).zoom_level,
             Some(8)
         );
+    }
+
+    #[test]
+    fn fr65_request_focus_round_trips_in_eight_bytes() {
+        for node_id in [0_u32, 7, u32::MAX] {
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&Mutation::RequestFocus { node_id }).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            assert_eq!(bytes.len(), ENVELOPE_LEN + 8);
+            assert_eq!(read_u16(&bytes, ENVELOPE_LEN).unwrap(), TAG_REQUEST_FOCUS);
+            assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 2).unwrap(), 8);
+            assert_eq!(read_u32(&bytes, ENVELOPE_LEN + 4).unwrap(), node_id);
+            assert_eq!(
+                decode_batch(&bytes).unwrap(),
+                vec![Mutation::RequestFocus { node_id }]
+            );
+        }
+        let mut encoder = BatchEncoder::default();
+        encoder
+            .encode(&Mutation::RequestFocus { node_id: 7 })
+            .unwrap();
+        let mut bad = encoder.finish().unwrap().to_vec();
+        bad.extend_from_slice(&[0; 4]);
+        let records_len = u32::try_from(bad.len()).unwrap();
+        bad[4..8].copy_from_slice(&records_len.to_le_bytes());
+        bad[ENVELOPE_LEN + 2..ENVELOPE_LEN + 4].copy_from_slice(&12_u16.to_le_bytes());
+        assert_eq!(decode_batch(&bad), Err(ProtocolError::InvalidRecordLength));
+    }
+
+    #[test]
+    fn fr65_text_field_on_composition_change_delivers_bool() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let seen: Rc<RefCell<Vec<bool>>> = Rc::new(RefCell::new(Vec::new()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_root = Arc::clone(&calls);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let calls_inner = Arc::clone(&calls_for_root);
+            crate::ui::TextField().on_composition_change(move |composing| {
+                calls_inner.fetch_add(if composing { 10 } else { 1 }, Ordering::SeqCst);
+            });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnCompositionChange,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_composition_change must emit OnCompositionChange");
+        let mut wire = Vec::new();
+        encode_event(
+            &HostEvent {
+                node_id: prop.0,
+                handler_id: prop.1,
+                payload: crate::EventPayload::CompositionChanged { composing: true },
+            },
+            &mut wire,
+        )
+        .unwrap();
+        host.dispatch_event(&wire).unwrap();
+        encode_event(
+            &HostEvent {
+                node_id: prop.0,
+                handler_id: prop.1,
+                payload: crate::EventPayload::CompositionChanged { composing: false },
+            },
+            &mut wire,
+        )
+        .unwrap();
+        host.dispatch_event(&wire).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 11);
+        drop(seen);
     }
 }

@@ -873,6 +873,7 @@ pub struct TextFieldScope {
     on_submit: Option<Box<dyn FnMut(String)>>,
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_composition_change: Option<Box<dyn FnMut(bool)>>,
     done: bool,
 }
 
@@ -892,6 +893,7 @@ pub fn TextField() -> TextFieldScope {
         on_submit: None,
         on_focus_lost: None,
         on_key_down: None,
+        on_composition_change: None,
         done: false,
     }
 }
@@ -955,6 +957,12 @@ impl TextFieldScope {
         self
     }
 
+    /// Reports when an input method begins or ends an active composition in the field.
+    pub fn on_composition_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_composition_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
@@ -965,12 +973,20 @@ impl TextFieldScope {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
         };
-        let listeners = vec![
+        let mut listeners = vec![
             ("onvaluechange", text_handler(self.on_value_change.take())),
             ("onsubmit", text_handler(self.on_submit.take())),
             ("onfocuslost", unit(self.on_focus_lost.take())),
             ("onkeydown", key_down),
         ];
+        if let Some(mut handler) = self.on_composition_change.take() {
+            listeners.push((
+                "oncompositionchange",
+                EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                    handler(value != 0.0);
+                }))),
+            ));
+        }
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
@@ -22,6 +23,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
@@ -198,7 +201,34 @@ fun RenderNode(
     } else {
         chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
     }
-    val modifier = platformFileDrop(pressable, node, dispatcher)
+    val focusRequest = node.focusRequestRevision
+    val focusRequester = if (focusRequest > 0L &&
+        node.widget != WidgetKind.TextField &&
+        node.widget != WidgetKind.CodeEditor
+    ) {
+        remember(nodeId) { FocusRequester() }
+    } else {
+        null
+    }
+    if (focusRequester != null) {
+        LaunchedEffect(focusRequest) {
+            focusRequester.requestFocus()
+        }
+    }
+    val focusableModifier = if (focusRequester == null) {
+        pressable
+    } else {
+        val withRequester = pressable.focusRequester(focusRequester)
+        if (clickHandler == null &&
+            node.widget in CLICKABLE_CONTAINERS &&
+            node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+        ) {
+            withRequester.focusable()
+        } else {
+            withRequester
+        }
+    }
+    val modifier = platformFileDrop(focusableModifier, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.

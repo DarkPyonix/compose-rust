@@ -240,6 +240,11 @@ impl Batch {
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });
     }
+
+    /// Requests input focus for `node_id`, or clears focus when `node_id` is 0.
+    pub fn request_focus(&mut self, node_id: u32) {
+        self.write(Mutation::RequestFocus { node_id });
+    }
 }
 
 /// What builds and changes the tree, seen from the boundary.
