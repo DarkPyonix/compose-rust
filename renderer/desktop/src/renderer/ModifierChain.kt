@@ -836,19 +836,19 @@ internal fun Modifier.pressFeedback(
         if (!enabled) {
             visible = false
         } else {
-            var started = 0L
+            var started = kotlin.time.TimeSource.Monotonic.markNow()
             var release: Job? = null
             source.interactions.collect { interaction ->
                 when (interaction) {
                     is PressInteraction.Press -> {
                         release?.cancel()
-                        started = System.nanoTime()
+                        started = kotlin.time.TimeSource.Monotonic.markNow()
                         visible = true
                     }
                     is PressInteraction.Release, is PressInteraction.Cancel -> {
                         release?.cancel()
                         release = launch {
-                            val elapsed = (System.nanoTime() - started) / 1_000_000
+                            val elapsed = started.elapsedNow().inWholeMilliseconds
                             delay(pressReleaseDelay(elapsed))
                             visible = false
                         }
