@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 22;
+const MODIFIER_SLOTS: usize = 23;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -342,6 +342,7 @@ impl NodeWriter {
         const OBSERVE_SIZE: u16 = 19;
         const MOTION: u16 = 20;
         const MATERIAL: u16 = 21;
+        const PRESS_FEEDBACK: u16 = 22;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -373,6 +374,7 @@ impl NodeWriter {
             "observe_size" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
+            "press_feedback" => Some(PRESS_FEEDBACK),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -533,6 +535,17 @@ impl NodeWriter {
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
+            "press_feedback" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let scale = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let tint_alpha = f32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+                Some(Some((
+                    PRESS_FEEDBACK,
+                    Modifier::PressFeedback { scale, tint_alpha },
+                )))
+            }
             "offset" => {
                 let AttrValue::Bytes(bytes) = value else {
                     return Some(None);

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Press feedback
+
+Every pressable surface (`on_click` containers, `Clickable` nodes and the toolkit `Button`) scales to 0.975 and shows a faint tint while pressed, inside the renderer with no Host round trip, and `Modifier::PressFeedback { scale, tint_alpha }` (wire tag 33) changes or turns it off ([#305](https://github.com/DarkPyonix/compose-rust/issues/305)). The schema hash changes.
+
 ## v0.0.5
 
 ### Multiple windows in one process

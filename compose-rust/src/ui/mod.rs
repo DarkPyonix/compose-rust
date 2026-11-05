@@ -115,6 +115,7 @@ pub struct Modifier {
     border_color: Option<Paint>,
     elevation: Option<f32>,
     alpha: Option<f32>,
+    press_feedback: Option<(f32, f32)>,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
     animated_background: Option<crate::Animated<Paint>>,
@@ -152,6 +153,7 @@ impl Modifier {
             border_color: None,
             elevation: None,
             alpha: None,
+            press_feedback: None,
             transform: None,
             animated_alpha: None,
             animated_background: None,
@@ -334,6 +336,12 @@ impl Modifier {
         self
     }
 
+    /// Sets the pressed scale and tint opacity.
+    pub const fn press_feedback(mut self, scale: f32, tint_alpha: f32) -> Self {
+        self.press_feedback = Some((scale, tint_alpha));
+        self
+    }
+
     /// Compose's `graphicsLayer`: a rotation, a scale and a translation about an origin,
     /// drawn without moving the layout, and an opacity for the whole group. A pointer is
     /// tested against the shape that is drawn.
@@ -511,6 +519,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     // The layer and the values the Renderer animates, written only when they are set. An
     // animated value owns its slot while it is set, as an animated background does above.
+    push(
+        false,
+        "press_feedback",
+        modifier
+            .press_feedback
+            .map_or(OwnedAttr::None, |(scale, alpha)| {
+                OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
+            }),
+    );
     push(
         false,
         "alpha",

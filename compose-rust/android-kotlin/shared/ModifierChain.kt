@@ -1,6 +1,14 @@
 package dev.darkpyonix.composerust.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -90,11 +98,14 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     containerClickHandler: Long? = null,
     containerEnabled: Boolean = true,
     containerShape: Shape? = null,
+    pressColor: Color = theme.color(ColorRole.OnSurface),
+    allowPress: Boolean = true,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
     val shape = resolvedShape(theme)
     val pressShape = containerShape ?: shape
+    val feedback = lastOrNull { it is ProtocolModifier.PressFeedback } as? ProtocolModifier.PressFeedback
     // What this node's surface is made of is its surface, so it is drawn round the whole
     // node the way a background is: under the padding, and outside the clip so a surface
     // that floats can cast its lift beyond its own edge. Taken at its place in the list it
@@ -134,10 +145,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             dispatcher,
             theme,
             pressShape,
+            feedback,
+            pressColor,
         )
     }
     val folded = fold(surface) { chain, value ->
         when (value) {
+            is ProtocolModifier.PressFeedback -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
@@ -155,7 +169,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Clickable -> {
                 pressableAttached = true
-                chain.pressable(nodeId, value.handlerId, true, dispatcher, theme, shape)
+                if (allowPress) chain.pressable(nodeId, value.handlerId, containerEnabled, dispatcher, theme, shape, feedback, pressColor) else chain
             }
 
             is ProtocolModifier.PaddingEach ->
@@ -716,10 +730,11 @@ internal fun Modifier.pressable(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
     shape: Shape,
+    feedback: ProtocolModifier.PressFeedback? = null,
+    pressColor: Color = theme.color(ColorRole.OnSurface),
 ): Modifier = composed {
     val source = remember(nodeId, handlerId) { MutableInteractionSource() }
     val hovered by source.collectIsHoveredAsState()
-    val pressed by source.collectIsPressedAsState()
     var keyboardFocused by remember(source) { mutableStateOf(false) }
     LaunchedEffect(source) {
         var pressActive = false
@@ -747,6 +762,7 @@ internal fun Modifier.pressable(
     val ink = theme.color(ColorRole.OnSurface)
     val ring = theme.color(ColorRole.Primary)
     this
+        .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
         .hoverable(source, enabled)
         .clickable(
             interactionSource = source,
@@ -758,7 +774,6 @@ internal fun Modifier.pressable(
             drawContent()
             if (!enabled) return@drawWithContent
             val layer = when {
-                pressed -> PRESSED_LAYER
                 hovered -> HOVER_LAYER
                 else -> 0f
             }
@@ -783,8 +798,85 @@ internal fun Modifier.pressable(
         }
 }
 
+
+private const val PRESS_SCALE = 0.975f
+private const val PRESS_TINT_LIGHT = 0.07f
+private const val PRESS_TINT_DARK = 0.10f
+private const val PRESS_IN_MILLIS = 180
+private const val PRESS_OUT_MILLIS = 200
+private const val PRESS_MIN_MILLIS = 120L
+private val PRESS_IN_EASING = CubicBezierEasing(0f, 0f, 0.58f, 1f)
+private val PRESS_OUT_EASING = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
+internal data class PressFeedbackTarget(val scale: Float, val tint: Float)
+
+internal fun pressFeedbackTarget(
+    visible: Boolean,
+    enabled: Boolean,
+    reducedMotion: Boolean,
+    dark: Boolean,
+    feedback: ProtocolModifier.PressFeedback?,
+): PressFeedbackTarget = PressFeedbackTarget(
+    scale = if (enabled && visible && !reducedMotion) feedback?.scale ?: PRESS_SCALE else 1f,
+    tint = if (enabled && visible) (feedback?.tintAlpha ?: if (dark) PRESS_TINT_DARK else PRESS_TINT_LIGHT).coerceIn(0f, 1f) else 0f,
+)
+
+internal fun pressReleaseDelay(elapsedMillis: Long): Long = (PRESS_MIN_MILLIS - elapsedMillis).coerceAtLeast(0)
+
+internal fun Modifier.pressFeedback(
+    source: MutableInteractionSource,
+    enabled: Boolean,
+    theme: ResolvedTheme,
+    shape: Shape,
+    ink: Color,
+    feedback: ProtocolModifier.PressFeedback?,
+): Modifier = composed {
+    var visible by remember(source) { mutableStateOf(false) }
+    LaunchedEffect(source, enabled) {
+        if (!enabled) {
+            visible = false
+        } else {
+            var started = 0L
+            var release: Job? = null
+            source.interactions.collect { interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> {
+                        release?.cancel()
+                        started = System.nanoTime()
+                        visible = true
+                    }
+                    is PressInteraction.Release, is PressInteraction.Cancel -> {
+                        release?.cancel()
+                        release = launch {
+                            val elapsed = (System.nanoTime() - started) / 1_000_000
+                            delay(pressReleaseDelay(elapsed))
+                            visible = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+    val state = pressFeedbackTarget(visible, enabled, dev.darkpyonix.composerust.ui.node.platformReducedMotion(), theme.dark, feedback)
+    val target = state.scale
+    val scale by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(
+            durationMillis = if (target == 1f) PRESS_OUT_MILLIS else PRESS_IN_MILLIS,
+            easing = if (target == 1f) PRESS_OUT_EASING else PRESS_IN_EASING,
+        ),
+    )
+    val tint = state.tint
+    this.graphicsLayer { scaleX = scale; scaleY = scale }
+        .drawWithContent {
+            drawContent()
+            if (enabled && visible && tint > 0f) {
+                drawOutline(shape.createOutline(size, layoutDirection, this), ink.copy(alpha = tint.coerceIn(0f, 1f)))
+            }
+        }
+}
+
 private const val HOVER_LAYER = 0.08f
-private const val PRESSED_LAYER = 0.12f
 private val FOCUS_RING_WIDTH = 2.dp
 
 /**
