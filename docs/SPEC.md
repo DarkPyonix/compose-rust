@@ -3755,12 +3755,15 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 세 위젯 빌더에 색 역할 또는 `Paint`로 주는 `track_color`, `thumb_color`(Switch, Slider), `active_track_color`(Slider), `container_color`, `check_color`(Checkbox)와 크기 `size(Dp)`(Switch는 `size(width, height)`)가 있습니다. 부르지 않으면 속성이 나가지 않고 디자인 시스템 기본 모양입니다.
 - Renderer는 이 값이 하나라도 오면 Compose의 `SwitchDefaults.colors`, `SliderDefaults.colors`, `CheckboxDefaults.colors`와 크기 수정자로 그립니다. 값이 오지 않은 칸은 기본값을 씁니다.
 - 선택된 `Checkbox`는 `container_color`로 채운 사각형(모서리 반지름은 `Shape` 수정자를 따름)에 `check_color` 체크를 그립니다.
+- `track_color`는 켜짐과 꺼짐에 같은 색으로 적용됩니다. 상태마다 다른 트랙 색이 필요하면 앱이 상태에 맞는 색을 보내고, 상태가 바뀌면 바뀐 색만 다시 나갑니다(새 API는 없습니다).
+- 앱이 이 속성을 더는 쓰지 않으면(예: 비활성일 때만 색을 주던 컨트롤이 활성이 됨) 제거가 전달되고, Renderer는 그 칸을 디자인 시스템 기본값으로 되돌립니다. 마지막으로 받은 값이 남지 않습니다.
 
 수용 기준.
 1. `Switch(true).size(36.0, 20.0).track_color(ink).thumb_color(surface)`의 측정 크기가 36x20dp이고 켜진 트랙 픽셀이 `ink`입니다.
 2. `Slider`에 `active_track_color`와 `track_color`를 주면 채워진 구간과 남은 구간이 그 색으로 그려집니다.
 3. 체크된 `Checkbox.size(18.0).container_color(ink).check_color(white)`는 18x18dp 채워진 사각형과 흰 체크를 그립니다.
 4. 색과 크기를 하나도 주지 않은 세 위젯은 지금과 같은 속성을 보냅니다.
+5. 색과 크기를 준 컨트롤에서 그 속성을 제거하면(제거 전달 뒤) 측정 크기와 색이 디자인 시스템 기본값으로 돌아옵니다. 시험 이름은 `fr67_`로 시작합니다.
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Draft`, 이슈 #429, #426)
 
@@ -3775,6 +3778,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. `Box.modifier(label("새로고침").role(Button))`의 접근성 노드가 그 이름과 역할을 가집니다.
 3. `Button("").icon(Refresh).accessible_name("가져오기")`의 접근성 이름이 "가져오기"입니다.
 4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
+5. 이름을 준 노드에서 `accessible_name`을 제거하면(제거 전달 뒤) 접근성 이름이 위젯의 기본(보이는 라벨이나 아이콘의 뜻)으로 돌아옵니다.
 
 ### FR-69 비활성 Button의 라벨 대비 (`Draft`, 이슈 #432)
 
