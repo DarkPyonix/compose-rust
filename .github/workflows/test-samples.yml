@@ -74,6 +74,12 @@ jobs:
 
   # Does the release for this commit's crate version carry the renderer assets? Decides
   # whether the build downloads them or builds the renderer itself.
+  #
+  # The renderer used is the one released for the crate version, so a pull request that
+  # changes the renderer's sources without raising the version is tested against the old
+  # release. Raise the version, or the assets are not found, for the new sources to be built.
+  # The Windows static branches below take effect once the release carries a static
+  # windows-x64 tarball; until then the Windows build still uses the DLL kit.
   resolve:
     name: Find the released renderer
     needs: requested
@@ -94,17 +100,12 @@ jobs:
           set -euo pipefail
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          # All four desktop assets and their checksums must be there; a release that is
-          # half uploaded is treated as not released.
-          names="$(gh release view "v$version" -R "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null || true)"
-          released=true
-          for target in macos-aarch64 linux-x64 linux-arm64 windows-x64; do
-            asset="compose-rust-renderer-v$version-$target.tar.gz"
-            for n in "$asset" "$asset.sha256"; do
-              grep -qxF "$n" <<<"$names" || { echo "missing $n"; released=false; }
-            done
-          done
-          echo "released=$released" >> "$GITHUB_OUTPUT"
+          # Needs all four desktop assets and their checksums; a half-uploaded release
+          # counts as not released. A gh failure is warned about, not hidden.
+          result="$(.github/scripts/find-released-renderer.sh "$version")"
+          echo "$result"
+          echo "$result" | grep '^released=' >> "$GITHUB_OUTPUT"
+          released="$(sed -n 's/^released=//p' <<<"$result")"
           echo "crate $version, released renderer: $released"
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
