@@ -1022,6 +1022,7 @@ class NodeTable {
                 PropertyKind.WindowSize,
                 PropertyKind.WindowMinSize,
                 PropertyKind.WindowResizable,
+                PropertyKind.ReportSize,
                 PropertyKind.WindowChrome,
                 PropertyKind.WindowTitleBar,
                 PropertyKind.WindowIcon,

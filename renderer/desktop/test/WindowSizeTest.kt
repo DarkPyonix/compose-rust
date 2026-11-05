@@ -37,6 +37,7 @@ import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val LABEL = 1
@@ -272,6 +273,53 @@ class WindowSizeTest {
             WindowSizeClass.Compact,
             (dispatcher.events[1] as HostEvent.WindowSizeChanged).sizeClass,
         )
+    }
+
+    @Test
+    fun fr20_8_opted_in_window_reports_dp_change_inside_a_class() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter(3)
+
+        // Both sizes are Expanded wide and Medium high, so the class never changes.
+        assertTrue(reporter.report(1280f, 820f, dispatcher, everyDpChange = true))
+        assertTrue(reporter.report(1000f, 620f, dispatcher, everyDpChange = true))
+        assertEquals(2, dispatcher.events.size)
+        val event = dispatcher.events[1] as HostEvent.WindowSizeChanged
+        assertEquals(3, event.nodeId)
+        assertEquals(1000f, event.widthDp)
+        assertEquals(620f, event.heightDp)
+        assertEquals(WindowSizeClass.Expanded, event.sizeClass)
+        assertEquals(WindowHeightClass.Medium, event.heightClass)
+    }
+
+    @Test
+    fun fr20_8_default_window_still_reports_only_class_change() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+
+        assertTrue(reporter.report(1280f, 820f, dispatcher))
+        assertFalse(reporter.report(1000f, 620f, dispatcher))
+        assertFalse(reporter.report(900f, 500f, dispatcher))
+        assertEquals(1, dispatcher.events.size)
+    }
+
+    @Test
+    fun fr20_8_opted_in_window_ignores_sub_dp_jitter() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+
+        assertTrue(reporter.report(1000f, 700f, dispatcher, everyDpChange = true))
+        // 999.5 rounds up to 1000 and 1000.49 rounds to 1000: the same whole dp.
+        assertFalse(reporter.report(999.5f, 700.2f, dispatcher, everyDpChange = true))
+        assertFalse(reporter.report(1000.49f, 699.6f, dispatcher, everyDpChange = true))
+        assertEquals(1, dispatcher.events.size)
+        // 1000.5 rounds up to 1001: one whole dp, one event, carrying the measured size.
+        assertTrue(reporter.report(1000.5f, 700f, dispatcher, everyDpChange = true))
+        assertEquals(2, dispatcher.events.size)
+        assertEquals(1000.5f, (dispatcher.events[1] as HostEvent.WindowSizeChanged).widthDp)
+        // Back inside that dp sends nothing more.
+        assertFalse(reporter.report(1001.2f, 700f, dispatcher, everyDpChange = true))
+        assertEquals(2, dispatcher.events.size)
     }
 
     @Test

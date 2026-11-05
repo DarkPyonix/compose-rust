@@ -836,3 +836,30 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
         );
     }
 }
+
+#[composable]
+fn ReportingWindow() {
+    Window(|| {}).report_size(true).content(|| Nothing());
+}
+
+/// A window that opts in writes `report_size` as a boolean property on its node.
+#[test]
+fn fr20_8_window_report_size_writes_the_property() {
+    let mut host = ComposeHost::with_theme(ReportingWindow, Theme::unified(DesignSystem::Material3))
+        .with_window(several_windows());
+    let batch = host.rebuild().unwrap().to_vec();
+    let windows = window_ids(&batch);
+    assert_eq!(windows.len(), 1);
+    let written = decode_batch(&batch).unwrap().into_iter().any(|mutation| {
+        matches!(
+            mutation,
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::ReportSize,
+                value: PropertyValue::Bool(true),
+            } if node_id == windows[0]
+        )
+    });
+    assert!(written, "the window node carries report_size = true");
+    assert_eq!(PropertyKind::ReportSize as u16, 127);
+}

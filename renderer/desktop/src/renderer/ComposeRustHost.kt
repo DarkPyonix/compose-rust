@@ -555,9 +555,10 @@ private fun ComposeRustTree(
             captionStyle.side == CaptionSide.Start
         WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
     }
+    val reportEveryDp = windowNodeId != 0 && host.table.node(windowNodeId)?.flag(PropertyKind.ReportSize, false) == true
     SideEffect {
         measuredSize?.let { size ->
-            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea) }
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
     // How much room the buttons take and at which end. The platform's own are at the
