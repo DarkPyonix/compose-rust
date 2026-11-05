@@ -169,7 +169,11 @@ internal object DrawnControlWidgets : ControlWidgets {
         // animates without a frame of it crossing the boundary.
         val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
         val container by animateColorAsState(
-            targetValue = if (checked) look.container ?: style.containerChecked else style.container,
+            targetValue = when {
+                role == ToggleRole.Switch && look.track != null -> look.track
+                checked -> look.container ?: style.containerChecked
+                else -> style.container
+            },
             animationSpec = tween(spec.durationMillis, easing = motion.easing),
         )
         val alpha = if (enabled) 1f else style.disabledAlpha

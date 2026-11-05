@@ -1288,7 +1288,12 @@ control_colour!(
     "The track, whichever state it is in. The Host owns the state, so it passes the colour \
      that goes with it."
 );
-control_colour!(SwitchScope, thumb, thumb_color, "The thumb that travels along the track.");
+control_colour!(
+    SwitchScope,
+    thumb,
+    thumb_color,
+    "The thumb that travels along the track."
+);
 
 impl SwitchScope {
     /// The track's width and height in dp. The thumb scales with the height.
@@ -1370,7 +1375,12 @@ pub fn Slider(value: f32) -> SliderScope {
 }
 
 accessible_name!(SliderScope);
-control_colour!(SliderScope, track, track_color, "The part of the track that is not filled.");
+control_colour!(
+    SliderScope,
+    track,
+    track_color,
+    "The part of the track that is not filled."
+);
 control_colour!(SliderScope, thumb, thumb_color, "The thumb.");
 control_colour!(
     SliderScope,
