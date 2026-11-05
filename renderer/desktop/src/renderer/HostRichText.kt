@@ -6,6 +6,12 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.LayoutModifier
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.LinkAnnotation
@@ -14,11 +20,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.MultiParagraphIntrinsics
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TypeRole
+import dev.darkpyonix.composerust.protocol.WordBreak
+import dev.darkpyonix.composerust.protocol.OverflowWrap
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.Node
@@ -126,12 +135,13 @@ internal fun HostRichText(
 ) {
     val input = node.textInput()
     val density = textDensity(input, LocalDensity.current)
+    val fontResolver = LocalFontFamilyResolver.current
     val resolved = resolveText(
         input,
         theme,
         assets,
         density,
-        LocalFontFamilyResolver.current,
+        fontResolver,
         link = { run ->
             // A link is a press on a range, and a press is the event the boundary already
             // has. No new event tag for a thing that is already a click.
@@ -143,6 +153,10 @@ internal fun HostRichText(
             )
         },
     )
+    val wordFloor = if (input.softWrap && (input.wordBreak == null || input.wordBreak == WordBreak.Normal) && input.overflowWrap != OverflowWrap.Anywhere) {
+        val words = resolveText(input, theme, assets, density, fontResolver, intrinsicWordBreak = WordBreak.KeepAll)
+        kotlin.math.ceil(MultiParagraphIntrinsics(words.text, words.style, words.placeholders, density, fontResolver).minIntrinsicWidth).toInt()
+    } else 0
     val runs = node.runsDecodeProblem() ?: resolved.runsProblem
     val fonts = node.fontListProblem() ?: resolved.problems.firstOrNull()
     val problem = when {
@@ -156,7 +170,7 @@ internal fun HostRichText(
     CompositionLocalProvider(LocalDensity provides density) {
         BasicText(
             text = resolved.text,
-            modifier = modifier,
+            modifier = modifier.then(WordFloor(wordFloor)),
             style = resolved.style,
             overflow = resolved.overflow,
             softWrap = resolved.softWrap,
@@ -165,6 +179,16 @@ internal fun HostRichText(
             color = color,
         )
     }
+}
+
+private class WordFloor(private val width: Int) : LayoutModifier {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints) =
+        measurable.measure(constraints).let { placeable ->
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int =
+        maxOf(width, measurable.minIntrinsicWidth(height))
 }
 
 /**
