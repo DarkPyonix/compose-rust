@@ -2,7 +2,6 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
-import dev.darkpyonix.composerust.protocol.Backdrop
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
@@ -208,7 +207,7 @@ class LinuxMultiWindowTest {
     }
 
     @Test
-    fun fr53_linux_color_scheme_overrides_one_window_only() {
+    fun fr53_53_3_linux_color_scheme_overrides_one_window_only() {
         if (!hasDisplay()) return
         val darkByWindow = mutableMapOf<Int, Boolean?>()
         val work = mainForTests()
@@ -223,12 +222,13 @@ class LinuxMultiWindowTest {
                     chrome = Chrome.Modern,
                     titleBar = TitleBar.Normal,
                     title = "",
+                    icon = 0,
                     width = 0,
                     height = 0,
                     minWidth = 0,
                     minHeight = 0,
                     resizable = true,
-                    backdrop = Backdrop.None,
+                    zoomLevel = null,
                     mode = WindowMode.Windows,
                     lastWindowClosed = LastWindowClosed.KeepRunning,
                 ),
