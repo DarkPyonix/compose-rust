@@ -73,7 +73,8 @@ internal fun HostCodeEditor(
             },
         )
     }
-    CodeEditorSurface(model, look, callbacks, modifier)
+    val focusRequest = node.focusRequestRevision
+    CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest)
 }
 
 /** What the design system says an editor looks like here, resolved to plain values. */
