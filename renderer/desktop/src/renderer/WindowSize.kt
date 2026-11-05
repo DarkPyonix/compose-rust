@@ -117,3 +117,23 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
  * zoom - carry this as their node id, and the theme and zoom level are looked up under it.
  */
 val LocalWindowNodeId = staticCompositionLocalOf { 0 }
+
+/** Bounds are in window pixels, matching the Linux backend's screen coordinates. */
+internal object WindowDropTargets {
+    private data class Target(val left: Float, val top: Float, val right: Float, val bottom: Float, val density: Float, val depth: Int)
+    private val targets = LinkedHashMap<Pair<Int, Int>, Target>()
+
+    fun update(windowId: Int, nodeId: Int, left: Float, top: Float, right: Float, bottom: Float, density: Float, depth: Int) {
+        targets[windowId to nodeId] = Target(left, top, right, bottom, density, depth)
+    }
+
+    fun remove(windowId: Int, nodeId: Int) { targets.remove(windowId to nodeId) }
+
+    fun find(windowId: Int, x: Float, y: Float): Pair<Int, Pair<Float, Float>>? {
+        val target = targets.entries.toList().asReversed().filter { (key, rect) ->
+            key.first == windowId && x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+        }.maxByOrNull { it.value.depth } ?: return null
+        val rect = target.value
+        return target.key.second to ((x - rect.left) / rect.density to (y - rect.top) / rect.density)
+    }
+}
