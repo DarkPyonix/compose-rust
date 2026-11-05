@@ -447,7 +447,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_VALUE_CHANGED if record_len == 24 => {
             crate::schema::EventPayload::ValueChanged(f64::from_bits(read_u64(bytes, 16)?))
         }
-        EVENT_WINDOW_SIZE_CHANGED if record_len == 32 => {
+        EVENT_WINDOW_SIZE_CHANGED if record_len == 44 => {
             let raw_class = read_u32(bytes, 24)?;
             let class = u16::try_from(raw_class)
                 .ok()
@@ -463,6 +463,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 height_dp: f32::from_bits(read_u32(bytes, 20)?),
                 class,
                 height_class,
+                safe_area_top: f32::from_bits(read_u32(bytes, 32)?),
+                safe_area_leading: f32::from_bits(read_u32(bytes, 36)?),
+                safe_area_trailing: f32::from_bits(read_u32(bytes, 40)?),
             }
         }
         EVENT_DESIGN_SYSTEM_RESOLVED if record_len == 20 => {
@@ -756,16 +759,22 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         height_dp,
         class,
         height_class,
+        safe_area_top,
+        safe_area_leading,
+        safe_area_trailing,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
-        output.extend_from_slice(&32_u16.to_le_bytes());
+        output.extend_from_slice(&44_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
         output.extend_from_slice(&height_dp.to_bits().to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(class)).to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(height_class)).to_le_bytes());
+        output.extend_from_slice(&safe_area_top.to_bits().to_le_bytes());
+        output.extend_from_slice(&safe_area_leading.to_bits().to_le_bytes());
+        output.extend_from_slice(&safe_area_trailing.to_bits().to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::DesignSystemResolved(system) = event.payload {
@@ -2239,6 +2248,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::Empty => (0, two_words(0, 0)),
         Modifier::Padding(value) => (1, two_words(float_word(*value), 0)),
         Modifier::FillMaxWidth => (2, two_words(0, 0)),
+        Modifier::MatchParentSize => (31, two_words(0, 0)),
         Modifier::FillMaxHeight => (3, two_words(0, 0)),
         Modifier::Width(value) => (4, two_words(float_word(*value), 0)),
         Modifier::Height(value) => (5, two_words(float_word(*value), 0)),
@@ -2327,8 +2337,12 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 0,
             ],
         ),
+        Modifier::WindowDrag(enabled) => (32, two_words(u64::from(*enabled), 0)),
         Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
         Modifier::Alpha(value) => (25, two_words(float_word(*value), 0)),
+        Modifier::PressFeedback { scale, tint_alpha } => {
+            (33, two_words(pack_floats(*scale, *tint_alpha), 0))
+        }
         Modifier::Transform {
             a,
             b,
@@ -2439,6 +2453,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             1 => Ok(Modifier::Clip(true)),
             _ => Err(ProtocolError::InvalidModifier(24)),
         },
+        32 => match first {
+            0 => Ok(Modifier::WindowDrag(false)),
+            1 => Ok(Modifier::WindowDrag(true)),
+            _ => Err(ProtocolError::InvalidModifier(32)),
+        },
         25 => Ok(Modifier::Alpha(f32::from_bits(first as u32))),
         26 => {
             let values = [
@@ -2469,6 +2488,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 origin_y,
             })
         }
+        31 => Ok(Modifier::MatchParentSize),
+        33 => Ok(Modifier::PressFeedback {
+            scale: unpack_low(first),
+            tint_alpha: unpack_high(first),
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -2633,6 +2657,21 @@ mod tests {
                 modifier: Modifier::Background(Paint::Literal(crate::schema::Color::rgb(0x1b1b1f))),
             }]
         );
+    }
+
+    #[test]
+    fn fr51_press_feedback_round_trips() {
+        let expected = [Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::PressFeedback {
+                scale: 0.975,
+                tint_alpha: 0.07,
+            },
+        }];
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&expected[0]).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), expected);
     }
 
     /// Every design primitive fits in `(tag, u64, u64)` and survives a round trip.
@@ -2868,7 +2907,7 @@ mod tests {
     }
 
     #[test]
-    fn fr20_window_size_changed_round_trips_in_thirty_two_bytes() {
+    fn fr19_9_window_safe_area_round_trips() {
         let event = HostEvent {
             node_id: 0,
             handler_id: 0,
@@ -2877,12 +2916,25 @@ mod tests {
                 height_dp: 600.25,
                 class: crate::WindowSizeClass::Expanded,
                 height_class: crate::WindowHeightClass::Medium,
+                safe_area_top: 28.5,
+                safe_area_leading: 72.0,
+                safe_area_trailing: 13.0,
             },
         };
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(bytes.len(), 32);
+        assert_eq!(bytes.len(), 44);
         assert_eq!(decode_event(&bytes).unwrap(), event);
+    }
+
+    #[test]
+    fn fr19_9_short_window_size_record_is_a_protocol_error() {
+        let mut bytes = vec![0; 32];
+        bytes[0..2].copy_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
+        bytes[2..4].copy_from_slice(&32_u16.to_le_bytes());
+        assert!(decode_event(&bytes).is_err());
+        bytes[2..4].copy_from_slice(&44_u16.to_le_bytes());
+        assert!(decode_event(&bytes).is_err());
     }
 
     #[test]
@@ -2895,6 +2947,9 @@ mod tests {
                 height_dp: 640.0,
                 class: crate::WindowSizeClass::Compact,
                 height_class: crate::WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let mut bytes = Vec::new();
@@ -2916,6 +2971,9 @@ mod tests {
                 height_dp: 640.0,
                 class: crate::WindowSizeClass::Compact,
                 height_class: crate::WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let mut bytes = Vec::new();

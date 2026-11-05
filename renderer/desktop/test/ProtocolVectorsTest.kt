@@ -192,7 +192,7 @@ class ProtocolVectorsTest {
             activated,
         )
         assertEquals(37, length)
-        assertEquals(bytes.copyOfRange(225, 262).toList(), activated.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(237, 274).toList(), activated.array().copyOf(length).toList())
 
         val changed = ByteBuffer.allocate(32)
         val changedLength = Protocol.encodeEvent(
@@ -204,7 +204,7 @@ class ProtocolVectorsTest {
             changed,
         )
         assertEquals(20, changedLength)
-        assertEquals(bytes.copyOfRange(262, 282).toList(), changed.array().copyOf(changedLength).toList())
+        assertEquals(bytes.copyOfRange(274, 294).toList(), changed.array().copyOf(changedLength).toList())
     }
 
     @Test
@@ -245,6 +245,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Clip(true),
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
+                ProtocolModifier.MatchParentSize,
             ),
             modifiers,
         )
@@ -263,7 +264,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..7).toList(), onBox.map { it.index })
+        assertEquals((0..8).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -280,7 +281,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
             lengths,
         )
     }
@@ -400,14 +401,14 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(40, length)
-        assertEquals(bytes.copyOfRange(458, 498).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(470, 510).toList(), out.array().copyOf(length).toList())
         val motion = ByteBuffer.allocate(32)
         val motionLength = Protocol.encodeEvent(
             HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
             motion,
         )
         assertEquals(20, motionLength)
-        assertEquals(bytes.copyOfRange(498, 518).toList(), motion.array().copyOf(motionLength).toList())
+        assertEquals(bytes.copyOfRange(510, 530).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -436,7 +437,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(72, length)
-        assertEquals(bytes.copyOfRange(518, 590).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(530, 602).toList(), out.array().copyOf(length).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -553,16 +554,16 @@ class ProtocolVectorsTest {
             return buffer.array().copyOf(length)
         }
         val expected = listOf(
-            282 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
-            330 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
-            374 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
-            410 to HostEvent.CodeSaveRequested(12, 21L, 2),
-            434 to HostEvent.DecorationActivated(12, 22L, 41L),
-            590 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
-            626 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
-            654 to HostEvent.EditorFocusChanged(12, 25L, true),
-            678 to HostEvent.FoldChanged(12, 26L, 0, true),
-            702 to HostEvent.CompositionChanged(12, 27L, true),
+            294 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            342 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            386 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            422 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            446 to HostEvent.DecorationActivated(12, 22L, 41L),
+            602 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
+            638 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
+            666 to HostEvent.EditorFocusChanged(12, 25L, true),
+            690 to HostEvent.FoldChanged(12, 26L, 0, true),
+            714 to HostEvent.CompositionChanged(12, 27L, true),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -571,7 +572,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(940, bytes.size)
+        assertEquals(952, bytes.size)
     }
 
     /**

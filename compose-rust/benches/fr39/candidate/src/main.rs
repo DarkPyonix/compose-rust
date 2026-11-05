@@ -89,6 +89,9 @@ impl Path for ComposePath {
                 height_dp: *height,
                 class: WindowSizeClass::from_width_dp(*width),
                 height_class: WindowHeightClass::from_height_dp(*height),
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let event = HostEvent {

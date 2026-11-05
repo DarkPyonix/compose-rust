@@ -217,6 +217,9 @@ fn fr53_window_events_name_their_window() {
                 height_dp: 700.0,
                 class: WindowSizeClass::Expanded,
                 height_class: WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         ))
         .expect("the size report dispatches");
@@ -804,6 +807,9 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
                 height_dp: 700.0,
                 class: WindowSizeClass::Expanded,
                 height_class: WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         ))
         .expect("the size dispatches");

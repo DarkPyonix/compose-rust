@@ -86,7 +86,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             ) {
                 ComposeRustContent(
                     host,
-                    caption = dev.darkpyonix.composerust.runtime.WindowCaption(height = WINDOWS_CAPTION_HEIGHT),
+                    caption = dev.darkpyonix.composerust.runtime.WindowCaption(
+                        height = WINDOWS_CAPTION_HEIGHT,
+                        fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
+                    ),
                 )
             }
         }

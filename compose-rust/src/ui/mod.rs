@@ -47,7 +47,7 @@ pub use crate::theme::{ThemeHandle, current_theme};
 pub fn theme() -> ThemeHandle {
     ThemeHandle::default()
 }
-pub use crate::window::{NodeSize, WindowSize};
+pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
@@ -115,6 +115,7 @@ pub struct Modifier {
     border_color: Option<Paint>,
     elevation: Option<f32>,
     alpha: Option<f32>,
+    press_feedback: Option<(f32, f32)>,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
     animated_background: Option<crate::Animated<Paint>>,
@@ -122,9 +123,11 @@ pub struct Modifier {
     cursor: Option<crate::Cursor>,
     user_select: Option<crate::UserSelect>,
     clip: bool,
+    window_drag: Option<bool>,
     offset: Option<(f32, f32)>,
     shadows: [Option<Shadow>; MAX_SHADOWS],
     fill_max_width: bool,
+    match_parent_size: bool,
     fill_max_height: bool,
 }
 
@@ -152,6 +155,7 @@ impl Modifier {
             border_color: None,
             elevation: None,
             alpha: None,
+            press_feedback: None,
             transform: None,
             animated_alpha: None,
             animated_background: None,
@@ -159,9 +163,11 @@ impl Modifier {
             cursor: None,
             user_select: None,
             clip: false,
+            window_drag: None,
             offset: None,
             shadows: [None; MAX_SHADOWS],
             fill_max_width: false,
+            match_parent_size: false,
             fill_max_height: false,
         }
     }
@@ -190,6 +196,12 @@ impl Modifier {
     /// A width that may be unset, for a screen whose measure depends on the window.
     pub const fn width_if(mut self, dp: Option<f32>) -> Self {
         self.width = dp;
+        self
+    }
+
+    /// Matches the bounds of a Box parent without affecting its size.
+    pub const fn match_parent_size(mut self) -> Self {
+        self.match_parent_size = true;
         self
     }
 
@@ -269,6 +281,12 @@ impl Modifier {
         self
     }
 
+    /// Includes or excludes this node from window dragging.
+    pub const fn window_drag(mut self, enabled: bool) -> Self {
+        self.window_drag = Some(enabled);
+        self
+    }
+
     pub const fn border(mut self, width: f32, paint: Paint) -> Self {
         self.border_width = Some(width);
         self.border_color = Some(paint);
@@ -331,6 +349,12 @@ impl Modifier {
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// Sets the pressed scale and tint opacity.
+    pub const fn press_feedback(mut self, scale: f32, tint_alpha: f32) -> Self {
+        self.press_feedback = Some((scale, tint_alpha));
         self
     }
 
@@ -496,9 +520,21 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
+    push(
+        true,
+        "window_drag",
+        modifier
+            .window_drag
+            .map_or(OwnedAttr::None, OwnedAttr::Bool),
+    );
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
     push(standard, "elevation", float(modifier.elevation));
+    push(
+        false,
+        "match_parent_size",
+        OwnedAttr::Bool(modifier.match_parent_size),
+    );
     push(
         chip,
         "fill_max_width",
@@ -511,6 +547,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     // The layer and the values the Renderer animates, written only when they are set. An
     // animated value owns its slot while it is set, as an animated background does above.
+    push(
+        false,
+        "press_feedback",
+        modifier
+            .press_feedback
+            .map_or(OwnedAttr::None, |(scale, alpha)| {
+                OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
+            }),
+    );
     push(
         false,
         "alpha",
@@ -665,4 +710,23 @@ impl Drop for NodeContextGuard {
 /// A call site key for a widget, from its name.
 pub(crate) const fn widget_key(name: &str) -> u64 {
     crate::runtime::composer::call_site(name, 0)
+}
+
+#[cfg(test)]
+mod fr19_9_tests {
+    use super::*;
+
+    #[test]
+    fn fr19_9_window_drag_builder_preserves_false() {
+        for enabled in [false, true] {
+            let mut attrs = Vec::new();
+            push_modifiers(
+                &Modifier::new().window_drag(enabled),
+                Mods::Standard,
+                &mut attrs,
+            );
+            assert!(attrs.iter().any(|(name, value)| *name == "window_drag"
+                && matches!(value, OwnedAttr::Bool(value) if *value == enabled)));
+        }
+    }
 }
