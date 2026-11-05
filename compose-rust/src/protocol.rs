@@ -2287,6 +2287,9 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::WindowDrag(enabled) => (32, two_words(u64::from(*enabled), 0)),
         Modifier::Clip(enabled) => (24, two_words(u64::from(*enabled), 0)),
         Modifier::Alpha(value) => (25, two_words(float_word(*value), 0)),
+        Modifier::PressFeedback { scale, tint_alpha } => {
+            (33, two_words(pack_floats(*scale, *tint_alpha), 0))
+        }
         Modifier::Transform {
             a,
             b,
@@ -2433,6 +2436,10 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             })
         }
         31 => Ok(Modifier::MatchParentSize),
+        33 => Ok(Modifier::PressFeedback {
+            scale: unpack_low(first),
+            tint_alpha: unpack_high(first),
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -2597,6 +2604,21 @@ mod tests {
                 modifier: Modifier::Background(Paint::Literal(crate::schema::Color::rgb(0x1b1b1f))),
             }]
         );
+    }
+
+    #[test]
+    fn fr51_press_feedback_round_trips() {
+        let expected = [Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::PressFeedback {
+                scale: 0.975,
+                tint_alpha: 0.07,
+            },
+        }];
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&expected[0]).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), expected);
     }
 
     /// Every design primitive fits in `(tag, u64, u64)` and survives a round trip.
