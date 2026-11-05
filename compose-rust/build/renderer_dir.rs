@@ -1115,13 +1115,13 @@ pub fn android_gradle_kotlin(
 /// build file because it is the renderer that is written against them, and an application
 /// that had to name them would be guessing at what its dependency needs.
 pub const ANDROID_COMPOSE_DEPENDENCIES: [&str; 4] = [
-    "androidx.activity:activity-compose:1.9.3",
-    "androidx.compose.ui:ui:1.8.3",
-    "androidx.compose.foundation:foundation:1.8.3",
-    "androidx.compose.material3:material3:1.3.2",
+    "androidx.activity:activity-compose:1.10.1",
+    "androidx.compose.ui:ui:1.9.0",
+    "androidx.compose.foundation:foundation:1.9.0",
+    "androidx.compose.material3:material3:1.4.0",
 ];
 
-/// The lowest `compileSdk` the Compose libraries above accept. Compose 1.8 carries AAR
+/// The lowest `compileSdk` the Compose libraries above accept. Compose 1.9 carries AAR
 /// metadata that refuses a module compiled against anything older, and the dx template
 /// pins 34.
 const ANDROID_COMPOSE_MIN_COMPILE_SDK: u32 = 35;
