@@ -38,6 +38,9 @@ import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
+import dev.darkpyonix.composerust.design.compositeOver
+import dev.darkpyonix.composerust.design.ensureContrast
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -105,12 +108,7 @@ internal fun HostButton(
         animationSpec = tween(spec.durationMillis, easing = motion.easing),
     )
 
-    // A button that cannot be pressed has to look it. Without this the only way to find
-    // out was to press it, because refusing the click was all `enabled` did. The whole
-    // control fades as one group rather than each variant naming a disabled colour, so a
-    // design system owes one number instead of four, the faded colours are still its own,
-    // and a background or border the Host set on the node's modifier chain fades with the
-    // label instead of staying opaque behind it.
+    // Fade the decoration as a group, including any background supplied by the Host.
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val clickable = if (handlerId == null) {
         available.then(modifier)
@@ -166,7 +164,16 @@ internal fun HostButton(
     // destructive action is the case that needs it: it is a plain button in every design
     // system, and what marks it is that its label is the error colour.
     val content = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content
-    val tint = content.copy(alpha = content.alpha * contentAlpha)
+    val tint = if (enabled) {
+        content.copy(alpha = content.alpha * contentAlpha)
+    } else {
+        val page = theme.color(ColorRole.Background)
+        val fill = node.modifiers.filterIsInstance<ProtocolModifier.Background>().lastOrNull()
+            ?.let { theme.color(it.paint) } ?: container
+        val fadedFill = compositeOver(fill.copy(alpha = fill.alpha * style.disabledAlpha), page)
+        val fadedContent = compositeOver(content.copy(alpha = content.alpha * style.disabledAlpha), fadedFill)
+        ensureContrast(fadedContent, fadedFill, 3.3f)
+    }
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
@@ -181,22 +188,37 @@ internal fun HostButton(
     val named = decorated
         .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
-    Box(
-        named,
-        contentAlignment = if (alignStart) Alignment.CenterStart else Alignment.Center,
-    ) {
+    @Composable
+    fun ButtonLabel() {
         if (icon == null) {
             ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
-                // The gap between the glyph and the word is the design system's smallest step,
-                // so a dense language sets them closer than a roomy one does.
                 horizontalArrangement = Arrangement.spacedBy(theme.space(SpaceRole.Xs)),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RoleIcon(icon, tint, theme)
                 if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
+        }
+    }
+
+    val alignment = if (alignStart) Alignment.CenterStart else Alignment.Center
+    if (enabled) {
+        Box(named, contentAlignment = alignment) { ButtonLabel() }
+    } else {
+        Box {
+            Box(named, contentAlignment = alignment) {
+                Box(Modifier.alpha(0f)) { ButtonLabel() }
+            }
+            Box(
+                Modifier.matchParentSize().labelPadding(
+                    horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
+                    vertical = style.verticalPadding,
+                    alignStart = alignStart,
+                ),
+                contentAlignment = alignment,
+            ) { ButtonLabel() }
         }
     }
 }

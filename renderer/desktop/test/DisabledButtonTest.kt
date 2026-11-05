@@ -6,6 +6,7 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import dev.darkpyonix.composerust.protocol.ButtonVariant
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.IconRole
@@ -95,6 +96,45 @@ class DisabledButtonTest {
                 "under $system a disabled button is drawn exactly like a live one, so the " +
                     "only way to find out that it cannot be pressed is to press it",
             )
+        }
+    }
+
+    @Test
+    fun fr69_disabled_button_label_contrast_at_least_3_to_1() {
+        for (system in DesignSystem.entries) {
+            for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
+                for (variant in listOf(ButtonVariant.Filled, ButtonVariant.Tonal, ButtonVariant.Text)) {
+                    runComposeUiTest {
+                        val mutations = batch(system, false).toMutableList().apply {
+                            this[0] = Mutation.SetTheme(Theme(system, system, scheme, false))
+                            this[3] = Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("MMMM"))
+                            this[4] = Mutation.SetProp(button, PropertyKind.Variant, PropertyValue.Integer(variant.ordinal + 1L))
+                            add(Mutation.SetModifier(root, 0, ProtocolModifier.Background(Paint.Role(ColorRole.Background))))
+                        }
+                        setContent {
+                            ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
+                        }
+                        waitForIdle()
+                        val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
+                        val frequencies = mutableMapOf<Int, Int>()
+                        for (y in image.height / 3 until image.height * 2 / 3) {
+                            for (x in image.width / 3 until image.width * 2 / 3) {
+                                val rgb = image.getRGB(x, y)
+                                frequencies[rgb] = (frequencies[rgb] ?: 0) + 1
+                            }
+                        }
+                        val fill = androidx.compose.ui.graphics.Color(frequencies.maxBy { it.value }.key)
+                        var best = 1f
+                        for (y in image.height / 3 until image.height * 2 / 3) {
+                            for (x in image.width / 3 until image.width * 2 / 3) {
+                                val pixel = androidx.compose.ui.graphics.Color(image.getRGB(x, y))
+                                best = maxOf(best, dev.darkpyonix.composerust.design.contrastRatio(fill, pixel))
+                            }
+                        }
+                        assertTrue(best >= 3f, "$system $scheme $variant: contrast $best")
+                    }
+                }
+            }
         }
     }
 
