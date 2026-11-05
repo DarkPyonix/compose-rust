@@ -58,4 +58,58 @@ class RowIntrinsicSizeTest {
         assertEquals(tallHeight, shortHeight, "short child with FillMaxHeight matches tallest sibling")
         assertEquals(tallHeight, dividerHeight, "vertical divider with FillMaxHeight matches tallest sibling")
     }
+
+    @Test
+    fun fr_61_weighted_row_fills_remaining_column_height() = runComposeUiTest {
+        val batch = listOf(
+            Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+            Mutation.Create(1, WidgetKind.Column),
+            Mutation.SetModifier(1, 0, ProtocolModifier.Size(240f, 600f)),
+            Mutation.Create(2, WidgetKind.Box),
+            Mutation.SetModifier(2, 0, ProtocolModifier.Height(100f)),
+            Mutation.Create(3, WidgetKind.Row),
+            Mutation.SetModifier(3, 0, ProtocolModifier.Weight(1f)),
+            Mutation.Create(4, WidgetKind.Box),
+            Mutation.SetModifier(4, 0, ProtocolModifier.Size(60f, 80f)),
+            Mutation.Create(5, WidgetKind.Box),
+            Mutation.SetModifier(5, 0, ProtocolModifier.Width(60f)),
+            Mutation.SetModifier(5, 1, ProtocolModifier.FillMaxHeight),
+            Mutation.Insert(3, 4, 0),
+            Mutation.Insert(3, 5, 1),
+            Mutation.Insert(1, 2, 0),
+            Mutation.Insert(1, 3, 1),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch))) }
+        waitForIdle()
+        val columnHeight = onNodeWithTag(nodeTestTag(1)).fetchSemanticsNode().size.height
+        val siblingHeight = onNodeWithTag(nodeTestTag(2)).fetchSemanticsNode().size.height
+        val rowHeight = onNodeWithTag(nodeTestTag(3)).fetchSemanticsNode().size.height
+        val fillHeight = onNodeWithTag(nodeTestTag(5)).fetchSemanticsNode().size.height
+        assertEquals(columnHeight - siblingHeight, rowHeight, "weighted row fills remaining height")
+        assertEquals(rowHeight, fillHeight, "child fills weighted row height")
+    }
+
+    @Test
+    fun fr_61_unweighted_row_keeps_content_height() = runComposeUiTest {
+        val batch = listOf(
+            Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+            Mutation.Create(1, WidgetKind.Column),
+            Mutation.SetModifier(1, 0, ProtocolModifier.Size(240f, 600f)),
+            Mutation.Create(2, WidgetKind.Row),
+            Mutation.Create(3, WidgetKind.Box),
+            Mutation.SetModifier(3, 0, ProtocolModifier.Size(60f, 80f)),
+            Mutation.Create(4, WidgetKind.Box),
+            Mutation.SetModifier(4, 0, ProtocolModifier.Width(60f)),
+            Mutation.SetModifier(4, 1, ProtocolModifier.FillMaxHeight),
+            Mutation.Insert(2, 3, 0),
+            Mutation.Insert(2, 4, 1),
+            Mutation.Insert(1, 2, 0),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch))) }
+        waitForIdle()
+        val rowHeight = onNodeWithTag(nodeTestTag(2)).fetchSemanticsNode().size.height
+        val contentHeight = onNodeWithTag(nodeTestTag(3)).fetchSemanticsNode().size.height
+        assertEquals(contentHeight, rowHeight, "unweighted row keeps its content height")
+    }
+
 }
