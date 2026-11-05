@@ -194,16 +194,17 @@ fun CodeEditorSurface(
     callbacks: CodeEditorCallbacks,
     modifier: Modifier = Modifier,
     path: CodeEditorPath = defaultCodeEditorPath,
+    focusRequest: Long = 0L,
 ) {
     when (path) {
-        CodeEditorPath.Windowed -> FieldSurface(model, look, callbacks, modifier, whole = false)
-        CodeEditorPath.Whole -> FieldSurface(model, look, callbacks, modifier, whole = true)
+        CodeEditorPath.Windowed -> FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest)
+        CodeEditorPath.Whole -> FieldSurface(model, look, callbacks, modifier, whole = true, focusRequest = focusRequest)
         CodeEditorPath.Drawn -> {
             val drawn = drawnCodeEditorSurface
             if (drawn != null) {
                 drawn(model, look, callbacks, modifier)
             } else {
-                FieldSurface(model, look, callbacks, modifier, whole = false)
+                FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest)
             }
         }
     }
@@ -784,6 +785,7 @@ private fun FieldSurface(
     callbacks: CodeEditorCallbacks,
     modifier: Modifier,
     whole: Boolean,
+    focusRequest: Long = 0L,
 ) {
     val density = LocalDensity.current
     val rowPx = remember(look.textStyle, density) { rowHeightPx(look.textStyle, density) }
@@ -806,6 +808,9 @@ private fun FieldSurface(
     // reader itself reads the field's layout state, so what draws from it still follows.
     val layoutHolder = remember { arrayOfNulls<() -> TextLayoutResult?>(1) }
     val focus = remember { FocusRequester() }
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0L) focus.requestFocus()
+    }
 
     // Read here so the row map and the gutter follow every change of text and overlay.
     val contentRevision = model.contentRevision

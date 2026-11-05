@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -88,6 +90,8 @@ internal fun HostTextField(
     }
     var appliedHostRevision by remember(nodeId) { mutableStateOf(0L) }
     var focused by remember(nodeId) { mutableStateOf(false) }
+    var reportedComposing by remember(nodeId) { mutableStateOf(false) }
+    val focusRequester = remember(nodeId) { FocusRequester() }
 
     val multiline = node.flag(PropertyKind.Multiline, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
@@ -95,8 +99,10 @@ internal fun HostTextField(
     val submitHandler = node.handler(PropertyKind.OnSubmit)
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
     val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
+    val compositionHandler = node.handler(PropertyKind.OnCompositionChange)
     val placeholder = node.text(PropertyKind.Placeholder)
     val hostText = node.hostText
+    val focusRequest = node.focusRequestRevision
     val composing = value.composition != null
     // The field takes its type role and its colours from the design system, the same way a
     // Text does.
@@ -129,6 +135,24 @@ internal fun HostTextField(
             appliedHostRevision = hostText.revision
         }
     }
+
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0L) focusRequester.requestFocus()
+    }
+
+    val applyValueChange: (TextFieldValue) -> Unit = { next ->
+        val nowComposing = next.composition != null
+        value = next
+        if (nowComposing != reportedComposing) {
+            reportedComposing = nowComposing
+            if (compositionHandler != null) {
+                dispatcher.dispatch(
+                    HostEvent.CompositionChanged(nodeId, compositionHandler, nowComposing),
+                )
+            }
+        }
+    }
+    hostTextFieldValueHook?.invoke(applyValueChange)
 
     // Change notification, at most one a frame.
     //
@@ -167,6 +191,7 @@ internal fun HostTextField(
     }
 
     val inputModifier = modifier
+        .focusRequester(focusRequester)
         .onFocusChanged { state ->
             if (focused && !state.isFocused && focusLostHandler != null) {
                 dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
@@ -254,7 +279,7 @@ internal fun HostTextField(
 
     BasicTextField(
         value = value,
-        onValueChange = { value = it },
+        onValueChange = applyValueChange,
         modifier = inputModifier,
         enabled = enabled,
         singleLine = !multiline,
@@ -309,6 +334,12 @@ internal fun HostTextField(
  * was going to be replaced the moment you started typing.
  */
 private const val PLACEHOLDER_ALPHA = 0.55f
+
+/**
+ * Test hook that receives the value-change callback of the mounted [HostTextField] so a test
+ * can drive an IME composition transition directly through `TextFieldValue.composition`.
+ */
+internal var hostTextFieldValueHook: (((TextFieldValue) -> Unit) -> Unit)? = null
 
 /** The box around a field, or nothing where the system draws none in this state. */
 private fun Modifier.fieldBorder(style: FieldStyle, focused: Boolean): Modifier {
