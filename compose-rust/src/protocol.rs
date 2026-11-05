@@ -2195,6 +2195,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::Empty => (0, two_words(0, 0)),
         Modifier::Padding(value) => (1, two_words(float_word(*value), 0)),
         Modifier::FillMaxWidth => (2, two_words(0, 0)),
+        Modifier::MatchParentSize => (31, two_words(0, 0)),
         Modifier::FillMaxHeight => (3, two_words(0, 0)),
         Modifier::Width(value) => (4, two_words(float_word(*value), 0)),
         Modifier::Height(value) => (5, two_words(float_word(*value), 0)),
@@ -2431,6 +2432,7 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 origin_y,
             })
         }
+        31 => Ok(Modifier::MatchParentSize),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

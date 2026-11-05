@@ -157,13 +157,14 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                             }
                         } else {
                             // Mark this down for the strip without consuming it, so ancestors can click.
-                            exclusion?.down = awaitFirstDown(requireUnconsumed = false)
+                            val excluded = awaitFirstDown(requireUnconsumed = false); exclusion?.downKey = excluded.id.value to excluded.uptimeMillis
                         }
                     }
                 }
             }
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
+            is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
             is ProtocolModifier.Width -> chain.width(value.value.dp)

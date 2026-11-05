@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Modifier `match_parent_size`
+
+`Modifier` has a new `MatchParentSize` (wire tag 31) for a child of a `Box`: it fills exactly the parent's bounds without enlarging the parent, so an overlay such as a press tint needs no size or radius restated ([#431](https://github.com/DarkPyonix/compose-rust/issues/431)). The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
 ### Content under the window buttons (`Chrome::FullSize`)
 
 `Chrome::FullSize` lets content start at the top of the window, with no caption strip and no bar discovery, on macOS first ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)). The window size event carries `WindowSafeArea { top, leading, trailing }` in dp, so the app can keep clear of the window buttons, and a new `WindowDrag(bool)` modifier (wire tag 32) makes a node a drag region or removes it from the default drag strip. The schema hash changes (the `WindowSizeChanged` record grows from 32 to 44 bytes), so a renderer and a crate from before this change no longer agree. Windows and Linux dragging follows in a later release.

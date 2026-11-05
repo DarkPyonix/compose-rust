@@ -126,6 +126,7 @@ pub struct Modifier {
     offset: Option<(f32, f32)>,
     shadows: [Option<Shadow>; MAX_SHADOWS],
     fill_max_width: bool,
+    match_parent_size: bool,
     fill_max_height: bool,
 }
 
@@ -164,6 +165,7 @@ impl Modifier {
             offset: None,
             shadows: [None; MAX_SHADOWS],
             fill_max_width: false,
+            match_parent_size: false,
             fill_max_height: false,
         }
     }
@@ -192,6 +194,12 @@ impl Modifier {
     /// A width that may be unset, for a screen whose measure depends on the window.
     pub const fn width_if(mut self, dp: Option<f32>) -> Self {
         self.width = dp;
+        self
+    }
+
+    /// Matches the bounds of a Box parent without affecting its size.
+    pub const fn match_parent_size(mut self) -> Self {
+        self.match_parent_size = true;
         self
     }
 
@@ -514,6 +522,11 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
     push(standard, "elevation", float(modifier.elevation));
+    push(
+        false,
+        "match_parent_size",
+        OwnedAttr::Bool(modifier.match_parent_size),
+    );
     push(
         chip,
         "fill_max_width",
