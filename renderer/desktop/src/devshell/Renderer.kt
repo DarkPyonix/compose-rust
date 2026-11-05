@@ -239,8 +239,11 @@ private fun runRendererWithHost(
             // traffic lights, and a second set drawn beside them would be two sets of
             // buttons on one window.
             LocalWindowActions provides windowActions(window, chrome),
+            // WindowDraggableArea owns its pointer gesture and exposes no callback to start it.
+            // The strip below handles empty caption space; explicit drag modifiers cannot start it.
+            dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {},
         ) {
-            val caption = windowCaption(window, chrome)
+            val caption = windowCaption(window, chrome).copy(fullSize = asked?.chrome == Chrome.FullSize)
             Box(Modifier.fillMaxSize()) {
                 // A strip across the top of the window that moves it when dragged, drawn
                 // before the content rather than over it. Compose hit-tests front to

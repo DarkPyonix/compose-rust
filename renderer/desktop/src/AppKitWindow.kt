@@ -152,7 +152,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         backdrop = backdrop,
     )
     val chrome = MacosWindowChrome.of(
-        chrome = if (options.systemChrome) Chrome.System else Chrome.Modern,
+        chrome = asked?.chrome ?: Chrome.Modern,
         titleBar = asked?.titleBar ?: TitleBar.Normal,
     )
     chromeForNextWindow(chrome)
@@ -223,7 +223,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
         ) {
-            NativeWindowContent(host, caption.value, actions = null)
+            NativeWindowContent(host, caption.value.copy(fullSize = asked?.chrome == Chrome.FullSize), actions = null)
         }
     }
     installApplicationMenu(options.title)

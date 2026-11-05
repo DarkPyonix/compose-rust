@@ -112,6 +112,7 @@ pub enum EventPayloadType {
     /// One `f64`. Every value-carrying widget shares it, so the same concept has one
     /// name on the wire whether the value counts days or slides between two ends.
     Double,
+    /// Width, height, classes, and three safe-area insets.
     WindowSize,
     /// One `u16`: the tag of the design system the Renderer resolved the theme to.
     DesignSystem,
@@ -183,7 +184,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -1483,6 +1484,7 @@ impl Paint {
 define_wire_enum!(CHROME_SCHEMA, Chrome {
     Modern = 1,
     System = 2,
+    FullSize = 3,
 });
 
 // Which of two title bars this window has. `Chrome` chooses who draws the caption; this
@@ -1620,6 +1622,10 @@ impl Window {
     pub const fn with_icon(mut self, asset_id: u32) -> Self {
         self.icon = asset_id;
         self
+    }
+
+    pub const fn chrome(self, chrome: Chrome) -> Self {
+        self.with_chrome(chrome)
     }
 
     pub const fn with_chrome(mut self, chrome: Chrome) -> Self {
@@ -1905,6 +1911,8 @@ pub enum Modifier {
     /// Whether this node's content is cut to its outline: the `CornerEach` shape where it
     /// has one, its rectangle otherwise.
     Clip(bool),
+    /// Marks this node as a window drag region or excludes it from one.
+    WindowDrag(bool),
     /// The opacity of this node and everything in it, from 0 to 1, applied once to the
     /// whole group rather than to each child.
     Alpha(f32),
@@ -2568,6 +2576,12 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         extra_words: 0,
         fields: NO_FIELDS,
     },
+    VariantSchema {
+        name: "WindowDrag",
+        tag: 32,
+        extra_words: 0,
+        fields: ENABLED_FIELD,
+    },
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2860,6 +2874,9 @@ pub enum EventPayload<'a> {
         height_dp: f32,
         class: WindowSizeClass,
         height_class: WindowHeightClass,
+        safe_area_top: f32,
+        safe_area_leading: f32,
+        safe_area_trailing: f32,
     },
     /// Files are over a node that said it would take them. Nothing about what they are:
     /// the platforms disagree about what is knowable before a drop, and a screen that

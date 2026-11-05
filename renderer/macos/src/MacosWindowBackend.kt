@@ -17,6 +17,8 @@ import platform.AppKit.NSAppearanceNameDarkAqua
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationDelegateProtocol
 import platform.AppKit.NSEvent
+import platform.AppKit.NSEventTypeLeftMouseDown
+import platform.Foundation.NSProcessInfo
 import platform.AppKit.NSEventTypeApplicationDefined
 import platform.AppKit.NSScreen
 import platform.AppKit.NSWindow
@@ -471,4 +473,27 @@ internal fun stopApplicationLoop() {
         data2 = 0L,
     ) ?: return
     app.postEvent(wake, atStart = true)
+}
+
+
+/**
+ * Starts the system window drag for [window] from the pointer's current place.
+ *
+ * `performWindowDragWithEvent` wants the mouse down that begins the drag. By the time the
+ * pointer handler runs, that event has been consumed, so a left mouse down is built at the
+ * pointer's place in the window instead; the system only reads its place and window.
+ */
+internal fun beginMacosWindowDrag(window: NSWindow) {
+    val event = NSEvent.mouseEventWithType(
+        type = NSEventTypeLeftMouseDown,
+        location = window.mouseLocationOutsideOfEventStream,
+        modifierFlags = 0u,
+        timestamp = NSProcessInfo.processInfo.systemUptime,
+        windowNumber = window.windowNumber,
+        context = null,
+        eventNumber = 0,
+        clickCount = 1,
+        pressure = 1.0f,
+    ) ?: return
+    window.performWindowDragWithEvent(event)
 }

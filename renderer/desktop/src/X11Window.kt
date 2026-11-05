@@ -127,7 +127,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     val caption = if (framed) {
         dev.darkpyonix.composerust.runtime.WindowCaption.None
     } else {
-        dev.darkpyonix.composerust.runtime.WindowCaption(height = linuxCaptionHeight)
+        dev.darkpyonix.composerust.runtime.WindowCaption(height = linuxCaptionHeight, fullSize = host.table.window?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize)
     }
     val actions = if (framed) null else nativeWindowActions()
     scene.setContent {

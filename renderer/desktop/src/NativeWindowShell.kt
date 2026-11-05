@@ -107,6 +107,7 @@ internal fun NativeWindowContent(
         LocalClipboard provides WindowClipboard,
         LocalClipboardManager provides WindowClipboardManagerInstance,
         LocalWindowActions provides actions,
+        dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { beginNativeWindowDrag(0) },
     ) {
         Box(Modifier.fillMaxSize()) {
             drag()
