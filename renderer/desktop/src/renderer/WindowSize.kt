@@ -71,8 +71,13 @@ fun windowHeightClassOf(heightDp: Float): WindowHeightClass = when {
  * because a Host that needs pixel-by-pixel sizes is asking for work that belongs in
  * Compose's own layout.
  */
+val LocalWindowDrag = staticCompositionLocalOf<() -> Unit> { {} }
+
+data class WindowSafeArea(val top: Float = 0f, val leading: Float = 0f, val trailing: Float = 0f)
+
 class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
+    private var lastSafeArea = WindowSafeArea()
     private var lastHeightClass: WindowHeightClass = WindowHeightClass.Compact
 
     /**
@@ -82,12 +87,13 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
      * two classes ride in one record, so a window that gets wider and shorter in the same
      * drag costs one event rather than two.
      */
-    fun report(widthDp: Float, heightDp: Float, dispatcher: EventDispatcher): Boolean {
+    fun report(widthDp: Float, heightDp: Float, dispatcher: EventDispatcher, safeArea: WindowSafeArea = WindowSafeArea()): Boolean {
         val sizeClass = windowSizeClassOf(widthDp)
         val heightClass = windowHeightClassOf(heightDp)
-        if (sizeClass == lastClass && heightClass == lastHeightClass) return false
+        if (sizeClass == lastClass && heightClass == lastHeightClass && safeArea == lastSafeArea) return false
         lastClass = sizeClass
         lastHeightClass = heightClass
+        lastSafeArea = safeArea
         dispatcher.dispatch(
             HostEvent.WindowSizeChanged(
                 nodeId = nodeId,
@@ -96,6 +102,9 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
                 heightDp = heightDp,
                 sizeClass = sizeClass,
                 heightClass = heightClass,
+                safeAreaTop = safeArea.top,
+                safeAreaLeading = safeArea.leading,
+                safeAreaTrailing = safeArea.trailing,
             ),
         )
         return true

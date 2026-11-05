@@ -1451,6 +1451,9 @@ mod tests {
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
                 height_class: WindowHeightClass::from_height_dp(900.0),
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let mut bytes = Vec::new();
@@ -1617,6 +1620,9 @@ mod tests {
                 height_dp: 700.0,
                 class: WindowSizeClass::Expanded,
                 height_class: WindowHeightClass::Medium,
+                safe_area_top: 0.0,
+                safe_area_leading: 0.0,
+                safe_area_trailing: 0.0,
             },
         };
         let mut event = Vec::new();

@@ -269,7 +269,11 @@ class WindowManager(
         size = node.pair(PropertyKind.WindowSize),
         minSize = node.pair(PropertyKind.WindowMinSize),
         resizable = (node.property(PropertyKind.WindowResizable) as? PropertyValue.Bool)?.value,
-        chrome = if (node.integer(PropertyKind.WindowChrome) == 2L) Chrome.System else Chrome.Modern,
+        chrome = when (node.integer(PropertyKind.WindowChrome)) {
+            2L -> Chrome.System
+            3L -> Chrome.FullSize
+            else -> Chrome.Modern
+        },
         titleBar = if (node.integer(PropertyKind.WindowTitleBar) == 2L) TitleBar.Simple else TitleBar.Normal,
         icon = node.integer(PropertyKind.WindowIcon)?.toInt() ?: 0,
         position = node.pair(PropertyKind.WindowPosition),

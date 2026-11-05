@@ -119,6 +119,7 @@ fn every_modifier() -> Vec<Modifier> {
             spread: -1.0,
             paint: Paint::Literal(Color::argb(0x4000_0000)),
         },
+        Modifier::WindowDrag(true),
         Modifier::Clip(true),
         Modifier::Clip(false),
         Modifier::Alpha(0.5),
@@ -399,5 +400,19 @@ fn fr42_changing_one_modifier_is_one_record() {
     assert_eq!(
         encode(&[set_modifier(before)]).len(),
         encode(&[set_modifier(after)]).len()
+    );
+}
+
+#[test]
+fn fr19_9_window_drag_modifier_round_trips() {
+    for enabled in [false, true] {
+        let mutation = set_modifier(Modifier::WindowDrag(enabled));
+        let bytes = encode(&[mutation.clone()]);
+        assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 32);
+        assert_eq!(decode_batch(&bytes), Ok(vec![mutation]));
+    }
+    assert_eq!(
+        decode_batch(&raw_set_modifier(28, 32, &[2, 0])),
+        Err(ProtocolError::InvalidModifier(32))
     );
 }
