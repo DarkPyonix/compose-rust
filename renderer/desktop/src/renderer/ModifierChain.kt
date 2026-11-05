@@ -858,7 +858,7 @@ internal fun Modifier.pressFeedback(
         }
     }
     val state = pressFeedbackTarget(visible, enabled, dev.darkpyonix.composerust.ui.node.platformReducedMotion(), theme.dark, feedback)
-    val target = state.scale
+    val target = state.scale.takeIf { it.isFinite() }?.coerceIn(0.5f, 1.5f) ?: 1f
     val scale by animateFloatAsState(
         targetValue = target,
         animationSpec = tween(

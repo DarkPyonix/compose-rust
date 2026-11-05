@@ -83,7 +83,7 @@ internal fun HostButton(
         }
     }
     val interactions = remember { MutableInteractionSource() }
-    val pressed = false
+    val pressed by interactions.collectIsPressedAsState()
     val motion = theme.rules.motion
     val spec = tween<Float>(
         durationMillis = if (pressed) motion.pressMillis else motion.releaseMillis,
