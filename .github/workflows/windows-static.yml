@@ -290,3 +290,25 @@ jobs:
           path: ${{ runner.temp }}/consumer-windows/consumer.exe
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Package the kit the way the release carries it
+        id: package
+        # The same tarball the other platforms ship: the static kit under lib/ and include/,
+        # with the rest of what an MSVC link needs beside it, and its checksum. A tag keeps
+        # the GraalVM tarball of the same name until the release takes this one instead.
+        if: steps.renderer.outcome == 'success' && !startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
+          ./.github/scripts/package-static-renderer.sh renderer/build/windows windows-x64 "$version" "$RUNNER_TEMP/artifact"
+          echo "name=compose-rust-renderer-v$version-windows-x64" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the artifact
+        if: steps.package.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz
+            ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
