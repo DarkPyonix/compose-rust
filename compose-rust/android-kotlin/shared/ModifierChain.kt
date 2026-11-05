@@ -1,6 +1,10 @@
 package dev.darkpyonix.composerust.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -117,6 +121,16 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     var borderSeen = false
     return fold(surface) { chain, value ->
         when (value) {
+            is ProtocolModifier.WindowDrag -> chain.composed {
+                val drag = LocalWindowDrag.current
+                pointerInput(value.enabled, drag) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        if (value.enabled) drag()
+                        down.consume()
+                    }
+                }
+            }
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> chain.padding(value.value.dp)
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
@@ -757,6 +771,9 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
                         heightDp = heightDp,
                         sizeClass = sizeClass,
                         heightClass = heightClass,
+                        safeAreaTop = 0f,
+                        safeAreaLeading = 0f,
+                        safeAreaTrailing = 0f,
                     ),
                 )
             }

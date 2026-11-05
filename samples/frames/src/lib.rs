@@ -507,6 +507,9 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
                     height_dp: viewport.height_dp,
                     class: WindowSizeClass::from_width_dp(viewport.width_dp),
                     height_class: WindowHeightClass::from_height_dp(viewport.height_dp),
+                    safe_area_top: 0.0,
+                    safe_area_leading: 0.0,
+                    safe_area_trailing: 0.0,
                 },
             });
             prepare(&mut recording);

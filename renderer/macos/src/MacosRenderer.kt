@@ -177,7 +177,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         CompositionLocalProvider(
             LocalCursorBlinkEnabled provides cursorBlink,
             LocalSystemDarkObserver provides { dark.value },
-            LocalClipboard provides clipboard,
+            dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
+            NSApplication.sharedApplication().currentEvent?.let { window.window.performWindowDragWithEvent(it) }
+        },
+        LocalClipboard provides clipboard,
             LocalClipboardManager provides clipboardManager,
         ) {
             // The asset arrives a little after the first batch names it, so it is looked for
@@ -196,6 +199,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                     buttonsAtStart = strip.buttonsAtStart,
                     insetTop = strip.insetTop,
                     cornerRadius = strip.cornerRadius,
+                    fullSize = asked?.chrome == Chrome.FullSize,
                 ),
             )
         }

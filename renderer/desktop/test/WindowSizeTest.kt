@@ -9,6 +9,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -22,6 +25,9 @@ import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
+import dev.darkpyonix.composerust.runtime.WindowSafeArea
+import dev.darkpyonix.composerust.runtime.WindowCaption
+import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
@@ -54,6 +60,101 @@ private class RecordingDispatcher : EventDispatcher {
 @OptIn(ExperimentalTestApi::class)
 class WindowSizeTest {
     private val frames = FrameRequestSource()
+
+    @Test
+    fun fr19_9_fullsize_first_child_starts_at_y_zero() = runComposeUiTest {
+        var fullSize by mutableStateOf(true)
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("first child")),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp),
+                    caption = WindowCaption(height = 32.dp, fullSize = fullSize))
+            }
+        }
+        waitForIdle()
+        assertEquals(0f, onNodeWithText("first child").fetchSemanticsNode().boundsInRoot.top)
+        fullSize = false
+        waitForIdle()
+        assertEquals(32f, onNodeWithText("first child").fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    @Test
+    fun fr19_9_window_drag_modifier_arm() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("drag here")),
+            Mutation.SetModifier(LABEL, 0, ProtocolModifier.WindowDrag(true)),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp))
+            }
+        }
+        onNodeWithText("drag here").performMouseInput { moveTo(center); press(); release() }
+        assertEquals(1, drags)
+    }
+
+    @Test
+    fun fr19_9_window_drag_false_excludes_the_node() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("excluded")),
+            Mutation.SetModifier(LABEL, 0, ProtocolModifier.WindowDrag(false)),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp),
+                    caption = WindowCaption(height = 32.dp, fullSize = true))
+            }
+        }
+        onNodeWithText("excluded").performMouseInput { moveTo(center); press(); release() }
+        assertEquals(0, drags)
+    }
+
+    @Test
+    fun fr19_9_interactive_child_does_not_drag_the_window() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Box),
+            Mutation.SetProp(LABEL, PropertyKind.OnClick, PropertyValue.Integer(1L)),
+            Mutation.Create(2, WidgetKind.Text),
+            Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("button")),
+            Mutation.Insert(LABEL, 2, 0),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp),
+                    caption = WindowCaption(height = 32.dp, fullSize = true))
+            }
+        }
+        onNodeWithText("button", useUnmergedTree = true).performMouseInput { moveTo(center); press(); release() }
+        assertEquals(0, drags)
+    }
+
+    @Test
+    fun fr19_9_safe_area_rides_with_the_window_size_event() {
+        val dispatcher = RecordingDispatcher()
+        WindowSizeReporter().report(300f, 300f, dispatcher, WindowSafeArea(28f, 78f, 0f))
+        val event = dispatcher.events.single() as HostEvent.WindowSizeChanged
+        assertEquals(28f, event.safeAreaTop)
+        assertEquals(78f, event.safeAreaLeading)
+        assertEquals(0f, event.safeAreaTrailing)
+    }
+
+    @Test
+    fun fr19_9_safe_area_change_alone_resends() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+        reporter.report(300f, 300f, dispatcher, WindowSafeArea(28f, 78f, 0f))
+        reporter.report(300f, 300f, dispatcher, WindowSafeArea())
+        assertEquals(2, dispatcher.events.size)
+        assertEquals(0f, (dispatcher.events.last() as HostEvent.WindowSizeChanged).safeAreaTop)
+    }
 
     @Test
     fun fr20_size_classes_split_at_six_hundred_and_eight_hundred_and_forty_dp() {

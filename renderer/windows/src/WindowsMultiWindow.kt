@@ -133,7 +133,7 @@ private fun windowContent(
     return {
         ForWindow(nodeId) {
             CompositionLocalProvider(LocalWindowActions provides actions) {
-                ComposeRustContent(host, caption = WindowCaption(height = CAPTION_HEIGHT))
+                ComposeRustContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
             }
         }
     }

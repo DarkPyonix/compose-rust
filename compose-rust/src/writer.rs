@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 22;
+const MODIFIER_SLOTS: usize = 23;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -342,6 +342,7 @@ impl NodeWriter {
         const OBSERVE_SIZE: u16 = 19;
         const MOTION: u16 = 20;
         const MATERIAL: u16 = 21;
+        const WINDOW_DRAG: u16 = 22;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -362,6 +363,7 @@ impl NodeWriter {
             "height" => Some(HEIGHT),
             "shape_role" | "corner_radius" | "corner_radii" => Some(SHAPE),
             "clip" => Some(CLIP),
+            "window_drag" => Some(WINDOW_DRAG),
             "background" | "animated_background" => Some(BACKGROUND),
             "transform" | "animated_offset" => Some(TRANSFORM),
             "alpha" | "animated_alpha" => Some(ALPHA),
@@ -474,6 +476,12 @@ impl NodeWriter {
                         bottom_start,
                     },
                 )))
+            }
+            "window_drag" => {
+                let AttrValue::Bool(enabled) = value else {
+                    return Some(None);
+                };
+                Some(Some((WINDOW_DRAG, Modifier::WindowDrag(*enabled))))
             }
             "clip" => {
                 let AttrValue::Bool(enabled) = value else {
