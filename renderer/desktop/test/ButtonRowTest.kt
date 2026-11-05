@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -81,6 +82,30 @@ class ButtonRowTest {
             val labelMid = (first.top + first.bottom) / 2
             val countMid = (last.top + last.bottom) / 2
             assertTrue((labelMid - countMid).value in -1f..1f, "children share a vertical centre")
+        }
+    }
+
+    @Test
+    fun fr66_a_disabled_button_with_children_draws_and_exposes_them_once() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                childrenButton() + Mutation.SetProp(button, PropertyKind.Enabled, PropertyValue.Bool(false)),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            for (child in listOf(label, count)) {
+                assertEquals(
+                    1,
+                    onAllNodesWithTag(nodeTestTag(child), useUnmergedTree = true).fetchSemanticsNodes().size,
+                    "child $child appears once in the unmerged tree",
+                )
+            }
+            onNodeWithTag(nodeTestTag(button)).performClick()
+            waitForIdle()
+            assertTrue(
+                connection.events.filterIsInstance<HostEvent.Clicked>().isEmpty(),
+                "a disabled button delivers no click",
+            )
         }
     }
 

@@ -237,7 +237,10 @@ internal fun HostButton(
     }
 
     val alignment = if (alignStart) Alignment.CenterStart else Alignment.Center
-    if (enabled) {
+    // A button with children is faded as one group, children included: its content is the
+    // Host's to colour, so there is no label tint to keep readable, and composing the
+    // children twice would draw and expose each of them twice.
+    if (enabled || node.children.isNotEmpty()) {
         Box(named, contentAlignment = alignment) { ButtonLabel() }
     } else {
         Box {
