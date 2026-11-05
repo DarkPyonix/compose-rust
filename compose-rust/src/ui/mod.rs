@@ -110,27 +110,86 @@ impl SemanticsState {
     }
 }
 
-/// The text of an accessible name, kept for as long as the program runs so a `Modifier`
-/// can stay `Copy`. Equal names share one allocation, so a name that is written on every
-/// frame costs one lookup and no memory; only a name never seen before is kept.
-fn keep_label(label: &str) -> Option<&'static str> {
-    use std::collections::HashSet;
-    use std::sync::{Mutex, OnceLock};
+/// The most distinct accessible names a program can keep. Names are kept for the life of
+/// the program so a `Modifier` can stay `Copy`; the cap keeps a name built from data
+/// (an id, a counter) from growing that memory without end.
+pub(crate) const MAX_LABELS: usize = 4096;
 
-    if label.is_empty() {
-        return None;
+/// The distinct accessible names seen so far, each leaked once.
+struct LabelTable {
+    kept: std::sync::RwLock<std::collections::HashSet<&'static str>>,
+    warned: std::sync::atomic::AtomicBool,
+}
+
+impl LabelTable {
+    fn new() -> Self {
+        Self {
+            kept: Default::default(),
+            warned: Default::default(),
+        }
     }
-    static LABELS: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
-    let mut labels = LABELS
-        .get_or_init(Default::default)
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(kept) = labels.get(label) {
-        return Some(*kept);
+
+    /// The kept copy of `label`. A name already kept is found under a shared lock with no
+    /// allocation. A new name is kept until the table holds `cap` names; past that it is
+    /// dropped (and reported in debug builds) so memory stays bounded.
+    fn intern(&self, label: &str, cap: usize) -> Option<&'static str> {
+        use std::sync::atomic::Ordering;
+
+        if label.is_empty() {
+            return None;
+        }
+        {
+            let kept = self.kept.read().unwrap_or_else(|p| p.into_inner());
+            if let Some(found) = kept.get(label) {
+                return Some(*found);
+            }
+        }
+        let mut kept = self.kept.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(found) = kept.get(label) {
+            return Some(*found);
+        }
+        if kept.len() >= cap {
+            if cfg!(debug_assertions) && !self.warned.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "compose-rust: more than {cap} distinct accessible names; \
+                     names past the limit are left off. Use a fixed set of names."
+                );
+            }
+            return None;
+        }
+        let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
+        kept.insert(leaked);
+        Some(leaked)
     }
-    let kept: &'static str = Box::leak(label.to_owned().into_boxed_str());
-    labels.insert(kept);
-    Some(kept)
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.kept.read().unwrap_or_else(|p| p.into_inner()).len()
+    }
+}
+
+fn keep_label(label: &str) -> Option<&'static str> {
+    use std::cell::Cell;
+    use std::sync::OnceLock;
+
+    static LABELS: OnceLock<LabelTable> = OnceLock::new();
+    thread_local! {
+        // The name this thread kept last. A name written on every frame is found here
+        // without taking any lock.
+        static LAST: Cell<Option<&'static str>> = const { Cell::new(None) };
+    }
+    if let Some(last) = LAST.with(Cell::get) {
+        if last == label {
+            return Some(last);
+        }
+    }
+    let kept = LABELS
+        .get_or_init(LabelTable::new)
+        .intern(label, MAX_LABELS);
+    if kept.is_some() {
+        LAST.with(|last| last.set(kept));
+    }
+    kept
 }
 
 /// What sits around a widget: its size, its surface, its outline, how far its content
@@ -417,6 +476,10 @@ impl Modifier {
 
     /// The name assistive technology reads for this node. On a widget with a visible label
     /// it replaces that label; an empty name is the same as none.
+    ///
+    /// Names are kept for the life of the program, and at most 4096 distinct names are
+    /// kept. A name past that limit is left off (debug builds print a warning once), so
+    /// use a fixed set of names rather than one built from changing data.
     pub fn label(mut self, label: &str) -> Self {
         self.semantics_label = keep_label(label);
         self
@@ -677,7 +740,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "accessible_name",
         modifier
             .semantics_label
-            .map_or(OwnedAttr::None, |label| OwnedAttr::Text(label.to_owned())),
+            .map_or(OwnedAttr::None, OwnedAttr::Label),
     );
     push(
         false,
@@ -851,5 +914,34 @@ mod fr19_9_tests {
             assert!(attrs.iter().any(|(name, value)| *name == "window_drag"
                 && matches!(value, OwnedAttr::Bool(value) if *value == enabled)));
         }
+    }
+}
+
+#[cfg(test)]
+mod fr68_label_tests {
+    use super::*;
+
+    #[test]
+    fn fr68_repeated_labels_do_not_grow_the_table() {
+        let table = LabelTable::new();
+        let first = table.intern("Refresh", MAX_LABELS).unwrap();
+        for _ in 0..10_000 {
+            let again = table.intern("Refresh", MAX_LABELS).unwrap();
+            assert!(std::ptr::eq(first, again));
+        }
+        assert_eq!(table.len(), 1);
+    }
+
+    #[test]
+    fn fr68_labels_past_the_cap_are_dropped() {
+        let table = LabelTable::new();
+        for n in 0..MAX_LABELS {
+            assert!(table.intern(&format!("label {n}"), MAX_LABELS).is_some());
+        }
+        assert_eq!(table.len(), MAX_LABELS);
+        assert_eq!(table.intern("one too many", MAX_LABELS), None);
+        assert_eq!(table.len(), MAX_LABELS);
+        // A name already kept is still found.
+        assert!(table.intern("label 0", MAX_LABELS).is_some());
     }
 }

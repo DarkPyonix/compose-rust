@@ -2912,7 +2912,8 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     TearOffKey = 168,
     // The name assistive technology reads for a node, a string. On a widget it overrides
     // the visible label, and on an icon-only button it beats the name the icon's meaning
-    // would give. 119 is the first free number after the island block.
+    // would give. 117 and 118 are reserved for another pending change, and 119 is the next
+    // free number; 120 is `IslandZoom`.
     AccessibleName = 119,
 });
 
