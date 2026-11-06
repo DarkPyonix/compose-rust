@@ -1364,11 +1364,13 @@ impl BatchEncoder {
                 self.put_u16(window.height);
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
-                // Bit 0 is `resizable`. The mode and the last window policy ride in the
-                // bits above it that were always zero, so a window that asks for one
-                // window writes the bytes it always wrote.
+                // Bit 0 is `resizable` and bit 1 asks for every whole-dp size change. The
+                // mode and the last window policy ride in the bits above them that were
+                // always zero, so a window that asks for none writes the bytes it always
+                // wrote.
                 self.put_u16(
                     u16::from(window.resizable)
+                        | (u16::from(window.report_size) << 1)
                         | ((window.mode as u16) << WINDOW_MODE_SHIFT)
                         | ((window.last_window_closed as u16) << WINDOW_POLICY_SHIFT),
                 );
@@ -1805,10 +1807,11 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 // nibbles above the second byte. Anything else standing is a record the
                 // sides disagree on.
                 let flags = read_u16(bytes, payload + 12)?;
-                if flags & 0x00FE != 0 {
+                if flags & 0x00FC != 0 {
                     return Err(ProtocolError::InvalidValueKind(flags));
                 }
                 let resizable = flags & 1;
+                let report_size = flags & 0x0002 != 0;
                 let mode_tag = (flags >> WINDOW_MODE_SHIFT) & 0xF;
                 let policy_tag = flags >> WINDOW_POLICY_SHIFT;
                 let zoom = read_u16(bytes, payload + 14)?;
@@ -1836,6 +1839,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
                     zoom_level,
+                    report_size,
                     mode: crate::schema::WindowMode::try_from(mode_tag)
                         .map_err(|()| ProtocolError::InvalidValueKind(flags))?,
                     last_window_closed: crate::schema::LastWindowClosed::try_from(policy_tag)
@@ -3310,6 +3314,69 @@ mod tests {
             crate::schema::Window::new().with_zoom_level(20).zoom_level,
             Some(8)
         );
+    }
+
+    /// Bit 1 of the flags word asks the implicit window for every whole-dp size change. A
+    /// window that does not ask encodes the bytes it always did.
+    #[test]
+    fn fr20_8_set_window_report_size_bit_roundtrips() {
+        for report in [false, true] {
+            let window = crate::schema::Window::new()
+                .with_title("size")
+                .with_report_size(report);
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&Mutation::SetWindow(window)).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            let flags = read_u16(&bytes, ENVELOPE_LEN + 16).unwrap();
+            assert_eq!(flags, 1 | (u16::from(report) << 1));
+            assert_eq!(
+                decode_batch(&bytes).unwrap(),
+                vec![Mutation::SetWindow(window)]
+            );
+        }
+        // The default window, byte by byte from the record layout.
+        let window = crate::schema::Window::new();
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&Mutation::SetWindow(window)).unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        let record = &bytes[ENVELOPE_LEN..];
+        assert_eq!(record.len(), 32);
+        assert_eq!(read_u16(record, 0).unwrap(), TAG_SET_WINDOW);
+        assert_eq!(read_u16(record, 2).unwrap(), 32);
+        assert_eq!(read_u16(record, 4).unwrap(), window.chrome as u16);
+        assert_eq!(read_u16(record, 6).unwrap(), window.title_bar as u16);
+        for at in [8, 10, 12, 14] {
+            assert_eq!(read_u16(record, at).unwrap(), 0);
+        }
+        // Resizable only: the mode and the policy are the defaults for the platform.
+        let expected_flags = 1
+            | ((window.mode as u16) << WINDOW_MODE_SHIFT)
+            | ((window.last_window_closed as u16) << WINDOW_POLICY_SHIFT);
+        assert_eq!(read_u16(record, 16).unwrap(), expected_flags);
+        assert_eq!(read_u16(record, 18).unwrap(), 0);
+        assert_eq!(read_u32(record, 28).unwrap(), 0);
+    }
+
+    /// The other low bits of the flags word are still nobody's, so a record that sets
+    /// one is a protocol error.
+    #[test]
+    fn fr20_8_set_window_rejects_unknown_flag_bits() {
+        let mut encoder = BatchEncoder::default();
+        encoder
+            .encode(&Mutation::SetWindow(crate::schema::Window::new()))
+            .unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        let flags = read_u16(&bytes, ENVELOPE_LEN + 16).unwrap();
+        for bit in 2..8 {
+            let bad = flags | (1 << bit);
+            let mut copy = bytes.clone();
+            copy[ENVELOPE_LEN + 16..ENVELOPE_LEN + 18].copy_from_slice(&bad.to_le_bytes());
+            assert_eq!(
+                decode_batch(&copy),
+                Err(ProtocolError::InvalidValueKind(bad)),
+                "bit {bit}"
+            );
+        }
     }
 
     #[test]
