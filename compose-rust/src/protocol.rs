@@ -3,8 +3,8 @@
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    Paint, PropertyKind, Selection, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
-    modifier_extra_words,
+    Paint, PropertyKind, SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole,
+    TYPE_ROLE_COUNT, Theme, WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -1364,11 +1364,13 @@ impl BatchEncoder {
                 self.put_u16(window.height);
                 self.put_u16(window.min_width);
                 self.put_u16(window.min_height);
-                // Bit 0 is `resizable`. The mode and the last window policy ride in the
-                // bits above it that were always zero, so a window that asks for one
-                // window writes the bytes it always wrote.
+                // Bit 0 is `resizable` and bit 1 asks for every whole-dp size change. The
+                // mode and the last window policy ride in the bits above them that were
+                // always zero, so a window that asks for none writes the bytes it always
+                // wrote.
                 self.put_u16(
                     u16::from(window.resizable)
+                        | (u16::from(window.report_size) << 1)
                         | ((window.mode as u16) << WINDOW_MODE_SHIFT)
                         | ((window.last_window_closed as u16) << WINDOW_POLICY_SHIFT),
                 );
@@ -1805,10 +1807,11 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 // nibbles above the second byte. Anything else standing is a record the
                 // sides disagree on.
                 let flags = read_u16(bytes, payload + 12)?;
-                if flags & 0x00FE != 0 {
+                if flags & 0x00FC != 0 {
                     return Err(ProtocolError::InvalidValueKind(flags));
                 }
                 let resizable = flags & 1;
+                let report_size = flags & 0x0002 != 0;
                 let mode_tag = (flags >> WINDOW_MODE_SHIFT) & 0xF;
                 let policy_tag = flags >> WINDOW_POLICY_SHIFT;
                 let zoom = read_u16(bytes, payload + 14)?;
@@ -1836,6 +1839,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     min_height: read_u16(bytes, payload + 10)?,
                     resizable: resizable == 1,
                     zoom_level,
+                    report_size,
                     mode: crate::schema::WindowMode::try_from(mode_tag)
                         .map_err(|()| ProtocolError::InvalidValueKind(flags))?,
                     last_window_closed: crate::schema::LastWindowClosed::try_from(policy_tag)
@@ -2302,6 +2306,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::PressFeedback { scale, tint_alpha } => {
             (33, two_words(pack_floats(*scale, *tint_alpha), 0))
         }
+        Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::Transform {
             a,
             b,
@@ -2452,6 +2457,16 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             scale: unpack_low(first),
             tint_alpha: unpack_high(first),
         }),
+        34 => {
+            let state = u32::try_from(second)
+                .ok()
+                .filter(|state| state & !SEMANTICS_STATE_MASK == 0)
+                .ok_or(ProtocolError::InvalidModifier(34))?;
+            Ok(Modifier::Semantics {
+                role: decode_role::<SemanticsRole>(first)?,
+                state,
+            })
+        }
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -2616,6 +2631,84 @@ mod tests {
                 modifier: Modifier::Background(Paint::Literal(crate::schema::Color::rgb(0x1b1b1f))),
             }]
         );
+    }
+
+    #[test]
+    fn fr68_semantics_round_trips_and_refuses_unknown_state_bits() {
+        let expected = Modifier::Semantics {
+            role: SemanticsRole::Switch,
+            state: (2 << crate::schema::SEMANTICS_CHECKED_SHIFT)
+                | (1 << crate::schema::SEMANTICS_SELECTED_SHIFT),
+        };
+        let mutation = Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: expected.clone(),
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&mutation).unwrap();
+        assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+
+        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0];
+        assert_eq!(
+            decode_modifier(34, &words),
+            Err(ProtocolError::InvalidModifier(34))
+        );
+    }
+
+    #[test]
+    fn fr71_every_new_role_round_trips_and_is_exposed() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::TabList, 9),
+            (SemanticsRole::Tree, 10),
+            (SemanticsRole::TreeItem, 11),
+            (SemanticsRole::Menu, 12),
+            (SemanticsRole::MenuItem, 13),
+            (SemanticsRole::TextBox, 14),
+            (SemanticsRole::Heading, 15),
+            (SemanticsRole::Navigation, 16),
+            (SemanticsRole::List, 17),
+            (SemanticsRole::ListItem, 18),
+            (SemanticsRole::Group, 19),
+        ];
+        let state = (2 << SEMANTICS_EXPANDED_SHIFT)
+            | (2 << SEMANTICS_DISABLED_SHIFT)
+            | (1 << SEMANTICS_FOCUSED_SHIFT)
+            | SEMANTICS_HIDDEN_BIT
+            | SEMANTICS_CLICK_ACTION_BIT
+            | SEMANTICS_FOCUS_ACTION_BIT;
+        assert_eq!(state & !SEMANTICS_STATE_MASK, 0);
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics { role, state },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        assert!(
+            ROLE_ENUM_SCHEMA
+                .iter()
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
+            "the schema must list all 19 roles"
+        );
+    }
+
+    #[test]
+    fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
+        // Bit 13 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0];
+        assert_eq!(
+            decode_modifier(34, &words),
+            Err(ProtocolError::InvalidModifier(34))
+        );
+        // The highest bit the mask allows still decodes.
+        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0];
+        assert!(decode_modifier(34, &words).is_ok());
     }
 
     #[test]
@@ -3221,6 +3314,69 @@ mod tests {
             crate::schema::Window::new().with_zoom_level(20).zoom_level,
             Some(8)
         );
+    }
+
+    /// Bit 1 of the flags word asks the implicit window for every whole-dp size change. A
+    /// window that does not ask encodes the bytes it always did.
+    #[test]
+    fn fr20_8_set_window_report_size_bit_roundtrips() {
+        for report in [false, true] {
+            let window = crate::schema::Window::new()
+                .with_title("size")
+                .with_report_size(report);
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&Mutation::SetWindow(window)).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            let flags = read_u16(&bytes, ENVELOPE_LEN + 16).unwrap();
+            assert_eq!(flags, 1 | (u16::from(report) << 1));
+            assert_eq!(
+                decode_batch(&bytes).unwrap(),
+                vec![Mutation::SetWindow(window)]
+            );
+        }
+        // The default window, byte by byte from the record layout.
+        let window = crate::schema::Window::new();
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&Mutation::SetWindow(window)).unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        let record = &bytes[ENVELOPE_LEN..];
+        assert_eq!(record.len(), 32);
+        assert_eq!(read_u16(record, 0).unwrap(), TAG_SET_WINDOW);
+        assert_eq!(read_u16(record, 2).unwrap(), 32);
+        assert_eq!(read_u16(record, 4).unwrap(), window.chrome as u16);
+        assert_eq!(read_u16(record, 6).unwrap(), window.title_bar as u16);
+        for at in [8, 10, 12, 14] {
+            assert_eq!(read_u16(record, at).unwrap(), 0);
+        }
+        // Resizable only: the mode and the policy are the defaults for the platform.
+        let expected_flags = 1
+            | ((window.mode as u16) << WINDOW_MODE_SHIFT)
+            | ((window.last_window_closed as u16) << WINDOW_POLICY_SHIFT);
+        assert_eq!(read_u16(record, 16).unwrap(), expected_flags);
+        assert_eq!(read_u16(record, 18).unwrap(), 0);
+        assert_eq!(read_u32(record, 28).unwrap(), 0);
+    }
+
+    /// The other low bits of the flags word are still nobody's, so a record that sets
+    /// one is a protocol error.
+    #[test]
+    fn fr20_8_set_window_rejects_unknown_flag_bits() {
+        let mut encoder = BatchEncoder::default();
+        encoder
+            .encode(&Mutation::SetWindow(crate::schema::Window::new()))
+            .unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        let flags = read_u16(&bytes, ENVELOPE_LEN + 16).unwrap();
+        for bit in 2..8 {
+            let bad = flags | (1 << bit);
+            let mut copy = bytes.clone();
+            copy[ENVELOPE_LEN + 16..ENVELOPE_LEN + 18].copy_from_slice(&bad.to_le_bytes());
+            assert_eq!(
+                decode_batch(&copy),
+                Err(ProtocolError::InvalidValueKind(bad)),
+                "bit {bit}"
+            );
+        }
     }
 
     #[test]

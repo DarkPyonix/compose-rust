@@ -143,6 +143,7 @@ internal fun resolveText(
      * resolving a colour through the design system is the dearest thing done here.
      */
     forMeasure: Boolean = false,
+    intrinsicWordBreak: WordBreak? = null,
 ): ResolvedText {
     val problems = mutableListOf<String>()
     // Sizes are sp. Text in CSS pixels is not given smaller sp to undo the font scale:
@@ -203,7 +204,7 @@ internal fun resolveText(
 
     val badRuns = if (input.runs.isEmpty()) null else runsProblem(input.runs, input.text.encodeToByteArray().size)
     val runs = if (badRuns == null) input.runs else emptyList()
-    val mode = when (input.wordBreak) {
+    val mode = when (intrinsicWordBreak ?: input.wordBreak) {
         WordBreak.KeepAll -> BreakMode.KeepAll
         WordBreak.BreakAll -> BreakMode.BreakAll
         WordBreak.Normal, null -> BreakMode.Normal

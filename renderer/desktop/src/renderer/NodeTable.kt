@@ -201,6 +201,16 @@ class NodeTable {
     }
 
     /**
+     * Whether the window [windowId] asked for every whole-dp change of its size. Node 0 is
+     * the single window of `SetWindow`, which asks through its settings; a `Window` node
+     * asks through its `report_size` property.
+     */
+    fun reportSizeFor(windowId: Int): Boolean {
+        if (windowId == ROOT_ID) return window?.reportSize == true
+        return node(windowId)?.flag(PropertyKind.ReportSize, false) == true
+    }
+
+    /**
      * The `Window` node the node [nodeId] is drawn in, itself included, or null for a node
      * that sits in none (every node of a single window application).
      */
@@ -715,6 +725,22 @@ class NodeTable {
 
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
+                // The name assistive technology reads can be given to any node.
+                PropertyKind.AccessibleName -> true
+
+                // Colours and size of the selection controls.
+                PropertyKind.TrackColor,
+                PropertyKind.ThumbColor,
+                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+
+                PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+
+                PropertyKind.ContainerColor,
+                PropertyKind.CheckColor,
+                -> widget == WidgetKind.Checkbox
+
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
                 PropertyKind.OnValueChange,
@@ -1022,6 +1048,7 @@ class NodeTable {
                 PropertyKind.WindowSize,
                 PropertyKind.WindowMinSize,
                 PropertyKind.WindowResizable,
+                PropertyKind.ReportSize,
                 PropertyKind.WindowChrome,
                 PropertyKind.WindowTitleBar,
                 PropertyKind.WindowIcon,

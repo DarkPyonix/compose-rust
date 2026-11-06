@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -56,6 +58,20 @@ private fun ComposeUiTest.darkestInk(): Int {
 
 @OptIn(ExperimentalTestApi::class)
 class TextFieldTest {
+
+    private var savedDark: Boolean? = null
+
+    /** The placeholder test measures ink on a light field; a dark system would make both renders background. */
+    @BeforeTest
+    fun pinLightAppearance() {
+        savedDark = dev.darkpyonix.composerust.runtime.systemDarkOverride
+        dev.darkpyonix.composerust.runtime.systemDarkOverride = false
+    }
+
+    @AfterTest
+    fun restoreAppearance() {
+        dev.darkpyonix.composerust.runtime.systemDarkOverride = savedDark
+    }
     /**
      * A placeholder is not text, and it is not set as though it were.
      *
