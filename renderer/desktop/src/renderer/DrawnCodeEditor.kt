@@ -305,11 +305,11 @@ private fun DrawnSurface(
     val extent = rows.totalRows * rowPx - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
-    val markColumn = if (model.gutterMarks.isNotEmpty()) rowPx else 0
+    val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
     val foldColumn = if (model.folds.isNotEmpty()) rowPx else 0
     val gutterWidth = with(density) {
         rows.lineCount.toString().length * digitWidth + (look.gutterPadding * 2).toPx() + look.gutterDividerWidth.toPx()
-    } + markColumn + foldColumn
+    } + markColumn + foldColumn + density.changeColumnPx(model, look)
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
@@ -342,6 +342,7 @@ private fun DrawnSurface(
     Box(
         modifier
             .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+            .changeSemantics(model, look)
             .background(look.container)
             .clipToBounds()
             .onSizeChanged { viewportHeight = it.height },
@@ -451,6 +452,7 @@ private fun DrawScope.drawLines(
         drawRect(look.gutterDivider, Offset(gutterWidth - width, scroll.toFloat()), Size(width, viewportHeight.toFloat()))
     }
     val lenses = model.lensesByLine().toMap()
+    val changeColumn = changeColumnPx(model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val view = state.view(line)
@@ -488,7 +490,7 @@ private fun DrawScope.drawLines(
             (line + 1).toString(),
             state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
         )
-        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn
+        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn + changeColumn
         drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
         drawGutterAdornments(
             model,
@@ -498,6 +500,7 @@ private fun DrawScope.drawLines(
             markColumn,
             gutterWidth - look.gutterDividerWidth.toPx() - foldColumn,
             foldColumn,
+            changeColumn,
             state.measurer!!,
             state.style,
             look,
