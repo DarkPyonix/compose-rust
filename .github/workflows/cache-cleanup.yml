@@ -1,0 +1,39 @@
+# Deletes a pull request's Actions caches when it is merged or closed.
+#
+# A cache saved by a pull request run belongs to that pull request's ref and nothing else can
+# read it, but it still counts against the repository's 10 GB limit. Every pull request here
+# saved about 8 GB of Kotlin and Gradle caches, so two of them fill the limit and GitHub
+# evicts the oldest entries first, which is how the large Windows caches never survived.
+#
+# Only the closed pull request's own ref is touched. The number comes from the event payload
+# through an environment variable, never into the script text.
+name: Cache cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: cache-cleanup-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  delete:
+    name: Delete the closed pull request's caches
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base branch's copy of the script, not the pull request's.
+          ref: ${{ github.event.pull_request.base.sha }}
+      - name: Delete the caches saved under refs/pull/N/merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./.github/scripts/delete-pr-caches.sh "$PR_NUMBER"
