@@ -187,9 +187,9 @@ internal fun localizedChangeMarkWord(change: ChangeMark, language: String = andr
             ChangeMark.Removed -> "삭제됨"
         }
         else -> when (change) {
-            ChangeMark.Added -> "Added"
-            ChangeMark.Modified -> "Modified"
-            ChangeMark.Removed -> "Removed"
+            ChangeMark.Added -> "added"
+            ChangeMark.Modified -> "modified"
+            ChangeMark.Removed -> "removed"
         }
     }
 
@@ -215,8 +215,10 @@ internal fun changeDescription(model: CodeEditorModel, look: CodeEditorLook): St
 private const val CHANGE_LINES_SPOKEN = 50
 
 /** Gives the editor's node the description of its changed lines, when it has any. */
+@Composable
 internal fun Modifier.changeSemantics(model: CodeEditorModel, look: CodeEditorLook): Modifier {
-    val text = changeDescription(model, look) ?: return this
+    val revision = model.overlayRevision
+    val text = remember(model, revision, look) { changeDescription(model, look) } ?: return this
     return semantics { stateDescription = text }
 }
 
@@ -1391,7 +1393,7 @@ private fun DrawScope.drawGutter(
         val x = width - divider - foldColumn - changeColumn - padding - measured.size.width
         val top = rows.textRow(line) * rowPx.toFloat()
         drawText(measured, topLeft = Offset(x, top))
-        drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, measurer, style, look)
+        drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, changeColumn, measurer, style, look)
     }
 }
 
@@ -1404,6 +1406,7 @@ internal fun DrawScope.drawGutterAdornments(
     markColumn: Int,
     foldLeft: Float,
     foldColumn: Int,
+    changeColumn: Int,
     measurer: TextMeasurer,
     style: TextStyle,
     look: CodeEditorLook,
@@ -1413,11 +1416,14 @@ internal fun DrawScope.drawGutterAdornments(
     // neighbouring lines meet.
     val bar = model.changeBarAt(line)
     if (bar != null) {
-        val left = foldLeft - changeColumnPx(model, look)
+        val left = foldLeft - changeColumn
         drawRect(look.gutterMark(bar.color), Offset(left, top), Size(look.changeBarWidth.toPx(), cell))
     }
     if (markColumn > 0) {
-        for (mark in model.ordinaryMarksAt(line)) {
+        var index = model.nextOrdinaryMarkIndex(line, 0)
+        while (index >= 0) {
+            val mark = model.gutterMarks[index]
+            index = model.nextOrdinaryMarkIndex(line, index + 1)
             val color = look.gutterMark(mark.color)
             when (mark.kind) {
                 GutterDecorationKind.Dot -> drawCircle(color, cell * 0.2f, Offset(markColumn / 2f, top + cell / 2f))

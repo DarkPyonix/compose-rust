@@ -452,6 +452,7 @@ private fun DrawScope.drawLines(
         drawRect(look.gutterDivider, Offset(gutterWidth - width, scroll.toFloat()), Size(width, viewportHeight.toFloat()))
     }
     val lenses = model.lensesByLine().toMap()
+    val changeColumn = changeColumnPx(model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val view = state.view(line)
@@ -489,7 +490,7 @@ private fun DrawScope.drawLines(
             (line + 1).toString(),
             state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
         )
-        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn + changeColumnPx(model, look)
+        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn + changeColumn
         drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
         drawGutterAdornments(
             model,
@@ -499,6 +500,7 @@ private fun DrawScope.drawLines(
             markColumn,
             gutterWidth - look.gutterDividerWidth.toPx() - foldColumn,
             foldColumn,
+            changeColumn,
             state.measurer!!,
             state.style,
             look,

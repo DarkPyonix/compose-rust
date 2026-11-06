@@ -411,7 +411,7 @@ class CodeEditorTest {
             .fetchSemanticsNode()
             .config[SemanticsProperties.StateDescription]
         assertTrue(described.contains("2") && described.contains("4"), described)
-        assertTrue(described.contains("Added") || described.contains("추가됨"), described)
-        assertTrue(described.contains("Modified") || described.contains("수정됨"), described)
+        assertTrue(described.contains("added") || described.contains("추가됨"), described)
+        assertTrue(described.contains("modified") || described.contains("수정됨"), described)
     }
 }

@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorLook
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.code.EditOrigin
+import dev.darkpyonix.composerust.foundation.code.changeColumnPx
 import dev.darkpyonix.composerust.foundation.code.changeMark
 import dev.darkpyonix.composerust.foundation.code.drawGutterAdornments
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -113,7 +114,7 @@ class CodeEditorChangeBarTest {
                 drawGutterAdornments(
                     model, line, line * ROW.toFloat(), ROW,
                     if (model.hasOrdinaryMarks) MARK_COLUMN else 0,
-                    FOLD_LEFT, 0, measurer!!, TextStyle(), look,
+                    FOLD_LEFT, 0, with(Density(1f)) { changeColumnPx(model, look) }, measurer!!, TextStyle(), look,
                 )
             }
         }
@@ -186,5 +187,60 @@ class CodeEditorChangeBarTest {
         val plain = modelWith(lines, Triple(0, DOT, 0))
         assertEquals(false, plain.hasChangeBars)
         assertEquals(true, model.hasChangeBars)
+    }
+
+    private val threads = java.lang.management.ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
+
+    /**
+     * Bytes this thread allocates per call of the gutter drawing for one line, after a
+     * warm-up, averaged over many calls.
+     */
+    private fun bytesPerLine(model: CodeEditorModel): Long {
+        var measurer: TextMeasurer? = null
+        runComposeUiTest {
+            setContent { measurer = rememberTextMeasurer() }
+            waitForIdle()
+        }
+        val look = look()
+        val density = Density(1f)
+        val style = TextStyle()
+        val image = ImageBitmap(200, ROW * 6)
+        var bytes = 0L
+        CanvasDrawScope().draw(density, LayoutDirection.Ltr, Canvas(image), Size(200f, ROW * 6f)) {
+            val markColumn = if (model.hasOrdinaryMarks) MARK_COLUMN else 0
+            fun pass() {
+                val changeColumn = changeColumnPx(model, look)
+                for (line in 0 until 6) {
+                    drawGutterAdornments(model, line, line * ROW.toFloat(), ROW, markColumn, FOLD_LEFT, 0, changeColumn, measurer!!, style, look)
+                }
+            }
+            repeat(2_000) { pass() }
+            val before = threads.currentThreadAllocatedBytes
+            repeat(10_000) { pass() }
+            bytes = (threads.currentThreadAllocatedBytes - before) / (10_000L * 6)
+        }
+        return bytes
+    }
+
+    /**
+     * Drawing the gutter of a line allocates nothing the editor keeps up. Mark lookups walk
+     * the mark list by index, so the only bytes left are the temporaries of the drawing
+     * calls themselves (offsets and sizes the JIT may not elide). The ceiling is 256 bytes
+     * per line, which a per-line list or iterator would exceed several times over.
+     */
+    @Test
+    fun fr38_gutter_draw_does_not_allocate_without_change_bars() {
+        val model = modelWith(lines, Triple(1, DOT, 0), Triple(3, BAR, 0))
+        assertEquals(false, model.hasChangeBars)
+        val bytes = bytesPerLine(model)
+        kotlin.test.assertTrue(bytes < 256, "allocated $bytes bytes per line")
+    }
+
+    @Test
+    fun fr38_gutter_draw_does_not_allocate_with_change_bars() {
+        val model = modelWith(lines, Triple(1, BAR, ADDED), Triple(2, BAR, MODIFIED), Triple(2, BAR, REMOVED))
+        assertEquals(true, model.hasChangeBars)
+        val bytes = bytesPerLine(model)
+        kotlin.test.assertTrue(bytes < 256, "allocated $bytes bytes per line")
     }
 }
