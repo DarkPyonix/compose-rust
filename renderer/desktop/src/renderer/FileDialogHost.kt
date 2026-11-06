@@ -56,8 +56,8 @@ data class FileDialogSpec(
 
 /**
  * One path a dialog returned. A platform that hands over text passes [Text]; one whose paths
- * are bytes (a Linux file system does not promise UTF-8) passes [Bytes], and the ones that
- * are not UTF-8 are dropped before the Host sees anything.
+ * are bytes (a Linux file system does not promise UTF-8) passes [Bytes]. One that is not UTF-8
+ * makes the whole choice unavailable.
  */
 sealed interface FileDialogPath {
     class Text(val value: String) : FileDialogPath
@@ -309,9 +309,9 @@ class FileDialogCenter(
     /**
      * What the Host is told about an outcome.
      *
-     * Paths that are not well formed text are dropped and the rest go on. When a choice was
-     * made and none is left, it is unavailable and not a cancel: the user picked something,
-     * so a cancel would be false. A choice with too many paths, or too many bytes of them, is
+     * A path that is not well formed text makes the whole choice unavailable: the other paths
+     * are not sent either, because the application could not tell that the list is shorter
+     * than what the user picked, and a cancel would be false. A choice with too many paths, or too many bytes of them, is
      * unavailable too, never a shorter list: the application would not know it was short.
      */
     private fun judge(outcome: FileDialogOutcome): Checked = when (outcome) {
@@ -321,12 +321,13 @@ class FileDialogCenter(
             outcome.paths.isEmpty() -> Checked.Ended(FileDialogStatus.Cancelled)
             outcome.paths.size > FileDialogLimits.MAX_PATHS -> Checked.Ended(FileDialogStatus.Unavailable)
             else -> {
-                val kept = outcome.paths.mapNotNull { wellFormedPath(it) }
-                val bytes = kept.sumOf { it.encodeToByteArray().size.toLong() + 1L }
+                val checked = outcome.paths.map { wellFormedPath(it) }
+                val texts = checked.filterNotNull()
                 when {
-                    kept.isEmpty() -> Checked.Ended(FileDialogStatus.Unavailable)
-                    bytes > maxPayloadBytes.toLong() -> Checked.Ended(FileDialogStatus.Unavailable)
-                    else -> Checked.Paths(kept.joinToString("\u0000"), outcome.filter)
+                    texts.size != checked.size -> Checked.Ended(FileDialogStatus.Unavailable)
+                    texts.sumOf { it.encodeToByteArray().size.toLong() + 1L } > maxPayloadBytes.toLong() ->
+                        Checked.Ended(FileDialogStatus.Unavailable)
+                    else -> Checked.Paths(texts.joinToString("\u0000"), outcome.filter)
                 }
             }
         }

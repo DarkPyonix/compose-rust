@@ -252,7 +252,7 @@ fn fr72_every_request_gets_exactly_one_result() {
 /// characters arrive unchanged and in order. One that is not UTF-8 never gets as far as the
 /// callback, because the event does not decode.
 #[test]
-fn fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped() {
+fn fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable() {
     let _turn = SERIAL.lock().unwrap_or_else(|poison| poison.into_inner());
     RESULTS.with_borrow_mut(Vec::clear);
     let mut session = Session::start();

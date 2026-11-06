@@ -191,7 +191,7 @@ class FileDialogTest {
     }
 
     @Test
-    fun fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped() {
+    fun fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable() {
         val platform = FakeFileDialogs()
         val (host, connection) = hostWith(platform)
         val long = "/" + "a".repeat(300)
@@ -207,10 +207,7 @@ class FileDialogTest {
                 listOf(
                     FileDialogPath.Text(korean),
                     FileDialogPath.Text(long),
-                    FileDialogPath.Bytes(byteArrayOf(0x2F, 0xFF.toByte(), 0xFE.toByte())),
-                    FileDialogPath.Bytes("/tmp/é".encodeToByteArray()),
-                    FileDialogPath.Text("/lone\uD800surrogate"),
-                    FileDialogPath.Text(""),
+                    FileDialogPath.Bytes("/tmp/\u00e9".encodeToByteArray()),
                 ),
                 filter = 0,
             ),
@@ -224,10 +221,9 @@ class FileDialogTest {
 
         val results = connection.results().associateBy { it.request }
         assertEquals(FileDialogStatus.Chosen, results.getValue(1).status)
-        assertEquals(listOf(korean, long, "/tmp/é"), results.getValue(1).paths.split('\u0000'))
-        assertTrue(results.getValue(1).paths.split('\u0000').all { it.isNotEmpty() })
+        assertEquals(listOf(korean, long, "/tmp/\u00e9"), results.getValue(1).paths.split('\u0000'))
         assertEquals(0, results.getValue(1).filter)
-        // Something was chosen and nothing survived: unavailable, because a cancel would be false.
+        // One path is not text, so the whole choice is unavailable and the others are not sent.
         assertEquals(FileDialogStatus.Unavailable, results.getValue(2).status)
         assertEquals("", results.getValue(2).paths)
         // Nothing was chosen at all, which is what a cancel is.
