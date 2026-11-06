@@ -3867,6 +3867,115 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 
+### FR-72 파일 열기와 저장 대화상자 (`Draft`, 이슈 #483)
+
+요청한 쪽: darkpyonix-ember#486(파일 선택기와 실제로 보낼 수 있는 전송 시트)와 #550(전송 시트). 앱이 플랫폼의 파일 열기·저장 대화상자를 띄울 수 없어서 파일 전송 화면이 파일을 고를 길이 없습니다. 이 항목은 앱이 대화상자를 요청하고 결과를 이벤트로 받는 길을 더합니다.
+
+**FR-36과 같은 모양입니다.** Host가 명령 레코드로 요청하고, 플랫폼 API를 부르는 것은 Renderer이며, 결과는 `dispatch_event`의 이벤트로 돌아옵니다. 대화상자는 트리에 자리가 없고(요청이 끝나면 사라지므로 노드로 만들지 않습니다), Host가 `NSOpenPanel`이나 `IFileOpenDialog`를 직접 부르면 플랫폼마다 손으로 쓴 FFI가 생기고 결과가 Renderer를 거치지 않는 두 번째 입구가 됩니다(PR-1, PR-3). 모든 변경은 **추가 전용**이고 기존 태그는 바뀌지 않습니다.
+
+#### 72.1 요청
+
+명령 `ShowFileDialog` 하나가 다섯 가지 일을 합니다. `kind`는 닫힌 열거형입니다.
+
+| `kind` | 값 | 고르는 것 | 결과의 경로 수 |
+|---|---|---|---|
+| `OpenFile` | 1 | 파일 하나 | 1 |
+| `OpenFiles` | 2 | 파일 여럿 | 1 이상 |
+| `OpenFolder` | 3 | 폴더 하나 | 1 |
+| `OpenFolders` | 4 | 폴더 여럿 | 1 이상 |
+| `Save` | 5 | 저장할 경로 하나 | 1 |
+
+- **`request: u32`는 Host가 정합니다.** 결과 이벤트가 같은 값을 싣고 돌아옵니다. 아직 결과가 오지 않은 요청과 같은 값을 다시 보내면 그 명령은 버려지고 `ProtocolError`가 한 번 옵니다. 앞의 요청은 영향을 받지 않고, 결과도 그대로 하나 옵니다.
+- **`window: u32`는 대화상자를 띄울 `Window` 노드의 id입니다(FR-53).** 0은 암묵적 루트 창(FR-20.8)입니다. 대화상자는 그 창에 대해 모달이고 다른 창은 계속 쓸 수 있습니다. 존재하지 않는 노드이거나 `Window`가 아니면 `UNKNOWN_NODE`로 보고하고, 요청마다 이벤트가 정확히 하나라는 규칙(72.2)에 따라 `Unavailable` 결과를 돌려줍니다.
+- `title`(문자열): 대화상자 제목입니다. 비면 플랫폼 기본입니다. macOS의 시트는 제목을 보이지 않으므로 `message` 자리에 씁니다.
+- `directory`(문자열): 처음 열 폴더입니다. 절대 경로여야 하고, 비었거나 없거나 읽을 수 없으면 플랫폼의 기본(마지막으로 쓴 폴더)입니다. 없는 폴더는 오류가 아닙니다.
+- `name`(문자열): `Save`에서 칸에 미리 채울 파일 이름입니다. 경로 구분자는 허용하지 않고, 있으면 마지막 구분자 뒤만 씁니다. `Open*`에서는 무시합니다.
+- **필터**: `filters`는 `(label, extensions)` 목록입니다. `extensions`는 점 없는 확장자를 쉼표로 이은 문자열입니다(`"png,jpg,jpeg"`). 비교는 대소문자를 가리지 않습니다. 목록이 비면 모든 파일을 고를 수 있습니다. 필터는 **고를 수 있는 파일을 제한**하며, 폴더 선택(`OpenFolder`, `OpenFolders`)에서는 무시합니다. `default_filter: u32`는 처음 선택된 필터의 위치이고 범위 밖이면 0입니다. 필터는 16개까지, 필터 하나의 확장자는 32개까지이며 넘으면 넘는 부분을 버립니다. 오류가 아닙니다.
+- `Save`는 **덮어쓰기 확인을 항상 플랫폼 대화상자가 합니다.** 이미 있는 파일을 고르면 플랫폼이 묻고, 사용자가 허락한 경우에만 결과가 옵니다. Host가 끌 수 있는 값은 없습니다. 확인 문구와 동작은 플랫폼의 것이어야 사용자가 아는 대화상자와 같기 때문입니다. Renderer는 파일을 만들거나 덮어쓰지 않고 경로만 돌려줍니다.
+- `Save`에서 사용자가 확장자 없는 이름을 입력하고 필터가 하나만 선택되어 있으면 플랫폼의 관례에 따라 그 필터의 첫 확장자를 붙일 수 있습니다. 어느 필터가 쓰였는지는 결과의 `filter`로 알립니다.
+
+Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("이미지", &["png", "jpg"]).directory(dir), move |result| ...)`의 모양이고 `FileDialogResult`는 72.2의 값을 담습니다. 콜백은 UI 스레드에서 한 번만 불리고, 그 뒤 해제됩니다. 워커 스레드에서는 FR-36의 `NotificationSender`처럼 `Send`인 손잡이로 요청합니다(PR-3).
+
+#### 72.2 결과
+
+- 결과는 **새 이벤트 `FileDialogResult`** 하나입니다. `node_id = 0`, `handler_id = 0`이고, Host 자신에게 오는 사건이라 핸들러 조회를 거치지 않습니다(`NotificationActivated`와 같습니다). Host API는 요청 때 넘긴 콜백을 `request`로 찾아 부릅니다. 앱 전역 훅은 없습니다. 결과는 요청한 쪽의 것이기 때문입니다.
+- 페이로드: `request: u32`, `status: u32`, `filter: u32`, `paths`(문자열).
+- `status`는 닫힌 열거형입니다. `Chosen=1`, `Cancelled=2`, `Unavailable=3`. 모르는 값은 `ProtocolError`입니다.
+  - `Chosen`: 사용자가 골랐습니다. `paths`에 경로가 하나 이상 있습니다.
+  - `Cancelled`: 사용자가 닫거나 취소했습니다. 대화상자가 열려 있는 동안 그 창이 닫힌 경우도 같습니다. `paths`는 비어 있습니다.
+  - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
+- **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
+- **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 경로에 UTF-8이 아닌 바이트가 있으면(Linux에서만 가능) 그 경로를 버리고 나머지를 전달하며(FR-27과 같은 규칙), 하나도 남지 않으면 `Cancelled`가 아니라 `Unavailable`입니다. 사용자가 고른 것이 있었는데 취소로 보이면 거짓이기 때문입니다.
+- **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
+- `filter`: 사용자가 마지막으로 선택한 필터의 위치입니다. 필터를 보내지 않았거나 `Chosen`이 아니면 `0xFFFF_FFFF`입니다.
+- **같은 창에 요청이 겹치면 Renderer가 받은 순서대로 하나씩 띄웁니다.** 플랫폼의 모달 대화상자(macOS의 시트가 대표적입니다)는 창마다 하나뿐이기 때문입니다. 앞 요청이 끝나면 다음이 뜹니다. 다른 창의 요청은 서로 기다리지 않습니다. 이 순서는 Renderer 안의 상태이고 Host와 Renderer 사이의 큐가 아닙니다(PR-1).
+
+#### 72.3 모달과 응답성
+
+- **대화상자는 UI 스레드를 막지 않습니다.** 열려 있는 동안에도 이벤트 루프가 돌아 창이 다시 그려지고, 다른 창의 입력, 타이머, 애니메이션, 워커가 보낸 프레임 요청이 처리됩니다. 모달인 것은 **소유한 창의 입력**뿐입니다. 따라서 Renderer는 대화상자를 중첩된 이벤트 루프로 돌리는 방식이 아니라 플랫폼의 비동기 API(macOS의 `beginSheetModalForWindow:completionHandler:`)나 별도 스레드의 호출 뒤 UI 스레드로 돌려받는 방식으로 띄웁니다. 결과 이벤트는 UI 스레드에서 `dispatch_event`로 전달됩니다(PR-1).
+- 대화상자가 열린 창의 입력(클릭, 키, 닫기 버튼)은 플랫폼 규칙대로 막힙니다. 창의 `WindowCloseRequested`(FR-53)는 대화상자가 닫힌 뒤에 처리됩니다. 앱 종료 요청은 이 규칙을 따르지 않고 FR-53의 종료 규칙을 따릅니다.
+- 대화상자가 열려 있는 동안 소유한 창이 파괴되면(다른 경로로 `Window` 노드를 지움) 대화상자를 닫고 `Cancelled`를 하나 보냅니다.
+
+#### 72.4 접근성과 키보드
+
+- 대화상자는 플랫폼의 것이므로 키보드 조작(탭 이동, 화살표, Enter와 Esc, 주소 칸), 화면 낭독기, 큰 글자, 고대비, 입력기(IME)가 그 플랫폼의 대화상자와 같게 동작합니다. 이 저장소가 그 위에 덧그리거나 그 동작을 대신하는 Compose 위젯 대화상자를 만들지 않습니다. 직접 그린 대화상자는 위 항목들을 하나씩 다시 구현해야 하고 하나만 빠져도 사용자가 아는 대화상자와 달라지기 때문입니다.
+- 대화상자가 닫히면 키보드 포커스는 열기 전에 포커스를 가졌던 노드로 돌아옵니다. 그 노드가 없어졌으면 창의 포커스 규칙(FR-65)을 따릅니다.
+- Esc는 `Cancelled`입니다.
+
+#### 72.5 와이어
+
+경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 이 항목이 정하지 않습니다. 스키마의 태그 표는 pW가 소유하고 열린 변경이 이미 번호를 쓰고 있으므로, **마지막에 비어 있는 다음 번호**를 와이어 설계를 보고할 때 확정하고 이 절에 적습니다. 정해지는 것은 다음입니다.
+
+- 명령 하나 `ShowFileDialog`: 머리, `request`, `window`, `kind: u16`, `default_filter: u16`, 문자열 넷(`title`, `directory`, `name`, `filters`)입니다. `filters`는 한 문자열이고 `label`과 `extensions` 쌍을 NUL로 이어 붙입니다(`"이미지\0png,jpg\0문서\0pdf,txt"`). 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- 이벤트 하나 `FileDialogResult`: 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `paths: (offset, len)`입니다. 지금 `EventPayloadType`에 없는 모양이라 하나를 더합니다.
+- `kind`와 `status`는 닫힌 열거형이고 스키마 해시에 들어갑니다. 모르는 값은 `ProtocolError`입니다.
+- 이 항목이 더하는 것은 명령 하나, 이벤트 하나, 열거 둘뿐입니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
+
+#### 72.6 플랫폼
+
+| 플랫폼 | 경로 | 비고 |
+|---|---|---|
+| macOS | `NSOpenPanel`, `NSSavePanel` | 소유한 창에 시트로 붙습니다 |
+| Windows | `IFileOpenDialog`, `IFileSaveDialog`(COM) | 소유한 창의 `HWND`가 소유자입니다 |
+| Linux | `xdg-desktop-portal`의 `org.freedesktop.portal.FileChooser` | 포털이 없으면 GTK 파일 선택기로 되돌아갑니다. 둘 다 없으면 `Unavailable` |
+| iOS, Android | 이 항목의 범위 밖 | 요청하면 `Unavailable`. `UIDocumentPicker`와 Storage Access Framework는 이슈 #483에 이어 적습니다 |
+| Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
+
+- **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
+- 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
+- **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
+- Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
+
+#### 72.7 수용 기준
+
+1. 명령 `ShowFileDialog`와 이벤트 `FileDialogResult`가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 모르는 `kind`와 `status`가 `ProtocolError`가 되고 프로세스가 죽지 않습니다(시험 이름 fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors).
+2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 pr2_boundary_surface_unchanged_by_file_dialog).
+3. 선택하든 취소하든 못 띄우든, 같은 `request`를 실은 `FileDialogResult`가 **정확히 하나** 옵니다. Fake Renderer로 세 경우를 확인합니다(시험 이름 fr72_every_request_gets_exactly_one_result).
+4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 fr72_duplicate_pending_request_is_a_protocol_error).
+5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 fr72_requests_on_one_window_are_shown_in_order).
+6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 fr72_unknown_window_reports_and_answers_unavailable).
+7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8이 아닌 경로는 버려지고 하나도 안 남으면 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped).
+8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
+9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
+10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
+11. iOS, Android, Web 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
+12. **수동 확인, macOS·Windows·Linux(포털과 GTK 폴백 각각)의 배포 빌드에서 기록합니다.**
+    - `OpenFile`, `OpenFiles`, `OpenFolder`, `OpenFolders`, `Save`가 플랫폼 대화상자로 뜨고 `title`, `directory`, `name`이 반영됩니다.
+    - 필터가 고를 수 있는 파일을 제한하고 `default_filter`가 처음 선택된 필터입니다.
+    - 존재하는 파일을 `Save`로 고르면 플랫폼이 덮어쓰기를 묻고, 거절하면 대화상자가 그대로 열려 있으며 이벤트가 오지 않습니다.
+    - macOS에서 시트로 창에 붙고, 시트가 열려 있는 동안 그 창만 입력이 막힙니다.
+    - 키보드만으로 열기부터 선택·취소까지 할 수 있고, 화면 낭독기가 대화상자를 읽습니다.
+    - 취소하고 선택한 뒤 포커스가 열기 전의 노드로 돌아옵니다.
+    - 공백, 한글, 이모지, 260자를 넘는 경로가 그대로 도착합니다.
+
+#### 72.8 열린 질문
+
+1. **필터에 플랫폼 형식(UTI, MIME)을 더할지.** 확장자만으로는 확장자 없는 형식(macOS의 번들, Linux의 MIME)을 못 거릅니다. 첫 단계는 확장자와 레이블만 받습니다. 요청하는 앱(Ember)이 확장자로 충분한지 확인이 필요합니다.
+2. **폴더 선택에서 폴더 만들기 단추.** 플랫폼 기본이 다릅니다(macOS는 켜짐, Windows는 항상). 지금은 플랫폼 기본을 그대로 씁니다.
+3. **마지막으로 쓴 폴더의 기억.** `directory`가 비었을 때 플랫폼이 기억하는 폴더를 쓰는데, 플랫폼마다 앱 단위인지 대화상자 단위인지 다릅니다. 앱이 기억을 정하고 싶다면 `directory`를 직접 넘깁니다.
+4. **모바일과 Web.** `UIDocumentPicker`, Storage Access Framework, 브라우저의 File System Access API는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)이라서 이 항목의 `paths`로는 표현할 수 없습니다. 별도 항목에서 정합니다.
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
