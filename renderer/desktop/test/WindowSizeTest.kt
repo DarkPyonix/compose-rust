@@ -33,6 +33,7 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.test.Test
@@ -41,6 +42,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val LABEL = 1
+
+/** A `Window` node of its own, for the tests that need a node to carry a property. */
+private const val WINDOW = 5
 
 /** The token the Host would have handed out for a node it wants the size of. */
 private const val SIZE_TOKEN = 7
@@ -446,5 +450,122 @@ class WindowSizeTest {
         waitForIdle()
         assertEquals(2, sizes().size)
         assertEquals(WindowSizeClass.Expanded, sizes()[1].sizeClass)
+    }
+
+    @Test
+    fun fr20_8_removing_report_size_returns_to_class_only_reports() {
+        val table = NodeTable()
+        table.apply(Mutation.Create(WINDOW, WidgetKind.Window))
+        table.apply(Mutation.SetProp(WINDOW, PropertyKind.ReportSize, PropertyValue.Bool(true)))
+        val flag = { table.node(WINDOW)!!.flag(PropertyKind.ReportSize, false) }
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter(WINDOW)
+
+        assertTrue(flag())
+        assertTrue(reporter.report(1280f, 820f, dispatcher, everyDpChange = flag()))
+        assertTrue(reporter.report(1200f, 820f, dispatcher, everyDpChange = flag()))
+
+        table.apply(Mutation.SetProp(WINDOW, PropertyKind.ReportSize, PropertyValue.None))
+        assertFalse(flag())
+        // Inside the class again: nothing is sent, as before the window ever opted in.
+        assertFalse(reporter.report(1100f, 800f, dispatcher, everyDpChange = flag()))
+        assertEquals(2, dispatcher.events.size)
+        // A safe-area change and a class change still report.
+        assertTrue(reporter.report(1100f, 800f, dispatcher, WindowSafeArea(top = 24f), flag()))
+        assertTrue(reporter.report(500f, 800f, dispatcher, WindowSafeArea(top = 24f), flag()))
+        assertEquals(4, dispatcher.events.size)
+    }
+
+    @Test
+    fun fr20_8_safe_area_only_change_reports_with_and_without_the_opt_in() {
+        for (everyDp in listOf(true, false)) {
+            val dispatcher = RecordingDispatcher()
+            val reporter = WindowSizeReporter()
+            assertTrue(reporter.report(1000f, 700f, dispatcher, WindowSafeArea(), everyDp))
+            assertFalse(reporter.report(1000f, 700f, dispatcher, WindowSafeArea(), everyDp))
+            assertTrue(reporter.report(1000f, 700f, dispatcher, WindowSafeArea(top = 28f), everyDp))
+            val event = dispatcher.events[1] as HostEvent.WindowSizeChanged
+            assertEquals(28f, event.safeAreaTop)
+            assertEquals(2, dispatcher.events.size)
+        }
+    }
+
+    @Test
+    fun fr20_8_fractional_dp_is_compared_after_rounding() {
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+
+        assertTrue(reporter.report(600.4f, 700f, dispatcher, everyDpChange = true))
+        assertFalse(reporter.report(600.45f, 700f, dispatcher, everyDpChange = true))
+        // 600.4 rounds to 600 and 600.6 to 601, inside one class.
+        assertTrue(reporter.report(600.6f, 700f, dispatcher, everyDpChange = true))
+        assertEquals(2, dispatcher.events.size)
+        assertEquals(600.6f, (dispatcher.events[1] as HostEvent.WindowSizeChanged).widthDp)
+    }
+
+    private fun windowBatch(report: Boolean): List<Mutation> = listOf(
+        Mutation.Create(WINDOW, WidgetKind.Window),
+        Mutation.SetProp(WINDOW, PropertyKind.ReportSize, PropertyValue.Bool(report)),
+        Mutation.Insert(0, WINDOW, -1),
+        Mutation.Create(LABEL, WidgetKind.Text),
+        Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("hello")),
+        Mutation.Insert(WINDOW, LABEL, -1),
+    )
+
+    private fun flagReachesTheReporter(report: Boolean) = runComposeUiTest {
+        val connection = FakeHostConnection(windowBatch(report))
+        var width by mutableStateOf(1000.dp)
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(
+                    rememberComposeRustHost(connection),
+                    Modifier.requiredSize(width, 700.dp),
+                    windowNodeId = WINDOW,
+                )
+            }
+        }
+        waitForIdle()
+        val sizes = { connection.events.filterIsInstance<HostEvent.WindowSizeChanged>() }
+        // Compact to Expanded is a class change, so the first measurement is always sent.
+        assertEquals(1, sizes().size)
+        assertEquals(WINDOW, sizes()[0].nodeId)
+
+        // Whole dp inside Expanded: sent only for a window that opted in.
+        width = 1003.dp
+        waitForIdle()
+        assertEquals(if (report) 2 else 1, sizes().size)
+        if (report) assertEquals(1003f, sizes()[1].widthDp)
+    }
+
+    @Test
+    fun fr20_8_report_size_flag_reaches_the_reporter_through_the_host() = flagReachesTheReporter(true)
+
+    @Test
+    fun fr20_8_window_without_report_size_stays_class_only_through_the_host() = flagReachesTheReporter(false)
+
+    @Test
+    fun fr20_8_a_density_change_at_the_same_pixel_size_changes_the_reported_dp() = runComposeUiTest {
+        val connection = FakeHostConnection(windowBatch(true))
+        var density by mutableStateOf(2f)
+        setContent {
+            val d = density
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(d)) {
+                // 1200 by 1400 pixels at either density.
+                ComposeRustContent(
+                    rememberComposeRustHost(connection),
+                    Modifier.requiredSize((1200f / d).dp, (1400f / d).dp),
+                    windowNodeId = WINDOW,
+                )
+            }
+        }
+        waitForIdle()
+        val sizes = { connection.events.filterIsInstance<HostEvent.WindowSizeChanged>() }
+        assertEquals(1, sizes().size)
+        assertEquals(600f, sizes()[0].widthDp)
+        density = 1.5f
+        waitForIdle()
+        assertEquals(2, sizes().size)
+        assertEquals(800f, sizes()[1].widthDp)
+        assertEquals(WindowSizeClass.Medium, sizes()[1].sizeClass)
     }
 }
