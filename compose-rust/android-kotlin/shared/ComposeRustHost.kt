@@ -78,7 +78,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import dev.darkpyonix.composerust.design.HostPlatform
 
-internal class WindowDragExclusion { var downKey: Pair<Long, Long>? = null }
+/**
+ * The press a `WindowDrag(false)` node saw, as pointer id and uptime. Two fields rather than
+ * a pair, so marking a press allocates nothing.
+ */
+internal class WindowDragExclusion {
+    var downId: Long = -1L
+    var downUptime: Long = -1L
+    fun mark(id: Long, uptime: Long) { downId = id; downUptime = uptime }
+    fun isMarked(id: Long, uptime: Long): Boolean = downId == id && downUptime == uptime
+}
 internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }
 
 /**
@@ -598,7 +607,7 @@ private fun ComposeRustTree(
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-            if (!down.isConsumed && dragExclusion.downKey != (down.id.value to down.uptimeMillis) && down.position.y < caption.height.toPx()) {
+            if (!down.isConsumed && !dragExclusion.isMarked(down.id.value, down.uptimeMillis) && down.position.y < caption.height.toPx()) {
                 while (true) {
                     val change = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
                     if (change.isConsumed || !change.pressed) break

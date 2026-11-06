@@ -164,13 +164,17 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     awaitEachGesture {
                         if (value.enabled) {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-                            if (!down.isConsumed) {
+                            // A no-drag node under the press has marked it already (children see the
+                            // Main pass first), so the window stays where it is.
+                            val excludedHere = exclusion?.isMarked(down.id.value, down.uptimeMillis) == true
+                            if (!down.isConsumed && !excludedHere) {
                                 down.consume()
                                 drag()
                             }
                         } else {
                             // Mark this down for the strip without consuming it, so ancestors can click.
-                            val excluded = awaitFirstDown(requireUnconsumed = false); exclusion?.downKey = excluded.id.value to excluded.uptimeMillis
+                            val excluded = awaitFirstDown(requireUnconsumed = false)
+                            exclusion?.mark(excluded.id.value, excluded.uptimeMillis)
                         }
                     }
                 }
