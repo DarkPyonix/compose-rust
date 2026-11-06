@@ -8,6 +8,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
@@ -555,9 +556,20 @@ private fun ComposeRustTree(
             captionStyle.side == CaptionSide.Start
         WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
     }
+    // Read through a derived state so a recomposition does not repeat the map lookup (which
+    // boxes the node id) and the read only runs again when the property itself changes.
+    // The implicit root window (id 0) has no Window node to carry the property, so it cannot opt in.
+    val reportEveryDp = if (windowNodeId == 0) false else remember(host, windowNodeId) {
+        derivedStateOf { host.table.node(windowNodeId)?.flag(PropertyKind.ReportSize, false) == true }
+    }.value
+    // A window that asked for every whole-dp change reads the size here, in the composition,
+    // so a new size recomposes this and reaches the effect. Any other window keeps reading it
+    // only inside the effect, as before, so a resize inside a size class costs it no
+    // recomposition.
+    val observedSize = if (reportEveryDp) measuredSize else null
     SideEffect {
-        measuredSize?.let { size ->
-            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea) }
+        (observedSize ?: measuredSize)?.let { size ->
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
     // How much room the buttons take and at which end. The platform's own are at the

@@ -5,6 +5,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
+import kotlin.math.floor
 
 /**
  * The width in dp at which each size class begins.
@@ -79,6 +80,8 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
     private var lastSafeArea = WindowSafeArea()
     private var lastHeightClass: WindowHeightClass = WindowHeightClass.Compact
+    private var lastWidthDp = 0
+    private var lastHeightDp = 0
 
     /**
      * Reports one measurement. Returns whether an event was sent.
@@ -86,11 +89,29 @@ class WindowSizeReporter(private val nodeId: Int = 0) {
      * Nothing is allocated when neither class has changed, which is the common case. The
      * two classes ride in one record, so a window that gets wider and shorter in the same
      * drag costs one event rather than two.
+     *
+     * A window that asked for [everyDpChange] also reports when its width or height, each
+     * rounded to the nearest whole dp (a half rounds up), differs from the rounded values of
+     * the last event sent. The rounded integers are compared, never the raw floats, so jitter
+     * under one dp is ignored. The event still carries the measured, unrounded size.
      */
-    fun report(widthDp: Float, heightDp: Float, dispatcher: EventDispatcher, safeArea: WindowSafeArea = WindowSafeArea()): Boolean {
+    fun report(
+        widthDp: Float,
+        heightDp: Float,
+        dispatcher: EventDispatcher,
+        safeArea: WindowSafeArea = WindowSafeArea(),
+        everyDpChange: Boolean = false,
+    ): Boolean {
         val sizeClass = windowSizeClassOf(widthDp)
         val heightClass = windowHeightClassOf(heightDp)
-        if (sizeClass == lastClass && heightClass == lastHeightClass && safeArea == lastSafeArea) return false
+        if (sizeClass == lastClass && heightClass == lastHeightClass && safeArea == lastSafeArea) {
+            if (!everyDpChange) return false
+            if (floor(widthDp + 0.5f).toInt() == lastWidthDp && floor(heightDp + 0.5f).toInt() == lastHeightDp) return false
+        }
+        if (everyDpChange) {
+            lastWidthDp = floor(widthDp + 0.5f).toInt()
+            lastHeightDp = floor(heightDp + 0.5f).toInt()
+        }
         lastClass = sizeClass
         lastHeightClass = heightClass
         lastSafeArea = safeArea

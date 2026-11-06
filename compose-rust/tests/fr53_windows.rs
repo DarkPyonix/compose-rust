@@ -836,3 +836,108 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
         );
     }
 }
+
+#[composable]
+fn ReportingWindow() {
+    Window(|| {}).report_size(true).content(|| Nothing());
+}
+
+/// A window that opts in writes `report_size` as a boolean property on its node.
+#[test]
+fn fr20_8_window_report_size_writes_the_property() {
+    let mut host =
+        ComposeHost::with_theme(ReportingWindow, Theme::unified(DesignSystem::Material3))
+            .with_window(several_windows());
+    let batch = host.rebuild().unwrap().to_vec();
+    let windows = window_ids(&batch);
+    assert_eq!(windows.len(), 1);
+    let written = decode_batch(&batch).unwrap().into_iter().any(|mutation| {
+        matches!(
+            mutation,
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::ReportSize,
+                value: PropertyValue::Bool(true),
+            } if node_id == windows[0]
+        )
+    });
+    assert!(written, "the window node carries report_size = true");
+    // The record itself: the property key 127 and a boolean true, as they are on the wire.
+    assert_eq!(
+        raw_set_props(&batch, windows[0])
+            .iter()
+            .filter(|(key, ..)| *key == 127)
+            .collect::<Vec<_>>(),
+        vec![&(127, VALUE_KIND_BOOL, 1)],
+        "report_size is written once, as key 127 with boolean value 1"
+    );
+}
+
+#[composable]
+fn TogglingWindow() {
+    let on = remember(|| mutable_state_of(true));
+    let toggle = on.clone();
+    let window = Window(|| {});
+    let window = if on.get() {
+        window.report_size(true)
+    } else {
+        window
+    };
+    window.content(move || {
+        let toggle = toggle.clone();
+        Button("toggle").on_click(move || toggle.update(|on| *on = !*on));
+    });
+}
+
+/// A window that stops saying `report_size` has the property taken away, so the Renderer
+/// goes back to the default of reporting class changes only.
+#[test]
+fn fr20_8_window_report_size_removed_writes_no_property() {
+    let mut host = ComposeHost::with_theme(TogglingWindow, Theme::unified(DesignSystem::Material3))
+        .with_window(several_windows());
+    let mut tree = Tree::default();
+    let first = host.rebuild().unwrap().to_vec();
+    let window = window_ids(&first)[0];
+    assert!(
+        raw_set_props(&first, window).contains(&(127, VALUE_KIND_BOOL, 1)),
+        "the first batch sets report_size"
+    );
+    tree.apply(&first);
+
+    let (node_id, handler_id) = tree.find("Button", Some("toggle"), 0, PropertyKind::OnClick);
+    let (batch, _) = host
+        .dispatch(event(node_id, handler_id, EventPayload::Clicked))
+        .expect("the click dispatches");
+    let after = raw_set_props(batch, window);
+    assert!(
+        after.contains(&(127, VALUE_KIND_NONE, 0)),
+        "the property is unset on the wire, got {after:?}"
+    );
+    assert!(
+        !after.contains(&(127, VALUE_KIND_BOOL, 1)),
+        "no boolean report_size is written again"
+    );
+}
+
+const VALUE_KIND_NONE: u16 = 0;
+const VALUE_KIND_BOOL: u16 = 2;
+
+/// The `SetProp` records of one node as `(property key, value kind, value)`, read straight
+/// from the encoded bytes: a 12 byte envelope, then records of tag, length, node, key,
+/// value kind and a 64 bit value, all little endian.
+fn raw_set_props(batch: &[u8], node: u32) -> Vec<(u16, u16, u64)> {
+    let u16_at = |at: usize| u16::from_le_bytes(batch[at..at + 2].try_into().unwrap());
+    let u32_at = |at: usize| u32::from_le_bytes(batch[at..at + 4].try_into().unwrap());
+    let end = u32_at(4) as usize;
+    let mut found = Vec::new();
+    let mut at = 12;
+    while at < end {
+        let (tag, len) = (u16_at(at), usize::from(u16_at(at + 2)));
+        if tag == 2 && u32_at(at + 4) == node {
+            let value = u64::from_le_bytes(batch[at + 12..at + 20].try_into().unwrap());
+            found.push((u16_at(at + 8), u16_at(at + 10), value));
+        }
+        at += len;
+    }
+    found
+}
