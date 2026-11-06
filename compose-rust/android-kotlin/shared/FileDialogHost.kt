@@ -56,8 +56,8 @@ data class FileDialogSpec(
 
 /**
  * One path a dialog returned. A platform that hands over text passes [Text]; one whose paths
- * are bytes (a Linux file system does not promise UTF-8) passes [Bytes], and the ones that
- * are not UTF-8 are dropped before the Host sees anything.
+ * are bytes (a Linux file system does not promise UTF-8) passes [Bytes]. One that is not UTF-8
+ * makes the whole choice unavailable.
  */
 sealed interface FileDialogPath {
     class Text(val value: String) : FileDialogPath
@@ -309,9 +309,9 @@ class FileDialogCenter(
     /**
      * What the Host is told about an outcome.
      *
-     * Paths that are not well formed text are dropped and the rest go on. When a choice was
-     * made and none is left, it is unavailable and not a cancel: the user picked something,
-     * so a cancel would be false. A choice with too many paths, or too many bytes of them, is
+     * A path that is not well formed text makes the whole choice unavailable: the other paths
+     * are not sent either, because the application could not tell that the list is shorter
+     * than what the user picked, and a cancel would be false. A choice with too many paths, or too many bytes of them, is
      * unavailable too, never a shorter list: the application would not know it was short.
      */
     private fun judge(outcome: FileDialogOutcome): Checked = when (outcome) {
@@ -321,12 +321,13 @@ class FileDialogCenter(
             outcome.paths.isEmpty() -> Checked.Ended(FileDialogStatus.Cancelled)
             outcome.paths.size > FileDialogLimits.MAX_PATHS -> Checked.Ended(FileDialogStatus.Unavailable)
             else -> {
-                val kept = outcome.paths.mapNotNull { wellFormedPath(it) }
-                val bytes = kept.sumOf { it.encodeToByteArray().size.toLong() + 1L }
+                val checked = outcome.paths.map { wellFormedPath(it) }
+                val texts = checked.filterNotNull()
                 when {
-                    kept.isEmpty() -> Checked.Ended(FileDialogStatus.Unavailable)
-                    bytes > maxPayloadBytes.toLong() -> Checked.Ended(FileDialogStatus.Unavailable)
-                    else -> Checked.Paths(kept.joinToString("\u0000"), outcome.filter)
+                    texts.size != checked.size -> Checked.Ended(FileDialogStatus.Unavailable)
+                    texts.sumOf { it.encodeToByteArray().size.toLong() + 1L } > maxPayloadBytes.toLong() ->
+                        Checked.Ended(FileDialogStatus.Unavailable)
+                    else -> Checked.Paths(texts.joinToString("\u0000"), outcome.filter)
                 }
             }
         }
@@ -341,7 +342,8 @@ class FileDialogCenter(
          */
         fun normalize(mutation: Mutation.ShowFileDialog): FileDialogSpec {
             val folders = mutation.kind == FileDialogKind.OpenFolder || mutation.kind == FileDialogKind.OpenFolders
-            val filters = if (folders) emptyList() else parseFilters(mutation.filters)
+            val parsed = if (folders) emptyList() else parseFilters(mutation.filters)
+            val filters = parsed.map { it.second }
             val name = if (mutation.kind == FileDialogKind.Save) {
                 mutation.name.substringAfterLast('/').substringAfterLast('\\')
             } else {
@@ -355,24 +357,32 @@ class FileDialogCenter(
                 directory = mutation.directory,
                 name = name,
                 filters = filters,
-                defaultFilter = mutation.defaultFilter.takeIf { it in filters.indices } ?: 0,
+                // The default is a position in the list the Host sent, so it follows its filter
+                // when an earlier one was dropped.
+                defaultFilter = parsed.indexOfFirst { it.first == mutation.defaultFilter }.takeIf { it >= 0 } ?: 0,
             )
         }
 
-        private fun parseFilters(encoded: String): List<FileDialogFilter> {
+        private fun parseFilters(encoded: String): List<Pair<Int, FileDialogFilter>> {
             if (encoded.isEmpty()) return emptyList()
             // Label, extensions, label, extensions. A label with nothing after it lets every
             // file through, like one with no extensions.
             val parts = encoded.split('\u0000')
-            val filters = ArrayList<FileDialogFilter>()
+            val filters = ArrayList<Pair<Int, FileDialogFilter>>()
             var index = 0
-            while (index < parts.size && filters.size < FileDialogLimits.MAX_FILTERS) {
-                val extensions = (parts.getOrNull(index + 1) ?: "")
-                    .split(',')
+            var position = 0
+            while (index < parts.size && position < FileDialogLimits.MAX_FILTERS) {
+                val named = (parts.getOrNull(index + 1) ?: "").split(',').filter { it.isNotBlank() }
+                val extensions = named
                     .map { it.trim().removePrefix("*.").removePrefix(".").lowercase() }
                     .filter { it.isNotEmpty() }
                     .take(FileDialogLimits.MAX_EXTENSIONS)
-                filters += FileDialogFilter(parts[index], extensions)
+                // A filter that names extensions and keeps none of them (a lone ".") would
+                // otherwise mean every file, the opposite of what it asked for.
+                if (named.isEmpty() || extensions.isNotEmpty()) {
+                    filters += position to FileDialogFilter(parts[index], extensions)
+                }
+                position++
                 index += 2
             }
             return filters
