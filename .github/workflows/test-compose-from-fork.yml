@@ -166,7 +166,8 @@ jobs:
             caches/build-cache-1
 
       - name: Cache Kotlin/Native for the Compose build
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/scripts/build-compose.sh') }}
@@ -174,7 +175,8 @@ jobs:
             konan-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache the Kotlin toolchain the renderer builds with
-        uses: actions/cache@v4
+        id: cache-2
+        uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.toolchain_cache }}
           key: kotlin-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
@@ -323,3 +325,17 @@ jobs:
         # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
           echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
+
+      - name: Save Kotlin/Native for the Compose build (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.konan
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
+
+      - name: Save the Kotlin toolchain the renderer builds with (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ matrix.toolchain_cache }}
+          key: ${{ steps.cache-2.outputs.cache-primary-key }}

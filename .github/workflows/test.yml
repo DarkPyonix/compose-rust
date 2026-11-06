@@ -120,7 +120,8 @@ jobs:
           cargo --version
 
       - name: Cache cargo registry and build artifacts
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry/index
@@ -163,6 +164,17 @@ jobs:
         env:
           DXC_SKIP_KOTLIN: '1'
         run: ./scripts/check.sh
+
+      - name: Save cargo registry and build artifacts (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
 
   generated:
     # The generated files, regenerated from this tree's schema and compared with what is
@@ -259,9 +271,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache the Kotlin toolchain, konan and Maven dependencies
+        id: cache-2
         # Keyed on the platform as well as the inputs, so each job carries only what it
         # actually downloads instead of every job restoring every toolchain.
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
@@ -293,6 +306,17 @@ jobs:
         if: matrix.test
         working-directory: renderer
         run: ./kotlin test -p ${{ matrix.platform }}
+
+      - name: Save the Kotlin toolchain, konan and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.cache/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: ${{ steps.cache-2.outputs.cache-primary-key }}
 
   shell:
     needs: changed
