@@ -1,23 +1,23 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "2293438994272253525",
+  "schemaHashUnsigned": "14683652859950014766",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 103,
+    "recordCount": 104,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
       { "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {\n    let 한 = \"😀\";\n}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt"],
     "assets": [{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }]
   },
   "events": {
     "file": "events.bin",
-    "description": "Thirty-three independently decodable event records concatenated in schema order",
+    "description": "Thirty-four independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -51,7 +51,8 @@
       { "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 },
       { "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 },
       { "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" },
-      { "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }
+      { "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 },
+      { "type": "FileDialogResult", "offset": 952, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }
     ]
   }
 }

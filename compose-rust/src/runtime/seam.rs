@@ -162,6 +162,21 @@ impl Batch {
         }
     }
 
+    /// Writes one file dialog request. Like a notification it names no node: the dialog is
+    /// not in the tree, and `window` only says which window it is modal for.
+    pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {
+        self.write(Mutation::ShowFileDialog {
+            request: request.id,
+            window: request.window,
+            kind: request.kind,
+            default_filter: request.default_filter,
+            title: &request.title,
+            directory: &request.directory,
+            name: &request.name,
+            filters: &request.filters,
+        });
+    }
+
     /// Writes one edit the application asked of a code editor: replace `range` of the
     /// document as it stood at `base_version` with `text`. The Renderer moves it past what
     /// the reader typed since, or refuses it and reports `request_id` back.

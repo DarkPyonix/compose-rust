@@ -33,6 +33,7 @@ pub mod codegen;
 pub mod design;
 pub mod drawing;
 mod extensions;
+pub mod file_dialog;
 pub mod fonts;
 pub mod highlight;
 pub mod input;
@@ -70,6 +71,7 @@ pub use code::{
 };
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
+pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};

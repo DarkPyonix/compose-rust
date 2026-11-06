@@ -116,6 +116,10 @@ enum class WindowMode { Single, Windows }
 
 enum class LastWindowClosed { Exit, KeepRunning }
 
+enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
+
+enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
+
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
  * size, weight and font are its own. Present and zero; an absent property is the
@@ -1249,6 +1253,23 @@ sealed interface Mutation {
 
     /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
     data class RequestFocus(val nodeId: Int) : Mutation
+
+    /**
+     * Asks the platform for a file dialog on the window [window] (0 is the implicit root
+     * window). Answered exactly once, later, by a `FileDialogResult` event carrying
+     * [request]. [filters] is one string: a label and its comma-joined extensions as a pair,
+     * pairs joined by NUL.
+     */
+    data class ShowFileDialog(
+        val request: Int,
+        val window: Int,
+        val kind: FileDialogKind,
+        val defaultFilter: Int,
+        val title: String,
+        val directory: String,
+        val name: String,
+        val filters: String,
+    ) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1295,13 +1316,14 @@ sealed interface HostEvent {
     data class WindowClosed(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class WindowRequested(override val nodeId: Int, override val handlerId: Long, val request: Int, val key: String) : HostEvent
     data class ApplicationReopen(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class FileDialogResult(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 2293438994272253525L
+    const val SCHEMA_HASH: Long = -3763091213759536850L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1330,6 +1352,7 @@ object Protocol {
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
     private const val TAG_REQUEST_FOCUS = 25
+    private const val TAG_SHOW_FILE_DIALOG = 26
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1482,6 +1505,19 @@ object Protocol {
                     TAG_REQUEST_FOCUS -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SHOW_FILE_DIALOG -> {
+                        requireRecordLength(length, 48, offset)
+                        Mutation.ShowFileDialog(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            fileDialogKind(readU16(batch, base, available, offset + 12), offset + 12),
+                            readU16(batch, base, available, offset + 14),
+                            readString(batch, base, available, offset + 16),
+                            readString(batch, base, available, offset + 24),
+                            readString(batch, base, available, offset + 32),
+                            readString(batch, base, available, offset + 40),
+                        )
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1756,6 +1792,7 @@ object Protocol {
                 is HostEvent.WindowClosed -> null
                 is HostEvent.WindowRequested -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ApplicationReopen -> null
+                is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1798,6 +1835,7 @@ object Protocol {
                 is HostEvent.WindowClosed -> 16
                 is HostEvent.WindowRequested -> 28
                 is HostEvent.ApplicationReopen -> 16
+                is HostEvent.FileDialogResult -> 36
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1844,6 +1882,7 @@ object Protocol {
                 is HostEvent.WindowClosed -> 45
                 is HostEvent.WindowRequested -> 46
                 is HostEvent.ApplicationReopen -> 47
+                is HostEvent.FileDialogResult -> 50
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2011,6 +2050,12 @@ object Protocol {
                     writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.ApplicationReopen -> Unit
+                is HostEvent.FileDialogResult -> {
+                    out.putInt(event.request)
+                    out.putInt(fileDialogStatusTag(event.status))
+                    out.putInt(event.filter)
+                    writeStringReference(out, recordLength, text!!)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2235,6 +2280,12 @@ object Protocol {
         NotificationPermission.Granted -> 2
         NotificationPermission.Denied -> 3
         NotificationPermission.Unsupported -> 4
+    }
+
+    private fun fileDialogStatusTag(status: FileDialogStatus): Int = when (status) {
+        FileDialogStatus.Chosen -> 1
+        FileDialogStatus.Cancelled -> 2
+        FileDialogStatus.Unavailable -> 3
     }
 
     private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
@@ -2815,6 +2866,22 @@ object Protocol {
         0 -> LastWindowClosed.Exit
         1 -> LastWindowClosed.KeepRunning
         else -> throw ProtocolException("unknown LastWindowClosed tag $tag", offset)
+    }
+
+    private fun fileDialogKind(tag: Int, offset: Int): FileDialogKind = when (tag) {
+        1 -> FileDialogKind.OpenFile
+        2 -> FileDialogKind.OpenFiles
+        3 -> FileDialogKind.OpenFolder
+        4 -> FileDialogKind.OpenFolders
+        5 -> FileDialogKind.Save
+        else -> throw ProtocolException("unknown FileDialogKind tag $tag", offset)
+    }
+
+    private fun fileDialogStatus(tag: Int, offset: Int): FileDialogStatus = when (tag) {
+        1 -> FileDialogStatus.Chosen
+        2 -> FileDialogStatus.Cancelled
+        3 -> FileDialogStatus.Unavailable
+        else -> throw ProtocolException("unknown FileDialogStatus tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

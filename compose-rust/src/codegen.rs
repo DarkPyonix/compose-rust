@@ -465,6 +465,23 @@ sealed interface Mutation {
 
     /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
     data class RequestFocus(val nodeId: Int) : Mutation
+
+    /**
+     * Asks the platform for a file dialog on the window [window] (0 is the implicit root
+     * window). Answered exactly once, later, by a `FileDialogResult` event carrying
+     * [request]. [filters] is one string: a label and its comma-joined extensions as a pair,
+     * pairs joined by NUL.
+     */
+    data class ShowFileDialog(
+        val request: Int,
+        val window: Int,
+        val kind: FileDialogKind,
+        val defaultFilter: Int,
+        val title: String,
+        val directory: String,
+        val name: String,
+        val filters: String,
+    ) : Mutation
 }
 
 "#,
@@ -546,6 +563,11 @@ sealed interface Mutation {
                 ", val kind: Int, val window: Int, val x: kotlin.Float, val y: kotlin.Float",
             ),
             EventPayloadType::WindowRequest => output.push_str(", val request: Int, val key: String"),
+            // The filter is the position of the filter in use, or -1 (the wire's 0xFFFFFFFF)
+            // when there is none.
+            EventPayloadType::FileDialogResult => output.push_str(
+                ", val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String",
+            ),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -597,6 +619,7 @@ object Protocol {
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
     private const val TAG_REQUEST_FOCUS = 25
+    private const val TAG_SHOW_FILE_DIALOG = 26
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -749,6 +772,19 @@ object Protocol {
                     TAG_REQUEST_FOCUS -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SHOW_FILE_DIALOG -> {
+                        requireRecordLength(length, 48, offset)
+                        Mutation.ShowFileDialog(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            fileDialogKind(readU16(batch, base, available, offset + 12), offset + 12),
+                            readU16(batch, base, available, offset + 14),
+                            readString(batch, base, available, offset + 16),
+                            readString(batch, base, available, offset + 24),
+                            readString(batch, base, available, offset + 32),
+                            readString(batch, base, available, offset + 40),
+                        )
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1011,6 +1047,14 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::FileDialogResult => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.paths.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::None => {
                 writeln!(
                     output,
@@ -1102,6 +1146,8 @@ object Protocol {
             | EventPayloadType::WindowDragOver => 32,
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::WindowRequest => 28,
+            // The request, the status and the filter, then the paths' reference.
+            EventPayloadType::FileDialogResult => 36,
         };
         writeln!(
             output,
@@ -1384,6 +1430,18 @@ object Protocol {
                 output.push_str("                    out.putFloat(event.y)\n");
                 output.push_str("                }\n");
             }
+            EventPayloadType::FileDialogResult => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str(
+                    "                    out.putInt(fileDialogStatusTag(event.status))\n",
+                );
+                output.push_str("                    out.putInt(event.filter)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
             EventPayloadType::WindowRequest => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.request)\n");
@@ -1541,6 +1599,19 @@ object Protocol {
         writeln!(
             output,
             "        NotificationPermission.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    // The dialog's status travels out too: the Renderer is the side that learns how it ended.
+    output.push_str(
+        "    private fun fileDialogStatusTag(status: FileDialogStatus): Int = when (status) {\n",
+    );
+    for variant in crate::schema::FILE_DIALOG_STATUS_SCHEMA {
+        writeln!(
+            output,
+            "        FileDialogStatus.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -2995,6 +3066,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             modifier: Modifier::MatchParentSize,
         },
         Mutation::RequestFocus { node_id: 1 },
+        // A dialog on the implicit root window, with every string filled and a list of two
+        // filters in the one NUL separated string.
+        Mutation::ShowFileDialog {
+            request: 7,
+            window: 0,
+            kind: crate::schema::FileDialogKind::OpenFiles,
+            default_filter: 1,
+            title: "파일 고르기",
+            directory: "/home/한글",
+            name: "보고서.txt",
+            filters: "이미지\0png,jpg\0문서\0pdf,txt",
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3267,6 +3350,16 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 0,
             payload: EventPayload::ApplicationReopen,
         },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::FileDialogResult {
+                request: 7,
+                status: crate::schema::FileDialogStatus::Chosen,
+                filter: 1,
+                paths: "/Users/한글/문서.txt\0/tmp/a b.png",
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3286,19 +3379,19 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 103,
+    "recordCount": 104,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-three independently decodable event records concatenated in schema order",
+    "description": "Thirty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3332,7 +3425,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 }},
       {{ "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 }},
       {{ "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }}
+      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "FileDialogResult", "offset": 952, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
     ]
   }}
 }}
