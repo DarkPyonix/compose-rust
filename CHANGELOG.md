@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Change-marker bars in the code editor gutter
+
+A `Bar` gutter decoration whose colour is `DiffAdded`, `DiffModified` or `DiffRemoved` is drawn as a 4dp change marker right of the line numbers, with a 12dp gap before the code. One record per line, no wire change. When several share a line, `DiffRemoved` wins over `DiffModified` over `DiffAdded`. `Dot`, `Bar` and `Glyph` with other colours are unchanged, and an editor without change bars keeps its layout. The editor's state description names the changed lines for assistive technology.
+
+### A `WindowDrag(false)` child keeps its press out of a drag region on macOS
+
+A press that starts on a node with `WindowDrag(false)` inside a `WindowDrag(true)` region no longer moves the window.
+
 ## v0.0.6
 
 ### Focus ring only for keyboard focus
