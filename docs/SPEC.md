@@ -1554,9 +1554,9 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 
 수용 기준:
 
-1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(테스트 이름 fr20_8_opted_in_window_reports_dp_change_inside_a_class, 구현과 함께 들어옵니다).
-2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(테스트 이름 fr20_8_default_window_still_reports_only_class_change, 구현과 함께 들어옵니다).
-3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(테스트 이름 fr20_8_opted_in_window_ignores_sub_dp_jitter, 구현과 함께 들어옵니다).
+1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
+2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
+3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
 
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
