@@ -200,6 +200,71 @@ macro_rules! click_handler {
     };
 }
 
+/// Optional focus and key handlers on a node. A node that registers none of these
+/// emits no focus or key listener property on the wire.
+#[derive(Default)]
+struct FocusAndKeyHandlers {
+    on_focus_gained: Option<Box<dyn FnMut()>>,
+    on_focus_lost: Option<Box<dyn FnMut()>>,
+    on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+}
+
+fn focus_and_key_input(
+    mut handlers: FocusAndKeyHandlers,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handlers.on_focus_gained.take() {
+        listeners.push(("onfocusgained", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_focus_lost.take() {
+        listeners.push(("onfocuslost", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_key_down.take() {
+        listeners.push((
+            "onkeydown",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+    if let Some(handler) = handlers.on_key_up.take() {
+        listeners.push((
+            "onkeyup",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+}
+
+macro_rules! focus_and_key_handlers {
+    ($name:ident) => {
+        impl $name {
+            /// Runs when this node or a descendant inside it gains keyboard focus.
+            pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_gained = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Runs when this node and its descendants lose keyboard focus.
+            pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_lost = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key pressed while this node or a descendant inside it holds focus;
+            /// calling `consume` on the event keeps the Renderer from acting on it.
+            pub fn on_key_down(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_down = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key released while this node or a descendant inside it holds focus.
+            pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_up = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
 /// Composes the description when the statement it was written in ends.
 macro_rules! composed_on_drop {
     ($name:ident $(<$lifetime:lifetime>)?) => {
@@ -271,6 +336,7 @@ macro_rules! linear {
             linear: Linear,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             tear_off: Option<TearOff>,
             done: bool,
         }
@@ -282,6 +348,7 @@ macro_rules! linear {
                 linear: Linear::default(),
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 tear_off: None,
                 done: false,
             }
@@ -329,6 +396,7 @@ macro_rules! linear {
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 tear_off_input(tear_off, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
@@ -347,6 +415,7 @@ macro_rules! linear {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
         tear_off!($name);
     };
 }
@@ -377,6 +446,7 @@ pub struct ComposeBox {
     alignment: Option<Alignment>,
     pointer: Option<PointerSubscription>,
     on_click: Option<Box<dyn FnMut()>>,
+    focus_and_keys: FocusAndKeyHandlers,
     tear_off: Option<TearOff>,
     done: bool,
 }
@@ -388,6 +458,7 @@ pub fn Box() -> ComposeBox {
         alignment: None,
         pointer: None,
         on_click: None,
+        focus_and_keys: FocusAndKeyHandlers::default(),
         tear_off: None,
         done: false,
     }
@@ -408,6 +479,7 @@ impl ComposeBox {
         let mut subscription = Attrs::new();
         pointer_input(pointer, &mut subscription, &mut listeners);
         click_input(self.on_click.take(), &mut listeners);
+        focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
         tear_off_input(tear_off, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Box"),
@@ -426,6 +498,7 @@ impl ComposeBox {
 container!(ComposeBox);
 pointer_subscription!(ComposeBox);
 click_handler!(ComposeBox);
+focus_and_key_handlers!(ComposeBox);
 tear_off!(ComposeBox);
 
 /// A plain container with the standard Modifiers and nothing of its own.
@@ -436,6 +509,7 @@ macro_rules! plain_container {
             modifier: Modifier,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             done: bool,
         }
 
@@ -445,6 +519,7 @@ macro_rules! plain_container {
                 modifier: Modifier::new(),
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 done: false,
             }
         }
@@ -457,6 +532,7 @@ macro_rules! plain_container {
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -473,6 +549,7 @@ macro_rules! plain_container {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
     };
 }
 
@@ -575,6 +652,7 @@ macro_rules! scroll_container {
             scroll_state: Option<ScrollState>,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             done: bool,
         }
 
@@ -585,6 +663,7 @@ macro_rules! scroll_container {
                 scroll_state: None,
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 done: false,
             }
         }
@@ -606,6 +685,7 @@ macro_rules! scroll_container {
                 scroll_state_input(scroll_state, &mut subscription, &mut listeners);
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -622,6 +702,7 @@ macro_rules! scroll_container {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
     };
 }
 
@@ -871,8 +952,10 @@ pub struct TextFieldScope {
     font: FontRefs,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
+    on_focus_gained: Option<Box<dyn FnMut()>>,
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
     done: bool,
 }
@@ -891,8 +974,10 @@ pub fn TextField() -> TextFieldScope {
         font: FontRefs::default(),
         on_value_change: None,
         on_submit: None,
+        on_focus_gained: None,
         on_focus_lost: None,
         on_key_down: None,
+        on_key_up: None,
         on_composition_change: None,
         done: false,
     }
@@ -945,6 +1030,11 @@ impl TextFieldScope {
         self
     }
 
+    pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_focus_gained = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_focus_lost = Some(std::boxed::Box::new(handler));
         self
@@ -954,6 +1044,12 @@ impl TextFieldScope {
     /// field from acting on it.
     pub fn on_key_down(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
         self.on_key_down = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sees each key released while the field holds focus.
+    pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+        self.on_key_up = Some(std::boxed::Box::new(handler));
         self
     }
 
@@ -979,6 +1075,15 @@ impl TextFieldScope {
             ("onfocuslost", unit(self.on_focus_lost.take())),
             ("onkeydown", key_down),
         ];
+        if let Some(handler) = self.on_focus_gained.take() {
+            listeners.push(("onfocusgained", unit(Some(handler))));
+        }
+        if let Some(handler) = self.on_key_up.take() {
+            listeners.push((
+                "onkeyup",
+                EventCallback::Key(Rc::new(RefCell::new(handler))),
+            ));
+        }
         if let Some(mut handler) = self.on_composition_change.take() {
             listeners.push((
                 "oncompositionchange",

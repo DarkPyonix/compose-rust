@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, AccessibleName, ReportSize, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, ReportSize, Progress }
 
 enum class Key { Enter }
 
@@ -1303,13 +1303,15 @@ sealed interface HostEvent {
     data class WindowClosed(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class WindowRequested(override val nodeId: Int, override val handlerId: Long, val request: Int, val key: String) : HostEvent
     data class ApplicationReopen(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class FocusGained(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class KeyUp(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -4799113909004651214L
+    const val SCHEMA_HASH: Long = 4769626951900221403L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1766,6 +1768,8 @@ object Protocol {
                 is HostEvent.WindowClosed -> null
                 is HostEvent.WindowRequested -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ApplicationReopen -> null
+                is HostEvent.FocusGained -> null
+                is HostEvent.KeyUp -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1808,6 +1812,8 @@ object Protocol {
                 is HostEvent.WindowClosed -> 16
                 is HostEvent.WindowRequested -> 28
                 is HostEvent.ApplicationReopen -> 16
+                is HostEvent.FocusGained -> 16
+                is HostEvent.KeyUp -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1854,6 +1860,8 @@ object Protocol {
                 is HostEvent.WindowClosed -> 45
                 is HostEvent.WindowRequested -> 46
                 is HostEvent.ApplicationReopen -> 47
+                is HostEvent.FocusGained -> 48
+                is HostEvent.KeyUp -> 49
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2021,6 +2029,17 @@ object Protocol {
                     writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.ApplicationReopen -> Unit
+                is HostEvent.FocusGained -> Unit
+                is HostEvent.KeyUp -> {
+                    out.putShort(keyTag(event.key).toShort())
+                    var modifiers = 0
+                    if (event.shiftKey) modifiers = modifiers or 0x01
+                    if (event.ctrlKey) modifiers = modifiers or 0x02
+                    if (event.altKey) modifiers = modifiers or 0x04
+                    if (event.metaKey) modifiers = modifiers or 0x08
+                    out.put(modifiers.toByte())
+                    out.put(0.toByte())
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2204,6 +2223,8 @@ object Protocol {
         166 -> PropertyKind.OnWindowClosed
         167 -> PropertyKind.OnWindowDragOver
         168 -> PropertyKind.TearOffKey
+        117 -> PropertyKind.OnFocusGained
+        118 -> PropertyKind.OnKeyUp
         119 -> PropertyKind.AccessibleName
         127 -> PropertyKind.ReportSize
         27 -> PropertyKind.Progress

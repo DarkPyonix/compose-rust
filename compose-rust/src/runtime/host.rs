@@ -323,7 +323,10 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
     match (callback, payload) {
         (
             EventCallback::Unit(handler),
-            EventPayload::Clicked | EventPayload::FocusLost | EventPayload::FilesEntered,
+            EventPayload::Clicked
+            | EventPayload::FocusLost
+            | EventPayload::FocusGained
+            | EventPayload::FilesEntered,
         ) => (*handler.borrow_mut())(),
         (EventCallback::Text(handler), EventPayload::TextChanged(text))
         | (EventCallback::Text(handler), EventPayload::TextSubmitted(text)) => {
@@ -332,6 +335,13 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (
             EventCallback::Key(handler),
             EventPayload::KeyDown {
+                key,
+                shift_key,
+                ctrl_key,
+                alt_key,
+                meta_key,
+            }
+            | EventPayload::KeyUp {
                 key,
                 shift_key,
                 ctrl_key,
