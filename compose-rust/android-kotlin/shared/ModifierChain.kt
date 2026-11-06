@@ -176,6 +176,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
             is ProtocolModifier.PressFeedback -> chain
+            // Applied with the node's accessible name in one place, `accessibility`.
+            is ProtocolModifier.Semantics -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
             is ProtocolModifier.MatchParentSize -> chain

@@ -8,6 +8,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
@@ -40,6 +41,7 @@ import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.FrameRequests
@@ -439,11 +441,17 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    // The height class is state too, so that a window which only crosses a height boundary
+    // (a phone-width window that is tall) recomposes and reaches the reporter below. Read
+    // only through the effect, the size is not observed, and a window whose width class did
+    // not change would never be reported.
+    var heightClass by remember(host) { mutableStateOf(WindowHeightClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
+            heightClass = windowHeightClassOf(size.height.toDp().value)
             measuredSize = size
         }
     }
@@ -555,9 +563,25 @@ private fun ComposeRustTree(
             captionStyle.side == CaptionSide.Start
         WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
     }
+    // Read through a derived state so a recomposition does not repeat the map lookup (which
+    // boxes the node id) and the read only runs again when the property itself changes.
+    // The implicit root window (id 0) opts in through its SetWindow settings and any other
+    // window through its node property; the table answers for both.
+    val reportEveryDp = remember(host, windowNodeId) {
+        derivedStateOf { host.table.reportSizeFor(windowNodeId) }
+    }.value
+    // A window that asked for every whole-dp change reads the size here, in the composition,
+    // so a new size recomposes this and reaches the effect. Any other window keeps reading it
+    // only inside the effect, as before, so a resize inside a size class costs it no
+    // recomposition.
+    val observedSize = if (reportEveryDp) measuredSize else null
+    // Subscribes this scope to the height class: reading the class here is what makes a
+    // height-only class change recompose, and so run the effect below with the new size.
+    @Suppress("UNUSED_VARIABLE")
+    val observedHeightClass = heightClass
     SideEffect {
-        measuredSize?.let { size ->
-            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea) }
+        (observedSize ?: measuredSize)?.let { size ->
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
     // How much room the buttons take and at which end. The platform's own are at the

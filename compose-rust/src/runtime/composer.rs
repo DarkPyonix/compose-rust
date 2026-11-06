@@ -119,6 +119,8 @@ pub(crate) enum Observer {
 pub(crate) enum OwnedAttr {
     None,
     Text(String),
+    /// A text kept for the life of the program, such as an interned accessible name.
+    Label(&'static str),
     Float(f64),
     Int(i64),
     Bool(bool),
@@ -134,6 +136,7 @@ impl OwnedAttr {
         match self {
             Self::None => AttrValue::None,
             Self::Text(text) => AttrValue::Text(text),
+            Self::Label(text) => AttrValue::Text(text),
             Self::Float(value) => AttrValue::Float(*value),
             Self::Int(value) => AttrValue::Int(*value),
             Self::Bool(value) => AttrValue::Bool(*value),
