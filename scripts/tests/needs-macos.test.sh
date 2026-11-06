@@ -10,7 +10,7 @@ check() { # expected description files...
     local got; got="$(printf '%s\n' "$@" | "$script")"
     if [[ "$got" == "macos=$expected" ]]; then echo "ok   - $what"; else echo "FAIL - $what: $got"; failures=$((failures + 1)); fi
 }
-check false "docs only" docs/SPEC.md docs/guide/index.md
+check false "docs only" docs/notes/plan.txt docs/guide/index.md
 check false "root markdown and licence" README.md CHANGELOG.md PROJECT.md LICENSE
 check false "workflows no shell test reads" .github/workflows/pages.yml .github/workflows/windows-static.yml
 check true "a workflow the shell tests read" .github/workflows/test-native-renderer.yml
@@ -22,7 +22,7 @@ check true "test.yml itself" .github/workflows/test.yml
 check true "the reusable fork workflow" .github/workflows/fork-desktop-modules.yml
 check true "a CI script (the shell suite tests it on macOS)" .github/scripts/package-static-renderer.sh
 check true "Rust source" compose-rust/src/lib.rs
-check true "a docs change beside Rust source" docs/SPEC.md compose-rust/src/lib.rs
+check true "a docs change beside Rust source" docs/notes/plan.txt compose-rust/src/lib.rs
 check true "the macOS renderer" renderer/macos/src/Main.kt
 check true "a root file nobody listed" Cargo.toml
 check true "a script under scripts/" scripts/check.sh
