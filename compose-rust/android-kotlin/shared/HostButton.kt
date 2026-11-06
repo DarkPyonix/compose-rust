@@ -209,7 +209,14 @@ internal fun HostButton(
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
     val named = decorated
-        .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
+        .let {
+            // The Host's own name for the button is read instead of the icon's meaning.
+            if (icon != null && text.isEmpty() && node.text(PropertyKind.AccessibleName).isEmpty()) {
+                it.semantics { contentDescription = icon.name }
+            } else {
+                it
+            }
+        }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
