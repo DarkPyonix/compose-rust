@@ -3908,6 +3908,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 - **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
 - **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 경로에 UTF-8이 아닌 바이트가 있으면(Linux에서만 가능) 그 경로를 버리고 나머지를 전달하며(FR-27과 같은 규칙), 하나도 남지 않으면 `Cancelled`가 아니라 `Unavailable`입니다. 사용자가 고른 것이 있었는데 취소로 보이면 거짓이기 때문입니다.
 - **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
+- `Chosen`인데 경로가 하나도 없으면 Renderer는 `Cancelled`를 보내고, Host는 경로 없는 `Chosen`을 받으면 `Unavailable`로 다룹니다. 앱이 빈 목록을 선택으로 처리하지 않게 하려는 것입니다.
 - `filter`: 사용자가 마지막으로 선택한 필터의 위치입니다. 필터를 보내지 않았거나 `Chosen`이 아니면 `0xFFFF_FFFF`입니다.
 - **같은 창에 요청이 겹치면 Renderer가 받은 순서대로 하나씩 띄웁니다.** 플랫폼의 모달 대화상자(macOS의 시트가 대표적입니다)는 창마다 하나뿐이기 때문입니다. 앞 요청이 끝나면 다음이 뜹니다. 다른 창의 요청은 서로 기다리지 않습니다. 이 순서는 Renderer 안의 상태이고 Host와 Renderer 사이의 큐가 아닙니다(PR-1).
 
@@ -3925,7 +3926,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 #### 72.5 와이어
 
-경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 이 항목이 정하지 않습니다. 스키마의 태그 표는 pW가 소유하고 열린 변경이 이미 번호를 쓰고 있으므로, **마지막에 비어 있는 다음 번호**를 와이어 설계를 보고할 때 확정하고 이 절에 적습니다. 정해지는 것은 다음입니다.
+경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 스키마의 태그 표를 가진 pW가 정했습니다. 명령 `ShowFileDialog`는 **26**(그때까지의 마지막 명령은 `RequestFocus`=25)이고, 이벤트 `FileDialogResult`는 **50**(마지막 이벤트 `ApplicationReopen`=47, 열린 변경이 48과 49를 씁니다)입니다. 정해진 것은 다음입니다.
 
 - 명령 하나 `ShowFileDialog`: 머리, `request`, `window`, `kind: u16`, `default_filter: u16`, 문자열 넷(`title`, `directory`, `name`, `filters`)입니다. `filters`는 한 문자열이고 `label`과 `extensions` 쌍을 NUL로 이어 붙입니다(`"이미지\0png,jpg\0문서\0pdf,txt"`). 목록을 나르는 두 번째 방법을 만들지 않습니다.
 - 이벤트 하나 `FileDialogResult`: 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `paths: (offset, len)`입니다. 지금 `EventPayloadType`에 없는 모양이라 하나를 더합니다.
