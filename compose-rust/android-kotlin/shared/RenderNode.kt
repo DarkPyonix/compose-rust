@@ -60,6 +60,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
+import dev.darkpyonix.composerust.ui.accessibility
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ToggleRole
@@ -200,6 +201,14 @@ fun RenderNode(
             ),
         )
         .testTag(nodeTestTag(nodeId))
+        .accessibility(
+            node,
+            dispatcher,
+            clickHandler
+                ?: (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+                    as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
+                ?: node.handler(PropertyKind.OnClick),
+        )
     // The TextField wires its own key handling, because it has an editor to intercept and a
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)

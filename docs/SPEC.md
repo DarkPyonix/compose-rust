@@ -3977,6 +3977,27 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 3. **마지막으로 쓴 폴더의 기억.** `directory`가 비었을 때 플랫폼이 기억하는 폴더를 쓰는데, 플랫폼마다 앱 단위인지 대화상자 단위인지 다릅니다. 앱이 기억을 정하고 싶다면 `directory`를 직접 넘깁니다.
 4. **모바일과 Web.** `UIDocumentPicker`, Storage Access Framework, 브라우저의 File System Access API는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)이라서 이 항목의 `paths`로는 표현할 수 없습니다. 별도 항목에서 정합니다.
 
+### FR-73 프로그램에서 클립보드에 글자 쓰기 (`Draft`, 이슈 #471)
+
+요청한 쪽: darkpyonix-ember(FR-T14, 채널 오너 화면의 초대 링크 '복사' 버튼). 지금 복사는 사용자가 끌어서 고른 글자를 Renderer가 클립보드에 직접 넣는 것(FR-33, FR-47)뿐이어서, 앱 코드가 "이 글자를 복사해 줘"라고 말할 길이 없습니다. 이 항목은 그 길을 더합니다. 읽기(붙여넣기를 프로그램이 읽는 것)는 범위 밖입니다.
+
+**FR-36, FR-72와 같은 모양입니다.** Host가 명령 레코드 하나로 요청하고, 플랫폼 클립보드를 부르는 것은 Renderer입니다. 경계에 함수가 늘지 않고(PR-2) 스키마의 명령 하나가 늘며, 스키마 해시가 움직입니다(추가 전용).
+
+- **명령 `SetClipboardText`(명령 태그 27)**: 페이로드는 문자열 하나(`text`)이고 `TextChanged`와 같은 길이 붙은 문자열 꼬리 규약을 씁니다(PR-4). 26은 FR-72의 `ShowFileDialog`입니다.
+- **Renderer**: Compose의 플랫폼 클립보드(Compose 기본 클립보드 API)에 `text`를 일반 글자로 넣습니다. 새 플랫폼 코드는 없습니다. 빈 문자열은 클립보드를 빈 글자로 바꿉니다.
+- **이벤트는 없습니다.** 요청 하나에 결과 이벤트를 만들지 않습니다. 클립보드를 쓸 수 없는 환경(헤드리스 등)에서는 조용히 아무 일도 하지 않으며 `ProtocolError`가 아닙니다. 쓰기가 성공했는지 알아야 하는 앱은 지금 없습니다. 필요해지면 FR-72처럼 요청 번호와 결과 이벤트를 더하는 일이 추가 전용으로 가능합니다.
+- **Host API**: `compose_rust::clipboard::set_text(&str)`. 이벤트 핸들러나 효과 안에서 부릅니다(다른 Host 호출과 같은 규칙입니다. 작업자 스레드에서 직접 부르지 않고, 신호를 통해 UI 쪽에서 부릅니다, PR-3). 호출한 프레임의 배치에 명령으로 실려 나갑니다.
+- **크기**: `text`는 64 KiB까지입니다. 넘으면 호출은 아무것도 보내지 않고 `Err`를 돌려줍니다. 초대 링크나 코드 조각이 쓰는 크기이며, 큰 데이터를 클립보드에 싣는 용도가 아닙니다.
+- **민감한 글자**: 클립보드는 다른 앱과 클립보드 기록 도구가 읽을 수 있습니다. 비밀번호, 토큰, 개인 키처럼 남에게 보이면 안 되는 값을 이 호출로 복사하지 않습니다. Renderer는 `text`를 로그에 남기지 않습니다(길이만 남길 수 있습니다). 비밀번호 칸의 값을 복사하게 만드는 길은 이 항목에 없습니다.
+
+수용 기준.
+1. `set_text("초대 링크")`가 명령 레코드 하나(태그 27)로 인코딩되고 Rust와 Kotlin이 같은 바이트로 왕복합니다(프로토콜 벡터)(시험 이름 fr73_set_clipboard_text_round_trips).
+2. Renderer가 명령을 받으면 플랫폼 클립보드 대역(가짜 클립보드)에 그 글자가 들어갑니다. 한글과 줄바꿈과 이모지가 그대로입니다(시험 이름 fr73_renderer_writes_the_text_to_the_clipboard).
+3. 빈 문자열은 클립보드를 빈 글자로 바꿉니다(시험 이름 fr73_empty_text_clears_the_clipboard).
+4. 64 KiB를 넘는 글자는 `Err`이고 배치에 아무것도 실리지 않습니다(시험 이름 fr73_oversized_text_is_refused_by_the_host).
+5. 클립보드를 쓸 수 없는 환경에서 명령은 아무 일도 하지 않고 프로세스는 계속 돕니다(시험 이름 fr73_unavailable_clipboard_is_silently_ignored).
+6. Renderer의 어느 로그 줄에도 `text`의 내용이 들어가지 않습니다(시험 이름 fr73_clipboard_text_is_never_logged).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.

@@ -82,6 +82,7 @@ interface ControlWidgets {
         onChange: ((Boolean) -> Unit)?,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook = ControlLook.None,
     )
 
     /**
@@ -97,6 +98,9 @@ interface ControlWidgets {
      * [named] colours the part that has been filled in and the thumb with it, where the
      * application said what those should look like. It is null in the ordinary case and
      * the design system answers instead, which is what an adaptive application wants.
+     *
+     * [look] holds the colours the application named for the two parts of the track and
+     * the thumb, each of which wins over [named] and over the design system where it is set.
      */
     @Composable
     fun Slider(
@@ -108,6 +112,7 @@ interface ControlWidgets {
         onChange: (Float) -> Unit,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook = ControlLook.None,
     )
 
     /**
@@ -152,6 +157,7 @@ internal object DrawnControlWidgets : ControlWidgets {
         onChange: ((Boolean) -> Unit)?,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
         val style = theme.rules.controls(theme).toggle(role)
         val motion = theme.rules.motion
@@ -163,7 +169,11 @@ internal object DrawnControlWidgets : ControlWidgets {
         // animates without a frame of it crossing the boundary.
         val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
         val container by animateColorAsState(
-            targetValue = if (checked) style.containerChecked else style.container,
+            targetValue = when {
+                role == ToggleRole.Switch && look.track != null -> look.track
+                checked -> look.container ?: style.containerChecked
+                else -> style.container
+            },
             animationSpec = tween(spec.durationMillis, easing = motion.easing),
         )
         val alpha = if (enabled) 1f else style.disabledAlpha
@@ -208,14 +218,19 @@ internal object DrawnControlWidgets : ControlWidgets {
         }
 
         when (role) {
-            ToggleRole.Checkbox -> Box(
-                clickable
-                    .size(style.size)
-                    .clip(style.shape)
-                    .background(container.copy(alpha = container.alpha * alpha), style.shape)
-                    .controlBorder(style.borderWidth, style.border.copy(alpha = alpha), style.shape)
-                    .drawBehind { drawTick(style.mark.copy(alpha = alpha), progress) },
-            )
+            ToggleRole.Checkbox -> {
+                val shape = look.shape ?: style.shape
+                // A box the application filled has no outline of its own to show.
+                val outline = if (checked && look.container != null) 0.dp else style.borderWidth
+                Box(
+                    clickable
+                        .size(look.width ?: style.size)
+                        .clip(shape)
+                        .background(container.copy(alpha = container.alpha * alpha), shape)
+                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
+                        .drawBehind { drawTick((look.check ?: style.mark).copy(alpha = alpha), progress) },
+                )
+            }
 
             ToggleRole.RadioButton -> Box(
                 clickable
@@ -231,27 +246,41 @@ internal object DrawnControlWidgets : ControlWidgets {
                     },
             )
 
-            ToggleRole.Switch -> Box(
-                clickable
-                    .size(width = style.trackWidth, height = style.trackHeight)
-                    .clip(style.shape)
-                    .background(container.copy(alpha = container.alpha * alpha), style.shape)
-                    .controlBorder(style.borderWidth, style.border.copy(alpha = alpha), style.shape)
-                    .drawBehind {
-                        val diameter = style.thumbSize.toPx()
-                        val margin = (size.height - diameter) / 2f
-                        val travel = size.width - diameter - margin * 2f
-                        val thumb = if (checked) style.mark else style.markUnchecked
-                        drawCircle(
-                            color = thumb.copy(alpha = alpha),
-                            radius = diameter / 2f,
-                            center = Offset(
-                                x = margin + diameter / 2f + travel * progress,
-                                y = size.height / 2f,
-                            ),
+            ToggleRole.Switch -> {
+                val shape = look.shape ?: style.shape
+                val outline = if (look.track != null) 0.dp else style.borderWidth
+                Box(
+                    clickable
+                        .size(
+                            width = look.width ?: style.trackWidth,
+                            height = look.height ?: style.trackHeight,
                         )
-                    },
-            )
+                        .clip(shape)
+                        .background(container.copy(alpha = container.alpha * alpha), shape)
+                        .controlBorder(outline, style.border.copy(alpha = alpha), shape)
+                        .drawBehind {
+                            // A track of the application's own height has a thumb that
+                            // scales with it, the same 4 to 5 proportion as a 16 dp thumb on
+                            // a 20 dp track.
+                            val diameter = if (look.height != null) {
+                                size.height * SWITCH_THUMB_RATIO
+                            } else {
+                                style.thumbSize.toPx()
+                            }
+                            val margin = (size.height - diameter) / 2f
+                            val travel = size.width - diameter - margin * 2f
+                            val thumb = look.thumb ?: if (checked) style.mark else style.markUnchecked
+                            drawCircle(
+                                color = thumb.copy(alpha = alpha),
+                                radius = diameter / 2f,
+                                center = Offset(
+                                    x = margin + diameter / 2f + travel * progress,
+                                    y = size.height / 2f,
+                                ),
+                            )
+                        },
+                )
+            }
         }
     }
 
@@ -265,10 +294,12 @@ internal object DrawnControlWidgets : ControlWidgets {
         onChange: (Float) -> Unit,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
         val style = theme.rules.controls(theme).slider
-        val active = named ?: style.activeTrack
-        val knob = named ?: style.thumb
+        val active = look.activeTrack ?: named ?: style.activeTrack
+        val knob = look.thumb ?: named ?: style.thumb
+        val rest = look.track ?: style.track
         val min = range.start
         val max = range.endInclusive
         val span = (max - min).takeIf { it > 0f }
@@ -312,7 +343,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                     val usable = size.width - thumb
                     val radius = CornerRadius(trackHeight / 2f, trackHeight / 2f)
                     drawRoundRect(
-                        color = style.track,
+                        color = rest,
                         topLeft = Offset(left, trackTop),
                         size = Size(usable, trackHeight),
                         cornerRadius = radius,
@@ -501,6 +532,9 @@ private fun valueAt(x: Float, width: Float, thumb: Float, min: Float, max: Float
     val usable = (width - thumb).takeIf { it > 0f } ?: return min
     return min + (max - min) * ((x - thumb / 2f) / usable).coerceIn(0f, 1f)
 }
+
+/** A switch thumb's diameter as a share of the track's height, when the height is the application's. */
+private const val SWITCH_THUMB_RATIO = 0.8f
 
 /** Narrow enough to sit in a row, wide enough that the track is worth dragging. */
 private val SLIDER_MIN_WIDTH = 120.dp
