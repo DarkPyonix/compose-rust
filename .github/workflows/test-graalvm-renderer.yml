@@ -276,7 +276,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: false
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
           gradle-home-cache-excludes: |
             caches/build-cache-1
 
