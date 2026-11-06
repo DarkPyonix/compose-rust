@@ -43,6 +43,8 @@ import org.thisisthepy.compose.window.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.receive
 import org.jetbrains.skia.Surface
 import kotlinx.coroutines.Dispatchers
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -58,6 +60,20 @@ private const val FIELD = "field"
  * the menu is an `NSMenu`.
  */
 class NativeContextMenuTest {
+
+    private var savedLocale: java.util.Locale? = null
+
+    /** The menu labels come from the default locale; a Korean machine would label them 잘라내기. */
+    @BeforeTest
+    fun pinEnglishLocale() {
+        savedLocale = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.ENGLISH)
+    }
+
+    @AfterTest
+    fun restoreLocale() {
+        savedLocale?.let { java.util.Locale.setDefault(it) }
+    }
 
     /** Every menu the native representation was asked for, as the entries it was given. */
     private val nativeRequests = mutableListOf<List<NativeMenuEntry>>()
