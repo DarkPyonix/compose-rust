@@ -63,6 +63,23 @@ class LiveGutterMark(
     val glyph: Int,
 )
 
+/**
+ * What a change-marker bar says about its line. Declared in the order the bars win a line:
+ * a removal outranks a modification, which outranks an addition.
+ */
+enum class ChangeMark { Removed, Modified, Added }
+
+/** The change a mark stands for, or null when it is an ordinary mark beside the line number. */
+fun LiveGutterMark.changeMark(): ChangeMark? {
+    if (kind != GutterDecorationKind.Bar) return null
+    return when (color) {
+        ColorRole.DiffAdded -> ChangeMark.Added
+        ColorRole.DiffModified -> ChangeMark.Modified
+        ColorRole.DiffRemoved -> ChangeMark.Removed
+        else -> null
+    }
+}
+
 /** A range the Host asked to have brought into view. A new request is a new object. */
 class RevealRequest(val start: CodePosition, val end: CodePosition, val align: RevealAlign)
 
@@ -716,6 +733,34 @@ class CodeEditorModel(
 
     /** The marks beside a line, in the order the Host sent them. */
     fun gutterMarksAt(line: Int): List<LiveGutterMark> = gutterList.filter { it.line == line }
+
+    /** The marks of a line that sit in the mark column: every one that is not a change bar. */
+    fun ordinaryMarksAt(line: Int): List<LiveGutterMark> =
+        gutterList.filter { it.line == line && it.changeMark() == null }
+
+    /** Whether any mark is a change bar, which is what makes the gutter reserve room for them. */
+    val hasChangeBars: Boolean get() = gutterList.any { it.changeMark() != null }
+
+    /** Whether any mark belongs in the mark column. */
+    val hasOrdinaryMarks: Boolean get() = gutterList.any { it.changeMark() == null }
+
+    /**
+     * The one change bar a line shows. Several can sit on a line; the others stay in the
+     * model and keep following edits, but only the strongest is drawn.
+     */
+    fun changeBarAt(line: Int): LiveGutterMark? =
+        gutterList.filter { it.line == line && it.changeMark() != null }.minByOrNull { it.changeMark()!!.ordinal }
+
+    /** The lines that show a change bar, by the change they show, in line order. */
+    fun changeLines(): Map<ChangeMark, List<Int>> {
+        val shown = HashMap<Int, ChangeMark>()
+        for (mark in gutterList) {
+            val change = mark.changeMark() ?: continue
+            val old = shown[mark.line]
+            if (old == null || change.ordinal < old.ordinal) shown[mark.line] = change
+        }
+        return shown.entries.groupBy({ it.value }, { it.key }).mapValues { it.value.sorted() }
+    }
 
     /**
      * A selection the Host asked for, written against [baseVersion]. Both ends are moved
