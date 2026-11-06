@@ -37,6 +37,11 @@ on:
       - renderer/desktop/src/**
       - renderer/desktop/module.yaml
       - renderer/desktop/scripts/**
+      # The Windows build's own files feed no job here (macOS and Linux modules only).
+      - '!renderer/desktop/scripts/build-windows.sh'
+      - '!renderer/desktop/scripts/*.ps1'
+      - '!renderer/desktop/scripts/windows-build-contract.test.sh'
+      - '!renderer/desktop/scripts/windows-metadata/**'
       - renderer/ios/src/shared/**
       - renderer/scripts/**
       - renderer/kotlin

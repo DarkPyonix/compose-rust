@@ -40,5 +40,11 @@ PY
 else
     echo "skip - no PyYAML for the wiring check"
 fi
+# The macOS Kotlin/Native renderer test is not started by the Windows build's own files.
+kn="$repo_root/.github/workflows/test-kn-desktop-renderer.yml"
+for excluded in build-windows.sh '*.ps1' windows-build-contract.test.sh 'windows-metadata/**'; do
+    if grep -qF "'!renderer/desktop/scripts/$excluded'" "$kn"; then echo "ok   - kn-desktop filter leaves out $excluded"
+    else echo "FAIL - kn-desktop filter does not exclude $excluded"; failures=$((failures + 1)); fi
+done
 [[ "$failures" -eq 0 ]] || exit 1
 echo "all passed"
