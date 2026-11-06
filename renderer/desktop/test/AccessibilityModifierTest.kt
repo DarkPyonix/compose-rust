@@ -10,8 +10,10 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.runComposeUiTest
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
@@ -290,6 +292,111 @@ class AccessibilityModifierTest {
             waitForIdle()
             assertEquals(defaultName, description(), "the name after the removal is not the default one")
             assertTrue(description() != listOf("가져오기"), "the removed name is still spoken")
+        }
+    }
+
+    private val newRoles = mapOf(
+        SemanticsRole.TabList to "tablist",
+        SemanticsRole.Tree to "tree",
+        SemanticsRole.TreeItem to "treeitem",
+        SemanticsRole.Menu to "menu",
+        SemanticsRole.MenuItem to "menuitem",
+        SemanticsRole.TextBox to "textbox",
+        SemanticsRole.Navigation to "navigation",
+        SemanticsRole.List to "list",
+        SemanticsRole.ListItem to "listitem",
+        SemanticsRole.Group to "group",
+    )
+
+    @Test
+    fun fr71_every_new_role_round_trips_and_is_exposed() {
+        val box = 1
+        for ((role, word) in newRoles) {
+            runComposeUiTest {
+                show(
+                    listOf(
+                        Mutation.Create(box, WidgetKind.Box),
+                        Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(role, 0)),
+                    ),
+                )
+                val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+                assertEquals(word, config.getOrNull(SemanticsProperties.StateDescription), "$role")
+            }
+        }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Heading, 0)),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertTrue(config.contains(SemanticsProperties.Heading), "a heading must be marked as one")
+        }
+    }
+
+    @Test
+    fun fr71_state_bits_reach_the_accessibility_node() {
+        val box = 1
+        fun ComposeUiTest.configOf(state: Int, role: SemanticsRole = SemanticsRole.None): androidx.compose.ui.semantics.SemanticsConfiguration {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(role, state)),
+                ),
+            )
+            return onNodeWithTag(nodeTestTag(box), useUnmergedTree = true).fetchSemanticsNode().config
+        }
+        runComposeUiTest {
+            // Expanded on, disabled on, focused off.
+            val config = configOf((2 shl 4) or (2 shl 6) or (1 shl 8), SemanticsRole.TreeItem)
+            assertEquals("treeitem, expanded", config.getOrNull(SemanticsProperties.StateDescription))
+            assertTrue(config.contains(SemanticsProperties.Disabled))
+            assertEquals(false, config.getOrNull(SemanticsProperties.Focused))
+            assertTrue(!config.contains(SemanticsProperties.HideFromAccessibility))
+        }
+        runComposeUiTest {
+            val config = configOf((1 shl 4) or (2 shl 8))
+            assertEquals("collapsed", config.getOrNull(SemanticsProperties.StateDescription))
+            assertEquals(true, config.getOrNull(SemanticsProperties.Focused))
+            assertTrue(!config.contains(SemanticsProperties.Disabled))
+        }
+        runComposeUiTest {
+            // Enabled is explicit and sets nothing; hidden leaves the node out of the tree.
+            val config = configOf((1 shl 6) or (1 shl 10), SemanticsRole.Group)
+            assertTrue(!config.contains(SemanticsProperties.Disabled))
+            assertTrue(config.contains(SemanticsProperties.HideFromAccessibility))
+        }
+    }
+
+    @Test
+    fun fr71_click_action_calls_the_nodes_click_handler() {
+        val box = 1
+        val clickAction = 1 shl 11
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.MenuItem, clickAction)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(box)).performSemanticsAction(SemanticsActions.OnClick)
+            waitForIdle()
+            val clicks = connection.events.filterIsInstance<HostEvent.Clicked>()
+            assertEquals(listOf(HostEvent.Clicked(box, SOME_HANDLER)), clicks)
+        }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.MenuItem, clickAction)),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertTrue(!config.contains(SemanticsActions.OnClick), "a node without a handler has no click action")
         }
     }
 }

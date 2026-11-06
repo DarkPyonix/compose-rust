@@ -86,27 +86,100 @@ impl Shadow {
     }
 }
 
-/// Whether a node is checked or selected, for assistive technology. Each is unset until
-/// it is given a value, and an unset one sends nothing.
+/// How a node presents itself to assistive technology. Each tri-state field is unset until
+/// it is given a value, and an unset one sends nothing. The flags are off until set.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SemanticsState {
     pub checked: Option<bool>,
     pub selected: Option<bool>,
+    pub expanded: Option<bool>,
+    pub disabled: Option<bool>,
+    pub focused: Option<bool>,
+    pub hidden: bool,
+    pub click_action: bool,
+    pub focus_action: bool,
 }
 
 impl SemanticsState {
+    const NONE: Self = Self {
+        checked: None,
+        selected: None,
+        expanded: None,
+        disabled: None,
+        focused: None,
+        hidden: false,
+        click_action: false,
+        focus_action: false,
+    };
+
     pub const fn checked(checked: bool) -> Self {
         Self {
             checked: Some(checked),
-            selected: None,
+            ..Self::NONE
         }
     }
 
     pub const fn selected(selected: bool) -> Self {
         Self {
-            checked: None,
             selected: Some(selected),
+            ..Self::NONE
         }
+    }
+
+    pub const fn expanded(expanded: bool) -> Self {
+        Self {
+            expanded: Some(expanded),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn disabled(disabled: bool) -> Self {
+        Self {
+            disabled: Some(disabled),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn focused(focused: bool) -> Self {
+        Self {
+            focused: Some(focused),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn hidden(hidden: bool) -> Self {
+        Self {
+            hidden,
+            ..Self::NONE
+        }
+    }
+
+    pub const fn click_action(exposed: bool) -> Self {
+        Self {
+            click_action: exposed,
+            ..Self::NONE
+        }
+    }
+
+    pub const fn focus_action(exposed: bool) -> Self {
+        Self {
+            focus_action: exposed,
+            ..Self::NONE
+        }
+    }
+
+    /// The state word the `Semantics` modifier carries.
+    pub(crate) fn bits(self) -> u32 {
+        use crate::schema::*;
+        let tri = |value: Option<bool>| value.map_or(0_u32, |on| if on { 2 } else { 1 });
+        (tri(self.checked) << SEMANTICS_CHECKED_SHIFT)
+            | (tri(self.selected) << SEMANTICS_SELECTED_SHIFT)
+            | (tri(self.expanded) << SEMANTICS_EXPANDED_SHIFT)
+            | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
+            | (tri(self.focused) << SEMANTICS_FOCUSED_SHIFT)
+            | if self.hidden { SEMANTICS_HIDDEN_BIT } else { 0 }
+            | if self.click_action { SEMANTICS_CLICK_ACTION_BIT } else { 0 }
+            | if self.focus_action { SEMANTICS_FOCUS_ACTION_BIT } else { 0 }
     }
 }
 
@@ -268,10 +341,7 @@ impl Modifier {
             press_feedback: None,
             semantics_role: None,
             semantics_label: None,
-            semantics_state: SemanticsState {
-                checked: None,
-                selected: None,
-            },
+            semantics_state: SemanticsState::NONE,
             transform: None,
             animated_alpha: None,
             animated_background: None,
@@ -504,6 +574,42 @@ impl Modifier {
         self
     }
 
+    /// Whether the node is expanded, as a disclosure or a tree item announces it.
+    pub const fn expanded(mut self, expanded: bool) -> Self {
+        self.semantics_state.expanded = Some(expanded);
+        self
+    }
+
+    /// Whether the node is disabled for assistive technology.
+    pub const fn disabled(mut self, disabled: bool) -> Self {
+        self.semantics_state.disabled = Some(disabled);
+        self
+    }
+
+    /// Whether the node holds the focus, as assistive technology reads it.
+    pub const fn focused(mut self, focused: bool) -> Self {
+        self.semantics_state.focused = Some(focused);
+        self
+    }
+
+    /// Leaves the node out of the accessibility tree when true.
+    pub const fn hidden(mut self, hidden: bool) -> Self {
+        self.semantics_state.hidden = hidden;
+        self
+    }
+
+    /// Exposes a click action on the node, which runs the node's click handler.
+    pub const fn click_action(mut self, exposed: bool) -> Self {
+        self.semantics_state.click_action = exposed;
+        self
+    }
+
+    /// Exposes a focus action on the node.
+    pub const fn focus_action(mut self, exposed: bool) -> Self {
+        self.semantics_state.focus_action = exposed;
+        self
+    }
+
     /// The role, the name and the state in one call.
     pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
         let mut named = self.role(role).label(label);
@@ -625,20 +731,14 @@ pub(crate) fn optional_text(value: Option<String>) -> OwnedAttr {
 /// The role and state of a Modifier as the one integer the `semantics` attribute carries,
 /// or none when neither was given.
 fn semantics_bits(modifier: &Modifier) -> Option<i64> {
-    use crate::schema::{SEMANTICS_CHECKED_SHIFT, SEMANTICS_SELECTED_SHIFT};
-
     let state = modifier.semantics_state;
-    if modifier.semantics_role.is_none() && state.checked.is_none() && state.selected.is_none() {
+    if modifier.semantics_role.is_none() && state == SemanticsState::NONE {
         return None;
     }
-    let tri = |value: Option<bool>| value.map_or(0_i64, |on| if on { 2 } else { 1 });
     let role = i64::from(u16::from(
         modifier.semantics_role.unwrap_or(SemanticsRole::None),
     ));
-    Some(
-        role | (tri(state.checked) << (16 + SEMANTICS_CHECKED_SHIFT))
-            | (tri(state.selected) << (16 + SEMANTICS_SELECTED_SHIFT)),
-    )
+    Some(role | (i64::from(state.bits()) << 16))
 }
 
 /// Writes the Modifier attributes, in the order the `rsx!` widgets write them.

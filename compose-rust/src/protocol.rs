@@ -2645,11 +2645,66 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x10, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
+    }
+
+    #[test]
+    fn fr71_every_new_role_round_trips_and_is_exposed() {
+        use crate::schema::*;
+        let roles = [
+            (SemanticsRole::TabList, 9),
+            (SemanticsRole::Tree, 10),
+            (SemanticsRole::TreeItem, 11),
+            (SemanticsRole::Menu, 12),
+            (SemanticsRole::MenuItem, 13),
+            (SemanticsRole::TextBox, 14),
+            (SemanticsRole::Heading, 15),
+            (SemanticsRole::Navigation, 16),
+            (SemanticsRole::List, 17),
+            (SemanticsRole::ListItem, 18),
+            (SemanticsRole::Group, 19),
+        ];
+        let state = (2 << SEMANTICS_EXPANDED_SHIFT)
+            | (2 << SEMANTICS_DISABLED_SHIFT)
+            | (1 << SEMANTICS_FOCUSED_SHIFT)
+            | SEMANTICS_HIDDEN_BIT
+            | SEMANTICS_CLICK_ACTION_BIT
+            | SEMANTICS_FOCUS_ACTION_BIT;
+        assert_eq!(state & !SEMANTICS_STATE_MASK, 0);
+        for (role, value) in roles {
+            assert_eq!(role as u64, value, "{role:?} changed its wire value");
+            let mutation = Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::Semantics { role, state },
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).unwrap();
+            assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
+        }
+        assert!(
+            ROLE_ENUM_SCHEMA
+                .iter()
+                .any(|e| e.name == "SemanticsRole" && e.variants.len() == 19),
+            "the schema must list all 19 roles"
+        );
+    }
+
+    #[test]
+    fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
+        // Bit 13 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0];
+        assert_eq!(
+            decode_modifier(34, &words),
+            Err(ProtocolError::InvalidModifier(34))
+        );
+        // The highest bit the mask allows still decodes.
+        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0];
+        assert!(decode_modifier(34, &words).is_ok());
     }
 
     #[test]

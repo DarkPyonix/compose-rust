@@ -942,4 +942,14 @@ mod tests {
             Some(ProtocolError::MisplacedWindow)
         );
     }
+
+    #[test]
+    fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
+        let mut writer = NodeWriter::new();
+        let role = i64::from(u16::from(crate::SemanticsRole::Group));
+        let accepted = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 12))));
+        assert!(matches!(accepted, Some(Some(_))));
+        let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 13))));
+        assert!(matches!(refused, Some(None)));
+    }
 }
