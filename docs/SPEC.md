@@ -1545,7 +1545,7 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 
 20.4의 규칙은 클래스(와 19.9의 안전 영역)가 바뀔 때만 `WindowSizeChanged`를 보냅니다. 창 크기로 페이지를 짜는 Host(HTML과 CSS 호스트)는 클래스 안에서 1280x820이 1000x620으로 줄어도 다시 배치할 수 없습니다. `window_size()`가 마지막 클래스 변경 때의 크기를 계속 돌려주기 때문입니다.
 
-- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window(on_close).report_size(true)`입니다. `Window` 노드가 없는 암묵적 단일 창(루트)은 옵트인할 수 없고 항상 지금의 동작입니다.
+- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window(on_close).report_size(true)`입니다. `Window` 노드가 없는 암묵적 단일 창(루트, 이슈 #479)은 창 설정의 `report_size`로 옵트인합니다. Rust에서는 `Window::new().with_report_size(true)`이고, `SetWindow` 레코드의 플래그 워드에 비트 하나를 더해 싣습니다(레코드 길이는 그대로, 끈 창의 바이트도 그대로입니다).
 - **켠 창**: 클래스와 안전 영역이 그대로여도, 창의 폭 또는 높이가 **반올림한 dp**로 바뀌면 같은 `WindowSizeChanged`를 보냅니다. 레코드와 이벤트 태그는 바뀌지 않고 이미 실린 `width_dp`, `height_dp`가 새 크기입니다.
 - **반올림 규칙**: 폭과 높이를 각각 가장 가까운 정수 dp로 반올림합니다(0.5는 올림). 직전에 보낸 값과 반올림한 값이 같으면 보내지 않으므로 1dp 미만의 흔들림은 무시합니다. `Float`를 그대로 비교하지 않습니다. 보내는 `width_dp`와 `height_dp`는 반올림하지 않은 측정값입니다.
 - **끈 창**: 지금과 한 바이트도 다르지 않습니다. 기본 동작, 호출 수, 할당이 그대로입니다.
@@ -1557,6 +1557,9 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
 2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
 3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
+4. 암묵적 단일 창이 `with_report_size(true)`로 열렸으면 같은 클래스 안의 1280x820에서 1000x620 변화에도 `WindowSizeChanged`를 받습니다(시험 이름 fr20_8_implicit_root_window_reports_dp_change_inside_a_class).
+5. `with_report_size`를 부르지 않은 암묵적 단일 창은 지금과 같고, `SetWindow` 레코드의 바이트도 같습니다(시험 이름 fr20_8_implicit_root_window_default_is_byte_identical).
+6. `SetWindow`의 플래그 워드에서 쓰이지 않는 다른 비트는 여전히 `ProtocolError`입니다(시험 이름 fr20_8_set_window_rejects_unknown_flag_bits).
 
 #### 20.9 안전 영역은 알려지는 때 도착합니다 (`Agreed`, 이슈 #468, 감독자 승인)
 
