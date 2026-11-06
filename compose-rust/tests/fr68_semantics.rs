@@ -188,11 +188,7 @@ fn Described() {
                 Text("flip");
             });
         let modifier = if described.get() {
-            Modifier.semantics(
-                Role::Heading,
-                "Title",
-                SemanticsState::expanded(true),
-            )
+            Modifier.semantics(Role::Heading, "Title", SemanticsState::expanded(true))
         } else {
             Modifier
         };
@@ -202,13 +198,17 @@ fn Described() {
 
 #[test]
 fn fr71_removing_semantics_restores_the_defaults() {
-    use compose_rust::protocol::{HostEvent, Modifier as Wire, Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::{EventPayload, PropertyKind};
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{EventPayload, Modifier as Wire, PropertyKind};
 
     let mut host = ComposeHost::with_content(Described);
     let mut tree = Tree::default();
     tree.apply(host.rebuild().expect("the first batch encodes"));
-    assert!(tree.dump().contains("Semantics { role: Heading"), "{}", tree.dump());
+    assert!(
+        tree.dump().contains("Semantics { role: Heading"),
+        "{}",
+        tree.dump()
+    );
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
@@ -218,7 +218,10 @@ fn fr71_removing_semantics_restores_the_defaults() {
             payload: EventPayload::Clicked,
         })
         .expect("the click is accepted");
-    let batches = [batch.to_vec(), host.render_frame(0).expect("the frame encodes").to_vec()];
+    let batches = [
+        batch.to_vec(),
+        host.render_frame(0).expect("the frame encodes").to_vec(),
+    ];
 
     let (mut name_removed, mut modifier_cleared) = (0, 0);
     for batch in &batches {
@@ -274,8 +277,17 @@ fn EveryNewRole() {
 fn fr71_every_new_role_round_trips_and_is_exposed() {
     let dump = start(EveryNewRole).dump();
     for role in [
-        "TabList", "Tree", "TreeItem", "Menu", "MenuItem", "TextBox", "Heading", "Navigation",
-        "List", "ListItem", "Group",
+        "TabList",
+        "Tree",
+        "TreeItem",
+        "Menu",
+        "MenuItem",
+        "TextBox",
+        "Heading",
+        "Navigation",
+        "List",
+        "ListItem",
+        "Group",
     ] {
         assert!(
             dump.contains(&format!("Semantics {{ role: {role}, state: ")),

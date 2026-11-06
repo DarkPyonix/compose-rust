@@ -558,9 +558,10 @@ private fun ComposeRustTree(
     }
     // Read through a derived state so a recomposition does not repeat the map lookup (which
     // boxes the node id) and the read only runs again when the property itself changes.
-    // The implicit root window (id 0) has no Window node to carry the property, so it cannot opt in.
-    val reportEveryDp = if (windowNodeId == 0) false else remember(host, windowNodeId) {
-        derivedStateOf { host.table.node(windowNodeId)?.flag(PropertyKind.ReportSize, false) == true }
+    // The implicit root window (id 0) opts in through its SetWindow settings and any other
+    // window through its node property; the table answers for both.
+    val reportEveryDp = remember(host, windowNodeId) {
+        derivedStateOf { host.table.reportSizeFor(windowNodeId) }
     }.value
     // A window that asked for every whole-dp change reads the size here, in the composition,
     // so a new size recomposes this and reaches the effect. Any other window keeps reading it

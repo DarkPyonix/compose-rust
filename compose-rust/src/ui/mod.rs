@@ -178,8 +178,16 @@ impl SemanticsState {
             | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
             | (tri(self.focused) << SEMANTICS_FOCUSED_SHIFT)
             | if self.hidden { SEMANTICS_HIDDEN_BIT } else { 0 }
-            | if self.click_action { SEMANTICS_CLICK_ACTION_BIT } else { 0 }
-            | if self.focus_action { SEMANTICS_FOCUS_ACTION_BIT } else { 0 }
+            | if self.click_action {
+                SEMANTICS_CLICK_ACTION_BIT
+            } else {
+                0
+            }
+            | if self.focus_action {
+                SEMANTICS_FOCUS_ACTION_BIT
+            } else {
+                0
+            }
     }
 }
 
