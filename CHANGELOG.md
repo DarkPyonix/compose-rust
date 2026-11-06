@@ -14,6 +14,14 @@ The Host can move input focus to a node, or clear it, with `Batch::request_focus
 
 A child with a weight on the main axis gets the larger of its share and its minimum content width, so a label in a narrow weighted cell is no longer broken into one glyph per line. Lazy lists and other lazy layouts keep the stock weight ([#427](https://github.com/DarkPyonix/compose-rust/issues/427), [#448](https://github.com/DarkPyonix/compose-rust/pull/448)).
 
+### Colours and size for `Switch`, `Slider` and `Checkbox`
+
+`Switch` has `track_color`, `thumb_color` and `size(width, height)`, `Slider` has `track_color`, `active_track_color` and `thumb_color`, and `Checkbox` has `container_color`, `check_color` and `size(side)` ([#426](https://github.com/DarkPyonix/compose-rust/issues/426), [#428](https://github.com/DarkPyonix/compose-rust/issues/428)). A value that is not set is not sent, and the design system draws that slot. On the wire these are the new `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) properties. The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### A press on a `WindowDrag(false)` node no longer starts a window drag on macOS
+
+Inside a region that is a window drag area, a node marked `WindowDrag(false)` (a button, a text field) now keeps its press: the press is not turned into a window drag ([#482](https://github.com/DarkPyonix/compose-rust/issues/482), [#458](https://github.com/DarkPyonix/compose-rust/pull/458)).
+
 ### Accessibility modifier and `accessible_name`
 
 `Modifier` has `label`, `role`, `checked`, `selected` and `semantics(role, label, state)`, so any node can be given a role, a name and a checked or selected state for assistive technology ([#429](https://github.com/DarkPyonix/compose-rust/issues/429)). `Button`, `Switch`, `Checkbox`, `RadioButton` and `Slider` have `accessible_name`, which replaces a visible label and is read instead of an icon-only button's icon name. On the wire this is a new `Semantics` modifier (tag 34) and a new `AccessibleName` property (119). The schema hash changes, so a renderer and a crate from before this change no longer agree. `Modifier::label` keeps each distinct name for the life of the program, at most 4096 of them; a name past that limit is left off, and debug builds print a warning once.
@@ -39,6 +47,7 @@ On macOS the window buttons' safe area (`WindowSafeArea`) could stay `{0, 0, 0}`
 The schema hash changes in this release, so a renderer and a crate from before it no longer agree; upgrade both together. All changes are add-only:
 
 - `Modifier` tag 34 `Semantics { role, state }`; the property `AccessibleName` (119) carries the label. The `Semantics` role enum grows to 19 values and its state word to 13 bits (checked, selected, expanded, disabled, focused, hidden, and the click and focus action bits).
+- Properties `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) for `Switch`, `Slider` and `Checkbox`.
 - Property `ReportSize` (127) on a `Window` node.
 - `SetWindow` flags word, bit 1: `report_size` for the implicit window. The record length is unchanged and a window that does not set it writes the same bytes as before.
 - Command `RequestFocus` (tag 25) and the `OnCompositionChange` property with its event.

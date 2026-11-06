@@ -141,7 +141,8 @@ jobs:
           key: compose-${{ steps.target.outputs.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: |
             ${{ steps.target.outputs.toolchain }}
@@ -168,7 +169,7 @@ jobs:
         run: ./renderer/scripts/build-compose.sh --target ${{ steps.target.outputs.compose }}
 
       - name: Keep the patched Compose for the next run
-        if: steps.compose-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && (steps.compose-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository
@@ -285,3 +286,12 @@ jobs:
             ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz
             ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz.sha256
           retention-days: 7
+
+      - name: Save the Kotlin toolchain (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ steps.target.outputs.toolchain }}
+            ~/.konan
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}

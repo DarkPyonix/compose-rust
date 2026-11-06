@@ -45,7 +45,15 @@ internal object Material3ControlWidgets : ControlWidgets {
         onChange: ((Boolean) -> Unit)?,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
+        // The library's Switch and Checkbox have fixed metrics, so a size or a colour the
+        // application named for them is drawn by the shared control drawing instead, which
+        // also owns the transition and the toggle semantics.
+        if (look.appliesTo(role)) {
+            DrawnControlWidgets.Toggle(role, checked, enabled, onChange, modifier, theme, look)
+            return
+        }
         val primary = theme.color(ColorRole.Primary)
         val onPrimary = theme.color(ColorRole.OnPrimary)
         val outline = theme.color(ColorRole.Outline)
@@ -101,6 +109,7 @@ internal object Material3ControlWidgets : ControlWidgets {
         onChange: (Float) -> Unit,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
         val primary = named ?: theme.color(ColorRole.Primary)
         Slider(
@@ -111,9 +120,9 @@ internal object Material3ControlWidgets : ControlWidgets {
             valueRange = range,
             steps = steps,
             colors = SliderDefaults.colors(
-                thumbColor = primary,
-                activeTrackColor = primary,
-                inactiveTrackColor = theme.color(ColorRole.SurfaceVariant),
+                thumbColor = look.thumb ?: primary,
+                activeTrackColor = look.activeTrack ?: primary,
+                inactiveTrackColor = look.track ?: theme.color(ColorRole.SurfaceVariant),
             ),
         )
     }
