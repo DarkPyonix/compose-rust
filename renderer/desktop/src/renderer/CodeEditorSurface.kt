@@ -64,6 +64,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -168,7 +170,57 @@ class CodeEditorLook(
     val gutterMark: (ColorRole?) -> Color = { lens },
     /** The ink of the marker that folds or unfolds a stretch. */
     val foldMarker: Color = lineNumber,
+    /** The width of a change-marker bar, which does not scale with the row. */
+    val changeBarWidth: Dp = 4.dp,
+    /** The space between a change-marker bar and what comes after it. */
+    val changeBarGap: Dp = 12.dp,
+    /** The word a screen reader hears for a changed line. */
+    val changeMarkWord: (ChangeMark) -> String = { localizedChangeMarkWord(it) },
 )
+
+/** The word for a changed line in [language], in the same set of languages as the sidebar's. */
+internal fun localizedChangeMarkWord(change: ChangeMark, language: String = androidx.compose.ui.text.intl.Locale.current.language): String =
+    when (language) {
+        "ko" -> when (change) {
+            ChangeMark.Added -> "추가됨"
+            ChangeMark.Modified -> "수정됨"
+            ChangeMark.Removed -> "삭제됨"
+        }
+        else -> when (change) {
+            ChangeMark.Added -> "added"
+            ChangeMark.Modified -> "modified"
+            ChangeMark.Removed -> "removed"
+        }
+    }
+
+/** The room the gutter keeps for change bars and the gap behind them: none when no line has one. */
+internal fun Density.changeColumnPx(model: CodeEditorModel, look: CodeEditorLook): Int =
+    if (model.hasChangeBars) (look.changeBarWidth + look.changeBarGap).roundToPx() else 0
+
+/**
+ * What a screen reader hears about the changed lines, or null when there are none. The
+ * editor is one node, so the lines are listed under the word for their change.
+ */
+internal fun changeDescription(model: CodeEditorModel, look: CodeEditorLook): String? {
+    val lines = model.changeLines()
+    if (lines.isEmpty()) return null
+    return ChangeMark.entries.filter { it in lines }.joinToString("; ") { change ->
+        val numbers = lines.getValue(change)
+        val shown = numbers.take(CHANGE_LINES_SPOKEN).joinToString(", ") { (it + 1).toString() }
+        val rest = if (numbers.size > CHANGE_LINES_SPOKEN) ", +${numbers.size - CHANGE_LINES_SPOKEN}" else ""
+        "${look.changeMarkWord(change)}: $shown$rest"
+    }
+}
+
+private const val CHANGE_LINES_SPOKEN = 50
+
+/** Gives the editor's node the description of its changed lines, when it has any. */
+@Composable
+internal fun Modifier.changeSemantics(model: CodeEditorModel, look: CodeEditorLook): Modifier {
+    val revision = model.overlayRevision
+    val text = remember(model, revision, look) { changeDescription(model, look) } ?: return this
+    return semantics { stateDescription = text }
+}
 
 /** What a surface tells the editor that holds it. All of them are called on the UI thread. */
 class CodeEditorCallbacks(
@@ -818,13 +870,13 @@ private fun FieldSurface(
     val rows = remember(contentRevision, overlayRevision) { RowMap.of(model) }
     val lineCount = rows.lineCount
     val digits = lineCount.toString().length
-    val hasMarks = model.gutterMarks.isNotEmpty()
+    val hasMarks = model.hasOrdinaryMarks
     val hasFolds = model.folds.isNotEmpty()
     val markColumnPx = if (hasMarks) rowPx else 0
     val foldColumnPx = if (hasFolds) rowPx else 0
     val gutterWidthPx = with(density) {
         digits * digitWidth + (look.gutterPadding * 2).roundToPx() + look.gutterDividerWidth.roundToPx()
-    } + markColumnPx + foldColumnPx
+    } + markColumnPx + foldColumnPx + density.changeColumnPx(model, look)
 
     // Refilling the window recomposes this, so the field moves to where the new lines are.
     window.revision
@@ -870,6 +922,7 @@ private fun FieldSurface(
         Box(
             modifier
                 .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+                .changeSemantics(model, look)
                 .background(look.container)
                 .clipToBounds()
                 .onSizeChanged { size ->
@@ -1100,7 +1153,7 @@ internal fun pressGutter(
     if (foldColumn > 0 && point.x >= gutterWidth - foldColumn) {
         model.toggleFold(line)
     } else if (markColumn > 0 && point.x < markColumn) {
-        model.gutterMarksAt(line).lastOrNull { it.id != 0L }?.let(model::activateGutter)
+        model.ordinaryMarksAt(line).lastOrNull { it.id != 0L }?.let(model::activateGutter)
     }
 }
 
@@ -1331,15 +1384,16 @@ private fun DrawScope.drawGutter(
     val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
     val padding = look.gutterPadding.toPx()
     val divider = look.gutterDividerWidth.toPx()
+    val changeColumn = changeColumnPx(window.model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val label = (line + 1).toString()
         val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
         val measured = measurer.measure(label, style.copy(color = color))
-        val x = width - divider - foldColumn - padding - measured.size.width
+        val x = width - divider - foldColumn - changeColumn - padding - measured.size.width
         val top = rows.textRow(line) * rowPx.toFloat()
         drawText(measured, topLeft = Offset(x, top))
-        drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, measurer, style, look)
+        drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, changeColumn, measurer, style, look)
     }
 }
 
@@ -1352,13 +1406,24 @@ internal fun DrawScope.drawGutterAdornments(
     markColumn: Int,
     foldLeft: Float,
     foldColumn: Int,
+    changeColumn: Int,
     measurer: TextMeasurer,
     style: TextStyle,
     look: CodeEditorLook,
 ) {
     val cell = rowPx.toFloat()
+    // The change bar sits right of the numbers, the full row high, so that the bars of
+    // neighbouring lines meet.
+    val bar = model.changeBarAt(line)
+    if (bar != null) {
+        val left = foldLeft - changeColumn
+        drawRect(look.gutterMark(bar.color), Offset(left, top), Size(look.changeBarWidth.toPx(), cell))
+    }
     if (markColumn > 0) {
-        for (mark in model.gutterMarksAt(line)) {
+        var index = model.nextOrdinaryMarkIndex(line, 0)
+        while (index >= 0) {
+            val mark = model.gutterMarks[index]
+            index = model.nextOrdinaryMarkIndex(line, index + 1)
             val color = look.gutterMark(mark.color)
             when (mark.kind) {
                 GutterDecorationKind.Dot -> drawCircle(color, cell * 0.2f, Offset(markColumn / 2f, top + cell / 2f))

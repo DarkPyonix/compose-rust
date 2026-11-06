@@ -63,6 +63,23 @@ class LiveGutterMark(
     val glyph: Int,
 )
 
+/**
+ * What a change-marker bar says about its line. Declared in the order the bars win a line:
+ * a removal outranks a modification, which outranks an addition.
+ */
+enum class ChangeMark { Removed, Modified, Added }
+
+/** The change a mark stands for, or null when it is an ordinary mark beside the line number. */
+fun LiveGutterMark.changeMark(): ChangeMark? {
+    if (kind != GutterDecorationKind.Bar) return null
+    return when (color) {
+        ColorRole.DiffAdded -> ChangeMark.Added
+        ColorRole.DiffModified -> ChangeMark.Modified
+        ColorRole.DiffRemoved -> ChangeMark.Removed
+        else -> null
+    }
+}
+
 /** A range the Host asked to have brought into view. A new request is a new object. */
 class RevealRequest(val start: CodePosition, val end: CodePosition, val align: RevealAlign)
 
@@ -186,6 +203,12 @@ class CodeEditorModel(
     private val foldList = ArrayList<LiveFold>()
     private val gutterList = ArrayList<LiveGutterMark>()
 
+    /** Changes whenever the gutter marks are replaced, moved or dropped, for the flags below. */
+    private var gutterStamp = 0
+    private var flagsStamp = -1
+    private var changeBarsPresent = false
+    private var ordinaryMarksPresent = false
+
     /** Changes whenever a fold is added, moved, removed or flipped, for the cache below. */
     private var foldStamp = 0
     private var hiddenStamp = -1
@@ -246,6 +269,7 @@ class CodeEditorModel(
         redoStack.clear()
         foldList.clear()
         gutterList.clear()
+        gutterStamp += 1
         foldStamp += 1
         selection = CodeSelection.at(CodePosition.Zero)
         contentRevision += 1
@@ -567,6 +591,7 @@ class CodeEditorModel(
     /** Replaces every mark beside the line numbers with the Host's new list. */
     fun setGutterDecorations(records: List<GutterDecorationRecord>) {
         gutterList.clear()
+        gutterStamp += 1
         for (record in records) {
             if (record.kind == GutterDecorationKind.Glyph && !isScalarValue(record.glyph)) {
                 output += EditorOutput.Error("a gutter glyph is ${record.glyph}, which is not a Unicode scalar value")
@@ -716,6 +741,82 @@ class CodeEditorModel(
 
     /** The marks beside a line, in the order the Host sent them. */
     fun gutterMarksAt(line: Int): List<LiveGutterMark> = gutterList.filter { it.line == line }
+
+    /** The marks of a line that sit in the mark column: every one that is not a change bar. */
+    fun ordinaryMarksAt(line: Int): List<LiveGutterMark> =
+        gutterList.filter { it.line == line && it.changeMark() == null }
+
+    /**
+     * The index in [gutterMarks] of the first mark at or after [from] that sits on [line] in
+     * the mark column, or -1. Drawing walks the marks with this instead of building a list
+     * per line, so a frame allocates nothing for them.
+     */
+    fun nextOrdinaryMarkIndex(line: Int, from: Int): Int {
+        if (!ordinaryMarksPresent()) return -1
+        for (i in from until gutterList.size) {
+            val mark = gutterList[i]
+            if (mark.line == line && mark.changeMark() == null) return i
+        }
+        return -1
+    }
+
+    private fun refreshMarkFlags() {
+        if (flagsStamp == gutterStamp) return
+        var bars = false
+        var ordinary = false
+        for (i in 0 until gutterList.size) {
+            if (gutterList[i].changeMark() != null) bars = true else ordinary = true
+        }
+        changeBarsPresent = bars
+        ordinaryMarksPresent = ordinary
+        flagsStamp = gutterStamp
+    }
+
+    private fun ordinaryMarksPresent(): Boolean {
+        refreshMarkFlags()
+        return ordinaryMarksPresent
+    }
+
+    /** Whether any mark is a change bar, which is what makes the gutter reserve room for them. */
+    val hasChangeBars: Boolean
+        get() {
+            refreshMarkFlags()
+            return changeBarsPresent
+        }
+
+    /** Whether any mark belongs in the mark column. */
+    val hasOrdinaryMarks: Boolean get() = ordinaryMarksPresent()
+
+    /**
+     * The one change bar a line shows. Several can sit on a line; the others stay in the
+     * model and keep following edits, but only the strongest is drawn.
+     */
+    fun changeBarAt(line: Int): LiveGutterMark? {
+        if (!hasChangeBars) return null
+        var best: LiveGutterMark? = null
+        var bestRank = Int.MAX_VALUE
+        for (i in 0 until gutterList.size) {
+            val mark = gutterList[i]
+            if (mark.line != line) continue
+            val rank = mark.changeMark()?.ordinal ?: continue
+            if (rank < bestRank) {
+                best = mark
+                bestRank = rank
+            }
+        }
+        return best
+    }
+
+    /** The lines that show a change bar, by the change they show, in line order. */
+    fun changeLines(): Map<ChangeMark, List<Int>> {
+        val shown = HashMap<Int, ChangeMark>()
+        for (mark in gutterList) {
+            val change = mark.changeMark() ?: continue
+            val old = shown[mark.line]
+            if (old == null || change.ordinal < old.ordinal) shown[mark.line] = change
+        }
+        return shown.entries.groupBy({ it.value }, { it.key }).mapValues { it.value.sorted() }
+    }
 
     /**
      * A selection the Host asked for, written against [baseVersion]. Both ends are moved
@@ -941,6 +1042,7 @@ class CodeEditorModel(
             moved = true
         }
         if (gutterList.isNotEmpty()) {
+            gutterStamp += 1
             val iterator = gutterList.iterator()
             while (iterator.hasNext()) {
                 val mark = iterator.next()

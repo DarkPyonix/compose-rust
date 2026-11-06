@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.foundation.code.CodeEditorCallbacks
@@ -108,6 +109,9 @@ internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): C
         // A mark takes the role the Host named, and otherwise the lens's quiet ink.
         gutterMark = { role -> if (role == null) style.lens else theme.color(role) },
         foldMarker = style.lineNumber,
+        // The same for every design system: the width and gap of a change-marker bar.
+        changeBarWidth = 4.dp,
+        changeBarGap = 12.dp,
     )
 }
 
