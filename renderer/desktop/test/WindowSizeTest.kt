@@ -15,12 +15,15 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.click
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -501,6 +504,103 @@ class WindowSizeTest {
         assertTrue(reporter.report(600.6f, 700f, dispatcher, everyDpChange = true))
         assertEquals(2, dispatcher.events.size)
         assertEquals(600.6f, (dispatcher.events[1] as HostEvent.WindowSizeChanged).widthDp)
+    }
+
+    @Test
+    fun fr20_a_window_that_only_crosses_a_height_boundary_still_reports_at_the_first_measurement() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("hello")),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                // A phone: Compact wide like the state both sides start in, Medium high.
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(390.dp, 844.dp))
+            }
+        }
+        waitForIdle()
+        val sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>()
+        assertEquals(1, sizes.size, "a height-only class change reaches the Host")
+        assertEquals(WindowSizeClass.Compact, sizes[0].sizeClass)
+        assertEquals(WindowHeightClass.Medium, sizes[0].heightClass)
+        assertEquals(390f, sizes[0].widthDp)
+        assertEquals(844f, sizes[0].heightDp)
+    }
+
+    @Test
+    fun fr20_8_a_compact_window_that_opts_in_reports_its_size_at_the_first_measurement() {
+        // 390 by 300 is Compact wide and Compact high, the state both sides start in, so a
+        // window that did not opt in stays silent. One that did has never told the Host its
+        // size, and its rounded size differs from the (0, 0) it starts with.
+        val quiet = RecordingDispatcher()
+        assertFalse(WindowSizeReporter().report(390f, 300f, quiet))
+        assertEquals(0, quiet.events.size)
+
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+        assertTrue(reporter.report(390f, 300f, dispatcher, everyDpChange = true))
+        assertEquals(1, dispatcher.events.size)
+        val first = dispatcher.events[0] as HostEvent.WindowSizeChanged
+        assertEquals(390f, first.widthDp)
+        assertEquals(300f, first.heightDp)
+        // The same size again is silent.
+        assertFalse(reporter.report(390f, 300f, dispatcher, everyDpChange = true))
+        assertEquals(1, dispatcher.events.size)
+    }
+
+    private fun rootWindowBatch(report: Boolean): List<Mutation> = listOf(
+        Mutation.SetWindow(Window(Chrome.Modern, TitleBar.Normal, "", 0, 0, 0, 0, 0, true, reportSize = report)),
+        Mutation.Create(LABEL, WidgetKind.Text),
+        Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("hello")),
+    )
+
+    private fun rootWindowSizes(report: Boolean): List<HostEvent.WindowSizeChanged> {
+        var sizes: List<HostEvent.WindowSizeChanged> = emptyList()
+        runComposeUiTest {
+            val connection = FakeHostConnection(rootWindowBatch(report))
+            var size by mutableStateOf(1280.dp to 820.dp)
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(connection),
+                        Modifier.requiredSize(size.first, size.second),
+                    )
+                }
+            }
+            waitForIdle()
+            size = 1000.dp to 620.dp
+            waitForIdle()
+            sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>()
+        }
+        return sizes
+    }
+
+    @Test
+    fun fr20_8_implicit_root_window_reports_dp_change_inside_a_class() {
+        val sizes = rootWindowSizes(true)
+        // Both sizes are Expanded wide, and Medium high at 820 and 620 alike, so only the
+        // opt-in can have sent the second event.
+        assertTrue(sizes.size >= 2, "expected a report for the dp change, got ${sizes.size}")
+        assertEquals(1000f, sizes.last().widthDp)
+        assertEquals(620f, sizes.last().heightDp)
+    }
+
+    @Test
+    fun fr20_8_implicit_root_window_default_is_class_only() {
+        val sizes = rootWindowSizes(false)
+        assertTrue(sizes.none { it.widthDp == 1000f }, "a window that did not opt in reported a dp change")
+    }
+
+    @Test
+    fun fr20_8_report_size_for_root_follows_set_window() {
+        val table = NodeTable()
+        assertFalse(table.reportSizeFor(0))
+        table.apply(Mutation.SetWindow(Window(Chrome.Modern, TitleBar.Normal, "", 0, 0, 0, 0, 0, true, reportSize = true)))
+        assertTrue(table.reportSizeFor(0))
+        table.apply(Mutation.SetWindow(Window(Chrome.Modern, TitleBar.Normal, "", 0, 0, 0, 0, 0, true)))
+        assertFalse(table.reportSizeFor(0))
     }
 
     private fun windowBatch(report: Boolean): List<Mutation> = listOf(
