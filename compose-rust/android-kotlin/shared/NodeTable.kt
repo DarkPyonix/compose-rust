@@ -201,6 +201,16 @@ class NodeTable {
     }
 
     /**
+     * Whether the window [windowId] asked for every whole-dp change of its size. Node 0 is
+     * the single window of `SetWindow`, which asks through its settings; a `Window` node
+     * asks through its `report_size` property.
+     */
+    fun reportSizeFor(windowId: Int): Boolean {
+        if (windowId == ROOT_ID) return window?.reportSize == true
+        return node(windowId)?.flag(PropertyKind.ReportSize, false) == true
+    }
+
+    /**
      * The `Window` node the node [nodeId] is drawn in, itself included, or null for a node
      * that sits in none (every node of a single window application).
      */

@@ -662,8 +662,9 @@ fn fr53_malformed_window_wire_is_a_protocol_error() {
 
     let mut batch = encoded(&[Mutation::SetWindow(WindowSettings::new())]);
     // The flags word of the window record: 12 for the envelope, 16 into the record.
+    // Bit 1 is the report-size flag, so it is a window's and not a stray bit.
     let flags_at = 12 + 16;
-    for stray in [0x0002_u16, 0x0004, 0x0080, 0x0200, 0x2000] {
+    for stray in [0x0004_u16, 0x0080, 0x0200, 0x2000] {
         let mut bent = batch.clone();
         bent[flags_at..flags_at + 2].copy_from_slice(&(1 | stray).to_le_bytes());
         assert!(
