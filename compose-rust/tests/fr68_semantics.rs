@@ -176,3 +176,122 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
     assert_eq!(removed, 1, "one removal of the name was expected");
     assert!(!tree.dump().contains("AccessibleName"), "{}", tree.dump());
 }
+
+#[composable]
+fn Described() {
+    let described = remember(|| mutable_state_of(true));
+    Column().content(|| {
+        let flip = described.clone();
+        Row()
+            .on_click(move || flip.update(|d| *d = !*d))
+            .content(|| {
+                Text("flip");
+            });
+        let modifier = if described.get() {
+            Modifier.semantics(Role::Heading, "Title", SemanticsState::expanded(true))
+        } else {
+            Modifier
+        };
+        Box().modifier(modifier).content(|| {});
+    });
+}
+
+#[test]
+fn fr71_removing_semantics_restores_the_defaults() {
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{EventPayload, Modifier as Wire, PropertyKind};
+
+    let mut host = ComposeHost::with_content(Described);
+    let mut tree = Tree::default();
+    tree.apply(host.rebuild().expect("the first batch encodes"));
+    assert!(
+        tree.dump().contains("Semantics { role: Heading"),
+        "{}",
+        tree.dump()
+    );
+
+    let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
+    let (batch, _) = host
+        .dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::Clicked,
+        })
+        .expect("the click is accepted");
+    let batches = [
+        batch.to_vec(),
+        host.render_frame(0).expect("the frame encodes").to_vec(),
+    ];
+
+    let (mut name_removed, mut modifier_cleared) = (0, 0);
+    for batch in &batches {
+        for mutation in decode_batch(batch).expect("the batch decodes") {
+            match mutation {
+                Mutation::SetProp {
+                    property: PropertyKind::AccessibleName,
+                    value,
+                    ..
+                } => {
+                    assert_eq!(value, PropertyValue::None);
+                    name_removed += 1;
+                }
+                Mutation::SetModifier {
+                    modifier: Wire::Empty,
+                    ..
+                } => modifier_cleared += 1,
+                _ => {}
+            }
+        }
+        tree.apply(batch);
+    }
+    assert_eq!(name_removed, 1, "one removal of the name was expected");
+    assert!(modifier_cleared >= 1, "the semantics slot was not cleared");
+    assert!(!tree.dump().contains("Semantics"), "{}", tree.dump());
+    assert!(!tree.dump().contains("AccessibleName"), "{}", tree.dump());
+}
+
+#[composable]
+fn EveryNewRole() {
+    Column().content(|| {
+        for role in [
+            Role::TabList,
+            Role::Tree,
+            Role::TreeItem,
+            Role::Menu,
+            Role::MenuItem,
+            Role::TextBox,
+            Role::Heading,
+            Role::Navigation,
+            Role::List,
+            Role::ListItem,
+            Role::Group,
+        ] {
+            Box()
+                .modifier(Modifier.role(role).disabled(false).click_action(true))
+                .content(|| {});
+        }
+    });
+}
+
+#[test]
+fn fr71_every_new_role_round_trips_and_is_exposed() {
+    let dump = start(EveryNewRole).dump();
+    for role in [
+        "TabList",
+        "Tree",
+        "TreeItem",
+        "Menu",
+        "MenuItem",
+        "TextBox",
+        "Heading",
+        "Navigation",
+        "List",
+        "ListItem",
+        "Group",
+    ] {
+        assert!(
+            dump.contains(&format!("Semantics {{ role: {role}, state: ")),
+            "{role} missing in\n{dump}"
+        );
+    }
+}

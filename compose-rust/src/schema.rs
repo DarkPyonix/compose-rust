@@ -833,6 +833,17 @@ define_wire_enum!(SEMANTICS_ROLE_SCHEMA, SemanticsRole {
     Tab = 6,
     Image = 7,
     DropdownList = 8,
+    TabList = 9,
+    Tree = 10,
+    TreeItem = 11,
+    Menu = 12,
+    MenuItem = 13,
+    TextBox = 14,
+    Heading = 15,
+    Navigation = 16,
+    List = 17,
+    ListItem = 18,
+    Group = 19,
 });
 
 // Density roles, because dp density differs per design system.
@@ -1573,6 +1584,10 @@ pub struct Window {
     /// last time. A level set here is applied, remembered and reported back the way one
     /// chosen with the keys is. Kept inside `-8..=8`.
     pub zoom_level: Option<i8>,
+    /// Whether the implicit single window reports every whole-dp change of its size,
+    /// not only a change of size class. Off by default. Windows made with `Window`
+    /// nodes opt in through the node's `report_size` property instead.
+    pub report_size: bool,
     /// One window (the default) or several. In the second the root's children are
     /// `Window` nodes and the rest of this record describes no window.
     pub mode: WindowMode,
@@ -1593,6 +1608,7 @@ impl Window {
             min_height: 0,
             resizable: true,
             zoom_level: None,
+            report_size: false,
             mode: WindowMode::Single,
             last_window_closed: LastWindowClosed::Exit,
         }
@@ -1664,6 +1680,12 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Asks the implicit single window to report every whole-dp change of its size.
+    pub const fn with_report_size(mut self, report: bool) -> Self {
+        self.report_size = report;
         self
     }
 
@@ -1964,7 +1986,9 @@ pub enum Modifier {
     /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
     /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
     /// accessible name is the `AccessibleName` property, because a string does not fit in
-    /// a modifier's words.
+    /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
+    /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
+    /// accessibility tree, and the two action bits expose a click and a focus action.
     Semantics {
         role: SemanticsRole,
         state: u32,
@@ -1975,8 +1999,23 @@ pub enum Modifier {
 pub const SEMANTICS_CHECKED_SHIFT: u32 = 0;
 /// Where the selected field sits in `Modifier::Semantics::state`.
 pub const SEMANTICS_SELECTED_SHIFT: u32 = 2;
+/// Where the expanded field sits in `Modifier::Semantics::state`: 0 unset, 1 collapsed,
+/// 2 expanded.
+pub const SEMANTICS_EXPANDED_SHIFT: u32 = 4;
+/// Where the disabled field sits in `Modifier::Semantics::state`: 0 unset, 1 enabled,
+/// 2 disabled.
+pub const SEMANTICS_DISABLED_SHIFT: u32 = 6;
+/// Where the focused field sits in `Modifier::Semantics::state`: 0 unset, 1 not focused,
+/// 2 focused.
+pub const SEMANTICS_FOCUSED_SHIFT: u32 = 8;
+/// The bit that excludes the node from the accessibility tree.
+pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
+/// The bit that exposes a click action on the node.
+pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
+/// The bit that exposes a focus action on the node.
+pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
 /// Every bit `Modifier::Semantics::state` may set.
-pub const SEMANTICS_STATE_MASK: u32 = 0b1111;
+pub const SEMANTICS_STATE_MASK: u32 = 0b1_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,

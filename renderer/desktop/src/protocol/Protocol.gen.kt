@@ -28,7 +28,7 @@ enum class TileMode { Clamp, Repeat, Mirror }
 
 enum class MaterialRole { Thin, Regular, Thick, Chrome }
 
-enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList }
+enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList, TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group }
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
@@ -245,6 +245,11 @@ data class Window(
     val mode: WindowMode = WindowMode.Single,
     /** What happens when the last window goes. Only read in [WindowMode.Windows]. */
     val lastWindowClosed: LastWindowClosed = LastWindowClosed.Exit,
+    /**
+     * Whether the implicit single window reports every whole-dp change of its size, not
+     * only a change of size class. Windows made of `Window` nodes use the node property.
+     */
+    val reportSize: Boolean = false,
 )
 
 sealed interface PropertyValue {
@@ -1304,7 +1309,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8685433650645253909L
+    const val SCHEMA_HASH: Long = -4799113909004651214L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1488,14 +1493,15 @@ object Protocol {
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
-                        // Bit 0 is `resizable`; the mode and the last window policy are the
-                        // nibbles above the second byte. Anything else standing is a record
-                        // the sides disagree on.
+                        // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
+                        // mode and the last window policy are the nibbles above the second
+                        // byte. Anything else standing is a record the sides disagree on.
                         val flags = readU16(batch, base, available, offset + 16)
-                        if ((flags and 0x00FE) != 0) {
+                        if ((flags and 0x00FC) != 0) {
                             throw ProtocolException("invalid window flags $flags", offset + 16)
                         }
                         val resizable = flags and 1
+                        val reportSize = (flags and 0x0002) != 0
                         // A byte saying whether there is a zoom level, then the level as a
                         // signed byte.
                         val zoom = readU16(batch, base, available, offset + 18)
@@ -1522,6 +1528,7 @@ object Protocol {
                                 zoomLevel,
                                 windowMode((flags shr 8) and 0xF, offset + 16),
                                 lastWindowClosed(flags shr 12, offset + 16),
+                                reportSize,
                             ),
                         )
                     }
@@ -2439,6 +2446,17 @@ object Protocol {
         6 -> SemanticsRole.Tab
         7 -> SemanticsRole.Image
         8 -> SemanticsRole.DropdownList
+        9 -> SemanticsRole.TabList
+        10 -> SemanticsRole.Tree
+        11 -> SemanticsRole.TreeItem
+        12 -> SemanticsRole.Menu
+        13 -> SemanticsRole.MenuItem
+        14 -> SemanticsRole.TextBox
+        15 -> SemanticsRole.Heading
+        16 -> SemanticsRole.Navigation
+        17 -> SemanticsRole.List
+        18 -> SemanticsRole.ListItem
+        19 -> SemanticsRole.Group
         else -> throw ProtocolException("unknown SemanticsRole tag $tag", offset)
     }
 
