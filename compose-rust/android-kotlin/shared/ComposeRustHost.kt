@@ -41,6 +41,7 @@ import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.FrameRequests
@@ -440,11 +441,17 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    // The height class is state too, so that a window which only crosses a height boundary
+    // (a phone-width window that is tall) recomposes and reaches the reporter below. Read
+    // only through the effect, the size is not observed, and a window whose width class did
+    // not change would never be reported.
+    var heightClass by remember(host) { mutableStateOf(WindowHeightClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
+            heightClass = windowHeightClassOf(size.height.toDp().value)
             measuredSize = size
         }
     }
@@ -568,6 +575,10 @@ private fun ComposeRustTree(
     // only inside the effect, as before, so a resize inside a size class costs it no
     // recomposition.
     val observedSize = if (reportEveryDp) measuredSize else null
+    // Subscribes this scope to the height class: reading the class here is what makes a
+    // height-only class change recompose, and so run the effect below with the new size.
+    @Suppress("UNUSED_VARIABLE")
+    val observedHeightClass = heightClass
     SideEffect {
         (observedSize ?: measuredSize)?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
