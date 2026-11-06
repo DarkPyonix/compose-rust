@@ -103,6 +103,7 @@ class ProtocolVectorsTest {
                 // A window's theme and bringing one forward name a node the vector created.
                 is Mutation.SetWindowTheme -> mutation.nodeId !in created
                 is Mutation.FocusWindow -> mutation.nodeId !in created
+                is Mutation.RequestFocus -> mutation.nodeId !in created && mutation.nodeId != 0
                 is Mutation.Create -> false
                 is Mutation.RegisterAsset -> true
                 is Mutation.ReleaseAsset -> true

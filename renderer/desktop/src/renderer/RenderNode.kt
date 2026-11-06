@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
@@ -22,11 +24,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -36,6 +44,8 @@ import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.roundToInt
@@ -200,24 +210,63 @@ fun RenderNode(
     } else {
         chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
     }
-    val modifier = platformFileDrop(pressable, node, dispatcher)
+    val focusRequest = node.focusRequestRevision
+    val focusRequester = if (focusRequest > 0L &&
+        node.widget != WidgetKind.TextField &&
+        node.widget != WidgetKind.CodeEditor
+    ) {
+        remember(nodeId) { FocusRequester() }
+    } else {
+        null
+    }
+    if (focusRequester != null) {
+        LaunchedEffect(focusRequest) {
+            focusRequester.requestFocus()
+        }
+    }
+    val focusableModifier = if (focusRequester == null) {
+        pressable
+    } else {
+        val withRequester = pressable.focusRequester(focusRequester)
+        if (clickHandler == null &&
+            node.widget in CLICKABLE_CONTAINERS &&
+            node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+        ) {
+            withRequester.focusable()
+        } else {
+            withRequester
+        }
+    }
+    val modifier = platformFileDrop(focusableModifier, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
     val glass = node.isMadeOfGlass(theme)
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
-            WidgetKind.Column -> Column(
-                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.width(IntrinsicSize.Min) else modifier,
-                verticalArrangement = node.verticalArrangement(theme),
-                horizontalAlignment = node.horizontalAlignment(),
-            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
-
-            WidgetKind.Row -> Row(
-                modifier = if (node.usesIntrinsicCrossAxis(table)) modifier.height(IntrinsicSize.Min) else modifier,
-                horizontalArrangement = node.horizontalArrangement(theme),
-                verticalAlignment = node.verticalAlignment(),
-            ) { OnGlass(glass) { Children(node, table, dispatcher) } }
+            WidgetKind.Column, WidgetKind.Row -> {
+                val horizontal = node.widget == WidgetKind.Row
+                val sizedModifier = if (node.usesIntrinsicCrossAxis(table)) {
+                    if (horizontal) modifier.height(IntrinsicSize.Min) else modifier.width(IntrinsicSize.Min)
+                } else modifier
+                val weights = node.children.map { table.node(it)?.modifiers?.weightOf() }
+                val intrinsicSafe = node.children.map { child -> !table.hasScrollingDescendant(child) }
+                if (weights.any { it != null }) {
+                    WeightedStack(
+                        node, table, dispatcher, sizedModifier, horizontal, weights, intrinsicSafe,
+                        node.horizontalArrangement(theme), node.verticalArrangement(theme),
+                        node.horizontalAlignment(), node.verticalAlignment(), glass,
+                    )
+                } else if (horizontal) {
+                    Row(sizedModifier, node.horizontalArrangement(theme), node.verticalAlignment()) {
+                        OnGlass(glass) { Children(node, table, dispatcher) }
+                    }
+                } else {
+                    Column(sizedModifier, node.verticalArrangement(theme), node.horizontalAlignment()) {
+                        OnGlass(glass) { Children(node, table, dispatcher) }
+                    }
+                }
+            }
 
             // A place files may be dropped is laid out as a plain box. Being this widget is
             // the whole of the difference: the drop target is set up for it and for nothing
@@ -246,7 +295,7 @@ fun RenderNode(
             // The controls are drawn through `Unselectable`, which leaves them out of a
             // selectable region around them: a label is pressed, not copied. Outside a region
             // it adds nothing.
-            WidgetKind.Button -> Unselectable { HostButton(node, modifier, dispatcher, theme) }
+            WidgetKind.Button -> Unselectable { HostButton(node, modifier, table, dispatcher, theme) }
             WidgetKind.TextField -> Unselectable { HostTextField(node, modifier, dispatcher, table.assets) }
             WidgetKind.LazyColumn -> HostLazyColumn(node, modifier, table, dispatcher)
 
@@ -730,6 +779,160 @@ internal fun OnGlass(glass: Boolean, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalGlassDepth provides LocalGlassDepth.current + 1, content = content)
 }
 
+/** Measures weighted children at least as large as their main-axis minimum intrinsic size. */
+@Composable
+private fun WeightedStack(
+    node: Node,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    modifier: Modifier,
+    horizontal: Boolean,
+    weights: List<Float?>,
+    intrinsicSafe: List<Boolean>,
+    horizontalArrangement: Arrangement.Horizontal,
+    verticalArrangement: Arrangement.Vertical,
+    horizontalAlignment: Alignment.Horizontal,
+    verticalAlignment: Alignment.Vertical,
+    glass: Boolean,
+) {
+    val policy = remember(horizontal, weights, intrinsicSafe, horizontalArrangement, verticalArrangement, horizontalAlignment, verticalAlignment) {
+        WeightedStackPolicy(horizontal, weights, intrinsicSafe, horizontalArrangement, verticalArrangement, horizontalAlignment, verticalAlignment)
+    }
+    Layout(
+        content = {
+            OnGlass(glass) {
+                node.children.forEach { childId -> key(childId) { RenderNode(childId, table, dispatcher) } }
+            }
+        },
+        modifier = modifier.clipToBounds(),
+        measurePolicy = policy,
+    )
+}
+
+private class WeightedStackPolicy(
+    private val horizontal: Boolean,
+    private val weights: List<Float?>,
+    private val intrinsicSafe: List<Boolean>,
+    private val horizontalArrangement: Arrangement.Horizontal,
+    private val verticalArrangement: Arrangement.Vertical,
+    private val horizontalAlignment: Alignment.Horizontal,
+    private val verticalAlignment: Alignment.Vertical,
+) : MeasurePolicy {
+    private fun spacing(scope: androidx.compose.ui.unit.Density): Int = with(scope) {
+        (if (horizontal) horizontalArrangement.spacing else verticalArrangement.spacing).roundToPx()
+    }
+
+    override fun MeasureScope.measure(measurables: List<Measurable>, constraints: Constraints): MeasureResult {
+        val mainMax = if (horizontal) constraints.maxWidth else constraints.maxHeight
+        val mainMin = if (horizontal) constraints.minWidth else constraints.minHeight
+        val crossMax = if (horizontal) constraints.maxHeight else constraints.maxWidth
+        val gap = spacing(this)
+        val places = arrayOfNulls<androidx.compose.ui.layout.Placeable>(measurables.size)
+        var fixed = 0
+        val gaps = gap * (measurables.size - 1).coerceAtLeast(0)
+        fun childConstraints(min: Int, max: Int) = if (horizontal) {
+            Constraints(minWidth = min, maxWidth = max, maxHeight = crossMax)
+        } else {
+            Constraints(minHeight = min, maxHeight = max, maxWidth = crossMax)
+        }
+        measurables.forEachIndexed { index, measurable ->
+            if (weights[index] == null) {
+                val available = if (mainMax == Constraints.Infinity) mainMax else (mainMax - fixed - gaps).coerceAtLeast(0)
+                val place = measurable.measure(childConstraints(0, available))
+                places[index] = place
+                fixed += if (horizontal) place.width else place.height
+            }
+        }
+        val target = if (mainMax == Constraints.Infinity) mainMin else mainMax
+        val remaining = (target - fixed - gaps).coerceAtLeast(0)
+        val totalWeight = weights.filterNotNull().sum()
+        var distributed = 0
+        var remainingWeight = totalWeight
+        measurables.forEachIndexed { index, measurable ->
+            val weight = weights[index] ?: return@forEachIndexed
+            val share = if (remainingWeight == weight) remaining - distributed else (remaining * weight / totalWeight).roundToInt().coerceAtMost((remaining - distributed).coerceAtLeast(0))
+            distributed += share
+            remainingWeight -= weight
+            val intrinsic = intrinsic(index) { if (horizontal) measurable.minIntrinsicWidth(crossMax) else measurable.minIntrinsicHeight(crossMax) }
+            val size = maxOf(share, intrinsic).coerceAtMost(Constraints.Infinity - 1)
+            places[index] = measurable.measure(childConstraints(size, size))
+        }
+        val children = places.map { it!! }
+        val sizes = children.map { if (horizontal) it.width else it.height }.toIntArray()
+        val contentMain = (sizes.fold(0L) { sum, size -> sum + size } + gaps).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val main = if (horizontal) constraints.constrainWidth(contentMain) else constraints.constrainHeight(contentMain)
+        val contentCross = children.maxOfOrNull { if (horizontal) it.height else it.width } ?: 0
+        val cross = if (horizontal) constraints.constrainHeight(contentCross) else constraints.constrainWidth(contentCross)
+        val positions = IntArray(children.size)
+        if (horizontal) with(horizontalArrangement) { arrange(main, sizes, layoutDirection, positions) }
+        else with(verticalArrangement) { arrange(main, sizes, positions) }
+        return layout(if (horizontal) main else cross, if (horizontal) cross else main) {
+            children.forEachIndexed { index, place ->
+                if (horizontal) place.place(positions[index], verticalAlignment.align(place.height, cross))
+                else place.place(horizontalAlignment.align(place.width, cross, layoutDirection), positions[index])
+            }
+        }
+    }
+
+    private fun IntrinsicMeasureScope.mainIntrinsic(children: List<IntrinsicMeasurable>, cross: Int, min: Boolean): Int {
+        val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
+        val sizes = children.mapIndexed { index, child -> intrinsic(index) {
+            if (horizontal) {
+                if (min) child.minIntrinsicWidth(cross) else child.maxIntrinsicWidth(cross)
+            } else {
+                if (min) child.minIntrinsicHeight(cross) else child.maxIntrinsicHeight(cross)
+            }
+        } }
+        val unit = sizes.indices.filter { weights[it] != null }.maxOfOrNull { sizes[it] / weights[it]!! } ?: 0f
+        val weighted = (unit * weights.filterNotNull().sum()).roundToInt()
+        return (sizes.indices.filter { weights[it] == null }.sumOf { sizes[it].toLong() } + weighted + gap)
+            .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
+        val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
+        val fixed = children.indices.filter { weights[it] == null }.map { index ->
+            val child = children[index]
+            intrinsic(index) { if (horizontal) child.maxIntrinsicWidth(Constraints.Infinity) else child.maxIntrinsicHeight(Constraints.Infinity) }
+        }.fold(0L) { sum, value -> sum + value }
+        val remaining = if (main == Constraints.Infinity) Constraints.Infinity else (main.toLong() - fixed - gap).coerceAtLeast(0).toInt()
+        val total = weights.filterNotNull().sum()
+        return children.indices.maxOfOrNull { index ->
+            val child = children[index]
+            val weight = weights[index]
+            val available = if (weight == null || remaining == Constraints.Infinity) Constraints.Infinity
+                else (remaining * weight / total).roundToInt()
+            val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+            val size = if (weight == null) available else maxOf(available, minimum)
+            intrinsic(index) { if (horizontal) {
+                if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
+            } else {
+                if (min) child.minIntrinsicWidth(size) else child.maxIntrinsicWidth(size)
+            } }
+        } ?: 0
+    }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int =
+        if (horizontal) mainIntrinsic(measurables, height, true) else crossIntrinsic(measurables, height, true)
+    override fun IntrinsicMeasureScope.maxIntrinsicWidth(measurables: List<IntrinsicMeasurable>, height: Int): Int =
+        if (horizontal) mainIntrinsic(measurables, height, false) else crossIntrinsic(measurables, height, false)
+    override fun IntrinsicMeasureScope.minIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int =
+        if (horizontal) crossIntrinsic(measurables, width, true) else mainIntrinsic(measurables, width, true)
+    override fun IntrinsicMeasureScope.maxIntrinsicHeight(measurables: List<IntrinsicMeasurable>, width: Int): Int =
+        if (horizontal) crossIntrinsic(measurables, width, false) else mainIntrinsic(measurables, width, false)
+
+    private inline fun intrinsic(index: Int, query: () -> Int): Int {
+        if (!intrinsicSafe[index]) return 0
+        return try { query() } catch (_: IllegalStateException) { 0 }
+    }
+}
+
+private fun NodeTable.hasScrollingDescendant(id: Int): Boolean {
+    val node = node(id) ?: return false
+    if (node.widget in setOf(WidgetKind.LazyColumn, WidgetKind.LazyRow, WidgetKind.LazyGrid, WidgetKind.ScrollColumn, WidgetKind.ScrollRow)) return true
+    return node.children.any { hasScrollingDescendant(it) }
+}
+
 /**
  * Children of a Column: weight is applied here because `Modifier.weight` exists only inside
  * `ColumnScope`. Every layout that stacks its children vertically draws them through this,
@@ -755,7 +958,7 @@ private fun ColumnScope.WeightedChild(childId: Int, table: NodeTable, dispatcher
 }
 
 @Composable
-private fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+internal fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
     node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
 }
 

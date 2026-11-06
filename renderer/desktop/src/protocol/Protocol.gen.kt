@@ -1249,6 +1249,9 @@ sealed interface Mutation {
 
     /** Brings a window forward and makes it the key window. Happens once. */
     data class FocusWindow(val nodeId: Int) : Mutation
+
+    /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
+    data class RequestFocus(val nodeId: Int) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1301,7 +1304,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3628289596330618536L
+    const val SCHEMA_HASH: Long = 1132690599095623473L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1329,6 +1332,7 @@ object Protocol {
     private const val TAG_SET_FOLDED = 22
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
+    private const val TAG_REQUEST_FOCUS = 25
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1477,6 +1481,10 @@ object Protocol {
                     TAG_FOCUS_WINDOW -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.FocusWindow(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_REQUEST_FOCUS -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)

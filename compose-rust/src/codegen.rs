@@ -462,6 +462,9 @@ sealed interface Mutation {
 
     /** Brings a window forward and makes it the key window. Happens once. */
     data class FocusWindow(val nodeId: Int) : Mutation
+
+    /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
+    data class RequestFocus(val nodeId: Int) : Mutation
 }
 
 "#,
@@ -593,6 +596,7 @@ object Protocol {
     private const val TAG_SET_FOLDED = 22
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
+    private const val TAG_REQUEST_FOCUS = 25
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -741,6 +745,10 @@ object Protocol {
                     TAG_FOCUS_WINDOW -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.FocusWindow(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_REQUEST_FOCUS -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -2986,6 +2994,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 8,
             modifier: Modifier::MatchParentSize,
         },
+        Mutation::RequestFocus { node_id: 1 },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
