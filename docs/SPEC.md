@@ -3906,7 +3906,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
   - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
 - **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
 - **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
-- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 경로에 UTF-8이 아닌 바이트가 있으면(Linux에서만 가능) 그 경로를 버리고 나머지를 전달하며(FR-27과 같은 규칙), 하나도 남지 않으면 `Cancelled`가 아니라 `Unavailable`입니다. 사용자가 고른 것이 있었는데 취소로 보이면 거짓이기 때문입니다.
+- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 고른 경로 중 하나라도 UTF-8로 나타낼 수 없으면(Linux에서만 가능하고, macOS에서 경로를 문자열로 읽지 못하는 경우도 같습니다) **결과 전체가 `Unavailable`**이고 나머지 경로도 보내지 않습니다. 고른 개수와 돌려준 개수가 다른 `Chosen`을 앱이 알아챌 길이 없고, 취소로 보내면 사용자가 고른 것이 있었는데 거짓이기 때문입니다. 파일을 떨어뜨리는 FR-27은 건너뛰고 나머지를 전달하지만, 대화상자에서 고른 것은 사용자가 이름을 짚어 고른 것이라 규칙이 다릅니다.
 - **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
 - `Chosen`인데 경로가 하나도 없으면 Renderer는 `Cancelled`를 보내고, Host는 경로 없는 `Chosen`을 받으면 `Unavailable`로 다룹니다. 앱이 빈 목록을 선택으로 처리하지 않게 하려는 것입니다.
 - `filter`: 사용자가 마지막으로 선택한 필터의 위치입니다. 필터를 보내지 않았거나 `Chosen`이 아니면 `0xFFFF_FFFF`입니다.
@@ -3956,7 +3956,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 fr72_duplicate_pending_request_is_a_protocol_error).
 5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 fr72_requests_on_one_window_are_shown_in_order).
 6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 fr72_unknown_window_reports_and_answers_unavailable).
-7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8이 아닌 경로는 버려지고 하나도 안 남으면 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped).
+7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8로 나타낼 수 없는 경로가 하나라도 있으면 결과 전체가 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable).
 8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
 9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
 10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
