@@ -506,6 +506,50 @@ class WindowSizeTest {
         assertEquals(600.6f, (dispatcher.events[1] as HostEvent.WindowSizeChanged).widthDp)
     }
 
+    @Test
+    fun fr20_a_window_that_only_crosses_a_height_boundary_still_reports_at_the_first_measurement() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("hello")),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                // A phone: Compact wide like the state both sides start in, Medium high.
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(390.dp, 844.dp))
+            }
+        }
+        waitForIdle()
+        val sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>()
+        assertEquals(1, sizes.size, "a height-only class change reaches the Host")
+        assertEquals(WindowSizeClass.Compact, sizes[0].sizeClass)
+        assertEquals(WindowHeightClass.Medium, sizes[0].heightClass)
+        assertEquals(390f, sizes[0].widthDp)
+        assertEquals(844f, sizes[0].heightDp)
+    }
+
+    @Test
+    fun fr20_8_a_compact_window_that_opts_in_reports_its_size_at_the_first_measurement() {
+        // 390 by 300 is Compact wide and Compact high, the state both sides start in, so a
+        // window that did not opt in stays silent. One that did has never told the Host its
+        // size, and its rounded size differs from the (0, 0) it starts with.
+        val quiet = RecordingDispatcher()
+        assertFalse(WindowSizeReporter().report(390f, 300f, quiet))
+        assertEquals(0, quiet.events.size)
+
+        val dispatcher = RecordingDispatcher()
+        val reporter = WindowSizeReporter()
+        assertTrue(reporter.report(390f, 300f, dispatcher, everyDpChange = true))
+        assertEquals(1, dispatcher.events.size)
+        val first = dispatcher.events[0] as HostEvent.WindowSizeChanged
+        assertEquals(390f, first.widthDp)
+        assertEquals(300f, first.heightDp)
+        // The same size again is silent.
+        assertFalse(reporter.report(390f, 300f, dispatcher, everyDpChange = true))
+        assertEquals(1, dispatcher.events.size)
+    }
+
     private fun rootWindowBatch(report: Boolean): List<Mutation> = listOf(
         Mutation.SetWindow(Window(Chrome.Modern, TitleBar.Normal, "", 0, 0, 0, 0, 0, true, reportSize = report)),
         Mutation.Create(LABEL, WidgetKind.Text),
