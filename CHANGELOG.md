@@ -18,9 +18,13 @@ A child with a weight on the main axis gets the larger of its share and its mini
 
 `Switch` has `track_color`, `thumb_color` and `size(width, height)`, `Slider` has `track_color`, `active_track_color` and `thumb_color`, and `Checkbox` has `container_color`, `check_color` and `size(side)` ([#426](https://github.com/DarkPyonix/compose-rust/issues/426), [#428](https://github.com/DarkPyonix/compose-rust/issues/428)). A value that is not set is not sent, and the design system draws that slot. On the wire these are the new `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) properties. The schema hash changes, so a renderer and a crate from before this change no longer agree.
 
-### A press on a `WindowDrag(false)` node no longer starts a window drag on macOS
+### A `WindowDrag(false)` child keeps its press out of a drag region on macOS
 
 Inside a region that is a window drag area, a node marked `WindowDrag(false)` (a button, a text field) now keeps its press: the press is not turned into a window drag ([#482](https://github.com/DarkPyonix/compose-rust/issues/482), [#458](https://github.com/DarkPyonix/compose-rust/pull/458)).
+
+### Change-marker bars in the code editor gutter
+
+A `Bar` gutter decoration whose colour is `DiffAdded`, `DiffModified` or `DiffRemoved` is drawn as a 4dp change-marker bar to the right of the line-number column, 12dp from the code. A line gets one record, so there is no wire change. When a line carries several, `DiffRemoved` wins over `DiffModified`, which wins over `DiffAdded`. Other `Dot`, `Bar` and `Glyph` decorations and an editor without bars are laid out as before. The editor's state description tells assistive technology which lines changed ([#477](https://github.com/DarkPyonix/compose-rust/pull/477)).
 
 ### Accessibility modifier and `accessible_name`
 
