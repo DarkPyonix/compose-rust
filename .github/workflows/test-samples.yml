@@ -166,8 +166,9 @@ jobs:
             libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev
 
       - name: Cache the Kotlin toolchain and Maven dependencies
+        id: cache-1
         if: runner.os == 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
           key: kotlin-${{ matrix.target }}-${{ hashFiles('renderer/**/module.yaml') }}
@@ -299,6 +300,13 @@ jobs:
           name: samples-${{ matrix.target }}
           path: artifacts/
 
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: (runner.os == 'Windows') && github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
+
 
   android:
     needs: requested
@@ -331,9 +339,10 @@ jobs:
           echo "ANDROID_NDK_HOME=$sdk/ndk/27.1.12297006" >> "$GITHUB_ENV"
 
       - name: Cache Gradle and Maven dependencies
+        id: cache-2
         # Gradle, not the Kotlin toolchain: an application's Kotlin is compiled by its own
         # Gradle build here rather than by ours.
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.gradle/caches
@@ -361,6 +370,16 @@ jobs:
           name: samples-android
           path: artifacts/
 
+      - name: Save Gradle and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.m2/repository
+          key: ${{ steps.cache-2.outputs.cache-primary-key }}
+
   ios:
     needs: requested
     name: Build the sample (iOS, simulator)
@@ -377,7 +396,8 @@ jobs:
           rustup target add aarch64-apple-ios-sim
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-3
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
@@ -416,6 +436,15 @@ jobs:
           name: samples-ios-simulator
           path: artifacts/
 
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-3.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: ${{ steps.cache-3.outputs.cache-primary-key }}
+
   web:
     needs: requested
     name: Build the sample (web)
@@ -437,7 +466,8 @@ jobs:
           java-version: '21'
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/JetBrains/Kotlin
@@ -459,6 +489,15 @@ jobs:
         with:
           name: samples-web
           path: artifacts/
+
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-4.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: ${{ steps.cache-4.outputs.cache-primary-key }}
 
   release:
     name: Attach the samples to the GitHub release
