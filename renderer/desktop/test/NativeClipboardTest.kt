@@ -24,6 +24,8 @@ import dev.darkpyonix.composerust.ui.platform.NativeMenuEntry
 import dev.darkpyonix.composerust.ui.platform.PasteboardClipboard
 import dev.darkpyonix.composerust.ui.platform.WindowClipboardImpl
 import java.awt.datatransfer.DataFlavor
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,6 +41,20 @@ import kotlin.test.assertTrue
  * handed something else.
  */
 class NativeClipboardTest {
+
+    private var savedLocale: java.util.Locale? = null
+
+    /** The menu labels come from the default locale; a Korean machine would label them 잘라내기. */
+    @BeforeTest
+    fun pinEnglishLocale() {
+        savedLocale = java.util.Locale.getDefault()
+        java.util.Locale.setDefault(java.util.Locale.ENGLISH)
+    }
+
+    @AfterTest
+    fun restoreLocale() {
+        savedLocale?.let { java.util.Locale.setDefault(it) }
+    }
 
     private var board = ""
     private val clipboard = WindowClipboardImpl(PasteboardClipboard({ board }, { board = it }))
