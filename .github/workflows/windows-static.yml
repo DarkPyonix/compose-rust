@@ -103,7 +103,7 @@ jobs:
         run: ./renderer/scripts/build-compose.sh --target mingwX64
 
       - name: Keep them for the next run
-        if: steps.kit-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && (steps.kit-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: |
@@ -246,7 +246,7 @@ jobs:
         run: ./renderer/desktop/scripts/build-windows.sh
 
       - name: Keep the Kotlin toolchain for the next run
-        if: always() && steps.toolchain-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && (always() && steps.toolchain-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: |

@@ -82,7 +82,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache Liberica NIK
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/compose-rust/nik
           key: nik-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-nik.sh') }}
@@ -91,7 +92,8 @@ jobs:
         run: ./scripts/install-nik.sh --github-env
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-2
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
@@ -224,6 +226,22 @@ jobs:
           path: renderer/build/native-image/dist/
           retention-days: 7
 
+      - name: Save Liberica NIK (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/compose-rust/nik
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
+
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.m2/repository
+          key: ${{ steps.cache-2.outputs.cache-primary-key }}
+
   compose-desktop:
     name: Build the Compose fork's desktop modules
     # The Linux image carries no Java toolkit, which takes changes Compose's desktop modules
@@ -258,7 +276,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: false
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
           gradle-home-cache-excludes: |
             caches/build-cache-1
 
@@ -323,7 +341,8 @@ jobs:
             libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-3
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/JetBrains/Kotlin
@@ -415,6 +434,15 @@ jobs:
           path: renderer/build/native-image-linux/dist/
           retention-days: 7
 
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-3.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: ${{ steps.cache-3.outputs.cache-primary-key }}
+
   linux-arm64:
     needs: compose-desktop
     name: Build and smoke test the GraalVM renderer (Linux, arm64)
@@ -439,7 +467,8 @@ jobs:
             libgl1-mesa-dev fonts-noto-cjk xvfb xauth dbus-x11
 
       - name: Cache the Kotlin toolchain and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/JetBrains/Kotlin
@@ -479,3 +508,12 @@ jobs:
           name: graalvm-renderer-linux-arm64
           path: renderer/build/native-image-linux/dist/
           retention-days: 7
+
+      - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-4.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/JetBrains/Kotlin
+            ~/.m2/repository
+          key: ${{ steps.cache-4.outputs.cache-primary-key }}
