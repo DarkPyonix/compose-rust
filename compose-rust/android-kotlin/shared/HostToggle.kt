@@ -3,7 +3,7 @@ package dev.darkpyonix.composerust.foundation
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import dev.darkpyonix.composerust.design.ResolvedTheme
-import dev.darkpyonix.composerust.design.controlLook
+import dev.darkpyonix.composerust.design.rememberControlLook
 import dev.darkpyonix.composerust.design.ToggleRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -48,6 +48,6 @@ internal fun HostToggle(
         },
         modifier = modifier,
         theme = theme,
-        look = node.controlLook(theme),
+        look = rememberControlLook(node, theme),
     )
 }

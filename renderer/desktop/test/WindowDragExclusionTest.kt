@@ -65,8 +65,9 @@ class WindowDragExclusionTest {
         assertEquals(1, connection.events.filterIsInstance<HostEvent.Clicked>().size)
     }
 
+    /** A control case: it also passes without the fix. The regression test is the one above. */
     @Test
-    fun fr19_press_on_the_empty_drag_region_starts_the_window_drag() = runComposeUiTest {
+    fun fr19_control_press_on_the_empty_drag_region_still_starts_the_window_drag() = runComposeUiTest {
         var drags = 0
         val connection = FakeHostConnection(mutations(childClickable = false))
         setContent {
@@ -76,6 +77,23 @@ class WindowDragExclusionTest {
         }
         // The child is as small as its label, so the far corner of the 150 by 150 region is empty.
         onRoot().performMouseInput { moveTo(Offset(140f, 140f)); press(); release() }
+        assertEquals(1, drags)
+    }
+
+    @Test
+    fun fr19_a_press_that_starts_in_the_region_keeps_dragging_over_a_non_drag_child() = runComposeUiTest {
+        var drags = 0
+        val connection = FakeHostConnection(mutations(childClickable = false))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalWindowDrag provides { drags++ }) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(200.dp, 200.dp))
+            }
+        }
+        // The press starts on the empty part of the region, then moves over the child. The child
+        // never saw the down, so nothing is marked and the drag goes on.
+        onRoot().performMouseInput {
+            moveTo(Offset(140f, 140f)); press(); moveTo(Offset(10f, 10f)); release()
+        }
         assertEquals(1, drags)
     }
 }

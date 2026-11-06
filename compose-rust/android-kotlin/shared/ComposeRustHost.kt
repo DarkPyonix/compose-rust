@@ -86,6 +86,7 @@ internal class WindowDragExclusion {
     var downId: Long = -1L
     var downUptime: Long = -1L
     fun mark(id: Long, uptime: Long) { downId = id; downUptime = uptime }
+    fun clear() { downId = -1L; downUptime = -1L }
     fun isMarked(id: Long, uptime: Long): Boolean = downId == id && downUptime == uptime
 }
 internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }

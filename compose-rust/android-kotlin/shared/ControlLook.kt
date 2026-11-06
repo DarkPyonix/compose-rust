@@ -1,10 +1,13 @@
 package dev.darkpyonix.composerust.design
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.resolvedShape
@@ -43,6 +46,70 @@ class ControlLook(
 
     companion object {
         val None = ControlLook()
+    }
+}
+
+/**
+ * The look of [node], rebuilt only when something it reads has changed.
+ *
+ * A recomposition that changes none of the six properties, the corner modifier or the theme
+ * hands back the look it made last time, and a node that sends none of them gets the shared
+ * [ControlLook.None], so the steady state allocates nothing. A property that is removed
+ * makes its slot null, which differs from the value it held, so the look returns to the
+ * defaults.
+ */
+@Composable
+internal fun rememberControlLook(node: Node, theme: ResolvedTheme): ControlLook {
+    val cache = remember { ControlLookCache() }
+    return cache.read(node, theme)
+}
+
+private class ControlLookCache {
+    private var primed = false
+    private var theme: ResolvedTheme? = null
+    private var track: PropertyValue? = null
+    private var thumb: PropertyValue? = null
+    private var activeTrack: PropertyValue? = null
+    private var container: PropertyValue? = null
+    private var check: PropertyValue? = null
+    private var size: PropertyValue? = null
+    private var corner: dev.darkpyonix.composerust.protocol.Modifier? = null
+    private var named = false
+    private var look: ControlLook = ControlLook.None
+
+    fun read(node: Node, current: ResolvedTheme): ControlLook {
+        val props = node.props
+        val newTrack = props[PropertyKind.TrackColor]
+        val newThumb = props[PropertyKind.ThumbColor]
+        val newActive = props[PropertyKind.ActiveTrackColor]
+        val newContainer = props[PropertyKind.ContainerColor]
+        val newCheck = props[PropertyKind.CheckColor]
+        val newSize = props[PropertyKind.ControlSize]
+        var newNamed = false
+        var newCorner: dev.darkpyonix.composerust.protocol.Modifier? = null
+        val modifiers = node.modifiers
+        for (index in modifiers.indices) {
+            val value = modifiers[index]
+            val isNamed = value is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
+                value is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole
+            if (isNamed) newNamed = true
+            if (isNamed || value is dev.darkpyonix.composerust.protocol.Modifier.CornerEach) newCorner = value
+        }
+        if (primed && theme === current && track == newTrack && thumb == newThumb &&
+            activeTrack == newActive && container == newContainer && check == newCheck &&
+            size == newSize && named == newNamed && corner == newCorner
+        ) {
+            return look
+        }
+        primed = true
+        theme = current
+        track = newTrack; thumb = newThumb; activeTrack = newActive
+        container = newContainer; check = newCheck; size = newSize
+        named = newNamed; corner = newCorner
+        val empty = newTrack == null && newThumb == null && newActive == null &&
+            newContainer == null && newCheck == null && newSize == null && !newNamed
+        look = if (empty) ControlLook.None else node.controlLook(current)
+        return look
     }
 }
 

@@ -246,4 +246,33 @@ class ControlColoursTest {
             assertEquals(reference.pixels, removed.pixels, "$system: the pixels after the removal")
         }
     }
+
+    @Test
+    fun fr67_control_look_is_not_recomputed_for_unchanged_properties() {
+        val system = DesignSystem.entries.first()
+        val theme = dev.darkpyonix.composerust.design.ResolvedTheme(
+            system = system,
+            tokens = dev.darkpyonix.composerust.protocol.DesignTokens.of(system),
+            rules = dev.darkpyonix.composerust.design.rulesFor(system),
+            dark = false,
+        )
+        val node = dev.darkpyonix.composerust.ui.node.Node(control, WidgetKind.Switch)
+        node.props[PropertyKind.TrackColor] = literal(ink)
+        val looks = mutableListOf<dev.darkpyonix.composerust.design.ControlLook>()
+        runComposeUiTest {
+            val tick = androidx.compose.runtime.mutableIntStateOf(0)
+            setContent {
+                tick.intValue
+                looks += dev.darkpyonix.composerust.design.rememberControlLook(node, theme)
+            }
+            waitForIdle()
+            tick.intValue = 1
+            waitForIdle()
+            node.props[PropertyKind.TrackColor] = literal(red)
+            waitForIdle()
+        }
+        check(looks.size >= 2) { "the content was composed ${looks.size} times" }
+        assertEquals(true, looks[0] === looks[1], "an unchanged node gets the look it had")
+        assertEquals(false, looks.last() === looks[0], "a changed colour makes a new look")
+    }
 }
