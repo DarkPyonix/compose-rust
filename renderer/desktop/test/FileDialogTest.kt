@@ -171,10 +171,11 @@ class FileDialogTest {
         host.ask(3, kind = FileDialogKind.OpenFolder, filters = encoded)
         host.ask(4, kind = FileDialogKind.Save, name = "dir/sub\\report.txt", filters = "Text\u0000TXT")
         host.ask(5, kind = FileDialogKind.OpenFile, name = "ignored.txt")
+        host.ask(6, defaultFilter = 2, filters = "Dots\u0000.,*.\u0000All\u0000\u0000Txt\u0000txt")
         host.frame()
 
         assertTrue(connection.errorCodes().isEmpty(), "trimming is not an error")
-        assertEquals(5, platform.shown.size, "every request is shown")
+        assertEquals(6, platform.shown.size, "every request is shown")
         val first = platform.forRequest(1).spec
         assertEquals(16, first.filters.size)
         assertEquals("F0", first.filters.first().label)
@@ -183,6 +184,9 @@ class FileDialogTest {
         assertEquals(listOf("ext0", "ext1", "ext2"), first.filters.first().extensions.take(3))
         assertEquals("ext31", first.filters.first().extensions.last())
         assertEquals(0, first.defaultFilter, "a default filter out of range is the first")
+        val dots = platform.forRequest(6).spec
+        assertEquals(listOf("All", "Txt"), dots.filters.map { it.label }, "a filter of only dots is dropped, an empty one is kept")
+        assertEquals(1, dots.defaultFilter, "the default follows its filter after an earlier one was dropped")
         assertEquals(3, platform.forRequest(2).spec.defaultFilter)
         assertTrue(platform.forRequest(3).spec.filters.isEmpty(), "a folder dialog has no filters")
         assertEquals("report.txt", platform.forRequest(4).spec.name)

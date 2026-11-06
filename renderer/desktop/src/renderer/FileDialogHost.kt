@@ -342,7 +342,8 @@ class FileDialogCenter(
          */
         fun normalize(mutation: Mutation.ShowFileDialog): FileDialogSpec {
             val folders = mutation.kind == FileDialogKind.OpenFolder || mutation.kind == FileDialogKind.OpenFolders
-            val filters = if (folders) emptyList() else parseFilters(mutation.filters)
+            val parsed = if (folders) emptyList() else parseFilters(mutation.filters)
+            val filters = parsed.map { it.second }
             val name = if (mutation.kind == FileDialogKind.Save) {
                 mutation.name.substringAfterLast('/').substringAfterLast('\\')
             } else {
@@ -356,24 +357,32 @@ class FileDialogCenter(
                 directory = mutation.directory,
                 name = name,
                 filters = filters,
-                defaultFilter = mutation.defaultFilter.takeIf { it in filters.indices } ?: 0,
+                // The default is a position in the list the Host sent, so it follows its filter
+                // when an earlier one was dropped.
+                defaultFilter = parsed.indexOfFirst { it.first == mutation.defaultFilter }.takeIf { it >= 0 } ?: 0,
             )
         }
 
-        private fun parseFilters(encoded: String): List<FileDialogFilter> {
+        private fun parseFilters(encoded: String): List<Pair<Int, FileDialogFilter>> {
             if (encoded.isEmpty()) return emptyList()
             // Label, extensions, label, extensions. A label with nothing after it lets every
             // file through, like one with no extensions.
             val parts = encoded.split('\u0000')
-            val filters = ArrayList<FileDialogFilter>()
+            val filters = ArrayList<Pair<Int, FileDialogFilter>>()
             var index = 0
-            while (index < parts.size && filters.size < FileDialogLimits.MAX_FILTERS) {
-                val extensions = (parts.getOrNull(index + 1) ?: "")
-                    .split(',')
+            var position = 0
+            while (index < parts.size && position < FileDialogLimits.MAX_FILTERS) {
+                val named = (parts.getOrNull(index + 1) ?: "").split(',').filter { it.isNotBlank() }
+                val extensions = named
                     .map { it.trim().removePrefix("*.").removePrefix(".").lowercase() }
                     .filter { it.isNotEmpty() }
                     .take(FileDialogLimits.MAX_EXTENSIONS)
-                filters += FileDialogFilter(parts[index], extensions)
+                // A filter that names extensions and keeps none of them (a lone ".") would
+                // otherwise mean every file, the opposite of what it asked for.
+                if (named.isEmpty() || extensions.isNotEmpty()) {
+                    filters += position to FileDialogFilter(parts[index], extensions)
+                }
+                position++
                 index += 2
             }
             return filters
