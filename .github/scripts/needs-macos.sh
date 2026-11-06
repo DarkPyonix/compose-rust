@@ -10,8 +10,12 @@
 #   docs/                         documentation and the planning documents
 #   *.md at the root, LICENSE, .gitignore
 #                                 text that nothing builds
-#   .github/workflows/            workflows other than test.yml and fork-desktop-modules.yml,
-#                                 which test.yml itself runs
+#   .github/workflows/{pages,publish-crates,release-sync,windows-static,test-windows-c,
+#   test-windows-resize-metrics,test-windows-resize-probe}.yml
+#                                 workflows no shell test reads. The others stay on the macOS
+#                                 side: install-nik.test.sh, kn-start-report.test.sh and
+#                                 others read them, and install-nik only means anything on
+#                                 macOS.
 #   renderer/windows/, renderer/staticlib-windows/, renderer/desktop/scripts/*.ps1,
 #   renderer/desktop/scripts/build-windows.sh,
 #   renderer/desktop/scripts/windows-build-contract.test.sh,
@@ -30,8 +34,10 @@ files="$(cat 2>/dev/null)" || { echo "macos=true"; exit 0; }
 while IFS= read -r file; do
     [[ -n "$file" ]] || continue
     case "$file" in
-        .github/workflows/test.yml|.github/workflows/fork-desktop-modules.yml) echo "macos=true"; exit 0 ;;
-        docs/*|.github/workflows/*) ;;
+        docs/*) ;;
+        .github/workflows/pages.yml|.github/workflows/publish-crates.yml|.github/workflows/release-sync.yml) ;;
+        .github/workflows/windows-static.yml|.github/workflows/test-windows-c.yml) ;;
+        .github/workflows/test-windows-resize-metrics.yml|.github/workflows/test-windows-resize-probe.yml) ;;
         */*) case "$file" in
                  renderer/windows/*|renderer/staticlib-windows/*|renderer/desktop/scripts/windows-metadata/*) ;;
                  renderer/desktop/scripts/*.ps1|renderer/desktop/scripts/build-windows.sh) ;;

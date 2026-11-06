@@ -53,24 +53,54 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       macos: ${{ steps.decide.outputs.macos }}
+      os: ${{ steps.matrix.outputs.os }}
+      kotlin: ${{ steps.matrix.outputs.kotlin }}
     steps:
       - uses: actions/checkout@v4
         with:
           # The merge commit and its first parent, the base, so the diff is the pull request.
           fetch-depth: 2
       - id: decide
+        continue-on-error: true
         run: |
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
             echo "macos=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          { git diff --name-only HEAD^1 HEAD | ./.github/scripts/needs-macos.sh; } >> "$GITHUB_OUTPUT" ||
-            echo "macos=true" >> "$GITHUB_OUTPUT"
+          # --no-renames lists both ends of a rename, so a file moved out of renderer/ into
+          # docs/ still names renderer/. core.quotepath keeps non-ASCII names readable; a
+          # name git still has to quote is not on the skip list and so runs macOS.
+          decision="$(git -c core.quotepath=off diff --no-renames --name-only HEAD^1 HEAD |
+            ./.github/scripts/needs-macos.sh)" || decision="macos=true"
+          [[ "$decision" == "macos=true" || "$decision" == "macos=false" ]] || decision="macos=true"
+          echo "$decision" >> "$GITHUB_OUTPUT"
+          echo "$decision"
+      - id: matrix
+        if: always()
+        # A job-level condition cannot read the matrix, so the macOS legs are left out of
+        # the matrices themselves. Anything but an explicit macos=false keeps them.
+        env:
+          MACOS: ${{ steps.decide.outputs.macos }}
+        run: |
+          kotlin='{"include":[
+            {"platform":"jvm","runs-on":"macos-latest","test":true},
+            {"platform":"iosSimulatorArm64","runs-on":"macos-latest","test":true},
+            {"platform":"iosArm64","runs-on":"macos-latest","test":false},
+            {"platform":"wasmJs","runs-on":"ubuntu-latest","test":false},
+            {"platform":"android","runs-on":"ubuntu-latest","test":true}]}'
+          if [[ "$MACOS" == "false" ]]; then
+            os='["ubuntu-latest"]'
+            kotlin="$(jq -c '.include |= map(select(.["runs-on"] != "macos-latest"))' <<< "$kotlin")"
+          else
+            os='["macos-latest","ubuntu-latest"]'
+            kotlin="$(jq -c . <<< "$kotlin")"
+          fi
+          echo "os=$os" >> "$GITHUB_OUTPUT"
+          echo "kotlin=$kotlin" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   rust:
     needs: changed
-    if: ${{ !cancelled() && (matrix.os != 'macos-latest' || needs.changed.outputs.macos != 'false') }}
     name: Check Rust formatting, lints and tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -78,7 +108,7 @@ jobs:
       matrix:
         # macos-latest is Apple silicon, which is the platform SPEC PR-8
         # describes and the one the benchmark baseline was measured on.
-        os: [macos-latest, ubuntu-latest]
+        os: ${{ fromJSON(needs.changed.outputs.os) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -194,7 +224,6 @@ jobs:
 
   kotlin:
     needs: [fork-desktop, changed]
-    if: ${{ !cancelled() && needs.fork-desktop.result == 'success' && (matrix.runs-on != 'macos-latest' || needs.changed.outputs.macos != 'false') }}
     # One job per platform, not one job for all of them.
     #
     # `./kotlin build` with no argument compiles every module for every platform it
@@ -206,44 +235,26 @@ jobs:
     # The split also keeps each cache honest. The jvm and android jobs never download
     # konan at all, and a Kotlin/Native toolchain change no longer invalidates the cache
     # of the job that finishes first.
+    #
+    # The matrix is built by the changed job, which leaves the macOS legs out when no macOS job
+    # can be affected. What each leg is, and why:
+    #   jvm                 the desktop module and every UI test; macOS because it is the primary
+    #                       platform and the one the Compose desktop tests are written against.
+    #   iosSimulatorArm64   Kotlin/Native; compiles the iOS renderer, which shares its
+    #                       interpreter sources with the desktop one through symlinks, and runs
+    #                       the protocol codec tests on it.
+    #   iosArm64            the device slice, linked and never run: running it needs a signed
+    #                       app on real hardware. It proves the arm64 slice still compiles.
+    #   wasmJs              compiled, not run: a browser test loads skiko's wasm module, and on
+    #                       this runner it arrives truncated, which aborts before any test
+    #                       starts. WebBoundaryTest would need that fixed and
+    #                       web/scripts/build-host.sh run first.
+    #   android             built and tested on Linux.
     name: Build and test the renderer (${{ matrix.platform }})
     runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # The renderer's desktop module and every UI test live here. macOS because it is
-          # the primary platform and the one the Compose desktop tests are written against.
-          - platform: jvm
-            runs-on: macos-latest
-            test: true
-          # Kotlin/Native. Compiles the iOS renderer, which shares its interpreter sources
-          # with the desktop one through symlinks, and runs the protocol codec tests on it.
-          - platform: iosSimulatorArm64
-            runs-on: macos-latest
-            test: true
-          # The device slice is linked, never run: running it needs a signed app on real
-          # hardware. Building it is what proves the arm64 slice still compiles.
-          - platform: iosArm64
-            runs-on: macos-latest
-            test: false
-          # Compiled, not run, and now for one reason rather than two. A browser test
-          # loads skiko's wasm module, and on this runner it arrives truncated, which
-          # aborts before any test starts (`section (code 10, "Code") extends past end of
-          # the module`). It does not reproduce locally, where the same command passes, so
-          # this is the toolchain or the runner rather than the code under test.
-          #
-          # What is now lost by not running them is real. `web/test/WebBoundaryTest.kt`
-          # drives the boundary against a Host built from the same Rust source the desktop
-          # renderer runs, and measures what a call costs. Turning it on takes two things:
-          # the truncated skiko fixed, and `web/scripts/build-host.sh` run first, because
-          # without the Host beside the page those tests report what is missing and pass.
-          - platform: wasmJs
-            runs-on: ubuntu-latest
-            test: false
-          - platform: android
-            runs-on: ubuntu-latest
-            test: true
+      matrix: ${{ fromJSON(needs.changed.outputs.kotlin) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -285,7 +296,6 @@ jobs:
 
   shell:
     needs: changed
-    if: ${{ !cancelled() && (matrix.os != 'macos-latest' || needs.changed.outputs.macos != 'false') }}
     name: Run the shell script tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -294,7 +304,7 @@ jobs:
         # Both, because some of these scripts are platform specific and skip elsewhere.
         # install-nik.sh only means anything on macOS, so running the suite on Linux alone
         # would silently cover none of it.
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.changed.outputs.os) }}
     steps:
       - uses: actions/checkout@v4
 
