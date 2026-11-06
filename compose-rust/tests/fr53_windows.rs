@@ -845,8 +845,9 @@ fn ReportingWindow() {
 /// A window that opts in writes `report_size` as a boolean property on its node.
 #[test]
 fn fr20_8_window_report_size_writes_the_property() {
-    let mut host = ComposeHost::with_theme(ReportingWindow, Theme::unified(DesignSystem::Material3))
-        .with_window(several_windows());
+    let mut host =
+        ComposeHost::with_theme(ReportingWindow, Theme::unified(DesignSystem::Material3))
+            .with_window(several_windows());
     let batch = host.rebuild().unwrap().to_vec();
     let windows = window_ids(&batch);
     assert_eq!(windows.len(), 1);
@@ -863,7 +864,10 @@ fn fr20_8_window_report_size_writes_the_property() {
     assert!(written, "the window node carries report_size = true");
     // The record itself: the property key 127 and a boolean true, as they are on the wire.
     assert_eq!(
-        raw_set_props(&batch, windows[0]).iter().filter(|(key, ..)| *key == 127).collect::<Vec<_>>(),
+        raw_set_props(&batch, windows[0])
+            .iter()
+            .filter(|(key, ..)| *key == 127)
+            .collect::<Vec<_>>(),
         vec![&(127, VALUE_KIND_BOOL, 1)],
         "report_size is written once, as key 127 with boolean value 1"
     );
@@ -874,7 +878,11 @@ fn TogglingWindow() {
     let on = remember(|| mutable_state_of(true));
     let toggle = on.clone();
     let window = Window(|| {});
-    let window = if on.get() { window.report_size(true) } else { window };
+    let window = if on.get() {
+        window.report_size(true)
+    } else {
+        window
+    };
     window.content(move || {
         let toggle = toggle.clone();
         Button("toggle").on_click(move || toggle.update(|on| *on = !*on));
