@@ -1554,9 +1554,21 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 
 수용 기준:
 
-1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(테스트 이름 fr20_8_opted_in_window_reports_dp_change_inside_a_class, 구현과 함께 들어옵니다).
-2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(테스트 이름 fr20_8_default_window_still_reports_only_class_change, 구현과 함께 들어옵니다).
-3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(테스트 이름 fr20_8_opted_in_window_ignores_sub_dp_jitter, 구현과 함께 들어옵니다).
+1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
+2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
+3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
+
+#### 20.9 안전 영역은 알려지는 때 도착합니다 (`Agreed`, 이슈 #468, 감독자 승인)
+
+`Chrome::FullSize`의 `WindowSafeArea`(19.9)는 창이 화면에 뜬 뒤에야 알 수 있는 값입니다(타이틀바가 배치되어야 캡션 높이를 잽니다). 창 생성 직후에 한 번만 재면 0을 얻고, 크기를 바꾸지 않는 창은 영원히 0으로 남습니다. 컴팩트 폭(390x844)으로 연 창이 그 예입니다.
+
+- Renderer는 창이 뜬 뒤 캡션을 다시 재서(제한된 횟수), 값이 알려지면 기존 경로로 `WindowSizeChanged`를 보냅니다. 클래스가 그대로여도 안전 영역이 바뀌면 보내는 것은 19.9의 규칙 그대로입니다. 새 이벤트도 필드도 없습니다.
+- 캡션을 재는 창 코드는 Compose 포크에 있습니다(19.8). 이 저장소는 그 커밋으로 핀을 옮기기만 합니다.
+
+수용 기준:
+
+1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
+2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
 
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
