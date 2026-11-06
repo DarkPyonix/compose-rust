@@ -1,0 +1,110 @@
+# The Windows static renderer on a pull request: build it from the fork's Compose, link an
+# application with it into one executable, run that executable from an empty directory, and
+# check that it names nothing but Windows' own DLLs.
+#
+# This is its own workflow, not a job of test-native-renderer.yml, because that job takes an
+# hour and a half and GitHub re-runs a failed or cancelled job only after every job of the
+# run has finished. With Windows in the same run as the macOS and Linux jobs, one macOS runner
+# that was lost had to wait for Windows before it could be run again. Apart, the native run
+# ends in about forty minutes and each can be re-run alone. Tags, pushes to main, the nightly
+# run and manual runs still run Windows inside test-native-renderer.yml, because its release
+# job collects the Windows artifact from that run.
+#
+# The paths below are the ones that can change the Windows renderer. The macOS, iOS and Linux
+# renderers, the macOS install script and the parity scripts are left out, so a pull request
+# that touches only those does not start Windows. A path nobody listed as unrelated starts it.
+
+name: Windows static renderer test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
+    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
+    types: [synchronize, reopened, labeled]
+    paths:
+      - renderer/**
+      - '!renderer/macos/**'
+      - '!renderer/ios/**'
+      - '!renderer/linux/**'
+      - '!renderer/staticlib-macos/**'
+      - '!renderer/staticlib-linux/**'
+      - compose-rust/build.rs
+      - compose-rust/build/**
+      - scripts/check-windows-consumer.sh
+      - .github/scripts/check-single-executable.sh
+      - .github/scripts/package-static-renderer.sh
+      - .github/workflows/windows-static.yml
+      - .github/workflows/test-windows-static.yml
+      - .github/workflows/test-native-renderer.yml
+
+concurrency:
+  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
+  # dispatches and tag runs are never cancelled. A run started by some other label going on
+  # gets a group of its own, so it cannot cancel a heavy run.
+  group: test-windows-static-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Heavy: runs only when asked for (the run-heavy-ci label on a pull request, or any other
+  # event). Every job below needs this one, so a run nobody asked for is skipped whole, and
+  # heavy-checks.yml does not count it.
+  requested:
+    name: Heavy checks requested
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'run-heavy-ci') ||
+      (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'run-heavy-ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
+
+  windows-static:
+    needs: requested
+    uses: ./.github/workflows/windows-static.yml
+
+  # The release tarball built above, exactly as the release will carry it, then built into an
+  # application with nothing else on the machine to find: no variable pointing anywhere, and
+  # no ICU data file on the runner.
+  single-executable:
+    needs: [requested, windows-static]
+    name: One executable on windows-x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Download the renderer artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: compose-rust-renderer-v*-windows-x64
+          path: artifact
+          merge-multiple: true
+
+      - name: Take every ICU data file off the runner
+        # The executable has to find Korean words and line breaks with what is linked into
+        # it. A hosted runner ships browsers that carry icudtl.dat, so they are removed and
+        # the check below then confirms none is left.
+        shell: bash
+        run: |
+          # find reports the directories it may not read and exits non-zero for them,
+          # which is not a failure to find anything; what is left is checked afterwards.
+          { find "/c/Program Files" "/c/Program Files (x86)" "/c/ProgramData" "/c/Users" \
+              "/c/Windows" "/c/hostedtoolcache" "/c/msys64" "/d/a/_tool" "/d/a/_temp" \
+              -name 'icudtl.dat' 2>/dev/null || true; } |
+            while IFS= read -r file; do echo "removing $file"; rm -f "$file"; done
+
+      - name: Build it, check what it needs, and run it alone
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la artifact
+          tarball="$(ls artifact/*.tar.gz)"
+          ./.github/scripts/check-single-executable.sh "$tarball" "$RUNNER_TEMP/single-executable"

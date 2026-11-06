@@ -319,8 +319,9 @@ jobs:
       fail-fast: false
       # Windows is left out of a tag's run for now: the tag's windows-x64 artifact is still the
       # GraalVM one (the `windows` job names it the same way), and windows-static does not
-      # upload its own on a tag until the release takes the static kit instead.
-      matrix: ${{ fromJSON(startsWith(github.ref, 'refs/tags/v') && '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"}]}' || '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}') }}
+      # upload its own on a tag until the release takes the static kit instead. It is left out
+      # of a pull request's run because test-windows-static.yml checks it there.
+      matrix: ${{ fromJSON((startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request') && '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"}]}' || '{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}') }}
     env:
       # Mesa draws with the processor; a hosted runner has no card.
       LIBGL_ALWAYS_SOFTWARE: '1'
@@ -387,7 +388,11 @@ jobs:
   # on Linux first and the two halves are two jobs; windows-static.yml says why.
   windows-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    # Not on a pull request: there it is test-windows-static.yml, a run of its own, so that a
+    # cancelled macOS job here can be re-run without waiting for the hour and a half the
+    # Windows job takes. Tags, pushes to main, the nightly run and manual runs keep it in this
+    # run, because the release job below collects its artifact from this run.
+    if: needs.changed.outputs.renderer == 'true' && github.event_name != 'pull_request'
     uses: ./.github/workflows/windows-static.yml
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above

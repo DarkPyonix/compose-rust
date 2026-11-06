@@ -120,6 +120,7 @@ Workflow files and names, in `.github/workflows/`:
 - `pages.yml`, "Pages": docs.
 - `cache-cleanup.yml`, "Cache cleanup": deletes a closed pull request's Actions caches.
 - `test-<target>.yml`, "<Target> test": a special check for one target.
+- `test-windows-static.yml`, "Windows static renderer test": the Windows static renderer on a pull request, apart from `test-native-renderer.yml` so either can be re-run alone.
 - `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
 - `heavy-checks.yml`, "Heavy checks", job "Heavy checks passed on this head": the merge gate for the heavy workflows below.
 
