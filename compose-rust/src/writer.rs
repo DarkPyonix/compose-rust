@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 25;
+const MODIFIER_SLOTS: usize = 26;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -345,6 +345,7 @@ impl NodeWriter {
         const MATCH_PARENT_SIZE: u16 = 22;
         const WINDOW_DRAG: u16 = 23;
         const PRESS_FEEDBACK: u16 = 24;
+        const SEMANTICS: u16 = 25;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -379,6 +380,7 @@ impl NodeWriter {
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
             "press_feedback" => Some(PRESS_FEEDBACK),
+            "semantics" => Some(SEMANTICS),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -557,6 +559,17 @@ impl NodeWriter {
                     PRESS_FEEDBACK,
                     Modifier::PressFeedback { scale, tint_alpha },
                 )))
+            }
+            // The role in the low 16 bits and the state above them, as one integer.
+            "semantics" => {
+                let packed = u32::try_from(integer(value)?).ok()?;
+                let state = packed >> 16;
+                if state & !crate::schema::SEMANTICS_STATE_MASK != 0 {
+                    return Some(None);
+                }
+                let role =
+                    crate::SemanticsRole::try_from(u16::try_from(packed & 0xffff).ok()?).ok()?;
+                Some(Some((SEMANTICS, Modifier::Semantics { role, state })))
             }
             "offset" => {
                 let AttrValue::Bytes(bytes) = value else {

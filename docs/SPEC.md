@@ -1541,6 +1541,38 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 5. `use_window_size()`를 쓴 컴포넌트가 클래스 전환에서 다시 렌더링되고, 그렇지 않은 형제는 다시 렌더링되지 않습니다.
 6. 알 수 없는 `size_class` 값은 `ProtocolError`가 되고 프로세스가 죽지 않습니다.
 
+#### 20.8 크기 변화도 받는 창 (`Agreed`, 이슈 #467, 감독자 승인)
+
+20.4의 규칙은 클래스(와 19.9의 안전 영역)가 바뀔 때만 `WindowSizeChanged`를 보냅니다. 창 크기로 페이지를 짜는 Host(HTML과 CSS 호스트)는 클래스 안에서 1280x820이 1000x620으로 줄어도 다시 배치할 수 없습니다. `window_size()`가 마지막 클래스 변경 때의 크기를 계속 돌려주기 때문입니다.
+
+- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window(on_close).report_size(true)`입니다. `Window` 노드가 없는 암묵적 단일 창(루트, 이슈 #479)은 창 설정의 `report_size`로 옵트인합니다. Rust에서는 `Window::new().with_report_size(true)`이고, `SetWindow` 레코드의 플래그 워드에 비트 하나를 더해 싣습니다(레코드 길이는 그대로, 끈 창의 바이트도 그대로입니다).
+- **켠 창**: 클래스와 안전 영역이 그대로여도, 창의 폭 또는 높이가 **반올림한 dp**로 바뀌면 같은 `WindowSizeChanged`를 보냅니다. 레코드와 이벤트 태그는 바뀌지 않고 이미 실린 `width_dp`, `height_dp`가 새 크기입니다.
+- **반올림 규칙**: 폭과 높이를 각각 가장 가까운 정수 dp로 반올림합니다(0.5는 올림). 직전에 보낸 값과 반올림한 값이 같으면 보내지 않으므로 1dp 미만의 흔들림은 무시합니다. `Float`를 그대로 비교하지 않습니다. 보내는 `width_dp`와 `height_dp`는 반올림하지 않은 측정값입니다.
+- **끈 창**: 지금과 한 바이트도 다르지 않습니다. 기본 동작, 호출 수, 할당이 그대로입니다.
+- **비용**: 켠 창은 드래그로 크기를 바꾸는 동안 정수 dp가 바뀔 때마다 Host 호출이 한 번 늘 수 있습니다. 창 크기로 짜는 Host만 켭니다.
+- 스키마 해시가 움직입니다(속성 하나 추가, 추가 전용).
+
+수용 기준:
+
+1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
+2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
+3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
+4. 암묵적 단일 창이 `with_report_size(true)`로 열렸으면 같은 클래스 안의 1280x820에서 1000x620 변화에도 `WindowSizeChanged`를 받습니다(시험 이름 fr20_8_implicit_root_window_reports_dp_change_inside_a_class).
+5. `with_report_size`를 부르지 않은 암묵적 단일 창은 지금과 같고, `SetWindow` 레코드의 바이트도 같습니다(시험 이름 fr20_8_implicit_root_window_default_is_byte_identical).
+6. `SetWindow`의 플래그 워드에서 쓰이지 않는 다른 비트는 여전히 `ProtocolError`입니다(시험 이름 fr20_8_set_window_rejects_unknown_flag_bits).
+
+#### 20.9 안전 영역은 알려지는 때 도착합니다 (`Agreed`, 이슈 #468, 감독자 승인)
+
+`Chrome::FullSize`의 `WindowSafeArea`(19.9)는 창이 화면에 뜬 뒤에야 알 수 있는 값입니다(타이틀바가 배치되어야 캡션 높이를 잽니다). 창 생성 직후에 한 번만 재면 0을 얻고, 크기를 바꾸지 않는 창은 영원히 0으로 남습니다. 컴팩트 폭(390x844)으로 연 창이 그 예입니다.
+
+- Renderer는 창이 뜬 뒤 캡션을 다시 재서(제한된 횟수), 값이 알려지면 기존 경로로 `WindowSizeChanged`를 보냅니다. 클래스가 그대로여도 안전 영역이 바뀌면 보내는 것은 19.9의 규칙 그대로입니다. 새 이벤트도 필드도 없습니다.
+- 캡션을 재는 창 코드는 Compose 포크에 있습니다(19.8). 이 저장소는 그 커밋으로 핀을 옮기기만 합니다.
+
+수용 기준:
+
+1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
+2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -2381,6 +2413,13 @@ Notification::new("세션이 끝났습니다")
 13. `Folds`로 접을 수 있는 구간을 보내면 그 줄들이 접히고 접힌 줄은 그려지지 않습니다. 사용자가 접거나 펴면 `FoldChanged`가 가고, `SetFolded`로 Host도 접고 폅니다. 접힌 구간 안의 편집, 선택, 장식은 접힌 줄에 가려져도 문서 좌표를 잃지 않습니다(fr38_folded_ranges_hide_lines_and_report_toggles).
 14. `GutterDecorations`가 줄 번호 옆에 그려지고 편집을 따라 움직입니다(기준 4와 같은 규칙). 누르면 `DecorationActivated`가 그 id를 싣고 갑니다(fr38_gutter_decorations_follow_edits_and_activate).
 15. IME 조합이 시작되고 끝날 때 `CompositionChanged`가 한 번씩 갑니다. 조합 중인 글자는 이벤트에 실리지 않고 Renderer에만 있습니다(D5). 조합 중에는 `CodeChanged`가 나가지 않는다는 기준 1은 그대로입니다(fr38_composition_signal_carries_no_text, native-image 수동 확인은 기준 1과 함께 §6 방식으로 기록).
+16. 변경 표시 막대. 색이 `DiffAdded`, `DiffModified`, `DiffRemoved` 중 하나인 `Bar` 거터 장식은 변경 표시 막대로 그려집니다. 새 장식 종류와 와이어 변경은 없고, 줄마다 레코드 하나입니다. 소유자가 디자인을 목업에 맞추라고 정했고, 값은 목업 `editor.css`의 `.ed-gm`(폭 4px, 오른쪽 간격 `--sp3` 12px, 줄 번호 열 바로 오른쪽)이며 색은 추가가 `DiffAdded`, 수정이 `DiffModified`, 삭제가 `DiffRemoved`입니다(목업에는 삭제 색이 없어 `DiffRemoved`를 씁니다). 승인: 감독자 B(위임 권한), 요청: 감독자 A.
+    1. 폭은 4dp 고정이고 줄 높이에 비례하지 않습니다. 막대는 줄 번호 열 바로 오른쪽에 붙고, 그 오른쪽에 12dp 간격을 둔 뒤 코드가 시작됩니다. 막대의 높이는 그 줄의 높이 전부이고, 이어지는 줄의 막대는 끊기지 않고 이어져 보입니다. 위치와 폭은 `CodeEditorLook`의 토큰이고, 디자인 시스템이 값을 바꿀 수 있습니다.
+    2. 색이 `Diff*`가 아닌 `Dot`, `Bar`, `Glyph`는 지금과 같은 모양과 자리에 그려집니다. 변경 표시 막대가 있어도 그 장식들은 사라지지 않습니다.
+    3. 한 줄에 변경 표시 막대가 둘 이상이면 하나만 그리고 우선순위는 `DiffRemoved`, `DiffModified`, `DiffAdded` 순입니다. 그리지 않은 장식도 문서에서는 지워지지 않고 편집을 따라 움직입니다.
+    4. 편집을 따라 움직이는 규칙은 기준 14와 같습니다. 앞에 줄을 끼우면 막대가 아래로 따라가고, 그 줄을 지우면 사라집니다. Host로 가는 이벤트는 없습니다.
+    5. 접근성. 변경 표시 막대가 있는 줄의 접근성 설명에 "추가됨", "수정됨", "삭제됨" 중 하나가 붙고(플랫폼 로케일의 낱말), 색만으로 구분하지 않습니다.
+    6. 시험 이름은 `fr38_`로 시작합니다. 폭 4dp와 위치는 픽셀 시험으로, 우선순위와 이동은 모델 시험으로, 기존 `Bar` 회귀는 기준 14의 시험이 그대로 통과하는 것으로 확인합니다.
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -3804,6 +3843,138 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. FR-61의 기존 시험은 그대로 통과합니다.
 
 시험 이름은 `fr70_`로 시작합니다.
+
+### FR-71 노드 접근성의 역할, 상태, 동작 확장 (`Agreed`, 이슈 #473, 감독자 승인 2026-11-06)
+
+요청한 쪽: dioxus-compose의 HTML 경로(#170)와 darkpyonix-ember의 에디터 창 자동 감사(#302). FR-68의 `semantics`는 역할 여덟 개와 켜짐·선택 상태만 가집니다. 탭 줄, 트리, 메뉴, 제목, 목록 같은 구조와 펼침·비활성·숨김 상태, 접근성 트리에서 눌러 보는 동작이 없어서 화면 낭독기와 자동 감사가 컨트롤을 구분하지 못합니다. 이 항목은 FR-68의 `Semantics` 수정자(와이어 태그 34)와 접근성 이름(`AccessibleName`)을 **더하기만** 하는 방식으로 넓힙니다. 기존 값과 FR-68의 기준은 바뀌지 않습니다.
+
+**1단계 범위(이 저장소의 렌더러만)**:
+
+- **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
+- **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
+- **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+
+**2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
+
+수용 기준.
+1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
+2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
+4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error).
+5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
+6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
+
+### FR-72 파일 열기와 저장 대화상자 (`Draft`, 이슈 #483)
+
+요청한 쪽: darkpyonix-ember#486(파일 선택기와 실제로 보낼 수 있는 전송 시트)와 #550(전송 시트). 앱이 플랫폼의 파일 열기·저장 대화상자를 띄울 수 없어서 파일 전송 화면이 파일을 고를 길이 없습니다. 이 항목은 앱이 대화상자를 요청하고 결과를 이벤트로 받는 길을 더합니다.
+
+**FR-36과 같은 모양입니다.** Host가 명령 레코드로 요청하고, 플랫폼 API를 부르는 것은 Renderer이며, 결과는 `dispatch_event`의 이벤트로 돌아옵니다. 대화상자는 트리에 자리가 없고(요청이 끝나면 사라지므로 노드로 만들지 않습니다), Host가 `NSOpenPanel`이나 `IFileOpenDialog`를 직접 부르면 플랫폼마다 손으로 쓴 FFI가 생기고 결과가 Renderer를 거치지 않는 두 번째 입구가 됩니다(PR-1, PR-3). 모든 변경은 **추가 전용**이고 기존 태그는 바뀌지 않습니다.
+
+#### 72.1 요청
+
+명령 `ShowFileDialog` 하나가 다섯 가지 일을 합니다. `kind`는 닫힌 열거형입니다.
+
+| `kind` | 값 | 고르는 것 | 결과의 경로 수 |
+|---|---|---|---|
+| `OpenFile` | 1 | 파일 하나 | 1 |
+| `OpenFiles` | 2 | 파일 여럿 | 1 이상 |
+| `OpenFolder` | 3 | 폴더 하나 | 1 |
+| `OpenFolders` | 4 | 폴더 여럿 | 1 이상 |
+| `Save` | 5 | 저장할 경로 하나 | 1 |
+
+- **`request: u32`는 Host가 정합니다.** 결과 이벤트가 같은 값을 싣고 돌아옵니다. 아직 결과가 오지 않은 요청과 같은 값을 다시 보내면 그 명령은 버려지고 `ProtocolError`가 한 번 옵니다. 앞의 요청은 영향을 받지 않고, 결과도 그대로 하나 옵니다.
+- **`window: u32`는 대화상자를 띄울 `Window` 노드의 id입니다(FR-53).** 0은 암묵적 루트 창(FR-20.8)입니다. 대화상자는 그 창에 대해 모달이고 다른 창은 계속 쓸 수 있습니다. 존재하지 않는 노드이거나 `Window`가 아니면 `UNKNOWN_NODE`로 보고하고, 요청마다 이벤트가 정확히 하나라는 규칙(72.2)에 따라 `Unavailable` 결과를 돌려줍니다.
+- `title`(문자열): 대화상자 제목입니다. 비면 플랫폼 기본입니다. macOS의 시트는 제목을 보이지 않으므로 `message` 자리에 씁니다.
+- `directory`(문자열): 처음 열 폴더입니다. 절대 경로여야 하고, 비었거나 없거나 읽을 수 없으면 플랫폼의 기본(마지막으로 쓴 폴더)입니다. 없는 폴더는 오류가 아닙니다.
+- `name`(문자열): `Save`에서 칸에 미리 채울 파일 이름입니다. 경로 구분자는 허용하지 않고, 있으면 마지막 구분자 뒤만 씁니다. `Open*`에서는 무시합니다.
+- **필터**: `filters`는 `(label, extensions)` 목록입니다. `extensions`는 점 없는 확장자를 쉼표로 이은 문자열입니다(`"png,jpg,jpeg"`). 비교는 대소문자를 가리지 않습니다. 목록이 비면 모든 파일을 고를 수 있습니다. 필터는 **고를 수 있는 파일을 제한**하며, 폴더 선택(`OpenFolder`, `OpenFolders`)에서는 무시합니다. `default_filter: u32`는 처음 선택된 필터의 위치이고 범위 밖이면 0입니다. 필터는 16개까지, 필터 하나의 확장자는 32개까지이며 넘으면 넘는 부분을 버립니다. 오류가 아닙니다.
+- `Save`는 **덮어쓰기 확인을 항상 플랫폼 대화상자가 합니다.** 이미 있는 파일을 고르면 플랫폼이 묻고, 사용자가 허락한 경우에만 결과가 옵니다. Host가 끌 수 있는 값은 없습니다. 확인 문구와 동작은 플랫폼의 것이어야 사용자가 아는 대화상자와 같기 때문입니다. Renderer는 파일을 만들거나 덮어쓰지 않고 경로만 돌려줍니다.
+- `Save`에서 사용자가 확장자 없는 이름을 입력하고 필터가 하나만 선택되어 있으면 플랫폼의 관례에 따라 그 필터의 첫 확장자를 붙일 수 있습니다. 어느 필터가 쓰였는지는 결과의 `filter`로 알립니다.
+
+Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("이미지", &["png", "jpg"]).directory(dir), move |result| ...)`의 모양이고 `FileDialogResult`는 72.2의 값을 담습니다. 콜백은 UI 스레드에서 한 번만 불리고, 그 뒤 해제됩니다. 워커 스레드에서는 FR-36의 `NotificationSender`처럼 `Send`인 손잡이로 요청합니다(PR-3).
+
+#### 72.2 결과
+
+- 결과는 **새 이벤트 `FileDialogResult`** 하나입니다. `node_id = 0`, `handler_id = 0`이고, Host 자신에게 오는 사건이라 핸들러 조회를 거치지 않습니다(`NotificationActivated`와 같습니다). Host API는 요청 때 넘긴 콜백을 `request`로 찾아 부릅니다. 앱 전역 훅은 없습니다. 결과는 요청한 쪽의 것이기 때문입니다.
+- 페이로드: `request: u32`, `status: u32`, `filter: u32`, `paths`(문자열).
+- `status`는 닫힌 열거형입니다. `Chosen=1`, `Cancelled=2`, `Unavailable=3`. 모르는 값은 `ProtocolError`입니다.
+  - `Chosen`: 사용자가 골랐습니다. `paths`에 경로가 하나 이상 있습니다.
+  - `Cancelled`: 사용자가 닫거나 취소했습니다. 대화상자가 열려 있는 동안 그 창이 닫힌 경우도 같습니다. `paths`는 비어 있습니다.
+  - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
+- **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
+- **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 경로에 UTF-8이 아닌 바이트가 있으면(Linux에서만 가능) 그 경로를 버리고 나머지를 전달하며(FR-27과 같은 규칙), 하나도 남지 않으면 `Cancelled`가 아니라 `Unavailable`입니다. 사용자가 고른 것이 있었는데 취소로 보이면 거짓이기 때문입니다.
+- **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
+- `filter`: 사용자가 마지막으로 선택한 필터의 위치입니다. 필터를 보내지 않았거나 `Chosen`이 아니면 `0xFFFF_FFFF`입니다.
+- **같은 창에 요청이 겹치면 Renderer가 받은 순서대로 하나씩 띄웁니다.** 플랫폼의 모달 대화상자(macOS의 시트가 대표적입니다)는 창마다 하나뿐이기 때문입니다. 앞 요청이 끝나면 다음이 뜹니다. 다른 창의 요청은 서로 기다리지 않습니다. 이 순서는 Renderer 안의 상태이고 Host와 Renderer 사이의 큐가 아닙니다(PR-1).
+
+#### 72.3 모달과 응답성
+
+- **대화상자는 UI 스레드를 막지 않습니다.** 열려 있는 동안에도 이벤트 루프가 돌아 창이 다시 그려지고, 다른 창의 입력, 타이머, 애니메이션, 워커가 보낸 프레임 요청이 처리됩니다. 모달인 것은 **소유한 창의 입력**뿐입니다. 따라서 Renderer는 대화상자를 중첩된 이벤트 루프로 돌리는 방식이 아니라 플랫폼의 비동기 API(macOS의 `beginSheetModalForWindow:completionHandler:`)나 별도 스레드의 호출 뒤 UI 스레드로 돌려받는 방식으로 띄웁니다. 결과 이벤트는 UI 스레드에서 `dispatch_event`로 전달됩니다(PR-1).
+- 대화상자가 열린 창의 입력(클릭, 키, 닫기 버튼)은 플랫폼 규칙대로 막힙니다. 창의 `WindowCloseRequested`(FR-53)는 대화상자가 닫힌 뒤에 처리됩니다. 앱 종료 요청은 이 규칙을 따르지 않고 FR-53의 종료 규칙을 따릅니다.
+- 대화상자가 열려 있는 동안 소유한 창이 파괴되면(다른 경로로 `Window` 노드를 지움) 대화상자를 닫고 `Cancelled`를 하나 보냅니다.
+
+#### 72.4 접근성과 키보드
+
+- 대화상자는 플랫폼의 것이므로 키보드 조작(탭 이동, 화살표, Enter와 Esc, 주소 칸), 화면 낭독기, 큰 글자, 고대비, 입력기(IME)가 그 플랫폼의 대화상자와 같게 동작합니다. 이 저장소가 그 위에 덧그리거나 그 동작을 대신하는 Compose 위젯 대화상자를 만들지 않습니다. 직접 그린 대화상자는 위 항목들을 하나씩 다시 구현해야 하고 하나만 빠져도 사용자가 아는 대화상자와 달라지기 때문입니다.
+- 대화상자가 닫히면 키보드 포커스는 열기 전에 포커스를 가졌던 노드로 돌아옵니다. 그 노드가 없어졌으면 창의 포커스 규칙(FR-65)을 따릅니다.
+- Esc는 `Cancelled`입니다.
+
+#### 72.5 와이어
+
+경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 이 항목이 정하지 않습니다. 스키마의 태그 표는 pW가 소유하고 열린 변경이 이미 번호를 쓰고 있으므로, **마지막에 비어 있는 다음 번호**를 와이어 설계를 보고할 때 확정하고 이 절에 적습니다. 정해지는 것은 다음입니다.
+
+- 명령 하나 `ShowFileDialog`: 머리, `request`, `window`, `kind: u16`, `default_filter: u16`, 문자열 넷(`title`, `directory`, `name`, `filters`)입니다. `filters`는 한 문자열이고 `label`과 `extensions` 쌍을 NUL로 이어 붙입니다(`"이미지\0png,jpg\0문서\0pdf,txt"`). 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- 이벤트 하나 `FileDialogResult`: 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `paths: (offset, len)`입니다. 지금 `EventPayloadType`에 없는 모양이라 하나를 더합니다.
+- `kind`와 `status`는 닫힌 열거형이고 스키마 해시에 들어갑니다. 모르는 값은 `ProtocolError`입니다.
+- 이 항목이 더하는 것은 명령 하나, 이벤트 하나, 열거 둘뿐입니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
+
+#### 72.6 플랫폼
+
+| 플랫폼 | 경로 | 비고 |
+|---|---|---|
+| macOS | `NSOpenPanel`, `NSSavePanel` | 소유한 창에 시트로 붙습니다 |
+| Windows | `IFileOpenDialog`, `IFileSaveDialog`(COM) | 소유한 창의 `HWND`가 소유자입니다 |
+| Linux | `xdg-desktop-portal`의 `org.freedesktop.portal.FileChooser` | 포털이 없으면 GTK 파일 선택기로 되돌아갑니다. 둘 다 없으면 `Unavailable` |
+| iOS, Android | 이 항목의 범위 밖 | 요청하면 `Unavailable`. `UIDocumentPicker`와 Storage Access Framework는 이슈 #483에 이어 적습니다 |
+| Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
+
+- **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
+- 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
+- **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
+- Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
+
+#### 72.7 수용 기준
+
+1. 명령 `ShowFileDialog`와 이벤트 `FileDialogResult`가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 모르는 `kind`와 `status`가 `ProtocolError`가 되고 프로세스가 죽지 않습니다(시험 이름 fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors).
+2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 pr2_boundary_surface_unchanged_by_file_dialog).
+3. 선택하든 취소하든 못 띄우든, 같은 `request`를 실은 `FileDialogResult`가 **정확히 하나** 옵니다. Fake Renderer로 세 경우를 확인합니다(시험 이름 fr72_every_request_gets_exactly_one_result).
+4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 fr72_duplicate_pending_request_is_a_protocol_error).
+5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 fr72_requests_on_one_window_are_shown_in_order).
+6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 fr72_unknown_window_reports_and_answers_unavailable).
+7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8이 아닌 경로는 버려지고 하나도 안 남으면 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped).
+8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
+9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
+10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
+11. iOS, Android, Web 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
+12. **수동 확인, macOS·Windows·Linux(포털과 GTK 폴백 각각)의 배포 빌드에서 기록합니다.**
+    - `OpenFile`, `OpenFiles`, `OpenFolder`, `OpenFolders`, `Save`가 플랫폼 대화상자로 뜨고 `title`, `directory`, `name`이 반영됩니다.
+    - 필터가 고를 수 있는 파일을 제한하고 `default_filter`가 처음 선택된 필터입니다.
+    - 존재하는 파일을 `Save`로 고르면 플랫폼이 덮어쓰기를 묻고, 거절하면 대화상자가 그대로 열려 있으며 이벤트가 오지 않습니다.
+    - macOS에서 시트로 창에 붙고, 시트가 열려 있는 동안 그 창만 입력이 막힙니다.
+    - 키보드만으로 열기부터 선택·취소까지 할 수 있고, 화면 낭독기가 대화상자를 읽습니다.
+    - 취소하고 선택한 뒤 포커스가 열기 전의 노드로 돌아옵니다.
+    - 공백, 한글, 이모지, 260자를 넘는 경로가 그대로 도착합니다.
+
+#### 72.8 열린 질문
+
+1. **필터에 플랫폼 형식(UTI, MIME)을 더할지.** 확장자만으로는 확장자 없는 형식(macOS의 번들, Linux의 MIME)을 못 거릅니다. 첫 단계는 확장자와 레이블만 받습니다. 요청하는 앱(Ember)이 확장자로 충분한지 확인이 필요합니다.
+2. **폴더 선택에서 폴더 만들기 단추.** 플랫폼 기본이 다릅니다(macOS는 켜짐, Windows는 항상). 지금은 플랫폼 기본을 그대로 씁니다.
+3. **마지막으로 쓴 폴더의 기억.** `directory`가 비었을 때 플랫폼이 기억하는 폴더를 쓰는데, 플랫폼마다 앱 단위인지 대화상자 단위인지 다릅니다. 앱이 기억을 정하고 싶다면 `directory`를 직접 넘깁니다.
+4. **모바일과 Web.** `UIDocumentPicker`, Storage Access Framework, 브라우저의 File System Access API는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)이라서 이 항목의 `paths`로는 표현할 수 없습니다. 별도 항목에서 정합니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 

@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, ReportSize, Progress }
 
 enum class Key { Enter }
 
@@ -27,6 +27,8 @@ enum class MotionRole { Instant, Quick, Standard, Slow, Emphasized }
 enum class TileMode { Clamp, Repeat, Mirror }
 
 enum class MaterialRole { Thin, Regular, Thick, Chrome }
+
+enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList }
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
@@ -1024,6 +1026,7 @@ sealed interface Modifier {
     data object MatchParentSize : Modifier
     data class WindowDrag(val enabled: Boolean) : Modifier
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
+    data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1303,7 +1306,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4126401190150629734L
+    const val SCHEMA_HASH: Long = 2461999641241402862L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2215,6 +2218,8 @@ object Protocol {
         168 -> PropertyKind.TearOffKey
         117 -> PropertyKind.OnFocusGained
         118 -> PropertyKind.OnKeyUp
+        119 -> PropertyKind.AccessibleName
+        127 -> PropertyKind.ReportSize
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -2444,6 +2449,18 @@ object Protocol {
         3 -> MaterialRole.Thick
         4 -> MaterialRole.Chrome
         else -> throw ProtocolException("unknown MaterialRole tag $tag", offset)
+    }
+
+    private fun semanticsRole(tag: Int, offset: Int): SemanticsRole = when (tag) {
+        1 -> SemanticsRole.None
+        2 -> SemanticsRole.Button
+        3 -> SemanticsRole.Checkbox
+        4 -> SemanticsRole.Switch
+        5 -> SemanticsRole.RadioButton
+        6 -> SemanticsRole.Tab
+        7 -> SemanticsRole.Image
+        8 -> SemanticsRole.DropdownList
+        else -> throw ProtocolException("unknown SemanticsRole tag $tag", offset)
     }
 
     private fun spaceRole(tag: Int, offset: Int): SpaceRole = when (tag) {
@@ -2893,6 +2910,7 @@ object Protocol {
         31 -> 0
         32 -> 0
         33 -> 0
+        34 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -2930,6 +2948,7 @@ object Protocol {
             31 -> Modifier.MatchParentSize
             32 -> Modifier.WindowDrag(flag(first, offset))
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
+            34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

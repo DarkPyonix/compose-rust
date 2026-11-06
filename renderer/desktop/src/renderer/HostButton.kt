@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -22,6 +24,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -45,7 +48,10 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.Children
+import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.pressFeedback
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
@@ -66,6 +72,7 @@ import dev.darkpyonix.composerust.ui.variant
 internal fun HostButton(
     node: Node,
     modifier: Modifier,
+    table: NodeTable,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
@@ -202,13 +209,28 @@ internal fun HostButton(
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
     val named = decorated
-        .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
+        .let {
+            // The Host's own name for the button is read instead of the icon's meaning.
+            if (icon != null && text.isEmpty() && node.text(PropertyKind.AccessibleName).isEmpty()) {
+                it.semantics { contentDescription = icon.name }
+            } else {
+                it
+            }
+        }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
     fun ButtonLabel() {
-        if (icon == null) {
+        if (node.children.isNotEmpty()) {
+            // Children replace the label. They are laid out as a Row centred vertically, so
+            // a weighted Spacer pushes whatever follows it to the button's inner edge.
+            CompositionLocalProvider(LocalInheritedTextColor provides ColorProducer { tint }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Children(node, table, dispatcher)
+                }
+            }
+        } else if (icon == null) {
             ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
@@ -222,7 +244,10 @@ internal fun HostButton(
     }
 
     val alignment = if (alignStart) Alignment.CenterStart else Alignment.Center
-    if (enabled) {
+    // A button with children is faded as one group, children included: its content is the
+    // Host's to colour, so there is no label tint to keep readable, and composing the
+    // children twice would draw and expose each of them twice.
+    if (enabled || node.children.isNotEmpty()) {
         Box(named, contentAlignment = alignment) { ButtonLabel() }
     } else {
         Box {
