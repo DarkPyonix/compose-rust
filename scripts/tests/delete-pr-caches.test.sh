@@ -38,6 +38,9 @@ done
 wf="$repo_root/.github/workflows/cache-cleanup.yml"
 grep -q 'types: \[closed\]' "$wf" && ok "runs on closed pull requests" || bad "trigger"
 grep -q 'actions: write' "$wf" && ! grep -qE 'contents: write|pull-requests: write' "$wf" && ok "only actions: write" || bad "permissions"
+grep -q 'base.sha' "$wf" && ok "checks out the base commit's script" || bad "checkout is not base.sha"
+! grep -q 'pull_request_target' "$wf" && ok "no pull_request_target" || bad "pull_request_target"
+grep -q -- "--limit 1000" "$script" && ok "lists up to 1000 caches" || bad "list limit"
 ! grep -qE 'run:.*\$\{\{' "$wf" && ok "no expression inside a run line" || bad "expression in run"
 [[ "$failures" -eq 0 ]] || exit 1
 echo "all passed"

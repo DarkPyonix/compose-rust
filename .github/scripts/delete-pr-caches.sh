@@ -17,11 +17,14 @@ if [[ ! "$number" =~ ^[0-9]+$ ]]; then
 fi
 ref="refs/pull/$number/merge"
 
-if ! ids="$(gh cache list --ref "$ref" --limit 100 --json id --jq '.[].id' 2>&1)"; then
+if ! ids="$(gh cache list --ref "$ref" --limit 1000 --json id --jq '.[].id' 2>&1)"; then
     echo "::warning title=Could not list caches::$ids"
     exit 0
 fi
 [[ -n "$ids" ]] || { echo "no caches under $ref"; exit 0; }
+
+count="$(wc -l <<< "$ids" | tr -d ' ')"
+[[ "$count" -lt 1000 ]] || echo "::warning title=More caches may remain::listed $count caches, the most the listing returns; run again to delete the rest"
 
 for id in $ids; do
     [[ "$id" =~ ^[0-9]+$ ]] || continue
