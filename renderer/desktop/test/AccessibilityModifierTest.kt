@@ -399,4 +399,53 @@ class AccessibilityModifierTest {
             assertTrue(!config.contains(SemanticsActions.OnClick), "a node without a handler has no click action")
         }
     }
+
+    /**
+     * Text is not a pressable container, so only the accessibility modifier can register a
+     * click action on it. Performs the action when the node has one and returns the clicks.
+     */
+    private fun clicksFromAccessibilityOn(extra: List<Mutation>, state: Int): List<HostEvent.Clicked> {
+        val text = 1
+        var clicks = emptyList<HostEvent.Clicked>()
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(text, WidgetKind.Text),
+                    Mutation.SetProp(text, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetModifier(text, 0, ProtocolModifier.Semantics(SemanticsRole.MenuItem, state)),
+                ) + extra,
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val config = onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().config
+            if (config.contains(SemanticsActions.OnClick)) {
+                onNodeWithTag(nodeTestTag(text)).performSemanticsAction(SemanticsActions.OnClick)
+                waitForIdle()
+            }
+            clicks = connection.events.filterIsInstance<HostEvent.Clicked>()
+        }
+        return clicks
+    }
+
+    @Test
+    fun fr71_click_action_does_not_fire_on_a_disabled_node() {
+        val clickAction = 1 shl 11
+        val disabled = 2 shl 6
+        val enabledClicks = clicksFromAccessibilityOn(emptyList(), clickAction)
+        assertEquals(listOf(HostEvent.Clicked(1, SOME_HANDLER)), enabledClicks, "control: the enabled node clicks once")
+        val clicks = clicksFromAccessibilityOn(emptyList(), clickAction or disabled)
+        assertEquals(emptyList(), clicks, "a node disabled by its semantics state is not clicked")
+    }
+
+    @Test
+    fun fr71_click_action_does_not_fire_on_an_enabled_false_node() {
+        val clickAction = 1 shl 11
+        val enabledClicks = clicksFromAccessibilityOn(emptyList(), clickAction)
+        assertEquals(listOf(HostEvent.Clicked(1, SOME_HANDLER)), enabledClicks, "control: the enabled node clicks once")
+        val clicks = clicksFromAccessibilityOn(
+            listOf(Mutation.SetProp(1, PropertyKind.Enabled, PropertyValue.Bool(false))),
+            clickAction,
+        )
+        assertEquals(emptyList(), clicks, "a node whose enabled property is false is not clicked")
+    }
 }

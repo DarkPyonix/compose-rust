@@ -758,8 +758,8 @@ object Protocol {
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
-                        // mode and the last window policy are the nibbles above the second byte. Anything else standing is a record
-                        // the sides disagree on.
+                        // mode and the last window policy are the nibbles above the second
+                        // byte. Anything else standing is a record the sides disagree on.
                         val flags = readU16(batch, base, available, offset + 16)
                         if ((flags and 0x00FC) != 0) {
                             throw ProtocolException("invalid window flags $flags", offset + 16)

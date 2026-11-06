@@ -95,7 +95,10 @@ internal fun Modifier.accessibility(
         declaredRole?.word(),
         expanded?.let { if (it) "expanded" else "collapsed" },
     ).joinToString(", ").takeIf { it.isNotEmpty() }
-    val handler = clickHandlerId.takeIf { state and CLICK_ACTION_BIT != 0 }
+    // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
+    // the node's own enabled property that the ordinary click path honours.
+    val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
+    val handler = clickHandlerId.takeIf { pressable && state and CLICK_ACTION_BIT != 0 }
     return semantics {
         if (name != null) contentDescription = name
         if (role != null) this.role = role
