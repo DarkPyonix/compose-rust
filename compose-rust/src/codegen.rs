@@ -201,6 +201,11 @@ data class Window(
     val mode: WindowMode = WindowMode.Single,
     /** What happens when the last window goes. Only read in [WindowMode.Windows]. */
     val lastWindowClosed: LastWindowClosed = LastWindowClosed.Exit,
+    /**
+     * Whether the implicit single window reports every whole-dp change of its size, not
+     * only a change of size class. Windows made of `Window` nodes use the node property.
+     */
+    val reportSize: Boolean = false,
 )
 
 "#,
@@ -752,14 +757,15 @@ object Protocol {
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
-                        // Bit 0 is `resizable`; the mode and the last window policy are the
-                        // nibbles above the second byte. Anything else standing is a record
+                        // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
+                        // mode and the last window policy are the nibbles above the second byte. Anything else standing is a record
                         // the sides disagree on.
                         val flags = readU16(batch, base, available, offset + 16)
-                        if ((flags and 0x00FE) != 0) {
+                        if ((flags and 0x00FC) != 0) {
                             throw ProtocolException("invalid window flags $flags", offset + 16)
                         }
                         val resizable = flags and 1
+                        val reportSize = (flags and 0x0002) != 0
                         // A byte saying whether there is a zoom level, then the level as a
                         // signed byte.
                         val zoom = readU16(batch, base, available, offset + 18)
@@ -786,6 +792,7 @@ object Protocol {
                                 zoomLevel,
                                 windowMode((flags shr 8) and 0xF, offset + 16),
                                 lastWindowClosed(flags shr 12, offset + 16),
+                                reportSize,
                             ),
                         )
                     }
@@ -2878,7 +2885,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .with_size(800, 600)
                 .with_min_size(320, 240)
                 .resizable(false)
-                .with_zoom_level(-2),
+                .with_zoom_level(-2)
+                .with_report_size(true),
         ),
         Mutation::Create {
             node_id: 20,

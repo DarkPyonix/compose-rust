@@ -1573,6 +1573,10 @@ pub struct Window {
     /// last time. A level set here is applied, remembered and reported back the way one
     /// chosen with the keys is. Kept inside `-8..=8`.
     pub zoom_level: Option<i8>,
+    /// Whether the implicit single window reports every whole-dp change of its size,
+    /// not only a change of size class. Off by default. Windows made with `Window`
+    /// nodes opt in through the node's `report_size` property instead.
+    pub report_size: bool,
     /// One window (the default) or several. In the second the root's children are
     /// `Window` nodes and the rest of this record describes no window.
     pub mode: WindowMode,
@@ -1593,6 +1597,7 @@ impl Window {
             min_height: 0,
             resizable: true,
             zoom_level: None,
+            report_size: false,
             mode: WindowMode::Single,
             last_window_closed: LastWindowClosed::Exit,
         }
@@ -1664,6 +1669,12 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Asks the implicit single window to report every whole-dp change of its size.
+    pub const fn with_report_size(mut self, report: bool) -> Self {
+        self.report_size = report;
         self
     }
 
