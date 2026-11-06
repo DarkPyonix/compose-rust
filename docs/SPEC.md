@@ -1554,9 +1554,21 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 
 수용 기준:
 
-1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(테스트 이름 fr20_8_opted_in_window_reports_dp_change_inside_a_class, 구현과 함께 들어옵니다).
-2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(테스트 이름 fr20_8_default_window_still_reports_only_class_change, 구현과 함께 들어옵니다).
-3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(테스트 이름 fr20_8_opted_in_window_ignores_sub_dp_jitter, 구현과 함께 들어옵니다).
+1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
+2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
+3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
+
+#### 20.9 안전 영역은 알려지는 때 도착합니다 (`Agreed`, 이슈 #468, 감독자 승인)
+
+`Chrome::FullSize`의 `WindowSafeArea`(19.9)는 창이 화면에 뜬 뒤에야 알 수 있는 값입니다(타이틀바가 배치되어야 캡션 높이를 잽니다). 창 생성 직후에 한 번만 재면 0을 얻고, 크기를 바꾸지 않는 창은 영원히 0으로 남습니다. 컴팩트 폭(390x844)으로 연 창이 그 예입니다.
+
+- Renderer는 창이 뜬 뒤 캡션을 다시 재서(제한된 횟수), 값이 알려지면 기존 경로로 `WindowSizeChanged`를 보냅니다. 클래스가 그대로여도 안전 영역이 바뀌면 보내는 것은 19.9의 규칙 그대로입니다. 새 이벤트도 필드도 없습니다.
+- 캡션을 재는 창 코드는 Compose 포크에 있습니다(19.8). 이 저장소는 그 커밋으로 핀을 옮기기만 합니다.
+
+수용 기준:
+
+1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
+2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
 
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
@@ -3821,6 +3833,29 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. FR-61의 기존 시험은 그대로 통과합니다.
 
 시험 이름은 `fr70_`로 시작합니다.
+
+### FR-71 노드 접근성의 역할, 상태, 동작 확장 (`Agreed`, 이슈 #473, 감독자 승인 2026-11-06)
+
+요청한 쪽: dioxus-compose의 HTML 경로(#170)와 darkpyonix-ember의 에디터 창 자동 감사(#302). FR-68의 `semantics`는 역할 여덟 개와 켜짐·선택 상태만 가집니다. 탭 줄, 트리, 메뉴, 제목, 목록 같은 구조와 펼침·비활성·숨김 상태, 접근성 트리에서 눌러 보는 동작이 없어서 화면 낭독기와 자동 감사가 컨트롤을 구분하지 못합니다. 이 항목은 FR-68의 `Semantics` 수정자(와이어 태그 34)와 접근성 이름(`AccessibleName`)을 **더하기만** 하는 방식으로 넓힙니다. 기존 값과 FR-68의 기준은 바뀌지 않습니다.
+
+**1단계 범위(이 저장소의 렌더러만)**:
+
+- **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
+- **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
+- **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+
+**2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
+
+수용 기준.
+1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
+2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
+4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error).
+5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
+6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 

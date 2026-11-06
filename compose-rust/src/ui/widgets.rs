@@ -2856,6 +2856,7 @@ pub struct WindowScope {
     size: Option<(f32, f32)>,
     min_size: Option<(f32, f32)>,
     resizable: Option<bool>,
+    report_size: Option<bool>,
     chrome: Option<crate::schema::Chrome>,
     title_bar: Option<crate::schema::TitleBar>,
     icon: Option<u32>,
@@ -2892,6 +2893,7 @@ pub fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
         size: None,
         min_size: None,
         resizable: None,
+        report_size: None,
         chrome: None,
         title_bar: None,
         icon: None,
@@ -2946,6 +2948,15 @@ impl WindowScope {
 
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = Some(resizable);
+        self
+    }
+
+    /// Asks to be told every time the window's width or height, rounded to whole dp,
+    /// changes. Without it the size is reported only when its class or the safe area
+    /// changes. Turn it on only for a window that lays out by its exact size: each
+    /// whole-dp change while the user drags an edge costs one call into the Host.
+    pub fn report_size(mut self, report: bool) -> Self {
+        self.report_size = Some(report);
         self
     }
 
@@ -3063,6 +3074,9 @@ impl WindowScope {
         }
         if let Some(resizable) = self.resizable {
             properties.push(("window_resizable", OwnedAttr::Bool(resizable)));
+        }
+        if let Some(report) = self.report_size {
+            properties.push(("report_size", OwnedAttr::Bool(report)));
         }
         if let Some(chrome) = self.chrome {
             properties.push(("window_chrome", OwnedAttr::Int(i64::from(chrome as u16))));
