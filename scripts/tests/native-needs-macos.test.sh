@@ -22,24 +22,19 @@ check true "mixed: Windows and shared" renderer/windows/src/Main.kt renderer/lib
 check true "a quoted name" '"renderer/windows/\303\244.kt"'
 out="$("$script" < /dev/null)"; [[ "$out" == "macos=true" ]] && echo "ok   - no file list runs macOS" || { echo "FAIL - empty: $out"; failures=$((failures + 1)); }
 
-# Wiring: no matrix in a job-level if, and the macOS jobs wait on the changed job's output.
+# Wiring, read as text (PyYAML is not on every runner, and a check that skips there proves
+# nothing): no job-level if reads the matrix, the macOS jobs wait on the changed job's
+# decision, and the single-executable matrix comes from it.
 wf="$repo_root/.github/workflows/test-native-renderer.yml"
-if python3 -c 'import yaml' 2>/dev/null; then
-    if python3 - "$wf" <<'PY'
-import sys, yaml
-jobs = yaml.safe_load(open(sys.argv[1]))["jobs"]
-bad = [n for n, j in jobs.items() if "matrix." in str(j.get("if", ""))]
-assert not bad, f"job-level if reads the matrix in {bad}"
-for n in ("macos-static", "ios"):
-    assert "needs.changed.outputs.macos != 'false'" in jobs[n]["if"], f"{n} ignores the macOS decision"
-assert "fromJSON(needs.changed.outputs.executables)" in str(jobs["single-executable"]["strategy"]["matrix"])
-for n in ("linux-static", "linux-arm64-static", "windows"):
-    assert "macos" not in str(jobs[n].get("if", "")), f"{n} must not depend on the macOS decision"
-PY
-    then echo "ok   - workflow wiring"; else echo "FAIL - workflow wiring"; failures=$((failures + 1)); fi
-else
-    echo "skip - no PyYAML for the wiring check"
-fi
+check_wf() { # description pattern expected(yes|no)
+    if grep -qE "$2" "$wf"; then found=yes; else found=no; fi
+    if [[ "$found" == "$3" ]]; then echo "ok   - $1"; else echo "FAIL - $1"; failures=$((failures + 1)); fi
+}
+check_wf "no job-level if reads the matrix" '^    if:.*matrix\.' no
+check_wf "macos-static follows the macOS decision" "needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false'" yes
+check_wf "single-executable takes its matrix from changed" 'fromJSON\(needs.changed.outputs.executables\)' yes
+[[ "$(grep -c "needs.changed.outputs.macos != 'false'" "$wf")" -eq 2 ]] && echo "ok   - exactly macos-static and ios follow it" || { echo "FAIL - the macOS decision is used by other jobs than macos-static and ios"; failures=$((failures + 1)); }
+
 # The macOS Kotlin/Native renderer test is not started by the Windows build's own files.
 kn="$repo_root/.github/workflows/test-kn-desktop-renderer.yml"
 for excluded in build-windows.sh '*.ps1' windows-build-contract.test.sh 'windows-metadata/**'; do
