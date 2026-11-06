@@ -3834,6 +3834,29 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 시험 이름은 `fr70_`로 시작합니다.
 
+### FR-71 노드 접근성의 역할, 상태, 동작 확장 (`Agreed`, 이슈 #473, 감독자 승인 2026-11-06)
+
+요청한 쪽: dioxus-compose의 HTML 경로(#170)와 darkpyonix-ember의 에디터 창 자동 감사(#302). FR-68의 `semantics`는 역할 여덟 개와 켜짐·선택 상태만 가집니다. 탭 줄, 트리, 메뉴, 제목, 목록 같은 구조와 펼침·비활성·숨김 상태, 접근성 트리에서 눌러 보는 동작이 없어서 화면 낭독기와 자동 감사가 컨트롤을 구분하지 못합니다. 이 항목은 FR-68의 `Semantics` 수정자(와이어 태그 34)와 접근성 이름(`AccessibleName`)을 **더하기만** 하는 방식으로 넓힙니다. 기존 값과 FR-68의 기준은 바뀌지 않습니다.
+
+**1단계 범위(이 저장소의 렌더러만)**:
+
+- **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
+- **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
+- **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+
+**2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
+
+수용 기준.
+1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
+2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
+4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error).
+5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
+6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
