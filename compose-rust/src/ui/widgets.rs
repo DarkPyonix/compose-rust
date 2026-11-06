@@ -873,6 +873,7 @@ pub struct TextFieldScope {
     on_submit: Option<Box<dyn FnMut(String)>>,
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_composition_change: Option<Box<dyn FnMut(bool)>>,
     done: bool,
 }
 
@@ -892,6 +893,7 @@ pub fn TextField() -> TextFieldScope {
         on_submit: None,
         on_focus_lost: None,
         on_key_down: None,
+        on_composition_change: None,
         done: false,
     }
 }
@@ -955,6 +957,12 @@ impl TextFieldScope {
         self
     }
 
+    /// Reports when an input method begins or ends an active composition in the field.
+    pub fn on_composition_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_composition_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
@@ -965,12 +973,20 @@ impl TextFieldScope {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
         };
-        let listeners = vec![
+        let mut listeners = vec![
             ("onvaluechange", text_handler(self.on_value_change.take())),
             ("onsubmit", text_handler(self.on_submit.take())),
             ("onfocuslost", unit(self.on_focus_lost.take())),
             ("onkeydown", key_down),
         ];
+        if let Some(mut handler) = self.on_composition_change.take() {
+            listeners.push((
+                "oncompositionchange",
+                EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                    handler(value != 0.0);
+                }))),
+            ));
+        }
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,
@@ -1093,6 +1109,8 @@ pub struct ButtonScope {
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
     accessible_name: Option<String>,
+    text_align: Option<TextAlign>,
+    font_size: Option<f32>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -1114,6 +1132,8 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         max_lines: None,
         overflow: None,
         accessible_name: None,
+        text_align: None,
+        font_size: None,
         on_click: None,
         done: false,
     }
@@ -1122,6 +1142,20 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
 accessible_name!(ButtonScope);
 
 impl ButtonScope {
+    /// Where the label sits in the button. A button that never calls this sends nothing
+    /// and keeps its label centred.
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = Some(align);
+        self
+    }
+
+    /// The label's size in sp. A button that never calls this sends nothing and takes the
+    /// design system's size for its variant.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
     /// The meaning of the glyph on it, never a picture.
     pub fn icon(mut self, icon: IconRole) -> Self {
         self.icon = Some(icon);
@@ -1182,6 +1216,7 @@ impl ButtonScope {
             (self.icon, self.enabled, self.variant, self.kind, self.color);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let accessible_name = self.accessible_name.take();
+        let (text_align, font_size) = (self.text_align, self.font_size);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -1196,6 +1231,12 @@ impl ButtonScope {
                 attrs.push(("color", super::paint(color)));
                 lines_and_overflow(max_lines, overflow, attrs);
                 push_accessible_name(accessible_name, attrs);
+                if text_align.is_some() {
+                    attrs.push(("text_align", role_or_zero(text_align)));
+                }
+                if font_size.is_some() {
+                    attrs.push(("font_size", dp_or_zero(font_size)));
+                }
             },
             listeners,
             content,
@@ -1203,7 +1244,7 @@ impl ButtonScope {
     }
 }
 
-composed_on_drop!(ButtonScope);
+container!(ButtonScope);
 
 /// A two-state control, for Checkbox, RadioButton and Switch alike: the Host owns the
 /// value, the control draws exactly what it is told and reports what the user asked for.
@@ -2923,6 +2964,7 @@ pub struct WindowScope {
     size: Option<(f32, f32)>,
     min_size: Option<(f32, f32)>,
     resizable: Option<bool>,
+    report_size: Option<bool>,
     chrome: Option<crate::schema::Chrome>,
     title_bar: Option<crate::schema::TitleBar>,
     icon: Option<u32>,
@@ -2959,6 +3001,7 @@ pub fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
         size: None,
         min_size: None,
         resizable: None,
+        report_size: None,
         chrome: None,
         title_bar: None,
         icon: None,
@@ -3013,6 +3056,15 @@ impl WindowScope {
 
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = Some(resizable);
+        self
+    }
+
+    /// Asks to be told every time the window's width or height, rounded to whole dp,
+    /// changes. Without it the size is reported only when its class or the safe area
+    /// changes. Turn it on only for a window that lays out by its exact size: each
+    /// whole-dp change while the user drags an edge costs one call into the Host.
+    pub fn report_size(mut self, report: bool) -> Self {
+        self.report_size = Some(report);
         self
     }
 
@@ -3130,6 +3182,9 @@ impl WindowScope {
         }
         if let Some(resizable) = self.resizable {
             properties.push(("window_resizable", OwnedAttr::Bool(resizable)));
+        }
+        if let Some(report) = self.report_size {
+            properties.push(("report_size", OwnedAttr::Bool(report)));
         }
         if let Some(chrome) = self.chrome {
             properties.push(("window_chrome", OwnedAttr::Int(i64::from(chrome as u16))));

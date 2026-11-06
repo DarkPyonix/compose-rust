@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.0.6
+
+### Focus ring only for keyboard focus
+
+A pressable container draws its focus ring only for keyboard focus, at the node's own outer bounds, so a mouse click no longer leaves a ring ([#430](https://github.com/DarkPyonix/compose-rust/issues/430), [#433](https://github.com/DarkPyonix/compose-rust/pull/433)).
+
+### A weighted `Row` or `Column` fills the remaining space
+
+A `Row` with a weight in a `Column` (or a `Column` with a weight in a `Row`) is no longer clamped to its content size on the cross axis, so the content no longer collects at the start when the window grows ([#439](https://github.com/DarkPyonix/compose-rust/issues/439), [#440](https://github.com/DarkPyonix/compose-rust/pull/440)).
 
 ### Colours and size for `Switch`, `Slider` and `Checkbox`
 
@@ -21,6 +29,14 @@
 ### Press feedback
 
 Every pressable surface (`on_click` containers, `Clickable` nodes and the toolkit `Button`) scales to 0.975 and shows a faint tint while pressed, inside the renderer with no Host round trip, and `Modifier::PressFeedback { scale, tint_alpha }` (wire tag 33) changes or turns it off ([#305](https://github.com/DarkPyonix/compose-rust/issues/305)). The schema hash changes.
+
+### Disabled `Button` label keeps its contrast
+
+A disabled `Button` keeps its label at 3:1 or better against its faded fill on the page, a card and a raised card, and an active `Button` is unchanged ([#432](https://github.com/DarkPyonix/compose-rust/issues/432), [#447](https://github.com/DarkPyonix/compose-rust/pull/447)).
+
+### Schema hash and known test issue
+
+The schema hash changes in this release: a `Modifier` gains `MatchParentSize` (tag 31), `WindowDrag` (tag 32) and `PressFeedback` (tag 33), and the `WindowSizeChanged` event record grows from 32 to 44 bytes. A renderer and a crate from different versions no longer agree, so upgrade both together. Three `fr33_1_*` paste and menu tests fail on a Mac with a non-English locale. They fail the same way on `develop` without these changes, so this is not a regression ([#436](https://github.com/DarkPyonix/compose-rust/issues/436)).
 
 ## v0.0.5
 

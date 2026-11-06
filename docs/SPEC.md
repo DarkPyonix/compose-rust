@@ -1541,6 +1541,35 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 5. `use_window_size()`를 쓴 컴포넌트가 클래스 전환에서 다시 렌더링되고, 그렇지 않은 형제는 다시 렌더링되지 않습니다.
 6. 알 수 없는 `size_class` 값은 `ProtocolError`가 되고 프로세스가 죽지 않습니다.
 
+#### 20.8 크기 변화도 받는 창 (`Agreed`, 이슈 #467, 감독자 승인)
+
+20.4의 규칙은 클래스(와 19.9의 안전 영역)가 바뀔 때만 `WindowSizeChanged`를 보냅니다. 창 크기로 페이지를 짜는 Host(HTML과 CSS 호스트)는 클래스 안에서 1280x820이 1000x620으로 줄어도 다시 배치할 수 없습니다. `window_size()`가 마지막 클래스 변경 때의 크기를 계속 돌려주기 때문입니다.
+
+- **옵트인**: `Window` 노드의 불리언 속성 `report_size`(AttrKey 127, 기본 `false`). Rust에서는 `Window(on_close).report_size(true)`입니다. `Window` 노드가 없는 암묵적 단일 창(루트)은 옵트인할 수 없고 항상 지금의 동작입니다.
+- **켠 창**: 클래스와 안전 영역이 그대로여도, 창의 폭 또는 높이가 **반올림한 dp**로 바뀌면 같은 `WindowSizeChanged`를 보냅니다. 레코드와 이벤트 태그는 바뀌지 않고 이미 실린 `width_dp`, `height_dp`가 새 크기입니다.
+- **반올림 규칙**: 폭과 높이를 각각 가장 가까운 정수 dp로 반올림합니다(0.5는 올림). 직전에 보낸 값과 반올림한 값이 같으면 보내지 않으므로 1dp 미만의 흔들림은 무시합니다. `Float`를 그대로 비교하지 않습니다. 보내는 `width_dp`와 `height_dp`는 반올림하지 않은 측정값입니다.
+- **끈 창**: 지금과 한 바이트도 다르지 않습니다. 기본 동작, 호출 수, 할당이 그대로입니다.
+- **비용**: 켠 창은 드래그로 크기를 바꾸는 동안 정수 dp가 바뀔 때마다 Host 호출이 한 번 늘 수 있습니다. 창 크기로 짜는 Host만 켭니다.
+- 스키마 해시가 움직입니다(속성 하나 추가, 추가 전용).
+
+수용 기준:
+
+1. `report_size(true)`인 창은 같은 클래스 안에서 1280x820에서 1000x620으로 줄이면 `WindowSizeChanged`를 받고, 그 `width_dp`, `height_dp`가 새 크기입니다(`fr20_8_opted_in_window_reports_dp_change_inside_a_class`).
+2. 기본(`false`)인 창은 같은 클래스 안의 크기 변화에 이벤트를 보내지 않습니다. 20.7의 3번이 그대로 통과합니다(`fr20_8_default_window_still_reports_only_class_change`).
+3. 켠 창에서 반올림한 dp가 같은 변화(1dp 미만)는 이벤트를 보내지 않고, 정수 dp가 하나 바뀌면 한 번만 보냅니다(`fr20_8_opted_in_window_ignores_sub_dp_jitter`).
+
+#### 20.9 안전 영역은 알려지는 때 도착합니다 (`Agreed`, 이슈 #468, 감독자 승인)
+
+`Chrome::FullSize`의 `WindowSafeArea`(19.9)는 창이 화면에 뜬 뒤에야 알 수 있는 값입니다(타이틀바가 배치되어야 캡션 높이를 잽니다). 창 생성 직후에 한 번만 재면 0을 얻고, 크기를 바꾸지 않는 창은 영원히 0으로 남습니다. 컴팩트 폭(390x844)으로 연 창이 그 예입니다.
+
+- Renderer는 창이 뜬 뒤 캡션을 다시 재서(제한된 횟수), 값이 알려지면 기존 경로로 `WindowSizeChanged`를 보냅니다. 클래스가 그대로여도 안전 영역이 바뀌면 보내는 것은 19.9의 규칙 그대로입니다. 새 이벤트도 필드도 없습니다.
+- 캡션을 재는 창 코드는 Compose 포크에 있습니다(19.8). 이 저장소는 그 커밋으로 핀을 옮기기만 합니다.
+
+수용 기준:
+
+1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
+2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -3755,12 +3784,15 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 세 위젯 빌더에 색 역할 또는 `Paint`로 주는 `track_color`, `thumb_color`(Switch, Slider), `active_track_color`(Slider), `container_color`, `check_color`(Checkbox)와 크기 `size(Dp)`(Switch는 `size(width, height)`)가 있습니다. 부르지 않으면 속성이 나가지 않고 디자인 시스템 기본 모양입니다.
 - Renderer는 이 값이 하나라도 오면 Compose의 `SwitchDefaults.colors`, `SliderDefaults.colors`, `CheckboxDefaults.colors`와 크기 수정자로 그립니다. 값이 오지 않은 칸은 기본값을 씁니다.
 - 선택된 `Checkbox`는 `container_color`로 채운 사각형(모서리 반지름은 `Shape` 수정자를 따름)에 `check_color` 체크를 그립니다.
+- `track_color`는 켜짐과 꺼짐에 같은 색으로 적용됩니다. 상태마다 다른 트랙 색이 필요하면 앱이 상태에 맞는 색을 보내고, 상태가 바뀌면 바뀐 색만 다시 나갑니다(새 API는 없습니다).
+- 앱이 이 속성을 더는 쓰지 않으면(예: 비활성일 때만 색을 주던 컨트롤이 활성이 됨) 제거가 전달되고, Renderer는 그 칸을 디자인 시스템 기본값으로 되돌립니다. 마지막으로 받은 값이 남지 않습니다.
 
 수용 기준.
 1. `Switch(true).size(36.0, 20.0).track_color(ink).thumb_color(surface)`의 측정 크기가 36x20dp이고 켜진 트랙 픽셀이 `ink`입니다.
 2. `Slider`에 `active_track_color`와 `track_color`를 주면 채워진 구간과 남은 구간이 그 색으로 그려집니다.
 3. 체크된 `Checkbox.size(18.0).container_color(ink).check_color(white)`는 18x18dp 채워진 사각형과 흰 체크를 그립니다.
 4. 색과 크기를 하나도 주지 않은 세 위젯은 지금과 같은 속성을 보냅니다.
+5. 색과 크기를 준 컨트롤에서 그 속성을 제거하면(제거 전달 뒤) 측정 크기와 색이 디자인 시스템 기본값으로 돌아옵니다. 시험 이름은 `fr67_`로 시작합니다.
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Draft`, 이슈 #429, #426)
 
@@ -3775,6 +3807,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. `Box.modifier(label("새로고침").role(Button))`의 접근성 노드가 그 이름과 역할을 가집니다.
 3. `Button("").icon(Refresh).accessible_name("가져오기")`의 접근성 이름이 "가져오기"입니다.
 4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
+5. 이름을 준 노드에서 `accessible_name`을 제거하면(제거 전달 뒤) 접근성 이름이 위젯의 기본(보이는 라벨이나 아이콘의 뜻)으로 돌아옵니다.
 
 ### FR-69 비활성 Button의 라벨 대비 (`Draft`, 이슈 #432)
 
@@ -3786,6 +3819,43 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 수용 기준.
 1. 라이트와 다크, `Primary`와 `Secondary`와 `Text`, 모든 디자인 시스템의 비활성 Button에서 라벨과 채움(채움이 없으면 바탕)의 대비가 3:1 이상입니다. 모든 조합을 도는 시험입니다.
 2. 활성 Button의 모양은 바뀌지 않습니다.
+
+### FR-70 Row 안의 내용 크기 컨테이너와 글자 최소 폭 (`Agreed`, 이슈 #427)
+
+요청한 쪽: darkpyonix-ember(목업 `style.css`의 설정 행: 제목과 힌트를 담은 `Column.weight(1)` 옆에 36x20px 스위치). 승인: 감독자 B(위임 권한). `Row` 안에서 폭을 정하지 않은 `Box`가 남은 폭을 가져가면 힌트 열의 폭이 0에 가까워지고, 한글 문장이 한 글자씩 줄바꿈됩니다.
+
+- `Row` 안에서 `weight`나 채움 수정자가 없는 `Box`, `Row`, `Column`은 내용 크기(wrap_content)로 측정되고 남은 폭을 가져가지 않습니다.
+- 글자는 가장 긴 단어(한글은 어절)의 폭보다 좁게 줄바꿈되지 않습니다(min-content). 형제가 남은 폭을 얼마나 요구해도 같습니다.
+
+수용 기준.
+1. 폭 300의 `Row`에 `[Column.weight(1){긴 Text 둘}, 폭을 정하지 않은 Box{Text}]`를 넣으면 Box의 폭이 그 Text의 `maxIntrinsicWidth`에 안쪽 여백을 더한 값과 같고 `Row`의 폭보다 작습니다.
+2. 같은 `Row`에서 Column의 폭은 가장 긴 어절의 폭 이상이고, 어떤 줄도 한 글자만 담지 않습니다.
+3. FR-61의 기존 시험은 그대로 통과합니다.
+
+시험 이름은 `fr70_`로 시작합니다.
+
+### FR-71 노드 접근성의 역할, 상태, 동작 확장 (`Agreed`, 이슈 #473, 감독자 승인 2026-11-06)
+
+요청한 쪽: dioxus-compose의 HTML 경로(#170)와 darkpyonix-ember의 에디터 창 자동 감사(#302). FR-68의 `semantics`는 역할 여덟 개와 켜짐·선택 상태만 가집니다. 탭 줄, 트리, 메뉴, 제목, 목록 같은 구조와 펼침·비활성·숨김 상태, 접근성 트리에서 눌러 보는 동작이 없어서 화면 낭독기와 자동 감사가 컨트롤을 구분하지 못합니다. 이 항목은 FR-68의 `Semantics` 수정자(와이어 태그 34)와 접근성 이름(`AccessibleName`)을 **더하기만** 하는 방식으로 넓힙니다. 기존 값과 FR-68의 기준은 바뀌지 않습니다.
+
+**1단계 범위(이 저장소의 렌더러만)**:
+
+- **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
+- **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
+- **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+
+**2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
+
+수용 기준.
+1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
+2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
+4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error).
+5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
+6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
@@ -3903,6 +3973,24 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 수용 기준.
 1. `Modifier::corner_radii([8.0, 8.0, 0.0, 0.0])`는 네 모서리 값이 그대로 담긴 `Shape` 수정자 한 건을 보내고, `Modifier::clip(true)`는 `Clip(true)` 수정자 한 건을 보냅니다.
 2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
+
+### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
+
+요청한 쪽: dioxus-compose(HTML 마운트된 요소의 `focus()`, `blur()`와 `TextField`의 `oncompositionstart`, `oncompositionend`). Host가 특정 노드에 키보드 포커스를 요청하거나 현재 포커스를 거두고, `TextField`에서도 `CodeEditor`(FR-38.9)와 같은 조합 상태 이벤트를 받을 수 있어야 합니다.
+
+- **`Mutation::RequestFocus { node_id: u32 }`** (태그 25, 8바이트 고정 레코드: `tag=25, len=8, node_id: u32`).
+  - `node_id != 0`이면 Renderer는 그 노드에 `FocusRequester.requestFocus()`로 키보드 포커스를 옮깁니다. `TextField`, `Button`, `CodeEditor`뿐 아니라 컨테이너(`Box`, `Row`, `Column` 등)에도 포커스를 줄 수 있습니다. 존재하지 않는 `node_id`는 `TableError.UNKNOWN_NODE`(`ProtocolError`)로 보고하고 프로세스를 죽이지 않습니다.
+  - `node_id == 0`이면 Renderer는 `FocusManager.clearFocus()`로 현재 창의 포커스를 거둡니다.
+  - `runtime::Batch::request_focus(&mut self, node_id: u32)`가 이 명령을 배치에 기록합니다.
+- **`TextField`의 `PropertyKind::OnCompositionChange`** (태그 133).
+  - 이미 `CodeEditor`에 있는 `PropertyKind::OnCompositionChange`(태그 133)와 `HostEvent::CompositionChanged { composing: bool }`(태그 38)를 `WidgetKind::TextField`에도 허용합니다.
+  - `TextField`의 `TextFieldValue.composition`이 `null`에서 범위 값으로 바뀌면 `CompositionChanged(composing = true)`를, 범위 값에서 `null`로 확정되거나 취소되면 `CompositionChanged(composing = false)`를 한 번 보냅니다. `OnCompositionChange` 핸들러를 등록하지 않은 `TextField`는 아무 이벤트도 보내지 않습니다.
+  - `ui::TextFieldScope::on_composition_change(impl FnMut(bool) + 'static)`와 `writer::event_property`의 `"compositionchange" | "oncompositionchange"` 매핑을 제공합니다.
+
+수용 기준.
+1. `Mutation::RequestFocus { node_id }`가 배치로 인코딩·디코딩되고, Renderer에 두 개의 `TextField`(또는 포커스 가능 노드)가 있을 때 `RequestFocus(b)`를 적용하면 포커스가 `b`로 옮겨가며 `RequestFocus(0)`을 적용하면 포커스가 해제됩니다(`fr65_request_focus_moves_and_clears_focus`).
+2. 존재하지 않는 노드에 대한 `RequestFocus`는 `UNKNOWN_NODE` 오류로 보고되고 죽지 않습니다(`fr65_request_focus_unknown_node_reports_error`).
+3. `OnCompositionChange` 핸들러가 붙은 `TextField`에서 조합 범위가 생기면 `CompositionChanged(true)`가, 조합이 끝나면 `CompositionChanged(false)`가 그 핸들러 id로 전달됩니다(`fr65_text_field_reports_composition_changes`).
 
 ## 4. 경계 프로토콜
 

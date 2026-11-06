@@ -247,4 +247,124 @@ class TextFieldTest {
         val height = onNodeWithTag(nodeTestTag(FIELD)).fetchSemanticsNode().boundsInRoot.height / density.density
         assertEquals(400f, height, 1f, "multiline field with FillMaxHeight must fill its 400.dp container")
     }
+
+    @Test
+    fun fr65_request_focus_moves_and_clears_focus() = runComposeUiTest {
+        val column = 10
+        val second = 2
+        val focusLostFirst = 31L
+        val focusLostSecond = 32L
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(column, WidgetKind.Column),
+                Mutation.Create(FIELD, WidgetKind.TextField),
+                Mutation.SetProp(FIELD, PropertyKind.OnFocusLost, PropertyValue.Integer(focusLostFirst)),
+                Mutation.Insert(column, FIELD, 0),
+                Mutation.Create(second, WidgetKind.TextField),
+                Mutation.SetProp(second, PropertyKind.OnFocusLost, PropertyValue.Integer(focusLostSecond)),
+                Mutation.Insert(column, second, 1),
+            ),
+        )
+        lateinit var host: ComposeRustHost
+        setContent { host = rememberComposeRustHost(connection); ComposeRustContent(host) }
+        waitForIdle()
+
+        connection.respondWith { HostResponse(listOf(Mutation.RequestFocus(FIELD))) }
+        host.dispatch(HostEvent.Clicked(column, 0))
+        waitForIdle()
+
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("a")
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(FIELD)).assertTextEquals("a")
+
+        connection.respondWith { HostResponse(listOf(Mutation.RequestFocus(second))) }
+        host.dispatch(HostEvent.Clicked(column, 0))
+        waitForIdle()
+
+        assertEquals(
+            listOf(HostEvent.FocusLost(FIELD, focusLostFirst)),
+            connection.events.filterIsInstance<HostEvent.FocusLost>(),
+        )
+
+        connection.respondWith { HostResponse(listOf(Mutation.RequestFocus(0))) }
+        host.dispatch(HostEvent.Clicked(column, 0))
+        waitForIdle()
+
+        assertEquals(
+            listOf(
+                HostEvent.FocusLost(FIELD, focusLostFirst),
+                HostEvent.FocusLost(second, focusLostSecond),
+            ),
+            connection.events.filterIsInstance<HostEvent.FocusLost>(),
+        )
+    }
+
+    @Test
+    fun fr65_request_focus_unknown_node_reports_error() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            field(Mutation.RequestFocus(999)),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        assertEquals(1, errors.size, "events were ${connection.events}")
+        assertEquals(dev.darkpyonix.composerust.ui.node.TableError.UNKNOWN_NODE, errors.single().code)
+    }
+
+    @Test
+    fun fr65_text_field_reports_composition_changes() = runComposeUiTest {
+        val compositionHandler = 41L
+        var editorUpdate: ((androidx.compose.ui.text.input.TextFieldValue) -> Unit)? = null
+        dev.darkpyonix.composerust.foundation.hostTextFieldValueHook = { update -> editorUpdate = update }
+        try {
+            val connection = FakeHostConnection(
+                field(Mutation.SetProp(FIELD, PropertyKind.OnCompositionChange, PropertyValue.Integer(compositionHandler))),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+
+            val update = requireNotNull(editorUpdate) { "TextField did not install value hook" }
+            runOnIdle {
+                update(
+                    androidx.compose.ui.text.input.TextFieldValue(
+                        text = "ㅎ",
+                        selection = androidx.compose.ui.text.TextRange(1),
+                        composition = androidx.compose.ui.text.TextRange(0, 1),
+                    ),
+                )
+            }
+            waitForIdle()
+            runOnIdle {
+                update(
+                    androidx.compose.ui.text.input.TextFieldValue(
+                        text = "한",
+                        selection = androidx.compose.ui.text.TextRange(1),
+                        composition = androidx.compose.ui.text.TextRange(0, 1),
+                    ),
+                )
+            }
+            waitForIdle()
+            runOnIdle {
+                update(
+                    androidx.compose.ui.text.input.TextFieldValue(
+                        text = "한",
+                        selection = androidx.compose.ui.text.TextRange(1),
+                        composition = null,
+                    ),
+                )
+            }
+            waitForIdle()
+
+            assertEquals(
+                listOf(
+                    HostEvent.CompositionChanged(FIELD, compositionHandler, true),
+                    HostEvent.CompositionChanged(FIELD, compositionHandler, false),
+                ),
+                connection.events.filterIsInstance<HostEvent.CompositionChanged>(),
+            )
+        } finally {
+            dev.darkpyonix.composerust.foundation.hostTextFieldValueHook = null
+        }
+    }
 }

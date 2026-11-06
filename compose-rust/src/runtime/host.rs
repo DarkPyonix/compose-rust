@@ -382,6 +382,9 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (EventCallback::Value(handler), EventPayload::ValueChanged(value)) => {
             (*handler.borrow_mut())(*value)
         }
+        (EventCallback::Value(handler), EventPayload::CompositionChanged { composing }) => {
+            (*handler.borrow_mut())(if *composing { 1.0 } else { 0.0 })
+        }
         (EventCallback::Range(handler), EventPayload::RangeRequested { start, count }) => {
             (*handler.borrow_mut())(RangeRequest::new(*start, *count))
         }
