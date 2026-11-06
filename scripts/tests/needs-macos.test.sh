@@ -27,26 +27,13 @@ check true "the macOS renderer" renderer/macos/src/Main.kt
 check true "a root file nobody listed" Cargo.toml
 check true "a script under scripts/" scripts/check.sh
 check true "Windows desktop sources the JVM job compiles" renderer/desktop/src/NativeWindowShell.kt
-# Wiring: test.yml must be valid, and the macOS legs must leave the matrices.
+# Wiring: test.yml must be valid, and the macOS legs must leave the matrices. Read as text
+# (PyYAML is not on every runner, and a check that skips there proves nothing).
 wf="$repo_root/.github/workflows/test.yml"
-if python3 -c 'import yaml' 2>/dev/null; then
-    if python3 - "$wf" <<'PY'
-import sys, yaml
-d = yaml.safe_load(open(sys.argv[1]))
-jobs = d["jobs"]
-bad = [n for n, j in jobs.items() if "matrix." in str(j.get("if", ""))]
-assert not bad, f"job-level if reads the matrix in {bad}: GitHub rejects the workflow"
-for n in ("rust", "kotlin", "shell"):
-    j = jobs[n]
-    needs = j["needs"] if isinstance(j["needs"], list) else [j["needs"]]
-    assert "changed" in needs, f"{n} does not wait for changed"
-    assert "fromJSON(needs.changed.outputs" in str(j["strategy"]["matrix"]), f"{n} matrix is not built by changed"
-PY
-    then echo "ok   - test.yml wiring: no matrix in job ifs, matrices come from changed"
-    else echo "FAIL - test.yml wiring"; failures=$((failures + 1)); fi
-else
-    echo "skip - no PyYAML for the wiring check"
-fi
+# A job-level if sits at four spaces; GitHub rejects one that reads the matrix.
+if grep -E '^    if:.*matrix\.' "$wf" >/dev/null; then echo "FAIL - a job-level if reads the matrix"; failures=$((failures + 1)); else echo "ok   - no job-level if reads the matrix"; fi
+from_json="$(grep -c 'fromJSON(needs.changed.outputs' "$wf")"
+[[ "$from_json" -ge 3 ]] && echo "ok   - rust, kotlin and shell take their matrix from changed" || { echo "FAIL - only $from_json matrices come from changed"; failures=$((failures + 1)); }
 
 # Renames: the old path counts, as the workflow lists it with --no-renames.
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
