@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import dev.darkpyonix.composerust.runtime.LocalWindowDragExclusion
@@ -164,13 +165,21 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     awaitEachGesture {
                         if (value.enabled) {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-                            if (!down.isConsumed) {
+                            // A no-drag node under the press has marked it already (children see the
+                            // Main pass first), so the window stays where it is.
+                            val excludedHere = exclusion?.isMarked(down.id.value, down.uptimeMillis) == true
+                            if (!down.isConsumed && !excludedHere) {
                                 down.consume()
                                 drag()
                             }
                         } else {
                             // Mark this down for the strip without consuming it, so ancestors can click.
-                            val excluded = awaitFirstDown(requireUnconsumed = false); exclusion?.downKey = excluded.id.value to excluded.uptimeMillis
+                            val excluded = awaitFirstDown(requireUnconsumed = false)
+                            exclusion?.mark(excluded.id.value, excluded.uptimeMillis)
+                            // Forget the press once it ends, so a later press that happens to
+                            // share an id and a timestamp is not taken for this one.
+                            waitForUpOrCancellation()
+                            exclusion?.clear()
                         }
                     }
                 }
