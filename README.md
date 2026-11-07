@@ -241,6 +241,38 @@ the Windows Kotlin/Native renderer is already one executable.
 build. A binary built that way says what is missing and exits non-zero rather than opening no
 window.
 
+### Shipping a macOS application
+
+`scripts/packager-macos/package-macos` turns the executable `cargo build --release` made into an
+application bundle, using the name, identifier and version your `dx` bundle configuration and`Cargo.toml` already state. It needs Python 3.11 and Xcode's command line tools, and no Apple
+developer account.
+
+```sh
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
+scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+```
+
+The bundle carries no update settings: direct distribution is packaged and updated with
+Velopack.
+
+Every bundle is signed ad hoc. Apple silicon needs a signature to run anything, and an ad hoc
+one needs no account, but it does not name a developer Apple has verified, so **macOS asks
+before it opens a downloaded copy for the first time**:
+
+- **macOS 15 (Sequoia) and newer:** open the app and click Done when macOS says it could not
+  verify it. Then in System Settings, Privacy & Security, scroll to Security and click
+  **Open Anyway** next to the app (the button stays for about an hour), confirm, and enter
+  your password.
+- **macOS 14 and older:** Control-click the app, choose **Open**, then **Open** again.
+- **Any version:** `xattr -dr com.apple.quarantine "/Applications/My App.app"` removes the
+  download mark, and macOS opens it without asking.
+
+Move the app into Applications before the first launch: run from the disk image or Downloads,
+macOS starts a hidden temporary copy. The disk image carries these steps as `If macOS will not open the
+app.txt`.
+
+
 ### Using the authoring API from `develop`
 
 0.0.2 carries the authoring API and a renderer built from the same schema, so a project that
