@@ -109,7 +109,7 @@ private fun runWindows(
 ): Int {
     val backend = LinuxWindowBackend(main) { nodeId -> { ComposeRustContent(host, windowNodeId = nodeId) } }
     opened(backend)
-    val manager = WindowManager(host, backend, onExit = backend::requestExit)
+    val manager = WindowManager(host, backend, onExit = backend::requestExit, dropTargets = DropTargets.Registered)
     val frames = CoroutineScope(main + Job())
     try {
         manager.attach()

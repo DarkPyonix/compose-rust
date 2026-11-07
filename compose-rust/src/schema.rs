@@ -47,6 +47,18 @@ pub enum FieldSlot {
     SixthLow,
     SixthHigh,
     Sixth,
+    SeventhLow,
+    SeventhHigh,
+    Seventh,
+    EighthLow,
+    EighthHigh,
+    Eighth,
+    NinthLow,
+    NinthHigh,
+    Ninth,
+    TenthLow,
+    TenthHigh,
+    Tenth,
 }
 
 impl FieldSlot {
@@ -65,6 +77,14 @@ impl FieldSlot {
             Self::FifthHigh => (4, true),
             Self::SixthLow | Self::Sixth => (5, false),
             Self::SixthHigh => (5, true),
+            Self::SeventhLow | Self::Seventh => (6, false),
+            Self::SeventhHigh => (6, true),
+            Self::EighthLow | Self::Eighth => (7, false),
+            Self::EighthHigh => (7, true),
+            Self::NinthLow | Self::Ninth => (8, false),
+            Self::NinthHigh => (8, true),
+            Self::TenthLow | Self::Tenth => (9, false),
+            Self::TenthHigh => (9, true),
         }
     }
 }
@@ -88,7 +108,7 @@ pub struct VariantSchema {
 }
 
 /// The most words any modifier's value takes, the two every record has included.
-pub const MAX_MODIFIER_WORDS: usize = 6;
+pub const MAX_MODIFIER_WORDS: usize = 10;
 
 /// The `extra_words` the schema gives a modifier tag, or `None` for a tag it does not list.
 pub const fn modifier_extra_words(tag: u16) -> Option<u8> {
@@ -170,6 +190,9 @@ pub enum EventPayloadType {
     /// A window the platform or the user asked the application for: a request number, then
     /// the `RestoreKey` as a string reference. The one window event that carries a string.
     WindowRequest,
+    /// What became of one file dialog: the request number, the status, the filter in use
+    /// and the paths as one string reference.
+    FileDialogResult,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -183,13 +206,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
-    "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
+    "keys=Enter,Other;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -273,6 +296,18 @@ const fn schema_hash() -> u64 {
                     FieldSlot::SixthLow => 15,
                     FieldSlot::SixthHigh => 16,
                     FieldSlot::Sixth => 17,
+                    FieldSlot::SeventhLow => 18,
+                    FieldSlot::SeventhHigh => 19,
+                    FieldSlot::Seventh => 20,
+                    FieldSlot::EighthLow => 21,
+                    FieldSlot::EighthHigh => 22,
+                    FieldSlot::Eighth => 23,
+                    FieldSlot::NinthLow => 24,
+                    FieldSlot::NinthHigh => 25,
+                    FieldSlot::Ninth => 26,
+                    FieldSlot::TenthLow => 27,
+                    FieldSlot::TenthHigh => 28,
+                    FieldSlot::Tenth => 29,
                 }],
             );
             field_index += 1;
@@ -341,6 +376,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::WindowDrag => 26,
                 EventPayloadType::WindowDragOver => 27,
                 EventPayloadType::WindowRequest => 28,
+                EventPayloadType::FileDialogResult => 29,
             }],
         );
         index += 1;
@@ -557,6 +593,8 @@ pub struct Selection {
 // Compose key identities supported by the M0 schema.
 define_wire_enum!(KEY_SCHEMA, Key {
     Enter = 1,
+    // Any key the enum does not name. The event's `code` and `text` say which one.
+    Other = 2,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -1457,6 +1495,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "LastWindowClosed",
         variants: LAST_WINDOW_CLOSED_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "FileDialogKind",
+        variants: FILE_DIALOG_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDialogStatus",
+        variants: FILE_DIALOG_STATUS_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1545,6 +1591,25 @@ define_wire_enum!(WINDOW_MODE_SCHEMA, WindowMode {
 define_wire_enum!(LAST_WINDOW_CLOSED_SCHEMA, LastWindowClosed {
     Exit = 0,
     KeepRunning = 1,
+});
+
+// What a file dialog asks the user to pick. Closed: each kind is a different platform panel
+// with different rules about how many paths come back, so a free-form set of flags would
+// allow combinations no panel can honour.
+define_wire_enum!(FILE_DIALOG_KIND_SCHEMA, FileDialogKind {
+    OpenFile = 1,
+    OpenFiles = 2,
+    OpenFolder = 3,
+    OpenFolders = 4,
+    Save = 5,
+});
+
+// How a file dialog ended. `Unavailable` means this run has no way to show one, which is an
+// answer and not an error, and is never used for a user's cancel.
+define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
+    Chosen = 1,
+    Cancelled = 2,
+    Unavailable = 3,
 });
 
 /// What an application may decide about its own window.
@@ -1974,6 +2039,25 @@ pub enum Modifier {
         f: f32,
         origin_x: f32,
         origin_y: f32,
+    },
+    /// Draws this node and everything in it through a 4x4 matrix, the way CSS 3D
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// `m` is column-major, in the order of CSS `matrix3d(...)`: element `m[4 * column +
+    /// row]`. A point `(x, y, z, 1)` goes to `M * (x, y, z, 1)`, and the screen position is
+    /// the first two results divided by the fourth. Translations are in dp. A perspective
+    /// term is already inside the matrix, so the Renderer is never sent one separately. The
+    /// origin means what it means for [`Modifier::Transform`] and its z is zero.
+    ///
+    /// `backface_hidden` is CSS `backface-visibility: hidden`: a node whose back is turned
+    /// to the viewer is not drawn and takes no input. A matrix with no inverse draws
+    /// nothing. No value may be NaN or infinite.
+    Transform3D {
+        m: [f32; 16],
+        origin_x: f32,
+        origin_y: f32,
+        backface_hidden: bool,
     },
     /// Matches the bounds of a Box parent without contributing to its size.
     MatchParentSize,
@@ -2473,6 +2557,103 @@ const TRANSFORM_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::FourthHigh,
     },
 ];
+const TRANSFORM_3D_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "m0",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "m1",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "m2",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "m3",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "m4",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "m5",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "m6",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "m7",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+    FieldSchema {
+        name: "m8",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "m9",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+    FieldSchema {
+        name: "m10",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthLow,
+    },
+    FieldSchema {
+        name: "m11",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthHigh,
+    },
+    FieldSchema {
+        name: "m12",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhLow,
+    },
+    FieldSchema {
+        name: "m13",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhHigh,
+    },
+    FieldSchema {
+        name: "m14",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthLow,
+    },
+    FieldSchema {
+        name: "m15",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthHigh,
+    },
+    FieldSchema {
+        name: "backfaceHidden",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Tenth,
+    },
+];
 const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "enabled",
     ty: FieldType::Bool,
@@ -2672,6 +2853,14 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 26,
         extra_words: 2,
         fields: TRANSFORM_FIELDS,
+    },
+    // Sixteen matrix values, the origin and a flag are ten words, eight more than the two
+    // every record has: 92 bytes.
+    VariantSchema {
+        name: "Transform3D",
+        tag: 27,
+        extra_words: 8,
+        fields: TRANSFORM_3D_FIELDS,
     },
     VariantSchema {
         name: "MatchParentSize",
@@ -2949,6 +3138,8 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // into a window of its own, named by it.
     OnWindowDragOver = 167,
     TearOffKey = 168,
+    OnFocusGained = 117,
+    OnKeyUp = 118,
     // The name assistive technology reads for a node, a string. On a widget it overrides
     // the visible label, and on an icon-only button it beats the name the icon's meaning
     // would give. 117 and 118 are reserved for another pending change, and 119 is the next
@@ -2986,6 +3177,12 @@ pub enum EventPayload<'a> {
         ctrl_key: bool,
         alt_key: bool,
         meta_key: bool,
+        /// True when the event comes from a held key repeating.
+        repeat: bool,
+        /// The physical key as a USB HID usage value, the same on every layout.
+        code: u32,
+        /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+        text: &'a str,
     },
     /// The Renderer asks the Host to materialise the visible item range.
     RangeRequested {
@@ -3204,6 +3401,33 @@ pub enum EventPayload<'a> {
     /// The user opened the application again while it had no window. Delivered to the
     /// root.
     ApplicationReopen,
+    /// The node or a descendant inside it gained keyboard focus.
+    FocusGained,
+    /// A key was released while the node held focus.
+    KeyUp {
+        key: Key,
+        shift_key: bool,
+        ctrl_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+        /// Always false: a release does not repeat. Present so a key-up carries the same
+        /// fields as a key-down.
+        repeat: bool,
+        /// The physical key as a USB HID usage value, the same on every layout.
+        code: u32,
+        /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+        text: &'a str,
+    },
+    /// A file dialog ended. `request` is the number the Host gave it, `filter` is the
+    /// position of the filter in use (`u32::MAX` when there is none) and `paths` holds the
+    /// chosen paths separated by one NUL byte, empty unless the status is `Chosen`.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileDialogResult {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        paths: &'a str,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3419,6 +3643,23 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ApplicationReopen",
         tag: 47,
         payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "FocusGained",
+        tag: 48,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "KeyUp",
+        tag: 49,
+        payload: EventPayloadType::KeyDown,
+    },
+    // Like the notification events this addresses the Host itself: a dialog is not in the tree, so there is no
+    // node and no handler to name, and the request number finds the callback.
+    EventSchema {
+        name: "FileDialogResult",
+        tag: 50,
+        payload: EventPayloadType::FileDialogResult,
     },
 ];
 

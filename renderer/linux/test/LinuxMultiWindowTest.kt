@@ -2,6 +2,29 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.LastWindowClosed
+import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.Window
+import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.ZoomLevelStore
+import dev.darkpyonix.composerust.runtime.appZoomScale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -26,9 +49,11 @@ class LinuxMultiWindowTest {
         val moves = ArrayList<ScreenBounds>()
         override fun onCloseRequested() { closeRequests++ }
         val focusEvents = ArrayList<Boolean>()
+        val zoomEvents = ArrayList<Triple<Float, Float, Int>>()
         override fun onFocusChanged(focused: Boolean) { focusEvents += focused }
         override fun onMoved(bounds: ScreenBounds) { moves += bounds }
         override fun onFollowEnded(cancelled: Boolean) {}
+        override fun onZoomChanged(k: Float, os: Float, level: Int) { zoomEvents += Triple(k, os, level) }
     }
 
     private fun hasDisplay(): Boolean {
@@ -37,7 +62,7 @@ class LinuxMultiWindowTest {
         return false
     }
 
-    private fun backend() = LinuxWindowBackend(mainForTests()) { { } }
+    private fun backend() = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom() }) { { } }
 
     private fun config(id: Int, width: Float = 320f, height: Float = 240f) =
         PlatformWindowConfig(nodeId = id, title = "window $id", width = width, height = height)
@@ -49,6 +74,219 @@ class LinuxMultiWindowTest {
             if (done()) return true
         }
         return done()
+    }
+
+    private fun bytesOf(vararg values: Float): ByteArray {
+        val out = ByteArray(values.size * 4)
+        values.forEachIndexed { i, value ->
+            val bits = value.toRawBits()
+            for (b in 0 until 4) out[i * 4 + b] = (bits shr (8 * b)).toByte()
+        }
+        return out
+    }
+
+    /** A window whose frame and pointer are scripted, so the test does not depend on a window manager. */
+    private class ScriptedWindow(
+        private val inner: PlatformWindow,
+        private val frame: ScreenBounds,
+        private val pointer: () -> ScreenPointer,
+    ) : PlatformWindow by inner {
+        override fun bounds(): ScreenBounds = frame
+        override fun contentOrigin(): ScreenPoint = ScreenPoint(frame.x, frame.y)
+        override fun pointerOnScreen(): ScreenPointer = pointer()
+        override fun followPointer(anchorX: Float, anchorY: Float): Boolean = true
+    }
+
+    private class ScriptedBackend(
+        private val inner: LinuxWindowBackend,
+        private val frames: Map<Int, ScreenBounds>,
+        private val pointer: () -> ScreenPointer,
+    ) : WindowBackend by inner {
+        override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
+            val opened = inner.open(config, listener) ?: return null
+            return ScriptedWindow(opened, frames.getValue(config.nodeId), pointer)
+        }
+    }
+
+    @Test
+    fun fr53_53_7_linux_registered_drop_targets_follow_bounds_and_subscription() {
+        WindowDropTargets.update(1, 10, 20f, 30f, 120f, 130f, 2f, 1)
+        WindowDropTargets.update(1, 11, 40f, 50f, 80f, 90f, 2f, 2)
+        WindowDropTargets.update(2, 20, 20f, 30f, 120f, 130f, 1f, 1)
+        try {
+            assertEquals(DropTarget(11, 5f, 5f), DropTargets.Registered.targetAt(1, 50f, 60f))
+            assertEquals(DropTarget(20, 30f, 30f), DropTargets.Registered.targetAt(2, 50f, 60f))
+            WindowDropTargets.remove(1, 11)
+            assertEquals(DropTarget(10, 15f, 15f), DropTargets.Registered.targetAt(1, 50f, 60f))
+            WindowDropTargets.update(1, 10, 200f, 200f, 300f, 300f, 2f, 1)
+            assertEquals(null, DropTargets.Registered.targetAt(1, 50f, 60f))
+        } finally {
+            WindowDropTargets.remove(1, 10)
+            WindowDropTargets.remove(1, 11)
+            WindowDropTargets.remove(2, 20)
+        }
+    }
+
+    /**
+     * The whole path of a dragged window: the Host's `DragFromPointer`, a real X window drawing a
+     * real `Text` node that subscribed with `OnWindowDragOver` (its bounds come from layout, not
+     * from the test), the manager polling the pointer, and the `WindowDragOver` events the Host
+     * receives. Only the pointer position and the window frames are scripted.
+     */
+    @Test
+    fun fr53_53_7_linux_drag_over_reaches_the_host_through_a_real_window() {
+        if (!hasDisplay()) return
+        var pointer = ScreenPointer(0f, 0f, true)
+        val frames = mapOf(
+            1 to ScreenBounds(0f, 600f, 300f, 200f),
+            2 to ScreenBounds(1000f, 0f, 300f, 200f),
+        )
+        val main = mainForTests()
+        lateinit var host: ComposeRustHost
+        val real = LinuxWindowBackend(main) { nodeId -> { ComposeRustContent(host, windowNodeId = nodeId) } }
+        val backend = ScriptedBackend(real, frames) { pointer }
+        fun window(id: Int, vararg props: Pair<PropertyKind, PropertyValue>) = buildList {
+            add(Mutation.Create(id, WidgetKind.Window))
+            add(Mutation.SetProp(id, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))))
+            for ((kind, value) in props) add(Mutation.SetProp(id, kind, value))
+            add(Mutation.Insert(0, id, -1))
+        }
+        fun strip(parent: Int, id: Int, handler: Long) = listOf(
+            Mutation.Create(id, WidgetKind.Text),
+            Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("tab strip")),
+            Mutation.SetProp(id, PropertyKind.OnWindowDragOver, PropertyValue.Integer(handler)),
+            Mutation.Insert(parent, id, -1),
+        )
+        val initial = listOf(
+            Mutation.SetWindow(
+                Window(
+                    chrome = Chrome.Modern,
+                    titleBar = TitleBar.Normal,
+                    title = "",
+                    icon = 0,
+                    width = 0,
+                    height = 0,
+                    minWidth = 0,
+                    minHeight = 0,
+                    resizable = true,
+                    zoomLevel = null,
+                    mode = WindowMode.Windows,
+                    lastWindowClosed = LastWindowClosed.KeepRunning,
+                ),
+            ),
+        ) + window(2) + strip(2, 20, 33L) +
+            window(
+                1,
+                PropertyKind.DragFromPointer to PropertyValue.Bytes(
+                    ByteArray(12).also {
+                        it[0] = 1
+                        bytesOf(0f, 0f).copyInto(it, 4)
+                    },
+                ),
+                PropertyKind.OnWindowDrag to PropertyValue.Integer(11L),
+            ) + strip(1, 10, 44L)
+        val conn = RecordingHost(initial)
+        host = ComposeRustHost(conn)
+        host.start()
+        val manager = WindowManager(host, backend, onExit = {}, dropTargets = DropTargets.Registered)
+        try {
+            manager.attach()
+            // The subscribed node of window 2 has been laid out and has reported its bounds.
+            assertTrue(
+                real.turnsUntil { WindowDropTargets.find(2, 2f, 4f) != null },
+                "the subscribed node never registered its bounds from layout",
+            )
+            fun overs() = conn.events.filterIsInstance<HostEvent.WindowDragOver>()
+
+            pointer = ScreenPointer(1002f, 4f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1), overs().map { it.kind }, "no Enter reached the Host")
+            val enter = overs().first()
+            assertEquals(20, enter.nodeId)
+            assertEquals(33L, enter.handlerId)
+            assertEquals(1, enter.window)
+
+            pointer = ScreenPointer(1004f, 5f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1, 2), overs().map { it.kind })
+
+            pointer = ScreenPointer(1250f, 190f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1, 2, 3), overs().map { it.kind })
+
+            pointer = ScreenPointer(1003f, 4f, true)
+            manager.flushFrame()
+            assertTrue(overs().all { it.nodeId == 20 }, "the dragged window's own strip was hit")
+            assertEquals(1, overs().last().kind, "re-entering the strip did not Enter again")
+        } finally {
+            manager.shutdown()
+            real.closeAll()
+            host.shutdown()
+        }
+    }
+
+    @Test
+    fun fr53_53_3_linux_zoom_at_open_and_after_open_is_local_to_each_window() {
+        if (!hasDisplay()) return
+        val densities = mutableMapOf<Int, Float>()
+        val backend = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom() }) { id ->
+            {
+                val density = LocalDensity.current.density
+                SideEffect { densities[id] = density }
+            }
+        }
+        try {
+            val firstEvents = Recorder()
+            val secondEvents = Recorder()
+            val first = backend.open(config(1).copy(zoomLevel = 2), firstEvents)!!
+            val second = backend.open(config(2).copy(zoomLevel = 0), secondEvents)!!
+            assertEquals(2, firstEvents.zoomEvents.last().third)
+            assertEquals(0, secondEvents.zoomEvents.last().third)
+            assertTrue(backend.turnsUntil { densities.size == 2 })
+            val base = densities.getValue(2)
+            assertEquals(base * appZoomScale(2), densities.getValue(1), 0.001f)
+
+            first.setZoomLevel(-1)
+            assertEquals(-1, firstEvents.zoomEvents.last().third)
+            assertTrue(backend.turnsUntil { kotlin.math.abs(densities.getValue(1) - base * appZoomScale(-1)) < 0.001f })
+            assertEquals(base, densities.getValue(2), 0.001f)
+            assertEquals(listOf(0), secondEvents.zoomEvents.map { it.third })
+
+            first.setZoomLevel(100)
+            assertEquals(8, firstEvents.zoomEvents.last().third)
+            val count = firstEvents.zoomEvents.size
+            first.setZoomLevel(9)
+            assertEquals(count, firstEvents.zoomEvents.size)
+            second.close()
+            first.close()
+            first.setZoomLevel(0)
+            assertEquals(count, firstEvents.zoomEvents.size)
+        } finally {
+            backend.closeAll()
+        }
+    }
+
+    @Test
+    fun fr53_53_3_linux_new_window_reads_the_last_saved_zoom() {
+        if (!hasDisplay()) return
+        val store = object : ZoomLevelStore {
+            var saved: Int? = 3
+            override fun load(): Int? = saved
+            override fun save(level: Int) { saved = level }
+        }
+        val backend = LinuxWindowBackend(mainForTests(), makeZoom = { Zoom(store = store) }) { { } }
+        try {
+            val firstEvents = Recorder()
+            val first = backend.open(config(1), firstEvents)!!
+            assertEquals(3, firstEvents.zoomEvents.last().third)
+            first.setZoomLevel(-2)
+            val secondEvents = Recorder()
+            backend.open(config(2), secondEvents)!!
+            assertEquals(-2, secondEvents.zoomEvents.last().third)
+            assertEquals(-2, store.saved)
+        } finally {
+            backend.closeAll()
+        }
     }
 
     @Test
@@ -190,4 +428,122 @@ class LinuxMultiWindowTest {
             backend.closeAll()
         }
     }
+
+    @Test
+    fun fr53_53_3_linux_color_scheme_overrides_one_window_only() {
+        if (!hasDisplay()) return
+        val darkByWindow = mutableMapOf<Int, Boolean?>()
+        val work = mainForTests()
+        val backend = LinuxWindowBackend(work) { nodeId ->
+            {
+                darkByWindow[nodeId] = LocalSystemDarkObserver.current?.invoke()
+            }
+        }
+        val initial = listOf(
+            Mutation.SetWindow(
+                Window(
+                    chrome = Chrome.Modern,
+                    titleBar = TitleBar.Normal,
+                    title = "",
+                    icon = 0,
+                    width = 0,
+                    height = 0,
+                    minWidth = 0,
+                    minHeight = 0,
+                    resizable = true,
+                    zoomLevel = null,
+                    mode = WindowMode.Windows,
+                    lastWindowClosed = LastWindowClosed.KeepRunning,
+                ),
+            ),
+            Mutation.Create(10, WidgetKind.Window),
+            Mutation.SetProp(10, PropertyKind.WindowTitle, PropertyValue.Text("Window A")),
+            Mutation.SetProp(10, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))),
+            Mutation.Insert(0, 10, -1),
+            Mutation.SetWindowTheme(10, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Dark, false)),
+            Mutation.Create(20, WidgetKind.Window),
+            Mutation.SetProp(20, PropertyKind.WindowTitle, PropertyValue.Text("Window B")),
+            Mutation.SetProp(20, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))),
+            Mutation.Insert(0, 20, -1),
+            Mutation.SetWindowTheme(20, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+        )
+        val conn = RecordingHost(initial)
+        val host = ComposeRustHost(conn)
+        host.start()
+        val manager = WindowManager(host, backend, onExit = {})
+        try {
+            manager.attach()
+            assertTrue(
+                backend.turnsUntil { darkByWindow[10] != null && darkByWindow[20] != null },
+                "both windows did not render",
+            )
+            assertEquals(true, darkByWindow[10])
+            assertEquals(false, darkByWindow[20])
+
+            conn.scheduleFrame(
+                listOf(
+                    Mutation.SetWindowTheme(
+                        10,
+                        Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false),
+                    ),
+                ),
+            )
+            host.renderFrame(1L)
+            assertTrue(
+                backend.turnsUntil { darkByWindow[10] == false },
+                "window A did not update to light",
+            )
+            assertEquals(false, darkByWindow[10])
+            assertEquals(false, darkByWindow[20])
+
+            conn.scheduleFrame(
+                listOf(
+                    Mutation.SetWindowTheme(
+                        20,
+                        Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Dark, false),
+                    ),
+                ),
+            )
+            host.renderFrame(2L)
+            assertTrue(
+                backend.turnsUntil { darkByWindow[20] == true },
+                "window B did not update to dark",
+            )
+            assertEquals(false, darkByWindow[10])
+            assertEquals(true, darkByWindow[20])
+        } finally {
+            manager.shutdown()
+            backend.closeAll()
+            host.shutdown()
+        }
+    }
+}
+
+/**
+ * A Host that plays a fixed first batch, queues later batches for the next frame, and keeps
+ * the events it was sent. The linux module does not carry the desktop renderer's
+ * `FakeHostConnection`, so the tests that need one write what they need here.
+ */
+private class RecordingHost(private val initial: List<Mutation>) : HostConnection {
+    val events = mutableListOf<HostEvent>()
+    private val frames = ArrayDeque<List<Mutation>>()
+
+    fun scheduleFrame(mutations: List<Mutation>) {
+        frames.addLast(mutations)
+    }
+
+    override fun init(onMutation: (Mutation) -> Unit) {
+        initial.forEach(onMutation)
+    }
+
+    override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
+        events += event
+        return 0
+    }
+
+    override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
+        frames.removeFirstOrNull()?.forEach(onMutation)
+    }
+
+    override fun shutdown() {}
 }

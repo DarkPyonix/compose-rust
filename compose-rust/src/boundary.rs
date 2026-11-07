@@ -564,6 +564,30 @@ impl Host {
         self.render_and_finish(0)
     }
 
+    /// Hands the end of a file dialog to the callback that asked for it.
+    ///
+    /// No node and no handler: a dialog is not in the tree, and the request number names the
+    /// callback. An answer nobody is waiting for is dropped.
+    fn file_dialog_result(
+        &mut self,
+        request: u32,
+        status: crate::schema::FileDialogStatus,
+        filter: u32,
+        paths: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::file_dialog::deliver(request, status, filter, paths)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     /// Tells the components that listen that the application was opened with no window.
     fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
         let mut delivered = false;
@@ -677,6 +701,18 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.application_reopen();
+            }
+            // The end of a file dialog: the Host's own business, found by request number.
+            EventPayload::FileDialogResult {
+                request,
+                status,
+                filter,
+                paths,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.file_dialog_result(request, status, filter, paths);
             }
             _ => {}
         }
@@ -846,6 +882,9 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // File dialogs an application asked for, from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::file_dialog::drain(|request| batch.file_dialog(request));
         // Animations an application started from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::animation::drain(|mutation| batch.write(mutation));

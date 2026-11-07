@@ -16,6 +16,9 @@ pub struct KeyEvent {
     ctrl_key: bool,
     alt_key: bool,
     meta_key: bool,
+    repeat: bool,
+    code: u32,
+    text: String,
     consumed: Rc<Cell<bool>>,
 }
 
@@ -27,8 +30,35 @@ impl KeyEvent {
             ctrl_key,
             alt_key,
             meta_key,
+            repeat: false,
+            code: 0,
+            text: String::new(),
             consumed: Rc::new(Cell::new(false)),
         }
+    }
+
+    /// Adds what the wire carries beyond the modifiers: whether a held key is repeating,
+    /// the physical key as a USB HID usage value, and the DOM `key` string.
+    pub fn with_details(mut self, repeat: bool, code: u32, text: &str) -> Self {
+        self.repeat = repeat;
+        self.code = code;
+        self.text = text.to_owned();
+        self
+    }
+
+    /// True when the event comes from a held key repeating.
+    pub fn repeat(&self) -> bool {
+        self.repeat
+    }
+
+    /// The physical key as a USB HID usage value, the same on every layout.
+    pub fn code(&self) -> u32 {
+        self.code
+    }
+
+    /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+    pub fn text(&self) -> &str {
+        &self.text
     }
 
     pub fn key(&self) -> Key {

@@ -1,6 +1,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
-// `#[composable]` expands into paths that start at `::compose_rust`, so that an application
+// `#[Composable]` expands into paths that start at `::compose_rust`, so that an application
 // that depends on this crate alone can use it. This makes the same paths resolve inside the
 // crate, where its own composables are written.
 extern crate self as compose_rust;
@@ -33,6 +33,7 @@ pub mod codegen;
 pub mod design;
 pub mod drawing;
 mod extensions;
+pub mod file_dialog;
 pub mod fonts;
 pub mod highlight;
 pub mod input;
@@ -68,8 +69,11 @@ pub use code::{
     Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
     SyntaxSpans, VisibleRange,
 };
+#[doc(hidden)]
+pub use compose_rust_macros::__compose_call_check;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
+pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
@@ -78,7 +82,7 @@ pub use notification::{
     request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
-pub use runtime::{Batch, ComposeHost, Recomposer, Runtime, application, composable, launch};
+pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
     ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,

@@ -39,7 +39,7 @@ compose-rust는 네 가지를 합친 것입니다.
 
 0.0.2 크레이트에 있는 것:
 
-- **작성 API.** `#[composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
+- **작성 API.** `#[Composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
   위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
   그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
@@ -70,7 +70,7 @@ compose-rust는 네 가지를 합친 것입니다.
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 
-#[composable]
+#[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
@@ -86,7 +86,7 @@ fn main() {
 ```
 
 위젯은 문장 하나입니다. `Text("Hello")`가 위젯을 기술하고, 그 메서드들이 Compose가 이름 붙은
-인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[composable]`이 그룹을
+인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[Composable]`이 그룹을
 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다.
 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다. 나머지는
 [가이드](https://darkpyonix.dev/compose-rust/ko/writing-ui.html)에 있습니다.
@@ -223,6 +223,35 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 
 `default-features = false`로 빌드하면 렌더러 없이 빌드되며, 헤드리스나 문서용 빌드에 씁니다. 그렇게
 빌드한 바이너리는 창 없이 조용히 끝나지 않고, 무엇이 빠졌는지 알린 뒤 0이 아닌 값으로 종료합니다.
+
+### macOS 애플리케이션 배포하기
+
+`scripts/packager-macos/package-macos`는 `cargo build --release`가 만든 실행 파일을 애플리케이션
+번들로 만듭니다. 이름, 식별자, 버전은 `dx` 번들 설정과 `Cargo.toml`에 이미 적힌 것을 씁니다.
+Python 3.11과 Xcode 명령줄 도구가 필요하고, Apple 개발자 계정은 필요하지 않습니다.
+
+```sh
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
+scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+```
+
+번들에는 갱신 설정이 없습니다. 직접 배포는 Velopack으로 패키징하고 갱신합니다.
+
+모든 번들은 임시(ad hoc) 서명됩니다. Apple 실리콘은 서명 없는 코드를 실행하지 않고, 임시
+서명에는 계정이 필요 없습니다. 다만 Apple이 확인한 개발자를 가리키지 않으므로, **내려받은
+사본을 처음 열 때 macOS가 확인을 요구합니다**.
+
+- **macOS 15(Sequoia) 이상:** 앱을 열고, macOS가 확인할 수 없다고 하면 완료를 누릅니다.
+  그다음 시스템 설정 > 개인정보 보호 및 보안에서 보안 항목까지 내려가 앱 옆의
+  **그래도 열기**를 누르고(버튼은 약 한 시간 동안 남습니다), 다시 확인한 뒤 암호를 입력합니다.
+- **macOS 14 이하:** 앱을 Control-클릭하고 **열기**를 고른 뒤 다시 **열기**를 누릅니다.
+- **모든 버전:** `xattr -dr com.apple.quarantine "/Applications/My App.app"`은 다운로드
+  표시를 지우고, 그러면 macOS가 묻지 않고 엽니다.
+
+처음 실행하기 전에 앱을 응용 프로그램 폴더로 옮기십시오. 디스크 이미지나 다운로드 폴더에서
+실행하면 macOS가 숨겨진 임시 사본을 실행합니다. 디스크 이미지에는 이 절차가
+`If macOS will not open the app.txt`로 들어 있습니다.
 
 ### `develop`의 작성 API 쓰기
 

@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -18,14 +19,19 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.runtime.key
@@ -35,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -53,6 +61,8 @@ import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -186,7 +196,28 @@ fun RenderNode(
     } else {
         null
     }
-    val chain = profiled
+    // The key handlers go ahead of the node's own modifiers. A modifier that makes the node
+    // focusable (a click, say) is a focus target, and a key event reaches only the handlers
+    // outside it on the way down. Placed after it, a handler would see keys from focused
+    // descendants only and never the keys pressed while the node itself has focus.
+    // The TextField wires its own key handling, because it has an editor to intercept and a
+    // composition to protect; everything else routes keys here.
+    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val keyed = if ((keyDownHandler == null && keyUpHandler == null) ||
+        node.widget == WidgetKind.TextField
+    ) {
+        profiled
+    } else {
+        // Plain containers and text are not focus targets on their own, so a node that
+        // listens for keys is made one, ahead of its modifiers like the handlers. Without it
+        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+        // Widgets that are controls bring their own focus handling and are left alone.
+        val focusTarget = node.widget in KeyFocusTargets
+        profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
+            .let { if (focusTarget) it.focusable() else it }
+    }
+    val chain = keyed
         .then(
             node.modifiers.toComposeModifier(
                 nodeId,
@@ -209,14 +240,28 @@ fun RenderNode(
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
         )
-    // The TextField wires its own key handling, because it has an editor to intercept and a
-    // composition to protect; everything else routes keys here.
-    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val pressable = if (keyDownHandler == null || node.widget == WidgetKind.TextField) {
+    // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
+    // itself and any focusable descendant inside it.
+    val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
+    val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
+    var hasFocusWithin by remember(nodeId) { mutableStateOf(false) }
+    val withFocusEvents = if ((focusGainedHandler == null && focusLostHandler == null) ||
+        node.widget == WidgetKind.TextField
+    ) {
         chain
     } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, dispatcher)
+        chain.onFocusChanged { state ->
+            val nowFocused = state.hasFocus
+            if (!hasFocusWithin && nowFocused && focusGainedHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
+            }
+            if (hasFocusWithin && !nowFocused && focusLostHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
+            }
+            hasFocusWithin = nowFocused
+        }
     }
+    val pressable = withFocusEvents
     val focusRequest = node.focusRequestRevision
     val focusRequester = if (focusRequest > 0L &&
         node.widget != WidgetKind.TextField &&
@@ -244,7 +289,25 @@ fun RenderNode(
             withRequester
         }
     }
-    val modifier = platformFileDrop(focusableModifier, node, dispatcher)
+    val windowId = LocalWindowNodeId.current
+    val subscribed = windowId != 0 && node.handler(PropertyKind.OnWindowDragOver) != null
+    val density = LocalDensity.current.density
+    if (subscribed) {
+        DisposableEffect(windowId, nodeId) {
+            onDispose { WindowDropTargets.remove(windowId, nodeId) }
+        }
+    }
+    var depth = 0
+    var ancestor = node.parentId
+    while (ancestor != NodeTable.ROOT_ID && depth <= 1024) {
+        depth++
+        ancestor = table.node(ancestor)?.parentId ?: NodeTable.ROOT_ID
+    }
+    val dropModifier = if (subscribed) focusableModifier.onGloballyPositioned { coordinates ->
+        val bounds = coordinates.boundsInWindow()
+        WindowDropTargets.update(windowId, nodeId, bounds.left, bounds.top, bounds.right, bounds.bottom, density, depth)
+    } else focusableModifier
+    val modifier = platformFileDrop(dropModifier, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
@@ -1041,3 +1104,6 @@ object LayoutProfile {
     fun snapshot(): List<Triple<String, Double, Int>> =
         totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
 }
+
+/** The containers that become focus targets when they listen for keys. */
+private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)

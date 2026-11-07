@@ -1663,7 +1663,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다.
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다.
 
-#### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Draft`, 이슈 #476)
+#### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
 요청한 쪽: darkpyonix-ember(#502 감사). Esc로 시트가 닫히지 않고 닫기 버튼만 동작했습니다. 21.3.1은 가운데 시트의 Esc만 적었고, Dialog와 가장자리 시트는 적지 않았습니다. Rust API에는 `Key::Escape`도, 컨테이너의 `on_key_down`도 없어서 앱이 스스로 해결할 수 없으므로 Renderer가 합니다. 승인: 감독자 B(위임 권한).
 
@@ -1674,12 +1674,12 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - 새 속성, 새 키, 새 이벤트는 없고 와이어 변경도 없습니다.
 
 수용 기준.
-1. 열린 `Dialog`에 Esc를 보내면 `OnDismiss`가 한 번 가고, `Open`이 그대로이면 Dialog는 열려 있습니다(fr21_escape_dismisses_an_open_dialog_once).
-2. `Presentation=Edge`와 `Centered`의 열린 `Sheet` 각각에서 같습니다(fr21_escape_dismisses_an_open_sheet_once).
-3. 안에 포커스를 받을 컨트롤이 없는 오버레이도 열린 직후의 Esc로 닫으려 합니다(fr21_escape_reaches_an_overlay_with_no_focusable_content).
-4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `OnDismiss`는 가지 않습니다(fr21_escape_in_a_composing_text_field_does_not_dismiss).
-5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(fr21_escape_goes_to_the_topmost_overlay).
-6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(fr21_escape_returns_focus_to_the_opener).
+1. 열린 `Dialog`에 Esc를 보내면 `OnDismiss`가 한 번 가고, `Open`이 그대로이면 Dialog는 열려 있습니다(`fr21_escape_dismisses_an_open_dialog_once`).
+2. `Presentation=Edge`와 `Centered`의 열린 `Sheet` 각각에서 같습니다(`fr21_escape_dismisses_an_open_sheet_once`).
+3. 안에 포커스를 받을 컨트롤이 없는 오버레이도 열린 직후의 Esc로 닫으려 합니다(`fr21_escape_reaches_an_overlay_with_no_focusable_content`).
+4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `OnDismiss`는 가지 않습니다(`fr21_escape_in_a_composing_text_field_does_not_dismiss`).
+5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
+6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
 #### 21.4 일시 메시지는 노드가 아닙니다
 
@@ -1823,7 +1823,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
 7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
-9. Flatpak은 Flathub용 매니페스트로 만들고 `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_9_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_9_application_ids_follow_flatpak_and_dbus_rules).
+9. Flatpak은 Flathub용 매니페스트로 만들고(런타임은 `org.freedesktop.Platform`/`Sdk` 25.08입니다. 26.08은 Flathub의 appstream 목록에는 있으나 `flathub` 원격에 ref가 아직 없어 설치되지 않으므로, 설치되는 가장 새 런타임을 씁니다)  `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_9_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_9_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
 12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
@@ -2598,6 +2598,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 - **필수 매개변수는 위치로든 이름으로든 반드시 줘야 합니다.** 빠지면 컴파일 오류이고, 메시지에 매개변수 이름이 들어갑니다(예: missing required argument value for TextField!).
 - **모르는 이름은 컴파일 오류**이며 메시지에 그 이름과 쓸 수 있는 이름 목록이 들어갑니다.
 - **같은 매개변수를 두 번 주면 컴파일 오류**입니다. 위치 인자로 채운 매개변수를 이름으로 또 주는 경우도 포함합니다.
+- **호출 매크로의 오류는 잘못된 인자를 가리킵니다.** 위 컴파일 오류(없는 이름, 빠진 필수 인자, 중복 인자, 이름 뒤의 위치 인자, 너무 많은 위치 인자, `content`가 없는 함수의 뒤따르는 블록)는 호출하는 쪽의 잘못된 인자 토큰을 가리키고 `#[Composable]` 속성 줄을 가리키지 않습니다. 고칠 자리가 호출 자리이기 때문입니다. 빠진 필수 인자는 가리킬 토큰이 없으므로 인자 목록의 마지막 인자를 가리키고, 인자가 하나도 없으면 매크로 호출을 가리킵니다. `macro_rules!`는 괄호 안의 토큰만 받아서 닫는 구분자와 매크로 이름 토큰을 오류를 내는 쪽에 넘길 수 없기 때문입니다.
 - **클로저는 보통의 식입니다.** `on_change = |s| state.set(s)`, `label = || Text("이름")`처럼 인자 자리에 그대로 씁니다. 매크로는 인자 식을 그대로 함수 호출로 넘기므로 클로저의 매개변수 타입은 함수 호출과 똑같이 매개변수의 `Fn` 바운드에서 추론됩니다. 매크로가 클로저를 감싸거나 복제하지 않습니다.
 - **내용 클로저는 이름으로 주거나(`content = || { .. }`), 마지막에 중괄호 블록으로 줍니다.** `Column!(modifier = m, { Text("a"); })`처럼, 인자 목록의 맨 끝에 쉼표로 구분된 `{ .. }` 블록이 있으면 `|| { .. }`로 읽어 내용 클로저(마지막 매개변수)에 넣습니다. 내용 클로저가 이미 주어졌거나 함수에 내용 클로저가 없으면 컴파일 오류입니다.
 - **평가 순서.** 인자 식은 쓴 순서가 아니라 매개변수 순서로 평가되고, 기본값 식은 그 매개변수 자리에서 평가됩니다. 매크로는 임시 변수를 만들지 않으므로 인자의 임시값 수명은 함수 호출의 것과 같습니다. 쓴 순서대로 평가하려면 인자를 먼저 `let`에 묶어야 하는데, 그러면 클로저가 함수 매개변수의 타입을 보지 못해 `|v| ..`의 `v` 같은 클로저 매개변수 타입을 추론하지 못합니다. 그래서 인자 식을 함수 호출 자리에 그대로 둡니다. Kotlin은 이름 있는 인자를 쓴 순서대로 평가하므로 이 점이 Compose와 다르고, 가이드에 그렇게 적습니다(소유자 승인 2026-10-25).
@@ -2626,7 +2627,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 - **클로저의 소유권.** 매크로는 인자를 값으로 넘기며 복제하지 않습니다. `MutableState<T>`가 `Copy`이므로(39.2.1) `move` 클로저 여러 개와 내용 클로저가 같은 핸들을 `.clone()` 없이 씁니다. 두 형태가 같은 규칙을 따릅니다.
 - **`dyn` 함수 포인터나 변수로 받은 composable 호출**은 매크로 대상이 아닙니다. 매크로는 이름으로 함수를 부릅니다.
 
-- **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
+- **composable은 함수입니다.** `#[Composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
 - **위젯 어휘는 하나입니다.** FR-15의 위젯과 FR-13의 프리미티브, FR-10의 Modifier가 같은 스키마(FR-7)에서 나옵니다. compose-rust API를 위해 위젯이나 속성을 따로 정의하지 않습니다.
 
@@ -2690,7 +2691,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
 
 8. **호출 매크로의 인자 규칙.** 위치 접두사 뒤에 이름 있는 인자가 순서와 무관하게 들어갑니다. 기본값이 있는 인자를 생략할 수 있고, 후행 `{ .. }` 블록과 `content = || { .. }`가 같은 호출입니다. 인자 식은 매개변수 순서로 평가됩니다. 이름 패턴 `fr39_call_macro_args_*`.
-9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 CI의 stable 도구 체인으로 고정합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
+9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 각 오류의 주 스팬은 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 마지막 인자, 인자가 없으면 매크로 호출)이고 `#[Composable]` 줄이 아니며, trybuild의 `.stderr`로 확인합니다. 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 CI의 stable 도구 체인으로 고정합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
 10. **기본값.** `#[default(expr)]`가 없는 매개변수가 필수이고, `modifier`의 기본값이 `Modifier::new()`이며, 기본값이 매크로 형태에서만 적용되고 함수 형태는 모든 인자를 받습니다. 기본값 식이 호출 위치에서 평가됩니다. 이름 패턴 `fr39_default_*`.
 11. **한계의 확인.** 제네릭(타입 인자 추론, const 제네릭)과 `impl Trait` 인자의 composable을 매크로 형태로 부를 수 있고, 메서드에 붙은 `#[Composable]`은 함수 형태만 만듭니다. 이름을 바꿔 가져온 경우 매크로가 컴파일 오류를 내는 것을 `trybuild`로 확인합니다. 이름 패턴 `fr39_call_macro_limits_*`.
 12. **생성 비용 없음.** 같은 호출의 함수 형태와 매크로 형태가 같은 함수 호출로 펼쳐지는 것(`cargo expand` 출력 비교 또는 호출 수 확인)을 보입니다. 이름 패턴 `fr39_call_macro_expands_*`.
@@ -3050,14 +3051,79 @@ dioxus-compose FR-34.2 수용 기준 5(`prefers-reduced-motion`)는 Host가 미�
 19. 컨테이너 하나의 애니메이션이 그 안의 글자를 모두 다시 칠합니다(렌더러 테스트, 테스트 시계). 빨강에서 파랑으로 가는 `Color` 애니메이션 하나를 컨테이너에 걸고 절반에서 멈추면, 그 안에서 자기 색이 없는 `Text`는 깊이와 상관없이(컨테이너 안의 `Column` 안, 그 안의 `Box` 안) 모두 빨강과 파랑의 중간색으로 그려지고, 자기 색이 있는 `Text`는 그 색을 지킵니다. 배치에는 `StartAnimation`이 하나뿐이고 어느 `Text`도 레코드를 받지 않으며, 재생하는 동안 그 `Text`들은 다시 구성되지 않습니다(`fr41_one_animation_on_a_container_recolours_every_text_inside_it`).
 20. 테두리 색 애니메이션(렌더러 테스트, 테스트 시계). 너비 8의 `BorderEach`(네 변 빨강)와 너비 8의 `Border`(빨강)에 각각 빨강에서 파랑으로 가는 `BorderColor` 하나를 걸고 절반에서 멈추면, 네 변의 테두리 모두 중간색으로 그려지고 테두리 안쪽은 칠해지지 않습니다(`fr41_an_animated_border_colour_is_what_is_drawn`).
 
+#### FR-41.2.1 3D 변환 노드의 `Transform` 애니메이션 (`Draft`)
+
+`Transform3D`(FR-41.3)를 단 노드에는 `Transform` 애니메이션을 걸 수 없습니다. 그 노드에는 `Transform` 수정자가 없으므로 렌더러는 이를 `ProtocolError`로 보고합니다. 3D 변환은 행렬 하나로 접혀 오므로, FR-41.2의 함수 목록 보간은 적용되지 않습니다.
+
+열린 질문은 3D 변환을 어떻게 애니메이션할지입니다. 후보는 CSS Transforms 2의 3D 행렬 보간입니다. 두 행렬을 이동, 확대, 기울임, 원근, 사원수 회전으로 분해하고, 칸마다 보간한 뒤 다시 합칩니다. 보간한 행렬은 FR-41.3의 쌓인 레이어로 매 프레임 그리므로, 적중 판정도 그 순간의 모양을 따릅니다. 이 방법이 맞는지, 키프레임 목록을 맞추는 규칙을 어떻게 적을지, 함수 단위 보간을 따로 둘지는 아직 정하지 않았습니다.
+
+수용 기준은 구현할 때 적습니다.
+
 ---
 
-### FR-41.3 3D 변환 (`Draft`, 다음 단계)
+### FR-41.3 3D 변환 (`Agreed`)
 
-`rotateX`, `rotateY`, `perspective`, `matrix3d`처럼 2D 아핀 레코드로 나타낼 수 없는 변환입니다. 다음 단계에서 구현합니다. 지금 정해 둔 것은 다음과 같습니다.
-- 값은 4x4 행렬 수정자(64바이트, 넓은 `SetModifier` 규칙으로 `k = 6`)입니다.
-- `graphicsLayer`는 `rotationX`/`rotationY`와 `cameraDistance`까지 안정 API로 그립니다. 임의의 4x4 원근 행렬은 안정 API 밖이므로, 그 부분은 어댑터 한 파일에 가두고 버전을 고정합니다(NFR-6).
-- 수용 기준은 이 항목을 구현할 때 적습니다. 그전까지 Host는 3D 변환을 2D로 근사해 보내지 않습니다. dioxus-compose는 그 변환을 적용하지 않고 개발자 경고를 냅니다. 틀린 근사보다 경고가 낫기 때문입니다.
+`rotateX`, `rotateY`, `perspective`, `matrix3d`처럼 2D 아핀 레코드(FR-41.1)로 나타낼 수 없는 변환입니다. 노드와 그 안의 내용 전부를 4x4 행렬로 그립니다. 레이아웃에는 영향을 주지 않고, 적중 판정은 변환된 모양을 따릅니다. 오너가 2026-10-25에 승인했습니다(이슈 #105).
+
+#### 값
+
+- `Modifier::Transform3D { m: [f32; 16], origin_x, origin_y, backface_hidden }`. 수정자 태그 27.
+- `m`은 열 우선(column-major)입니다. CSS `matrix3d(a1, b1, c1, d1, a2, ...)`의 인자 순서와 같고, `m[4 * column + row]`입니다. 열 벡터 기준으로 `p' = M · (x, y, z, 1)`, 화면 좌표는 `(x'/w', y'/w')`입니다. 이동 성분(`m[12]`, `m[13]`, `m[14]`)과 `perspective` 항(`m[11] = -1/d`)은 CSS px와 같은 단위로, Host가 `Offset`과 같은 변환을 합니다.
+- `origin_x`, `origin_y`는 FR-41.1과 같은 뜻입니다. 노드가 측정된 크기(border box)에 대한 비율이고 `(0.5, 0.5)`가 가운데입니다. 원점의 z는 0입니다. 길이로 쓴 원점은 Host가 `T(o)·M·T(-o)`로 행렬에 접어 넣고 원점을 `(0, 0)`으로 보냅니다.
+- **Host는 CSS의 3D 함수를 모두 행렬 하나로 접습니다.** `rotateX`, `rotateY`, `rotateZ`, `rotate3d`, `translateZ`, `translate3d`, `scaleZ`, `scale3d`, `perspective()`, `matrix3d`와 2D 함수들을 `transform` 속성에 적힌 순서대로 곱합니다. `perspective()`는 곱의 그 자리에서 행렬 안에 들어갑니다. 요소의 `perspective` 속성(부모가 자식에게 주는 원근)은 Host가 자식의 행렬 앞에 `perspective(d)`를 `T(po)·P·T(-po)`로 접어 보냅니다. 그래서 렌더러는 원근을 따로 받지 않습니다.
+- `backface_hidden`은 `backface-visibility: hidden`입니다. 레코드 안의 플래그로 보냅니다. 따로 태그를 두지 않는 이유: 이 플래그는 행렬과 함께 바뀌고(회전하는 카드), 별도 수정자로 나누면 같은 노드의 갱신이 레코드 둘이 됩니다(FR-41.1이 두 수정자 안을 버린 이유와 같습니다). 와이어에서는 8바이트 한 칸이고 값은 `0` 또는 `1`입니다. 그 밖의 값은 `ProtocolError`입니다(`Clip`의 플래그와 같습니다).
+- **2D만 있는 변환은 이 수정자로 보내지 않습니다.** 3D 성분이 없는 `transform`은 계속 FR-41.1의 `Transform`입니다. 한 노드에는 `Transform`과 `Transform3D` 가운데 하나만 둡니다. 둘이 한 목록에 있으면 바깥 것부터 차례로 곱해지지만 Host는 하나로 합쳐 보냅니다.
+
+#### 와이어: 넓은 `SetModifier`
+
+`SetModifier`의 길이는 `28 + 8k`이고(FR-41.1), 머리 12바이트 뒤에 `f32`가 열여덟 개(행렬 16, 원점 2, 72바이트)와 플래그 한 칸(8바이트)이 오므로 `12 + 72 + 8 = 92`바이트이고 `k = (92 - 28) / 8 = 8`입니다. 예전에 행렬만으로 적은 `k = 6`은 원점과 플래그를 더하면 모자랍니다.
+
+```
+SetModifier, Transform3D (92바이트)
+offset  0  tag: u16 = 3          offset  2  len: u16 = 92
+offset  4  node_id: u32
+offset  8  index: u16            offset 10  modifier: u16 = 27
+offset 12  m[0..2]   (f32 x 2)   offset 20  m[2..4]
+offset 28  m[4..6]               offset 36  m[6..8]
+offset 44  m[8..10]              offset 52  m[10..12]
+offset 60  m[12..14]             offset 68  m[14..16]
+offset 76  origin_x: f32         offset 80  origin_y: f32
+offset 84  backface_hidden: u64 (0 또는 1)
+```
+
+- 두 `f32`가 `u64` 하나에 들어가는 방식은 `Transform`과 같습니다(첫 값이 하위 32비트). 슬롯은 `First`부터 `Tenth`까지 열 개이고, 행렬이 앞의 여덟 개, 원점이 아홉째, 플래그가 열째입니다.
+- 태그가 요구하는 길이와 레코드의 `len`이 다르면 `ProtocolError`입니다.
+- 태그 27을 더하면 스키마 해시가 바뀝니다. 핸드셰이크가 낡은 쪽을 거절합니다.
+
+#### Compose 대응
+
+- **납작한 노드는 호모그래피 하나입니다.** 내용이 z = 0 평면에 있으므로 그려지는 것은 행렬 열여섯 개 가운데 `x' = (m0 x + m4 y + m12) / w`, `y' = (m1 x + m5 y + m13) / w`, `w = m3 x + m7 y + m15`에 나오는 아홉 개뿐입니다. 렌더러는 이 호모그래피를 `graphicsLayer`로 정확히 그립니다. 안정 API만 쓰고 근사는 없습니다.
+  - 원근이 없으면(`m3 = m7 = 0`) 2D 아핀이고 FR-41.1의 두 겹으로 그립니다.
+  - 원근이 있으면 먼저 `graphicsLayer` 한 겹을 찾습니다. 한 겹의 행렬은 이동, `rotationX/Y/Z`, 확대, 원근(`cameraDistance`)으로 정해지고, 행렬의 위쪽 두 행이 서로 직교한다는 조건에서 확대와 카메라 거리가 풀립니다. `perspective(d) rotateY(a)`처럼 CSS에서 온 행렬은 이 한 겹이 되고 `rotationY = a`, 카메라 거리는 `d`로 돌아옵니다(CSS `perspective(d)`는 `cameraDistance = d`를 dp에서 px로 바꾼 값을 72로 나눈 것).
+  - 한 겹으로 안 되는 행렬(기울임과 원근의 곱, 원근 안쪽의 이동)은 어댑터 경로입니다. 같은 원근 행을 만드는 `rotationX/Y` 한 겹 뒤에 나머지 2x2 변환을 FR-41.1의 아핀 겹으로 쌓습니다. 겹은 정확히 합성되므로 한 겹과 같은 그림이고, 적중 판정도 겹마다 역행렬을 거쳐 같은 모양을 따릅니다. 세 겹까지 쌓입니다.
+  - 이 분해와 Compose 레이어의 속성 적용 순서(`prepareTransformationMatrix`)에 기대는 코드는 어댑터 한 파일에 둡니다(NFR-6). 그 파일은 자신이 읽은 Compose 버전을 상수로 기록하고, 모듈이 의존하는 버전과 다르면 빌드가 아니라 테스트가 실패합니다.
+- **`backface_hidden`.** 변환된 노드의 뒷면이 보이면(위 호모그래피에서 원근 항을 뗀 2x2 부분의 행렬식이 음수, 곧 그림의 방향이 뒤집힘) 그 노드와 내용을 그리지 않고 적중 판정에서도 뺍니다. `scaleX(-1)`처럼 거울상이 되는 변환도 뒷면입니다. CSS와 같습니다.
+- **행렬식이 0이거나 원점에서 `w`(`m15`)가 0 이하인 노드**는 그리지 않고 적중 판정에서도 빠집니다(FR-41.1의 행렬식 0 규칙과 같습니다).
+- 값에 NaN이나 무한대가 있으면 `ProtocolError`입니다(NFR-7).
+- **레이아웃은 바뀌지 않고**, 적중 판정은 Compose가 변환된 모양으로 합니다. 순서 규칙(`Offset`, `RequiredSize`, `Transform3D`, `Alpha`, ...)은 FR-41.1과 같고 `Transform3D`는 `Transform` 자리에 놓입니다.
+- 분해 결과는 레코드 값에서 유도한 캐시로, `remember`의 키가 레코드 값입니다. 값이 바뀌면 레이어 속성만 갱신되고 그 노드와 자식은 다시 측정되지 않습니다.
+
+수용 기준:
+1. `Transform3D` 수정자가 92바이트 `SetModifier`로 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(체크인된 프로토콜 벡터). 기존 수정자 0~26의 벡터는 바이트 하나도 바뀌지 않습니다(`fr41_3_transform3d_round_trips`).
+2. 값에 NaN이나 무한대가 든 행렬, 0과 1이 아닌 `backface_hidden`, 길이가 92가 아닌 `Transform3D`는 `ProtocolError` 이벤트가 되고 프로세스가 중단되지 않습니다(`fr41_3_non_finite_is_a_protocol_error`).
+3. `perspective(400px) rotateY(45deg)`를 가운데 원점으로 단 100x40dp 상자의 네 꼭짓점이 CSS 계산(동차 좌표 나눗셈)과 1px 안에서 맞습니다. 같은 검사를 `rotateX(60deg)`와 둘의 조합에도 합니다(`fr41_3_rotate_perspective_corners_match_css`).
+4. `graphicsLayer`로 분해되지 않는 행렬(기울임과 원근의 곱)은 어댑터 경로로 그려져 기준 3과 같은 오차로 맞고, 분해되는 행렬은 어댑터 경로를 타지 않습니다. 어댑터 파일이 묶인 Compose 버전이 빌드에 쓰인 버전과 같은지 검사합니다(`fr41_3_undecomposable_matrix_uses_the_adapter_path`).
+5. 변환된 모양 안의 점을 누르면 `Clicked`가 오고, 원래 사각형 안이지만 변환된 모양 밖인 점을 누르면 오지 않습니다(`fr41_3_hit_test_follows_the_shape`).
+6. `backface_hidden`이 켜진 노드를 `rotateY(180deg)`로 돌리면 그려지지 않고 눌러도 `Clicked`가 오지 않으며, 켜지 않은 같은 노드는 그려집니다. `rotateY(90deg)`보다 작은 각에서는 켜져 있어도 그려집니다(`fr41_3_backface_hidden`).
+7. 변환 값만 바뀐 갱신은 그 노드의 `SetModifier` 하나만 싣고 그 노드와 자식은 다시 측정되지 않습니다(`fr41_3_update_sends_one_record_and_does_not_remeasure`).
+
+### FR-41.5 `transform-style: preserve-3d` (`Draft`)
+
+`transform-style: preserve-3d`는 자식들이 부모와 같은 3D 공간을 공유하게 합니다. 자식의 깊이가 서로 비교되어 앞뒤가 정해지고(교차하는 면도 깊이로 자릅니다), 부모의 변환이 자식에게 합쳐서 적용됩니다.
+
+배경: FR-41.3은 변환마다 노드 하나를 평면으로 합성합니다. 요청한 쪽은 dioxus-compose FR-34.1이고, 카드 뒤집기와 입방체 같은 예가 `preserve-3d`를 씁니다. Host는 `preserve-3d`를 만나면 개발자 경고를 내고 `flat`처럼 그립니다. 틀린 깊이 정렬보다 경고가 낫기 때문입니다.
+
+안정 Compose로 할 수 없는 이유: `graphicsLayer`는 노드마다 자기만의 오프스크린 레이어로 합성하고, 레이어 안의 `cameraDistance`는 그 레이어 하나의 깊이만 다룹니다. 형제 레이어 사이에는 깊이 버퍼가 없고 그리는 순서(체인과 `zIndex`)가 앞뒤를 정합니다. 그래서 두 면이 서로 파고드는 장면이나 자식이 부모의 3D 변환을 이어받는 장면을 안정 API로 그릴 수 없습니다. 정해야 할 것은 (a) 깊이 정렬을 Host가 면 단위로 풀어 `AbsoluteBox` 순서로 보낼지(교차 면은 못 그림), (b) 렌더러가 깊이를 가진 그리기 경로를 가질지(어댑터 파일의 범위를 넘음)입니다. 어느 쪽이든 오너의 결정이 필요하고, 수용 기준은 그때 적습니다.
 
 ### FR-41.4 compose-rust 작성 API (`Agreed`)
 
@@ -3221,7 +3287,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 - 새 노드 이벤트 `OnFocusGained`. 그 노드나 그 하위가 포커스를 얻을 때 옵니다. 페이로드는 없습니다.
 - 새 노드 이벤트 `OnKeyUp`. FR-12.1의 `KeyDown`과 같은 페이로드(`code`, `text`, 수정자, `repeat`)를 싣고, 키를 뗄 때 옵니다.
 - 둘 다 핸들러가 등록된 노드에만 보냅니다. 등록이 없으면 경계를 건너지 않습니다.
-- 번호. 핸들러 속성은 `OnFocusGained` 117, `OnKeyUp` 118입니다(15.2.2의 규칙대로 FR-40의 110-116 뒤입니다). 이벤트 태그는 FocusGained 39, KeyUp 40입니다. 33은 FR-43의 `ZoomChanged`가, 34-38은 FR-38.9가 가집니다.
+- 번호. 핸들러 속성은 `OnFocusGained` 117, `OnKeyUp` 118입니다(15.2.2의 규칙대로 FR-40의 110-116 뒤입니다). 이벤트 태그는 FocusGained 48, KeyUp 49입니다. 33은 FR-43의 `ZoomChanged`가, 34-38은 FR-38.9가, 39-47은 FR-53의 창 이벤트가 가집니다.
 - 스키마 해시가 바뀝니다.
 
 수용 기준:
@@ -3947,7 +4013,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `title`(문자열): 대화상자 제목입니다. 비면 플랫폼 기본입니다. macOS의 시트는 제목을 보이지 않으므로 `message` 자리에 씁니다.
 - `directory`(문자열): 처음 열 폴더입니다. 절대 경로여야 하고, 비었거나 없거나 읽을 수 없으면 플랫폼의 기본(마지막으로 쓴 폴더)입니다. 없는 폴더는 오류가 아닙니다.
 - `name`(문자열): `Save`에서 칸에 미리 채울 파일 이름입니다. 경로 구분자는 허용하지 않고, 있으면 마지막 구분자 뒤만 씁니다. `Open*`에서는 무시합니다.
-- **필터**: `filters`는 `(label, extensions)` 목록입니다. `extensions`는 점 없는 확장자를 쉼표로 이은 문자열입니다(`"png,jpg,jpeg"`). 비교는 대소문자를 가리지 않습니다. 목록이 비면 모든 파일을 고를 수 있습니다. 필터는 **고를 수 있는 파일을 제한**하며, 폴더 선택(`OpenFolder`, `OpenFolders`)에서는 무시합니다. `default_filter: u32`는 처음 선택된 필터의 위치이고 범위 밖이면 0입니다. 필터는 16개까지, 필터 하나의 확장자는 32개까지이며 넘으면 넘는 부분을 버립니다. 오류가 아닙니다.
+- **필터**: `filters`는 `(label, extensions)` 목록입니다. `extensions`는 점 없는 확장자를 쉼표로 이은 문자열입니다(`"png,jpg,jpeg"`). 비교는 대소문자를 가리지 않습니다. 목록이 비면 모든 파일을 고를 수 있습니다. 필터는 **고를 수 있는 파일을 제한**하며, 폴더 선택(`OpenFolder`, `OpenFolders`)에서는 무시합니다. `default_filter: u32`는 처음 선택된 필터의 위치이고 범위 밖이면 0입니다. 필터는 16개까지, 필터 하나의 확장자는 32개까지이며 넘으면 넘는 부분을 버립니다. 오류가 아닙니다. 확장자를 적었는데 정리하고 나면 하나도 남지 않는 필터(`"."`만 적은 경우)는 "모든 파일"이 되면 요청과 반대이므로 그 필터를 목록에서 뺍니다. `default_filter`는 빠진 필터를 센 원래 위치로 해석하고 같은 필터를 계속 가리킵니다.
 - `Save`는 **덮어쓰기 확인을 항상 플랫폼 대화상자가 합니다.** 이미 있는 파일을 고르면 플랫폼이 묻고, 사용자가 허락한 경우에만 결과가 옵니다. Host가 끌 수 있는 값은 없습니다. 확인 문구와 동작은 플랫폼의 것이어야 사용자가 아는 대화상자와 같기 때문입니다. Renderer는 파일을 만들거나 덮어쓰지 않고 경로만 돌려줍니다.
 - `Save`에서 사용자가 확장자 없는 이름을 입력하고 필터가 하나만 선택되어 있으면 플랫폼의 관례에 따라 그 필터의 첫 확장자를 붙일 수 있습니다. 어느 필터가 쓰였는지는 결과의 `filter`로 알립니다.
 
@@ -3963,8 +4029,9 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
   - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
 - **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
 - **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
-- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 경로에 UTF-8이 아닌 바이트가 있으면(Linux에서만 가능) 그 경로를 버리고 나머지를 전달하며(FR-27과 같은 규칙), 하나도 남지 않으면 `Cancelled`가 아니라 `Unavailable`입니다. 사용자가 고른 것이 있었는데 취소로 보이면 거짓이기 때문입니다.
+- **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 고른 경로 중 하나라도 UTF-8로 나타낼 수 없으면(Linux에서만 가능하고, macOS에서 경로를 문자열로 읽지 못하는 경우도 같습니다) **결과 전체가 `Unavailable`**이고 나머지 경로도 보내지 않습니다. 고른 개수와 돌려준 개수가 다른 `Chosen`을 앱이 알아챌 길이 없고, 취소로 보내면 사용자가 고른 것이 있었는데 거짓이기 때문입니다. 파일을 떨어뜨리는 FR-27은 건너뛰고 나머지를 전달하지만, 대화상자에서 고른 것은 사용자가 이름을 짚어 고른 것이라 규칙이 다릅니다. 사용자는 나머지 파일도 받지 못하는 대신 앱이 무엇이 잘못되었는지 말할 수 있습니다. 앱은 이 `Unavailable`을 "선택한 파일 중 이름을 읽을 수 없는 것이 있습니다. 파일 이름을 확인한 뒤 다시 선택해 주세요"처럼 파일 이름을 확인하라는 안내로 보여 주는 것이 좋습니다(대화상자를 띄울 수 없는 환경과 같은 상태값이므로 문구는 앱이 상황에 맞게 정합니다).
 - **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
+- `Chosen`인데 경로가 하나도 없으면 Renderer는 `Cancelled`를 보내고, Host는 경로 없는 `Chosen`을 받으면 `Unavailable`로 다룹니다. 앱이 빈 목록을 선택으로 처리하지 않게 하려는 것입니다.
 - `filter`: 사용자가 마지막으로 선택한 필터의 위치입니다. 필터를 보내지 않았거나 `Chosen`이 아니면 `0xFFFF_FFFF`입니다.
 - **같은 창에 요청이 겹치면 Renderer가 받은 순서대로 하나씩 띄웁니다.** 플랫폼의 모달 대화상자(macOS의 시트가 대표적입니다)는 창마다 하나뿐이기 때문입니다. 앞 요청이 끝나면 다음이 뜹니다. 다른 창의 요청은 서로 기다리지 않습니다. 이 순서는 Renderer 안의 상태이고 Host와 Renderer 사이의 큐가 아닙니다(PR-1).
 
@@ -3982,7 +4049,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 #### 72.5 와이어
 
-경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 이 항목이 정하지 않습니다. 스키마의 태그 표는 pW가 소유하고 열린 변경이 이미 번호를 쓰고 있으므로, **마지막에 비어 있는 다음 번호**를 와이어 설계를 보고할 때 확정하고 이 절에 적습니다. 정해지는 것은 다음입니다.
+경계 진입점은 하나도 늘지 않습니다(PR-2). 요청은 기존 배치의 레코드이고 결과는 기존 `dispatch_event`의 이벤트입니다. 태그 번호는 스키마의 태그 표를 가진 pW가 정했습니다. 명령 `ShowFileDialog`는 **26**(그때까지의 마지막 명령은 `RequestFocus`=25)이고, 이벤트 `FileDialogResult`는 **50**(마지막 이벤트 `ApplicationReopen`=47, 열린 변경이 48과 49를 씁니다)입니다. 정해진 것은 다음입니다.
 
 - 명령 하나 `ShowFileDialog`: 머리, `request`, `window`, `kind: u16`, `default_filter: u16`, 문자열 넷(`title`, `directory`, `name`, `filters`)입니다. `filters`는 한 문자열이고 `label`과 `extensions` 쌍을 NUL로 이어 붙입니다(`"이미지\0png,jpg\0문서\0pdf,txt"`). 목록을 나르는 두 번째 방법을 만들지 않습니다.
 - 이벤트 하나 `FileDialogResult`: 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `paths: (offset, len)`입니다. 지금 `EventPayloadType`에 없는 모양이라 하나를 더합니다.
@@ -4000,6 +4067,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 | Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
 
 - **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
+- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀝니다.
 - 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
 - **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
 - Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
@@ -4012,7 +4080,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 fr72_duplicate_pending_request_is_a_protocol_error).
 5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 fr72_requests_on_one_window_are_shown_in_order).
 6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 fr72_unknown_window_reports_and_answers_unavailable).
-7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8이 아닌 경로는 버려지고 하나도 안 남으면 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_invalid_ones_are_dropped).
+7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8로 나타낼 수 없는 경로가 하나라도 있으면 결과 전체가 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable).
 8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
 9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
 10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).

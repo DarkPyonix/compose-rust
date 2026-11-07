@@ -127,7 +127,7 @@
           <tr><td><code>Runtime</code> 트레이트</td><td><span class="pill works">구현</span></td><td>트리를 만드는 쪽이 구현하는 인터페이스와 그 주변 타입입니다. 에셋, 커스텀 드로잉, 입력 이벤트, 알림, 메시지, 팔레트, 창 크기 클래스가 있습니다.</td></tr>
           <tr><td>그리기, 변환, 애니메이션</td><td><span class="pill works">구현</span></td><td>0.0.2에서 새로 들어왔습니다. HTML/CSS 그리기 원소인 <code>AbsoluteBox</code> 와 Modifier <code>RequiredSize</code>, <code>BorderEach</code>, <code>CornerEach</code>, <code>Shadow</code>, <code>Clip</code>, <code>Alpha</code> 입니다. 2D CSS 변환을 위한 <code>Transform</code> Modifier가 있습니다. 렌더러가 스스로 재생하는 애니메이션은 <code>StartAnimation</code>, <code>ControlAnimation</code>, <code>AnimationEvent</code>, <code>ReducedMotionChanged</code> 로 다룹니다. 레이아웃 컨테이너의 글자 색은 그 안의 텍스트가 물려받고, 테두리 색도 애니메이션할 수 있습니다.</td></tr>
           <tr><td>렌더러 다운로드</td><td><span class="pill works">구현</span></td><td>빌드 스크립트가 대상에 맞는 미리 빌드된 렌더러를 받아 검증하고 링크합니다. <a href="getting-started.html">시작하기</a>를 보십시오.</td></tr>
-          <tr><td>작성 API</td><td><span class="pill partial">부분</span></td><td><code>#[composable]</code>, <code>remember</code>, 상태와 effect, <code>Recomposer</code>, <code>launch</code>, 위젯마다 하나인 함수입니다. 0.0.2에서 새로 들어왔습니다. 1.0 전의 API라 아직 바뀔 수 있고, <strong>2026-11-14로 계획된 1.0.0</strong>부터 안정됩니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). 애니메이션도 들어 있습니다. <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code>, 그리고 렌더러가 재생하는 동안 아무것도 다시 compose하지 않는 <code>animate_*_as_state</code> 함수입니다. 3D 변환은 아직 만들어지지 않았습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
+          <tr><td>작성 API</td><td><span class="pill partial">부분</span></td><td><code>#[Composable]</code>, <code>remember</code>, 상태와 effect, <code>Recomposer</code>, <code>launch</code>, 위젯마다 하나인 함수입니다. 0.0.2에서 새로 들어왔습니다. 1.0 전의 API라 아직 바뀔 수 있고, <strong>2026-11-14로 계획된 1.0.0</strong>부터 안정됩니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/23">#23</a>, <a href="https://github.com/DarkPyonix/compose-rust/issues/64">#64</a>). 애니메이션도 들어 있습니다. <code>Modifier.graphics_layer</code>, <code>Modifier.alpha</code>, 그리고 렌더러가 재생하는 동안 아무것도 다시 compose하지 않는 <code>animate_*_as_state</code> 함수입니다. 3D 변환은 아직 만들어지지 않았습니다(<a href="https://github.com/DarkPyonix/compose-rust/issues/105">#105</a>).</td></tr>
         </tbody>
       </table>
     </div>
@@ -142,7 +142,7 @@
 <pre><code><span class="k">use</span> compose_rust::runtime::*;
 <span class="k">use</span> compose_rust::ui::*;
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
@@ -158,7 +158,7 @@
     </figure>
 
     <p>
-      <code>#[composable]</code> 이 그룹을 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기
+      <code>#[Composable]</code> 이 그룹을 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기
       <code>return</code>, <code>?</code>, 되감기를 지나도 그룹이 맞게 닫힙니다. 이름은 Compose를
       따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이므로 두 번 정의하지 않습니다. 작성 API의
       나머지는 <a href="writing-ui.html">UI 작성하기</a>에 있고, 샘플 열한 개가

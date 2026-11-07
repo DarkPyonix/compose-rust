@@ -54,6 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
@@ -304,6 +308,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                         matrix[5] = value.f
                     }
                 }
+            }
+
+            // CSS 3D `transform`: one matrix, drawn through the layers that reproduce it
+            // exactly, so the layout is untouched and a pointer is tested against the shape
+            // that is drawn. The plan is worked out here, once for each value of the record.
+            is ProtocolModifier.Transform3D -> {
+                val plan = Transform3DPlan()
+                plan.solve(
+                    floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15),
+                    value.backfaceHidden,
+                )
+                chain.perspectiveTransform(plan, value.originX, value.originY)
             }
 
             // The node and everything in it are drawn into one layer first, and the layer is
@@ -797,7 +813,11 @@ internal fun Modifier.pressable(
     }
     val ink = theme.color(ColorRole.OnSurface)
     val ring = theme.color(ColorRole.Primary)
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(nodeId) { FocusRequester() }
     this
+        .focusRequester(focusRequester)
+        .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
         .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
         .hoverable(source, enabled)
         .clickable(

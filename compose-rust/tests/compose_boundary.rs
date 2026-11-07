@@ -13,12 +13,12 @@ use compose_rust::schema::{EventPayload, LoopMode, PROTOCOL_VERSION, PropertyKin
 use compose_rust::ui::*;
 use support::Tree;
 
-#[composable]
+#[Composable]
 fn Counter() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
         Text(format!("{}", count.get()));
-        let more = count.clone();
+        let more = count;
         Button("More").on_click(move || more.update(|count| *count += 1));
     });
 }

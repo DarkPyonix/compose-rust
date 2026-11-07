@@ -90,7 +90,7 @@ enum Step {
 type Action = Rc<dyn Fn()>;
 
 /// The mood picker: the face, the strip under it, and the question.
-#[composable]
+#[Composable]
 fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
     let current = chosen.get();
     let (fill, _ink) = current.pair();
@@ -144,7 +144,7 @@ fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
                             } else {
                                 (palette::CHIP, palette::INK)
                             };
-                            let choose = chosen.clone();
+                            let choose = chosen;
                             key(option.label(), || {
                                 Button(option.label())
                                     .variant(ButtonVariant::Filled)
@@ -200,7 +200,7 @@ fn feeling_step(chosen: MutableState<Mood>, on_skip: Action, on_next: Action) {
 }
 
 /// The worry picker: ten chips, any number of them chosen.
-#[composable]
+#[Composable]
 fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next: Action) {
     let chosen = picked.get();
     // Two to a row. There is no wrapping row in the vocabulary, so a grid is rows of a
@@ -231,7 +231,7 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
                                         } else {
                                             ButtonVariant::Tonal
                                         };
-                                        let list = picked.clone();
+                                        let list = picked;
                                         key(worry, || {
                                             Button(worry)
                                                 .variant(variant)
@@ -277,7 +277,7 @@ fn worry_step(picked: MutableState<Vec<&'static str>>, on_skip: Action, on_next:
 }
 
 /// What the check-in leaves behind: the day, in one line, and a way back into it.
-#[composable]
+#[Composable]
 fn checked_in(chosen: Mood, worries: Vec<&'static str>, again: Action) {
     let (fill, ink) = chosen.pair();
     let summary = if worries.is_empty() {
@@ -360,7 +360,7 @@ fn session_card(session: &Session) {
 }
 
 /// The listening screen: a greeting, a search field and the sessions.
-#[composable]
+#[Composable]
 fn listen_page() {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
@@ -411,7 +411,7 @@ fn listen_page() {
 }
 
 /// One row of "Special for you", with the hairline under every row but the last.
-#[composable]
+#[Composable]
 fn special_row(session: &'static Session, separated: bool) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -442,7 +442,7 @@ fn special_row(session: &'static Session, separated: bool) {
 }
 
 /// Everything there is, as a plain list.
-#[composable]
+#[Composable]
 fn library_page() {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
@@ -486,7 +486,7 @@ fn library_page() {
 }
 
 /// The profile: who this is, how the week went, and the settings under it.
-#[composable]
+#[Composable]
 fn profile_page(chosen: Mood) {
     let (fill, ink) = chosen.pair();
     Column()
@@ -572,7 +572,7 @@ fn profile_page(chosen: Mood) {
 }
 
 /// One entry under the profile, with the hairline under every entry but the last.
-#[composable]
+#[Composable]
 fn settings_row(entry: &'static str, separated: bool) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -593,21 +593,18 @@ fn settings_row(entry: &'static str, separated: bool) {
 }
 
 /// The page for one destination, and for the check-in the step it is on.
-#[composable]
+#[Composable]
 fn page(
     destination: Destination,
     step: MutableState<Step>,
     chosen: MutableState<Mood>,
     picked: MutableState<Vec<&'static str>>,
 ) {
-    let to = |next: Step| -> Action {
-        let step = step.clone();
-        Rc::new(move || step.set(next))
-    };
+    let to = |next: Step| -> Action { Rc::new(move || step.set(next)) };
     match destination {
         Destination::Today => match step.get() {
-            Step::Feeling => feeling_step(chosen.clone(), to(Step::Done), to(Step::Worry)),
-            Step::Worry => worry_step(picked.clone(), to(Step::Done), to(Step::Done)),
+            Step::Feeling => feeling_step(chosen, to(Step::Done), to(Step::Worry)),
+            Step::Worry => worry_step(picked, to(Step::Done), to(Step::Done)),
             Step::Done => checked_in(chosen.get(), picked.get(), to(Step::Feeling)),
         },
         Destination::Listen => listen_page(),
@@ -616,7 +613,7 @@ fn page(
     }
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {
@@ -649,7 +646,7 @@ pub fn app() {
                 .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
                 .content(|| {
                     for choice in Destination::STRIP {
-                        let go = destination.clone();
+                        let go = destination;
                         key(choice.label(), || {
                             NavigationItem(choice.label())
                                 .icon(choice.icon())
@@ -670,8 +667,7 @@ pub fn app() {
                         .modifier(Modifier.fill_max_size())
                         .alignment(Alignment::TopCenter)
                         .content(|| {
-                            let body =
-                                || page(current, step.clone(), chosen.clone(), picked.clone());
+                            let body = || page(current, step, chosen, picked);
                             if scrolls {
                                 ScrollColumn().modifier(frame).content(body);
                             } else {
