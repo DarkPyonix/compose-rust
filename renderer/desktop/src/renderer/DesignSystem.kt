@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.DesignTokens
 import androidx.compose.animation.core.FiniteAnimationSpec
 import dev.darkpyonix.composerust.protocol.MaterialRole
 import dev.darkpyonix.composerust.protocol.MotionRole
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.SpaceRole

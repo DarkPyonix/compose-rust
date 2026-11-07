@@ -211,10 +211,11 @@ private fun OpeningList(
             } else {
                 theme.rules.elevation(Modifier, popupElevation, popupShape, theme)
             }
+            val explicitPopupPad = theme.overlay?.popupPadding
             val popupPadding = if (node.setsOwnPadding()) {
                 Modifier
-            } else if (theme.overlay?.popupPadding != null && theme.overlay.popupPadding > 0) {
-                Modifier.padding(theme.overlay.popupPadding.dp)
+            } else if (explicitPopupPad != null && explicitPopupPad > 0) {
+                Modifier.padding(explicitPopupPad.dp)
             } else {
                 Modifier.padding(vertical = theme.space(SpaceRole.Xs))
             }

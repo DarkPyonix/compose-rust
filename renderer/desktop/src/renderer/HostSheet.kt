@@ -136,10 +136,11 @@ internal fun HostSheet(
         Modifier
     }
 
+    val explicitSheetPad = theme.overlay?.sheetPadding
     val sheetPadding = if (node.setsOwnPadding()) {
         Modifier
-    } else if (theme.overlay?.sheetPadding != null && theme.overlay.sheetPadding > 0) {
-        Modifier.padding(theme.overlay.sheetPadding.dp)
+    } else if (explicitSheetPad != null && explicitSheetPad > 0) {
+        Modifier.padding(explicitSheetPad.dp)
     } else {
         Modifier.padding(style.padding)
     }
