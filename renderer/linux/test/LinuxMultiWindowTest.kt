@@ -4,9 +4,24 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.LastWindowClosed
+import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.Window
+import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.ZoomLevelStore
 import dev.darkpyonix.composerust.runtime.appZoomScale
+import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -259,6 +274,95 @@ class LinuxMultiWindowTest {
             step(first, second, a, b, "A")
         } finally {
             backend.closeAll()
+        }
+    }
+
+    @Test
+    fun fr53_53_3_linux_color_scheme_overrides_one_window_only() {
+        if (!hasDisplay()) return
+        val darkByWindow = mutableMapOf<Int, Boolean?>()
+        val work = mainForTests()
+        val backend = LinuxWindowBackend(work) { nodeId ->
+            {
+                darkByWindow[nodeId] = LocalSystemDarkObserver.current?.invoke()
+            }
+        }
+        val initial = listOf(
+            Mutation.SetWindow(
+                Window(
+                    chrome = Chrome.Modern,
+                    titleBar = TitleBar.Normal,
+                    title = "",
+                    icon = 0,
+                    width = 0,
+                    height = 0,
+                    minWidth = 0,
+                    minHeight = 0,
+                    resizable = true,
+                    zoomLevel = null,
+                    mode = WindowMode.Windows,
+                    lastWindowClosed = LastWindowClosed.KeepRunning,
+                ),
+            ),
+            Mutation.Create(10, WidgetKind.Window),
+            Mutation.SetProp(10, PropertyKind.WindowTitle, PropertyValue.Text("Window A")),
+            Mutation.SetProp(10, PropertyKind.WindowSize, PropertyValue.Pair(300f, 200f)),
+            Mutation.Insert(0, 10, -1),
+            Mutation.SetWindowTheme(10, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Dark, false)),
+            Mutation.Create(20, WidgetKind.Window),
+            Mutation.SetProp(20, PropertyKind.WindowTitle, PropertyValue.Text("Window B")),
+            Mutation.SetProp(20, PropertyKind.WindowSize, PropertyValue.Pair(300f, 200f)),
+            Mutation.Insert(0, 20, -1),
+            Mutation.SetWindowTheme(20, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+        )
+        val conn = FakeHostConnection(initial)
+        val host = ComposeRustHost(conn)
+        host.start()
+        val manager = WindowManager(host, backend, onExit = {})
+        try {
+            manager.attach()
+            assertTrue(
+                backend.turnsUntil { darkByWindow[10] != null && darkByWindow[20] != null },
+                "both windows did not render",
+            )
+            assertEquals(true, darkByWindow[10])
+            assertEquals(false, darkByWindow[20])
+
+            conn.scheduleFrame(
+                listOf(
+                    Mutation.SetWindowTheme(
+                        10,
+                        Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false),
+                    ),
+                ),
+            )
+            host.renderFrame(1L)
+            assertTrue(
+                backend.turnsUntil { darkByWindow[10] == false },
+                "window A did not update to light",
+            )
+            assertEquals(false, darkByWindow[10])
+            assertEquals(false, darkByWindow[20])
+
+            conn.scheduleFrame(
+                listOf(
+                    Mutation.SetWindowTheme(
+                        20,
+                        Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Dark, false),
+                    ),
+                ),
+            )
+            host.renderFrame(2L)
+            assertTrue(
+                backend.turnsUntil { darkByWindow[20] == true },
+                "window B did not update to dark",
+            )
+            assertEquals(false, darkByWindow[10])
+            assertEquals(true, darkByWindow[20])
+        } finally {
+            manager.shutdown()
+            backend.closeAll()
+            host.shutdown()
         }
     }
 }

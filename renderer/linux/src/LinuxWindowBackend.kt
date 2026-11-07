@@ -4,6 +4,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
 import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.runtime.Zoom
 import kotlin.coroutines.resume
@@ -62,6 +63,7 @@ internal class LinuxWindowBackend(
 
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
         val window = LinuxWindow.open(windowConfigOf(config), work, makeZoom()) ?: return null
+        window.colorScheme = config.colorScheme
         window.platformListener = listener
         window.setZoomLevel(config.zoomLevel ?: window.zoom.level)
         window.setContent(content(config.nodeId))
@@ -212,6 +214,11 @@ internal class LinuxPlatformWindow(
 
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean =
         x11.followPointer(anchorX, anchorY)
+
+    override fun setColorScheme(scheme: ColorScheme) {
+        window.colorScheme = scheme
+        window.x11.requestFrame()
+    }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
         var waiter: ((Long) -> Unit)? = null

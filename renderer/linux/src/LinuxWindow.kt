@@ -19,11 +19,14 @@ import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.Zoom
 import java.lang.System
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
+import org.thisisthepy.compose.window.SystemTheme
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowFrames
@@ -91,6 +94,14 @@ internal class LinuxWindow private constructor(
             reportedOs = zoom.os
             listener.onZoomChanged(zoom.k, zoom.os, zoom.level)
         }
+    }
+
+    internal var colorScheme by mutableStateOf(ColorScheme.FollowSystem)
+
+    internal fun resolvedDark(): Boolean = when (colorScheme) {
+        ColorScheme.Dark -> true
+        ColorScheme.Light -> false
+        ColorScheme.FollowSystem -> x11.systemTheme() == SystemTheme.Dark
     }
 
     /**
@@ -310,7 +321,14 @@ internal class LinuxWindow private constructor(
         semantics.perform(id, action, argument)
 
     fun setContent(content: @Composable () -> Unit) {
-        scene.setContent { CompositionLocalProvider(LocalZoom provides zoom) { content() } }
+        scene.setContent {
+            CompositionLocalProvider(
+                LocalZoom provides zoom,
+                LocalSystemDarkObserver provides { resolvedDark() },
+            ) {
+                content()
+            }
+        }
     }
 
     /**
