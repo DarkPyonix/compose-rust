@@ -2353,6 +2353,30 @@ Notification::new("세션이 끝났습니다")
 - Host는 편집 명령 `EditCode(request_id, base_version, range, text)`로 바꿉니다(서식 맞춤, 완성 수락, 원격 파일 다시 읽기).
 - Renderer는 `base_version`이 현재 버전보다 오래되었으면 그 사이의 변경을 거쳐 범위를 옮긴 뒤 적용합니다. 옮긴 범위가 사용자가 그 사이에 고친 곳과 겹치면 적용하지 않고 거절 이벤트(`CodeEditRejected`, 핸들러 `OnEditRejected`)를 보냅니다. Host가 사용자의 입력을 덮어쓰지 않습니다.
 - Host가 적용한 편집도 변경 이벤트로 다시 나갑니다. 그래서 Host와 그 너머(언어 서버, 확장 호스트)가 보는 버전이 하나로 이어집니다.
+- **묶음 편집 `EditCodeGroup`: 전부 적용하거나 하나도 적용하지 않습니다**(이슈 #496, Ember의 찾아 바꾸기 "모두 바꾸기"). 편집 여러 개를 명령 하나에 담아 보냅니다. 승인: 감독자 B(위임 권한), 요구: Ember 에디터 담당.
+  - **좌표는 `base_version` 문서 기준입니다.** 묶음 안의 모든 편집이 같은 문서(`base_version`의 문서)에 대한 범위이고, 앞의 편집이 뒤의 편집 좌표를 흔들지 않습니다. 순서는 상관없습니다. Renderer가 정렬하고 검증합니다. 편집끼리는 겹치면 안 됩니다. 맞닿는 것(앞 편집의 끝이 뒤 편집의 시작)은 겹침이 아닙니다. 같은 자리에 삽입이 둘이면 목록 순서대로 이어 붙습니다.
+  - **`base_version` 검사는 묶음당 한 번입니다.** `base_version`이 현재보다 오래되었으면 모든 범위를 `EditCode`와 같은 규칙으로 한꺼번에 옮깁니다. 하나라도 사용자가 그 사이에 고친 곳과 겹치면 묶음 전체를 거절합니다.
+  - **원자적입니다.** 하나라도 적용할 수 없으면 문서는 한 글자도 바뀌지 않습니다. 일부만 적용된 상태는 없습니다.
+  - **응답은 묶음당 정확히 하나, `CodeEditGroupResult`입니다.** 묶음의 `request_id`를 그대로 싣고, 적용(`Applied`), 거절(`Rejected`, 사용자가 그 사이에 고친 곳과 겹침), 너무 오래됨(`TooOld`, `base_version`이 Renderer가 기억하는 변경보다 오래되어 범위를 옮길 수 없음), 무효(`Invalid`, 묶음 자체가 말이 안 됨) 가운데 하나와, 처음 문제가 된 편집의 순번을 알려 줍니다. 앱의 대응이 다르므로(`Rejected`는 문서를 다시 읽고 다시 보내고, `TooOld`는 문서 전체를 다시 맞추는 것) 이유를 따로 필드로 두지 않고 상태 값으로 가립니다. 의미가 틀린 묶음(`Invalid`)에도 `ProtocolError`는 보내지 않습니다. `ProtocolError`(NFR-7)는 아래 표의 마지막 행처럼 와이어 자체가 깨진 경우에만 갑니다. 기존 `CodeEditRejected`는 `EditCode` 전용으로 그대로입니다.
+  - **변경 이벤트는 편집마다 하나, 버전은 편집마다 +1입니다.** Renderer는 문서 뒤쪽 편집부터 적용하므로 각 이벤트의 범위는 그 이벤트 직전 문서 기준입니다(기준 2가 그대로 지켜지고, `CodeChanged`를 `version == 직전 + 1`일 때만 받는 쪽도 틈 없이 받습니다). 이벤트들은 같은 프레임에서 `CodeEditGroupResult`보다 앞에 나갑니다.
+  - **실행 취소 한 단계입니다.** 묶음 전체가 한 번의 실행 취소로 되돌아가고, 다시 실행으로 모두 돌아옵니다. 사용자의 타이핑과 합쳐지지 않습니다. 묶음은 UI 스레드에서 명령 하나로 적용되므로 사용자 입력이 그 사이에 끼어들 수 없습니다.
+  - **기존 `EditCode`는 그대로입니다.** 지금의 동작은 이렇습니다. 같은 `base_version`으로 `EditCode`를 연달아 보내면 각각 그 이후의 모든 변경(앞서 적용된 같은 열의 편집 포함)에 대해 범위가 옮겨져 적용되고, 앞 편집의 변경과 겹치는 편집만 `CodeEditRejected`로 돌아오며 앞의 것은 적용된 채 남습니다. 편집마다 실행 취소 한 단계입니다. 원자적이지 않으므로 "모두 바꾸기"에는 `EditCodeGroup`을 씁니다.
+  - **Rust**: `Batch::edit_group(node_id, request_id, base_version, &[(CodeRange, &str)])`가 명령 하나를 씁니다. 에디터 핸들(`CodeEditorHandle`)은 이 저장소 밖(dioxus-compose)에서 이 호출을 감쌉니다. 편집이 없는 묶음은 아무것도 쓰지 않습니다.
+
+  상황별 결과:
+
+  | 상황 | 문서 | 변경 이벤트 | `CodeEditGroupResult.status` | `ProtocolError` |
+  |---|---|---|---|---|
+  | 겹치지 않는 편집들, `base_version`이 현재 | 모두 적용 | 편집마다 하나, 뒤쪽 편집부터, 버전 +1씩 | `Applied` | 없음 |
+  | `base_version`이 오래됨, 사용자가 고친 곳과 안 겹침 | 범위를 옮겨 모두 적용 | 위와 같음 | `Applied` | 없음 |
+  | `base_version`이 오래됨, 한 편집이라도 사용자가 고친 곳과 겹침 | 변화 없음 | 없음 | `Rejected`(순번은 처음 겹친 편집) | 없음 |
+  | `base_version`이 Renderer가 기억하는 것보다 오래됨 | 변화 없음 | 없음 | `TooOld`(순번 0) | 없음 |
+  | 편집끼리 겹침 | 변화 없음 | 없음 | `Invalid`(순번은 뒤쪽 겹친 편집) | 없음 |
+  | 범위가 문서 밖이거나 시작이 끝보다 뒤 | 변화 없음 | 없음 | `Invalid`(순번은 그 편집) | 없음 |
+  | `base_version`이 현재 버전보다 앞섬 | 변화 없음 | 없음 | `Invalid`(순번 0) | 없음 |
+  | 편집이 하나도 없음 | 변화 없음, 실행 취소 단계도 늘지 않음, 버전 그대로 | 없음 | `Applied`(결과의 `base_version`과 `current_version`이 모두 지금 문서의 버전. 보낸 `base_version`은 보지 않습니다) | 없음 |
+  | 와이어가 깨짐(레코드 길이나 인코딩 오류). 머리의 `node_id`와 `request_id`를 읽을 수 있으면 | 변화 없음 | 없음 | 그 `request_id`로 `Invalid`(순번 0)를 `ProtocolError` 뒤에 한 번 | 한 번 |
+  | 와이어가 깨져서 머리조차 읽을 수 없음 | 변화 없음 | 없음 | 보낼 수 없음 | 한 번 |
 - 문서 전체 교체(파일 열기)는 버전 0부터 다시 시작합니다(38.1).
 
 #### 38.4 장식
@@ -2399,6 +2423,7 @@ Notification::new("세션이 끝났습니다")
 | 태그 | 명령 | 레코드 |
 |---|---|---|
 | 17 | `EditCode` | 40바이트: 머리 4, `node_id: u32`, `request_id: u32`(앱이 고르며 거절 이벤트가 그대로 돌려줌), `base_version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `text: (offset, len)` |
+| 28 | `EditCodeGroup` | 가변 길이: 머리 4, `node_id: u32`, `request_id: u32`, `base_version: u32`, `edits: (offset, len)`. 블롭은 `count: u32` 뒤에 편집 레코드 `count`개(24바이트: `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `text: (offset, len)`)와 글자 영역이 놓이고, 레코드의 `offset`은 글자 영역의 시작 기준입니다(장식 블롭과 같은 방식). 번호 26, 27은 다른 항목이 예약했습니다. |
 
 - 이벤트, FR-36의 25 뒤에 덧붙입니다. 공통 머리 16바이트(`node_id`, `handler_id`) 뒤에 페이로드가 오고, 바이트 수는 머리를 포함한 레코드 길이입니다.
 
@@ -2413,6 +2438,7 @@ Notification::new("세션이 끝났습니다")
 - CodeLens 클릭과 고스트 텍스트 수락은 `DecorationActivated`(이벤트 태그 30)입니다. 장식 블롭 안의 id에는 Host 쪽 리스너가 붙어 있지 않으므로, 편집기 노드의 리스너 하나(`OnDecorationClick`)로 받고 페이로드의 id로 어느 장식인지 가립니다.
 - 장식의 id는 앱이 고르는 `u64`이며 0은 "장식 없음"이라 쓰지 않습니다.
 - 다섯 이벤트의 페이로드는 지금 `EventPayloadType`에 없는 모양이라 다섯을 더합니다. `kind`, `severity`, `phase`는 닫힌 열거형이고 모르는 값은 `ProtocolError`입니다. 범위가 문서 밖이거나 시작이 끝보다 뒤인 장식, 스팬, 편집은 그 항목만 버리고 `ProtocolError`를 보내며, 프로세스는 죽지 않습니다.
+- **묶음 편집의 이벤트와 속성(이슈 #496).** 이벤트 `CodeEditGroupResult`는 태그 51(48, 49는 `FocusGained`, `KeyUp`, 50은 `FileDialogResult`가 쓰므로 51입니다)이고 페이로드는 36바이트입니다: 머리 16바이트 뒤에 `request_id: u32`, `status: u32`(`Applied=1`, `Rejected=2`, `Invalid=3`, `TooOld=4`, 모르는 값은 `ProtocolError`), `base_version: u32`, `current_version: u32`(적용되면 마지막 변경 뒤의 버전, 아니면 지금 문서의 버전), `index: u32`(처음 문제가 된 편집의 순번이고 `Applied`이면 적용한 편집의 수). 핸들러 속성 `OnEditGroupResult`는 속성 태그 128입니다(127 `ReportSize`가 마지막 사용분입니다). 세 번호는 번호표 소유자의 확인을 받았습니다. 스키마 서술 문자열 끝에 추가하므로(`commands=...,edit_code_group`, `events=...,CodeEditGroupResult`, `properties=...,on_edit_group_result`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
 
 #### 38.7 수용 기준
 
@@ -2438,6 +2464,19 @@ Notification::new("세션이 끝났습니다")
     4. 편집을 따라 움직이는 규칙은 기준 14와 같습니다. 앞에 줄을 끼우면 막대가 아래로 따라가고, 그 줄을 지우면 사라집니다. Host로 가는 이벤트는 없습니다.
     5. 접근성. 변경 표시 막대가 있는 줄의 접근성 설명에 "추가됨", "수정됨", "삭제됨" 중 하나가 붙고(플랫폼 로케일의 낱말), 색만으로 구분하지 않습니다.
     6. 시험 이름은 `fr38_`로 시작합니다. 폭 4dp와 위치는 픽셀 시험으로, 우선순위와 이동은 모델 시험으로, 기존 `Bar` 회귀는 기준 14의 시험이 그대로 통과하는 것으로 확인합니다.
+17. 묶음 편집 `EditCodeGroup`(이슈 #496). 승인: 감독자 B(위임 권한).
+    1. 겹치지 않는 편집 셋을 `base_version`이 현재인 묶음 하나로 보내면 셋이 모두 적용되고 `CodeEditGroupResult`가 `request_id`와 함께 `Applied`로 정확히 한 번 갑니다(fr38_edit_group_applies_all_edits_and_replies_once).
+    2. 변경 이벤트는 편집마다 하나이고, 문서 뒤쪽 편집부터 가며 버전이 하나씩 늘고, 그 이벤트들을 차례로 적용한 결과가 Renderer의 버퍼와 같습니다. 결과 이벤트는 그 뒤에 갑니다(fr38_edit_group_events_are_ordered_and_replayable).
+    3. 묶음은 실행 취소 한 번에 모두 되돌아가고 다시 실행 한 번에 모두 돌아옵니다. 직전의 사용자 타이핑과 한 단계로 합쳐지지 않습니다(fr38_edit_group_is_one_undo_step).
+    4. 편집끼리 겹치면 문서가 한 글자도 바뀌지 않고 `Invalid`가 한 번 가며 `ProtocolError`는 가지 않습니다(fr38_edit_group_with_overlapping_edits_changes_nothing).
+    5. 범위가 문서 밖이거나 시작이 끝보다 뒤인 편집이 하나라도 있으면 나머지도 적용되지 않습니다(fr38_edit_group_with_a_bad_range_changes_nothing).
+    6. `base_version`이 오래된 묶음은 사용자가 그 사이에 고친 곳과 겹치지 않으면 범위가 모두 옮겨져 적용되고, 한 편집이라도 겹치면 전체가 `Rejected`입니다(fr38_edit_group_with_a_stale_base_moves_or_rejects_all).
+    7. Renderer가 기억하는 것보다 오래된 `base_version`은 전체가 `TooOld`입니다. 사용자와 겹쳐 거절되는 `Rejected`와 상태 값이 다릅니다(fr38_edit_group_older_than_the_history_is_too_old).
+    8. 기존 `EditCode`의 동작(개별 거절, 편집마다 실행 취소 한 단계)은 그대로입니다(fr38_edit_code_sequence_keeps_its_behaviour).
+    9. 와이어: `EditCodeGroup`(명령 28)과 `CodeEditGroupResult`(이벤트 51)가 묶음 편집 수와 글자(서로게이트 쌍 포함)를 그대로 왕복하고, 프로토콜 벡터에 있습니다(fr38_edit_group_round_trips_on_the_wire).
+    10. Rust의 `Batch::edit_group`은 편집이 없으면 아무것도 쓰지 않습니다(fr38_an_empty_edit_group_writes_nothing).
+    11. 편집이 하나도 없는 `EditCodeGroup`이 Renderer에 닿으면 문서가 바뀌지 않고, 변경 이벤트가 0개이고, 실행 취소 단계가 늘지 않고, 버전이 그대로이며, `Applied` 결과의 `base_version`과 `current_version`이 같고 지금 문서의 버전입니다(fr38_an_empty_group_changes_nothing_and_replies_applied).
+    12. 레코드 길이가 맞지 않는 묶음은 문서를 바꾸지 않고 `ProtocolError` 하나를 보내며, 머리를 읽을 수 있으면 같은 `request_id`로 `Invalid` 결과가 뒤따릅니다. 의미가 틀린 묶음(기준 4, 5)에는 `ProtocolError`가 없습니다(fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -3792,7 +3831,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
 
-### FR-66 Button이 행이 되는 방법: 왼쪽 정렬 라벨, 글자 크기, 내용 슬롯 (`Draft`, 이슈 #425)
+### FR-66 Button이 행이 되는 방법: 왼쪽 정렬 라벨, 글자 크기, 내용 슬롯 (`Agreed`, 이슈 #425)
 
 요청한 쪽: darkpyonix-ember(목업 `style.css`의 `.nav`: 높이 38px, 가로 여백 `--sp3`, 라벨과 아이콘과 개수가 한 줄, 개수는 오른쪽 끝). 목록 행, 내비게이션 행, 트리 행은 눌리는 면 전체가 컨트롤이어야 합니다. 지금은 `Button(text)`가 라벨을 가운데에 놓고 자기 글자 크기를 정해서, 앱이 Button 위에 칠한 행과 클릭 영역을 따로 얹어야 합니다.
 
@@ -3805,7 +3844,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. `text_align`, `font_size`를 부르지 않으면 두 속성이 나가지 않고 렌더러 결과가 바뀌지 않습니다.
 3. 자식으로 `Icon`, `Text`, `Spacer.weight(1.0)`, 개수 `Text`를 가진 Button에서 개수가 Button의 오른쪽 안쪽 가장자리에 붙고, Button 전체를 누르면 `on_click`이 한 번 옵니다.
 
-### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Draft`, 이슈 #426, #428)
+### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Done`, 이슈 #426, #428)
 
 요청한 쪽: darkpyonix-ember(목업 `style.css`). 값: `.switch`는 36x20px 알약, 꺼짐 트랙 `--track`(라이트 `#ecebe6`, 다크 `#2f2e2b`), 켜짐 트랙 `--ink`(`#1c1b19` / `#f0eee9`), 손잡이 16px 원(`--surface`, 위치 2px, 켜짐은 왼쪽 18px). `.track`은 높이 6px, 반지름 3px, 배경 `--track`, 채움 색 따로. 체크박스는 18x18 `--ink` 사각형에 흰 체크(diff 줄의 변형은 14x14). 툴킷 `Switch`는 54x32에 플랫폼 초록 트랙이고, `Slider` 트랙은 카드 면과 구분되지 않으며, `Checkbox`는 체크되어도 속이 빈 동그라미라서 목업과 맞출 수 없습니다.
 
@@ -3822,7 +3861,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. 색과 크기를 하나도 주지 않은 세 위젯은 지금과 같은 속성을 보냅니다.
 5. 색과 크기를 준 컨트롤에서 그 속성을 제거하면(제거 전달 뒤) 측정 크기와 색이 디자인 시스템 기본값으로 돌아옵니다. 시험 이름은 `fr67_`로 시작합니다.
 
-### FR-68 어느 노드에나 붙는 접근성 수정자 (`Draft`, 이슈 #429, #426)
+### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
@@ -3837,7 +3876,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
 5. 이름을 준 노드에서 `accessible_name`을 제거하면(제거 전달 뒤) 접근성 이름이 위젯의 기본(보이는 라벨이나 아이콘의 뜻)으로 돌아옵니다.
 
-### FR-69 비활성 Button의 라벨 대비 (`Draft`, 이슈 #432)
+### FR-69 비활성 Button의 라벨 대비 (`Done`, 이슈 #432)
 
 요청한 쪽: darkpyonix-ember#249(버전 관리의 커밋 버튼). `Primary` 종류의 비활성 Button(채움 `--ink`)이 검은 바탕에 회색 라벨로 그려져 읽기 어렵습니다.
 
@@ -3848,7 +3887,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 1. 라이트와 다크, `Primary`와 `Secondary`와 `Text`, 모든 디자인 시스템의 비활성 Button에서 라벨과 채움(채움이 없으면 바탕)의 대비가 3:1 이상입니다. 모든 조합을 도는 시험입니다.
 2. 활성 Button의 모양은 바뀌지 않습니다.
 
-### FR-70 Row 안의 내용 크기 컨테이너와 글자 최소 폭 (`Agreed`, 이슈 #427)
+### FR-70 Row 안의 내용 크기 컨테이너와 글자 최소 폭 (`Done`, 이슈 #427)
 
 요청한 쪽: darkpyonix-ember(목업 `style.css`의 설정 행: 제목과 힌트를 담은 `Column.weight(1)` 옆에 36x20px 스위치). 승인: 감독자 B(위임 권한). `Row` 안에서 폭을 정하지 않은 `Box`가 남은 폭을 가져가면 힌트 열의 폭이 0에 가까워지고, 한글 문장이 한 글자씩 줄바꿈됩니다.
 
