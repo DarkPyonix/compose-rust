@@ -2,6 +2,18 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.LastWindowClosed
+import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.Window
+import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.HostConnection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -12,6 +24,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import platform.posix.getenv
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.pointed
+import kotlinx.cinterop.ptr
+import x11.*
 
 /**
  * Multi-window tests on X11: the Linux backend over the fork's X11 window, against a real server (CI runs
@@ -190,4 +207,144 @@ class LinuxMultiWindowTest {
             backend.closeAll()
         }
     }
+
+    @Test
+    fun fr53_linux_resizable_and_min_size_update_wm_normal_hints_after_open() {
+        if (!hasDisplay()) return
+        val connection = ScriptedHost(
+            listOf(
+                setWindow(),
+                Mutation.Create(1, WidgetKind.Window),
+                Mutation.SetProp(1, PropertyKind.WindowTitle, PropertyValue.Text("Linux Hints Test")),
+                Mutation.SetProp(1, PropertyKind.WindowSize, PropertyValue.Bytes(floats(400f, 300f))),
+                Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(true)),
+                Mutation.Insert(0, 1, 0),
+            ),
+        )
+        val host = ComposeRustHost(connection)
+        val work = mainForTests()
+        val backend = LinuxWindowBackend(work) { { } }
+        val manager = WindowManager(host, backend, onExit = {})
+        try {
+            host.start(FrameRequestSource())
+            manager.attach()
+            backend.turn()
+
+            assertEquals(1, backend.openCount)
+
+            // Reconcile with resizable = false after open.
+            connection.queue(listOf(Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(false))))
+            host.dispatch(HostEvent.Clicked(nodeId = 0, handlerId = 0))
+            backend.turn()
+
+            val hintsNotResizable = normalHintsFlagsAndMinMax()
+            assertNotNull(hintsNotResizable, "normal hints should be readable from server")
+            val (flags1, min1, max1) = hintsNotResizable
+            assertTrue((flags1 and PMinSize.toLong()) != 0L, "PMinSize should be set when resizable=false")
+            assertTrue((flags1 and PMaxSize.toLong()) != 0L, "PMaxSize should be set when resizable=false")
+            assertEquals(min1, max1, "min and max sizes should be equal when resizable=false")
+
+            // Reconcile with resizable = true and minimum size 320x240.
+            connection.queue(
+                listOf(
+                    Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(true)),
+                    Mutation.SetProp(1, PropertyKind.WindowMinSize, PropertyValue.Bytes(floats(320f, 240f))),
+                ),
+            )
+            host.dispatch(HostEvent.Clicked(nodeId = 0, handlerId = 0))
+            backend.turn()
+
+            val hintsResizableMin = normalHintsFlagsAndMinMax()
+            assertNotNull(hintsResizableMin, "normal hints should be readable after enabling resizable")
+            val (flags2, min2, _) = hintsResizableMin
+            assertTrue((flags2 and PMinSize.toLong()) != 0L, "PMinSize should be set")
+            assertTrue((flags2 and PMaxSize.toLong()) == 0L, "PMaxSize should be cleared")
+            assertEquals(320 to 240, min2)
+
+            // Reconcile with minimum size 0x0.
+            connection.queue(
+                listOf(
+                    Mutation.SetProp(1, PropertyKind.WindowMinSize, PropertyValue.Bytes(floats(0f, 0f))),
+                ),
+            )
+            host.dispatch(HostEvent.Clicked(nodeId = 0, handlerId = 0))
+            backend.turn()
+
+            val hintsCleared = normalHintsFlagsAndMinMax()
+            assertNotNull(hintsCleared, "normal hints should be readable after clearing minimum size")
+            val (flags3, _, _) = hintsCleared
+            assertTrue((flags3 and PMinSize.toLong()) == 0L, "PMinSize should be cleared")
+            assertTrue((flags3 and PMaxSize.toLong()) == 0L, "PMaxSize should be cleared")
+        } finally {
+            backend.closeAll()
+            manager.shutdown()
+        }
+    }
+}
+
+private class ScriptedHost(private val initial: List<Mutation>) : HostConnection {
+    val events = mutableListOf<HostEvent>()
+    private var next: List<Mutation> = emptyList()
+
+    fun queue(mutations: List<Mutation>) {
+        next = mutations
+    }
+
+    override fun init(onMutation: (Mutation) -> Unit) {
+        initial.forEach(onMutation)
+    }
+
+    override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
+        events += event
+        if (event is HostEvent.Clicked) {
+            val batch = next
+            next = emptyList()
+            batch.forEach(onMutation)
+        }
+        return 0
+    }
+
+    override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {}
+
+    override fun shutdown() {}
+}
+
+private fun setWindow(last: LastWindowClosed = LastWindowClosed.Exit) = Mutation.SetWindow(
+    Window(
+        chrome = Chrome.Modern,
+        titleBar = TitleBar.Normal,
+        title = "",
+        icon = 0,
+        width = 0,
+        height = 0,
+        minWidth = 0,
+        minHeight = 0,
+        resizable = true,
+        zoomLevel = null,
+        mode = WindowMode.Windows,
+        lastWindowClosed = last,
+    ),
+)
+
+private fun floats(vararg values: Float): ByteArray {
+    val out = ByteArray(values.size * 4)
+    for (i in values.indices) {
+        val bits = values[i].toBits()
+        for (b in 0 until 4) out[i * 4 + b] = (bits shr (8 * b)).toByte()
+    }
+    return out
+}
+
+private fun normalHintsFlagsAndMinMax(): Triple<Long, Pair<Int, Int>, Pair<Int, Int>>? {
+    val display = glXGetCurrentDisplay() ?: return null
+    val drawable = glXGetCurrentDrawable()
+    val hints = XAllocSizeHints() ?: return null
+    return try {
+        memScoped {
+            val supplied = alloc<LongVar>()
+            if (XGetWMNormalHints(display, drawable, hints, supplied.ptr) == 0) null
+            else Triple(hints.pointed.flags, hints.pointed.min_width to hints.pointed.min_height,
+                hints.pointed.max_width to hints.pointed.max_height)
+        }
+    } finally { XFree(hints) }
 }

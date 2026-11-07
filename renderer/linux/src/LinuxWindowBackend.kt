@@ -183,6 +183,8 @@ internal class LinuxPlatformWindow(
     override fun setMinimumSize(width: Float, height: Float) =
         x11.setMinimumSize(width.toInt(), height.toInt())
 
+    override fun setResizable(resizable: Boolean) = x11.setResizable(resizable)
+
     override fun setPosition(x: Float, y: Float) = x11.setPosition(x.toInt(), y.toInt())
 
     override fun setContentSize(width: Float, height: Float) =
