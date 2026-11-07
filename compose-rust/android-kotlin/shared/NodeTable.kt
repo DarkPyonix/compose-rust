@@ -979,6 +979,11 @@ class NodeTable {
                     widget == WidgetKind.Menu ||
                     // A sheet is an overlay on the same terms as a dialog.
                     widget == WidgetKind.Sheet
+
+                // A custom scrim colour for modal and popup overlays.
+                PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
+                    widget == WidgetKind.Menu ||
+                    widget == WidgetKind.Sheet
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->
