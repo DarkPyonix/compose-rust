@@ -2898,7 +2898,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -2950,13 +2950,13 @@ mod tests {
     #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
         // Bit 13 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 
