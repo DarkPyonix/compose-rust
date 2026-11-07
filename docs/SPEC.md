@@ -4122,6 +4122,19 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 5. 클립보드를 쓸 수 없는 환경에서 명령은 아무 일도 하지 않고 프로세스는 계속 돕니다(시험 이름 fr73_unavailable_clipboard_is_silently_ignored).
 6. Renderer의 어느 로그 줄에도 `text`의 내용이 들어가지 않습니다(시험 이름 fr73_clipboard_text_is_never_logged).
 
+### FR-75 텍스트 필드 타이포그래피와 아이콘 버튼 레이아웃 제어 (`Draft`, 이슈 #507)
+
+요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.1). Ember NFR-L3은 여러 OS에서 동일한 컴포저와 버튼 모양을 필요로 합니다. `HostTextField`는 타이포그래피와 내부 여백을 테마 기본 규칙(`theme.rules.field`)에서 파생하고, `HostButton`은 명시적 크기를 가진 아이콘 버튼에도 테마 버튼의 최소 높이와 여백을 강제 적용하여 전역 테마 변경 시 컴포저 플레이스홀더와 플러스 버튼의 위치와 크기가 달라지는 문제가 있었습니다. 이 항목은 텍스트 필드의 명시적 타이포그래피와 내용 여백 제어, 아이콘 버튼의 크기 존중 레이아웃을 제공합니다.
+
+- **TextField 타이포그래피**: `TextFieldScope`에 `font_size`, `font_weight`, `line_height`, `letter_spacing`, `color` 빌더 메서드를 제공하여 테마 기본값에 의존하지 않고 명시적 텍스트 스타일을 지정할 수 있습니다.
+- **TextField 내용 여백과 높이**: 노드에 명시적 높이(`Modifier.height`, `size`, `fill_max_height`)가 지정된 경우 테마 최소 높이 강제를 건너뛰며, `Modifier.padding`이 지정된 경우 해당 여백을 필드 장식 상자 내부의 내용 여백으로 적용합니다.
+- **아이콘 버튼 레이아웃 제어**: 텍스트 없이 아이콘만 가진 버튼(`wordless`)에 명시적 크기(`Modifier.size`, `width`, `height`)가 지정된 경우, 테마 최소 높이(`minHeight`) 강제를 건너뛰고 내부 여백을 0dp로 처리하여 지정된 크기를 유지합니다. 또한 `corner_radius` 등 자체 모양 지정 시 해당 모양을 클리핑 및 테두리에 적용합니다.
+
+수용 기준:
+1. `TextField`가 명시적 타이포그래피 속성을 인코딩하여 렌더러로 전달합니다(시험 이름 fr75_text_field_typography_round_trips).
+2. `TextField`에 명시적 여백이나 높이가 지정되면 렌더러가 지정된 여백과 높이를 적용합니다(시험 이름 fr75_text_field_honors_content_padding_and_height).
+3. 명시적 크기를 가진 아이콘 버튼이 테마의 최소 높이에 의해 확장되지 않고 지정된 크기로 렌더링됩니다(시험 이름 fr75_icon_button_honors_explicit_size).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
