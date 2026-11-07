@@ -949,6 +949,11 @@ pub struct TextFieldScope {
     enabled: bool,
     multiline: bool,
     type_role: Option<TypeRole>,
+    font_size: Option<f32>,
+    font_weight: Option<u16>,
+    line_height: Option<f32>,
+    letter_spacing: Option<f32>,
+    color: Option<Paint>,
     font: FontRefs,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
@@ -971,6 +976,11 @@ pub fn TextField() -> TextFieldScope {
         enabled: true,
         multiline: false,
         type_role: None,
+        font_size: None,
+        font_weight: None,
+        line_height: None,
+        letter_spacing: None,
+        color: None,
         font: FontRefs::default(),
         on_value_change: None,
         on_submit: None,
@@ -1011,6 +1021,36 @@ impl TextFieldScope {
     /// The rung of the type ladder the field's own text is set in.
     pub fn type_role(mut self, role: TypeRole) -> Self {
         self.type_role = Some(role);
+        self
+    }
+
+    /// Explicit font size in sp. Overrides the type role's size.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
+    /// Explicit font weight (e.g. 400, 500, 600, 700). Overrides the type role's weight.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// Explicit line height in sp.
+    pub fn line_height(mut self, sp: f32) -> Self {
+        self.line_height = Some(sp);
+        self
+    }
+
+    /// Explicit letter spacing in sp.
+    pub fn letter_spacing(mut self, sp: f32) -> Self {
+        self.letter_spacing = Some(sp);
+        self
+    }
+
+    /// Explicit text colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
         self
     }
 
@@ -1064,6 +1104,9 @@ impl TextFieldScope {
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let (font_size, font_weight, line_height) =
+            (self.font_size, self.font_weight, self.line_height);
+        let (letter_spacing, color) = (self.letter_spacing, self.color);
         let font = std::mem::take(&mut self.font);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
@@ -1106,6 +1149,21 @@ impl TextFieldScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 attrs.push(("type_role", role_or_zero(type_role)));
+                if let Some(font_size) = font_size {
+                    attrs.push(("font_size", OwnedAttr::Float(font_size)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(font_weight as i64)));
+                }
+                if let Some(line_height) = line_height {
+                    attrs.push(("line_height", OwnedAttr::Float(line_height)));
+                }
+                if let Some(letter_spacing) = letter_spacing {
+                    attrs.push(("letter_spacing", OwnedAttr::Float(letter_spacing)));
+                }
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
                 attrs.push(("font", font_bytes(&font)));
             },
             listeners,

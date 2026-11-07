@@ -48,6 +48,7 @@ import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.design.compositeOver
 import dev.darkpyonix.composerust.design.ensureContrast
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -130,6 +131,29 @@ internal fun HostButton(
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
     val overlayFocusStack = LocalOverlayFocusStack.current
     val focusRequester = remember(node.id) { FocusRequester() }
+    val ownShape = node.modifiers.any {
+        it is ProtocolModifier.Shape ||
+            it is ProtocolModifier.ShapeRole ||
+            it is ProtocolModifier.CornerEach
+    }
+    val shape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape
+    val hasExplicitSize = node.modifiers.any {
+        it is ProtocolModifier.Size ||
+            it is ProtocolModifier.Width ||
+            it is ProtocolModifier.Height ||
+            it is ProtocolModifier.RequiredSize
+    }
+    val setsOwnHeight = node.modifiers.any {
+        it is ProtocolModifier.Size ||
+            it is ProtocolModifier.Height ||
+            it is ProtocolModifier.RequiredSize
+    }
+    // Read before the decoration, because how much room the button needs depends on it.
+    val wordless = node.text(PropertyKind.Text).isEmpty() &&
+        node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
+    val labelPadH = if (wordless && hasExplicitSize) 0.dp else if (wordless) style.verticalPadding else style.horizontalPadding
+    val labelPadV = if (wordless && hasExplicitSize) 0.dp else style.verticalPadding
+
     val clickable = if (handlerId == null) {
         available.then(modifier)
     } else {
@@ -140,7 +164,7 @@ internal fun HostButton(
             .focusRequester(focusRequester)
             .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
             .pressFeedback(
-                interactions, enabled, theme, style.shape,
+                interactions, enabled, theme, shape,
                 node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
                 node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
             ).clickable(
@@ -160,30 +184,29 @@ internal fun HostButton(
     // pill, and asking for a variant instead hands the question to whichever design
     // system is active, which answers with its own accent.
     val ownFill = node.setsOwnBackground()
-    // Read before the decoration, because how much room the button needs depends on it.
-    val wordless = node.text(PropertyKind.Text).isEmpty() &&
-        node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
     val decorated = theme.rules
-        .elevation(clickable, elevation, style.shape, theme)
-        .clip(style.shape)
-        .then(if (ownFill) Modifier else Modifier.background(container, style.shape))
+        .elevation(clickable, elevation, shape, theme)
+        .clip(shape)
+        .then(if (ownFill) Modifier else Modifier.background(container, shape))
         .then(
             if (style.borderWidth.value > 0f) {
-                Modifier.border(style.borderWidth, borderColor, style.shape)
+                Modifier.border(style.borderWidth, borderColor, shape)
             } else {
                 Modifier
             },
         )
         .topHighlight(style.topHighlight)
-        .defaultMinSize(minHeight = style.minHeight)
+        .let {
+            if (setsOwnHeight || (wordless && hasExplicitSize)) it else it.defaultMinSize(minHeight = style.minHeight)
+        }
         // A button with a glyph and no word gets the same room on both axes. The
         // horizontal padding is there to keep a word off the button's ends, and a button
         // with no word has nothing to keep off them: using it anyway makes every icon
         // control half as wide again as it needs to be, which two of them in a floating
         // group and one at the head of a composer both showed.
         .labelPadding(
-            horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
-            vertical = style.verticalPadding,
+            horizontal = labelPadH,
+            vertical = labelPadV,
             alignStart = alignStart,
         )
 
@@ -266,8 +289,8 @@ internal fun HostButton(
             }
             Box(
                 Modifier.matchParentSize().labelPadding(
-                    horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
-                    vertical = style.verticalPadding,
+                    horizontal = labelPadH,
+                    vertical = labelPadV,
                     alignStart = alignStart,
                 ),
                 contentAlignment = alignment,
