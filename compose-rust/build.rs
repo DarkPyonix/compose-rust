@@ -286,6 +286,8 @@ fn static_link(target_os: &str) -> Option<StaticLink> {
                 // The notifications an application posts go through the system's own
                 // notification centre.
                 "UserNotifications",
+                // The file open and save sheets name the types a filter lets through.
+                "UniformTypeIdentifiers",
             ],
             libraries: &["c++", "z"],
             arm64_libraries: &[],

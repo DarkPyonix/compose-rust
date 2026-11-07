@@ -330,7 +330,7 @@ jobs:
             "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME" \
             "org.freedesktop.Sdk.Extension.rust-stable//$FLATPAK_RUNTIME"
           echo "== what the SDK has for rewriting an executable's library names"
-          flatpak run --command=sh "org.freedesktop.Sdk//$FLATPAK_RUNTIME" -c 'command -v patchelf readelf || true'
+          flatpak run --user --command=sh "org.freedesktop.Sdk//$FLATPAK_RUNTIME" -c 'command -v patchelf readelf || true'
           rustup toolchain install stable --profile minimal && rustup default stable
           cargo build --release -p packager-linux
           echo "PACKAGER_LINUX=$PWD/target/release/packager-linux" >> "$GITHUB_ENV"
