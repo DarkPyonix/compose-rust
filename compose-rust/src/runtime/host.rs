@@ -340,6 +340,9 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
                 ctrl_key,
                 alt_key,
                 meta_key,
+                repeat,
+                code,
+                text,
             }
             | EventPayload::KeyUp {
                 key,
@@ -347,9 +350,13 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
                 ctrl_key,
                 alt_key,
                 meta_key,
+                repeat,
+                code,
+                text,
             },
         ) => {
-            let event = KeyEvent::new(*key, *shift_key, *ctrl_key, *alt_key, *meta_key);
+            let event = KeyEvent::new(*key, *shift_key, *ctrl_key, *alt_key, *meta_key)
+                .with_details(*repeat, *code, text);
             (*handler.borrow_mut())(event.clone());
             return Ok(i64::from(event.consumed()));
         }

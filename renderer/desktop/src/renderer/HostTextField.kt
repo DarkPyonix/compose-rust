@@ -193,6 +193,7 @@ internal fun HostTextField(
         }
     }
 
+    val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
         .focusRequester(focusRequester)
         .onFocusChanged { state ->
@@ -216,14 +217,16 @@ internal fun HostTextField(
             if (composingNow && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                 applyValueChange(value.copy(composition = null))
                 true
-            } else if (keyUpHandler != null && isDispatchableKeyUp(event, composingNow)) {
-                dispatchKeyUp(nodeId, keyUpHandler, event, composingNow, dispatcher)
             } else {
+                // The key-down handler sees every event first, key-ups included, so the held
+                // keys it tracks can tell a repeat from a first press.
                 val consumedByHandler = keyDownHandler != null &&
-                    dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher)
+                    dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher, heldKeys)
                 if (consumedByHandler) {
                     true
-                } else if (!isDispatchableKeyDown(event, composingNow)) {
+                } else if (keyUpHandler != null && isDispatchableKeyUp(event, composingNow)) {
+                    dispatchKeyUp(nodeId, keyUpHandler, event, composingNow, dispatcher)
+                } else if (!isEnterKeyDown(event, composingNow)) {
                     false
                 } else if (!shouldSubmitOnEnter(
                         composing = composingNow,

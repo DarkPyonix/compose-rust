@@ -509,7 +509,7 @@ sealed interface Mutation {
                 output.push_str(", val code: Int, val message: String");
             }
             EventPayloadType::KeyDown => {
-                output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean");
+                output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String");
             }
             EventPayloadType::Range => output.push_str(", val start: Int, val count: Int"),
             EventPayloadType::Double => output.push_str(", val value: Double"),
@@ -1030,7 +1030,7 @@ object Protocol {
     );
     for event in EVENT_SCHEMA {
         match event.payload {
-            EventPayloadType::Text => {
+            EventPayloadType::Text | EventPayloadType::KeyDown => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8)",
@@ -1078,8 +1078,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::KeyDown
-            | EventPayloadType::Range
+            EventPayloadType::Range
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
             | EventPayloadType::DesignSystem
@@ -1120,7 +1119,7 @@ object Protocol {
             EventPayloadType::None => 16,
             EventPayloadType::Text => 24,
             EventPayloadType::ProtocolError => 28,
-            EventPayloadType::KeyDown => 20,
+            EventPayloadType::KeyDown => 32,
             EventPayloadType::Range => 24,
             EventPayloadType::Double => 24,
             EventPayloadType::WindowSize => 44,
@@ -1232,7 +1231,11 @@ object Protocol {
                     "                    if (event.metaKey) modifiers = modifiers or 0x08\n",
                 );
                 output.push_str("                    out.put(modifiers.toByte())\n");
-                output.push_str("                    out.put(0.toByte())\n");
+                output.push_str("                    out.put((if (event.repeat) 1 else 0).toByte())\n");
+                output.push_str("                    out.putInt(event.code)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::Range => {
@@ -3133,6 +3136,9 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 ctrl_key: true,
                 alt_key: true,
                 meta_key: true,
+                repeat: true,
+                code: 0x28,
+                text: "Enter",
             },
         },
         HostEvent {
@@ -3406,35 +3412,35 @@ pub fn generate_vector_description() -> String {
       {{ "type": "TextSubmitted", "offset": 46, "length": 28, "nodeId": 8, "handlerId": 13, "text": "done" }},
       {{ "type": "FocusLost", "offset": 74, "length": 16, "nodeId": 8, "handlerId": 14 }},
       {{ "type": "ProtocolError", "offset": 90, "length": 35, "nodeId": 0, "handlerId": 0, "code": 9, "message": "bad tag" }},
-      {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
-      {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
-      {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
-      {{ "type": "NotificationActivated", "offset": 237, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 274, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "CodeChanged", "offset": 294, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
-      {{ "type": "CodeEditRejected", "offset": 342, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
-      {{ "type": "CodeHovered", "offset": 386, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
-      {{ "type": "CodeSaveRequested", "offset": 422, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
-      {{ "type": "DecorationActivated", "offset": 446, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
-      {{ "type": "AnimationEvent", "offset": 470, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 510, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 530, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
-      {{ "type": "SelectionChanged", "offset": 602, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 638, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 666, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 690, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 714, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
-      {{ "type": "WindowCloseRequested", "offset": 738, "length": 16, "nodeId": 20, "handlerId": 201 }},
-      {{ "type": "WindowFocusChanged", "offset": 754, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
-      {{ "type": "WindowMoved", "offset": 774, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
-      {{ "type": "WindowDrag", "offset": 806, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
-      {{ "type": "WindowDragOver", "offset": 838, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
-      {{ "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 }},
-      {{ "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 }},
-      {{ "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }},
-      {{ "type": "FileDialogResult", "offset": 952, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
+      {{ "type": "KeyDown", "offset": 125, "length": 37, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true, "repeat": true, "code": 40, "text": "Enter" }},
+      {{ "type": "RangeRequested", "offset": 162, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
+      {{ "type": "ValueChanged", "offset": 186, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
+      {{ "type": "WindowSizeChanged", "offset": 210, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
+      {{ "type": "NotificationActivated", "offset": 254, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
+      {{ "type": "NotificationPermissionChanged", "offset": 291, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
+      {{ "type": "CodeChanged", "offset": 311, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 359, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 403, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 439, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 463, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 487, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 527, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 547, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 619, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 655, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 683, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 707, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 731, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 755, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 771, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 791, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 823, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 855, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 887, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
     ]
   }}
 }}
