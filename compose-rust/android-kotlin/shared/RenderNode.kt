@@ -200,6 +200,46 @@ fun RenderNode(
     // focusable (a click, say) is a focus target, and a key event reaches only the handlers
     // outside it on the way down. Placed after it, a handler would see keys from focused
     // descendants only and never the keys pressed while the node itself has focus.
+    // The TextField wires its own key handling, because it has an editor to intercept and a
+    // composition to protect; everything else routes keys here.
+    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val keyed = if ((keyDownHandler == null && keyUpHandler == null) ||
+        node.widget == WidgetKind.TextField
+    ) {
+        profiled
+    } else {
+        // Plain containers and text are not focus targets on their own, so a node that
+        // listens for keys is made one, ahead of its modifiers like the handlers. Without it
+        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+        // Widgets that are controls bring their own focus handling and are left alone.
+        val focusTarget = node.widget in KeyFocusTargets
+        profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
+            .let { if (focusTarget) it.focusable() else it }
+    }
+    val chain = keyed
+        .then(
+            node.modifiers.toComposeModifier(
+                nodeId,
+                dispatcher,
+                theme,
+                animated = { table.animations.animated(nodeId) },
+                containerClickHandler = clickHandler,
+                containerEnabled = node.flag(PropertyKind.Enabled, default = true),
+                containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
+                pressColor = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: theme.color(ColorRole.OnSurface),
+                allowPress = node.widget != WidgetKind.TextField,
+            ),
+        )
+        .testTag(nodeTestTag(nodeId))
+        .accessibility(
+            node,
+            dispatcher,
+            clickHandler
+                ?: (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+                    as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
+                ?: node.handler(PropertyKind.OnClick),
+        )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
     val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
