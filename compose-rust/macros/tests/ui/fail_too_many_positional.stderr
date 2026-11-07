@@ -1,10 +1,5 @@
 error: Field! takes 1 argument(s) and was given more; the parameters are: `value`
- --> tests/ui/fail_too_many_positional.rs:3:1
+ --> tests/ui/fail_too_many_positional.rs:9:27
   |
-3 | #[Composable]
-  | ^^^^^^^^^^^^^
-...
 9 |     Field!(String::new(), 1);
-  |     ------------------------ in this macro invocation
-  |
-  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                           ^

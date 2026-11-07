@@ -69,6 +69,8 @@ pub use code::{
     Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
     SyntaxSpans, VisibleRange,
 };
+#[doc(hidden)]
+pub use compose_rust_macros::__compose_call_check;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};

@@ -1,10 +1,5 @@
 error: Field! has no parameter `singel_line`; the parameters are: `value`, `single_line`
- --> tests/ui/fail_unknown_name.rs:3:1
+ --> tests/ui/fail_unknown_name.rs:9:27
   |
-3 | #[Composable]
-  | ^^^^^^^^^^^^^
-...
 9 |     Field!(String::new(), singel_line = true);
-  |     ----------------------------------------- in this macro invocation
-  |
-  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                           ^^^^^^^^^^^

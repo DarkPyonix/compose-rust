@@ -1,14 +1,14 @@
-error: cannot find macro `Field` in this scope
+error[E0425]: cannot find function, tuple struct or tuple variant `Field` in this scope
   --> tests/ui/fail_renamed_import.rs:7:12
    |
  7 |     pub fn Field(value: String) {
-   |            ^^^^^
+   |            ^^^^^ not found in this scope
 ...
 18 |     Input!(String::new());
    |     --------------------- in this macro invocation
    |
    = note: this error originates in the macro `Input` (in Nightly builds, run with -Z macro-backtrace for more info)
-help: consider importing this macro through its public re-export
+help: consider importing this function
    |
  1 + use crate::ui::Field;
    |

@@ -1,10 +1,5 @@
 error: argument `value` of Field! is given twice
- --> tests/ui/fail_duplicate_of_positional.rs:3:1
+ --> tests/ui/fail_duplicate_of_positional.rs:9:27
   |
-3 | #[Composable]
-  | ^^^^^^^^^^^^^
-...
 9 |     Field!(String::new(), value = String::new());
-  |     -------------------------------------------- in this macro invocation
-  |
-  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                           ^^^^^

@@ -94,6 +94,17 @@ pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
+/// The expansion of every generated call macro. Hidden: it is the generated
+/// `macro_rules!`'s way of reading its arguments with the caller's spans, not an API.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __compose_call_check(input: TokenStream) -> TokenStream {
+    match call_macro::check(input.into()) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
 /// Removes the `#[default(expr)]` attributes from the parameters and returns the
 /// expressions, one entry per parameter.
 fn take_defaults(function: &mut ItemFn) -> syn::Result<Vec<Option<Expr>>> {

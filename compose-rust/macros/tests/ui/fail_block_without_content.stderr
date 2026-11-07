@@ -1,10 +1,5 @@
 error: Field! has no `content` parameter, so it takes no trailing block; the parameters are: `value`
- --> tests/ui/fail_block_without_content.rs:3:1
+ --> tests/ui/fail_block_without_content.rs:9:27
   |
-3 | #[Composable]
-  | ^^^^^^^^^^^^^
-...
 9 |     Field!(String::new(), { let _ = 1; });
-  |     ------------------------------------- in this macro invocation
-  |
-  = note: this error originates in the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
+  |                           ^^^^^^^^^^^^^^
