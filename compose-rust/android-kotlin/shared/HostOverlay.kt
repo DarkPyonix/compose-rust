@@ -210,12 +210,11 @@ internal fun HostDialog(
     ) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         Box(
-            Modifier.fillMaxSize().background(scrim),
+            Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
             Column(
                 modifier
-                    .testTag(dialogTestTag(node.id))
                     .modalOverlaySurface(node.id, surfaceRequester)
                     .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
             ) {

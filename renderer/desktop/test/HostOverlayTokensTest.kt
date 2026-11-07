@@ -142,5 +142,8 @@ class HostOverlayTokensTest {
         assertEquals(tokens, host.table.overlayTokens)
         onNodeWithTag(nodeTestTag(dialogText)).assertTextEquals("Confirm")
         onNodeWithTag(dialogTestTag(dialogId)).assertExists()
+        val dialogNode = host.table.node(dialogId)
+        assertNotNull(dialogNode)
+        assertEquals(Paint.Literal(0x80000000.toInt()), dialogNode.paintProp(PropertyKind.Scrim))
     }
 }
