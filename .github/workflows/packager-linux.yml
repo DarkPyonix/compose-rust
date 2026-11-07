@@ -323,6 +323,12 @@ jobs:
           flatpak --user install --noninteractive flathub org.flatpak.Builder \
             "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME" \
             "org.freedesktop.Sdk.Extension.rust-stable//$FLATPAK_RUNTIME"
+          # The builder asks the host's flatpak whether the SDK is installed and looks in the
+          # system installation as well as the user one, so the runtimes go into both.
+          sudo flatpak --system remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak --system install --noninteractive flathub \
+            "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME" \
+            "org.freedesktop.Sdk.Extension.rust-stable//$FLATPAK_RUNTIME"
           echo "== what the SDK has for rewriting an executable's library names"
           flatpak run --command=sh "org.freedesktop.Sdk//$FLATPAK_RUNTIME" -c 'command -v patchelf readelf || true'
           rustup toolchain install stable --profile minimal && rustup default stable
