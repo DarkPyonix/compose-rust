@@ -1663,6 +1663,24 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다.
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다.
 
+#### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Draft`, 이슈 #476)
+
+요청한 쪽: darkpyonix-ember(#502 감사). Esc로 시트가 닫히지 않고 닫기 버튼만 동작했습니다. 21.3.1은 가운데 시트의 Esc만 적었고, Dialog와 가장자리 시트는 적지 않았습니다. Rust API에는 `Key::Escape`도, 컨테이너의 `on_key_down`도 없어서 앱이 스스로 해결할 수 없으므로 Renderer가 합니다. 승인: 감독자 B(위임 권한).
+
+- **모든 열린 `Dialog`와 `Sheet`(표현 방식과 상관없이)에서, Esc는 `OnDismiss`를 정확히 한 번 보냅니다.** 21.3의 "사용자가 닫으려 했다"는 사건과 같은 것입니다. 닫을지는 여전히 앱이 `Open`으로 정합니다. 그래서 저장하지 않은 변경을 묻는 확인 같은 앱의 보호 장치는 그대로 동작합니다.
+- **열릴 때 Renderer가 키보드 포커스를 오버레이 안으로 옮깁니다.** 안에 포커스를 받을 컨트롤이 없어도 Esc가 오버레이에 닿습니다. 닫히면 포커스는 연 쪽으로 돌아갑니다(21.3.1의 포커스 규칙과 같습니다).
+- **안쪽 컨트롤이 먼저입니다.** 포커스가 있는 컨트롤이 Esc를 쓰는 중이면(IME 조합 취소, 코드 편집기의 고스트 텍스트와 자동 완성 닫기) 그 컨트롤이 Esc를 받고 오버레이는 닫으려 하지 않습니다. 같은 키를 두 번 처리하지 않습니다.
+- **겹쳐 열린 오버레이는 맨 위의 것만** `OnDismiss`를 받습니다.
+- 새 속성, 새 키, 새 이벤트는 없고 와이어 변경도 없습니다.
+
+수용 기준.
+1. 열린 `Dialog`에 Esc를 보내면 `OnDismiss`가 한 번 가고, `Open`이 그대로이면 Dialog는 열려 있습니다(fr21_escape_dismisses_an_open_dialog_once).
+2. `Presentation=Edge`와 `Centered`의 열린 `Sheet` 각각에서 같습니다(fr21_escape_dismisses_an_open_sheet_once).
+3. 안에 포커스를 받을 컨트롤이 없는 오버레이도 열린 직후의 Esc로 닫으려 합니다(fr21_escape_reaches_an_overlay_with_no_focusable_content).
+4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `OnDismiss`는 가지 않습니다(fr21_escape_in_a_composing_text_field_does_not_dismiss).
+5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(fr21_escape_goes_to_the_topmost_overlay).
+6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(fr21_escape_returns_focus_to_the_opener).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
