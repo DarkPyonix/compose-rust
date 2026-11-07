@@ -62,6 +62,10 @@ import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.unit.Dp
+import dev.darkpyonix.composerust.design.ResolvedTheme
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 
 /**
  * The uncontrolled TextField.
@@ -272,6 +276,12 @@ internal fun HostTextField(
             it is dev.darkpyonix.composerust.protocol.Modifier.Height ||
             it is dev.darkpyonix.composerust.protocol.Modifier.Size
     }
+    val setsOwnHeight = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Height ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Size ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.RequiredSize
+    }
 
     // What the node named for itself replaces what the design system would have drawn
     // The system's frame is the default for a field that said nothing, and a field
@@ -286,11 +296,6 @@ internal fun HostTextField(
         it is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
             it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole ||
             it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
-    }
-    val ownRoom = node.modifiers.any {
-        it is dev.darkpyonix.composerust.protocol.Modifier.Padding ||
-            it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach ||
-            it is dev.darkpyonix.composerust.protocol.Modifier.PaddingRole
     }
     val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape
 
@@ -312,19 +317,14 @@ internal fun HostTextField(
                     // could only put the caret in by hitting the words.
                     .fillMaxWidth()
                     .let { if (fillsHeight) it.fillMaxHeight() else it }
-                    .defaultMinSize(minHeight = frame.minHeight)
+                    .let { if (setsOwnHeight) it else it.defaultMinSize(minHeight = frame.minHeight) }
                     .clip(frameShape)
                     .let {
                         if (ownFill) it else it.background(if (focused) frame.containerFocused else frame.container)
                     }
                     .let { if (ownLine) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
                     .let { if (ownLine || ownFill) it else it.fieldUnderline(frame.underline, focused) }
-                    .let {
-                        if (ownRoom) it else it.padding(
-                            horizontal = frame.horizontalPadding,
-                            vertical = frame.verticalPadding,
-                        )
-                    },
+                    .padding(node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)),
                 contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
@@ -435,4 +435,20 @@ private class FontChainTransformation(private val chain: FontChain) : VisualTran
     override fun equals(other: Any?): Boolean = other is FontChainTransformation && other.chain === chain
 
     override fun hashCode(): Int = chain.hashCode()
+}
+
+internal fun Node.contentPadding(
+    theme: ResolvedTheme,
+    defaultHorizontal: Dp,
+    defaultVertical: Dp,
+): PaddingValues {
+    val padEach = modifiers.filterIsInstance<ProtocolModifier.PaddingEach>().lastOrNull()
+    if (padEach != null) {
+        return PaddingValues(padEach.start.dp, padEach.top.dp, padEach.end.dp, padEach.bottom.dp)
+    }
+    val pad = modifiers.filterIsInstance<ProtocolModifier.Padding>().lastOrNull()
+    if (pad != null) return PaddingValues(pad.value.dp)
+    val padRole = modifiers.filterIsInstance<ProtocolModifier.PaddingRole>().lastOrNull()
+    if (padRole != null) return PaddingValues(theme.space(padRole.role))
+    return PaddingValues(horizontal = defaultHorizontal, vertical = defaultVertical)
 }

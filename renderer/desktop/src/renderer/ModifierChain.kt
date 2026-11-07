@@ -111,6 +111,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     containerShape: Shape? = null,
     pressColor: Color = theme.color(ColorRole.OnSurface),
     allowPress: Boolean = true,
+    allowPadding: Boolean = true,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -192,7 +193,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
             is ProtocolModifier.Empty -> chain
-            is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
+            is ProtocolModifier.Padding ->
+                if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
@@ -213,9 +215,17 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             }
 
             is ProtocolModifier.PaddingEach ->
-                attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                if (allowPadding) {
+                    attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                } else {
+                    chain
+                }
             is ProtocolModifier.PaddingRole ->
-                attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                if (allowPadding) {
+                    attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                } else {
+                    chain
+                }
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
