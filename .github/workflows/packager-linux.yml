@@ -378,7 +378,7 @@ jobs:
             --package packager-linux-demo --bin update-demo \
             --screenshot "$SCREENSHOT_URL" --screenshot-caption "The demo" \
             --out work/flatpak-src
-          (cd work/flatpak-src && $FLATPAK_BUILDER \
+          (cd work/flatpak-src && dbus-run-session -- $FLATPAK_BUILDER \
             --compose-url-policy=full --mirror-screenshots-url=https://dl.flathub.org/media --user --force-clean \
             --install-deps-from=flathub --state-dir="$PWD/.flatpak-builder" --repo="$PWD/../repo" build "$id.json")
           flatpak --user update --noninteractive "$id"
