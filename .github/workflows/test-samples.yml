@@ -18,9 +18,13 @@
 # two should be versioned apart so a sample can be rebuilt without implying a library
 # release, and a library release is not held up by a sample that does not build.
 #
-# Each sample links the renderer for its platform. On macOS and Linux that is the static
-# archive, built by static-renderer.yml, so each sample is one executable; on Windows the
-# renderer library still ships beside it.
+# Each sample links the renderer for its platform. The renderer is the one the release for
+# the checked-out crate version carries (compose-rust-renderer-v<version>-<target>.tar.gz,
+# checked against its .sha256), so a sample build does not rebuild it. On macOS and Linux
+# that is the static archive, so each sample is one executable; on Windows the renderer
+# library still ships beside it. When the release has no such asset yet (a version still
+# in a pull request), the resolve job says so and the renderer is built here as before,
+# by static-renderer.yml and the Windows build script.
 
 name: Samples test
 
@@ -68,11 +72,48 @@ jobs:
     steps:
       - run: echo "Heavy checks requested by ${{ github.event_name }} ${{ github.event.action }}"
 
-  # The renderers macOS and Linux ship, from the same reusable workflow the release uses,
-  # so that every sample there is one executable, built the way an application is.
+  # Does the release for this commit's crate version carry the renderer assets? Decides
+  # whether the build downloads them or builds the renderer itself.
+  #
+  # The renderer used is the one released for the crate version, so a pull request that
+  # changes the renderer's sources without raising the version is tested against the old
+  # release. Raise the version, or the assets are not found, for the new sources to be built.
+  # The Windows static branches below take effect once the release carries a static
+  # windows-x64 tarball; until then the Windows build still uses the DLL kit.
+  resolve:
+    name: Find the released renderer
+    needs: requested
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.find.outputs.released }}
+      version: ${{ steps.find.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Read the crate version and look for the release asset
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Needs all four desktop assets and their checksums; a half-uploaded release
+          # counts as not released. A gh failure is warned about, not hidden.
+          result="$(.github/scripts/find-released-renderer.sh "$version")"
+          echo "$result"
+          echo "$result" | grep '^released=' >> "$GITHUB_OUTPUT"
+          released="$(sed -n 's/^released=//p' <<<"$result")"
+          echo "crate $version, released renderer: $released"
+
+  # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
+  # Only when the release does not carry them yet.
   static-renderer:
     name: renderer
-    needs: requested
+    needs: resolve
+    if: needs.resolve.outputs.released != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -84,16 +125,18 @@ jobs:
 
   fork-desktop:
     # The Windows renderer's desktop module asks for the fork's Compose and skiko-awt by version.
-    needs: requested
+    # Only building that renderer needs them, so a released one skips this.
+    needs: resolve
+    if: needs.resolve.outputs.released != 'true'
     name: Build the Compose fork's desktop modules
     uses: ./.github/workflows/fork-desktop-modules.yml
 
   build:
     name: Build the sample (${{ matrix.target }})
-    needs: [requested, static-renderer, fork-desktop]
-    # Windows builds its own renderer and does not need the static ones, and one platform's
-    # renderer failing does not stop the others' samples.
-    if: ${{ !cancelled() && needs.requested.result == 'success' }}
+    needs: [requested, resolve, static-renderer, fork-desktop]
+    # Skipped renderer jobs (a released renderer) are fine; one platform's renderer
+    # failing does not stop the others' samples.
+    if: ${{ !cancelled() && needs.requested.result == 'success' && needs.resolve.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -149,7 +192,7 @@ jobs:
           echo "link.exe now resolves to: $(command -v link || echo 'nothing on PATH')"
 
       - name: Install upstream GraalVM 25
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: graalvm/setup-graalvm@v1
         with:
           java-version: '25'
@@ -167,7 +210,7 @@ jobs:
 
       - name: Cache the Kotlin toolchain and Maven dependencies
         id: cache-1
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository
@@ -175,48 +218,72 @@ jobs:
           restore-keys: kotlin-${{ matrix.target }}-
 
       - name: Take the Compose fork's desktop modules
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         uses: actions/download-artifact@v4
         with:
           name: compose-fork-desktop
           path: ${{ runner.temp }}/compose-fork-desktop
 
       - name: Put them where the renderer's build looks
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         shell: bash
         run: |
           mkdir -p ~/.m2/repository/org/jetbrains
           cp -R "$RUNNER_TEMP/compose-fork-desktop/." ~/.m2/repository/org/
 
       - name: Build the Windows renderer
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         run: ${{ matrix.renderer }}
 
       - name: Download the static renderer
-        if: matrix.static
+        if: matrix.static && needs.resolve.outputs.released != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: compose-rust-renderer-v*-${{ matrix.target }}
           path: renderer-artifact
           merge-multiple: true
 
+      - name: Download the released renderer
+        if: needs.resolve.outputs.released == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p renderer-artifact
+          asset="compose-rust-renderer-v$VERSION-${{ matrix.target }}.tar.gz"
+          gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" \
+            --pattern "$asset" --pattern "$asset.sha256" --dir renderer-artifact
+          cd renderer-artifact
+          # The .sha256 holds "<hash>  <name>"; check it against the file just fetched.
+          if command -v sha256sum >/dev/null; then sha256sum -c "$asset.sha256"
+          else shasum -a 256 -c "$asset.sha256"; fi
+
       - name: Unpack it where the build will be pointed
-        if: matrix.static
+        if: matrix.static || needs.resolve.outputs.released == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/renderer"
-          tar -xzf renderer-artifact/*.tar.gz -C "$RUNNER_TEMP/renderer"
-          ls -la "$RUNNER_TEMP/renderer/lib"
-          echo "RENDERER=$RUNNER_TEMP/renderer" >> "$GITHUB_ENV"
+          # Forward slashes on Windows too: GNU tar reads "D:" as a remote host, and an
+          # absolute path in RENDERER has to survive the build script's working directory.
+          dir="$RUNNER_TEMP/renderer"
+          if command -v cygpath >/dev/null; then dir="$(cygpath -m "$dir")"; fi
+          mkdir -p "$dir"
+          tar -xzf renderer-artifact/*.tar.gz -C "$dir"
+          ls -la "$dir"
+          echo "RENDERER=$dir" >> "$GITHUB_ENV"
+          echo "DIST=$dir" >> "$GITHUB_ENV"
 
       - name: Point the build at the Windows renderer
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.released != 'true'
         shell: bash
         # Absolute. A build script runs with its crate directory as the working
         # directory, not the workspace root, so a relative path here points at
         # compose-rust/renderer/... and finds nothing.
-        run: echo "RENDERER=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
+        run: |
+          echo "RENDERER=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
+          echo "DIST=${{ github.workspace }}/${{ matrix.dist }}" >> "$GITHUB_ENV"
 
       - name: Build every sample against it
         # A sample that does not build is skipped rather than allowed to end the run. The
@@ -261,7 +328,8 @@ jobs:
       - name: Package each sample
         # On macOS and Linux a sample is one executable with the renderer inside it, and
         # that file is the whole archive. On Windows it still runs beside the renderer
-        # library it was linked against, so the two are shipped together.
+        # library it was linked against while the release carries one; with the static
+        # renderer the executable is alone.
         shell: bash
         run: |
           set -euo pipefail
@@ -271,7 +339,14 @@ jobs:
             stage="staging/$app"
             mkdir -p "$stage"
             if [[ "${{ runner.os }}" == "Windows" ]]; then
-              cp -R "${{ matrix.dist }}/." "$stage/"
+              if [[ -d "$DIST/bin" ]]; then
+                cp -R "$DIST/." "$stage/"
+              else
+                # The static renderer is inside the executable, so nothing else travels.
+                cp "target/release/sample-$app.exe" "$stage/"
+                tar -czf "artifacts/$app-${{ matrix.target }}.tar.gz" -C staging "$app"
+                continue
+              fi
               # The executable goes in beside the DLL rather than above it. Windows
               # searches the directory the executable is in, and the renderer's DLL lives
               # in `bin` because AWT reads its font configuration from the `lib` next to
@@ -301,7 +376,7 @@ jobs:
           path: artifacts/
 
       - name: Save the Kotlin toolchain and Maven dependencies (not from a pull request)
-        if: (runner.os == 'Windows') && github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        if: (runner.os == 'Windows') && needs.resolve.outputs.released != 'true' && github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository
