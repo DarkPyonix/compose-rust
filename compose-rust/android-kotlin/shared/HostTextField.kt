@@ -92,12 +92,15 @@ internal fun HostTextField(
     var focused by remember(nodeId) { mutableStateOf(false) }
     var reportedComposing by remember(nodeId) { mutableStateOf(false) }
     val focusRequester = remember(nodeId) { FocusRequester() }
+    val overlayFocusStack = LocalOverlayFocusStack.current
 
     val multiline = node.flag(PropertyKind.Multiline, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val changeHandler = node.handler(PropertyKind.OnValueChange)
     val submitHandler = node.handler(PropertyKind.OnSubmit)
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
     val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
     val compositionHandler = node.handler(PropertyKind.OnCompositionChange)
     val placeholder = node.text(PropertyKind.Placeholder)
@@ -190,9 +193,14 @@ internal fun HostTextField(
         }
     }
 
+    val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
         .focusRequester(focusRequester)
         .onFocusChanged { state ->
+            overlayFocusStack.noteFocused(focusRequester, state.isFocused)
+            if (!focused && state.isFocused && focusGainedHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
+            }
             if (focused && !state.isFocused && focusLostHandler != null) {
                 dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
             }
@@ -206,22 +214,31 @@ internal fun HostTextField(
         // guard that keeps Enter away from Rust during a Korean composition.
         .onPreviewKeyEvent { event ->
             val composingNow = value.composition != null
-            val consumedByHandler = keyDownHandler != null &&
-                dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher)
-            if (consumedByHandler) {
+            if (composingNow && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                applyValueChange(value.copy(composition = null))
                 true
-            } else if (!isDispatchableKeyDown(event, composingNow)) {
-                false
-            } else if (!shouldSubmitOnEnter(
-                    composing = composingNow,
-                    multiline = multiline,
-                    shiftPressed = event.isShiftPressed,
-                    hasSubmitHandler = submitHandler != null,
-                )
-            ) {
-                false
             } else {
-                dispatcher.dispatch(HostEvent.TextSubmitted(nodeId, submitHandler!!, value.text))
+                // The key-down handler sees every event first, key-ups included, so the held
+                // keys it tracks can tell a repeat from a first press.
+                val consumedByHandler = keyDownHandler != null &&
+                    dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher, heldKeys)
+                if (consumedByHandler) {
+                    true
+                } else if (keyUpHandler != null && isDispatchableKeyUp(event, composingNow)) {
+                    dispatchKeyUp(nodeId, keyUpHandler, event, composingNow, dispatcher)
+                } else if (!isEnterKeyDown(event, composingNow)) {
+                    false
+                } else if (!shouldSubmitOnEnter(
+                        composing = composingNow,
+                        multiline = multiline,
+                        shiftPressed = event.isShiftPressed,
+                        hasSubmitHandler = submitHandler != null,
+                    )
+                ) {
+                    false
+                } else {
+                    dispatcher.dispatch(HostEvent.TextSubmitted(nodeId, submitHandler!!, value.text))
+                }
             }
         }
 

@@ -280,7 +280,7 @@ fn episode_card(found: &Episode, on_play: &Handler<u32>) {
 /// it and an outlined white button, and the rest are the same shape on the page with a
 /// hairline round them and the orange on the button instead. That is the reference: one
 /// row picked out, the others quiet.
-#[composable]
+#[Composable]
 fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn()>) {
     let ink = if recommended {
         palette::PAGE
@@ -340,7 +340,7 @@ fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn
 
 /// The shelf: the search button and a row of covers, then the newest episode in full,
 /// then who to follow.
-#[composable]
+#[Composable]
 fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: Handler<u32>) {
     let following = followed.get();
     Column()
@@ -411,7 +411,7 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                 .content(|| {
                     for (index, show) in SHOWS.iter().enumerate() {
                         let is_followed = following.contains(&index);
-                        let list = followed.clone();
+                        let list = followed;
                         key(show.name, || {
                             show_row(
                                 show,
@@ -435,7 +435,7 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
 }
 
 /// Every episode, shortest first, as a plain list.
-#[composable]
+#[Composable]
 fn shows_page(on_play: Handler<u32>) {
     let mut ordered: Vec<&'static Episode> = EPISODES.iter().collect();
     ordered.sort_by_key(|found| found.seconds);
@@ -467,7 +467,7 @@ fn shows_page(on_play: Handler<u32>) {
 }
 
 /// One row of the plain list, with the hairline under every row but the last.
-#[composable]
+#[Composable]
 fn shows_row(found: &'static Episode, last: bool, on_play: Handler<u32>) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -509,7 +509,7 @@ fn shows_row(found: &'static Episode, last: bool, on_play: Handler<u32>) {
 }
 
 /// What you follow and what you have listened to.
-#[composable]
+#[Composable]
 fn you_page(followed: usize) {
     let listened: u32 = EPISODES.iter().map(|found| found.seconds).sum();
     Column()
@@ -561,7 +561,7 @@ fn you_page(followed: usize) {
 
 /// The player: the cover full bleed at the top of a white page, with the transport under
 /// it.
-#[composable]
+#[Composable]
 fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc<dyn Fn()>) {
     let show = show_of(found);
     let at = position.get();
@@ -669,7 +669,7 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                 .alignment(Alignment::Center)
                 .arrangement(Arrangement::Center)
                 .content(|| {
-                    let back = position.clone();
+                    let back = position;
                     Button("\u{21ba} 15")
                         .variant(ButtonVariant::Text)
                         .color(palette::INK)
@@ -685,7 +685,7 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                 .shape_role(ShapeRole::Full),
                         )
                         .on_click(move || play());
-                    let ahead = position.clone();
+                    let ahead = position;
                     Button("15 \u{21bb}")
                         .variant(ButtonVariant::Text)
                         .color(palette::INK)
@@ -701,7 +701,7 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
 /// labelled bar with a selection pill under a hairline. The reference is three circles
 /// sitting on the page, the one you are on filled with the accent, and that is a shape no
 /// design system would be right to give a set of destinations.
-#[composable]
+#[Composable]
 fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
     Row()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
@@ -734,7 +734,7 @@ fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
         });
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {
@@ -748,10 +748,7 @@ pub fn app() {
     let position = remember(|| mutable_state_of(START_SECONDS));
     let followed = remember(|| mutable_state_of(vec![0_usize]));
 
-    let on_play: Handler<u32> = {
-        let playing = playing.clone();
-        Rc::new(move |id: u32| playing.set(Some(id)))
-    };
+    let on_play: Handler<u32> = { Rc::new(move |id: u32| playing.set(Some(id))) };
 
     // The player covers everything, including the bar along the bottom, because a full
     // screen player is what the reference draws and a bar under it would be a way out of
@@ -769,8 +766,8 @@ pub fn app() {
                             .fill_max_height(),
                     )
                     .content(|| {
-                        let close = playing.clone();
-                        player_page(found, position.clone(), Rc::new(move || close.set(None)));
+                        let close = playing;
+                        player_page(found, position, Rc::new(move || close.set(None)));
                     });
             });
         return;
@@ -795,7 +792,7 @@ pub fn app() {
                                 .fill_max_width_if(measure.is_none()),
                         )
                         .content(|| {
-                            let go = destination.clone();
+                            let go = destination;
                             bottom_bar(current, Rc::new(move |choice| go.set(choice)));
                         });
                 });
@@ -809,7 +806,7 @@ pub fn app() {
                         .modifier(Modifier.width_if(measure))
                         .content(|| match current {
                             Destination::New => {
-                                new_page(followed.clone(), Rc::clone(&on_play), Rc::clone(&on_play))
+                                new_page(followed, Rc::clone(&on_play), Rc::clone(&on_play))
                             }
                             Destination::Shows => shows_page(Rc::clone(&on_play)),
                             Destination::You => you_page(followed.with(Vec::len)),

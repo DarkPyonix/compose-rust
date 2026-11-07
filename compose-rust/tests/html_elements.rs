@@ -133,6 +133,15 @@ fn every_modifier() -> Vec<Modifier> {
             origin_x: 0.5,
             origin_y: 0.25,
         },
+        Modifier::Transform3D {
+            m: [
+                0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0,
+                -6.0, 8.0, 1.0,
+            ],
+            origin_x: 0.5,
+            origin_y: 0.25,
+            backface_hidden: true,
+        },
         Modifier::MatchParentSize,
         Modifier::PressFeedback {
             scale: 0.975,
@@ -151,7 +160,8 @@ fn tag_of(modifier: &Modifier) -> u16 {
 }
 
 /// Each new modifier round-trips, and its record is as long as its tag says: 28 bytes for
-/// a value of two words, 36 for the shadow's three and 60 for the border's six.
+/// a value of two words, 36 for the shadow's three, 60 for the border's six and 92 for the
+/// 3D transform's ten.
 #[test]
 fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
     let modifiers = every_modifier();
@@ -186,6 +196,8 @@ fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
         (23, 36),
         (24, 28),
         (25, 28),
+        (26, 44),
+        (27, 92),
     ] {
         assert_eq!(
             28 + 8 * usize::from(modifier_extra_words(tag).unwrap()),
@@ -202,7 +214,7 @@ fn fr_matchparent_round_trips_with_sparse_tag() {
     assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 31);
     assert_eq!(bytes.len(), 40);
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
-    for tag in 27..31 {
+    for tag in 28..31 {
         assert_eq!(modifier_extra_words(tag), None);
     }
 }

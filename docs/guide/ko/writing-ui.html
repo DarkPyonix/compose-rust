@@ -70,7 +70,7 @@
 
     <h2 id="composables">컴포저블은 함수입니다</h2>
     <p>
-      함수에 <code>#[composable]</code> 을 붙이고 그 안에서 위젯을 부릅니다. glob import 두 줄이면
+      함수에 <code>#[Composable]</code> 을 붙이고 그 안에서 위젯을 부릅니다. glob import 두 줄이면
       전부 들어옵니다. 상태와 effect는 <code>compose_rust::runtime</code> 에서, 위젯과
       <code>Modifier</code> 는 <code>compose_rust::ui</code> 에서 옵니다.
     </p>
@@ -80,7 +80,7 @@
 <pre><code><span class="k">use</span> compose_rust::runtime::*;
 <span class="k">use</span> compose_rust::ui::*;
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
@@ -96,7 +96,7 @@
     </figure>
 
     <p>
-      <code>#[composable]</code> 은 Compose 컴파일러 플러그인이 <code>@Composable</code> 함수에 하는
+      <code>#[Composable]</code> 은 Compose 컴파일러 플러그인이 <code>@Composable</code> 함수에 하는
       일을 합니다. 호출에 그룹을 주고, <code>if</code> 와 <code>match</code> 의 가지마다 따로 그룹을
       주고, 함수를 건너뛸 수 있고 다시 시작할 수 있게 만듭니다. 그룹을 손으로 쓰는 일은 없습니다.
       그룹은 <code>continue</code>, <code>break</code>, <code>return</code>, <code>?</code>, 되감기를
@@ -144,7 +144,7 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="at">#[composable]</span>
+<pre><code><span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">task_row</span>(title: <span class="ty">String</span>, done: <span class="ty">bool</span>, on_toggle: <span class="ty">Rc</span>&lt;<span class="k">dyn</span> <span class="ty">Fn</span>(<span class="ty">bool</span>)&gt;) {
     <span class="f">Row</span>()
         .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_width</span>())
@@ -460,7 +460,7 @@
 <span class="k">use</span> compose_rust::ui::*;
 <span class="k">use</span> compose_rust::{<span class="ty">AnimationSpec</span>, animate_float_as_state};
 
-<span class="at">#[composable]</span>
+<span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">fading</span>(faded: <span class="ty">MutableState</span>&lt;<span class="ty">bool</span>&gt;) {
     <span class="k">let</span> target = <span class="k">if</span> faded.<span class="f">get</span>() { <span class="n">0.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
     <span class="f">Box</span>()

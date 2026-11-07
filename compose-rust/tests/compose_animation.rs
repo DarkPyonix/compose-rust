@@ -22,7 +22,7 @@ thread_local! {
     static COMPOSED: Cell<usize> = const { Cell::new(0) };
 }
 
-#[composable]
+#[Composable]
 fn Fading(faded: MutableState<bool>) {
     COMPOSED.with(|composed| composed.set(composed.get() + 1));
     let target = if faded.get() { 0.0 } else { 1.0 };
@@ -69,8 +69,8 @@ fn start(
 #[test]
 fn fr41_compose_api_emits_the_same_records() {
     let faded = mutable_state_of(false);
-    let state = faded.clone();
-    let (mut host, mut tree, first) = start(move || Fading(state.clone()));
+    let state = faded;
+    let (mut host, mut tree, first) = start(move || Fading(state));
     assert!(
         !first
             .iter()
@@ -124,8 +124,8 @@ fn fr41_compose_api_emits_the_same_records() {
 #[test]
 fn fr41_compose_api_animation_does_not_recompose() {
     let faded = mutable_state_of(false);
-    let state = faded.clone();
-    let (mut host, mut tree, _) = start(move || Fading(state.clone()));
+    let state = faded;
+    let (mut host, mut tree, _) = start(move || Fading(state));
     faded.set(true);
     let batch = host
         .render_frame(16_666_667)
@@ -147,7 +147,7 @@ fn fr41_compose_api_animation_does_not_recompose() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Turned() {
     Box()
         .modifier(Modifier.size(40.0, 40.0).graphics_layer(GraphicsLayer {
@@ -200,7 +200,7 @@ fn fr41_compose_api_graphics_layer_is_a_transform_and_an_alpha() {
     assert!(modifiers.contains(&Wire::Alpha(0.25)), "{modifiers:?}");
 }
 
-#[composable]
+#[Composable]
 fn Moving(moved: MutableState<bool>) {
     let (offset, colour) = if moved.get() {
         ((24.0, 8.0), Paint::Role(ColorRole::Primary))
@@ -222,8 +222,8 @@ fn Moving(moved: MutableState<bool>) {
 #[test]
 fn fr41_compose_api_offset_and_colour_are_one_transition_each() {
     let moved = mutable_state_of(false);
-    let state = moved.clone();
-    let (mut host, _, first) = start(move || Moving(state.clone()));
+    let state = moved;
+    let (mut host, _, first) = start(move || Moving(state));
     let boxed = node_of(&first, WidgetKind::Box);
     moved.set(true);
     let changed = owned(host.render_frame(16_666_667).expect("the frame encodes"));

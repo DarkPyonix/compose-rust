@@ -1,10 +1,11 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
-    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    Paint, PropertyKind, SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole,
-    TYPE_ROLE_COUNT, Theme, WidgetKind, modifier_extra_words,
+    AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus, Key,
+    MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
+    WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -36,6 +37,11 @@ const TAG_SET_FOLDED: u16 = 22;
 const TAG_SET_WINDOW_THEME: u16 = 23;
 const TAG_FOCUS_WINDOW: u16 = 24;
 const TAG_REQUEST_FOCUS: u16 = 25;
+// 26 asks for a platform file dialog. Its answer is the event numbered 50.
+const TAG_SHOW_FILE_DIALOG: u16 = 26;
+/// `ShowFileDialog` after its header: the request, the window, the kind and the default
+/// filter, then four string references. 44 bytes, so the record is 48.
+const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -245,6 +251,23 @@ pub enum Mutation<'a> {
     RequestFocus {
         node_id: u32,
     },
+    /// Asks the platform to show a file dialog on a window and answers later, once, with a
+    /// `FileDialogResult` event that carries `request`.
+    ///
+    /// `window` is a `Window` node id, or 0 for the implicit root window. `filters` is one
+    /// string: a label and its comma-joined extensions as a pair, pairs joined by NUL
+    /// (`"Images\0png,jpg\0Docs\0pdf,txt"`). `default_filter` is the position of the
+    /// filter selected first.
+    ShowFileDialog {
+        request: u32,
+        window: u32,
+        kind: FileDialogKind,
+        default_filter: u16,
+        title: &'a str,
+        directory: &'a str,
+        name: &'a str,
+        filters: &'a str,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -332,6 +355,12 @@ const EVENT_WINDOW_UNAVAILABLE: u16 = 44;
 const EVENT_WINDOW_CLOSED: u16 = 45;
 const EVENT_WINDOW_REQUESTED: u16 = 46;
 const EVENT_APPLICATION_REOPEN: u16 = 47;
+// 48 and 49 are the node focus-gained and key-up events.
+const EVENT_FOCUS_GAINED: u16 = 48;
+const EVENT_KEY_UP: u16 = 49;
+const EVENT_FILE_DIALOG_RESULT: u16 = 50;
+/// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
+const FILE_DIALOG_RESULT_LEN: usize = 36;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -408,13 +437,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             crate::schema::EventPayload::TextSubmitted(read_string(bytes, 16, record_len)?)
         }
         EVENT_FOCUS_LOST if record_len == 16 => crate::schema::EventPayload::FocusLost,
+        EVENT_FOCUS_GAINED if record_len == 16 => crate::schema::EventPayload::FocusGained,
         EVENT_PROTOCOL_ERROR if record_len == 28 => crate::schema::EventPayload::ProtocolError {
             code: read_u32(bytes, 16)?,
             message: read_string(bytes, 20, record_len)?,
         },
-        EVENT_KEY_DOWN if record_len == 20 => {
+        EVENT_KEY_DOWN if record_len == 32 => {
             let raw_key = read_u16(bytes, 16)?;
             let modifiers = *bytes.get(18).ok_or(ProtocolError::Truncated)?;
+            let repeat = *bytes.get(19).ok_or(ProtocolError::Truncated)? != 0;
             crate::schema::EventPayload::KeyDown {
                 key: Key::try_from(raw_key)
                     .map_err(|()| ProtocolError::InvalidValueKind(raw_key))?,
@@ -422,6 +453,26 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ctrl_key: modifiers & MODIFIER_CTRL != 0,
                 alt_key: modifiers & MODIFIER_ALT != 0,
                 meta_key: modifiers & MODIFIER_META != 0,
+                repeat,
+                code: read_u32(bytes, 20)?,
+                text: read_string(bytes, 24, record_len)?,
+            }
+        }
+        // A key-up has the key-down's layout, so a Host handler reads both the same way.
+        EVENT_KEY_UP if record_len == 32 => {
+            let raw_key = read_u16(bytes, 16)?;
+            let modifiers = *bytes.get(18).ok_or(ProtocolError::Truncated)?;
+            let repeat = *bytes.get(19).ok_or(ProtocolError::Truncated)? != 0;
+            crate::schema::EventPayload::KeyUp {
+                key: Key::try_from(raw_key)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_key))?,
+                shift_key: modifiers & MODIFIER_SHIFT != 0,
+                ctrl_key: modifiers & MODIFIER_CTRL != 0,
+                alt_key: modifiers & MODIFIER_ALT != 0,
+                meta_key: modifiers & MODIFIER_META != 0,
+                repeat,
+                code: read_u32(bytes, 20)?,
+                text: read_string(bytes, 24, record_len)?,
             }
         }
         EVENT_RANGE_REQUESTED if record_len == 24 => crate::schema::EventPayload::RangeRequested {
@@ -647,6 +698,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_APPLICATION_REOPEN if record_len == 16 => {
             crate::schema::EventPayload::ApplicationReopen
         }
+        EVENT_FILE_DIALOG_RESULT if record_len == FILE_DIALOG_RESULT_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| FileDialogStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::FileDialogResult {
+                request: read_u32(bytes, 16)?,
+                status,
+                filter: read_u32(bytes, 24)?,
+                paths: read_string(bytes, 28, record_len)?,
+            }
+        }
+        EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -671,7 +738,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_ANIMATION
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
-        | EVENT_ZOOM_CHANGED => {
+        | EVENT_ZOOM_CHANGED
+        | EVENT_FOCUS_GAINED
+        | EVENT_KEY_UP => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -692,10 +761,13 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         ctrl_key,
         alt_key,
         meta_key,
+        repeat,
+        code,
+        text,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_KEY_DOWN.to_le_bytes());
-        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&32_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&(key as u16).to_le_bytes());
@@ -704,7 +776,41 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             | (u8::from(alt_key) * MODIFIER_ALT)
             | (u8::from(meta_key) * MODIFIER_META);
         output.push(modifiers);
-        output.push(0);
+        output.push(u8::from(repeat));
+        output.extend_from_slice(&code.to_le_bytes());
+        let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&32_u32.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::KeyUp {
+        key,
+        shift_key,
+        ctrl_key,
+        alt_key,
+        meta_key,
+        repeat,
+        code,
+        text,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_KEY_UP.to_le_bytes());
+        output.extend_from_slice(&32_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&(key as u16).to_le_bytes());
+        let modifiers = (u8::from(shift_key) * MODIFIER_SHIFT)
+            | (u8::from(ctrl_key) * MODIFIER_CTRL)
+            | (u8::from(alt_key) * MODIFIER_ALT)
+            | (u8::from(meta_key) * MODIFIER_META);
+        output.push(modifiers);
+        output.push(u8::from(repeat));
+        output.extend_from_slice(&code.to_le_bytes());
+        let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&32_u32.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::ValueChanged(value) = event.payload {
@@ -984,6 +1090,28 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         _ => {}
     }
+    if let crate::schema::EventPayload::FileDialogResult {
+        request,
+        status,
+        filter,
+        paths,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_FILE_DIALOG_RESULT,
+            FILE_DIALOG_RESULT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
+        output.extend_from_slice(&filter.to_le_bytes());
+        let len = u32::try_from(paths.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(FILE_DIALOG_RESULT_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(paths.as_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1012,6 +1140,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_TEXT_SUBMITTED, 24, Some(*value), None)
         }
         crate::schema::EventPayload::FocusLost => (EVENT_FOCUS_LOST, 16, None, None),
+        crate::schema::EventPayload::FocusGained => (EVENT_FOCUS_GAINED, 16, None, None),
         crate::schema::EventPayload::FilesEntered => (EVENT_FILES_ENTERED, 16, None, None),
         crate::schema::EventPayload::FilesDropped(paths) => {
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
@@ -1041,6 +1170,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_NOTIFICATION_ACTIVATED, 28, Some(*key), Some(*action))
         }
         crate::schema::EventPayload::KeyDown { .. }
+        | crate::schema::EventPayload::KeyUp { .. }
         | crate::schema::EventPayload::RangeRequested { .. }
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
@@ -1059,7 +1189,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowFocusChanged { .. }
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
-        | crate::schema::EventPayload::WindowDragOver { .. } => unreachable!(),
+        | crate::schema::EventPayload::WindowDragOver { .. }
+        | crate::schema::EventPayload::FileDialogResult { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1355,6 +1486,26 @@ impl BatchEncoder {
             Mutation::RequestFocus { node_id } => {
                 self.begin_record(TAG_REQUEST_FOCUS, 4);
                 self.put_u32(*node_id);
+            }
+            Mutation::ShowFileDialog {
+                request,
+                window,
+                kind,
+                default_filter,
+                title,
+                directory,
+                name,
+                filters,
+            } => {
+                self.begin_record(TAG_SHOW_FILE_DIALOG, SHOW_FILE_DIALOG_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u32(*window);
+                self.put_u16(*kind as u16);
+                self.put_u16(*default_filter);
+                self.put_string_ref(title)?;
+                self.put_string_ref(directory)?;
+                self.put_string_ref(name)?;
+                self.put_string_ref(filters)?;
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -1800,6 +1951,21 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_REQUEST_FOCUS if len == 8 => Mutation::RequestFocus {
                 node_id: read_u32(bytes, payload)?,
             },
+            TAG_SHOW_FILE_DIALOG if len == 4 + SHOW_FILE_DIALOG_PAYLOAD_LEN => {
+                let raw_kind = read_u16(bytes, payload + 8)?;
+                Mutation::ShowFileDialog {
+                    request: read_u32(bytes, payload)?,
+                    window: read_u32(bytes, payload + 4)?,
+                    kind: FileDialogKind::try_from(raw_kind)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?,
+                    default_filter: read_u16(bytes, payload + 10)?,
+                    title: read_string(bytes, payload + 12, records_len)?,
+                    directory: read_string(bytes, payload + 20, records_len)?,
+                    name: read_string(bytes, payload + 28, records_len)?,
+                    filters: read_string(bytes, payload + 36, records_len)?,
+                }
+            }
+            TAG_SHOW_FILE_DIALOG => return Err(ProtocolError::InvalidRecordLength),
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2197,7 +2363,7 @@ const fn unpack_high(word: u64) -> f32 {
 /// The value's words with nothing past the first two, which is every modifier but the few
 /// whose schema entry gives them more.
 const fn two_words(first: u64, second: u64) -> [u64; MAX_MODIFIER_WORDS] {
-    [first, second, 0, 0, 0, 0]
+    [first, second, 0, 0, 0, 0, 0, 0, 0, 0]
 }
 
 fn float_word(value: f32) -> u64 {
@@ -2269,6 +2435,10 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 right_paint.to_bits(),
                 bottom_paint.to_bits(),
                 left_paint.to_bits(),
+                0,
+                0,
+                0,
+                0,
             ],
         ),
         Modifier::CornerEach {
@@ -2295,6 +2465,10 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 pack_floats(*x, *y),
                 pack_floats(*blur, *spread),
                 paint.to_bits(),
+                0,
+                0,
+                0,
+                0,
                 0,
                 0,
                 0,
@@ -2325,6 +2499,30 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 pack_floats(*origin_x, *origin_y),
                 0,
                 0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::Transform3D {
+            m,
+            origin_x,
+            origin_y,
+            backface_hidden,
+        } => (
+            27,
+            [
+                pack_floats(m[0], m[1]),
+                pack_floats(m[2], m[3]),
+                pack_floats(m[4], m[5]),
+                pack_floats(m[6], m[7]),
+                pack_floats(m[8], m[9]),
+                pack_floats(m[10], m[11]),
+                pack_floats(m[12], m[13]),
+                pack_floats(m[14], m[15]),
+                pack_floats(*origin_x, *origin_y),
+                u64::from(*backface_hidden),
             ],
         ),
     }
@@ -2340,7 +2538,18 @@ fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
 }
 
 fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
-    let [first, second, third, fourth, fifth, sixth] = *words;
+    let [
+        first,
+        second,
+        third,
+        fourth,
+        fifth,
+        sixth,
+        seventh,
+        eighth,
+        ninth,
+        tenth,
+    ] = *words;
     match tag {
         0 => Ok(Modifier::Empty),
         1 => Ok(Modifier::Padding(f32::from_bits(first as u32))),
@@ -2450,6 +2659,46 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 f,
                 origin_x,
                 origin_y,
+            })
+        }
+        27 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(third),
+                unpack_high(third),
+                unpack_low(fourth),
+                unpack_high(fourth),
+                unpack_low(fifth),
+                unpack_high(fifth),
+                unpack_low(sixth),
+                unpack_high(sixth),
+                unpack_low(seventh),
+                unpack_high(seventh),
+                unpack_low(eighth),
+                unpack_high(eighth),
+                unpack_low(ninth),
+                unpack_high(ninth),
+            ];
+            // The same refusal as the 2D matrix: a NaN or an infinity would draw nothing
+            // on one side and something on the other.
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(ProtocolError::InvalidModifier(27));
+            }
+            let backface_hidden = match tenth {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(27)),
+            };
+            let mut m = [0.0; 16];
+            m.copy_from_slice(&values[..16]);
+            Ok(Modifier::Transform3D {
+                m,
+                origin_x: values[16],
+                origin_y: values[17],
+                backface_hidden,
             })
         }
         31 => Ok(Modifier::MatchParentSize),
@@ -2649,7 +2898,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -2701,13 +2950,13 @@ mod tests {
     #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
         // Bit 13 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 
@@ -2948,6 +3197,9 @@ mod tests {
                     ctrl_key: false,
                     alt_key: true,
                     meta_key: false,
+                    repeat: true,
+                    code: 0x28,
+                    text: "Enter",
                 },
             },
         ];
@@ -2977,6 +3229,45 @@ mod tests {
         encode_event(&event, &mut bytes).unwrap();
         assert_eq!(bytes.len(), 44);
         assert_eq!(decode_event(&bytes).unwrap(), event);
+    }
+
+    #[test]
+    fn nfr7_malformed_key_down_text_is_a_protocol_error() {
+        let event = HostEvent {
+            node_id: 1,
+            handler_id: 2,
+            payload: crate::EventPayload::KeyDown {
+                key: Key::Enter,
+                shift_key: false,
+                ctrl_key: false,
+                alt_key: false,
+                meta_key: false,
+                repeat: false,
+                code: 0x51,
+                text: "ArrowDown",
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&event, &mut bytes).unwrap();
+        assert_eq!(decode_event(&bytes).unwrap(), event);
+        // The text points past the end of the record.
+        let mut past_end = bytes.clone();
+        past_end[28..32].copy_from_slice(&200_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&past_end),
+            Err(ProtocolError::InvalidStringRange)
+        );
+        // The text starts inside the header, before the string area.
+        let mut inside_header = bytes.clone();
+        inside_header[24..28].copy_from_slice(&8_u32.to_le_bytes());
+        assert_eq!(
+            decode_event(&inside_header),
+            Err(ProtocolError::InvalidStringRange)
+        );
+        // The text is not UTF-8.
+        let mut not_utf8 = bytes;
+        not_utf8[32] = 0xff;
+        assert_eq!(decode_event(&not_utf8), Err(ProtocolError::InvalidUtf8));
     }
 
     #[test]
@@ -3406,6 +3697,161 @@ mod tests {
         assert_eq!(decode_batch(&bad), Err(ProtocolError::InvalidRecordLength));
     }
 
+    /// The request and the result are fixed records. Both survive a round trip with
+    /// Korean text and NUL separated lists in them, an unknown kind or status is a
+    /// protocol error, and no prefix of either record decodes or panics.
+    #[test]
+    fn fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors() {
+        let filters = "이미지\0png,jpg\0Docs\0pdf,txt";
+        for kind in [
+            FileDialogKind::OpenFile,
+            FileDialogKind::OpenFiles,
+            FileDialogKind::OpenFolder,
+            FileDialogKind::OpenFolders,
+            FileDialogKind::Save,
+        ] {
+            let request = Mutation::ShowFileDialog {
+                request: 7,
+                window: 20,
+                kind,
+                default_filter: 1,
+                title: "파일 고르기",
+                directory: "/home/한글",
+                name: "보고서.txt",
+                filters,
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&request).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            assert_eq!(
+                read_u16(&bytes, ENVELOPE_LEN).unwrap(),
+                TAG_SHOW_FILE_DIALOG
+            );
+            assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 2).unwrap(), 48);
+            assert_eq!(decode_batch(&bytes).unwrap(), vec![request]);
+        }
+
+        let empty = Mutation::ShowFileDialog {
+            request: u32::MAX,
+            window: 0,
+            kind: FileDialogKind::Save,
+            default_filter: 0,
+            title: "",
+            directory: "",
+            name: "",
+            filters: "",
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&empty).unwrap();
+        assert_eq!(
+            decode_batch(encoder.finish().unwrap()).unwrap(),
+            vec![empty]
+        );
+
+        let full = Mutation::ShowFileDialog {
+            request: 1,
+            window: 2,
+            kind: FileDialogKind::OpenFile,
+            default_filter: 3,
+            title: "t",
+            directory: "/d",
+            name: "n",
+            filters,
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&full).unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        for raw_kind in [0_u16, 6, 9, u16::MAX] {
+            let mut bad = bytes.clone();
+            bad[ENVELOPE_LEN + 12..ENVELOPE_LEN + 14].copy_from_slice(&raw_kind.to_le_bytes());
+            assert_eq!(
+                decode_batch(&bad),
+                Err(ProtocolError::InvalidValueKind(raw_kind))
+            );
+        }
+        let mut short = bytes.clone();
+        short[ENVELOPE_LEN + 2..ENVELOPE_LEN + 4].copy_from_slice(&44_u16.to_le_bytes());
+        assert_eq!(
+            decode_batch(&short),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+        for cut in 0..bytes.len() {
+            assert!(
+                decode_batch(&bytes[..cut]).is_err(),
+                "a batch cut at {cut} bytes decoded"
+            );
+        }
+
+        let paths = "/Users/한글/문서.txt\0/tmp/b c.png";
+        for (status, filter) in [
+            (FileDialogStatus::Chosen, 1_u32),
+            (FileDialogStatus::Cancelled, u32::MAX),
+            (FileDialogStatus::Unavailable, u32::MAX),
+        ] {
+            let result = HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: crate::EventPayload::FileDialogResult {
+                    request: 41,
+                    status,
+                    filter,
+                    paths: if status == FileDialogStatus::Chosen {
+                        paths
+                    } else {
+                        ""
+                    },
+                },
+            };
+            let mut bytes = Vec::new();
+            encode_event(&result, &mut bytes).unwrap();
+            assert_eq!(read_u16(&bytes, 0).unwrap(), EVENT_FILE_DIALOG_RESULT);
+            assert_eq!(
+                usize::from(read_u16(&bytes, 2).unwrap()),
+                FILE_DIALOG_RESULT_LEN
+            );
+            assert_eq!(decode_event(&bytes).unwrap(), result);
+        }
+
+        let result = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::FileDialogResult {
+                request: 3,
+                status: FileDialogStatus::Chosen,
+                filter: 0,
+                paths,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&result, &mut bytes).unwrap();
+        for raw_status in [0_u32, 4, 0x1_0000, u32::MAX] {
+            let mut bad = bytes.clone();
+            bad[20..24].copy_from_slice(&raw_status.to_le_bytes());
+            assert_eq!(
+                decode_event(&bad),
+                Err(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16
+                ))
+            );
+        }
+        let mut wrong_length = bytes.clone();
+        wrong_length[2..4].copy_from_slice(&32_u16.to_le_bytes());
+        assert_eq!(
+            decode_event(&wrong_length),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+        let mut not_utf8 = bytes.clone();
+        let last = not_utf8.len() - 1;
+        not_utf8[last] = 0xFF;
+        assert_eq!(decode_event(&not_utf8), Err(ProtocolError::InvalidUtf8));
+        for cut in 0..bytes.len() {
+            assert!(
+                decode_event(&bytes[..cut]).is_err(),
+                "an event cut at {cut} bytes decoded"
+            );
+        }
+    }
+
     #[test]
     fn fr65_text_field_on_composition_change_delivers_bool() {
         use std::cell::RefCell;
@@ -3458,5 +3904,208 @@ mod tests {
         host.dispatch_event(&wire).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 11);
         drop(seen);
+    }
+
+    #[test]
+    fn fr45_focus_gained_and_lost_pair() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let trace: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let trace_for_root = Arc::clone(&trace);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let gained_trace = Arc::clone(&trace_for_root);
+            let lost_trace = Arc::clone(&trace_for_root);
+            crate::ui::TextField()
+                .on_focus_gained(move || {
+                    gained_trace.lock().unwrap().push("gained");
+                })
+                .on_focus_lost(move || {
+                    lost_trace.lock().unwrap().push("lost");
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let gained_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnFocusGained,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_focus_gained must emit OnFocusGained");
+        let lost_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnFocusLost,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_focus_lost must emit OnFocusLost");
+        assert_eq!(gained_prop.0, lost_prop.0);
+        assert_eq!(PropertyKind::OnFocusGained as u16, 117);
+
+        let gained_event = HostEvent {
+            node_id: gained_prop.0,
+            handler_id: gained_prop.1,
+            payload: crate::EventPayload::FocusGained,
+        };
+        let mut wire = Vec::new();
+        encode_event(&gained_event, &mut wire).unwrap();
+        assert_eq!(wire.len(), 16);
+        assert_eq!(read_u16(&wire, 0).unwrap(), EVENT_FOCUS_GAINED);
+        assert_eq!(EVENT_FOCUS_GAINED, 48);
+        assert_eq!(decode_event(&wire).unwrap(), gained_event);
+        host.dispatch_event(&wire).unwrap();
+
+        let lost_event = HostEvent {
+            node_id: lost_prop.0,
+            handler_id: lost_prop.1,
+            payload: crate::EventPayload::FocusLost,
+        };
+        encode_event(&lost_event, &mut wire).unwrap();
+        assert_eq!(decode_event(&wire).unwrap(), lost_event);
+        host.dispatch_event(&wire).unwrap();
+
+        assert_eq!(*trace.lock().unwrap(), vec!["gained", "lost"]);
+    }
+
+    #[test]
+    fn fr45_key_up_follows_key_down() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let trace: Arc<Mutex<Vec<(&'static str, Key, bool, bool, bool, bool)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let trace_for_root = Arc::clone(&trace);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let down_trace = Arc::clone(&trace_for_root);
+            let up_trace = Arc::clone(&trace_for_root);
+            crate::ui::TextField()
+                .on_key_down(move |event| {
+                    down_trace.lock().unwrap().push((
+                        "down",
+                        event.key(),
+                        event.shift_key(),
+                        event.ctrl_key(),
+                        event.alt_key(),
+                        event.meta_key(),
+                    ));
+                })
+                .on_key_up(move |event| {
+                    up_trace.lock().unwrap().push((
+                        "up",
+                        event.key(),
+                        event.shift_key(),
+                        event.ctrl_key(),
+                        event.alt_key(),
+                        event.meta_key(),
+                    ));
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let down_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyDown,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_key_down must emit OnKeyDown");
+        let up_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyUp,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_key_up must emit OnKeyUp");
+        assert_eq!(down_prop.0, up_prop.0);
+        assert_eq!(PropertyKind::OnKeyUp as u16, 118);
+
+        let down_event = HostEvent {
+            node_id: down_prop.0,
+            handler_id: down_prop.1,
+            payload: crate::EventPayload::KeyDown {
+                key: Key::Enter,
+                shift_key: true,
+                ctrl_key: false,
+                alt_key: true,
+                meta_key: false,
+                repeat: false,
+                code: 0x28,
+                text: "Enter",
+            },
+        };
+        let mut wire = Vec::new();
+        encode_event(&down_event, &mut wire).unwrap();
+        assert_eq!(decode_event(&wire).unwrap(), down_event);
+        host.dispatch_event(&wire).unwrap();
+
+        let up_event = HostEvent {
+            node_id: up_prop.0,
+            handler_id: up_prop.1,
+            payload: crate::EventPayload::KeyUp {
+                key: Key::Enter,
+                shift_key: true,
+                ctrl_key: false,
+                alt_key: true,
+                meta_key: false,
+                repeat: false,
+                code: 0x28,
+                text: "Enter",
+            },
+        };
+        encode_event(&up_event, &mut wire).unwrap();
+        assert_eq!(wire.len(), 37);
+        assert_eq!(read_u16(&wire, 0).unwrap(), EVENT_KEY_UP);
+        assert_eq!(EVENT_KEY_UP, 49);
+        assert_eq!(decode_event(&wire).unwrap(), up_event);
+        host.dispatch_event(&wire).unwrap();
+
+        assert_eq!(
+            *trace.lock().unwrap(),
+            vec![
+                ("down", Key::Enter, true, false, true, false),
+                ("up", Key::Enter, true, false, true, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn fr45_unregistered_nodes_get_no_events() {
+        let mut host = crate::ComposeHost::with_content(|| {
+            crate::ui::TextField();
+            crate::ui::Box().content(|| {});
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        for mutation in &mutations {
+            if let Mutation::SetProp { property, .. } = mutation {
+                assert_ne!(
+                    *property,
+                    PropertyKind::OnFocusGained,
+                    "unregistered node must not emit OnFocusGained"
+                );
+                assert_ne!(
+                    *property,
+                    PropertyKind::OnKeyUp,
+                    "unregistered node must not emit OnKeyUp"
+                );
+            }
+        }
     }
 }

@@ -44,9 +44,9 @@ impl Recomposer {
         let (window, design, permission) = {
             let composer = composition.composer.borrow();
             (
-                composer.ambient.window.clone(),
-                composer.ambient.design.clone(),
-                composer.ambient.permission.clone(),
+                composer.ambient.window,
+                composer.ambient.design,
+                composer.ambient.permission,
             )
         };
         // The values themselves stay in the modules the Host publishes them to. A state
@@ -270,7 +270,7 @@ impl crate::LaunchBuilder {
     /// ends the process with a failing status if the renderer loop could not run at all.
     ///
     /// ```ignore
-    /// #[composable]
+    /// #[Composable]
     /// fn app() {
     ///     Text("Hello");
     /// }
@@ -298,7 +298,7 @@ impl crate::LaunchBuilder {
 /// Runs a composable as the application, with every launch choice left to its default.
 ///
 /// ```ignore
-/// #[composable]
+/// #[Composable]
 /// fn counter() {
 ///     let count = remember(|| mutable_state_of(0));
 ///     let more = count.clone();
@@ -323,7 +323,10 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
     match (callback, payload) {
         (
             EventCallback::Unit(handler),
-            EventPayload::Clicked | EventPayload::FocusLost | EventPayload::FilesEntered,
+            EventPayload::Clicked
+            | EventPayload::FocusLost
+            | EventPayload::FocusGained
+            | EventPayload::FilesEntered,
         ) => (*handler.borrow_mut())(),
         (EventCallback::Text(handler), EventPayload::TextChanged(text))
         | (EventCallback::Text(handler), EventPayload::TextSubmitted(text)) => {
@@ -337,9 +340,23 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
                 ctrl_key,
                 alt_key,
                 meta_key,
+                repeat,
+                code,
+                text,
+            }
+            | EventPayload::KeyUp {
+                key,
+                shift_key,
+                ctrl_key,
+                alt_key,
+                meta_key,
+                repeat,
+                code,
+                text,
             },
         ) => {
-            let event = KeyEvent::new(*key, *shift_key, *ctrl_key, *alt_key, *meta_key);
+            let event = KeyEvent::new(*key, *shift_key, *ctrl_key, *alt_key, *meta_key)
+                .with_details(*repeat, *code, text);
             (*handler.borrow_mut())(event.clone());
             return Ok(i64::from(event.consumed()));
         }

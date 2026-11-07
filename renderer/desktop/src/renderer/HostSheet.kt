@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -80,12 +81,15 @@ internal fun HostSheet(
         open.set(false)
         dismiss(node, dispatcher)
     }
+    val surfaceRequester = remember(node.id) { FocusRequester() }
+    val onEscape = { dismiss(node, dispatcher) }
 
     Popup(
         alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true),
+        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
         onDismissRequest = close,
     ) {
+        ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         Box(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
@@ -114,6 +118,7 @@ internal fun HostSheet(
             Box(
                 Modifier
                     .testTag(sheetTestTag(node.id))
+                    .modalOverlaySurface(node.id, surfaceRequester)
                     .then(sized)
                     .offset {
                         if (bottom) {

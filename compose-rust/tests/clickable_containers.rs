@@ -33,7 +33,7 @@ fn frame(host: &mut ComposeHost, tree: &mut Tree) {
     tree.apply(&batch);
 }
 
-#[composable]
+#[Composable]
 fn Clickables() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {

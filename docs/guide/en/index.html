@@ -95,7 +95,7 @@
   </div>
 
   <div class="showcase" id="how">
-<pre><code><span class="at">#[composable]</span>
+<pre><code><span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>)).<span class="f">content</span>(|| {
@@ -130,7 +130,7 @@
       <thead><tr><th>Part</th><th>State</th></tr></thead>
       <tbody>
         <tr><td>Boundary, protocol, schema, renderer download</td><td><span class="pill works">Works</span> in 0.0.2</td></tr>
-        <tr><td>Authoring API: <code>#[composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">Partial</span>: in 0.0.2 as a pre-1.0 API that may change, stable from 1.0.0 (planned for 2026-11-14)</td></tr>
+        <tr><td>Authoring API: <code>#[Composable]</code>, <code>remember</code>, <code>launch</code></td><td><span class="pill partial">Partial</span>: in 0.0.2 as a pre-1.0 API that may change, stable from 1.0.0 (planned for 2026-11-14)</td></tr>
         <tr><td>macOS, Android, Web</td><td><span class="pill works">Works end to end</span></td></tr>
         <tr><td>Linux, Windows, iOS</td><td><span class="pill partial">Builds and starts</span></td></tr>
       </tbody>

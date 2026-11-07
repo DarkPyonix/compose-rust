@@ -41,7 +41,7 @@ compose-rust is four things put together:
 
 What the 0.0.2 crate contains:
 
-- **The authoring API.** `#[composable]`, `remember`, the states and effects, the `Recomposer`,
+- **The authoring API.** `#[Composable]`, `remember`, the states and effects, the `Recomposer`,
   `launch` and one function per widget
   ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   It is new in 0.0.2, with animation: `Modifier.graphics_layer`, `Modifier.alpha`, and
@@ -76,7 +76,7 @@ What the 0.0.2 crate contains:
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 
-#[composable]
+#[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
@@ -93,7 +93,7 @@ fn main() {
 
 A widget is a statement: `Text("Hello")` describes a widget, its methods set what Compose takes
 as named arguments, and a container's children are the closure given to `content`.
-`#[composable]` inserts the groups, so you never write them by hand, and they close correctly
+`#[Composable]` inserts the groups, so you never write them by hand, and they close correctly
 through branches, early `return`, `?` and unwinding. Names follow Compose. The widget vocabulary
 is the one in the schema; nothing is defined twice. The
 [guide](https://darkpyonix.dev/compose-rust/en/writing-ui.html) covers the rest.
@@ -240,6 +240,38 @@ the Windows Kotlin/Native renderer is already one executable.
 `default-features = false` builds with no renderer at all, for a headless or documentation
 build. A binary built that way says what is missing and exits non-zero rather than opening no
 window.
+
+### Shipping a macOS application
+
+`scripts/packager-macos/package-macos` turns the executable `cargo build --release` made into an
+application bundle, using the name, identifier and version your `dx` bundle configuration and`Cargo.toml` already state. It needs Python 3.11 and Xcode's command line tools, and no Apple
+developer account.
+
+```sh
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
+scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+```
+
+The bundle carries no update settings: direct distribution is packaged and updated with
+Velopack.
+
+Every bundle is signed ad hoc. Apple silicon needs a signature to run anything, and an ad hoc
+one needs no account, but it does not name a developer Apple has verified, so **macOS asks
+before it opens a downloaded copy for the first time**:
+
+- **macOS 15 (Sequoia) and newer:** open the app and click Done when macOS says it could not
+  verify it. Then in System Settings, Privacy & Security, scroll to Security and click
+  **Open Anyway** next to the app (the button stays for about an hour), confirm, and enter
+  your password.
+- **macOS 14 and older:** Control-click the app, choose **Open**, then **Open** again.
+- **Any version:** `xattr -dr com.apple.quarantine "/Applications/My App.app"` removes the
+  download mark, and macOS opens it without asking.
+
+Move the app into Applications before the first launch: run from the disk image or Downloads,
+macOS starts a hidden temporary copy. The disk image carries these steps as `If macOS will not open the
+app.txt`.
+
 
 ### Using the authoring API from `develop`
 

@@ -12,7 +12,7 @@ use compose_rust::ui::*;
 use compose_rust::{ComposeHost, ZoomHandle, zoom};
 use support::Tree;
 
-#[composable]
+#[Composable]
 fn App() {
     Button("in twice").on_click(|| {
         let handle = ZoomHandle::default();
