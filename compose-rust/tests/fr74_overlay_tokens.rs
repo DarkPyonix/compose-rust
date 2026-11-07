@@ -19,9 +19,9 @@ fn fr74_overlay_tokens_command_round_trips() {
 
     let mut encoder = BatchEncoder::default();
     encoder.encode(&Mutation::SetOverlayTokens(tokens)).unwrap();
-    let bytes = encoder.finish();
+    let bytes = encoder.finish().unwrap();
 
-    let decoded = decode_batch(&bytes).unwrap();
+    let decoded = decode_batch(bytes).unwrap();
     assert_eq!(decoded.len(), 1);
     match &decoded[0] {
         Mutation::SetOverlayTokens(actual) => {
