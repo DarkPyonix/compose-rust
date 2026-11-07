@@ -389,4 +389,29 @@ class CodeEditorTest {
         assertTrue(shown.contains("let line_50000 = 50000;"), "the field starts at ${shown.take(40)}")
         assertFalse(shown.startsWith("let line_0 = 0;"))
     }
+
+    /** Criterion 16.5: a changed line is named in the editor's description, in words rather than colour. */
+    @Test
+    fun fr38_change_bar_adds_a_word_to_the_accessibility_description() = runComposeUiTest {
+        hostPlatformOverride = HostPlatform.Windows
+        val buffer = ByteBuffer.allocate(2 * 28).order(ByteOrder.LITTLE_ENDIAN)
+        for ((line, color) in listOf(1 to 39, 3 to 41)) {
+            buffer.putInt(0).putInt(line).putShort(2).putShort(color.toShort()).putLong(0L).putInt(0).putInt(0)
+        }
+        val connection = FakeHostConnection(
+            editor(
+                DesignSystem.Material3,
+                "a\nb\nc\nd\n",
+                Mutation.SetProp(EDITOR, PropertyKind.GutterDecorations, PropertyValue.Bytes(buffer.array())),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        val described = onNodeWithTag(nodeTestTag(EDITOR), useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config[SemanticsProperties.StateDescription]
+        assertTrue(described.contains("2") && described.contains("4"), described)
+        assertTrue(described.contains("added") || described.contains("추가됨"), described)
+        assertTrue(described.contains("modified") || described.contains("수정됨"), described)
+    }
 }
