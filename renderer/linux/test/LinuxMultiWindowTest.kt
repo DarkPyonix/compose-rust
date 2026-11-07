@@ -19,12 +19,12 @@ import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WindowMode
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
+import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.WindowDropTargets
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.ZoomLevelStore
 import dev.darkpyonix.composerust.runtime.appZoomScale
-import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -185,7 +185,7 @@ class LinuxMultiWindowTest {
                 ),
                 PropertyKind.OnWindowDrag to PropertyValue.Integer(11L),
             ) + strip(1, 10, 44L)
-        val conn = FakeHostConnection(initial)
+        val conn = RecordingHost(initial)
         host = ComposeRustHost(conn)
         host.start()
         val manager = WindowManager(host, backend, onExit = {}, dropTargets = DropTargets.Registered)
@@ -458,16 +458,16 @@ class LinuxMultiWindowTest {
             ),
             Mutation.Create(10, WidgetKind.Window),
             Mutation.SetProp(10, PropertyKind.WindowTitle, PropertyValue.Text("Window A")),
-            Mutation.SetProp(10, PropertyKind.WindowSize, PropertyValue.Pair(300f, 200f)),
+            Mutation.SetProp(10, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))),
             Mutation.Insert(0, 10, -1),
             Mutation.SetWindowTheme(10, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Dark, false)),
             Mutation.Create(20, WidgetKind.Window),
             Mutation.SetProp(20, PropertyKind.WindowTitle, PropertyValue.Text("Window B")),
-            Mutation.SetProp(20, PropertyKind.WindowSize, PropertyValue.Pair(300f, 200f)),
+            Mutation.SetProp(20, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))),
             Mutation.Insert(0, 20, -1),
             Mutation.SetWindowTheme(20, Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
         )
-        val conn = FakeHostConnection(initial)
+        val conn = RecordingHost(initial)
         val host = ComposeRustHost(conn)
         host.start()
         val manager = WindowManager(host, backend, onExit = {})
@@ -517,4 +517,33 @@ class LinuxMultiWindowTest {
             host.shutdown()
         }
     }
+}
+
+/**
+ * A Host that plays a fixed first batch, queues later batches for the next frame, and keeps
+ * the events it was sent. The linux module does not carry the desktop renderer's
+ * `FakeHostConnection`, so the tests that need one write what they need here.
+ */
+private class RecordingHost(private val initial: List<Mutation>) : HostConnection {
+    val events = mutableListOf<HostEvent>()
+    private val frames = ArrayDeque<List<Mutation>>()
+
+    fun scheduleFrame(mutations: List<Mutation>) {
+        frames.addLast(mutations)
+    }
+
+    override fun init(onMutation: (Mutation) -> Unit) {
+        initial.forEach(onMutation)
+    }
+
+    override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
+        events += event
+        return 0
+    }
+
+    override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
+        frames.removeFirstOrNull()?.forEach(onMutation)
+    }
+
+    override fun shutdown() {}
 }
