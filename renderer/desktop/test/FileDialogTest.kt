@@ -195,6 +195,25 @@ class FileDialogTest {
     }
 
     @Test
+    fun fr72_result_filter_is_the_position_in_the_list_the_host_sent() {
+        val platform = FakeFileDialogs()
+        val (host, connection) = hostWith(platform)
+        // The filter at position 0 keeps no extension and is dropped, so "All" and "Txt"
+        // are positions 1 and 2 in what the Host sent and 0 and 1 in what the platform shows.
+        host.ask(1, filters = "Dots\u0000.\u0000All\u0000\u0000Txt\u0000txt")
+        host.ask(2, filters = "Dots\u0000.\u0000All\u0000\u0000Txt\u0000txt")
+        host.frame()
+        platform.forRequest(1).onResult(FileDialogOutcome.Chosen.ofText(listOf("/a.txt"), filter = 1))
+        host.frame()
+        platform.forRequest(2).onResult(FileDialogOutcome.Chosen.ofText(listOf("/b"), filter = 0))
+        host.frame()
+
+        val results = connection.results().associateBy { it.request }
+        assertEquals(2, results.getValue(1).filter, "Txt was sent at position 2")
+        assertEquals(1, results.getValue(2).filter, "All was sent at position 1")
+    }
+
+    @Test
     fun fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable() {
         val platform = FakeFileDialogs()
         val (host, connection) = hostWith(platform)

@@ -52,6 +52,12 @@ data class FileDialogSpec(
     val name: String,
     val filters: List<FileDialogFilter>,
     val defaultFilter: Int,
+    /**
+     * For each entry of [filters], its position in the list the Host sent. A filter dropped
+     * on the way makes this differ from the identity; the result's `filter` is mapped back
+     * through it. Empty means the identity.
+     */
+    val sentPositions: List<Int> = emptyList(),
 )
 
 /**
@@ -287,7 +293,12 @@ class FileDialogCenter(
                 handlerId = 0,
                 request = spec.request,
                 status = FileDialogStatus.Chosen,
-                filter = checked.filter?.takeIf { it in spec.filters.indices } ?: none,
+                // The platform answers with a position in the cleaned list; the Host is told the
+                // position in the list it sent.
+                filter = checked.filter
+                    ?.takeIf { chosen -> chosen in spec.filters.indices }
+                    ?.let { chosen -> spec.sentPositions.getOrElse(chosen) { chosen } }
+                    ?: none,
                 paths = checked.joined,
             )
             is Checked.Ended -> HostEvent.FileDialogResult(
@@ -360,6 +371,7 @@ class FileDialogCenter(
                 // The default is a position in the list the Host sent, so it follows its filter
                 // when an earlier one was dropped.
                 defaultFilter = parsed.indexOfFirst { it.first == mutation.defaultFilter }.takeIf { it >= 0 } ?: 0,
+                sentPositions = parsed.map { it.first },
             )
         }
 
