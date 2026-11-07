@@ -40,7 +40,7 @@ fn results() -> Vec<(&'static str, FileDialogResult)> {
     RESULTS.with_borrow(Clone::clone)
 }
 
-#[composable]
+#[Composable]
 fn Askers() {
     Button("choose").on_click(|| {
         FileDialog::open_files()

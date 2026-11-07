@@ -54,7 +54,7 @@ fn event(node_id: u32, handler_id: u64, payload: EventPayload<'static>) -> HostE
 
 // ----- a single window is what it was -------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Nothing() {}
 
 /// An application launched the way it always was sends the window record it always sent,
@@ -121,7 +121,7 @@ fn fr53_window_mode_rides_in_the_spare_bits_of_the_resizable_word() {
 
 // ----- windows share one composition ---------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Shared() {
     let count = remember(|| mutable_state_of(0));
     for name in ["a", "b"] {
@@ -176,7 +176,7 @@ fn fr53_windows_share_state_in_one_batch() {
 
 static PANE_RUNS: [AtomicUsize; 2] = [AtomicUsize::new(0), AtomicUsize::new(0)];
 
-#[composable]
+#[Composable]
 fn Pane(index: usize) {
     PANE_RUNS[index].fetch_add(1, Ordering::SeqCst);
     let size = current_window_size();
@@ -263,7 +263,7 @@ fn fr53_window_events_name_their_window() {
 static CLOSE_REQUESTS: AtomicUsize = AtomicUsize::new(0);
 static FOCUS_CHANGES: AtomicUsize = AtomicUsize::new(0);
 
-#[composable]
+#[Composable]
 fn Closable() {
     let open = remember(|| mutable_state_of(true));
     if open.get() {
@@ -420,7 +420,7 @@ fn fr53_last_window_closed_policy() {
 static REQUESTS: Mutex<Vec<(String, u32)>> = Mutex::new(Vec::new());
 static REOPENS: AtomicUsize = AtomicUsize::new(0);
 
-#[composable]
+#[Composable]
 fn Listening() {
     on_window_requested(|request| {
         REQUESTS
@@ -679,7 +679,7 @@ fn fr53_malformed_window_wire_is_a_protocol_error() {
 
 // ----- misplaced windows -------------------------------------------------------------------
 
-#[composable]
+#[Composable]
 fn WindowInAColumn() {
     Column().content(|| {
         Window(|| {}).content(|| {
@@ -765,12 +765,12 @@ fn fr53_wire_numbers_are_the_ones_the_spec_lists() {
 
 // ----- nothing outlives a window --------------------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Roaming() {
     Text(format!("{:?}", current_window_size().class));
 }
 
-#[composable]
+#[Composable]
 fn Opener() {
     let open = remember(|| mutable_state_of(false));
     let toggle = open.clone();
@@ -838,7 +838,7 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
     }
 }
 
-#[composable]
+#[Composable]
 fn ReportingWindow() {
     Window(|| {}).report_size(true).content(|| Nothing());
 }
@@ -874,7 +874,7 @@ fn fr20_8_window_report_size_writes_the_property() {
     );
 }
 
-#[composable]
+#[Composable]
 fn TogglingWindow() {
     let on = remember(|| mutable_state_of(true));
     let toggle = on.clone();

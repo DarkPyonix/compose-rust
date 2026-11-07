@@ -17,7 +17,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
 const INK: Paint = Paint::Literal(Color::rgb(0x1c1b19));
 const SURFACE: Paint = Paint::Literal(Color::rgb(0xffffff));
 
-#[composable]
+#[Composable]
 fn Plain() {
     Column().content(|| {
         Switch(true);
@@ -26,7 +26,7 @@ fn Plain() {
     });
 }
 
-#[composable]
+#[Composable]
 fn Styled() {
     Column().content(|| {
         Switch(true)
@@ -97,7 +97,7 @@ fn fr67_the_checkbox_sends_its_container_check_and_side() {
     assert!(!checkbox.contains("TrackColor"), "{checkbox}");
 }
 
-#[composable]
+#[Composable]
 fn Dropping() {
     let styled = remember(|| mutable_state_of(true));
     Column().content(|| {
