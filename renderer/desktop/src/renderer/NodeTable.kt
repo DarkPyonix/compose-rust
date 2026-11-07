@@ -93,6 +93,8 @@ data class TableError(val code: Int, val message: String) {
         const val MISPLACED_WINDOW = 13
         /** A node moved from the content of one `Window` into another, or out of its window. */
         const val MOVE_BETWEEN_WINDOWS = 14
+        /** A file dialog request whose number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_FILE_DIALOG = 15
     }
 }
 
@@ -165,6 +167,15 @@ class NodeTable {
 
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
+
+    /**
+     * The file dialogs the Host has asked for, and their answers on the way back.
+     *
+     * Not cleared with the tree, for the reason the notifications are not: a request the Host
+     * is waiting on is still owed its one answer after a resync.
+     */
+    val fileDialogs: dev.darkpyonix.composerust.ui.platform.FileDialogCenter =
+        dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
 
     private var revision = 0L
 
@@ -268,6 +279,9 @@ class NodeTable {
      * start over and anything kept from before would collide with them.
      */
     fun clear() {
+        // The windows go with the nodes, and a dialog open on one of them ends with a cancel.
+        nodes.filterValues { it.widget == WidgetKind.Window }.keys.toList()
+            .forEach(fileDialogs::windowRemoved)
         animations.clear()
         nodes.clear()
         codeNodes.clear()
@@ -342,6 +356,10 @@ class NodeTable {
             is Mutation.WithdrawNotification -> notifications.withdraw(mutation.key)
             is Mutation.RequestNotificationPermission -> notifications.requestPermission()
 
+            // Not a node either. A request on a window that is not there is answered as
+            // unavailable, so the Host's one answer per request holds, and is reported too.
+            is Mutation.ShowFileDialog -> showFileDialog(mutation)
+
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
@@ -402,6 +420,22 @@ class NodeTable {
     private fun focusWindow(mutation: Mutation.FocusWindow) {
         windowNode(mutation.nodeId, "FocusWindow") ?: return
         focusRequests += mutation.nodeId
+    }
+
+    private fun showFileDialog(mutation: Mutation.ShowFileDialog) {
+        val windowKnown = mutation.window == ROOT_ID ||
+            nodes[mutation.window]?.widget == WidgetKind.Window
+        when (fileDialogs.request(mutation, windowKnown)) {
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.Accepted -> Unit
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.Duplicate -> fail(
+                TableError.DUPLICATE_FILE_DIALOG,
+                "ShowFileDialog request ${mutation.request} is already waiting for its answer",
+            )
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.UnknownWindow -> fail(
+                TableError.UNKNOWN_NODE,
+                "ShowFileDialog for unknown window ${mutation.window}",
+            )
+        }
     }
 
     private fun requestFocus(mutation: Mutation.RequestFocus) {
@@ -639,7 +673,10 @@ class NodeTable {
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
         codeNodes.remove(nodeId)
-        if (node.widget == WidgetKind.Window) windowThemes.remove(nodeId)
+        if (node.widget == WidgetKind.Window) {
+            windowThemes.remove(nodeId)
+            fileDialogs.windowRemoved(nodeId)
+        }
         animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
