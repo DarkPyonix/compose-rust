@@ -1,0 +1,5 @@
+error: expected one of `(`, `[`, or `{`, found `::`
+ --> tests/ui/fail_turbofish.rs:9:10
+  |
+9 |     List!::<i32>(vec![1]);
+  |          ^^ expected one of `(`, `[`, or `{`
