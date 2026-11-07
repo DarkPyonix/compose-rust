@@ -1,6 +1,5 @@
-//! The call macro `#[Composable]` generates next to every composable (FR-39.1.1 to
-//! FR-39.1.3), through the public surface: functions written by an application and a Host
-//! that composes them.
+//! The call macro `#[Composable]` generates next to every composable, through the public
+//! surface: functions written by an application and a Host that composes them.
 
 mod support;
 

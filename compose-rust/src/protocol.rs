@@ -3253,7 +3253,10 @@ mod tests {
         // The text points past the end of the record.
         let mut past_end = bytes.clone();
         past_end[28..32].copy_from_slice(&200_u32.to_le_bytes());
-        assert_eq!(decode_event(&past_end), Err(ProtocolError::InvalidStringRange));
+        assert_eq!(
+            decode_event(&past_end),
+            Err(ProtocolError::InvalidStringRange)
+        );
         // The text starts inside the header, before the string area.
         let mut inside_header = bytes.clone();
         inside_header[24..28].copy_from_slice(&8_u32.to_le_bytes());

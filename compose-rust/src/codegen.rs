@@ -1232,7 +1232,9 @@ object Protocol {
                     "                    if (event.metaKey) modifiers = modifiers or 0x08\n",
                 );
                 output.push_str("                    out.put(modifiers.toByte())\n");
-                output.push_str("                    out.put((if (event.repeat) 1 else 0).toByte())\n");
+                output.push_str(
+                    "                    out.put((if (event.repeat) 1 else 0).toByte())\n",
+                );
                 output.push_str("                    out.putInt(event.code)\n");
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
