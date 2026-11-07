@@ -11,8 +11,8 @@
 #![allow(non_snake_case)]
 
 use super::{
-    dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers, role_or_zero, widget_key,
-    Attrs, Modifier, Mods,
+    Attrs, Modifier, Mods, dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers,
+    role_or_zero, widget_key,
 };
 use crate::drawing::DrawList;
 use crate::fonts::FontRefs;

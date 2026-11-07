@@ -1,6 +1,6 @@
-//! Overlay theme tokens and node geometry overrides (FR-74).
+//! Overlay theme tokens and node geometry overrides.
 
-use compose_rust::protocol::{decode_batch, BatchEncoder, Mutation};
+use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
 use compose_rust::schema::{Color, DesignSystem, OverlayTokens, PropertyKind, Theme};
 
 #[test]
