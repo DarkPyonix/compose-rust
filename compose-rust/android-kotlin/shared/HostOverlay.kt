@@ -50,6 +50,7 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
 import androidx.compose.runtime.CompositionLocalProvider

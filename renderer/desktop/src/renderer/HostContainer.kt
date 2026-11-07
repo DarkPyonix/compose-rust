@@ -114,7 +114,7 @@ internal fun Modifier.containerDecoration(
     } else if (overlay) {
         when (role) {
             ContainerRole.Dialog -> theme.overlay?.dialogCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) }
-            ContainerRole.Menu, ContainerRole.Dropdown -> theme.overlay?.popupCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) }
+            ContainerRole.Menu -> theme.overlay?.popupCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) }
             else -> null
         } ?: style.shape
     } else {
@@ -125,7 +125,7 @@ internal fun Modifier.containerDecoration(
     } else if (overlay) {
         when (role) {
             ContainerRole.Dialog -> theme.overlay?.dialogElevation?.takeIf { it > 0 }?.let { it.dp }
-            ContainerRole.Menu, ContainerRole.Dropdown -> theme.overlay?.popupElevation?.takeIf { it > 0 }?.let { it.dp }
+            ContainerRole.Menu -> theme.overlay?.popupElevation?.takeIf { it > 0 }?.let { it.dp }
             else -> null
         } ?: style.elevation
     } else {
@@ -173,7 +173,7 @@ internal fun Modifier.containerDecoration(
             } else if (overlay) {
                 val customPadding = when (role) {
                     ContainerRole.Dialog -> theme.overlay?.dialogPadding?.takeIf { it > 0 }?.let { it.dp }
-                    ContainerRole.Menu, ContainerRole.Dropdown -> theme.overlay?.popupPadding?.takeIf { it > 0 }?.let { it.dp }
+                    ContainerRole.Menu -> theme.overlay?.popupPadding?.takeIf { it > 0 }?.let { it.dp }
                     else -> null
                 }
                 if (customPadding != null) {
