@@ -355,7 +355,9 @@ const EVENT_WINDOW_UNAVAILABLE: u16 = 44;
 const EVENT_WINDOW_CLOSED: u16 = 45;
 const EVENT_WINDOW_REQUESTED: u16 = 46;
 const EVENT_APPLICATION_REOPEN: u16 = 47;
-// 48 and 49 are numbered by changes that are still open.
+// 48 and 49 are the node focus-gained and key-up events.
+const EVENT_FOCUS_GAINED: u16 = 48;
+const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
 const FILE_DIALOG_RESULT_LEN: usize = 36;
@@ -435,6 +437,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             crate::schema::EventPayload::TextSubmitted(read_string(bytes, 16, record_len)?)
         }
         EVENT_FOCUS_LOST if record_len == 16 => crate::schema::EventPayload::FocusLost,
+        EVENT_FOCUS_GAINED if record_len == 16 => crate::schema::EventPayload::FocusGained,
         EVENT_PROTOCOL_ERROR if record_len == 28 => crate::schema::EventPayload::ProtocolError {
             code: read_u32(bytes, 16)?,
             message: read_string(bytes, 20, record_len)?,
@@ -443,6 +446,18 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             let raw_key = read_u16(bytes, 16)?;
             let modifiers = *bytes.get(18).ok_or(ProtocolError::Truncated)?;
             crate::schema::EventPayload::KeyDown {
+                key: Key::try_from(raw_key)
+                    .map_err(|()| ProtocolError::InvalidValueKind(raw_key))?,
+                shift_key: modifiers & MODIFIER_SHIFT != 0,
+                ctrl_key: modifiers & MODIFIER_CTRL != 0,
+                alt_key: modifiers & MODIFIER_ALT != 0,
+                meta_key: modifiers & MODIFIER_META != 0,
+            }
+        }
+        EVENT_KEY_UP if record_len == 20 => {
+            let raw_key = read_u16(bytes, 16)?;
+            let modifiers = *bytes.get(18).ok_or(ProtocolError::Truncated)?;
+            crate::schema::EventPayload::KeyUp {
                 key: Key::try_from(raw_key)
                     .map_err(|()| ProtocolError::InvalidValueKind(raw_key))?,
                 shift_key: modifiers & MODIFIER_SHIFT != 0,
@@ -714,7 +729,9 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_ANIMATION
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
-        | EVENT_ZOOM_CHANGED => {
+        | EVENT_ZOOM_CHANGED
+        | EVENT_FOCUS_GAINED
+        | EVENT_KEY_UP => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         other => return Err(ProtocolError::InvalidTag(other)),
@@ -738,6 +755,27 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
     } = event.payload
     {
         output.extend_from_slice(&EVENT_KEY_DOWN.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&(key as u16).to_le_bytes());
+        let modifiers = (u8::from(shift_key) * MODIFIER_SHIFT)
+            | (u8::from(ctrl_key) * MODIFIER_CTRL)
+            | (u8::from(alt_key) * MODIFIER_ALT)
+            | (u8::from(meta_key) * MODIFIER_META);
+        output.push(modifiers);
+        output.push(0);
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::KeyUp {
+        key,
+        shift_key,
+        ctrl_key,
+        alt_key,
+        meta_key,
+    } = event.payload
+    {
+        output.extend_from_slice(&EVENT_KEY_UP.to_le_bytes());
         output.extend_from_slice(&20_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
@@ -1077,6 +1115,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_TEXT_SUBMITTED, 24, Some(*value), None)
         }
         crate::schema::EventPayload::FocusLost => (EVENT_FOCUS_LOST, 16, None, None),
+        crate::schema::EventPayload::FocusGained => (EVENT_FOCUS_GAINED, 16, None, None),
         crate::schema::EventPayload::FilesEntered => (EVENT_FILES_ENTERED, 16, None, None),
         crate::schema::EventPayload::FilesDropped(paths) => {
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
@@ -1106,6 +1145,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             (EVENT_NOTIFICATION_ACTIVATED, 28, Some(*key), Some(*action))
         }
         crate::schema::EventPayload::KeyDown { .. }
+        | crate::schema::EventPayload::KeyUp { .. }
         | crate::schema::EventPayload::RangeRequested { .. }
         | crate::schema::EventPayload::ValueChanged(_)
         | crate::schema::EventPayload::WindowSizeChanged { .. }
@@ -3714,5 +3754,202 @@ mod tests {
         host.dispatch_event(&wire).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 11);
         drop(seen);
+    }
+
+    #[test]
+    fn fr45_focus_gained_and_lost_pair() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let trace: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let trace_for_root = Arc::clone(&trace);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let gained_trace = Arc::clone(&trace_for_root);
+            let lost_trace = Arc::clone(&trace_for_root);
+            crate::ui::TextField()
+                .on_focus_gained(move || {
+                    gained_trace.lock().unwrap().push("gained");
+                })
+                .on_focus_lost(move || {
+                    lost_trace.lock().unwrap().push("lost");
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let gained_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnFocusGained,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_focus_gained must emit OnFocusGained");
+        let lost_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnFocusLost,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_focus_lost must emit OnFocusLost");
+        assert_eq!(gained_prop.0, lost_prop.0);
+        assert_eq!(PropertyKind::OnFocusGained as u16, 117);
+
+        let gained_event = HostEvent {
+            node_id: gained_prop.0,
+            handler_id: gained_prop.1,
+            payload: crate::EventPayload::FocusGained,
+        };
+        let mut wire = Vec::new();
+        encode_event(&gained_event, &mut wire).unwrap();
+        assert_eq!(wire.len(), 16);
+        assert_eq!(read_u16(&wire, 0).unwrap(), EVENT_FOCUS_GAINED);
+        assert_eq!(EVENT_FOCUS_GAINED, 48);
+        assert_eq!(decode_event(&wire).unwrap(), gained_event);
+        host.dispatch_event(&wire).unwrap();
+
+        let lost_event = HostEvent {
+            node_id: lost_prop.0,
+            handler_id: lost_prop.1,
+            payload: crate::EventPayload::FocusLost,
+        };
+        encode_event(&lost_event, &mut wire).unwrap();
+        assert_eq!(decode_event(&wire).unwrap(), lost_event);
+        host.dispatch_event(&wire).unwrap();
+
+        assert_eq!(*trace.lock().unwrap(), vec!["gained", "lost"]);
+    }
+
+    #[test]
+    fn fr45_key_up_follows_key_down() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let trace: Arc<Mutex<Vec<(&'static str, Key, bool, bool, bool, bool)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let trace_for_root = Arc::clone(&trace);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let down_trace = Arc::clone(&trace_for_root);
+            let up_trace = Arc::clone(&trace_for_root);
+            crate::ui::TextField()
+                .on_key_down(move |event| {
+                    down_trace.lock().unwrap().push((
+                        "down",
+                        event.key(),
+                        event.shift_key(),
+                        event.ctrl_key(),
+                        event.alt_key(),
+                        event.meta_key(),
+                    ));
+                })
+                .on_key_up(move |event| {
+                    up_trace.lock().unwrap().push((
+                        "up",
+                        event.key(),
+                        event.shift_key(),
+                        event.ctrl_key(),
+                        event.alt_key(),
+                        event.meta_key(),
+                    ));
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let down_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyDown,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_key_down must emit OnKeyDown");
+        let up_prop = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyUp,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("TextField with on_key_up must emit OnKeyUp");
+        assert_eq!(down_prop.0, up_prop.0);
+        assert_eq!(PropertyKind::OnKeyUp as u16, 118);
+
+        let down_event = HostEvent {
+            node_id: down_prop.0,
+            handler_id: down_prop.1,
+            payload: crate::EventPayload::KeyDown {
+                key: Key::Enter,
+                shift_key: true,
+                ctrl_key: false,
+                alt_key: true,
+                meta_key: false,
+            },
+        };
+        let mut wire = Vec::new();
+        encode_event(&down_event, &mut wire).unwrap();
+        assert_eq!(decode_event(&wire).unwrap(), down_event);
+        host.dispatch_event(&wire).unwrap();
+
+        let up_event = HostEvent {
+            node_id: up_prop.0,
+            handler_id: up_prop.1,
+            payload: crate::EventPayload::KeyUp {
+                key: Key::Enter,
+                shift_key: true,
+                ctrl_key: false,
+                alt_key: true,
+                meta_key: false,
+            },
+        };
+        encode_event(&up_event, &mut wire).unwrap();
+        assert_eq!(wire.len(), 20);
+        assert_eq!(read_u16(&wire, 0).unwrap(), EVENT_KEY_UP);
+        assert_eq!(EVENT_KEY_UP, 49);
+        assert_eq!(decode_event(&wire).unwrap(), up_event);
+        host.dispatch_event(&wire).unwrap();
+
+        assert_eq!(
+            *trace.lock().unwrap(),
+            vec![
+                ("down", Key::Enter, true, false, true, false),
+                ("up", Key::Enter, true, false, true, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn fr45_unregistered_nodes_get_no_events() {
+        let mut host = crate::ComposeHost::with_content(|| {
+            crate::ui::TextField();
+            crate::ui::Box().content(|| {});
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        for mutation in &mutations {
+            if let Mutation::SetProp { property, .. } = mutation {
+                assert_ne!(
+                    *property,
+                    PropertyKind::OnFocusGained,
+                    "unregistered node must not emit OnFocusGained"
+                );
+                assert_ne!(
+                    *property,
+                    PropertyKind::OnKeyUp,
+                    "unregistered node must not emit OnKeyUp"
+                );
+            }
+        }
     }
 }

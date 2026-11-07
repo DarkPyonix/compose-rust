@@ -783,7 +783,9 @@ class NodeTable {
                 PropertyKind.OnValueChange,
                 PropertyKind.OnSubmit,
                 PropertyKind.OnFocusLost,
+                PropertyKind.OnFocusGained,
                 PropertyKind.OnKeyDown,
+                PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
                 -> true

@@ -99,6 +99,8 @@ internal fun HostTextField(
     val changeHandler = node.handler(PropertyKind.OnValueChange)
     val submitHandler = node.handler(PropertyKind.OnSubmit)
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
     val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
     val compositionHandler = node.handler(PropertyKind.OnCompositionChange)
     val placeholder = node.text(PropertyKind.Placeholder)
@@ -195,6 +197,9 @@ internal fun HostTextField(
         .focusRequester(focusRequester)
         .onFocusChanged { state ->
             overlayFocusStack.noteFocused(focusRequester, state.isFocused)
+            if (!focused && state.isFocused && focusGainedHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
+            }
             if (focused && !state.isFocused && focusLostHandler != null) {
                 dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
             }
@@ -211,6 +216,8 @@ internal fun HostTextField(
             if (composingNow && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                 applyValueChange(value.copy(composition = null))
                 true
+            } else if (keyUpHandler != null && isDispatchableKeyUp(event, composingNow)) {
+                dispatchKeyUp(nodeId, keyUpHandler, event, composingNow, dispatcher)
             } else {
                 val consumedByHandler = keyDownHandler != null &&
                     dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher)
