@@ -7,6 +7,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,6 +19,8 @@ import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
 import java.lang.System
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
@@ -62,10 +65,33 @@ internal class LinuxWindow private constructor(
      * `Dispatchers.Main`, so the application's main-thread work runs here too, in the same queue.
      */
     private val work: FrameDispatcher,
+    internal val zoom: Zoom,
 ) : WindowListener {
 
     private val reportFrames = System.getenv("DXC_REPORT_FRAMES") != null
     private val reportInput = System.getenv("DXC_REPORT_INPUT") != null
+
+    private var reportedZoomLevel: Int? = null
+    private var reportedOs: Float? = null
+    private var zoomDirty = true
+
+    internal fun setZoomLevel(level: Int) {
+        if (closed) return
+        if (zoom.setLevel(level)) {
+            zoomDirty = true
+            x11.requestFrame()
+        }
+        reportZoom()
+    }
+
+    private fun reportZoom() {
+        val listener = platformListener ?: return
+        if (reportedZoomLevel != zoom.level || reportedOs != zoom.os) {
+            reportedZoomLevel = zoom.level
+            reportedOs = zoom.os
+            listener.onZoomChanged(zoom.k, zoom.os, zoom.level)
+        }
+    }
 
     /**
      * Whether this window has the keyboard, as the window last said.
@@ -189,7 +215,7 @@ internal class LinuxWindow private constructor(
      */
     private val frames = WindowFrames({ x11.measure() }) { width, height, scale ->
         val size = IntSize(width, height)
-        val density = Density(scale)
+        val density = zoom.density(scale)
         // Told to the scene here, in the frame that is about to be drawn at that size, because
         // a framebuffer that fits and a scene that does not is a window drawing its old size
         // into a corner of its new one.
@@ -233,6 +259,11 @@ internal class LinuxWindow private constructor(
      * Null for the one window of a single window application, which closes when asked.
      */
     internal var platformListener: PlatformWindowListener? = null
+        set(value) {
+            field = value
+            reportedZoomLevel = null
+            reportedOs = null
+        }
 
     /** Whether [close] has run, so that a second call does nothing. */
     private var closed = false
@@ -279,7 +310,7 @@ internal class LinuxWindow private constructor(
         semantics.perform(id, action, argument)
 
     fun setContent(content: @Composable () -> Unit) {
-        scene.setContent(content)
+        scene.setContent { CompositionLocalProvider(LocalZoom provides zoom) { content() } }
     }
 
     /**
@@ -357,6 +388,8 @@ internal class LinuxWindow private constructor(
      * arrived this turn, which is news to every window.
      */
     internal fun processTurn(woken: Boolean) {
+        if (zoom.refresh()) zoomDirty = true
+        reportZoom()
         val turnHeard = heard.isNotEmpty() || woken
         for (event in heard) {
             if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
@@ -377,8 +410,8 @@ internal class LinuxWindow private constructor(
         // Only when there is something to draw. A window that is being resized has
         // already had its frame drawn by the resize, and a window where nothing is
         // happening should leave the screen alone.
-        val drew = if (!painted || turnHeard || scene.hasInvalidations() || frameWaiters.isNotEmpty()) {
-            frames.draw()
+        val drew = if (!painted || zoomDirty || turnHeard || scene.hasInvalidations() || frameWaiters.isNotEmpty()) {
+            frames.draw().also { if (it) zoomDirty = false }
         } else {
             false
         }
@@ -429,7 +462,11 @@ internal class LinuxWindow private constructor(
          * [work] is where the scene's work runs. It must have been made on this thread, which is
          * the one the window is run on.
          */
-        fun open(config: WindowConfig, work: FrameDispatcher = FrameDispatcher()): LinuxWindow? {
+        fun open(
+            config: WindowConfig,
+            work: FrameDispatcher = FrameDispatcher(),
+            zoom: Zoom = Zoom(nativeLinuxTextScale(), nativeLinuxZoomLevelStore()),
+        ): LinuxWindow? {
             val x11 = X11Window()
             // The listener is the window being made, and the window cannot exist before the
             // platform does, so it is handed over once both are there.
@@ -437,7 +474,7 @@ internal class LinuxWindow private constructor(
             if (!x11.open(config, handoff)) {
                 return null
             }
-            val window = LinuxWindow(x11, config.title, work)
+            val window = LinuxWindow(x11, config.title, work, zoom)
             handoff.target = window
             return window
         }
