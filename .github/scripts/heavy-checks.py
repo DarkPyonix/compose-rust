@@ -58,6 +58,7 @@ KNOWN_HEAVY = [
     "test-samples.yml",
     "test-windows-resize-metrics.yml",
     "test-windows-resize-probe.yml",
+    "package-windows-host.yml",
 ]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
