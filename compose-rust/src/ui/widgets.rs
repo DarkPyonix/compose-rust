@@ -627,8 +627,8 @@ fn scroll_state_input(
         attrs.push(("determinate", OwnedAttr::Bool(animate)));
         attrs.push(("count", OwnedAttr::Int(revision)));
     }
-    let offset = state.offset.clone();
-    let max_offset = state.max_offset.clone();
+    let offset = state.offset;
+    let max_offset = state.max_offset;
     listeners.push((
         "onrangerequest",
         EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
