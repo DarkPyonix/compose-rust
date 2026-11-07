@@ -103,9 +103,9 @@ jobs:
   # Does the release for this commit's crate version carry the renderer assets? Decides
   # whether the build downloads them or builds the renderer itself.
   #
-  # The renderer used is the one released for the crate version, so a pull request that
-  # changes the renderer's sources without raising the version is tested against the old
-  # release. Raise the version, or the assets are not found, for the new sources to be built.
+  # The renderer used is the one released for the crate version, unless the release carries
+  # another schema than this head (compared by schema-hash.txt): then the renderer is built
+  # from this head and the run says so in a notice.
   # The Windows static branches below take effect once the release carries a static
   # windows-x64 tarball; until then the Windows build still uses the DLL kit.
   resolve:
@@ -132,8 +132,23 @@ jobs:
           # counts as not released. A gh failure is warned about, not hidden.
           result="$(.github/scripts/find-released-renderer.sh "$version")"
           echo "$result"
-          echo "$result" | grep '^released=' >> "$GITHUB_OUTPUT"
           released="$(sed -n 's/^released=//p' <<<"$result")"
+          # A release built from another schema can never agree with this head: the crate's
+          # build script refuses a renderer of a different schema. Say so, and build the
+          # renderer from this head instead, so the check stays meaningful on a head that
+          # changed the schema without moving the version yet.
+          if [[ "$released" == "true" ]]; then
+            work="$(mktemp -d)"
+            asset="compose-rust-renderer-v$version-linux-x64.tar.gz"
+            gh release download "v$version" -R "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$work"
+            released_hash="$(tar -xzOf "$work/$asset" --wildcards '*schema-hash.txt' | tr -d '[:space:]')"
+            head_hash="$(tr -d '[:space:]' < compose-rust/schema-hash.txt)"
+            if [[ "$released_hash" != "$head_hash" ]]; then
+              echo "::notice title=Schema changed since v$version::the release carries schema $released_hash and this head $head_hash, so the samples are checked against the renderer built from this head"
+              released=false
+            fi
+          fi
+          echo "released=$released" >> "$GITHUB_OUTPUT"
           echo "crate $version, released renderer: $released"
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
