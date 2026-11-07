@@ -10,7 +10,10 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dev.darkpyonix.composerust.protocol.FileDialogKind
+import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.ProtocolException
 import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
 import dev.darkpyonix.composerust.protocol.Severity
 import dev.darkpyonix.composerust.protocol.HoverPhase
@@ -113,6 +116,8 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                // The vector's dialog is on the implicit root window, which always exists.
+                is Mutation.ShowFileDialog -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -205,6 +210,72 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, changedLength)
         assertEquals(bytes.copyOfRange(274, 294).toList(), changed.array().copyOf(changedLength).toList())
+    }
+
+    /**
+     * The file dialog request and its result, read from and encoded to the bytes the Host
+     * wrote: four string references, a kind and a default filter, and three words and a
+     * string reference.
+     */
+    @Test
+    fun fr72_the_file_dialog_records_in_the_vector_round_trip() {
+        assertEquals(
+            listOf(
+                Mutation.ShowFileDialog(
+                    request = 7,
+                    window = 0,
+                    kind = FileDialogKind.OpenFiles,
+                    defaultFilter = 1,
+                    title = "파일 고르기",
+                    directory = "/home/한글",
+                    name = "보고서.txt",
+                    filters = "이미지\u0000png,jpg\u0000문서\u0000pdf,txt",
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.ShowFileDialog>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(128)
+        val length = Protocol.encodeEvent(
+            HostEvent.FileDialogResult(
+                nodeId = 0,
+                handlerId = 0,
+                request = 7,
+                status = FileDialogStatus.Chosen,
+                filter = 1,
+                paths = "/Users/한글/문서.txt\u0000/tmp/a b.png",
+            ),
+            out,
+        )
+        assertEquals(73, length)
+        assertEquals(bytes.copyOfRange(952, 952 + 73).toList(), out.array().copyOf(length).toList())
+    }
+
+    /** A kind the Renderer does not know is a decode error, which the host reports instead of crashing. */
+    @Test
+    fun fr72_an_unknown_file_dialog_kind_is_a_protocol_error() {
+        val bytes = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        var offset = 12
+        var patched = false
+        while (offset < recordsLength) {
+            val tag = view.getShort(offset).toInt()
+            val length = view.getShort(offset + 2).toInt()
+            if (tag == 26) {
+                for (unknown in listOf(0, 6, 9)) {
+                    view.putShort(offset + 12, unknown.toShort())
+                    val failure = runCatching {
+                        Protocol.decode(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)) { }
+                    }.exceptionOrNull()
+                    assertTrue(failure is ProtocolException, "kind $unknown decoded instead of being refused: $failure")
+                }
+                patched = true
+            }
+            offset += length
+        }
+        assertTrue(patched, "the vector carries a file dialog request")
     }
 
     @Test
@@ -572,7 +643,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(952, bytes.size)
+        assertEquals(1025, bytes.size)
     }
 
     /**
