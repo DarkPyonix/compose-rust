@@ -125,7 +125,7 @@ fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Opti
                 .space_role(SpaceRole::Sm)
                 .alignment(Alignment::CenterStart)
                 .content(|| {
-                    play_badge(found.id, opened.clone());
+                    play_badge(found.id, opened);
                     Column().modifier(Modifier.weight(1.0)).content(|| {
                         Text(found.title)
                             .type_role(TypeRole::Subtitle)
@@ -160,7 +160,7 @@ fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
                 .alignment(Alignment::BottomStart)
                 .content(|| {
                     Image(scene(found)).modifier(Modifier.fill_max_size());
-                    play_badge(found.id, opened.clone());
+                    play_badge(found.id, opened);
                 });
             // The meta reads above the title, uppercase and in the quiet green the
             // reference uses for it. Under the title it would read as a footnote; above
@@ -197,7 +197,7 @@ fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
                                 key(found.id, || {
                                     Box()
                                         .modifier(Modifier.weight(1.0))
-                                        .content(|| tile_card(found, opened.clone()));
+                                        .content(|| tile_card(found, opened));
                                 });
                             }
                             // An odd shelf leaves a gap rather than letting the last card
@@ -237,19 +237,19 @@ fn shelf_page(
                         .color(Paint::Literal(palette::MUTED));
                 });
 
-            hero_card(hero, HERO, opened.clone());
+            hero_card(hero, HERO, opened);
 
             Text("Recommended for you")
                 .type_role(TypeRole::Label)
                 .color(Paint::Literal(palette::MUTED));
-            grid(rest, opened.clone());
+            grid(rest, opened);
 
             // The wide card the reference ends each shelf with: one course, given the
             // whole width, because a shelf that is all the same size has no shape.
             Text("Recommended category")
                 .type_role(TypeRole::Label)
                 .color(Paint::Literal(palette::MUTED));
-            hero_card(last, WIDE, opened.clone());
+            hero_card(last, WIDE, opened);
         });
 }
 
@@ -270,7 +270,7 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                     // is behind it, which is what a control over a picture needs; a text
                     // button takes a colour chosen to read on a role's fill, and the
                     // picture is not that fill.
-                    let back = opened.clone();
+                    let back = opened;
                     Button("\u{2190}")
                         .variant(ButtonVariant::Tonal)
                         .on_click(move || back.set(None));
@@ -356,7 +356,7 @@ pub fn app() {
                             .fill_max_width_if(measure.is_none())
                             .fill_max_height(),
                     )
-                    .content(|| course_page(found, opened.clone()));
+                    .content(|| course_page(found, opened));
             });
         return;
     }
@@ -370,7 +370,7 @@ pub fn app() {
         .bottom_bar(|| {
             Navigation(chosen.index()).content(|| {
                 for choice in Destination::STRIP {
-                    let pick = destination.clone();
+                    let pick = destination;
                     key(choice.label(), || {
                         NavigationItem(choice.label())
                             // The reference's bar is the page's own ink rather than an
@@ -406,20 +406,20 @@ pub fn app() {
                                         Destination::Today,
                                         "Good evening",
                                         "Three minutes is enough to start with.",
-                                        opened.clone(),
+                                        opened,
                                     ),
                                     Destination::Meditate => shelf_page(
                                         Destination::Meditate,
                                         "Meditate",
                                         "Meditation for beginners and for people who have \
                                          been at it a while.",
-                                        opened.clone(),
+                                        opened,
                                     ),
                                     Destination::Sleep => shelf_page(
                                         Destination::Sleep,
                                         "Sleep stories",
                                         "Something to listen to on the way down.",
-                                        opened.clone(),
+                                        opened,
                                     ),
                                 });
                         });

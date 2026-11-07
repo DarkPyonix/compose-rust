@@ -43,7 +43,7 @@ fn Pad() {
 /// Only a button that names a kind sends one.
 #[test]
 fn fr30_1_only_a_button_that_names_a_kind_sends_one() {
-    let mut host = ComposeHost::with_content(|| Pad());
+    let mut host = ComposeHost::with_content(Pad);
     let batch = host.rebuild().unwrap().to_vec();
     let kinds: Vec<_> = decode_batch(&batch)
         .unwrap()

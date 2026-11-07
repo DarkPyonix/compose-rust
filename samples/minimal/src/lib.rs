@@ -112,7 +112,7 @@ fn toggle_row(label: &str, toggle: impl FnOnce()) {
 
 /// Everything a person can operate.
 fn controls_group(controls: &Controls) {
-    let amount = controls.amount.clone();
+    let amount = controls.amount;
     let step: Rc<dyn Fn(i32)> =
         Rc::new(move |by: i32| amount.set((amount.get_untracked() + by).clamp(0, 99)));
     let reading = controls.reading.get();
@@ -163,7 +163,7 @@ fn controls_group(controls: &Controls) {
                                     .alignment(Alignment::CenterStart)
                                     .content(|| {
                                         Text("A").type_role(TypeRole::Caption);
-                                        let set = controls.reading.clone();
+                                        let set = controls.reading;
                                         Slider(reading)
                                             .modifier(Modifier.weight(1.0))
                                             // Ink on paper: the filled track is ink too.
@@ -192,19 +192,19 @@ fn controls_group(controls: &Controls) {
                             .space_role(SpaceRole::Sm)
                             .content(|| {
                                 toggle_row("Notifications", || {
-                                    let set = controls.notify.clone();
+                                    let set = controls.notify;
                                     Switch(controls.notify.get())
                                         .on_change(move |value| set.set(value));
                                 });
                                 Separator(None);
                                 toggle_row("Remember me", || {
-                                    let set = controls.remember.clone();
+                                    let set = controls.remember;
                                     Checkbox(controls.remember.get())
                                         .on_change(move |value| set.set(value));
                                 });
                                 Separator(None);
                                 toggle_row("Daily digest", || {
-                                    let set = controls.digest.clone();
+                                    let set = controls.digest;
                                     RadioButton(controls.digest.get())
                                         .on_change(move |value| set.set(value));
                                 });
@@ -571,7 +571,7 @@ pub fn app() {
                                                 .modifier(Modifier.fill_max_width())
                                                 .content(|| {
                                                     for choice in Group::STRIP {
-                                                        let pick = group.clone();
+                                                        let pick = group;
                                                         key(choice.label(), || {
                                                             Button(choice.label())
                                                                 .variant(ButtonVariant::Text)

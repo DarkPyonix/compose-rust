@@ -244,14 +244,7 @@ pub fn app() {
     // The worker's result comes back here, on the UI thread, and the state writes happen
     // where every other state write in the app happens.
     let settle: Rc<dyn Fn(Outcome)> = {
-        let (busy, status, on_disk, text, path, stamp) = (
-            busy.clone(),
-            status.clone(),
-            on_disk.clone(),
-            text.clone(),
-            path.clone(),
-            stamp.clone(),
-        );
+        let (busy, status, on_disk, text, path, stamp) = (busy, status, on_disk, text, path, stamp);
         Rc::new(move |outcome: Outcome| {
             busy.set(false);
             match outcome {
@@ -290,7 +283,7 @@ pub fn app() {
     // One piece of file work: a worker thread does the blocking call and the awaiting task
     // applies the answer on the UI thread.
     let run_on_worker: Rc<dyn Fn(Work)> = {
-        let (busy, scope, settle) = (busy.clone(), scope.clone(), Rc::clone(&settle));
+        let (busy, scope, settle) = (busy, scope.clone(), Rc::clone(&settle));
         Rc::new(move |work: Work| {
             busy.set(true);
             let settle = Rc::clone(&settle);
@@ -316,14 +309,7 @@ pub fn app() {
     // different code path through the whole screen.
     let choose: Rc<dyn Fn(u64)> = {
         let (current, list_open, shelved, path, text, on_disk, status, stamp) = (
-            current.clone(),
-            list_open.clone(),
-            shelved.clone(),
-            path.clone(),
-            text.clone(),
-            on_disk.clone(),
-            status.clone(),
-            stamp.clone(),
+            current, list_open, shelved, path, text, on_disk, status, stamp,
         );
         Rc::new(move |id: u64| {
             if id == current.get_untracked() {
@@ -358,15 +344,15 @@ pub fn app() {
 
     let new_document: Rc<dyn Fn()> = {
         let (shelved, current, path, text, on_disk, next_document, status, stamp, list_open) = (
-            shelved.clone(),
-            current.clone(),
-            path.clone(),
-            text.clone(),
-            on_disk.clone(),
-            next_document.clone(),
-            status.clone(),
-            stamp.clone(),
-            list_open.clone(),
+            shelved,
+            current,
+            path,
+            text,
+            on_disk,
+            next_document,
+            status,
+            stamp,
+            list_open,
         );
         Rc::new(move || {
             let on_screen = Shelved {
@@ -442,7 +428,7 @@ pub fn app() {
                 // Only where the list is not already on screen. A button that opens what
                 // you are looking at is a button that does nothing.
                 if !list_beside {
-                    let open = list_open.clone();
+                    let open = list_open;
                     Button("Documents")
                         .variant(ButtonVariant::Text)
                         .on_click(move || open.set(true));
@@ -454,15 +440,15 @@ pub fn app() {
                     .variant(ButtonVariant::Text)
                     .enabled(!working)
                     .on_click(move || start());
-                let open = file_open.clone();
+                let open = file_open;
                 Button("File")
                     .variant(ButtonVariant::Tonal)
                     .on_click(move || open.set(true));
-                let open = format_open.clone();
+                let open = format_open;
                 Button("Format")
                     .variant(ButtonVariant::Text)
                     .on_click(move || open.set(true));
-                let (run, path, text) = (Rc::clone(&run_on_worker), path.clone(), text.clone());
+                let (run, path, text) = (Rc::clone(&run_on_worker), path, text);
                 Button("Save")
                     .variant(ButtonVariant::Filled)
                     .enabled(!working)
@@ -484,7 +470,7 @@ pub fn app() {
             // sheet is where you ask. It is declared here rather than at the foot of the
             // screen because it belongs to the button in the bar above, and a sheet is
             // drawn over the page wherever it is declared.
-            let dismiss = file_open.clone();
+            let dismiss = file_open;
             Sheet(file_open.get())
                 .on_dismiss(move || dismiss.set(false))
                 .modifier(Modifier.fill_max_width())
@@ -500,13 +486,13 @@ pub fn app() {
                                     Text("File")
                                         .type_role(TypeRole::Subtitle)
                                         .modifier(Modifier.weight(1.0));
-                                    let close = file_open.clone();
+                                    let close = file_open;
                                     Button("Close")
                                         .variant(ButtonVariant::Filled)
                                         .on_click(move || close.set(false));
                                 });
                             Separator(None);
-                            let typed = path.clone();
+                            let typed = path;
                             path_field(
                                 generation,
                                 current_path.clone(),
@@ -524,11 +510,8 @@ pub fn app() {
                                     .type_role(TypeRole::Caption)
                                     .color(Paint::Role(ColorRole::OnSurfaceVariant))
                                     .modifier(Modifier.weight(1.0));
-                                    let (close, run, path) = (
-                                        file_open.clone(),
-                                        Rc::clone(&run_on_worker),
-                                        path.clone(),
-                                    );
+                                    let (close, run, path) =
+                                        (file_open, Rc::clone(&run_on_worker), path);
                                     Button("Open")
                                         .variant(ButtonVariant::Tonal)
                                         .enabled(!working)
@@ -547,7 +530,7 @@ pub fn app() {
             // another permanent strip around the page. These choices affect the editor's
             // type role directly, so every design system supplies its own face, size and
             // weight for the selected document style.
-            let dismiss = format_open.clone();
+            let dismiss = format_open;
             Sheet(format_open.get())
                 .on_dismiss(move || dismiss.set(false))
                 .modifier(Modifier.fill_max_width())
@@ -563,7 +546,7 @@ pub fn app() {
                                     Text("Formatting")
                                         .type_role(TypeRole::Subtitle)
                                         .modifier(Modifier.weight(1.0));
-                                    let close = format_open.clone();
+                                    let close = format_open;
                                     Button("Done")
                                         .variant(ButtonVariant::Filled)
                                         .on_click(move || close.set(false));
@@ -580,19 +563,14 @@ pub fn app() {
                                         "Heading",
                                         TypeRole::Headline,
                                         style,
-                                        document_type.clone(),
+                                        document_type,
                                     );
-                                    style_choice(
-                                        "Body",
-                                        TypeRole::Body,
-                                        style,
-                                        document_type.clone(),
-                                    );
+                                    style_choice("Body", TypeRole::Body, style, document_type);
                                     style_choice(
                                         "Monospaced",
                                         TypeRole::Mono,
                                         style,
-                                        document_type.clone(),
+                                        document_type,
                                     );
                                 });
                             Surface()
@@ -611,7 +589,7 @@ pub fn app() {
 
             // The same list, arriving from an edge, for the windows with no room beside
             // the document. Which edge is the Renderer's decision.
-            let dismiss = list_open.clone();
+            let dismiss = list_open;
             Sheet(list_open.get() && !list_beside)
                 .on_dismiss(move || dismiss.set(false))
                 .modifier(Modifier.fill_max_width())
@@ -703,7 +681,7 @@ pub fn app() {
                                     Box()
                                         .modifier(Modifier.fill_max_width().weight(1.0))
                                         .content(|| {
-                                            let typed = text.clone();
+                                            let typed = text;
                                             editor(
                                                 generation,
                                                 contents.clone(),

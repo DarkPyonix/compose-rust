@@ -77,8 +77,8 @@ fn Steady(count: MutableState<i32>) {
 #[test]
 fn fr39_a_frame_with_nothing_to_do_allocates_nothing() {
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let mut host = ComposeHost::with_content(move || Steady(state.clone()));
+    let state = count;
+    let mut host = ComposeHost::with_content(move || Steady(state));
     host.rebuild().unwrap();
     // Warm: the first frames size the scratch buffers the later ones reuse.
     for frame in 0..4 {

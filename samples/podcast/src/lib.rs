@@ -411,7 +411,7 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                 .content(|| {
                     for (index, show) in SHOWS.iter().enumerate() {
                         let is_followed = following.contains(&index);
-                        let list = followed.clone();
+                        let list = followed;
                         key(show.name, || {
                             show_row(
                                 show,
@@ -669,7 +669,7 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                 .alignment(Alignment::Center)
                 .arrangement(Arrangement::Center)
                 .content(|| {
-                    let back = position.clone();
+                    let back = position;
                     Button("\u{21ba} 15")
                         .variant(ButtonVariant::Text)
                         .color(palette::INK)
@@ -685,7 +685,7 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                 .shape_role(ShapeRole::Full),
                         )
                         .on_click(move || play());
-                    let ahead = position.clone();
+                    let ahead = position;
                     Button("15 \u{21bb}")
                         .variant(ButtonVariant::Text)
                         .color(palette::INK)
@@ -748,10 +748,7 @@ pub fn app() {
     let position = remember(|| mutable_state_of(START_SECONDS));
     let followed = remember(|| mutable_state_of(vec![0_usize]));
 
-    let on_play: Handler<u32> = {
-        let playing = playing.clone();
-        Rc::new(move |id: u32| playing.set(Some(id)))
-    };
+    let on_play: Handler<u32> = { Rc::new(move |id: u32| playing.set(Some(id))) };
 
     // The player covers everything, including the bar along the bottom, because a full
     // screen player is what the reference draws and a bar under it would be a way out of
@@ -769,8 +766,8 @@ pub fn app() {
                             .fill_max_height(),
                     )
                     .content(|| {
-                        let close = playing.clone();
-                        player_page(found, position.clone(), Rc::new(move || close.set(None)));
+                        let close = playing;
+                        player_page(found, position, Rc::new(move || close.set(None)));
                     });
             });
         return;
@@ -795,7 +792,7 @@ pub fn app() {
                                 .fill_max_width_if(measure.is_none()),
                         )
                         .content(|| {
-                            let go = destination.clone();
+                            let go = destination;
                             bottom_bar(current, Rc::new(move |choice| go.set(choice)));
                         });
                 });
@@ -809,7 +806,7 @@ pub fn app() {
                         .modifier(Modifier.width_if(measure))
                         .content(|| match current {
                             Destination::New => {
-                                new_page(followed.clone(), Rc::clone(&on_play), Rc::clone(&on_play))
+                                new_page(followed, Rc::clone(&on_play), Rc::clone(&on_play))
                             }
                             Destination::Shows => shows_page(Rc::clone(&on_play)),
                             Destination::You => you_page(followed.with(Vec::len)),

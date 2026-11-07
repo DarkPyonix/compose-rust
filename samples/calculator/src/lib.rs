@@ -246,8 +246,7 @@ pub fn app() {
     // One key press, whichever key it was. The tape is written here rather than in the
     // engine, because a tape is a thing the application keeps.
     let press: Press = {
-        let (calculator, entries, next_entry) =
-            (calculator.clone(), entries.clone(), next_entry.clone());
+        let (calculator, entries, next_entry) = (calculator, entries, next_entry);
         Rc::new(move |label: &'static str| {
             let mut finished = None;
             calculator.update(|state| {
@@ -273,14 +272,13 @@ pub fn app() {
     };
 
     let recall: Rc<dyn Fn(f64)> = {
-        let (calculator, tape_open) = (calculator.clone(), tape_open.clone());
+        let (calculator, tape_open) = (calculator, tape_open);
         Rc::new(move |value: f64| {
             calculator.update(|state| state.recall(value));
             tape_open.set(false);
         })
     };
     let clear_tape: Rc<dyn Fn()> = {
-        let entries = entries.clone();
         Rc::new(move || {
             let thrown_away = entries.get_untracked();
             entries.update(Vec::clear);
@@ -289,7 +287,7 @@ pub fn app() {
             } else {
                 "lines"
             };
-            let restore = entries.clone();
+            let restore = entries;
             Message::new(format!("Cleared {} {lines}", thrown_away.len()))
                 .with_action("Undo", move |()| restore.set(thrown_away.clone()))
                 .with_duration(MessageDuration::Long)
@@ -312,7 +310,7 @@ pub fn app() {
                         .modifier(Modifier.weight(1.0));
                 }
                 if !tape_beside {
-                    let open = tape_open.clone();
+                    let open = tape_open;
                     Button("")
                         .icon(IconRole::History)
                         .variant(ButtonVariant::Text)
@@ -368,7 +366,7 @@ pub fn app() {
 
             // The same tape, arriving from an edge, for windows with no room beside the
             // keys.
-            let close = tape_open.clone();
+            let close = tape_open;
             Sheet(tape_open.get() && !tape_beside)
                 .on_dismiss(move || close.set(false))
                 .modifier(Modifier.fill_max_width())

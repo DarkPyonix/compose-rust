@@ -218,13 +218,13 @@ pub fn app() {
 
     let send: Rc<dyn Fn(String)> = {
         let (messages, next_id, draft, turns, settings, conversations, current) = (
-            messages.clone(),
-            next_id.clone(),
-            draft.clone(),
+            messages,
+            next_id,
+            draft,
             turns.clone(),
-            settings.clone(),
-            conversations.clone(),
-            current.clone(),
+            settings,
+            conversations,
+            current,
         );
         Rc::new(move |text: String| {
             let text = text.trim().to_owned();
@@ -268,17 +268,14 @@ pub fn app() {
                 token,
                 turns.clone(),
                 settings.get_untracked(),
-                messages.clone(),
+                messages,
             );
         })
     };
 
     let start_conversation: Rc<dyn Fn()> = {
-        let (next_conversation, conversations, current) = (
-            next_conversation.clone(),
-            conversations.clone(),
-            current.clone(),
-        );
+        let (next_conversation, conversations, current) =
+            (next_conversation, conversations, current);
         Rc::new(move || {
             let id = next_conversation.get_untracked();
             next_conversation.set(id + 1);
@@ -294,11 +291,11 @@ pub fn app() {
 
     let delete_current: Rc<dyn Fn()> = {
         let (current, conversations, messages, turns, next_conversation) = (
-            current.clone(),
-            conversations.clone(),
-            messages.clone(),
+            current,
+            conversations,
+            messages,
             turns.clone(),
-            next_conversation.clone(),
+            next_conversation,
         );
         Rc::new(move || {
             let gone = current.get_untracked();
@@ -325,8 +322,7 @@ pub fn app() {
             }
             let next = conversations.with(|list| list[at.min(list.len() - 1)].id);
             current.set(next);
-            let (conversations, messages, current) =
-                (conversations.clone(), messages.clone(), current.clone());
+            let (conversations, messages, current) = (conversations, messages, current);
             compose_rust::Message::new(format!("Deleted \u{201c}{}\u{201d}", removed.label()))
                 .with_action("Undo", move |()| {
                     conversations.update(|list| list.insert(at, removed.clone()));
@@ -389,7 +385,7 @@ pub fn app() {
                     .variant(ButtonVariant::Text)
                     .color(Paint::Role(ColorRole::OnSurfaceVariant))
                     .on_click(move || start());
-                let (dismiss, open) = (more_open.clone(), more_open.clone());
+                let (dismiss, open) = (more_open, more_open);
                 Menu(more_open.get())
                     .on_dismiss(move || dismiss.set(false))
                     .anchor(move || {
@@ -400,7 +396,7 @@ pub fn app() {
                             .on_click(move || open.set(true));
                     })
                     .content(|| {
-                        let (more, settings_open) = (more_open.clone(), settings_open.clone());
+                        let (more, settings_open) = (more_open, settings_open);
                         Button("Assistant settings")
                             .variant(ButtonVariant::Text)
                             .modifier(Modifier.fill_max_width())
@@ -408,7 +404,7 @@ pub fn app() {
                                 more.set(false);
                                 settings_open.set(true);
                             });
-                        let (more, delete) = (more_open.clone(), Rc::clone(&delete_current));
+                        let (more, delete) = (more_open, Rc::clone(&delete_current));
                         Button("Delete conversation")
                             .variant(ButtonVariant::Text)
                             .color(Paint::Role(ColorRole::Error))
@@ -467,7 +463,7 @@ pub fn app() {
                         .icon(IconRole::Compose)
                         .on_click(move || start());
                     if show_search {
-                        let open = search_open.clone();
+                        let open = search_open;
                         NavigationItem("Search")
                             .icon(IconRole::Search)
                             .on_click(move || open.set(true));
@@ -476,7 +472,7 @@ pub fn app() {
                     NavigationItem("Videos").icon(IconRole::Video);
                     NavigationItem("Library").icon(IconRole::Library);
                     for conversation in recent.iter().cloned() {
-                        let pick = current.clone();
+                        let pick = current;
                         let id = conversation.id;
                         key(id, || {
                             NavigationItem(conversation.label())
@@ -510,7 +506,7 @@ pub fn app() {
                                 .alignment(Alignment::Center)
                                 .content(|| {
                                     let (keys, rows, messages) =
-                                        (keys.clone(), rows.clone(), messages.clone());
+                                        (keys.clone(), rows.clone(), messages);
                                     LazyColumn()
                                         .modifier(Modifier.fill_max_width().fill_max_height())
                                         .content(move |list| {
@@ -539,12 +535,12 @@ pub fn app() {
                             );
                         });
 
-                    let close = settings_open.clone();
+                    let close = settings_open;
                     Sheet(settings_open.get())
                         .on_dismiss(move || close.set(false))
                         .modifier(Modifier.fill_max_width())
                         .content(|| {
-                            let (next, close) = (settings.clone(), settings_open.clone());
+                            let (next, close) = (settings, settings_open);
                             settings_panel(
                                 current_settings,
                                 Rc::new(move |value| next.set(value)),
@@ -552,7 +548,7 @@ pub fn app() {
                             );
                         });
 
-                    let close = search_open.clone();
+                    let close = search_open;
                     Sheet(search_open.get())
                         .on_dismiss(move || close.set(false))
                         .modifier(Modifier.fill_max_width())
@@ -568,18 +564,18 @@ pub fn app() {
                                             Text("Search conversations")
                                                 .type_role(TypeRole::Subtitle)
                                                 .modifier(Modifier.weight(1.0));
-                                            let done = search_open.clone();
+                                            let done = search_open;
                                             Button("Done")
                                                 .variant(ButtonVariant::Filled)
                                                 .on_click(move || done.set(false));
                                         });
-                                    let typed = search_query.clone();
+                                    let typed = search_query;
                                     TextField()
                                         .modifier(Modifier.fill_max_width())
                                         .placeholder("Search conversations")
                                         .on_value_change(move |value| typed.set(value));
                                     if !search_query.get().is_empty() {
-                                        let clear = search_query.clone();
+                                        let clear = search_query;
                                         Button("Clear search")
                                             .modifier(Modifier.fill_max_width())
                                             .variant(ButtonVariant::Text)
@@ -673,7 +669,7 @@ fn composer_row(
         .spacing(BESIDE_A_COMPOSER_KEY)
         .alignment(Alignment::CenterStart)
         .content(|| {
-            let (dismiss, open) = (more_open.clone(), more_open.clone());
+            let (dismiss, open) = (*more_open, *more_open);
             Menu(more_open.get())
                 .on_dismiss(move || dismiss.set(false))
                 .anchor(move || {
@@ -684,7 +680,7 @@ fn composer_row(
                         .on_click(move || open.set(true));
                 })
                 .content(|| {
-                    let (more, search) = (more_open.clone(), search_open.clone());
+                    let (more, search) = (*more_open, *search_open);
                     Button("Search conversations")
                         .icon(IconRole::Search)
                         .variant(ButtonVariant::Text)
@@ -694,7 +690,7 @@ fn composer_row(
                             search.set(true);
                         });
                     Divider();
-                    let (more, settings_open) = (more_open.clone(), settings_open.clone());
+                    let (more, settings_open) = (*more_open, *settings_open);
                     Button("Settings")
                         .icon(IconRole::Settings)
                         .variant(ButtonVariant::Text)
@@ -704,14 +700,14 @@ fn composer_row(
                             settings_open.set(true);
                         });
                 });
-            let (typed, submit) = (draft.clone(), Rc::clone(send));
+            let (typed, submit) = (*draft, Rc::clone(send));
             TextField()
                 .modifier(Modifier.weight(1.0))
                 .multiline(true)
                 .placeholder("Message")
                 .on_value_change(move |value| typed.set(value))
                 .on_submit(move |value: String| submit(value));
-            let (dismiss, open) = (length_open.clone(), length_open.clone());
+            let (dismiss, open) = (*length_open, *length_open);
             Menu(length_open.get())
                 .on_dismiss(move || dismiss.set(false))
                 .anchor(move || {
@@ -722,7 +718,7 @@ fn composer_row(
                 })
                 .content(|| {
                     for length in Length::ALL {
-                        let (close, settings) = (length_open.clone(), settings.clone());
+                        let (close, settings) = (*length_open, *settings);
                         key(length.label(), || {
                             Button(length.label())
                                 .variant(ButtonVariant::Text)
@@ -735,7 +731,7 @@ fn composer_row(
                         });
                     }
                 });
-            let (pressed, current) = (Rc::clone(send), draft.clone());
+            let (pressed, current) = (Rc::clone(send), *draft);
             Button("")
                 .icon(IconRole::Send)
                 .variant(ButtonVariant::Tonal)
