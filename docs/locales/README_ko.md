@@ -39,7 +39,7 @@ compose-rust는 네 가지를 합친 것입니다.
 
 0.0.2 크레이트에 있는 것:
 
-- **작성 API.** `#[composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
+- **작성 API.** `#[Composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
   위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
   그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
@@ -70,7 +70,7 @@ compose-rust는 네 가지를 합친 것입니다.
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 
-#[composable]
+#[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
@@ -86,7 +86,7 @@ fn main() {
 ```
 
 위젯은 문장 하나입니다. `Text("Hello")`가 위젯을 기술하고, 그 메서드들이 Compose가 이름 붙은
-인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[composable]`이 그룹을
+인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[Composable]`이 그룹을
 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다.
 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다. 나머지는
 [가이드](https://darkpyonix.dev/compose-rust/ko/writing-ui.html)에 있습니다.

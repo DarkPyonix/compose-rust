@@ -70,19 +70,19 @@ fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str, nth: usize) -> Ve
 
 // ----- skipping and scope invalidation ----------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Reader(count: MutableState<i32>) {
     ran("reader");
     Text(format!("{}", count.get()));
 }
 
-#[composable]
+#[Composable]
 fn Sibling() {
     ran("sibling");
     Text("fixed");
 }
 
-#[composable]
+#[Composable]
 fn Parent(count: MutableState<i32>) {
     ran("parent");
     Column().content(|| {
@@ -118,13 +118,13 @@ fn fr39_a_state_change_runs_only_the_scope_that_read_it() {
     assert_eq!(tree.texts(), vec!["1", "fixed"]);
 }
 
-#[composable]
+#[Composable]
 fn Label(text: String) {
     ran("label");
     Text(text);
 }
 
-#[composable]
+#[Composable]
 fn Screen(count: MutableState<i32>) {
     ran("screen");
     let shown = count.get();
@@ -179,7 +179,7 @@ fn bump(name: &str) {
     note(format!("{name}:{}#{}", slot.0, slot.1.get()));
 }
 
-#[composable]
+#[Composable]
 fn WithBranch(show: bool) {
     if show {
         bump("first");
@@ -211,7 +211,7 @@ fn fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears() {
     );
 }
 
-/// The same body without the groups `#[composable]` puts around a branch: the control. A
+/// The same body without the groups `#[Composable]` puts around a branch: the control. A
 /// slot table without groups addresses state by flat position, and this is what that does.
 fn without_branch_groups(show: bool) {
     if show {
@@ -235,7 +235,7 @@ fn fr39_without_branch_groups_a_call_site_is_handed_another_ones_state() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Counted(rows: usize) {
     for index in 0..rows {
         bump(&format!("row{index}"));
@@ -266,7 +266,7 @@ fn fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them
     );
 }
 
-#[composable]
+#[Composable]
 fn Mode(mode: u8) {
     match mode {
         0 => bump("zero"),
@@ -299,7 +299,7 @@ fn fr39_a_match_arm_that_changes_takes_its_state_with_it() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Early(stop: bool) {
     bump("before");
     if stop {
@@ -308,7 +308,7 @@ fn Early(stop: bool) {
     bump("tail");
 }
 
-#[composable]
+#[Composable]
 fn Looping(limit: usize) {
     for index in 0..5 {
         if index == 1 {
@@ -321,7 +321,7 @@ fn Looping(limit: usize) {
     }
 }
 
-#[composable]
+#[Composable]
 fn Fallible(fail: bool) -> Result<(), String> {
     bump("start");
     if fail {
@@ -331,7 +331,7 @@ fn Fallible(fail: bool) -> Result<(), String> {
     Ok(())
 }
 
-#[composable]
+#[Composable]
 fn Panicky(panic: bool) {
     bump("calm");
     if panic {
@@ -339,7 +339,7 @@ fn Panicky(panic: bool) {
     }
 }
 
-#[composable]
+#[Composable]
 fn ControlFlow(chaos: MutableState<bool>) {
     let on = chaos.get();
     Early(on);
@@ -435,7 +435,7 @@ fn fr39_writes_from_a_worker_are_one_recomposition_on_the_next_frame() {
     assert_eq!(tree.texts(), vec!["3", "fixed"]);
 }
 
-#[composable]
+#[Composable]
 fn WritesWhileComposing(target: MutableState<i32>) {
     ran("writer");
     target.set(7);
@@ -464,7 +464,7 @@ fn fr39_a_write_during_composition_waits_for_the_next_frame() {
     );
 }
 
-#[composable]
+#[Composable]
 fn ClickCounter() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
@@ -485,7 +485,7 @@ fn fr39_a_write_in_a_handler_is_recomposed_in_the_same_call() {
     assert_eq!(tree.texts(), vec!["2", "More"]);
 }
 
-#[composable]
+#[Composable]
 fn Parity(count: MutableState<i32>) {
     let source = count.clone();
     let even = remember(move || derived_state_of(move || source.get() % 2 == 0));
@@ -523,7 +523,7 @@ impl Drop for NoteOnDrop {
     }
 }
 
-#[composable]
+#[Composable]
 fn Effects(id: u32) {
     side_effect(|| note("side"));
     launched_effect(id, move || async move {
@@ -537,7 +537,7 @@ fn Effects(id: u32) {
     });
 }
 
-#[composable]
+#[Composable]
 fn EffectsRoot(id: MutableState<u32>, present: MutableState<bool>) {
     if present.get() {
         Effects(id.get());
@@ -570,7 +570,7 @@ fn fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_the
     assert!(take_log().is_empty());
 }
 
-#[composable]
+#[Composable]
 fn FrameClock() {
     let time = remember(|| mutable_state_of(0_u64));
     let writer = time.clone();
@@ -594,7 +594,7 @@ fn fr39_a_future_waiting_for_a_frame_gets_that_frames_time() {
     }
 }
 
-#[composable]
+#[Composable]
 fn Worked() {
     let answer = remember(|| mutable_state_of(0_u32));
     let writer = answer.clone();
@@ -626,7 +626,7 @@ fn fr39_work_handed_to_a_worker_resumes_on_the_ui_thread_and_recomposes() {
 
 // ----- lists ------------------------------------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Rows(count: usize) {
     ran("rows");
     LazyColumn().content(move |list| {
@@ -689,7 +689,7 @@ fn fr39_a_lazy_list_composes_the_window_it_is_asked_for_and_nothing_above_it() {
 
 // ----- the Host as a whole ----------------------------------------------------------------
 
-#[composable]
+#[Composable]
 fn Deleter() {
     let deleted = remember(|| mutable_state_of(false));
     let restore = deleted.clone();
@@ -742,7 +742,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
     assert_eq!(tree.texts(), vec!["here", "Delete"]);
 }
 
-#[composable]
+#[Composable]
 fn Greeting(name: &'static str) {
     ran("greeting");
     Text(format!("Hello, {name}"));

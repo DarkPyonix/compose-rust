@@ -22,7 +22,7 @@ thread_local! {
     static COMPOSED: Cell<usize> = const { Cell::new(0) };
 }
 
-#[composable]
+#[Composable]
 fn Fading(faded: MutableState<bool>) {
     COMPOSED.with(|composed| composed.set(composed.get() + 1));
     let target = if faded.get() { 0.0 } else { 1.0 };
@@ -147,7 +147,7 @@ fn fr41_compose_api_animation_does_not_recompose() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Turned() {
     Box()
         .modifier(Modifier.size(40.0, 40.0).graphics_layer(GraphicsLayer {
@@ -200,7 +200,7 @@ fn fr41_compose_api_graphics_layer_is_a_transform_and_an_alpha() {
     assert!(modifiers.contains(&Wire::Alpha(0.25)), "{modifiers:?}");
 }
 
-#[composable]
+#[Composable]
 fn Moving(moved: MutableState<bool>) {
     let (offset, colour) = if moved.get() {
         ((24.0, 8.0), Paint::Role(ColorRole::Primary))

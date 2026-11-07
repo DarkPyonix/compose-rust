@@ -497,7 +497,7 @@ fn colour_group() {
 }
 
 /// The component sheet.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {

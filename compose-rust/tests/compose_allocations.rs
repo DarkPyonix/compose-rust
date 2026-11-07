@@ -66,7 +66,7 @@ impl AllocationMeasurement {
     }
 }
 
-#[composable]
+#[Composable]
 fn Steady(count: MutableState<i32>) {
     Column().content(|| {
         Text(format!("{}", count.get()));

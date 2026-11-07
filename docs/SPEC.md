@@ -2626,7 +2626,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 - **클로저의 소유권.** 매크로는 인자를 값으로 넘기며 복제하지 않습니다. `MutableState<T>`가 `Copy`이므로(39.2.1) `move` 클로저 여러 개와 내용 클로저가 같은 핸들을 `.clone()` 없이 씁니다. 두 형태가 같은 규칙을 따릅니다.
 - **`dyn` 함수 포인터나 변수로 받은 composable 호출**은 매크로 대상이 아닙니다. 매크로는 이름으로 함수를 부릅니다.
 
-- **composable은 함수입니다.** `#[composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
+- **composable은 함수입니다.** `#[Composable]` 속성이 본문에 그룹을 넣고, 사용자는 그룹도 키도 손으로 쓰지 않습니다. 분기, `match`, 반복문, 조기 `return`, `continue`, `break`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다(INTENT D2가 기록한 클로저 방식의 실패를 되풀이하지 않습니다).
 - **이름은 Compose를 따릅니다.** Compose에 같은 개념이 있으면 그 이름을 Rust 관례(함수와 메서드는 snake_case, 위젯은 FR-15의 Compose 이름)로 옮깁니다. PR-7의 "Rust 공개 API는 Dioxus 관례" 행은 dioxus-compose 층에 대한 것이 됩니다.
 - **위젯 어휘는 하나입니다.** FR-15의 위젯과 FR-13의 프리미티브, FR-10의 Modifier가 같은 스키마(FR-7)에서 나옵니다. compose-rust API를 위해 위젯이나 속성을 따로 정의하지 않습니다.
 

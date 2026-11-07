@@ -34,7 +34,7 @@ use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 
-#[composable]
+#[Composable]
 fn Pad() {
     Button("7").kind(ButtonKind::ActionKey);
     Button("plain");

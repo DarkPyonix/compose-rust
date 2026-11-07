@@ -6,7 +6,7 @@
 //! columns of keys along the bottom.
 //!
 //! Written with compose-rust's own API: state lives in `mutable_state_of`, screens are
-//! `#[composable]` functions, and a widget is a statement. No Kotlin and no protocol types.
+//! `#[Composable]` functions, and a widget is a statement. No Kotlin and no protocol types.
 //!
 //! There is no keyboard entry. A keypad is pressed, and a text field kept on screen only to
 //! hold the focus would be development scaffolding under the keypad, doing nothing a
@@ -66,7 +66,7 @@ fn color_for(label: &str) -> Option<Paint> {
 type Press = Rc<dyn Fn(&'static str)>;
 
 /// The keypad, in the shape this platform's calculator has.
-#[composable]
+#[Composable]
 fn keypad(apple: bool, press: Press) {
     Column()
         .modifier(Modifier.fill_max_width().fill_max_height())
@@ -95,7 +95,7 @@ fn keypad(apple: bool, press: Press) {
 }
 
 /// The memory keys, as the row the Windows and Deepin references give them.
-#[composable]
+#[Composable]
 fn memory_row(memory_set: bool, press: Press) {
     Row()
         .modifier(Modifier.fill_max_width())
@@ -119,7 +119,7 @@ fn memory_row(memory_set: bool, press: Press) {
 }
 
 /// The readout: what is being worked out, and what it comes to.
-#[composable]
+#[Composable]
 fn readout(status: String, display: String) {
     Box().modifier(Modifier.fill_max_width()).content(|| {
         Column()
@@ -160,7 +160,7 @@ struct TapeEntry {
 const TAPE_LABEL: &str = "History";
 
 /// The tape: what has been worked out, newest at the top.
-#[composable]
+#[Composable]
 fn tape(entries: Vec<TapeEntry>, recall: Rc<dyn Fn(f64)>, clear: Rc<dyn Fn()>) {
     Column()
         .modifier(Modifier.fill_max_width().fill_max_height())
@@ -224,7 +224,7 @@ const INSTRUMENT_SHARE: f32 = 3.0;
 const TAPE_SHARE: f32 = 2.0;
 
 /// The calculator.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     // The one thing a role cannot answer: Apple's calculator has different keys.

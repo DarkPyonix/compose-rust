@@ -99,7 +99,7 @@ fn play_badge(id: u32, opened: MutableState<Option<u32>>) {
 /// A reading surface under it puts both sides of the promise back. The reference does the
 /// same thing with a gradient scrim, which is the same idea drawn more softly than a
 /// closed drawing vocabulary can say.
-#[composable]
+#[Composable]
 fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Option<u32>>) {
     Box()
         .modifier(
@@ -141,7 +141,7 @@ fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Opti
 }
 
 /// A small card: the picture, then the title under it.
-#[composable]
+#[Composable]
 fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
     Column()
         .modifier(Modifier.fill_max_width())
@@ -180,7 +180,7 @@ fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
 ///
 /// Two, because there is no wrapping row in the vocabulary: a grid is rows of a fixed
 /// count and the code says how many rather than the layout working it out from the width.
-#[composable]
+#[Composable]
 fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
     Column()
         .modifier(Modifier.fill_max_width())
@@ -213,7 +213,7 @@ fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
 }
 
 /// The page a destination shows: a hero, then its shelf.
-#[composable]
+#[Composable]
 fn shelf_page(
     destination: Destination,
     heading: &'static str,
@@ -254,7 +254,7 @@ fn shelf_page(
 }
 
 /// One course opened: its picture, what it is, and its sessions.
-#[composable]
+#[Composable]
 fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
     let (strong, quiet, ink) = found.palette.roles();
     Column()
@@ -330,7 +330,7 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
 }
 
 /// The app.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {

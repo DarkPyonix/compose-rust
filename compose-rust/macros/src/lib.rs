@@ -1,4 +1,4 @@
-//! `#[composable]`: what the Compose compiler plugin does to a function, done from outside
+//! `#[Composable]`: what the Compose compiler plugin does to a function, done from outside
 //! the compiler.
 //!
 //! The plugin does three things to a `@Composable` function, and this does the same three
@@ -52,7 +52,7 @@ use syn::{
 /// Turns a function into a composable.
 ///
 /// ```ignore
-/// #[composable]
+/// #[Composable]
 /// fn Greeting(name: String) {
 ///     let clicks = remember(|| mutable_state_of(0));
 ///     Text(format!("Hello, {name}: {}", clicks.get()));
@@ -60,12 +60,13 @@ use syn::{
 /// }
 /// ```
 ///
-/// `#[composable(nonrestartable)]` keeps the groups and the skipping but never re-runs the
+/// `#[Composable(nonrestartable)]` keeps the groups and the skipping but never re-runs the
 /// function on its own: a state it reads re-runs its caller instead. That is what an
 /// associated function needs, because the runtime re-runs a function by calling it by its
 /// bare name.
 #[proc_macro_attribute]
-pub fn composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
+#[allow(non_snake_case)]
+pub fn Composable(attribute: TokenStream, item: TokenStream) -> TokenStream {
     let options = match parse_options(attribute.into()) {
         Ok(options) => options,
         Err(error) => return error.to_compile_error().into(),
@@ -93,7 +94,7 @@ fn parse_options(attribute: proc_macro2::TokenStream) -> syn::Result<Options> {
     } else {
         Err(syn::Error::new(
             ident.span(),
-            "#[composable] takes no argument except `nonrestartable`",
+            "#[Composable] takes no argument except `nonrestartable`",
         ))
     }
 }

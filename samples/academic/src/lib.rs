@@ -176,7 +176,7 @@ fn skills_page(on_open: &OpenSubject) {
 
 /// One lesson as a card. What is locked is quiet and says so in a word, because a padlock
 /// is an icon and an icon cannot be placed from application code.
-#[composable]
+#[Composable]
 fn lesson_card(lesson: &'static Lesson) {
     let (fill, ink) = if lesson.open {
         (ColorRole::SurfaceContainer, ColorRole::OnSurface)
@@ -367,7 +367,7 @@ fn profile_page() {
         });
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {

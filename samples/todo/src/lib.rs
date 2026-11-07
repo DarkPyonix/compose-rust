@@ -24,7 +24,7 @@ const BULK_COUNT: usize = 5_000;
 const ABOUT_LABEL: &str = "About";
 
 /// The bar across the top of the window, with its contents held to the list's measure.
-#[composable]
+#[Composable]
 fn list_bar(measure: Option<f32>, done: usize, total: usize, children: impl FnOnce()) {
     Column().modifier(Modifier.fill_max_width()).content(|| {
         TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
@@ -52,7 +52,7 @@ fn list_bar(measure: Option<f32>, done: usize, total: usize, children: impl FnOn
 }
 
 /// What this sample is and the one control that only a sample has.
-#[composable]
+#[Composable]
 fn about_panel(total: usize, fill: Rc<dyn Fn()>, close: Rc<dyn Fn()>) {
     Column()
         .modifier(Modifier.fill_max_width())
@@ -97,7 +97,7 @@ fn about_panel(total: usize, fill: Rc<dyn Fn()>, close: Rc<dyn Fn()>) {
 }
 
 /// The composer: one grouped strip whose field grows with the window.
-#[composable]
+#[Composable]
 fn composer(add: Rc<dyn Fn(String)>, draft: MutableState<String>) {
     Surface().modifier(Modifier.fill_max_width()).content(|| {
         Row()
@@ -120,7 +120,7 @@ fn composer(add: Rc<dyn Fn(String)>, draft: MutableState<String>) {
 }
 
 /// The task list.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     // Past an expanded window the screen stops widening and centres.
@@ -445,7 +445,7 @@ pub fn app() {
 }
 
 /// One row of the list, composed when the Renderer's window reaches it.
-#[composable]
+#[Composable]
 #[allow(clippy::too_many_arguments)]
 fn task_row(
     rows: &[usize],

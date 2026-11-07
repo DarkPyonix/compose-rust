@@ -117,7 +117,7 @@ fn thread_width(window: &WindowSize) -> Option<f32> {
 const THREAD_COLUMN: f32 = 787.0;
 
 /// The assistant's settings, in a sheet.
-#[composable]
+#[Composable]
 fn settings_panel(settings: Settings, change: Rc<dyn Fn(Settings)>, close: Rc<dyn Fn()>) {
     Column()
         .modifier(Modifier.fill_max_width())
@@ -188,7 +188,7 @@ fn settings_panel(settings: Settings, change: Rc<dyn Fn(Settings)>, close: Rc<dy
 }
 
 /// The chat.
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = thread_width(&window);
@@ -592,7 +592,7 @@ pub fn app() {
 }
 
 /// One message, composed when the Renderer's window reaches it.
-#[composable]
+#[Composable]
 fn message_row(rows: &[usize], position: usize, messages: &MutableState<Vec<Message>>) {
     let index = rows[position];
     let message = messages.with(|list| list[index].clone());
@@ -650,7 +650,7 @@ fn message_row(rows: &[usize], position: usize, messages: &MutableState<Vec<Mess
 }
 
 /// The composer: the add menu, the field, the length menu and the send key.
-#[composable]
+#[Composable]
 #[allow(clippy::too_many_arguments)]
 fn composer_row(
     more_open: &MutableState<bool>,
