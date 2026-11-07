@@ -1,6 +1,6 @@
 use compose_rust::codegen::{
     LINKED_HOST_FUNCTION, generate_event_vector, generate_kotlin, generate_linux_host_def,
-    generate_mutation_vector, generate_vector_description,
+    generate_mutation_vector, generate_transform_3d_vector, generate_vector_description,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch, decode_event, encode_event,
@@ -73,6 +73,11 @@ fn fr7_generated_vectors_match_schema() {
         include_bytes!("vectors/mutations.bin").as_slice(),
         generate_mutation_vector().unwrap(),
         "mutation vector is stale; run `cargo run -p compose-rust --bin codegen`",
+    );
+    assert_eq!(
+        include_bytes!("vectors/transform3d.bin").as_slice(),
+        generate_transform_3d_vector().unwrap(),
+        "3D transform vector is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_bytes!("vectors/events.bin").as_slice(),
