@@ -52,7 +52,7 @@ fn frame(host: &mut ComposeHost, tree: &mut Tree) -> Vec<String> {
     kinds(&batch)
 }
 
-#[composable]
+#[Composable]
 fn Child() {
     SITE_LINE.with(|line| line.set(line!() + 1));
     let state = remember(|| {
@@ -63,7 +63,7 @@ fn Child() {
     Text(format!("child {}", state.with(|tracked| tracked.0)));
 }
 
-#[composable]
+#[Composable]
 fn Gate(show: MutableState<bool>) {
     if show.get() {
         Child();
@@ -139,7 +139,7 @@ fn fr39_state_released_value_survives_a_recomposition_that_keeps_the_group() {
     assert_eq!(drops(), 1);
 }
 
-#[composable]
+#[Composable]
 fn Item(id: u32) {
     let state = remember(|| {
         let state = mutable_state_of(Tracked(id as i32));
@@ -149,7 +149,7 @@ fn Item(id: u32) {
     Text(format!("item {} {}", id, state.with(|tracked| tracked.0)));
 }
 
-#[composable]
+#[Composable]
 fn Items(order: MutableState<Vec<u32>>) {
     for id in order.get() {
         key(id, || Item(id));
@@ -275,7 +275,7 @@ fn fr39_state_worker_handle_is_send_and_sync() {
     assert_send_sync::<MutableState<i32>>();
 }
 
-#[composable]
+#[Composable]
 fn Reader(count: MutableState<i32>) {
     READER_RUNS.with(|runs| runs.set(runs.get() + 1));
     Text(format!("{}", count.get()));
