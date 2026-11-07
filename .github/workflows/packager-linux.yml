@@ -51,10 +51,9 @@ env:
   # (Ember's large icon; the images are stand-ins, the pinning and mirroring are real).
   SCREENSHOT_URL: https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/faa430a4b75ec45928623130ea2f874b628a7224/src-tauri/icons/128x128@2x.png
   # Flathub's builder and linter, run from the org.flatpak.Builder Flatpak.
-  # The host's flatpak-builder: the one inside the org.flatpak.Builder sandbox does not find the
-  # runtimes installed for the user and its own install of them is refused ("No remote refs
-  # found"). The linter stays Flathub's, from the org.flatpak.Builder Flatpak.
-  FLATPAK_BUILDER: flatpak-builder
+  # Flathub's builder, from the org.flatpak.Builder Flatpak; the install step adds the user
+  # installation to its sandbox so it sees the runtimes installed there.
+  FLATPAK_BUILDER: flatpak run --command=flatpak-builder org.flatpak.Builder
   FLATPAK_BUILDER_LINT: flatpak run --command=flatpak-builder-lint org.flatpak.Builder
 
 jobs:
@@ -317,15 +316,18 @@ jobs:
           # bubblewrap, which builds and runs every sandbox, needs them.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           sudo apt-get update
-          # The builder is apt's (24.04 has 1.4.x, which has the options Flathub requires). The
-          # org.flatpak.Builder Flatpak below is only used for the linter.
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder elfutils dbus-daemon patchelf xvfb xauth imagemagick \
+          # No flatpak-builder from apt: it is too old for the options Flathub requires.
+          # Flathub's own builder is installed below as the org.flatpak.Builder Flatpak.
+          sudo apt-get install -y --no-install-recommends flatpak elfutils dbus-daemon patchelf xvfb xauth imagemagick \
             build-essential pkg-config libx11-dev libxext-dev libgl1-mesa-dev libegl-dev libfontconfig1-dev libfreetype-dev
           flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak --user remote-ls flathub --runtime --columns=ref | grep -E '^runtime/org\.freedesktop\.Platform/x86_64/[0-9.]+$' || true
           flatpak --user install --noninteractive flathub org.flatpak.Builder \
             "org.freedesktop.Platform//$FLATPAK_RUNTIME" "org.freedesktop.Sdk//$FLATPAK_RUNTIME" \
             "org.freedesktop.Sdk.Extension.rust-stable//$FLATPAK_RUNTIME"
+          # Inside the builder's sandbox the user installation is not where the builder looks, so
+          # it asked flathub for the SDK that is already installed and was refused.
+          echo "FLATPAK_BUILDER=flatpak run --filesystem=$HOME/.local/share/flatpak --env=FLATPAK_USER_DIR=$HOME/.local/share/flatpak --command=flatpak-builder org.flatpak.Builder" >> "$GITHUB_ENV"
           echo "== what the SDK has for rewriting an executable's library names"
           flatpak run --user --command=sh "org.freedesktop.Sdk//$FLATPAK_RUNTIME" -c 'command -v patchelf readelf || true'
           rustup toolchain install stable --profile minimal && rustup default stable
