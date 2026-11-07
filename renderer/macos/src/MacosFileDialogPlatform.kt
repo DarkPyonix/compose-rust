@@ -38,7 +38,7 @@ internal interface WindowSheets {
 }
 
 /**
- * The renderer's file dialogs on top of the fork's per-window sheets (FR-72).
+ * The renderer's file dialogs on top of the fork's per-window sheets.
  *
  * The fork shows a sheet and keeps one window's requests in order; the interpreter's
  * [FileDialogCenter] keeps the protocol's rules. This sits between the two: it finds the

@@ -108,7 +108,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     )
     // The file dialogs, before the Host exists for the same reason: the node table takes the
     // platform when it is made, and the first batch may already ask for one. The windows they
-    // attach to are handed in once they exist (FR-72).
+    // attach to are handed in once they exist.
     val fileDialogs = MacosFileDialogPlatform()
     FileDialogs.platform = fileDialogs
     val host = ComposeRustHost(connection())

@@ -57,7 +57,7 @@ private fun spec(
 
 /**
  * The macOS renderer's glue between the interpreter's file dialog centre and the fork's
- * sheets (FR-72). The sheet itself is AppKit's and is checked by hand (criterion 12); what is
+ * sheets. The sheet itself is AppKit's and is checked by hand on a macOS build; what is
  * checked here is which window a request goes to, what reaches the sheet, and what comes back.
  */
 class MacosFileDialogTest {
