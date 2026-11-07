@@ -229,6 +229,7 @@ fun RenderNode(
                 containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
                 pressColor = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: theme.color(ColorRole.OnSurface),
                 allowPress = node.widget != WidgetKind.TextField,
+                allowPadding = node.widget != WidgetKind.TextField,
             ),
         )
         .testTag(nodeTestTag(nodeId))
