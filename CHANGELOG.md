@@ -46,6 +46,10 @@ Separately, a window that is narrow but tall (390 by 844 dp: Compact wide, Mediu
 
 On macOS the window buttons' safe area (`WindowSafeArea`) could stay `{0, 0, 0}` for a window that never resizes, because the caption was measured once before the title bar was laid out. The Compose fork's macOS window now measures it again after it is shown, a few times at short intervals, and the window modules are pinned at that fork commit ([#468](https://github.com/DarkPyonix/compose-rust/issues/468), [#470](https://github.com/DarkPyonix/compose-rust/pull/470), fork [#182](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/182)). Known limit: this has not been confirmed at a 390 by 844 window yet. An application should keep a fallback for a zero safe area until it has been.
 
+### Windows links the Kotlin/Native static renderer by default
+
+Windows targets now resolve and link the Kotlin/Native static renderer kit (`renderer/build/windows` in a checkout or `compose-rust-renderer-v<ver>-windows-x64.tar.gz` from a release) as `RendererKind::Static` by default, producing a single executable with no GraalVM DLLs beside it ([#332](https://github.com/DarkPyonix/compose-rust/issues/332), [#333](https://github.com/DarkPyonix/compose-rust/pull/333), [#465](https://github.com/DarkPyonix/compose-rust/pull/465)). `DXC_WINDOWS_NATIVE_LIB` and `COMPOSE_RUST_RENDERER_DIR` still override the path.
+
 ### Schema hash and wire changes
 
 The schema hash changes in this release, so a renderer and a crate from before it no longer agree; upgrade both together. All changes are add-only:
