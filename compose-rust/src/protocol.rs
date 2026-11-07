@@ -1,10 +1,11 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
-    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    Paint, PropertyKind, SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole,
-    TYPE_ROLE_COUNT, Theme, WidgetKind, modifier_extra_words,
+    AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus, Key,
+    MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
+    WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -36,6 +37,11 @@ const TAG_SET_FOLDED: u16 = 22;
 const TAG_SET_WINDOW_THEME: u16 = 23;
 const TAG_FOCUS_WINDOW: u16 = 24;
 const TAG_REQUEST_FOCUS: u16 = 25;
+// 26 asks for a platform file dialog. Its answer is the event numbered 50.
+const TAG_SHOW_FILE_DIALOG: u16 = 26;
+/// `ShowFileDialog` after its header: the request, the window, the kind and the default
+/// filter, then four string references. 44 bytes, so the record is 48.
+const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -245,6 +251,23 @@ pub enum Mutation<'a> {
     RequestFocus {
         node_id: u32,
     },
+    /// Asks the platform to show a file dialog on a window and answers later, once, with a
+    /// `FileDialogResult` event that carries `request`.
+    ///
+    /// `window` is a `Window` node id, or 0 for the implicit root window. `filters` is one
+    /// string: a label and its comma-joined extensions as a pair, pairs joined by NUL
+    /// (`"Images\0png,jpg\0Docs\0pdf,txt"`). `default_filter` is the position of the
+    /// filter selected first.
+    ShowFileDialog {
+        request: u32,
+        window: u32,
+        kind: FileDialogKind,
+        default_filter: u16,
+        title: &'a str,
+        directory: &'a str,
+        name: &'a str,
+        filters: &'a str,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -332,6 +355,10 @@ const EVENT_WINDOW_UNAVAILABLE: u16 = 44;
 const EVENT_WINDOW_CLOSED: u16 = 45;
 const EVENT_WINDOW_REQUESTED: u16 = 46;
 const EVENT_APPLICATION_REOPEN: u16 = 47;
+// 48 and 49 are numbered by changes that are still open.
+const EVENT_FILE_DIALOG_RESULT: u16 = 50;
+/// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
+const FILE_DIALOG_RESULT_LEN: usize = 36;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -647,6 +674,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_APPLICATION_REOPEN if record_len == 16 => {
             crate::schema::EventPayload::ApplicationReopen
         }
+        EVENT_FILE_DIALOG_RESULT if record_len == FILE_DIALOG_RESULT_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| FileDialogStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::FileDialogResult {
+                request: read_u32(bytes, 16)?,
+                status,
+                filter: read_u32(bytes, 24)?,
+                paths: read_string(bytes, 28, record_len)?,
+            }
+        }
+        EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -984,6 +1027,28 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         _ => {}
     }
+    if let crate::schema::EventPayload::FileDialogResult {
+        request,
+        status,
+        filter,
+        paths,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_FILE_DIALOG_RESULT,
+            FILE_DIALOG_RESULT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
+        output.extend_from_slice(&filter.to_le_bytes());
+        let len = u32::try_from(paths.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(FILE_DIALOG_RESULT_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(paths.as_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1059,7 +1124,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowFocusChanged { .. }
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
-        | crate::schema::EventPayload::WindowDragOver { .. } => unreachable!(),
+        | crate::schema::EventPayload::WindowDragOver { .. }
+        | crate::schema::EventPayload::FileDialogResult { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1355,6 +1421,26 @@ impl BatchEncoder {
             Mutation::RequestFocus { node_id } => {
                 self.begin_record(TAG_REQUEST_FOCUS, 4);
                 self.put_u32(*node_id);
+            }
+            Mutation::ShowFileDialog {
+                request,
+                window,
+                kind,
+                default_filter,
+                title,
+                directory,
+                name,
+                filters,
+            } => {
+                self.begin_record(TAG_SHOW_FILE_DIALOG, SHOW_FILE_DIALOG_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u32(*window);
+                self.put_u16(*kind as u16);
+                self.put_u16(*default_filter);
+                self.put_string_ref(title)?;
+                self.put_string_ref(directory)?;
+                self.put_string_ref(name)?;
+                self.put_string_ref(filters)?;
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -1800,6 +1886,21 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_REQUEST_FOCUS if len == 8 => Mutation::RequestFocus {
                 node_id: read_u32(bytes, payload)?,
             },
+            TAG_SHOW_FILE_DIALOG if len == 4 + SHOW_FILE_DIALOG_PAYLOAD_LEN => {
+                let raw_kind = read_u16(bytes, payload + 8)?;
+                Mutation::ShowFileDialog {
+                    request: read_u32(bytes, payload)?,
+                    window: read_u32(bytes, payload + 4)?,
+                    kind: FileDialogKind::try_from(raw_kind)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?,
+                    default_filter: read_u16(bytes, payload + 10)?,
+                    title: read_string(bytes, payload + 12, records_len)?,
+                    directory: read_string(bytes, payload + 20, records_len)?,
+                    name: read_string(bytes, payload + 28, records_len)?,
+                    filters: read_string(bytes, payload + 36, records_len)?,
+                }
+            }
+            TAG_SHOW_FILE_DIALOG => return Err(ProtocolError::InvalidRecordLength),
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -3404,6 +3505,161 @@ mod tests {
         bad[4..8].copy_from_slice(&records_len.to_le_bytes());
         bad[ENVELOPE_LEN + 2..ENVELOPE_LEN + 4].copy_from_slice(&12_u16.to_le_bytes());
         assert_eq!(decode_batch(&bad), Err(ProtocolError::InvalidRecordLength));
+    }
+
+    /// The request and the result are fixed records. Both survive a round trip with
+    /// Korean text and NUL separated lists in them, an unknown kind or status is a
+    /// protocol error, and no prefix of either record decodes or panics.
+    #[test]
+    fn fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors() {
+        let filters = "이미지\0png,jpg\0Docs\0pdf,txt";
+        for kind in [
+            FileDialogKind::OpenFile,
+            FileDialogKind::OpenFiles,
+            FileDialogKind::OpenFolder,
+            FileDialogKind::OpenFolders,
+            FileDialogKind::Save,
+        ] {
+            let request = Mutation::ShowFileDialog {
+                request: 7,
+                window: 20,
+                kind,
+                default_filter: 1,
+                title: "파일 고르기",
+                directory: "/home/한글",
+                name: "보고서.txt",
+                filters,
+            };
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&request).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            assert_eq!(
+                read_u16(&bytes, ENVELOPE_LEN).unwrap(),
+                TAG_SHOW_FILE_DIALOG
+            );
+            assert_eq!(read_u16(&bytes, ENVELOPE_LEN + 2).unwrap(), 48);
+            assert_eq!(decode_batch(&bytes).unwrap(), vec![request]);
+        }
+
+        let empty = Mutation::ShowFileDialog {
+            request: u32::MAX,
+            window: 0,
+            kind: FileDialogKind::Save,
+            default_filter: 0,
+            title: "",
+            directory: "",
+            name: "",
+            filters: "",
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&empty).unwrap();
+        assert_eq!(
+            decode_batch(encoder.finish().unwrap()).unwrap(),
+            vec![empty]
+        );
+
+        let full = Mutation::ShowFileDialog {
+            request: 1,
+            window: 2,
+            kind: FileDialogKind::OpenFile,
+            default_filter: 3,
+            title: "t",
+            directory: "/d",
+            name: "n",
+            filters,
+        };
+        let mut encoder = BatchEncoder::default();
+        encoder.encode(&full).unwrap();
+        let bytes = encoder.finish().unwrap().to_vec();
+        for raw_kind in [0_u16, 6, 9, u16::MAX] {
+            let mut bad = bytes.clone();
+            bad[ENVELOPE_LEN + 12..ENVELOPE_LEN + 14].copy_from_slice(&raw_kind.to_le_bytes());
+            assert_eq!(
+                decode_batch(&bad),
+                Err(ProtocolError::InvalidValueKind(raw_kind))
+            );
+        }
+        let mut short = bytes.clone();
+        short[ENVELOPE_LEN + 2..ENVELOPE_LEN + 4].copy_from_slice(&44_u16.to_le_bytes());
+        assert_eq!(
+            decode_batch(&short),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+        for cut in 0..bytes.len() {
+            assert!(
+                decode_batch(&bytes[..cut]).is_err(),
+                "a batch cut at {cut} bytes decoded"
+            );
+        }
+
+        let paths = "/Users/한글/문서.txt\0/tmp/b c.png";
+        for (status, filter) in [
+            (FileDialogStatus::Chosen, 1_u32),
+            (FileDialogStatus::Cancelled, u32::MAX),
+            (FileDialogStatus::Unavailable, u32::MAX),
+        ] {
+            let result = HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: crate::EventPayload::FileDialogResult {
+                    request: 41,
+                    status,
+                    filter,
+                    paths: if status == FileDialogStatus::Chosen {
+                        paths
+                    } else {
+                        ""
+                    },
+                },
+            };
+            let mut bytes = Vec::new();
+            encode_event(&result, &mut bytes).unwrap();
+            assert_eq!(read_u16(&bytes, 0).unwrap(), EVENT_FILE_DIALOG_RESULT);
+            assert_eq!(
+                usize::from(read_u16(&bytes, 2).unwrap()),
+                FILE_DIALOG_RESULT_LEN
+            );
+            assert_eq!(decode_event(&bytes).unwrap(), result);
+        }
+
+        let result = HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: crate::EventPayload::FileDialogResult {
+                request: 3,
+                status: FileDialogStatus::Chosen,
+                filter: 0,
+                paths,
+            },
+        };
+        let mut bytes = Vec::new();
+        encode_event(&result, &mut bytes).unwrap();
+        for raw_status in [0_u32, 4, 0x1_0000, u32::MAX] {
+            let mut bad = bytes.clone();
+            bad[20..24].copy_from_slice(&raw_status.to_le_bytes());
+            assert_eq!(
+                decode_event(&bad),
+                Err(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16
+                ))
+            );
+        }
+        let mut wrong_length = bytes.clone();
+        wrong_length[2..4].copy_from_slice(&32_u16.to_le_bytes());
+        assert_eq!(
+            decode_event(&wrong_length),
+            Err(ProtocolError::InvalidRecordLength)
+        );
+        let mut not_utf8 = bytes.clone();
+        let last = not_utf8.len() - 1;
+        not_utf8[last] = 0xFF;
+        assert_eq!(decode_event(&not_utf8), Err(ProtocolError::InvalidUtf8));
+        for cut in 0..bytes.len() {
+            assert!(
+                decode_event(&bytes[..cut]).is_err(),
+                "an event cut at {cut} bytes decoded"
+            );
+        }
     }
 
     #[test]

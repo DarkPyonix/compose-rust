@@ -79,6 +79,8 @@ class WindowManager(
     /** Starts managing: hooks the Host's batches, listens to the application, opens what exists. */
     fun attach() {
         host.afterBatch = { sync() }
+        // A file dialog is shown on the platform window of the node it names.
+        table.fileDialogs.windowResolver = { id -> entries[id]?.platform }
         backend.setApplicationListener(appListener)
         sync()
     }
@@ -86,6 +88,7 @@ class WindowManager(
     /** Stops managing and closes every window. The Host and the table are left as they are. */
     fun shutdown() {
         host.afterBatch = null
+        table.fileDialogs.windowResolver = { null }
         backend.setApplicationListener(null)
         for (entry in entries.values.toList()) closeEntry(entry)
         waiting.clear()

@@ -145,6 +145,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // After the first batch, so the first thing the Host hears is a press that started
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
+        table.fileDialogs.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -178,6 +179,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // answer from the platform asks for a frame for exactly this, because the frame is
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
+        table.fileDialogs.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -191,6 +193,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     fun shutdown() {
         table.notifications.shutdown()
+        table.fileDialogs.shutdown()
         connection.shutdown()
     }
 
@@ -414,6 +417,8 @@ private fun ComposeRustTree(
     // A notification centre answers on a thread of its own, and the way from any thread to
     // this one is a frame request. The centre asks through the same source this loop serves.
     SideEffect { host.table.notifications.wake = frames::request }
+    // A file dialog's answer arrives the same way, from whichever thread the platform uses.
+    SideEffect { host.table.fileDialogs.wake = frames::request }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
