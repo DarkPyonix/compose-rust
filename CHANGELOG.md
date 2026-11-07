@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.0.7
 
 ### Native file open and save dialogs
 
@@ -13,6 +13,65 @@ The attribute that turns a function into a composable now has Compose's spelling
 snake_case by convention only, and the widgets already use Compose's PascalCase names. The
 lowercase `#[composable]` is gone, with no alias: the crate is before 1.0, so one release
 moves every use. Rename each `#[composable]` in your code to `#[Composable]`.
+
+### Host-driven focus and IME composition notifications
+
+The Host can move input focus to a node, or clear it, with `Batch::request_focus(node_id)` (a new `RequestFocus` command, tag 25), and a `TextField` reports when an IME composition starts and ends with `.on_composition_change(impl FnMut(bool))` ([#410](https://github.com/DarkPyonix/compose-rust/issues/410), [#423](https://github.com/DarkPyonix/compose-rust/pull/423)).
+
+### `Button` text alignment, label size and a content slot
+
+`Button::text_align` and `Button::font_size` use the existing `TextAlign` and `FontSize` attributes, and a `Button` can take children that are drawn as a vertically centred row, so a button can be a list row with a left aligned label ([#425](https://github.com/DarkPyonix/compose-rust/issues/425), [#453](https://github.com/DarkPyonix/compose-rust/pull/453)). No schema change.
+
+### A weighted `Row` or `Column` child keeps room for its longest word
+
+A child with a weight on the main axis gets the larger of its share and its minimum content width, so a label in a narrow weighted cell is no longer broken into one glyph per line. Lazy lists and other lazy layouts keep the stock weight ([#427](https://github.com/DarkPyonix/compose-rust/issues/427), [#448](https://github.com/DarkPyonix/compose-rust/pull/448)).
+
+### Colours and size for `Switch`, `Slider` and `Checkbox`
+
+`Switch` has `track_color`, `thumb_color` and `size(width, height)`, `Slider` has `track_color`, `active_track_color` and `thumb_color`, and `Checkbox` has `container_color`, `check_color` and `size(side)` ([#426](https://github.com/DarkPyonix/compose-rust/issues/426), [#428](https://github.com/DarkPyonix/compose-rust/issues/428)). A value that is not set is not sent, and the design system draws that slot. On the wire these are the new `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) properties. The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### A `WindowDrag(false)` child keeps its press out of a drag region on macOS
+
+Inside a region that is a window drag area, a node marked `WindowDrag(false)` (a button, a text field) now keeps its press: the press is not turned into a window drag ([#482](https://github.com/DarkPyonix/compose-rust/issues/482), [#458](https://github.com/DarkPyonix/compose-rust/pull/458)).
+
+### Change-marker bars in the code editor gutter
+
+A `Bar` gutter decoration whose colour is `DiffAdded`, `DiffModified` or `DiffRemoved` is drawn as a 4dp change-marker bar to the right of the line-number column, 12dp from the code. A line gets one record, so there is no wire change. When a line carries several, `DiffRemoved` wins over `DiffModified`, which wins over `DiffAdded`. Other `Dot`, `Bar` and `Glyph` decorations and an editor without bars are laid out as before. The editor's state description tells assistive technology which lines changed ([#477](https://github.com/DarkPyonix/compose-rust/pull/477)).
+
+### Accessibility modifier and `accessible_name`
+
+`Modifier` has `label`, `role`, `checked`, `selected` and `semantics(role, label, state)`, so any node can be given a role, a name and a checked or selected state for assistive technology ([#429](https://github.com/DarkPyonix/compose-rust/issues/429)). `Button`, `Switch`, `Checkbox`, `RadioButton` and `Slider` have `accessible_name`, which replaces a visible label and is read instead of an icon-only button's icon name. On the wire this is a new `Semantics` modifier (tag 34) and a new `AccessibleName` property (119). The schema hash changes, so a renderer and a crate from before this change no longer agree. `Modifier::label` keeps each distinct name for the life of the program, at most 4096 of them; a name past that limit is left off, and debug builds print a warning once.
+
+### Node accessibility: roles, states and a click action
+
+The accessibility modifier grows, add-only ([#473](https://github.com/DarkPyonix/compose-rust/issues/473), [#489](https://github.com/DarkPyonix/compose-rust/pull/489)). There are 11 more roles (`TabList`, `Tree`, `TreeItem`, `Menu`, `MenuItem`, `TextBox`, `Heading`, `Navigation`, `List`, `ListItem`, `Group`), the states `expanded`, `disabled`, `focused` and `hidden` (a hidden node leaves the accessibility tree), and a `click` action that calls the node's own click handler, so an assistive tool or an automated audit can press a control without touching the screen. A disabled node, or one whose `enabled` is false, cannot be pressed this way. Roles that Compose has no name for (everything except `Heading` and the ones it already had) are carried as a short role word in the node's state description for now.
+
+Known limits: the `focus` action has a wire bit but is not exposed by the renderer yet (the node's focus requester is created after the accessibility modifier and only when a focus request exists), expanded and collapsed are a description and not an action, and the platform's own roles (macOS tab group, outline, menu) need a change in the Compose fork and are not part of this release. [#473](https://github.com/DarkPyonix/compose-rust/issues/473) stays open for them.
+
+### Window size reports for every whole-dp change, and a first report for tall phone-sized windows
+
+A window that sets `report_size` also receives `WindowSizeChanged` whenever its width or height, each rounded to the nearest whole dp, changes inside a size class, so a host that lays out from the exact size (an HTML and CSS host, for example) can reflow. Use `Window(on_close).report_size(true)` for a `Window` node and `Window::new().with_report_size(true)` for the implicit single window; a window that does not opt in behaves exactly as before. Each whole-dp change while the user drags an edge costs one call into the Host, so only a host that needs the exact size should turn it on ([#467](https://github.com/DarkPyonix/compose-rust/issues/467), [#470](https://github.com/DarkPyonix/compose-rust/pull/470), [#479](https://github.com/DarkPyonix/compose-rust/issues/479), [#489](https://github.com/DarkPyonix/compose-rust/pull/489)).
+
+Separately, a window that is narrow but tall (390 by 844 dp: Compact wide, Medium high) never sent its first size, so `current_window_size()` kept 0 by 0. The renderer now sends it. This needs no opt-in.
+
+### macOS safe area measured again after the window is shown
+
+On macOS the window buttons' safe area (`WindowSafeArea`) could stay `{0, 0, 0}` for a window that never resizes, because the caption was measured once before the title bar was laid out. The Compose fork's macOS window now measures it again after it is shown, a few times at short intervals, and the window modules are pinned at that fork commit ([#468](https://github.com/DarkPyonix/compose-rust/issues/468), [#470](https://github.com/DarkPyonix/compose-rust/pull/470), fork [#182](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/182)). Known limit: this has not been confirmed at a 390 by 844 window yet. An application should keep a fallback for a zero safe area until it has been.
+
+### Windows links the Kotlin/Native static renderer by default
+
+Windows targets now resolve and link the Kotlin/Native static renderer kit (`renderer/build/windows` in a checkout or `compose-rust-renderer-v<ver>-windows-x64.tar.gz` from a release) as `RendererKind::Static` by default, producing a single executable with no GraalVM DLLs beside it ([#332](https://github.com/DarkPyonix/compose-rust/issues/332), [#333](https://github.com/DarkPyonix/compose-rust/pull/333), [#465](https://github.com/DarkPyonix/compose-rust/pull/465)). `DXC_WINDOWS_NATIVE_LIB` and `COMPOSE_RUST_RENDERER_DIR` still override the path.
+
+### Schema hash and wire changes
+
+The schema hash changes in this release, so a renderer and a crate from before it no longer agree; upgrade both together. All changes are add-only:
+
+- `Modifier` tag 34 `Semantics { role, state }`; the property `AccessibleName` (119) carries the label. The `Semantics` role enum grows to 19 values and its state word to 13 bits (checked, selected, expanded, disabled, focused, hidden, and the click and focus action bits).
+- Properties `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) for `Switch`, `Slider` and `Checkbox`.
+- Property `ReportSize` (127) on a `Window` node.
+- `SetWindow` flags word, bit 1: `report_size` for the implicit window. The record length is unchanged and a window that does not set it writes the same bytes as before.
+- Command `RequestFocus` (tag 25) and the `OnCompositionChange` property with its event.
+- `WINDOW_REVISION` moves to the fork commit that holds the macOS caption re-measure.
 
 ## v0.0.6
 

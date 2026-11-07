@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "compose-rust"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "compose-rust-macros",
  "jni",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "compose-rust-macros"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "compose-rust",
  "proc-macro2",
