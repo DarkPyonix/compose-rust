@@ -50,6 +50,7 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
 import androidx.compose.runtime.CompositionLocalProvider
@@ -194,6 +195,9 @@ internal fun HostDialog(
     val open = rememberOverlayOpen(node)
     if (!open.value) return
     val style = theme.rules.container(ContainerRole.Dialog, theme)
+    val scrim = node.paintProp(PropertyKind.Scrim)?.let { theme.color(it) }
+        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it.toULong()) }
+        ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
     Popup(
@@ -206,14 +210,13 @@ internal fun HostDialog(
     ) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         Box(
-            Modifier.fillMaxSize().background(style.scrim),
+            Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
             Column(
                 modifier
-                    .testTag(dialogTestTag(node.id))
                     .modalOverlaySurface(node.id, surfaceRequester)
-                    .containerDecoration(node, style, theme, overlay = true),
+                    .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
             ) {
                 node.children.forEach { childId ->
                     key(childId) { RenderNode(childId, table, dispatcher) }
@@ -265,7 +268,7 @@ internal fun HostMenu(
                 Column(
                     Modifier
                         .testTag(menuPopupTestTag(node.id))
-                        .containerDecoration(node, style, theme, overlay = true),
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Menu),
                 ) {
                     entries.forEach { childId ->
                         key(childId) { RenderNode(childId, table, dispatcher) }

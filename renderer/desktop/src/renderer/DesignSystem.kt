@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.DesignTokens
 import androidx.compose.animation.core.FiniteAnimationSpec
 import dev.darkpyonix.composerust.protocol.MaterialRole
 import dev.darkpyonix.composerust.protocol.MotionRole
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.SpaceRole
@@ -180,6 +181,11 @@ class ResolvedTheme(
      * given is enough to find the rest of the stack: see [chainFor].
      */
     val fontChains: List<FontChain> = emptyList(),
+
+    /**
+     * Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+     */
+    val overlay: OverlayTokens? = null,
 ) {
     /**
      * The stack [family] is the first family of, or null where it is not one.
@@ -1638,6 +1644,8 @@ fun resolveTheme(
      * family lacks in the families after it.
      */
     chainOf: (Int) -> FontChain? = { null },
+    /** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+    overlay: OverlayTokens? = null,
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1684,6 +1692,7 @@ fun resolveTheme(
         platform,
         application,
         chains,
+        overlay,
     )
 }
 

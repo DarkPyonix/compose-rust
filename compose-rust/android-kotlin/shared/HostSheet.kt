@@ -34,6 +34,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.SheetEdge
+import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
@@ -41,6 +42,7 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.paintProp
 import kotlin.math.roundToInt
 
 /** How far a sheet has to be pulled towards its edge before letting go closes it. */
@@ -84,6 +86,65 @@ internal fun HostSheet(
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
 
+    val scrim = node.paintProp(PropertyKind.Scrim)?.let { theme.color(it) }
+        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it.toULong()) }
+        ?: style.scrim
+
+    val shape = if (node.setsOwnShape()) {
+        node.containerShape(
+            dev.darkpyonix.composerust.design.ContainerStyle(
+                container = style.container,
+                content = androidx.compose.ui.graphics.Color.Unspecified,
+                shape = style.shape,
+                elevation = style.elevation,
+                borderWidth = style.borderWidth,
+                borderColor = style.borderColor,
+                horizontalPadding = 0.dp,
+                verticalPadding = 0.dp,
+                separator = null,
+                scrim = style.scrim,
+                typeRole = dev.darkpyonix.composerust.protocol.TypeRole.Body,
+            ),
+            theme,
+        )
+    } else {
+        theme.overlay?.sheetCornerRadius?.takeIf { it > 0 }?.let {
+            if (bottom) {
+                androidx.compose.foundation.shape.RoundedCornerShape(it.dp, it.dp, 0.dp, 0.dp)
+            } else {
+                androidx.compose.foundation.shape.RoundedCornerShape(it.dp, 0.dp, 0.dp, it.dp)
+            }
+        } ?: style.shape
+    }
+
+    val sheetElevation = if (node.setsOwnElevation()) {
+        0.dp
+    } else {
+        theme.overlay?.sheetElevation?.takeIf { it > 0 }?.let { it.dp } ?: style.elevation
+    }
+    val raised = if (node.setsOwnElevation() || sheetElevation.value <= 0f) {
+        Modifier
+    } else {
+        theme.rules.elevation(Modifier, sheetElevation, shape, theme)
+    }
+
+    val containerBg = if (node.setsOwnBackground()) Modifier else Modifier.background(style.container)
+
+    val outline = if (style.borderWidth.value > 0f) {
+        Modifier.border(style.borderWidth, style.borderColor, shape)
+    } else {
+        Modifier
+    }
+
+    val explicitSheetPad = theme.overlay?.sheetPadding
+    val sheetPadding = if (node.setsOwnPadding()) {
+        Modifier
+    } else if (explicitSheetPad != null && explicitSheetPad > 0) {
+        Modifier.padding(explicitSheetPad.dp)
+    } else {
+        Modifier.padding(style.padding)
+    }
+
     Popup(
         alignment = Alignment.Center,
         properties = PopupProperties(focusable = true, dismissOnBackPress = false),
@@ -94,7 +155,7 @@ internal fun HostSheet(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
                 .fillMaxSize()
-                .background(style.scrim)
+                .background(scrim)
                 // Pressing what the sheet covers is the other way of asking to close it,
                 // and it gets the same answer: one dismissal. A raw tap detector rather
                 // than `clickable`, because a scrim is not a button and saying it is one
@@ -106,11 +167,6 @@ internal fun HostSheet(
                 Modifier.fillMaxWidth().fillMaxHeight(style.heightFraction)
             } else {
                 Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
-            }
-            val outline = if (style.borderWidth.value > 0f) {
-                Modifier.border(style.borderWidth, style.borderColor, style.shape)
-            } else {
-                Modifier
             }
             // Two boxes rather than one: the outer is the sheet itself, which is what is
             // dragged and what the design system sized, and the inner carries whatever
@@ -127,8 +183,9 @@ internal fun HostSheet(
                             IntOffset(travel.roundToInt(), 0)
                         }
                     }
-                    .clip(style.shape)
-                    .background(style.container)
+                    .then(raised)
+                    .clip(shape)
+                    .then(containerBg)
                     .then(outline)
                     .draggable(
                         orientation = if (bottom) Orientation.Vertical else Orientation.Horizontal,
@@ -143,7 +200,7 @@ internal fun HostSheet(
                     // swallowed here rather than reaching the scrim behind.
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
-                Column(modifier.fillMaxWidth().padding(style.padding)) {
+                Column(modifier.fillMaxWidth().then(sheetPadding)) {
                     style.handle?.let { handle ->
                         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                             Box(

@@ -86,6 +86,14 @@ impl Batch {
     /// The root theme record. Written once per rebuild, never per frame.
     pub fn set_theme(&mut self, theme: Theme) {
         self.write(Mutation::SetTheme(theme));
+        if let Some(overlay) = theme.overlay {
+            self.write(Mutation::SetOverlayTokens(*overlay));
+        }
+    }
+
+    /// Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+    pub fn set_overlay_tokens(&mut self, tokens: crate::schema::OverlayTokens) {
+        self.write(Mutation::SetOverlayTokens(tokens));
     }
 
     /// The root window record. Written once per rebuild, never per frame.
