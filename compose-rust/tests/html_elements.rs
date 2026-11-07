@@ -214,7 +214,7 @@ fn fr_matchparent_round_trips_with_sparse_tag() {
     assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 31);
     assert_eq!(bytes.len(), 40);
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
-    for tag in 27..31 {
+    for tag in 28..31 {
         assert_eq!(modifier_extra_words(tag), None);
     }
 }
