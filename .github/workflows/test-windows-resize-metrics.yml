@@ -19,6 +19,7 @@ on:
       - ".github/scripts/resize-metrics-run.sh"
       - ".github/scripts/resize-real-drag-run.sh"
       - ".github/scripts/resize-probe.c"
+      - ".github/scripts/resize-os-version.h"
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,
