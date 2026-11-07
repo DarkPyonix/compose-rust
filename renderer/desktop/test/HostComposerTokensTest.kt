@@ -23,7 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 /**
- * FR-75: TextField typography and control over composer and icon button tokens.
+ * TextField typography and control over composer and icon button tokens.
  */
 @OptIn(ExperimentalTestApi::class)
 class HostComposerTokensTest {

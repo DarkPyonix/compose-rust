@@ -1,4 +1,4 @@
-//! FR-75: TextField typography and control over composer / icon button tokens.
+//! TextField typography and control over composer / icon button tokens.
 
 mod support;
 
