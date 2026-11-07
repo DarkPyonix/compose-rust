@@ -620,6 +620,7 @@ private fun ComposeRustTree(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
+    val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
@@ -640,6 +641,7 @@ private fun ComposeRustTree(
     } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -660,7 +662,9 @@ private fun ComposeRustTree(
                 modifier
                     .then(measured)
                     .then(dragStrip)
-                    .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
+                    .onKeyEvent { event ->
+                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                    }
                     .background(host.table.windowFill(pageRoots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {

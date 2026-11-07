@@ -860,6 +860,7 @@ private fun FieldSurface(
     // reader itself reads the field's layout state, so what draws from it still follows.
     val layoutHolder = remember { arrayOfNulls<() -> TextLayoutResult?>(1) }
     val focus = remember { FocusRequester() }
+    val overlayFocusStack = dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack.current
     LaunchedEffect(focusRequest) {
         if (focusRequest > 0L) focus.requestFocus()
     }
@@ -1009,6 +1010,7 @@ private fun FieldSurface(
                                     }
                                 }
                                 .onFocusChanged { focusState ->
+                                    overlayFocusStack.noteFocused(focus, focusState.hasFocus)
                                     model.focusChanged(focusState.hasFocus)
                                     callbacks.onOutput()
                                 }

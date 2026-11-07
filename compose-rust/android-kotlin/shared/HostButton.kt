@@ -23,6 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.layout.layout
@@ -125,22 +128,27 @@ internal fun HostButton(
     // label instead of staying opaque behind it. The label is the exception: it is drawn
     // again outside the fade, in a colour that keeps its contrast with the faded fill.
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(node.id) { FocusRequester() }
     val clickable = if (handlerId == null) {
         available.then(modifier)
     } else {
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        available.then(modifier).pressFeedback(
-            interactions, enabled, theme, style.shape,
-            node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
-            node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
-        ).clickable(
-            interactionSource = interactions,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-        ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
+        available.then(modifier)
+            .focusRequester(focusRequester)
+            .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
+            .pressFeedback(
+                interactions, enabled, theme, style.shape,
+                node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
+                node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
+            ).clickable(
+                interactionSource = interactions,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+            ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
     }
 
     // A Host that named its own Background has already had it applied to this node's

@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -8,8 +9,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +21,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -40,6 +53,101 @@ import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
 import androidx.compose.runtime.CompositionLocalProvider
+
+/**
+ * The open modal overlays of a window, in the order they were opened, and the control that
+ * held focus before each one opened.
+ *
+ * Escape asks to close only the topmost open overlay, and only after whatever holds focus
+ * inside it has declined the key. When the overlay closes, focus returns to the control that
+ * had it before the overlay opened.
+ */
+class OverlayFocusStack {
+    private class Entry(val nodeId: Int, var onEscape: () -> Unit, val opener: FocusRequester?)
+
+    private val entries = mutableListOf<Entry>()
+    private var currentFocused: FocusRequester? = null
+
+    internal fun noteFocused(requester: FocusRequester, focused: Boolean) {
+        if (focused) {
+            currentFocused = requester
+        } else if (currentFocused === requester) {
+            currentFocused = null
+        }
+    }
+
+    internal fun push(nodeId: Int, onEscape: () -> Unit): FocusRequester? {
+        entries.removeAll { it.nodeId == nodeId }
+        val opener = currentFocused
+        entries += Entry(nodeId, onEscape, opener)
+        return opener
+    }
+
+    internal fun update(nodeId: Int, onEscape: () -> Unit) {
+        entries.firstOrNull { it.nodeId == nodeId }?.onEscape = onEscape
+    }
+
+    internal fun pop(nodeId: Int) {
+        val index = entries.indexOfFirst { it.nodeId == nodeId }
+        if (index < 0) return
+        val removed = entries.removeAt(index)
+        val target = if (entries.isEmpty()) removed.opener else null
+        if (target != null) {
+            try {
+                target.requestFocus()
+            } catch (_: IllegalStateException) {
+                // The opener left the tree while the overlay was open.
+            }
+        }
+    }
+
+    internal fun handleEscape(event: KeyEvent, fromNodeId: Int? = null): Boolean {
+        if (event.type != KeyEventType.KeyDown || event.key != Key.Escape) return false
+        val top = entries.lastOrNull() ?: return false
+        if (fromNodeId != null && top.nodeId != fromNodeId) return false
+        top.onEscape()
+        return true
+    }
+}
+
+val LocalOverlayFocusStack = staticCompositionLocalOf { OverlayFocusStack() }
+
+/**
+ * Keeps [node]'s presence in the window's overlay stack and moves focus into [surfaceRequester]
+ * when the overlay opens, returning focus to the opener when it leaves.
+ */
+@Composable
+internal fun ModalOverlayFocus(
+    nodeId: Int,
+    surfaceRequester: FocusRequester,
+    onEscape: () -> Unit,
+) {
+    val stack = LocalOverlayFocusStack.current
+    SideEffect { stack.update(nodeId, onEscape) }
+    DisposableEffect(stack, nodeId) {
+        stack.push(nodeId, onEscape)
+        onDispose { stack.pop(nodeId) }
+    }
+    LaunchedEffect(nodeId) {
+        try {
+            surfaceRequester.requestFocus()
+        } catch (_: IllegalStateException) {
+        }
+    }
+}
+
+/** Modifier that places an overlay's surface in the focus tree and catches an unconsumed Escape. */
+@Composable
+internal fun Modifier.modalOverlaySurface(
+    nodeId: Int,
+    surfaceRequester: FocusRequester,
+): Modifier {
+    val stack = LocalOverlayFocusStack.current
+    return this
+        .onKeyEvent { event -> stack.handleEscape(event, fromNodeId = nodeId) }
+        .focusRequester(surfaceRequester)
+        .focusable()
+}
 
 /** Whether an overlay is showing, and the way to change it without asking the Host. */
 internal class OverlayOpen(val value: Boolean, val set: (Boolean) -> Unit)
@@ -72,6 +180,9 @@ internal fun dismiss(node: Node, dispatcher: EventDispatcher) {
  * The scrim, the placement and the corner come from the design system, so the same records
  * are a Material dialog, a HIG alert or a Fluent content dialog.
  */
+/** Test tag of a dialog's surface inside its popup. */
+fun dialogTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-dialog"
+
 @Composable
 internal fun HostDialog(
     node: Node,
@@ -83,19 +194,27 @@ internal fun HostDialog(
     val open = rememberOverlayOpen(node)
     if (!open.value) return
     val style = theme.rules.container(ContainerRole.Dialog, theme)
+    val surfaceRequester = remember(node.id) { FocusRequester() }
+    val onEscape = { dismiss(node, dispatcher) }
     Popup(
         alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true),
+        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
         onDismissRequest = {
             open.set(false)
             dismiss(node, dispatcher)
         },
     ) {
+        ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         Box(
             Modifier.fillMaxSize().background(style.scrim),
             contentAlignment = Alignment.Center,
         ) {
-            Column(modifier.containerDecoration(node, style, theme, overlay = true)) {
+            Column(
+                modifier
+                    .testTag(dialogTestTag(node.id))
+                    .modalOverlaySurface(node.id, surfaceRequester)
+                    .containerDecoration(node, style, theme, overlay = true),
+            ) {
                 node.children.forEach { childId ->
                     key(childId) { RenderNode(childId, table, dispatcher) }
                 }
