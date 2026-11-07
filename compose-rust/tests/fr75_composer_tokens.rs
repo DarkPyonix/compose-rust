@@ -2,10 +2,10 @@
 
 mod support;
 
+use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
 use compose_rust::schema::PropertyKind;
 use compose_rust::ui::*;
-use compose_rust::ComposeHost;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
