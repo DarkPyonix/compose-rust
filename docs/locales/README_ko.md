@@ -224,6 +224,35 @@ FreeType). 어디로 복사해도 실행됩니다. Windows는 정적 렌더러�
 `default-features = false`로 빌드하면 렌더러 없이 빌드되며, 헤드리스나 문서용 빌드에 씁니다. 그렇게
 빌드한 바이너리는 창 없이 조용히 끝나지 않고, 무엇이 빠졌는지 알린 뒤 0이 아닌 값으로 종료합니다.
 
+### macOS 애플리케이션 배포하기
+
+`scripts/packager-macos/package-macos`는 `cargo build --release`가 만든 실행 파일을 애플리케이션
+번들로 만듭니다. 이름, 식별자, 버전은 `dx` 번들 설정과 `Cargo.toml`에 이미 적힌 것을 씁니다.
+Python 3.11과 Xcode 명령줄 도구가 필요하고, Apple 개발자 계정은 필요하지 않습니다.
+
+```sh
+scripts/packager-macos/package-macos app --manifest-dir . \
+    --executable target/release/my-app --out dist
+scripts/packager-macos/package-macos dmg --app "dist/My App.app" --out dist/MyApp-1.0.0.dmg
+```
+
+번들에는 갱신 설정이 없습니다. 직접 배포는 Velopack으로 패키징하고 갱신합니다.
+
+모든 번들은 임시(ad hoc) 서명됩니다. Apple 실리콘은 서명 없는 코드를 실행하지 않고, 임시
+서명에는 계정이 필요 없습니다. 다만 Apple이 확인한 개발자를 가리키지 않으므로, **내려받은
+사본을 처음 열 때 macOS가 확인을 요구합니다**.
+
+- **macOS 15(Sequoia) 이상:** 앱을 열고, macOS가 확인할 수 없다고 하면 완료를 누릅니다.
+  그다음 시스템 설정 > 개인정보 보호 및 보안에서 보안 항목까지 내려가 앱 옆의
+  **그래도 열기**를 누르고(버튼은 약 한 시간 동안 남습니다), 다시 확인한 뒤 암호를 입력합니다.
+- **macOS 14 이하:** 앱을 Control-클릭하고 **열기**를 고른 뒤 다시 **열기**를 누릅니다.
+- **모든 버전:** `xattr -dr com.apple.quarantine "/Applications/My App.app"`은 다운로드
+  표시를 지우고, 그러면 macOS가 묻지 않고 엽니다.
+
+처음 실행하기 전에 앱을 응용 프로그램 폴더로 옮기십시오. 디스크 이미지나 다운로드 폴더에서
+실행하면 macOS가 숨겨진 임시 사본을 실행합니다. 디스크 이미지에는 이 절차가
+`If macOS will not open the app.txt`로 들어 있습니다.
+
 ### `develop`의 작성 API 쓰기
 
 0.0.2에는 작성 API와 같은 스키마로 빌드한 렌더러가 들어 있으므로, 0.0.2에 의존하는 프로젝트는
