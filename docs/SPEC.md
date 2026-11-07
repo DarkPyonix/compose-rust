@@ -1663,7 +1663,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다.
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다.
 
-#### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Draft`, 이슈 #476)
+#### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
 요청한 쪽: darkpyonix-ember(#502 감사). Esc로 시트가 닫히지 않고 닫기 버튼만 동작했습니다. 21.3.1은 가운데 시트의 Esc만 적었고, Dialog와 가장자리 시트는 적지 않았습니다. Rust API에는 `Key::Escape`도, 컨테이너의 `on_key_down`도 없어서 앱이 스스로 해결할 수 없으므로 Renderer가 합니다. 승인: 감독자 B(위임 권한).
 
@@ -1674,12 +1674,12 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - 새 속성, 새 키, 새 이벤트는 없고 와이어 변경도 없습니다.
 
 수용 기준.
-1. 열린 `Dialog`에 Esc를 보내면 `OnDismiss`가 한 번 가고, `Open`이 그대로이면 Dialog는 열려 있습니다(fr21_escape_dismisses_an_open_dialog_once).
-2. `Presentation=Edge`와 `Centered`의 열린 `Sheet` 각각에서 같습니다(fr21_escape_dismisses_an_open_sheet_once).
-3. 안에 포커스를 받을 컨트롤이 없는 오버레이도 열린 직후의 Esc로 닫으려 합니다(fr21_escape_reaches_an_overlay_with_no_focusable_content).
-4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `OnDismiss`는 가지 않습니다(fr21_escape_in_a_composing_text_field_does_not_dismiss).
-5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(fr21_escape_goes_to_the_topmost_overlay).
-6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(fr21_escape_returns_focus_to_the_opener).
+1. 열린 `Dialog`에 Esc를 보내면 `OnDismiss`가 한 번 가고, `Open`이 그대로이면 Dialog는 열려 있습니다(`fr21_escape_dismisses_an_open_dialog_once`).
+2. `Presentation=Edge`와 `Centered`의 열린 `Sheet` 각각에서 같습니다(`fr21_escape_dismisses_an_open_sheet_once`).
+3. 안에 포커스를 받을 컨트롤이 없는 오버레이도 열린 직후의 Esc로 닫으려 합니다(`fr21_escape_reaches_an_overlay_with_no_focusable_content`).
+4. 포커스된 `TextField`가 IME 조합 중이면 Esc는 조합을 취소하고 `OnDismiss`는 가지 않습니다(`fr21_escape_in_a_composing_text_field_does_not_dismiss`).
+5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
+6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
 #### 21.4 일시 메시지는 노드가 아닙니다
 

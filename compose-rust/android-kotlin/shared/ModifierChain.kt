@@ -54,6 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
@@ -797,7 +801,11 @@ internal fun Modifier.pressable(
     }
     val ink = theme.color(ColorRole.OnSurface)
     val ring = theme.color(ColorRole.Primary)
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(nodeId) { FocusRequester() }
     this
+        .focusRequester(focusRequester)
+        .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
         .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
         .hoverable(source, enabled)
         .clickable(
