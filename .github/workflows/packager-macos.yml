@@ -1,0 +1,48 @@
+# macOS packaging: the packager's tests.
+#
+# Direct distribution is packaged and updated with Velopack, so nothing here builds an
+# update feed.
+
+name: macOS packaging
+
+on:
+  push:
+    branches: [develop, main, 'feature/packager-*']
+    paths:
+      - 'scripts/packager-macos/**'
+      - 'scripts/bundle-renderer.sh'
+      - '.github/workflows/packager-macos.yml'
+  pull_request:
+    paths:
+      - 'scripts/packager-macos/**'
+      - 'scripts/bundle-renderer.sh'
+      - '.github/workflows/packager-macos.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: packager-macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  packager:
+    name: Packager tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run the packager's tests
+        run: python -m unittest discover -s scripts/packager-macos/tests -v

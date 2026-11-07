@@ -10,7 +10,10 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dev.darkpyonix.composerust.protocol.FileDialogKind
+import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.ProtocolException
 import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
 import dev.darkpyonix.composerust.protocol.Severity
 import dev.darkpyonix.composerust.protocol.HoverPhase
@@ -113,6 +116,8 @@ class ProtocolVectorsTest {
                 is Mutation.PostNotification -> false
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
+                // The vector's dialog is on the implicit root window, which always exists.
+                is Mutation.ShowFileDialog -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -192,7 +197,7 @@ class ProtocolVectorsTest {
             activated,
         )
         assertEquals(37, length)
-        assertEquals(bytes.copyOfRange(237, 274).toList(), activated.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(254, 291).toList(), activated.array().copyOf(length).toList())
 
         val changed = ByteBuffer.allocate(32)
         val changedLength = Protocol.encodeEvent(
@@ -204,7 +209,73 @@ class ProtocolVectorsTest {
             changed,
         )
         assertEquals(20, changedLength)
-        assertEquals(bytes.copyOfRange(274, 294).toList(), changed.array().copyOf(changedLength).toList())
+        assertEquals(bytes.copyOfRange(291, 311).toList(), changed.array().copyOf(changedLength).toList())
+    }
+
+    /**
+     * The file dialog request and its result, read from and encoded to the bytes the Host
+     * wrote: four string references, a kind and a default filter, and three words and a
+     * string reference.
+     */
+    @Test
+    fun fr72_the_file_dialog_records_in_the_vector_round_trip() {
+        assertEquals(
+            listOf(
+                Mutation.ShowFileDialog(
+                    request = 7,
+                    window = 0,
+                    kind = FileDialogKind.OpenFiles,
+                    defaultFilter = 1,
+                    title = "파일 고르기",
+                    directory = "/home/한글",
+                    name = "보고서.txt",
+                    filters = "이미지\u0000png,jpg\u0000문서\u0000pdf,txt",
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.ShowFileDialog>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(128)
+        val length = Protocol.encodeEvent(
+            HostEvent.FileDialogResult(
+                nodeId = 0,
+                handlerId = 0,
+                request = 7,
+                status = FileDialogStatus.Chosen,
+                filter = 1,
+                paths = "/Users/한글/문서.txt\u0000/tmp/a b.png",
+            ),
+            out,
+        )
+        assertEquals(73, length)
+        assertEquals(bytes.copyOfRange(969, 969 + 73).toList(), out.array().copyOf(length).toList())
+    }
+
+    /** A kind the Renderer does not know is a decode error, which the host reports instead of crashing. */
+    @Test
+    fun fr72_an_unknown_file_dialog_kind_is_a_protocol_error() {
+        val bytes = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        var offset = 12
+        var patched = false
+        while (offset < recordsLength) {
+            val tag = view.getShort(offset).toInt()
+            val length = view.getShort(offset + 2).toInt()
+            if (tag == 26) {
+                for (unknown in listOf(0, 6, 9)) {
+                    view.putShort(offset + 12, unknown.toShort())
+                    val failure = runCatching {
+                        Protocol.decode(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)) { }
+                    }.exceptionOrNull()
+                    assertTrue(failure is ProtocolException, "kind $unknown decoded instead of being refused: $failure")
+                }
+                patched = true
+            }
+            offset += length
+        }
+        assertTrue(patched, "the vector carries a file dialog request")
     }
 
     @Test
@@ -401,14 +472,14 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(40, length)
-        assertEquals(bytes.copyOfRange(470, 510).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(487, 527).toList(), out.array().copyOf(length).toList())
         val motion = ByteBuffer.allocate(32)
         val motionLength = Protocol.encodeEvent(
             HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
             motion,
         )
         assertEquals(20, motionLength)
-        assertEquals(bytes.copyOfRange(510, 530).toList(), motion.array().copyOf(motionLength).toList())
+        assertEquals(bytes.copyOfRange(527, 547).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -437,7 +508,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(72, length)
-        assertEquals(bytes.copyOfRange(530, 602).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(547, 619).toList(), out.array().copyOf(length).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -554,16 +625,16 @@ class ProtocolVectorsTest {
             return buffer.array().copyOf(length)
         }
         val expected = listOf(
-            294 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
-            342 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
-            386 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
-            422 to HostEvent.CodeSaveRequested(12, 21L, 2),
-            446 to HostEvent.DecorationActivated(12, 22L, 41L),
-            602 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
-            638 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
-            666 to HostEvent.EditorFocusChanged(12, 25L, true),
-            690 to HostEvent.FoldChanged(12, 26L, 0, true),
-            714 to HostEvent.CompositionChanged(12, 27L, true),
+            311 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            359 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            403 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            439 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            463 to HostEvent.DecorationActivated(12, 22L, 41L),
+            619 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
+            655 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
+            683 to HostEvent.EditorFocusChanged(12, 25L, true),
+            707 to HostEvent.FoldChanged(12, 26L, 0, true),
+            731 to HostEvent.CompositionChanged(12, 27L, true),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -572,7 +643,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(952, bytes.size)
+        assertEquals(1042, bytes.size)
     }
 
     /**

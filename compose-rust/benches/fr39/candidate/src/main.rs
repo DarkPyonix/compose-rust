@@ -24,7 +24,7 @@ extern "C" fn request_frame() {
 
 /// The same sweep screen as the Dioxus path's, written with composables: a column of keyed
 /// texts that all read the same counter, and the button that moves it.
-#[composable]
+#[Composable]
 fn sweep() {
     let count = remember(|| mutable_state_of(0_u64));
     let slots = SLOTS.load(Ordering::Relaxed);

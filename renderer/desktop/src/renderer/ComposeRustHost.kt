@@ -145,6 +145,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // After the first batch, so the first thing the Host hears is a press that started
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
+        table.fileDialogs.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -178,6 +179,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // answer from the platform asks for a frame for exactly this, because the frame is
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
+        table.fileDialogs.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -191,6 +193,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     fun shutdown() {
         table.notifications.shutdown()
+        table.fileDialogs.shutdown()
         connection.shutdown()
     }
 
@@ -414,6 +417,8 @@ private fun ComposeRustTree(
     // A notification centre answers on a thread of its own, and the way from any thread to
     // this one is a frame request. The centre asks through the same source this loop serves.
     SideEffect { host.table.notifications.wake = frames::request }
+    // A file dialog's answer arrives the same way, from whichever thread the platform uses.
+    SideEffect { host.table.fileDialogs.wake = frames::request }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
@@ -615,6 +620,7 @@ private fun ComposeRustTree(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
+    val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
@@ -635,6 +641,7 @@ private fun ComposeRustTree(
     } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -655,7 +662,9 @@ private fun ComposeRustTree(
                 modifier
                     .then(measured)
                     .then(dragStrip)
-                    .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
+                    .onKeyEvent { event ->
+                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                    }
                     .background(host.table.windowFill(pageRoots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {

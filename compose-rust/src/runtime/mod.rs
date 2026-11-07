@@ -5,7 +5,7 @@
 //! use compose_rust::runtime::*;
 //! use compose_rust::ui::*;
 //!
-//! #[composable]
+//! #[Composable]
 //! fn Counter() {
 //!     let count = remember(|| mutable_state_of(0));
 //!     Column().content(|| {
@@ -28,7 +28,7 @@
 //! changed becomes a record.
 //!
 //! **Positional memoisation.** [`remember`] belongs to its call site: the group path the
-//! `#[composable]` macro builds around every function and every branch, and the order of
+//! `#[Composable]` macro builds around every function and every branch, and the order of
 //! calls inside each group. A branch that stops being taken takes what it remembered with
 //! it; a loop that gets shorter drops the iterations it lost. Where order is not identity,
 //! because items move, [`key`] says which item is which.
@@ -43,7 +43,7 @@ pub(crate) mod host;
 mod seam;
 pub(crate) mod state;
 
-pub use compose_rust_macros::composable;
+pub use compose_rust_macros::Composable;
 pub use effects::{
     CoroutineScope, DisposableEffectResult, delay, disposable_effect, launched_effect, on_dispose,
     remember_coroutine_scope, side_effect, with_frame_nanos, with_worker,
@@ -51,7 +51,7 @@ pub use effects::{
 pub use host::{ComposeHost, Recomposer, application, launch, recomposer_for};
 pub use seam::{Batch, Runtime};
 pub use state::{
-    DerivedState, MutableState, SnapshotMutationPolicy, State, current_design_system,
+    DerivedState, MutableState, SnapshotMutationPolicy, State, StateError, current_design_system,
     current_notification_permission, current_window_size, derived_state_of, mutable_state_of,
     mutable_state_of_with_policy, never_equal_policy, on_application_reopen,
     on_notification_activated, on_window_requested, remember_node_size, structural_equality_policy,
@@ -183,7 +183,9 @@ pub(crate) fn group_guard(key: u64) -> GroupGuard {
 /// The value is returned by clone, so what is remembered is usually a handle: a
 /// [`MutableState`], an `Rc`, a derived state. Outside a composition nothing is kept and
 /// `init` runs every time.
+#[track_caller]
 pub fn remember<T: Clone + 'static>(init: impl FnOnce() -> T) -> T {
+    let site = std::panic::Location::caller();
     let found = with_composer_if_idle(|composer| {
         if composer.composing() {
             Some(composer.remembered::<T>())
@@ -195,8 +197,10 @@ pub fn remember<T: Clone + 'static>(init: impl FnOnce() -> T) -> T {
     match found {
         Some(Some(value)) => value,
         Some(None) => {
+            let capture = state::Capture::begin(site);
             let value = init();
-            with_composer(|composer| composer.remember_new(value.clone()));
+            let owned = capture.finish();
+            with_composer(|composer| composer.remember_new_owning(value.clone(), owned));
             value
         }
         None => init(),
@@ -205,11 +209,13 @@ pub fn remember<T: Clone + 'static>(init: impl FnOnce() -> T) -> T {
 
 /// Like [`remember`], but computed again whenever `key` changes. Compose's
 /// `remember(key) { }`.
+#[track_caller]
 pub fn remember_with_key<K, T>(key: K, init: impl FnOnce() -> T) -> T
 where
     K: PartialEq + Clone + 'static,
     T: Clone + 'static,
 {
+    let site = std::panic::Location::caller();
     let found = with_composer_if_idle(|composer| {
         if composer.composing() {
             Some(composer.remembered_if::<(K, T)>(|(stored, _)| *stored == key))
@@ -221,9 +227,11 @@ where
     match found {
         Some(Some((_, value))) => value,
         Some(None) => {
+            let capture = state::Capture::begin(site);
             let value = init();
+            let owned = capture.finish();
             // The cursor did not move, so this replaces the stale value where it stood.
-            with_composer(|composer| composer.remember_new((key, value.clone())));
+            with_composer(|composer| composer.remember_new_owning((key, value.clone()), owned));
             value
         }
         None => init(),
@@ -300,7 +308,7 @@ pub fn current_recompose_scope() -> Option<RecomposeScope> {
     .flatten()
 }
 
-/// What `#[composable]` expands into. Not for calling by hand: the macro's guarantees are
+/// What `#[Composable]` expands into. Not for calling by hand: the macro's guarantees are
 /// what make these safe to use.
 #[doc(hidden)]
 pub mod __private {

@@ -874,7 +874,11 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "valuechange" | "onvaluechange" => Some(PropertyKind::OnValueChange),
         "submit" | "onsubmit" => Some(PropertyKind::OnSubmit),
         "focuslost" | "onfocuslost" => Some(PropertyKind::OnFocusLost),
+        "focusgained" | "onfocusgained" | "focusin" | "onfocusin" => {
+            Some(PropertyKind::OnFocusGained)
+        }
         "keydown" | "onkeydown" => Some(PropertyKind::OnKeyDown),
+        "keyup" | "onkeyup" => Some(PropertyKind::OnKeyUp),
         "rangerequest" | "onrangerequest" => Some(PropertyKind::OnRangeRequested),
         "dismiss" | "ondismiss" => Some(PropertyKind::OnDismiss),
         "filesentered" | "onfilesentered" => Some(PropertyKind::OnFilesEntered),

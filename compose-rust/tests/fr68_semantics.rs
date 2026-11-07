@@ -14,7 +14,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
     tree
 }
 
-#[composable]
+#[Composable]
 fn Plain() {
     Column().content(|| {
         Box().modifier(Modifier.padding(4.0)).content(|| {
@@ -25,7 +25,7 @@ fn Plain() {
     });
 }
 
-#[composable]
+#[Composable]
 fn Named() {
     Column().content(|| {
         Box()
@@ -49,7 +49,7 @@ fn Named() {
     });
 }
 
-#[composable]
+#[Composable]
 fn Stated() {
     Column().content(|| {
         Box()
@@ -117,7 +117,7 @@ fn fr68_the_widget_name_wins_over_the_modifier_label_and_the_icon() {
     assert!(!dump.contains("From the modifier"), "{dump}");
 }
 
-#[composable]
+#[Composable]
 fn Renaming() {
     let named = remember(|| mutable_state_of(true));
     Column().content(|| {
@@ -177,7 +177,7 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
     assert!(!tree.dump().contains("AccessibleName"), "{}", tree.dump());
 }
 
-#[composable]
+#[Composable]
 fn Described() {
     let described = remember(|| mutable_state_of(true));
     Column().content(|| {
@@ -250,7 +250,7 @@ fn fr71_removing_semantics_restores_the_defaults() {
     assert!(!tree.dump().contains("AccessibleName"), "{}", tree.dump());
 }
 
-#[composable]
+#[Composable]
 fn EveryNewRole() {
     Column().content(|| {
         for role in [

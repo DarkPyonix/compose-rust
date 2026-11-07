@@ -8,9 +8,9 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Progress }
 
-enum class Key { Enter }
+enum class Key { Enter, Other }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -117,6 +117,10 @@ enum class UserSelect { Auto, None, Text, All }
 enum class WindowMode { Single, Windows }
 
 enum class LastWindowClosed { Exit, KeepRunning }
+
+enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
+
+enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1028,6 +1032,7 @@ sealed interface Modifier {
     data class Clip(val enabled: Boolean) : Modifier
     data class Alpha(val value: kotlin.Float) : Modifier
     data class Transform(val a: kotlin.Float, val b: kotlin.Float, val c: kotlin.Float, val d: kotlin.Float, val e: kotlin.Float, val f: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float) : Modifier
+    data class Transform3D(val m0: kotlin.Float, val m1: kotlin.Float, val m2: kotlin.Float, val m3: kotlin.Float, val m4: kotlin.Float, val m5: kotlin.Float, val m6: kotlin.Float, val m7: kotlin.Float, val m8: kotlin.Float, val m9: kotlin.Float, val m10: kotlin.Float, val m11: kotlin.Float, val m12: kotlin.Float, val m13: kotlin.Float, val m14: kotlin.Float, val m15: kotlin.Float, val originX: kotlin.Float, val originY: kotlin.Float, val backfaceHidden: Boolean) : Modifier
     data object MatchParentSize : Modifier
     data class WindowDrag(val enabled: Boolean) : Modifier
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
@@ -1257,6 +1262,23 @@ sealed interface Mutation {
 
     /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
     data class RequestFocus(val nodeId: Int) : Mutation
+
+    /**
+     * Asks the platform for a file dialog on the window [window] (0 is the implicit root
+     * window). Answered exactly once, later, by a `FileDialogResult` event carrying
+     * [request]. [filters] is one string: a label and its comma-joined extensions as a pair,
+     * pairs joined by NUL.
+     */
+    data class ShowFileDialog(
+        val request: Int,
+        val window: Int,
+        val kind: FileDialogKind,
+        val defaultFilter: Int,
+        val title: String,
+        val directory: String,
+        val name: String,
+        val filters: String,
+    ) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1268,7 +1290,7 @@ sealed interface HostEvent {
     data class TextSubmitted(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class FocusLost(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class ProtocolError(override val nodeId: Int, override val handlerId: Long, val code: Int, val message: String) : HostEvent
-    data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean) : HostEvent
+    data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class RangeRequested(override val nodeId: Int, override val handlerId: Long, val start: Int, val count: Int) : HostEvent
     data class ValueChanged(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class WindowSizeChanged(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float, val sizeClass: WindowSizeClass, val heightClass: WindowHeightClass, val safeAreaTop: kotlin.Float, val safeAreaLeading: kotlin.Float, val safeAreaTrailing: kotlin.Float) : HostEvent
@@ -1303,13 +1325,16 @@ sealed interface HostEvent {
     data class WindowClosed(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class WindowRequested(override val nodeId: Int, override val handlerId: Long, val request: Int, val key: String) : HostEvent
     data class ApplicationReopen(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class FocusGained(override val nodeId: Int, override val handlerId: Long) : HostEvent
+    data class KeyUp(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
+    data class FileDialogResult(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 3343052262313842838L
+    const val SCHEMA_HASH: Long = 6134367089496884194L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1338,6 +1363,7 @@ object Protocol {
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
     private const val TAG_REQUEST_FOCUS = 25
+    private const val TAG_SHOW_FILE_DIALOG = 26
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1490,6 +1516,19 @@ object Protocol {
                     TAG_REQUEST_FOCUS -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SHOW_FILE_DIALOG -> {
+                        requireRecordLength(length, 48, offset)
+                        Mutation.ShowFileDialog(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            fileDialogKind(readU16(batch, base, available, offset + 12), offset + 12),
+                            readU16(batch, base, available, offset + 14),
+                            readString(batch, base, available, offset + 16),
+                            readString(batch, base, available, offset + 24),
+                            readString(batch, base, available, offset + 32),
+                            readString(batch, base, available, offset + 40),
+                        )
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1731,7 +1770,7 @@ object Protocol {
                 is HostEvent.TextSubmitted -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FocusLost -> null
                 is HostEvent.ProtocolError -> event.message.toByteArray(StandardCharsets.UTF_8)
-                is HostEvent.KeyDown -> null
+                is HostEvent.KeyDown -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.RangeRequested -> null
                 is HostEvent.ValueChanged -> null
                 is HostEvent.WindowSizeChanged -> null
@@ -1766,6 +1805,9 @@ object Protocol {
                 is HostEvent.WindowClosed -> null
                 is HostEvent.WindowRequested -> event.key.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ApplicationReopen -> null
+                is HostEvent.FocusGained -> null
+                is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1773,7 +1815,7 @@ object Protocol {
                 is HostEvent.TextSubmitted -> 24
                 is HostEvent.FocusLost -> 16
                 is HostEvent.ProtocolError -> 28
-                is HostEvent.KeyDown -> 20
+                is HostEvent.KeyDown -> 32
                 is HostEvent.RangeRequested -> 24
                 is HostEvent.ValueChanged -> 24
                 is HostEvent.WindowSizeChanged -> 44
@@ -1808,6 +1850,9 @@ object Protocol {
                 is HostEvent.WindowClosed -> 16
                 is HostEvent.WindowRequested -> 28
                 is HostEvent.ApplicationReopen -> 16
+                is HostEvent.FocusGained -> 16
+                is HostEvent.KeyUp -> 32
+                is HostEvent.FileDialogResult -> 36
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1854,6 +1899,9 @@ object Protocol {
                 is HostEvent.WindowClosed -> 45
                 is HostEvent.WindowRequested -> 46
                 is HostEvent.ApplicationReopen -> 47
+                is HostEvent.FocusGained -> 48
+                is HostEvent.KeyUp -> 49
+                is HostEvent.FileDialogResult -> 50
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -1876,7 +1924,9 @@ object Protocol {
                     if (event.altKey) modifiers = modifiers or 0x04
                     if (event.metaKey) modifiers = modifiers or 0x08
                     out.put(modifiers.toByte())
-                    out.put(0.toByte())
+                    out.put((if (event.repeat) 1 else 0).toByte())
+                    out.putInt(event.code)
+                    writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.RangeRequested -> {
                     out.putInt(event.start)
@@ -2021,6 +2071,25 @@ object Protocol {
                     writeStringReference(out, recordLength, text!!)
                 }
                 is HostEvent.ApplicationReopen -> Unit
+                is HostEvent.FocusGained -> Unit
+                is HostEvent.KeyUp -> {
+                    out.putShort(keyTag(event.key).toShort())
+                    var modifiers = 0
+                    if (event.shiftKey) modifiers = modifiers or 0x01
+                    if (event.ctrlKey) modifiers = modifiers or 0x02
+                    if (event.altKey) modifiers = modifiers or 0x04
+                    if (event.metaKey) modifiers = modifiers or 0x08
+                    out.put(modifiers.toByte())
+                    out.put((if (event.repeat) 1 else 0).toByte())
+                    out.putInt(event.code)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.FileDialogResult -> {
+                    out.putInt(event.request)
+                    out.putInt(fileDialogStatusTag(event.status))
+                    out.putInt(event.filter)
+                    writeStringReference(out, recordLength, text!!)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2204,6 +2273,8 @@ object Protocol {
         166 -> PropertyKind.OnWindowClosed
         167 -> PropertyKind.OnWindowDragOver
         168 -> PropertyKind.TearOffKey
+        117 -> PropertyKind.OnFocusGained
+        118 -> PropertyKind.OnKeyUp
         119 -> PropertyKind.AccessibleName
         121 -> PropertyKind.TrackColor
         122 -> PropertyKind.ThumbColor
@@ -2218,6 +2289,7 @@ object Protocol {
 
     private fun keyTag(key: Key): Int = when (key) {
         Key.Enter -> 1
+        Key.Other -> 2
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {
@@ -2252,6 +2324,12 @@ object Protocol {
         NotificationPermission.Granted -> 2
         NotificationPermission.Denied -> 3
         NotificationPermission.Unsupported -> 4
+    }
+
+    private fun fileDialogStatusTag(status: FileDialogStatus): Int = when (status) {
+        FileDialogStatus.Chosen -> 1
+        FileDialogStatus.Cancelled -> 2
+        FileDialogStatus.Unavailable -> 3
     }
 
     private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
@@ -2857,6 +2935,22 @@ object Protocol {
         else -> throw ProtocolException("unknown LastWindowClosed tag $tag", offset)
     }
 
+    private fun fileDialogKind(tag: Int, offset: Int): FileDialogKind = when (tag) {
+        1 -> FileDialogKind.OpenFile
+        2 -> FileDialogKind.OpenFiles
+        3 -> FileDialogKind.OpenFolder
+        4 -> FileDialogKind.OpenFolders
+        5 -> FileDialogKind.Save
+        else -> throw ProtocolException("unknown FileDialogKind tag $tag", offset)
+    }
+
+    private fun fileDialogStatus(tag: Int, offset: Int): FileDialogStatus = when (tag) {
+        1 -> FileDialogStatus.Chosen
+        2 -> FileDialogStatus.Cancelled
+        3 -> FileDialogStatus.Unavailable
+        else -> throw ProtocolException("unknown FileDialogStatus tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -2910,6 +3004,7 @@ object Protocol {
         24 -> 0
         25 -> 0
         26 -> 2
+        27 -> 8
         31 -> 0
         32 -> 0
         33 -> 0
@@ -2948,6 +3043,7 @@ object Protocol {
             24 -> Modifier.Clip(flag(first, offset))
             25 -> Modifier.Alpha(kotlin.Float.fromBits(first.toInt()))
             26 -> Modifier.Transform(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset))
+            27 -> Modifier.Transform3D(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 24).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 24) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 40).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 40) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 48).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 48) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 56).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 56) ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 64).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 64) ushr 32).toInt()), offset), flag(readU64(batch, base, available, at + 72), offset))
             31 -> Modifier.MatchParentSize
             32 -> Modifier.WindowDrag(flag(first, offset))
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))

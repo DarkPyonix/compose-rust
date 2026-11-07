@@ -157,6 +157,24 @@ class MeasureTest {
             text(text, width = width, spans = spanRecord(6, 4, flags = 1) + spanRecord(15, 4, role = 9))
         },
         Case(
+            "mixed role spans",
+            "Heading words then body words then a small caption that wraps",
+            110f,
+            listOf(
+                PropertyKind.Spans to PropertyValue.Bytes(
+                    spanRecord(0, 7, role = 3) + spanRecord(19, 4, flags = 1) + spanRecord(37, 7, role = 9) +
+                        spanRecord(45, 7, role = 3, flags = 1),
+                ),
+            ),
+        ) { text, width ->
+            text(
+                text,
+                width = width,
+                spans = spanRecord(0, 7, role = 3) + spanRecord(19, 4, flags = 1) + spanRecord(37, 7, role = 9) +
+                    spanRecord(45, 7, role = 3, flags = 1),
+            )
+        },
+        Case(
             "truncated",
             "One line, then another line, then a third that is cut off",
             70f,
@@ -188,6 +206,22 @@ class MeasureTest {
                 assertSameAsDrawn(results.single(), drawnLayout(TEXT), density.density, case.name)
             }
         }
+    }
+
+    @Test
+    fun pr2_span_fonts_are_ignored_where_the_text_has_a_role() = runComposeUiTest {
+        startHost(FakeHostConnection(emptyList()))
+        val text = "Words set in a role keep the theme font"
+        val spans = spanRecord(0, 5) + spanRecord(10, 4, flags = 1)
+        val mono = mapOf(0 to listOf(FontRef.Generic(GenericFamily.Monospace)), 1 to listOf(FontRef.Generic(GenericFamily.Monospace)))
+        val (status, results) = measure(
+            MeasureRequests()
+                .text(text, role = 5, width = 400f, spans = spans)
+                .text(text, role = 5, width = 400f, spans = spans, spanFonts = mono),
+        )
+        assertEquals(MeasureRecords.CALL_OK, status)
+        assertEquals(results[0].width, results[1].width)
+        assertEquals(results[0].height, results[1].height)
     }
 
     @Test
