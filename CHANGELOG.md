@@ -10,6 +10,14 @@ A pressable container draws its focus ring only for keyboard focus, at the node'
 
 A `Row` with a weight in a `Column` (or a `Column` with a weight in a `Row`) is no longer clamped to its content size on the cross axis, so the content no longer collects at the start when the window grows ([#439](https://github.com/DarkPyonix/compose-rust/issues/439), [#440](https://github.com/DarkPyonix/compose-rust/pull/440)).
 
+### Colours and size for `Switch`, `Slider` and `Checkbox`
+
+`Switch` has `track_color`, `thumb_color` and `size(width, height)`, `Slider` has `track_color`, `active_track_color` and `thumb_color`, and `Checkbox` has `container_color`, `check_color` and `size(side)` ([#426](https://github.com/DarkPyonix/compose-rust/issues/426), [#428](https://github.com/DarkPyonix/compose-rust/issues/428)). A value that is not set is not sent, and the design system draws that slot. On the wire these are the new `TrackColor` (121), `ThumbColor` (122), `ActiveTrackColor` (123), `ContainerColor` (124), `CheckColor` (125) and `ControlSize` (126) properties. The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### Accessibility modifier and `accessible_name`
+
+`Modifier` has `label`, `role`, `checked`, `selected` and `semantics(role, label, state)`, so any node can be given a role, a name and a checked or selected state for assistive technology ([#429](https://github.com/DarkPyonix/compose-rust/issues/429)). `Button`, `Switch`, `Checkbox`, `RadioButton` and `Slider` have `accessible_name`, which replaces a visible label and is read instead of an icon-only button's icon name. On the wire this is a new `Semantics` modifier (tag 34) and a new `AccessibleName` property (119). The schema hash changes, so a renderer and a crate from before this change no longer agree. `Modifier::label` keeps each distinct name for the life of the program, at most 4096 of them; a name past that limit is left off, and debug builds print a warning once.
+
 ### Modifier `match_parent_size`
 
 `Modifier` has a new `MatchParentSize` (wire tag 31) for a child of a `Box`: it fills exactly the parent's bounds without enlarging the parent, so an overlay such as a press tint needs no size or radius restated ([#431](https://github.com/DarkPyonix/compose-rust/issues/431)). The schema hash changes, so a renderer and a crate from before this change no longer agree.
@@ -21,6 +29,10 @@ A `Row` with a weight in a `Column` (or a `Column` with a weight in a `Row`) is 
 ### Press feedback
 
 Every pressable surface (`on_click` containers, `Clickable` nodes and the toolkit `Button`) scales to 0.975 and shows a faint tint while pressed, inside the renderer with no Host round trip, and `Modifier::PressFeedback { scale, tint_alpha }` (wire tag 33) changes or turns it off ([#305](https://github.com/DarkPyonix/compose-rust/issues/305)). The schema hash changes.
+
+### Disabled `Button` label keeps its contrast
+
+A disabled `Button` keeps its label at 3:1 or better against its faded fill on the page, a card and a raised card, and an active `Button` is unchanged ([#432](https://github.com/DarkPyonix/compose-rust/issues/432), [#447](https://github.com/DarkPyonix/compose-rust/pull/447)).
 
 ### Schema hash and known test issue
 

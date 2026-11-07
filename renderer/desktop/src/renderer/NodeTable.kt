@@ -46,6 +46,7 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal val children = mutableStateListOf<Int>()
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
+    internal var focusRequestRevision by mutableStateOf(0L)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -167,6 +168,10 @@ class NodeTable {
 
     private var revision = 0L
 
+    /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
+    var focusClearRevision by mutableStateOf(0L)
+        private set
+
     /** Null until the Host sends its first `SetTheme` record. */
     var theme: Theme? by mutableStateOf(null)
         private set
@@ -193,6 +198,16 @@ class NodeTable {
         if (windowId == ROOT_ID) return window?.zoomLevel
         val level = (nodes[windowId]?.props?.get(PropertyKind.WindowZoomLevel) as? PropertyValue.Integer)?.value
         return level?.toInt()?.coerceIn(-8, 8)
+    }
+
+    /**
+     * Whether the window [windowId] asked for every whole-dp change of its size. Node 0 is
+     * the single window of `SetWindow`, which asks through its settings; a `Window` node
+     * asks through its `report_size` property.
+     */
+    fun reportSizeFor(windowId: Int): Boolean {
+        if (windowId == ROOT_ID) return window?.reportSize == true
+        return node(windowId)?.flag(PropertyKind.ReportSize, false) == true
     }
 
     /**
@@ -267,6 +282,7 @@ class NodeTable {
         window = null
         materials = 0
         revision = 0
+        focusClearRevision = 0
     }
 
     fun apply(mutation: Mutation) {
@@ -301,6 +317,7 @@ class NodeTable {
             // the batch.
             is Mutation.SetWindowTheme -> setWindowTheme(mutation)
             is Mutation.FocusWindow -> focusWindow(mutation)
+            is Mutation.RequestFocus -> requestFocus(mutation)
             // The bytes are read here, once, and never again: what a frame carries is the
             // id. A kind this Renderer cannot read, or a release of something that was
             // never registered, is reported and the rest of the batch still applies.
@@ -385,6 +402,20 @@ class NodeTable {
     private fun focusWindow(mutation: Mutation.FocusWindow) {
         windowNode(mutation.nodeId, "FocusWindow") ?: return
         focusRequests += mutation.nodeId
+    }
+
+    private fun requestFocus(mutation: Mutation.RequestFocus) {
+        if (mutation.nodeId == ROOT_ID) {
+            revision += 1
+            focusClearRevision = revision
+            return
+        }
+        val node = nodes[mutation.nodeId] ?: return fail(
+            TableError.UNKNOWN_NODE,
+            "RequestFocus for unknown node ${mutation.nodeId}",
+        )
+        revision += 1
+        node.focusRequestRevision = revision
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -694,6 +725,22 @@ class NodeTable {
 
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
+                // The name assistive technology reads can be given to any node.
+                PropertyKind.AccessibleName -> true
+
+                // Colours and size of the selection controls.
+                PropertyKind.TrackColor,
+                PropertyKind.ThumbColor,
+                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+
+                PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+
+                PropertyKind.ContainerColor,
+                PropertyKind.CheckColor,
+                -> widget == WidgetKind.Checkbox
+
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
                 PropertyKind.OnValueChange,
@@ -977,8 +1024,10 @@ class NodeTable {
                 PropertyKind.OnVisibleRangeChange,
                 PropertyKind.OnEditorFocusChange,
                 PropertyKind.OnFoldChange,
-                PropertyKind.OnCompositionChange,
                 -> widget == WidgetKind.CodeEditor
+
+                PropertyKind.OnCompositionChange ->
+                    widget == WidgetKind.CodeEditor || widget == WidgetKind.TextField
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen
@@ -999,6 +1048,7 @@ class NodeTable {
                 PropertyKind.WindowSize,
                 PropertyKind.WindowMinSize,
                 PropertyKind.WindowResizable,
+                PropertyKind.ReportSize,
                 PropertyKind.WindowChrome,
                 PropertyKind.WindowTitleBar,
                 PropertyKind.WindowIcon,

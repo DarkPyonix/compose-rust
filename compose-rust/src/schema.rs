@@ -183,13 +183,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -822,6 +822,30 @@ define_wire_enum!(MATERIAL_ROLE_SCHEMA, MaterialRole {
     Chrome = 4,
 });
 
+// What a node is to assistive technology. Compose's own `Role` names, so the Renderer maps
+// each one to the platform's. `None` leaves the role the widget already has.
+define_wire_enum!(SEMANTICS_ROLE_SCHEMA, SemanticsRole {
+    None = 1,
+    Button = 2,
+    Checkbox = 3,
+    Switch = 4,
+    RadioButton = 5,
+    Tab = 6,
+    Image = 7,
+    DropdownList = 8,
+    TabList = 9,
+    Tree = 10,
+    TreeItem = 11,
+    Menu = 12,
+    MenuItem = 13,
+    TextBox = 14,
+    Heading = 15,
+    Navigation = 16,
+    List = 17,
+    ListItem = 18,
+    Group = 19,
+});
+
 // Density roles, because dp density differs per design system.
 define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     None = 1,
@@ -1254,6 +1278,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: MATERIAL_ROLE_SCHEMA,
     },
     RoleEnumSchema {
+        name: "SemanticsRole",
+        variants: SEMANTICS_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "SpaceRole",
         variants: SPACE_ROLE_SCHEMA,
     },
@@ -1556,6 +1584,10 @@ pub struct Window {
     /// last time. A level set here is applied, remembered and reported back the way one
     /// chosen with the keys is. Kept inside `-8..=8`.
     pub zoom_level: Option<i8>,
+    /// Whether the implicit single window reports every whole-dp change of its size,
+    /// not only a change of size class. Off by default. Windows made with `Window`
+    /// nodes opt in through the node's `report_size` property instead.
+    pub report_size: bool,
     /// One window (the default) or several. In the second the root's children are
     /// `Window` nodes and the rest of this record describes no window.
     pub mode: WindowMode,
@@ -1576,6 +1608,7 @@ impl Window {
             min_height: 0,
             resizable: true,
             zoom_level: None,
+            report_size: false,
             mode: WindowMode::Single,
             last_window_closed: LastWindowClosed::Exit,
         }
@@ -1647,6 +1680,12 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Asks the implicit single window to report every whole-dp change of its size.
+    pub const fn with_report_size(mut self, report: bool) -> Self {
+        self.report_size = report;
         self
     }
 
@@ -1943,7 +1982,40 @@ pub enum Modifier {
         scale: f32,
         tint_alpha: f32,
     },
+    /// What this node is to assistive technology: its role, and whether it is checked or
+    /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
+    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
+    /// accessible name is the `AccessibleName` property, because a string does not fit in
+    /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
+    /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
+    /// accessibility tree, and the two action bits expose a click and a focus action.
+    Semantics {
+        role: SemanticsRole,
+        state: u32,
+    },
 }
+
+/// Where the checked field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_CHECKED_SHIFT: u32 = 0;
+/// Where the selected field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_SELECTED_SHIFT: u32 = 2;
+/// Where the expanded field sits in `Modifier::Semantics::state`: 0 unset, 1 collapsed,
+/// 2 expanded.
+pub const SEMANTICS_EXPANDED_SHIFT: u32 = 4;
+/// Where the disabled field sits in `Modifier::Semantics::state`: 0 unset, 1 enabled,
+/// 2 disabled.
+pub const SEMANTICS_DISABLED_SHIFT: u32 = 6;
+/// Where the focused field sits in `Modifier::Semantics::state`: 0 unset, 1 not focused,
+/// 2 focused.
+pub const SEMANTICS_FOCUSED_SHIFT: u32 = 8;
+/// The bit that excludes the node from the accessibility tree.
+pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
+/// The bit that exposes a click action on the node.
+pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
+/// The bit that exposes a focus action on the node.
+pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
+/// Every bit `Modifier::Semantics::state` may set.
+pub const SEMANTICS_STATE_MASK: u32 = 0b1_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
@@ -2420,6 +2492,19 @@ const PRESS_FEEDBACK_FIELDS: &[FieldSchema] = &[
     },
 ];
 
+const SEMANTICS_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "role",
+        ty: FieldType::Role("SemanticsRole"),
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "state",
+        ty: FieldType::U32,
+        slot: FieldSlot::SecondLow,
+    },
+];
+
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
@@ -2605,6 +2690,12 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 33,
         extra_words: 0,
         fields: PRESS_FEEDBACK_FIELDS,
+    },
+    VariantSchema {
+        name: "Semantics",
+        tag: 34,
+        extra_words: 0,
+        fields: SEMANTICS_FIELDS,
     },
 ];
 
@@ -2858,6 +2949,25 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // into a window of its own, named by it.
     OnWindowDragOver = 167,
     TearOffKey = 168,
+    // The name assistive technology reads for a node, a string. On a widget it overrides
+    // the visible label, and on an icon-only button it beats the name the icon's meaning
+    // would give. 117 and 118 are reserved for another pending change, and 119 is the next
+    // free number; 120 is `IslandZoom`.
+    AccessibleName = 119,
+    // Colours and size of the selection controls. A node that does not set one leaves
+    // the design system's value, so a control that sends none draws as it always has.
+    // The colours are `Paint` bits; the size is two f32 (width, height) in dp.
+    // 120 is the island zoom, so these start at 121.
+    TrackColor = 121,
+    ThumbColor = 122,
+    ActiveTrackColor = 123,
+    ContainerColor = 124,
+    CheckColor = 125,
+    ControlSize = 126,
+    // Opt in to a `WindowSizeChanged` whenever the window's width or height, rounded to
+    // whole dp, changes, and not only when the size class does. A `Window` node's boolean;
+    // absent is false.
+    ReportSize = 127,
 });
 
 #[derive(Clone, Debug, PartialEq)]

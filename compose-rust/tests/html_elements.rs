@@ -138,6 +138,10 @@ fn every_modifier() -> Vec<Modifier> {
             scale: 0.975,
             tint_alpha: 0.07,
         },
+        Modifier::Semantics {
+            role: compose_rust::SemanticsRole::Button,
+            state: 0b0110,
+        },
     ]
 }
 
