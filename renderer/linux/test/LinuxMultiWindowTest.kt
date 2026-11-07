@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalDensity
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LastWindowClosed
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -16,8 +17,10 @@ import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.ZoomLevelStore
 import dev.darkpyonix.composerust.runtime.appZoomScale
@@ -71,6 +74,155 @@ class LinuxMultiWindowTest {
             if (done()) return true
         }
         return done()
+    }
+
+    private fun bytesOf(vararg values: Float): ByteArray {
+        val out = ByteArray(values.size * 4)
+        values.forEachIndexed { i, value ->
+            val bits = value.toRawBits()
+            for (b in 0 until 4) out[i * 4 + b] = (bits shr (8 * b)).toByte()
+        }
+        return out
+    }
+
+    /** A window whose frame and pointer are scripted, so the test does not depend on a window manager. */
+    private class ScriptedWindow(
+        private val inner: PlatformWindow,
+        private val frame: ScreenBounds,
+        private val pointer: () -> ScreenPointer,
+    ) : PlatformWindow by inner {
+        override fun bounds(): ScreenBounds = frame
+        override fun contentOrigin(): ScreenPoint = ScreenPoint(frame.x, frame.y)
+        override fun pointerOnScreen(): ScreenPointer = pointer()
+        override fun followPointer(anchorX: Float, anchorY: Float): Boolean = true
+    }
+
+    private class ScriptedBackend(
+        private val inner: LinuxWindowBackend,
+        private val frames: Map<Int, ScreenBounds>,
+        private val pointer: () -> ScreenPointer,
+    ) : WindowBackend by inner {
+        override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
+            val opened = inner.open(config, listener) ?: return null
+            return ScriptedWindow(opened, frames.getValue(config.nodeId), pointer)
+        }
+    }
+
+    @Test
+    fun fr53_53_7_linux_registered_drop_targets_follow_bounds_and_subscription() {
+        WindowDropTargets.update(1, 10, 20f, 30f, 120f, 130f, 2f, 1)
+        WindowDropTargets.update(1, 11, 40f, 50f, 80f, 90f, 2f, 2)
+        WindowDropTargets.update(2, 20, 20f, 30f, 120f, 130f, 1f, 1)
+        try {
+            assertEquals(DropTarget(11, 5f, 5f), DropTargets.Registered.targetAt(1, 50f, 60f))
+            assertEquals(DropTarget(20, 30f, 30f), DropTargets.Registered.targetAt(2, 50f, 60f))
+            WindowDropTargets.remove(1, 11)
+            assertEquals(DropTarget(10, 15f, 15f), DropTargets.Registered.targetAt(1, 50f, 60f))
+            WindowDropTargets.update(1, 10, 200f, 200f, 300f, 300f, 2f, 1)
+            assertEquals(null, DropTargets.Registered.targetAt(1, 50f, 60f))
+        } finally {
+            WindowDropTargets.remove(1, 10)
+            WindowDropTargets.remove(1, 11)
+            WindowDropTargets.remove(2, 20)
+        }
+    }
+
+    /**
+     * The whole path of a dragged window: the Host's `DragFromPointer`, a real X window drawing a
+     * real `Text` node that subscribed with `OnWindowDragOver` (its bounds come from layout, not
+     * from the test), the manager polling the pointer, and the `WindowDragOver` events the Host
+     * receives. Only the pointer position and the window frames are scripted.
+     */
+    @Test
+    fun fr53_53_7_linux_drag_over_reaches_the_host_through_a_real_window() {
+        if (!hasDisplay()) return
+        var pointer = ScreenPointer(0f, 0f, true)
+        val frames = mapOf(
+            1 to ScreenBounds(0f, 600f, 300f, 200f),
+            2 to ScreenBounds(1000f, 0f, 300f, 200f),
+        )
+        val main = mainForTests()
+        lateinit var host: ComposeRustHost
+        val real = LinuxWindowBackend(main) { nodeId -> { ComposeRustContent(host, windowNodeId = nodeId) } }
+        val backend = ScriptedBackend(real, frames) { pointer }
+        fun window(id: Int, vararg props: Pair<PropertyKind, PropertyValue>) = buildList {
+            add(Mutation.Create(id, WidgetKind.Window))
+            add(Mutation.SetProp(id, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(300f, 200f))))
+            for ((kind, value) in props) add(Mutation.SetProp(id, kind, value))
+            add(Mutation.Insert(0, id, -1))
+        }
+        fun strip(parent: Int, id: Int, handler: Long) = listOf(
+            Mutation.Create(id, WidgetKind.Text),
+            Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("tab strip")),
+            Mutation.SetProp(id, PropertyKind.OnWindowDragOver, PropertyValue.Integer(handler)),
+            Mutation.Insert(parent, id, -1),
+        )
+        val initial = listOf(
+            Mutation.SetWindow(
+                Window(
+                    chrome = Chrome.Modern,
+                    titleBar = TitleBar.Normal,
+                    title = "",
+                    icon = 0,
+                    width = 0,
+                    height = 0,
+                    minWidth = 0,
+                    minHeight = 0,
+                    resizable = true,
+                    zoomLevel = null,
+                    mode = WindowMode.Windows,
+                    lastWindowClosed = LastWindowClosed.KeepRunning,
+                ),
+            ),
+        ) + window(2) + strip(2, 20, 33L) +
+            window(
+                1,
+                PropertyKind.DragFromPointer to PropertyValue.Bytes(
+                    ByteArray(12).also {
+                        it[0] = 1
+                        bytesOf(0f, 0f).copyInto(it, 4)
+                    },
+                ),
+                PropertyKind.OnWindowDrag to PropertyValue.Integer(11L),
+            ) + strip(1, 10, 44L)
+        val conn = FakeHostConnection(initial)
+        host = ComposeRustHost(conn)
+        host.start()
+        val manager = WindowManager(host, backend, onExit = {}, dropTargets = DropTargets.Registered)
+        try {
+            manager.attach()
+            // The subscribed node of window 2 has been laid out and has reported its bounds.
+            assertTrue(
+                real.turnsUntil { WindowDropTargets.find(2, 2f, 4f) != null },
+                "the subscribed node never registered its bounds from layout",
+            )
+            fun overs() = conn.events.filterIsInstance<HostEvent.WindowDragOver>()
+
+            pointer = ScreenPointer(1002f, 4f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1), overs().map { it.kind }, "no Enter reached the Host")
+            val enter = overs().first()
+            assertEquals(20, enter.nodeId)
+            assertEquals(33L, enter.handlerId)
+            assertEquals(1, enter.window)
+
+            pointer = ScreenPointer(1004f, 5f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1, 2), overs().map { it.kind })
+
+            pointer = ScreenPointer(1250f, 190f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1, 2, 3), overs().map { it.kind })
+
+            pointer = ScreenPointer(1003f, 4f, true)
+            manager.flushFrame()
+            assertTrue(overs().all { it.nodeId == 20 }, "the dragged window's own strip was hit")
+            assertEquals(1, overs().last().kind, "re-entering the strip did not Enter again")
+        } finally {
+            manager.shutdown()
+            real.closeAll()
+            host.shutdown()
+        }
     }
 
     @Test

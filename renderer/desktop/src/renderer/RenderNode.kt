@@ -18,6 +18,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.IntrinsicMeasurable
 import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
@@ -57,6 +60,8 @@ import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.islandDensity
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -273,7 +278,25 @@ fun RenderNode(
             withRequester
         }
     }
-    val modifier = platformFileDrop(focusableModifier, node, dispatcher)
+    val windowId = LocalWindowNodeId.current
+    val subscribed = windowId != 0 && node.handler(PropertyKind.OnWindowDragOver) != null
+    val density = LocalDensity.current.density
+    if (subscribed) {
+        DisposableEffect(windowId, nodeId) {
+            onDispose { WindowDropTargets.remove(windowId, nodeId) }
+        }
+    }
+    var depth = 0
+    var ancestor = node.parentId
+    while (ancestor != NodeTable.ROOT_ID && depth <= 1024) {
+        depth++
+        ancestor = table.node(ancestor)?.parentId ?: NodeTable.ROOT_ID
+    }
+    val dropModifier = if (subscribed) focusableModifier.onGloballyPositioned { coordinates ->
+        val bounds = coordinates.boundsInWindow()
+        WindowDropTargets.update(windowId, nodeId, bounds.left, bounds.top, bounds.right, bounds.bottom, density, depth)
+    } else focusableModifier
+    val modifier = platformFileDrop(dropModifier, node, dispatcher)
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
