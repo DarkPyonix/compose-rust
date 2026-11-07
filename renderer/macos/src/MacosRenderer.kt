@@ -106,7 +106,13 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             application.windows.forEach { (it as? NSWindow)?.deminiaturize(null) }
         },
     )
+    // The file dialogs, before the Host exists for the same reason: the node table takes the
+    // platform when it is made, and the first batch may already ask for one. The windows they
+    // attach to are handed in once they exist (FR-72).
+    val fileDialogs = MacosFileDialogPlatform()
+    FileDialogs.platform = fileDialogs
     val host = ComposeRustHost(connection())
+    fileDialogs.nodeWindow = { id -> host.table.fileDialogs.windowResolver(id) }
     host.start()
     // Quitting ends the process from inside the run loop, so `run` below never returns to
     // say so. What this application posted is taken back when the platform says it is
@@ -155,6 +161,8 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         ),
     )
     requestFrame = window::requestFrame
+    // The one window is where a dialog on node 0, the implicit window, is shown.
+    fileDialogs.rootWindow = { window.window }
     // The fork's window runs the scene's coroutines (the frame requests below among them, and
     // every delay) only inside a frame, and an idle window is not drawn. A request a Host
     // worker makes would wait for a frame nobody asks for, so each one is turned into a

@@ -76,6 +76,11 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     }
     val windows = MacosWindowBackend(scene)
     backend = windows
+    // A dialog on node 0 has no `Window` node of its own here, so it goes to the window in
+    // use, or the first one open (FR-72).
+    (FileDialogs.platform as? MacosFileDialogPlatform)?.rootWindow = {
+        keyOrFirstWindow(windows.windows.mapNotNull { (it as? MacosPlatformWindow)?.nativeWindow })
+    }
     val manager = WindowManager(host, windows, onExit = { stopApplicationLoop() })
     manager.attach()
     // A batch is one snapshot for every window: each is drawn again after it is applied, not
