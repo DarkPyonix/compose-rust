@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Native file open and save dialogs
+
+The Host can ask for a platform file dialog with `FileDialog` (open a file, files, a folder or folders, or save with a suggested name and folder, filters, a title and an initial folder) and receives one result per request: the chosen absolute paths, a cancel, or "unavailable". On macOS the dialog is an `NSOpenPanel` or `NSSavePanel` sheet on the owning window. Windows, Linux, iOS, Android and the web answer "unavailable" until their dialogs are wired in ([#483](https://github.com/DarkPyonix/compose-rust/issues/483)).
+
 ## v0.0.6
 
 ### Focus ring only for keyboard focus

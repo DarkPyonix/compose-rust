@@ -170,6 +170,9 @@ pub enum EventPayloadType {
     /// A window the platform or the user asked the application for: a request number, then
     /// the `RestoreKey` as a string reference. The one window event that carries a string.
     WindowRequest,
+    /// What became of one file dialog: the request number, the status, the filter in use
+    /// and the paths as one string reference.
+    FileDialogResult,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -186,10 +189,10 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FileDialogResult;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -341,6 +344,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::WindowDrag => 26,
                 EventPayloadType::WindowDragOver => 27,
                 EventPayloadType::WindowRequest => 28,
+                EventPayloadType::FileDialogResult => 29,
             }],
         );
         index += 1;
@@ -1457,6 +1461,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "LastWindowClosed",
         variants: LAST_WINDOW_CLOSED_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "FileDialogKind",
+        variants: FILE_DIALOG_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDialogStatus",
+        variants: FILE_DIALOG_STATUS_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1545,6 +1557,25 @@ define_wire_enum!(WINDOW_MODE_SCHEMA, WindowMode {
 define_wire_enum!(LAST_WINDOW_CLOSED_SCHEMA, LastWindowClosed {
     Exit = 0,
     KeepRunning = 1,
+});
+
+// What a file dialog asks the user to pick. Closed: each kind is a different platform panel
+// with different rules about how many paths come back, so a free-form set of flags would
+// allow combinations no panel can honour.
+define_wire_enum!(FILE_DIALOG_KIND_SCHEMA, FileDialogKind {
+    OpenFile = 1,
+    OpenFiles = 2,
+    OpenFolder = 3,
+    OpenFolders = 4,
+    Save = 5,
+});
+
+// How a file dialog ended. `Unavailable` means this run has no way to show one, which is an
+// answer and not an error, and is never used for a user's cancel.
+define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
+    Chosen = 1,
+    Cancelled = 2,
+    Unavailable = 3,
 });
 
 /// What an application may decide about its own window.
@@ -3204,6 +3235,16 @@ pub enum EventPayload<'a> {
     /// The user opened the application again while it had no window. Delivered to the
     /// root.
     ApplicationReopen,
+    /// A file dialog ended. `request` is the number the Host gave it, `filter` is the
+    /// position of the filter in use (`u32::MAX` when there is none) and `paths` holds the
+    /// chosen paths separated by one NUL byte, empty unless the status is `Chosen`.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileDialogResult {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        paths: &'a str,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3419,6 +3460,14 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ApplicationReopen",
         tag: 47,
         payload: EventPayloadType::None,
+    },
+    // Tags 48 and 49 are taken by changes that are still open. Like the notification
+    // events this addresses the Host itself: a dialog is not in the tree, so there is no
+    // node and no handler to name, and the request number finds the callback.
+    EventSchema {
+        name: "FileDialogResult",
+        tag: 50,
+        payload: EventPayloadType::FileDialogResult,
     },
 ];
 
