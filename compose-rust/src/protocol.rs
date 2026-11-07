@@ -42,6 +42,10 @@ const TAG_SHOW_FILE_DIALOG: u16 = 26;
 /// `ShowFileDialog` after its header: the request, the window, the kind and the default
 /// filter, then four string references. 44 bytes, so the record is 48.
 const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
+// 27 sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+const TAG_SET_OVERLAY_TOKENS: u16 = 27;
+/// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -268,6 +272,8 @@ pub enum Mutation<'a> {
         name: &'a str,
         filters: &'a str,
     },
+    /// Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+    SetOverlayTokens(crate::schema::OverlayTokens),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1507,6 +1513,20 @@ impl BatchEncoder {
                 self.put_string_ref(name)?;
                 self.put_string_ref(filters)?;
             }
+            Mutation::SetOverlayTokens(overlay) => {
+                self.begin_record(TAG_SET_OVERLAY_TOKENS, OVERLAY_TOKENS_PAYLOAD_LEN as u16);
+                self.put_u16(overlay.sheet_corner_radius);
+                self.put_u16(overlay.dialog_corner_radius);
+                self.put_u16(overlay.popup_corner_radius);
+                self.put_u16(overlay.sheet_elevation);
+                self.put_u16(overlay.popup_elevation);
+                self.put_u16(overlay.dialog_elevation);
+                self.put_u16(overlay.sheet_padding);
+                self.put_u16(overlay.dialog_padding);
+                self.put_u16(overlay.popup_padding);
+                self.put_u16(0);
+                self.put_u32(overlay.scrim);
+            }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
                 self.put_u16(window.chrome as u16);
@@ -1827,6 +1847,7 @@ fn decode_theme(bytes: &[u8], payload: usize, records_len: usize) -> Result<Them
         adaptive: adaptive == 1,
         fonts,
         palette,
+        overlay: None,
     })
 }
 
@@ -1966,6 +1987,31 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 }
             }
             TAG_SHOW_FILE_DIALOG => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_OVERLAY_TOKENS if len == 4 + OVERLAY_TOKENS_PAYLOAD_LEN => {
+                let sheet_corner_radius = read_u16(bytes, payload)?;
+                let dialog_corner_radius = read_u16(bytes, payload + 2)?;
+                let popup_corner_radius = read_u16(bytes, payload + 4)?;
+                let sheet_elevation = read_u16(bytes, payload + 6)?;
+                let popup_elevation = read_u16(bytes, payload + 8)?;
+                let dialog_elevation = read_u16(bytes, payload + 10)?;
+                let sheet_padding = read_u16(bytes, payload + 12)?;
+                let dialog_padding = read_u16(bytes, payload + 14)?;
+                let popup_padding = read_u16(bytes, payload + 16)?;
+                let scrim = read_u32(bytes, payload + 20)?;
+                Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
+                    sheet_corner_radius,
+                    dialog_corner_radius,
+                    popup_corner_radius,
+                    sheet_elevation,
+                    popup_elevation,
+                    dialog_elevation,
+                    sheet_padding,
+                    dialog_padding,
+                    popup_padding,
+                    scrim,
+                })
+            }
+            TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2136,7 +2182,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_REQUEST_FOCUS => {
+            | TAG_SET_WINDOW_THEME..=TAG_SET_OVERLAY_TOKENS => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),

@@ -196,6 +196,28 @@ private fun OpeningList(
             )
         }
         if (open) {
+            val popupShape = if (node.setsOwnShape()) {
+                node.containerShape(style, theme)
+            } else {
+                theme.overlay?.popupCornerRadius?.takeIf { it > 0 }?.let { androidx.compose.foundation.shape.RoundedCornerShape(it.dp) } ?: style.shape
+            }
+            val popupElevation = if (node.setsOwnElevation()) {
+                0.dp
+            } else {
+                theme.overlay?.popupElevation?.takeIf { it > 0 }?.let { it.dp } ?: style.elevation
+            }
+            val popupRaised = if (node.setsOwnElevation() || popupElevation.value <= 0f) {
+                Modifier
+            } else {
+                theme.rules.elevation(Modifier, popupElevation, popupShape, theme)
+            }
+            val popupPadding = if (node.setsOwnPadding()) {
+                Modifier
+            } else if (theme.overlay?.popupPadding != null && theme.overlay.popupPadding > 0) {
+                Modifier.padding(theme.overlay.popupPadding.dp)
+            } else {
+                Modifier.padding(vertical = theme.space(SpaceRole.Xs))
+            }
             Popup(
                 popupPositionProvider = BelowAnchorPositionProvider,
                 onDismissRequest = { open = false },
@@ -205,10 +227,11 @@ private fun OpeningList(
                     Column(
                         Modifier
                             .testTag(dropdownPopupTestTag(node.id))
-                            .clip(style.shape)
-                            .background(style.container, style.shape)
-                            .border(style.borderWidth, style.borderColor, style.shape)
-                            .padding(vertical = theme.space(SpaceRole.Xs)),
+                            .then(popupRaised)
+                            .clip(popupShape)
+                            .background(style.container, popupShape)
+                            .border(style.borderWidth, style.borderColor, popupShape)
+                            .then(popupPadding),
                     ) {
                         options.forEachIndexed { index, childId ->
                             key(childId) {

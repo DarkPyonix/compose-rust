@@ -187,6 +187,10 @@ class NodeTable {
     var theme: Theme? by mutableStateOf(null)
         private set
 
+    /** Null until the Host sends an overlay tokens record. */
+    var overlayTokens: OverlayTokens? by mutableStateOf(null)
+        private set
+
     /** Null until the Host sends its first `SetWindow` record. */
     var window: Window? by mutableStateOf(null)
         private set
@@ -320,6 +324,7 @@ class NodeTable {
                     fail(TableError.INVALID_PALETTE, "theme palette: $problem")
                 }
             }
+            is Mutation.SetOverlayTokens -> overlayTokens = mutation.overlay
             // Read before there is a window to apply it to. The platform layer asks for
             // this out of the first batch and builds the window from it, so by the time
             // the batch is applied the window already looks the way it says. Keeping it
