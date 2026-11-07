@@ -4,7 +4,6 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::schema::PropertyKind;
 use compose_rust::ui::*;
 use support::Tree;
 
@@ -20,7 +19,8 @@ const CUSTOM_COLOR: Paint = Paint::Literal(Color::rgb(0x123456));
 #[Composable]
 fn StyledField() {
     Column().content(|| {
-        TextField("custom")
+        TextField()
+            .text("custom")
             .font_size(15.0)
             .font_weight(600)
             .line_height(22.0)
@@ -32,7 +32,7 @@ fn StyledField() {
 #[Composable]
 fn PlainField() {
     Column().content(|| {
-        TextField("plain");
+        TextField().text("plain");
     });
 }
 
