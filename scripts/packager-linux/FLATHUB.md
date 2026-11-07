@@ -53,7 +53,10 @@ entry, the metainfo and `icons/`.
 - [ ] `flatpak run dev.darkpyonix.Ember` opens the window. The workflow's calculator step
       shows how to do that under a virtual display.
 - [ ] `appstreamcli validate --no-net flathub-ember/dev.darkpyonix.Ember.metainfo.xml` passes.
-- [ ] The runtime branch (default 26.08) is the newest one Flathub offers.
+- [ ] The runtime branch (default 25.08) is the newest one Flathub offers. Flathub's appstream
+      listing already names 26.08, but its `flathub` remote has no `org.freedesktop.Sdk/x86_64/26.08`
+      ref yet (flatpak-builder: "No remote refs found"), so 25.08 is the newest installable one.
+      Move to 26.08 when `flatpak remote-ls flathub --runtime | grep 26.08` lists it.
 
 ## 4. Pull request (when the hold is lifted)
 

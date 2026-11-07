@@ -46,7 +46,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_PROFILE_DEV_DEBUG: "0"
-  FLATPAK_RUNTIME: "26.08"
+  FLATPAK_RUNTIME: "25.08"
   # A screenshot for the test listings, pinned to a commit the way a store listing must be
   # (Ember's large icon; the images are stand-ins, the pinning and mirroring are real).
   SCREENSHOT_URL: https://raw.githubusercontent.com/DarkPyonix/darkpyonix-ember/faa430a4b75ec45928623130ea2f874b628a7224/src-tauri/icons/128x128@2x.png

@@ -22,7 +22,7 @@ use crate::icons::{Icon, IconKind};
 use crate::metadata::AppMetadata;
 
 /// The runtime branch used when the application's file does not name one.
-pub const DEFAULT_RUNTIME_VERSION: &str = "26.08";
+pub const DEFAULT_RUNTIME_VERSION: &str = "25.08";
 
 /// Where a source comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
