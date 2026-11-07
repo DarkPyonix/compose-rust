@@ -22,9 +22,11 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.test.Test
@@ -58,34 +60,37 @@ class HostOverlayTokensTest {
                 Mutation.Insert(sheetId, textId, 0),
             ),
         )
+        lateinit var host: ComposeRustHost
         setContent {
             CompositionLocalProvider(
                 LocalFrameRequests provides frames,
                 LocalDensity provides Density(1f),
             ) {
+                host = rememberComposeRustHost(connection)
                 ComposeRustContent(
-                    rememberComposeRustHost(connection),
+                    host,
                     Modifier.requiredSize(500.dp, 800.dp),
                 )
             }
         }
         waitForIdle()
 
-        assertEquals(tokens, connection.host.table.overlayTokens)
+        assertEquals(tokens, host.table.overlayTokens)
         onNodeWithTag(nodeTestTag(textId)).assertTextEquals("Settings")
 
         // Overriding scrim on the node directly
+        val scrimBits = (2L shl 32) or (0x40112233L and 0xFFFFFFFFL)
         connection.scheduleFrame(
             listOf(
-                Mutation.SetProp(sheetId, PropertyKind.Scrim, PropertyValue.Paint(Paint.Rgb(0x40, 0x11, 0x22, 0x33))),
+                Mutation.SetProp(sheetId, PropertyKind.Scrim, PropertyValue.Integer(scrimBits)),
             ),
         )
         frames.request()
         waitForIdle()
 
-        val node = connection.host.table.node(sheetId)
+        val node = host.table.node(sheetId)
         assertNotNull(node)
-        assertEquals(Paint.Rgb(0x40, 0x11, 0x22, 0x33), node.paintProp(PropertyKind.Scrim))
+        assertEquals(Paint.Literal(0x40112233), node.paintProp(PropertyKind.Scrim))
     }
 
     @Test
@@ -102,6 +107,7 @@ class HostOverlayTokensTest {
             popupPadding = 8,
             scrim = 0x66000000L,
         )
+        val scrimBits = (2L shl 32) or (0x80000000L and 0xFFFFFFFFL)
         val connection = FakeHostConnection(
             listOf(
                 Mutation.SetTheme(
@@ -111,27 +117,29 @@ class HostOverlayTokensTest {
                 Mutation.Create(root, WidgetKind.Column),
                 Mutation.Create(dialogId, WidgetKind.Dialog),
                 Mutation.SetProp(dialogId, PropertyKind.Open, PropertyValue.Bool(true)),
-                Mutation.SetProp(dialogId, PropertyKind.Scrim, PropertyValue.Paint(Paint.Rgb(0x80, 0x00, 0x00, 0x00))),
+                Mutation.SetProp(dialogId, PropertyKind.Scrim, PropertyValue.Integer(scrimBits)),
                 Mutation.Create(dialogText, WidgetKind.Text),
                 Mutation.SetProp(dialogText, PropertyKind.Text, PropertyValue.Text("Confirm")),
                 Mutation.Insert(dialogId, dialogText, 0),
                 Mutation.Insert(root, dialogId, 0),
             ),
         )
+        lateinit var host: ComposeRustHost
         setContent {
             CompositionLocalProvider(
                 LocalFrameRequests provides frames,
                 LocalDensity provides Density(1f),
             ) {
+                host = rememberComposeRustHost(connection)
                 ComposeRustContent(
-                    rememberComposeRustHost(connection),
+                    host,
                     Modifier.requiredSize(800.dp, 600.dp),
                 )
             }
         }
         waitForIdle()
 
-        assertEquals(tokens, connection.host.table.overlayTokens)
+        assertEquals(tokens, host.table.overlayTokens)
         onNodeWithTag(nodeTestTag(dialogText)).assertTextEquals("Confirm")
         onNodeWithTag(dialogTestTag(dialogId)).assertExists()
     }
