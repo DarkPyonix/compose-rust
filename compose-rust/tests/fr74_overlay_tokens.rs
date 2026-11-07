@@ -1,7 +1,7 @@
 //! Overlay theme tokens and node geometry overrides.
 
 use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
-use compose_rust::schema::{Color, DesignSystem, OverlayTokens, PropertyKind, Theme};
+use compose_rust::schema::{DesignSystem, OverlayTokens, PropertyKind, Theme};
 
 #[test]
 fn fr74_overlay_tokens_command_round_trips() {
@@ -17,7 +17,7 @@ fn fr74_overlay_tokens_command_round_trips() {
         .popup_padding(8)
         .scrim_argb(0x80000000);
 
-    let mut encoder = BatchEncoder::new();
+    let mut encoder = BatchEncoder::default();
     encoder.encode(&Mutation::SetOverlayTokens(tokens)).unwrap();
     let bytes = encoder.finish();
 
