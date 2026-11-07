@@ -1,6 +1,6 @@
 //! Overlay theme tokens and node geometry overrides (FR-74).
 
-use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
+use compose_rust::protocol::{decode_batch, BatchEncoder, Mutation};
 use compose_rust::schema::{Color, DesignSystem, OverlayTokens, PropertyKind, Theme};
 
 #[test]
@@ -63,5 +63,8 @@ fn fr74_theme_builder_attaches_overlay_tokens() {
 #[test]
 fn fr74_property_kind_scrim_has_correct_wire_tag() {
     assert_eq!(PropertyKind::Scrim as u16, 128);
-    assert_eq!(PropertyKind::from_name("scrim").unwrap(), PropertyKind::Scrim);
+    assert_eq!(
+        PropertyKind::from_name("scrim").unwrap(),
+        PropertyKind::Scrim
+    );
 }

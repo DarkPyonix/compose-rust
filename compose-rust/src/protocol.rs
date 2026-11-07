@@ -1,11 +1,11 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus, Key,
-    MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
-    WidgetKind, modifier_extra_words,
+    modifier_extra_words, AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus,
+    Key, MaterialRole, MessageDuration, Modifier, MotionRole, NotificationImportance,
+    NotificationPermission, NotificationPresentation, Paint, PropertyKind, Selection,
+    SemanticsRole, ShapeRole, SpaceRole, Theme, WidgetKind, MAX_MODIFIER_WORDS,
+    SEMANTICS_STATE_MASK, TYPE_ROLE_COUNT,
 };
 use core::fmt;
 
@@ -2584,18 +2584,7 @@ fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
 }
 
 fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
-    let [
-        first,
-        second,
-        third,
-        fourth,
-        fifth,
-        sixth,
-        seventh,
-        eighth,
-        ninth,
-        tenth,
-    ] = *words;
+    let [first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth] = *words;
     match tag {
         0 => Ok(Modifier::Empty),
         1 => Ok(Modifier::Padding(f32::from_bits(first as u32))),
@@ -3902,8 +3891,8 @@ mod tests {
     fn fr65_text_field_on_composition_change_delivers_bool() {
         use std::cell::RefCell;
         use std::rc::Rc;
-        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
 
         let seen: Rc<RefCell<Vec<bool>>> = Rc::new(RefCell::new(Vec::new()));
         let calls = Arc::new(AtomicUsize::new(0));

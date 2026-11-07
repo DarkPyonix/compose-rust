@@ -1,22 +1,22 @@
 //! Deterministic Kotlin protocol generation from the Rust schema.
 
 use crate::protocol::{
-    BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, encode_event,
-};
-use crate::schema::{
-    ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, Color, ColorRole,
-    ColorScheme, DESIGN_SYSTEM_SCHEMA, DesignSystem, EVENT_SCHEMA, EventPayloadType, FieldSchema,
-    FieldSlot, FieldType, HOVER_PHASE_SCHEMA, KEY_SCHEMA, Key, MODIFIER_SCHEMA,
-    NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
-    NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
-    ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
-    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
-    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    encode_event, BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
     Keyframe, KeyframeValue, PlayState, PlaybackDirection, StepPosition, Timing, TransformFunction,
+};
+use crate::schema::{
+    BoundaryOp, BoundaryParam, Color, ColorRole, ColorScheme, DesignSystem, EventPayloadType,
+    FieldSchema, FieldSlot, FieldType, Key, NotificationImportance, NotificationPermission,
+    NotificationPresentation, Paint, PropertyKind, Selection, ShapeRole, SpaceRole, Theme,
+    WidgetKind, ANDROID_BRIDGE_CLASS, BOUNDARY_SCHEMA, DESIGN_SYSTEM_SCHEMA, EVENT_SCHEMA,
+    HOVER_PHASE_SCHEMA, KEY_SCHEMA, MODIFIER_SCHEMA, NOTIFICATION_PERMISSION_SCHEMA,
+    PROPERTY_SCHEMA, PROTOCOL_VERSION, ROLE_ENUM_SCHEMA, SCHEMA_HASH, WEB_BATCH_BYTES,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
+    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
+    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA,
 };
 use crate::tokens::DESIGN_TOKENS;
 use crate::{EventPayload, Modifier};
@@ -3586,7 +3586,7 @@ fn lower_camel(name: &str) -> String {
 /// The drawing command vocabulary, mirrored into Kotlin with a decoder for the byte blob a
 /// `Canvas` node carries.
 fn write_draw_commands(output: &mut String) {
-    use crate::drawing::{COMMAND_LEN, DRAW_COMMAND_SCHEMA, DrawFieldType};
+    use crate::drawing::{DrawFieldType, COMMAND_LEN, DRAW_COMMAND_SCHEMA};
 
     output.push_str(
         "/**\n * One drawing command. Coordinates are dp from the Canvas's top-left corner.\n *\n \
@@ -3860,7 +3860,7 @@ object SpanRecords {
 /// that record's problem rather than the batch's.
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
-        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
+        RecordFieldType, RecordSchema, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
         SYNTAX_SPAN_RECORD,
     };
 
