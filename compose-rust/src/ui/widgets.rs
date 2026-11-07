@@ -1150,16 +1150,16 @@ impl TextFieldScope {
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 attrs.push(("type_role", role_or_zero(type_role)));
                 if let Some(font_size) = font_size {
-                    attrs.push(("font_size", OwnedAttr::Float(font_size)));
+                    attrs.push(("font_size", OwnedAttr::Float(font_size as f64)));
                 }
                 if let Some(font_weight) = font_weight {
                     attrs.push(("font_weight", OwnedAttr::Int(font_weight as i64)));
                 }
                 if let Some(line_height) = line_height {
-                    attrs.push(("line_height", OwnedAttr::Float(line_height)));
+                    attrs.push(("line_height", OwnedAttr::Float(line_height as f64)));
                 }
                 if let Some(letter_spacing) = letter_spacing {
-                    attrs.push(("letter_spacing", OwnedAttr::Float(letter_spacing)));
+                    attrs.push(("letter_spacing", OwnedAttr::Float(letter_spacing as f64)));
                 }
                 if let Some(color) = color {
                     attrs.push(("color", super::paint(Some(color))));
