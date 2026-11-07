@@ -4001,6 +4001,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 | Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
 
 - **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
+- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀝니다.
 - 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
 - **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
 - Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
