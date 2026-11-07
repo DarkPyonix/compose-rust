@@ -7,6 +7,7 @@ import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.ui.textStyle
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,12 +46,20 @@ import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.weightOf
 import dev.darkpyonix.composerust.design.liftsOffThePage
 
+/** True when the Host set a shape modifier of its own, which replaces the default shape. */
+internal fun Node.setsOwnShape(): Boolean =
+    modifiers.any {
+        it is ProtocolModifier.Shape ||
+            it is ProtocolModifier.ShapeRole ||
+            it is ProtocolModifier.CornerEach
+    }
+
 /**
  * The corner this container is drawn with: the one the Host asked for if it asked, and the
  * design system's corner for this kind of container otherwise.
  */
 internal fun Node.containerShape(style: ContainerStyle, theme: ResolvedTheme): Shape =
-    if (modifiers.any { it is ProtocolModifier.Shape || it is ProtocolModifier.ShapeRole || it is ProtocolModifier.CornerEach }) {
+    if (setsOwnShape()) {
         modifiers.resolvedShape(theme)
     } else {
         style.shape
@@ -98,12 +107,34 @@ internal fun Modifier.containerDecoration(
     theme: ResolvedTheme,
     /** True for a menu, a dialog or a tooltip: a sheet over the page rather than in it. */
     overlay: Boolean = false,
+    role: ContainerRole? = null,
 ): Modifier {
-    val shape = node.containerShape(style, theme)
-    val raised = if (node.setsOwnElevation()) {
+    val shape = if (node.setsOwnShape()) {
+        node.containerShape(style, theme)
+    } else if (overlay) {
+        when (role) {
+            ContainerRole.Dialog -> theme.overlay?.dialogCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) }
+            ContainerRole.Menu -> theme.overlay?.popupCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) }
+            else -> null
+        } ?: style.shape
+    } else {
+        style.shape
+    }
+    val effectiveElevation = if (node.setsOwnElevation()) {
+        0.dp
+    } else if (overlay) {
+        when (role) {
+            ContainerRole.Dialog -> theme.overlay?.dialogElevation?.takeIf { it > 0 }?.let { it.dp }
+            ContainerRole.Menu -> theme.overlay?.popupElevation?.takeIf { it > 0 }?.let { it.dp }
+            else -> null
+        } ?: style.elevation
+    } else {
+        style.elevation
+    }
+    val raised = if (node.setsOwnElevation() || effectiveElevation.value <= 0f) {
         this
     } else {
-        theme.rules.elevation(this, style.elevation, shape, theme)
+        theme.rules.elevation(this, effectiveElevation, shape, theme)
     }
     val material = style.material
     // A Host that named its own Background has already had it applied, so painting the
@@ -139,6 +170,17 @@ internal fun Modifier.containerDecoration(
         .then(
             if (node.setsOwnPadding()) {
                 Modifier
+            } else if (overlay) {
+                val customPadding = when (role) {
+                    ContainerRole.Dialog -> theme.overlay?.dialogPadding?.takeIf { it > 0 }?.let { it.dp }
+                    ContainerRole.Menu -> theme.overlay?.popupPadding?.takeIf { it > 0 }?.let { it.dp }
+                    else -> null
+                }
+                if (customPadding != null) {
+                    Modifier.padding(customPadding)
+                } else {
+                    Modifier.padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)
+                }
             } else {
                 Modifier.padding(horizontal = style.horizontalPadding, vertical = style.verticalPadding)
             },

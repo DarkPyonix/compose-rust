@@ -206,13 +206,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -1797,10 +1797,99 @@ pub struct Theme {
     /// platform. A palette built while the application runs is handed to `use_theme`,
     /// which owns it, so application code never has to give it that lifetime itself.
     pub palette: Option<&'static crate::palette::Palette>,
+    /// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+    pub overlay: Option<&'static OverlayTokens>,
 }
 
 /// How many type roles there are, which is how many font slots a theme carries.
 pub const TYPE_ROLE_COUNT: usize = 9;
+
+/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct OverlayTokens {
+    pub sheet_corner_radius: u16,
+    pub dialog_corner_radius: u16,
+    pub popup_corner_radius: u16,
+    pub sheet_elevation: u16,
+    pub popup_elevation: u16,
+    pub dialog_elevation: u16,
+    pub sheet_padding: u16,
+    pub dialog_padding: u16,
+    pub popup_padding: u16,
+    pub scrim: u32,
+}
+
+impl OverlayTokens {
+    pub const fn new() -> Self {
+        Self {
+            sheet_corner_radius: 0,
+            dialog_corner_radius: 0,
+            popup_corner_radius: 0,
+            sheet_elevation: 0,
+            popup_elevation: 0,
+            dialog_elevation: 0,
+            sheet_padding: 0,
+            dialog_padding: 0,
+            popup_padding: 0,
+            scrim: 0,
+        }
+    }
+
+    pub const fn sheet_corner_radius(mut self, radius: u16) -> Self {
+        self.sheet_corner_radius = radius;
+        self
+    }
+
+    pub const fn dialog_corner_radius(mut self, radius: u16) -> Self {
+        self.dialog_corner_radius = radius;
+        self
+    }
+
+    pub const fn popup_corner_radius(mut self, radius: u16) -> Self {
+        self.popup_corner_radius = radius;
+        self
+    }
+
+    pub const fn sheet_elevation(mut self, elevation: u16) -> Self {
+        self.sheet_elevation = elevation;
+        self
+    }
+
+    pub const fn popup_elevation(mut self, elevation: u16) -> Self {
+        self.popup_elevation = elevation;
+        self
+    }
+
+    pub const fn dialog_elevation(mut self, elevation: u16) -> Self {
+        self.dialog_elevation = elevation;
+        self
+    }
+
+    pub const fn sheet_padding(mut self, padding: u16) -> Self {
+        self.sheet_padding = padding;
+        self
+    }
+
+    pub const fn dialog_padding(mut self, padding: u16) -> Self {
+        self.dialog_padding = padding;
+        self
+    }
+
+    pub const fn popup_padding(mut self, padding: u16) -> Self {
+        self.popup_padding = padding;
+        self
+    }
+
+    pub const fn scrim(mut self, color: Color) -> Self {
+        self.scrim = color.to_argb();
+        self
+    }
+
+    pub const fn scrim_argb(mut self, argb: u32) -> Self {
+        self.scrim = argb;
+        self
+    }
+}
 
 impl Theme {
     /// The same design system on every platform.
@@ -1812,6 +1901,7 @@ impl Theme {
             adaptive: false,
             fonts: [0; TYPE_ROLE_COUNT],
             palette: None,
+            overlay: None,
         }
     }
 
@@ -1824,6 +1914,7 @@ impl Theme {
             adaptive: true,
             fonts: [0; TYPE_ROLE_COUNT],
             palette: None,
+            overlay: None,
         }
     }
 
@@ -1876,6 +1967,12 @@ impl Theme {
     /// Renderer at once, so a switch between light and dark never asks the Host.
     pub const fn with_palette(mut self, palette: &'static crate::palette::Palette) -> Self {
         self.palette = Some(palette);
+        self
+    }
+
+    /// Overrides overlay geometry, spacing, elevation and scrim for Dialog, Menu, Dropdown and Sheet.
+    pub const fn with_overlay_tokens(mut self, overlay: &'static OverlayTokens) -> Self {
+        self.overlay = Some(overlay);
         self
     }
 
@@ -3159,6 +3256,8 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // whole dp, changes, and not only when the size class does. A `Window` node's boolean;
     // absent is false.
     ReportSize = 127,
+    // Scrim colour for modal overlays (Dialog, Sheet, Menu), as a `Paint` bit value.
+    Scrim = 128,
 });
 
 #[derive(Clone, Debug, PartialEq)]

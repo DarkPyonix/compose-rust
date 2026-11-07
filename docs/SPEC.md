@@ -4122,6 +4122,33 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 5. 클립보드를 쓸 수 없는 환경에서 명령은 아무 일도 하지 않고 프로세스는 계속 돕니다(시험 이름 fr73_unavailable_clipboard_is_silently_ignored).
 6. Renderer의 어느 로그 줄에도 `text`의 내용이 들어가지 않습니다(시험 이름 fr73_clipboard_text_is_never_logged).
 
+### FR-74 오버레이 테마 토큰과 기하 구조 제어 (`Draft`, 이슈 #506)
+
+요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.6). Ember는 모든 OS에서 24px 연속 곡률 모서리(`corner-xl`), 지정된 팝업과 시트 그림자, 여백, 반투명 배경(scrim)을 쓰는 단일 디자인을 필요로 합니다. `Theme::with_palette`는 색상 역할만 재정의하므로 툴킷의 `Dialog`, `Menu`, `Dropdown`, `Sheet`에 대한 모양(shape), 여백(padding), 그림자/고도(elevation), 스크림(scrim)을 앱 단위로 일괄 지정할 수 없습니다. 이 항목은 애플리케이션 레벨의 오버레이 테마 토큰과 개별 노드 속성을 제공하여 기본 동작을 해치지 않고 디자인을 맞출 수 있게 합니다.
+
+- **명령 `SetOverlayTokens`(명령 태그 27)**: 오버레이 기하 구조와 효과를 지정하는 고정 길이 레코드입니다.
+  - `sheet_corner_radius: u16`: 시트 모서리 반지름(dp, 0은 시스템 기본).
+  - `dialog_corner_radius: u16`: 대화상자 모서리 반지름(dp, 0은 시스템 기본).
+  - `popup_corner_radius: u16`: 메뉴/드롭다운 모서리 반지름(dp, 0은 시스템 기본).
+  - `sheet_elevation: u16`: 시트 고도(dp, 0은 시스템 기본).
+  - `popup_elevation: u16`: 팝업 고도(dp, 0은 시스템 기본).
+  - `dialog_elevation: u16`: 대화상자 고도(dp, 0은 시스템 기본).
+  - `sheet_padding: u16`: 시트 내용 여백(dp, 0은 시스템 기본).
+  - `dialog_padding: u16`: 대화상자 내용 여백(dp, 0은 시스템 기본).
+  - `scrim: u32`: ARGB 스크림 색상(0은 시스템 기본).
+- **노드 레벨 우선순위**:
+  - `Sheet`는 노드가 자체 모양(`node.containerShape`), 자체 여백(`node.setsOwnPadding()`), 자체 배경(`node.setsOwnBackground()`), 자체 고도(`node.setsOwnElevation()`)를 지정하면 시스템 기본이나 테마 토큰보다 노드의 값을 우선 적용합니다.
+  - `PropertyKind::Scrim(128)`: 개별 `Sheet`, `Dialog`, `Menu` 노드에 지정 가능한 스크림 `Paint` 속성입니다.
+- **Host API**:
+  - `OverlayTokens`: 빌더 패턴으로 각 필드를 설정하는 `Copy` 구조체입니다.
+  - `Theme::with_overlay_tokens(self, &'static OverlayTokens) -> Self`.
+  - `Sheet`, `Dialog`, `Menu` 빌더에 `.scrim(paint)` 지원.
+
+수용 기준:
+1. `Theme::with_overlay_tokens`가 설정되면 `SetOverlayTokens`(명령 태그 27)가 인코딩되어 렌더러로 전달됩니다(시험 이름 fr74_overlay_tokens_command_round_trips).
+2. `Sheet`가 테마의 `sheet_corner_radius`와 `scrim`을 반영하여 렌더링되고, 노드에 직접 지정한 모서리 반지름과 스크림이 테마 토큰보다 우선합니다(시험 이름 fr74_sheet_honors_overlay_tokens_and_own_modifiers).
+3. `Dialog`와 `Menu`가 테마의 스크림과 모서리 설정을 반영하고, 개별 노드의 `scrim` 속성을 존중합니다(시험 이름 fr74_dialog_and_menu_honor_scrim_and_tokens).
+
 ### FR-75 텍스트 필드 타이포그래피와 아이콘 버튼 레이아웃 제어 (`Draft`, 이슈 #507)
 
 요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.1). Ember NFR-L3은 여러 OS에서 동일한 컴포저와 버튼 모양을 필요로 합니다. `HostTextField`는 타이포그래피와 내부 여백을 테마 기본 규칙(`theme.rules.field`)에서 파생하고, `HostButton`은 명시적 크기를 가진 아이콘 버튼에도 테마 버튼의 최소 높이와 여백을 강제 적용하여 전역 테마 변경 시 컴포저 플레이스홀더와 플러스 버튼의 위치와 크기가 달라지는 문제가 있었습니다. 이 항목은 텍스트 필드의 명시적 타이포그래피와 내용 여백 제어, 아이콘 버튼의 크기 존중 레이아웃을 제공합니다.

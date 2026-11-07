@@ -484,6 +484,7 @@ private fun ComposeRustTree(
         chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
+        overlay = host.table.overlayTokens,
     )
     // The animations the Host handed over are played here, on this side's frame clock, and
     // the Host is not called while they play unless one asked for events. The loop waits

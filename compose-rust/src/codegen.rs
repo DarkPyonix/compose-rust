@@ -148,6 +148,20 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
+/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+data class OverlayTokens(
+    val sheetCornerRadius: Int = 0,
+    val dialogCornerRadius: Int = 0,
+    val popupCornerRadius: Int = 0,
+    val sheetElevation: Int = 0,
+    val popupElevation: Int = 0,
+    val dialogElevation: Int = 0,
+    val sheetPadding: Int = 0,
+    val dialogPadding: Int = 0,
+    val popupPadding: Int = 0,
+    val scrim: Long = 0L,
+)
+
 /**
  * What the application asked of its own window.
  *
@@ -488,6 +502,9 @@ sealed interface Mutation {
         val name: String,
         val filters: String,
     ) : Mutation
+
+    /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+    data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
 }
 
 "#,
@@ -626,6 +643,7 @@ object Protocol {
     private const val TAG_FOCUS_WINDOW = 24
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
+    private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -790,6 +808,23 @@ object Protocol {
                             readString(batch, base, available, offset + 24),
                             readString(batch, base, available, offset + 32),
                             readString(batch, base, available, offset + 40),
+                        )
+                    }
+                    TAG_SET_OVERLAY_TOKENS -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetOverlayTokens(
+                            OverlayTokens(
+                                sheetCornerRadius = readU16(batch, base, available, offset + 4),
+                                dialogCornerRadius = readU16(batch, base, available, offset + 6),
+                                popupCornerRadius = readU16(batch, base, available, offset + 8),
+                                sheetElevation = readU16(batch, base, available, offset + 10),
+                                popupElevation = readU16(batch, base, available, offset + 12),
+                                dialogElevation = readU16(batch, base, available, offset + 14),
+                                sheetPadding = readU16(batch, base, available, offset + 16),
+                                dialogPadding = readU16(batch, base, available, offset + 18),
+                                popupPadding = readU16(batch, base, available, offset + 20),
+                                scrim = readU32(batch, base, available, offset + 24),
+                            ),
                         )
                     }
                     TAG_SET_WINDOW -> {

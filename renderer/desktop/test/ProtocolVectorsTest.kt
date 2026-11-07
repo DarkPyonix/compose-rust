@@ -101,6 +101,7 @@ class ProtocolVectorsTest {
                 is Mutation.AppendText -> mutation.nodeId !in created
                 // The theme applies to the tree, not to a node, so it is never a bad record.
                 is Mutation.SetTheme -> false
+                is Mutation.SetOverlayTokens -> false
                 // Nor does the window: it is about the frame around the tree.
                 is Mutation.SetWindow -> false
                 // A window's theme and bringing one forward name a node the vector created.

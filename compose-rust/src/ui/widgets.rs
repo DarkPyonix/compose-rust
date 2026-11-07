@@ -2211,6 +2211,7 @@ pub struct ModalScope {
     modifier: Modifier,
     widget: WidgetKind,
     open: bool,
+    scrim: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2222,6 +2223,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Dialog,
         open,
+        scrim: None,
         on_dismiss: None,
         done: false,
     }
@@ -2234,6 +2236,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Sheet,
         open,
+        scrim: None,
         on_dismiss: None,
         done: false,
     }
@@ -2245,6 +2248,12 @@ impl ModalScope {
         self
     }
 
+    /// Sets the modal scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, open) = (self.widget, self.open);
@@ -2253,12 +2262,16 @@ impl ModalScope {
         } else {
             widget_key("compose_rust::ui::Sheet")
         };
+        let scrim = self.scrim;
         emit(
             key,
             widget,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
             content,
@@ -2272,6 +2285,7 @@ container!(ModalScope);
 pub struct MenuScope<'a> {
     modifier: Modifier,
     expanded: bool,
+    scrim: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     anchor: Option<Box<dyn FnOnce() + 'a>>,
     done: bool,
@@ -2283,6 +2297,7 @@ pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
     MenuScope {
         modifier: Modifier::new(),
         expanded,
+        scrim: None,
         on_dismiss: None,
         anchor: None,
         done: false,
@@ -2292,6 +2307,12 @@ pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
 impl<'a> MenuScope<'a> {
     pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sets the popup scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
         self
     }
 
@@ -2305,12 +2326,16 @@ impl<'a> MenuScope<'a> {
         let modifier = self.modifier;
         let expanded = self.expanded;
         let anchor = self.anchor.take();
+        let scrim = self.scrim;
         emit(
             widget_key("compose_rust::ui::Menu"),
             WidgetKind::Menu,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("open", OwnedAttr::Bool(expanded)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
             || {
