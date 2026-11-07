@@ -57,8 +57,11 @@ fn fr75_text_field_typography_round_trips() {
         dump.contains("LetterSpacing=Float(0.5)"),
         "missing LetterSpacing in {dump}"
     );
-    assert!(dump.contains("Color=Paint("), "missing Color in {dump}");
-    assert!(dump.contains("1193046"), "missing Color rgb in {dump}");
+    assert!(dump.contains("Color=Integer("), "missing Color in {dump}");
+    assert!(
+        dump.contains(&format!("Color=Integer({})", CUSTOM_COLOR.to_bits() as i64)),
+        "missing Color in {dump}"
+    );
 }
 
 #[test]
