@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -195,40 +196,10 @@ fun RenderNode(
     } else {
         null
     }
-    val chain = profiled
-        .then(
-            node.modifiers.toComposeModifier(
-                nodeId,
-                dispatcher,
-                theme,
-                animated = { table.animations.animated(nodeId) },
-                containerClickHandler = clickHandler,
-                containerEnabled = node.flag(PropertyKind.Enabled, default = true),
-                containerShape = if (clickHandler != null) node.pressedShape(theme) else null,
-                pressColor = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: theme.color(ColorRole.OnSurface),
-                allowPress = node.widget != WidgetKind.TextField,
-            ),
-        )
-        .testTag(nodeTestTag(nodeId))
-        .accessibility(
-            node,
-            dispatcher,
-            clickHandler
-                ?: (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
-                    as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
-                ?: node.handler(PropertyKind.OnClick),
-        )
-    // The TextField wires its own key handling, because it has an editor to intercept and a
-    // composition to protect; everything else routes keys here.
-    val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
-    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
-    val withKeys = if ((keyDownHandler == null && keyUpHandler == null) ||
-        node.widget == WidgetKind.TextField
-    ) {
-        chain
-    } else {
-        chain.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
-    }
+    // The key handlers go ahead of the node's own modifiers. A modifier that makes the node
+    // focusable (a click, say) is a focus target, and a key event reaches only the handlers
+    // outside it on the way down. Placed after it, a handler would see keys from focused
+    // descendants only and never the keys pressed while the node itself has focus.
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
     val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
@@ -237,9 +208,9 @@ fun RenderNode(
     val withFocusEvents = if ((focusGainedHandler == null && focusLostHandler == null) ||
         node.widget == WidgetKind.TextField
     ) {
-        withKeys
+        chain
     } else {
-        withKeys.onFocusChanged { state ->
+        chain.onFocusChanged { state ->
             val nowFocused = state.hasFocus
             if (!hasFocusWithin && nowFocused && focusGainedHandler != null) {
                 dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
@@ -1093,3 +1064,6 @@ object LayoutProfile {
     fun snapshot(): List<Triple<String, Double, Int>> =
         totals.entries.map { Triple(it.key, it.value.nanos / 1e6, it.value.count) }.sortedByDescending { it.second }
 }
+
+/** The containers that become focus targets when they listen for keys. */
+private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
