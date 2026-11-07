@@ -181,7 +181,9 @@ jobs:
     # failing does not stop the others' samples.
     if: ${{ !cancelled() && needs.requested.result == 'success' && needs.resolve.result == 'success' }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    # The Windows leg compiles eleven samples one after another and used up the two hours
+    # with the renderer already built.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
