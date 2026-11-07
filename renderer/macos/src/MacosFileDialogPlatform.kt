@@ -186,6 +186,7 @@ internal fun keyOrFirstWindow(windows: List<NSWindow>): NSWindow? {
  * by the dialogs it once showed, and its closing ends them: every open and waiting request is
  * cancelled and the window is forgotten.
  */
+@OptIn(kotlin.experimental.ExperimentalNativeApi::class)
 private fun macosSheets(window: NSWindow, gone: () -> Unit): WindowSheets {
     val ref = WeakReference(window)
     val dialogs = MacosFileDialogs { ref.get() }
