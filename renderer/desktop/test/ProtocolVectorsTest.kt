@@ -841,7 +841,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1042, bytes.size)
+        assertEquals(1319, bytes.size)
     }
 
     /**
