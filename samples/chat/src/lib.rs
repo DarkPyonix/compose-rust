@@ -422,7 +422,10 @@ pub fn app() {
             });
         })
         .bottom_bar(|| {
+            // The reference has no bottom bar on a phone either: a toggle at the top left
+            // brings the sidebar out over the page.
             Navigation(selected)
+                .compact(CompactNavigation::Sidebar)
                 .head(|| {
                     Row()
                         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
@@ -1886,6 +1889,42 @@ mod tests {
         assert!(
             allocations.iter().all(|&count| count == expected),
             "per-interaction allocations grew or varied: {allocations:?}"
+        );
+    }
+
+    /// A compact window gets the sidebar behind a toggle, as the portrait Gemini reference
+    /// does, on every design system: the screen chooses it once and never reads the width.
+    #[test]
+    fn fr22_3_4_chat_chooses_the_sidebar_behind_a_toggle() {
+        let mut host = ComposeHost::new(app);
+        let batch = host.rebuild().expect("the first frame encodes").to_vec();
+        let mutations = decode_batch(&batch).expect("the first frame decodes");
+        let navigations: Vec<u32> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Navigation,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(navigations.len(), 1);
+        let chosen: Vec<i64> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::CompactNavigation,
+                    value: PropertyValue::Integer(tag),
+                } if *node_id == navigations[0] => Some(*tag),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            chosen,
+            vec![i64::from(u16::from(CompactNavigation::Sidebar))],
+            "the destinations do not choose what a compact window gets"
         );
     }
 }

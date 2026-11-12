@@ -39,10 +39,14 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.Dp
@@ -330,8 +334,25 @@ internal object DrawnControlWidgets : ControlWidgets {
                 }
         }
 
+        // What a screen reader is told. The control is drawn rather than assembled from
+        // parts, so nothing underneath says it is a slider: without this it is an unnamed
+        // rectangle, and a name given from outside has no slider to belong to.
+        val described = interactive.semantics {
+            // An empty or inverted range is told as a single point rather than refused.
+            val top = maxOf(min, max)
+            progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(min, top), min..top, steps.coerceAtLeast(0))
+            if (enabled) {
+                setProgress { target ->
+                    onChange(target)
+                    true
+                }
+            } else {
+                disabled()
+            }
+        }
+
         Box(
-            interactive
+            described
                 .defaultMinSize(minWidth = SLIDER_MIN_WIDTH)
                 .fillMaxWidth()
                 .height(maxOf(thumbPx, style.trackHeight))
