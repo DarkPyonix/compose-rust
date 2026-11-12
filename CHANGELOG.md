@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The Windows release renderer is the Kotlin/Native static kit
+
+A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as the Kotlin/Native static kit, the one the crate's build script links on Windows, and checks it as one executable like the other desktop targets. Up to v0.0.7 that asset was the GraalVM native image, which the build script no longer links. The sample build takes this kit from the release for its crate version, checked against its `.sha256`, and builds the kit itself only when the release does not carry it ([#322](https://github.com/DarkPyonix/compose-rust/issues/322)).
+
+### Copying text to the clipboard from application code
+
+`compose_rust::clipboard::set_text(&str)` puts plain text on the platform clipboard through Compose's clipboard, for a "Copy link" button whose text the application already holds. It is one new `SetClipboardText` command (tag 29) with no answering event. Text over 64 KiB is refused with `Err` and nothing is sent, and where there is no clipboard the write does nothing. The Renderer never logs the text. Do not copy passwords or tokens this way: other applications can read the clipboard ([#471](https://github.com/DarkPyonix/compose-rust/issues/471)).
+
+### Reading text from the clipboard
+
+`compose_rust::clipboard::read_text(callback)` reads the plain text on the platform clipboard, for a paste shortcut, and `use_clipboard().read_text()` is the same read as a future. It is one new `ReadClipboard` command (tag 31) and one `ClipboardText` event (tag 56). Every read gets exactly one answer: the text, `None` when the clipboard is empty, holds no text, is missing, or the browser refused permission, or an error when the text is over 64 KiB, which is never cut short. The Renderer never logs the text, only its length ([#546](https://github.com/DarkPyonix/compose-rust/issues/546)).
+
 ### Pointer events reach the nodes that subscribed
 
 `on_pointer(PointerKinds::..., handler)` now runs its handler. The renderer sends `Down`, `Up`, `Move`, `Enter`, `Leave`, `Cancel`, `Wheel` and `ContextMenu` to a subscribed node, with the position in dp from the node's top left corner ([#417](https://github.com/DarkPyonix/compose-rust/issues/417)). Before this the subscription was written and accepted, and nothing was ever sent.
