@@ -175,6 +175,11 @@ impl Batch {
         self.write(Mutation::SetClipboardText { text });
     }
 
+    /// Writes one clipboard read request. It names no node either.
+    pub fn read_clipboard(&mut self, request: u32) {
+        self.write(Mutation::ReadClipboard { request });
+    }
+
     /// Writes one file dialog request. Like a notification it names no node: the dialog is
     /// not in the tree, and `window` only says which window it is modal for.
     pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {

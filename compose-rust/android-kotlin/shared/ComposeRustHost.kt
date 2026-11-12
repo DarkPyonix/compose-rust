@@ -146,6 +146,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
         table.fileDialogs.attach(this)
+        table.clipboardReads.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -180,6 +181,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
         table.fileDialogs.drain()
+        table.clipboardReads.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -194,6 +196,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     fun shutdown() {
         table.notifications.shutdown()
         table.fileDialogs.shutdown()
+        table.clipboardReads.shutdown()
         connection.shutdown()
     }
 
@@ -419,6 +422,8 @@ private fun ComposeRustTree(
     SideEffect { host.table.notifications.wake = frames::request }
     // A file dialog's answer arrives the same way, from whichever thread the platform uses.
     SideEffect { host.table.fileDialogs.wake = frames::request }
+    // A clipboard read is answered at the top of the frame it asks for.
+    SideEffect { host.table.clipboardReads.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares it, so the root window's is enough.
     @Suppress("DEPRECATION")
@@ -428,6 +433,10 @@ private fun ComposeRustTree(
             host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
                 @Suppress("DEPRECATION")
                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+                @Suppress("DEPRECATION")
+                clipboardManager.getText()?.text
             }
         }
     }

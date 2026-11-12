@@ -185,6 +185,13 @@ class NodeTable {
     val clipboard: dev.darkpyonix.composerust.ui.platform.ClipboardWriter =
         dev.darkpyonix.composerust.ui.platform.ClipboardWriter()
 
+    /**
+     * The clipboard reads the Host asked for, each answered once with what the clipboard
+     * held. Not part of the tree either.
+     */
+    val clipboardReads: dev.darkpyonix.composerust.ui.platform.ClipboardReader =
+        dev.darkpyonix.composerust.ui.platform.ClipboardReader()
+
     private var revision = 0L
 
     /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
@@ -376,6 +383,9 @@ class NodeTable {
             // Plain text for the platform clipboard. Nothing answers it, and where there is
             // no clipboard it does nothing.
             is Mutation.SetClipboardText -> clipboard.write(mutation.text)
+
+            // A read is answered later, outside the batch, by one event with its number.
+            is Mutation.ReadClipboard -> clipboardReads.request(mutation.request)
 
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.

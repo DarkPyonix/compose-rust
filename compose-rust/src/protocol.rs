@@ -49,6 +49,9 @@ const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
 // 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
 // code editor's grouped edit.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
+// 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
+// answered by one `ClipboardText` event carrying the same request number.
+const TAG_READ_CLIPBOARD: u16 = 31;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -283,6 +286,11 @@ pub enum Mutation<'a> {
     SetClipboardText {
         text: &'a str,
     },
+    /// Asks for the plain text on the platform clipboard. Answered exactly once, later, by a
+    /// `ClipboardText` event that carries `request`.
+    ReadClipboard {
+        request: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -376,6 +384,10 @@ const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
 const FILE_DIALOG_RESULT_LEN: usize = 36;
+// 51 to 55 are held by events other requirements have numbered.
+const EVENT_CLIPBOARD_TEXT: u16 = 56;
+/// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
+const CLIPBOARD_TEXT_LEN: usize = 36;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -729,6 +741,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CLIPBOARD_TEXT if record_len == CLIPBOARD_TEXT_LEN => {
+            crate::schema::EventPayload::ClipboardText {
+                request: read_u32(bytes, 16)?,
+                status: read_u32(bytes, 20)?,
+                len: read_u32(bytes, 24)?,
+                text: read_string(bytes, 28, record_len)?,
+            }
+        }
+        EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1127,6 +1148,28 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(paths.as_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ClipboardText {
+        request,
+        status,
+        len,
+        text,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_CLIPBOARD_TEXT,
+            CLIPBOARD_TEXT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&status.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        let text_len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(CLIPBOARD_TEXT_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&text_len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1205,7 +1248,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
-        | crate::schema::EventPayload::FileDialogResult { .. } => unreachable!(),
+        | crate::schema::EventPayload::FileDialogResult { .. }
+        | crate::schema::EventPayload::ClipboardText { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1539,6 +1583,10 @@ impl BatchEncoder {
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
                 self.put_string_ref(text)?;
+            }
+            Mutation::ReadClipboard { request } => {
+                self.begin_record(TAG_READ_CLIPBOARD, 4);
+                self.put_u32(*request);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2028,6 +2076,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_SET_CLIPBOARD_TEXT if len == 12 => Mutation::SetClipboardText {
                 text: read_string(bytes, payload, records_len)?,
             },
+            TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
+                request: read_u32(bytes, payload)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2198,7 +2249,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT => {
+            | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
+            | TAG_READ_CLIPBOARD => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
