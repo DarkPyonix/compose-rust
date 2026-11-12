@@ -2,10 +2,12 @@
 
 package dev.darkpyonix.composerust.test
 
+import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LastWindowClosed
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TitleBar
@@ -35,6 +37,8 @@ import dev.darkpyonix.composerust.ui.platform.primaryButtonDown
 import dev.darkpyonix.composerust.ui.platform.toScreenBounds
 import dev.darkpyonix.composerust.ui.platform.wholePoints
 import org.thisisthepy.compose.window.WindowApplication
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.macos.MacosWindow
 import platform.AppKit.NSApplication
 import platform.Foundation.NSDate
 import platform.Foundation.NSDefaultRunLoopMode
@@ -565,6 +569,158 @@ class MacosMultiWindowTest {
             assertEquals(pointer.x, end.screenX)
             assertEquals(pointer.y, end.screenY)
             assertEquals(1, drags().count { it.phase == 2 }, "the drag ended more than once")
+            assertTrue(connection.events.none { it is HostEvent.ProtocolError })
+        } finally {
+            manager.shutdown()
+            spin()
+            host.shutdown()
+        }
+    }
+
+    /**
+     * A tab torn off into a window of its own on macOS. The press is a real one in a real
+     * NSWindow's scene, on a `Text` node that subscribed to the pointer; the application
+     * answers with a `DragFromPointer` window; the node that held the pointer is told with a
+     * Cancel and hears no more of that press, and the new NSWindow keeps the point it was
+     * torn off by under the pointer until the button is let go. Only the pointer on the screen
+     * is scripted, because the runner has none to move.
+     */
+    @Test
+    fun fr53_macos_tear_off_cancels_the_capture_and_the_window_follows_the_pointer() {
+        NSApplication.sharedApplication()
+        val mask = listOf(PointerKind.Down, PointerKind.Move, PointerKind.Up, PointerKind.Cancel)
+            .fold(0) { bits, kind -> bits or pointerKindBit(kind) }
+        val connection = ScriptedHost(
+            listOf(setWindow(LastWindowClosed.KeepRunning)) +
+                windowNode(
+                    1,
+                    PropertyKind.WindowSize to PropertyValue.Bytes(floats(320f, 200f)),
+                    PropertyKind.WindowPosition to PropertyValue.Bytes(floats(420f, 160f)),
+                ) +
+                // The tab: it hears the pointer, and says where it is as a drop target does.
+                strip(1, 10, 44L) +
+                listOf(
+                    Mutation.SetProp(10, PropertyKind.OnPointer, PropertyValue.Integer(55L)),
+                    Mutation.SetProp(10, PropertyKind.PointerKinds, PropertyValue.Integer(mask.toLong())),
+                ),
+        )
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val scenes = HashMap<Int, MacosWindow>()
+        val backend = MacosWindowBackend { config, window, _ ->
+            scenes[config.nodeId] = window
+            return@MacosWindowBackend { ComposeRustContent(host, windowNodeId = config.nodeId) }
+        }
+        var pointer = ScreenPointer(60f, 620f, false)
+        backend.pointer = { pointer }
+        val targets = DropTargets.registered(backend::contentScale)
+        // The manager ends captures the way it does in the application: nothing is passed.
+        val manager = WindowManager(host, backend, onExit = {}, dropTargets = targets)
+        try {
+            manager.attach()
+            val source = backend.windows.single()
+            spinUntil(turns = 100) { cornerOfTarget(targets, 1, 320, 200, step = 8) != null }
+            val corner = assertNotNull(
+                cornerOfTarget(targets, 1, 320, 200),
+                "the tab never told where the scene laid it out",
+            )
+            val pressX = corner.first + 6f
+            val pressY = corner.second + 4f
+            val scale = backend.contentScale(1)
+            val scene = scenes.getValue(1)
+
+            /** What the source window hears from the system, at a point of its content in dp. */
+            fun hear(kind: Int, x: Float, y: Float, buttons: Int) {
+                scene.onEvent?.invoke(
+                    WindowEvent(
+                        kind = kind,
+                        x = x * scale,
+                        y = y * scale,
+                        buttons = buttons,
+                        modifiers = 0,
+                        keyCode = 0,
+                        codePoint = 0,
+                        text = "",
+                    ),
+                )
+            }
+            // A Move is sent with the frame it was held for, so only what is not a Move is in
+            // an order this can count on.
+            fun told() = connection.events.filterIsInstance<HostEvent.Pointer>().filter { it.kind != PointerKind.Move }
+            fun drags() = connection.events.filterIsInstance<HostEvent.WindowDrag>()
+
+            // The tab is pressed and holds the pointer.
+            hear(WindowEvent.POINTER_DOWN, pressX, pressY, buttons = 1)
+            spinUntil(turns = 100) { told().isNotEmpty() }
+            assertEquals(listOf(PointerKind.Down), told().map { it.kind }, "the press never reached the tab")
+            assertEquals(10, told()[0].nodeId)
+            assertEquals(55L, told()[0].handlerId)
+            assertEquals(1, told()[0].pointerId)
+
+            // The application tears it off: a window held by the point the tab was pressed at.
+            val origin = assertNotNull(source.contentOrigin())
+            pointer = ScreenPointer(origin.x + pressX, origin.y + pressY, true)
+            connection.queue(
+                windowNode(
+                    2,
+                    PropertyKind.WindowSize to PropertyValue.Bytes(floats(320f, 200f)),
+                    PropertyKind.DragFromPointer to dragFrom(1, pressX, pressY),
+                    PropertyKind.OnWindowDrag to PropertyValue.Integer(11L),
+                ),
+            )
+            host.dispatch(HostEvent.Clicked(nodeId = 0, handlerId = 0))
+            assertEquals(listOf(1, 2), manager.openWindows)
+            val torn = backend.windows[1]
+
+            // The tab is told once that the pointer is no longer its own.
+            assertEquals(listOf(PointerKind.Down, PointerKind.Cancel), told().map { it.kind }, "the tab was not cancelled")
+            val cancel = told()[1]
+            assertEquals(10, cancel.nodeId)
+            assertEquals(55L, cancel.handlerId)
+            assertEquals(1, cancel.pointerId)
+            assertEquals(0, cancel.buttons, "a cancel lets go of what was held")
+
+            // The button stays down and the pointer moves. The window the press began in goes
+            // on hearing the drag, the tab hears none of it, and the torn-off window keeps
+            // the point it is held by within a dp of the pointer.
+            for ((dx, dy) in listOf(40f to 30f, 110f to 80f, 170f to 20f)) {
+                hear(WindowEvent.POINTER_MOVE, pressX + dx, pressY + dy, buttons = 1)
+                pointer = ScreenPointer(origin.x + pressX + dx, origin.y + pressY + dy, true)
+                fun offBy(): Float {
+                    val at = torn.contentOrigin() ?: return Float.MAX_VALUE
+                    return maxOf(abs(at.x + pressX - pointer.x), abs(at.y + pressY - pointer.y))
+                }
+                spinUntil(turns = 100) { offBy() <= 1f }
+                assertTrue(offBy() <= 1f, "the held point is ${offBy()} dp from the pointer")
+            }
+            assertEquals(0, drags().count { it.phase != 1 }, "the drag ended while the button was held")
+
+            // The button is let go: the drag ends once, where the pointer is.
+            pointer = ScreenPointer(pointer.x, pointer.y, false)
+            hear(WindowEvent.POINTER_UP, pressX + 170f, pressY + 20f, buttons = 0)
+            spinUntil(turns = 100) { drags().any { it.phase == 2 } }
+            val ends = drags().filter { it.phase != 1 }
+            assertEquals(listOf(2), ends.map { it.phase })
+            assertEquals(2, ends[0].nodeId)
+            assertEquals(11L, ends[0].handlerId)
+            assertEquals(pointer.x, ends[0].screenX)
+            assertEquals(pointer.y, ends[0].screenY)
+
+            // The next press on the tab is a press like any other. Had the rest of the
+            // cancelled one been sent, its Up would stand before this Down.
+            hear(WindowEvent.POINTER_DOWN, pressX, pressY, buttons = 1)
+            hear(WindowEvent.POINTER_UP, pressX, pressY, buttons = 0)
+            spinUntil(turns = 100) { told().size >= 4 }
+            assertEquals(
+                listOf(PointerKind.Down, PointerKind.Cancel, PointerKind.Down, PointerKind.Up),
+                told().map { it.kind },
+            )
+            // A Move of the cancelled press would have the button held in it.
+            val afterCancel = connection.events.filterIsInstance<HostEvent.Pointer>().dropWhile { it.kind != PointerKind.Cancel }
+            assertTrue(
+                afterCancel.none { it.kind == PointerKind.Move && it.buttons != 0 },
+                "a Move of the cancelled press reached the tab",
+            )
             assertTrue(connection.events.none { it is HostEvent.ProtocolError })
         } finally {
             manager.shutdown()

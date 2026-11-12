@@ -474,6 +474,51 @@ class PointerEventsTest {
     }
 
     @Test
+    fun fr53_torn_off_window_cancels_the_capture_of_the_pressed_node() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            single(kinds(PointerKind.Down, PointerKind.Move, PointerKind.Up, PointerKind.Cancel)),
+        )
+        val host = show(connection)
+        onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
+            moveTo(at(50f, 50f))
+            press()
+        }
+        waitForIdle()
+        assertEquals(PointerKind.Down, connection.kindsSeen().last())
+        // No node holds a pointer the Host never heard of, and nothing is sent for one.
+        assertEquals(false, runOnIdle { host.table.pointers.cancelPointer(7) })
+        assertEquals(PointerKind.Down, connection.kindsSeen().last())
+
+        // The window manager takes the mouse over for the window it tore off.
+        assertEquals(true, runOnIdle { host.table.pointers.cancelPointer(1) })
+        val cancel = connection.pointers().last()
+        assertEquals(PointerKind.Cancel, cancel.kind)
+        assertEquals(OUTER, cancel.nodeId)
+        assertEquals(1, cancel.pointerId)
+        assertEquals(0, cancel.buttons, "a cancel lets go of what was held")
+        assertEquals(1, connection.kindsSeen().count { it == PointerKind.Cancel })
+        assertEquals(false, runOnIdle { host.table.pointers.cancelPointer(1) }, "the capture ended with the Cancel")
+
+        // The window the press began in still hears the drag and the release. Neither is sent.
+        val told = connection.pointers().size
+        onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
+            moveTo(at(70f, 60f))
+            moveTo(at(90f, 70f))
+            release()
+        }
+        waitForIdle()
+        assertEquals(emptyList(), connection.kindsSeen().drop(told), "the rest of a cancelled press reached the Host")
+
+        // The next press is a press like any other.
+        onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
+            press()
+            release()
+        }
+        waitForIdle()
+        assertEquals(listOf(PointerKind.Down, PointerKind.Up), connection.kindsSeen().drop(told))
+    }
+
+    @Test
     fun fr46_removed_capture_node_drops_silently() = runComposeUiTest {
         val connection = FakeHostConnection(nested(outerMask = 0, innerMask = kinds(PointerKind.Down, PointerKind.Move, PointerKind.Up)))
         // The Host answers the press by removing the node that took it.
