@@ -147,6 +147,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.attach(this)
         table.fileDialogs.attach(this)
         table.clipboardReads.attach(this)
+        table.fileCalls.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -182,6 +183,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.drain()
         table.fileDialogs.drain()
         table.clipboardReads.drain()
+        table.fileCalls.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -197,6 +199,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.shutdown()
         table.fileDialogs.shutdown()
         table.clipboardReads.shutdown()
+        table.fileCalls.shutdown()
         connection.shutdown()
     }
 
@@ -424,6 +427,8 @@ private fun ComposeRustTree(
     SideEffect { host.table.fileDialogs.wake = frames::request }
     // A clipboard read is answered at the top of the frame it asks for.
     SideEffect { host.table.clipboardReads.wake = frames::request }
+    // A file operation is answered at the top of the frame it asks for, like a clipboard read.
+    SideEffect { host.table.fileCalls.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares it, so the root window's is enough.
     @Suppress("DEPRECATION")
@@ -434,6 +439,7 @@ private fun ComposeRustTree(
     val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
     if (windowNodeId == 0) {
         DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
+        DisposableEffect(host) { onDispose { host.table.fileCalls.detach() } }
         SideEffect {
             host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
                 @Suppress("DEPRECATION")
@@ -441,6 +447,10 @@ private fun ComposeRustTree(
             }
             host.table.clipboardReads.launcher = { read ->
                 clipboardScope.launch(block = { read() })
+            }
+            // File operations suspend on the same scope, on the UI thread.
+            host.table.fileCalls.launcher = { operation ->
+                clipboardScope.launch(block = { operation() })
             }
             host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
                 // A platform with a suspending read uses it. Elsewhere the clipboard manager

@@ -10,7 +10,10 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dev.darkpyonix.composerust.protocol.FileDelivery
 import dev.darkpyonix.composerust.protocol.FileDialogKind
+import dev.darkpyonix.composerust.protocol.FileOp
+import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.ProtocolException
@@ -122,6 +125,9 @@ class ProtocolVectorsTest {
                 // The clipboard is the platform's, not a node's.
                 is Mutation.SetClipboardText -> false
                 is Mutation.ReadClipboard -> false
+                // A file operation names a handle, not a node, and is answered, not reported.
+                is Mutation.FileCall -> false
+                is Mutation.ReleaseFileHandle -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -317,6 +323,80 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertTrue(patched, "the vector carries a file dialog request")
+    }
+
+    /**
+     * The web's file records: the operation and the release in the batch decode to what the
+     * Host wrote, and the two answers encode to the bytes the Host decodes. An operation this
+     * side does not know is refused, never guessed at.
+     */
+    @Test
+    fun fr72_web_file_records_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(
+                Mutation.FileCall(
+                    request = 0x8000_0011.toInt(),
+                    op = FileOp.Write,
+                    create = false,
+                    handle = 3,
+                    name = "",
+                    data = byteArrayOf(0x00, 0xff.toByte(), 0x7f, 0x80.toByte()),
+                ),
+                Mutation.FileCall(
+                    request = 0x8000_0012.toInt(),
+                    op = FileOp.Child,
+                    create = true,
+                    handle = 4,
+                    name = "새 문서.txt",
+                    data = ByteArray(0),
+                ),
+            ),
+            mutations.filterIsInstance<Mutation.FileCall>(),
+        )
+        assertEquals(listOf(Mutation.ReleaseFileHandle(3)), mutations.filterIsInstance<Mutation.ReleaseFileHandle>())
+
+        val events = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val out = ByteBuffer.allocate(256)
+            val length = Protocol.encodeEvent(event, out)
+            return out.array().copyOf(length)
+        }
+        val answer = encoded(
+            HostEvent.IoAnswer(0, 0, 0x8000_0011.toInt(), IoStatus.Ok, byteArrayOf(0x00, 0xff.toByte(), 0x7f, 0x80.toByte())),
+        )
+        assertEquals(36, answer.size)
+        assertEquals(events.copyOfRange(1093, 1093 + 36).toList(), answer.toList())
+        val handles = encoded(
+            HostEvent.FileHandles(0, 0, 7, FileDialogStatus.Chosen, 1, FileDelivery.Handle, 3, "문서.txt\u0000사진", "fd"),
+        )
+        assertEquals(71, handles.size)
+        assertEquals(events.copyOfRange(1129, 1129 + 71).toList(), handles.toList())
+
+        // An operation outside the four, and a create flag that is neither 0 nor 1.
+        for ((at, values) in listOf(8 to listOf(0, 5, 9), 10 to listOf(2, 7))) {
+            val bytes = vectorFile("mutations.bin").readBytes()
+            val view = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val recordsLength = view.getInt(4)
+            var offset = 12
+            var patched = false
+            while (offset < recordsLength) {
+                val tag = view.getShort(offset).toInt()
+                val length = view.getShort(offset + 2).toInt()
+                if (tag == 33 && !patched) {
+                    for (value in values) {
+                        view.putShort(offset + at, value.toShort())
+                        val failure = runCatching {
+                            Protocol.decode(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)) { }
+                        }.exceptionOrNull()
+                        assertTrue(failure is ProtocolException, "$value at $at decoded instead of being refused: $failure")
+                    }
+                    patched = true
+                }
+                offset += length
+            }
+            assertTrue(patched, "the vector carries a file operation")
+        }
     }
 
     @Test

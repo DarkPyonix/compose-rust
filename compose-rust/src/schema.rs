@@ -196,6 +196,14 @@ pub enum EventPayloadType {
     /// What one clipboard read found: the request number, the status word, the text's length
     /// in bytes, and the text as one string reference.
     ClipboardText,
+    /// The end of one request the Host is waiting on for bytes: the request number, an
+    /// `IoStatus`, and the bytes as one reference. Shared by the file operations and the
+    /// application's storage.
+    IoAnswer,
+    /// Files the Renderer holds handles for: the request number, the status, the filter in
+    /// use, how they were delivered, the first handle number, then the names (NUL
+    /// separated) and one kind letter per name, as two references.
+    FileHandles,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -212,10 +220,10 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,IoAnswer,FileHandles;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,FileCall,ReleaseFileHandle"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -381,6 +389,8 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::WindowRequest => 28,
                 EventPayloadType::FileDialogResult => 29,
                 EventPayloadType::ClipboardText => 30,
+                EventPayloadType::IoAnswer => 31,
+                EventPayloadType::FileHandles => 32,
             }],
         );
         index += 1;
@@ -1521,6 +1531,18 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "FileDialogStatus",
         variants: FILE_DIALOG_STATUS_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "FileDelivery",
+        variants: FILE_DELIVERY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileOp",
+        variants: FILE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "IoStatus",
+        variants: IO_STATUS_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1628,6 +1650,38 @@ define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
     Chosen = 1,
     Cancelled = 2,
     Unavailable = 3,
+});
+
+// How the files a Renderer holds handles for reached it. Closed, because what an
+// application may do with a file depends on it: only a `Handle` can be written again.
+define_wire_enum!(FILE_DELIVERY_SCHEMA, FileDelivery {
+    // The file itself, in the file system. Writing it again changes the same file.
+    Handle = 1,
+    // A copy the browser handed over from a file input. It can only be read.
+    Upload = 2,
+    // A save that became a download. Each write is a new download.
+    Download = 3,
+});
+
+// What one `FileCall` asks of a file the Renderer holds a handle for.
+define_wire_enum!(FILE_OP_SCHEMA, FileOp {
+    Read = 1,
+    Write = 2,
+    Entries = 3,
+    Child = 4,
+});
+
+// How a request answered by `IoAnswer` ended. The file operations and the application's
+// storage share it, so a status one of them never uses is still a known word.
+define_wire_enum!(IO_STATUS_SCHEMA, IoStatus {
+    Ok = 1,
+    NotFound = 2,
+    QuotaExceeded = 3,
+    Unavailable = 4,
+    PermissionDenied = 5,
+    Failed = 6,
+    ReadOnly = 7,
+    TooLarge = 8,
 });
 
 /// What an application may decide about its own window.
@@ -3555,6 +3609,29 @@ pub enum EventPayload<'a> {
         len: u32,
         text: &'a str,
     },
+    /// One request answered with bytes ended. `request` is the number the Host gave it and
+    /// `data` what it read, empty for everything but a read that succeeded. Delivered to the
+    /// Host itself, with no node and no handler.
+    IoAnswer {
+        request: u32,
+        status: IoStatus,
+        data: &'a [u8],
+    },
+    /// Files the Renderer now holds handles for: the answer to a file dialog that was
+    /// chosen, or to a folder's `Entries` or `Child`. The handles are `first_handle`,
+    /// `first_handle + 1` and so on, one per name. `names` holds the names separated by one
+    /// NUL byte and `kinds` one letter per name, `f` for a file and `d` for a folder.
+    /// `filter` is the position of the filter in use, `u32::MAX` when there is none.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileHandles {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        delivery: FileDelivery,
+        first_handle: u32,
+        names: &'a str,
+        kinds: &'a str,
+    },
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3794,6 +3871,19 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ClipboardText",
         tag: 56,
         payload: EventPayloadType::ClipboardText,
+    },
+    // The answer to a request for bytes, a file's or the application storage's. Like the
+    // others above it addresses the Host itself and is found by its request number.
+    EventSchema {
+        name: "IoAnswer",
+        tag: 57,
+        payload: EventPayloadType::IoAnswer,
+    },
+    // Files a dialog, or a folder, handed the Renderer handles for.
+    EventSchema {
+        name: "FileHandles",
+        tag: 58,
+        payload: EventPayloadType::FileHandles,
     },
 ];
 

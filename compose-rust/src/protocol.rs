@@ -1,8 +1,8 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus, Key,
-    MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
+    AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
+    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
     NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
     SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
     WidgetKind, modifier_extra_words,
@@ -52,6 +52,14 @@ const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
 // answered by one `ClipboardText` event carrying the same request number.
 const TAG_READ_CLIPBOARD: u16 = 31;
+// 32 is the application storage's request. 33 asks something of a file the Renderer holds a
+// handle for, answered by one `IoAnswer` or `FileHandles` event carrying the same request
+// number. 34 lets go of such a handle and is not answered.
+const TAG_FILE_CALL: u16 = 33;
+/// `FileCall` after its header: the request, the operation, the create flag and the handle,
+/// then the name's and the bytes' references. 28 bytes, so the record is 32.
+const FILE_CALL_PAYLOAD_LEN: usize = 4 + 2 + 2 + 4 + 8 + 8;
+const TAG_RELEASE_FILE_HANDLE: u16 = 34;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -291,6 +299,24 @@ pub enum Mutation<'a> {
     ReadClipboard {
         request: u32,
     },
+    /// Asks something of a file the Renderer holds a handle for: reading it, writing
+    /// `data` to it, listing a folder, or finding (and with `create`, making) the child
+    /// called `name`. Answered exactly once, later: a read or a write by an `IoAnswer`, a
+    /// listing or a child by a `FileHandles`, and any of them that failed by an `IoAnswer`
+    /// with the reason. `name` is empty but for `Child`, `data` but for `Write`.
+    FileCall {
+        request: u32,
+        op: FileOp,
+        create: bool,
+        handle: u32,
+        name: &'a str,
+        data: &'a [u8],
+    },
+    /// The Host holds nothing that names `handle` any more, so the Renderer may let go of
+    /// the file behind it. Not answered. A handle the Renderer does not hold is ignored.
+    ReleaseFileHandle {
+        handle: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -388,6 +414,12 @@ const FILE_DIALOG_RESULT_LEN: usize = 36;
 const EVENT_CLIPBOARD_TEXT: u16 = 56;
 /// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
 const CLIPBOARD_TEXT_LEN: usize = 36;
+const EVENT_IO_ANSWER: u16 = 57;
+/// `IoAnswer` in full: the 16 byte header, two words and the bytes' reference.
+const IO_ANSWER_LEN: usize = 32;
+const EVENT_FILE_HANDLES: u16 = 58;
+/// `FileHandles` in full: the 16 byte header, five words and two string references.
+const FILE_HANDLES_LEN: usize = 52;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -750,6 +782,62 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_IO_ANSWER if record_len == IO_ANSWER_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| IoStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::IoAnswer {
+                request: read_u32(bytes, 16)?,
+                status,
+                data: read_bytes(bytes, 24, record_len)?,
+            }
+        }
+        EVENT_IO_ANSWER => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_FILE_HANDLES if record_len == FILE_HANDLES_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| FileDialogStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            let raw_delivery = read_u32(bytes, 28)?;
+            let delivery = u16::try_from(raw_delivery)
+                .ok()
+                .and_then(|tag| FileDelivery::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_delivery.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            let names = read_string(bytes, 36, record_len)?;
+            let kinds = read_string(bytes, 44, record_len)?;
+            // One letter per name, and only the two letters there are. A list whose kinds do
+            // not line up with its names would hand the application a file as a folder.
+            if let Some(unknown) = kinds.bytes().find(|kind| *kind != b'f' && *kind != b'd') {
+                return Err(ProtocolError::InvalidValueKind(u16::from(unknown)));
+            }
+            let count = if names.is_empty() {
+                0
+            } else {
+                names.split('\0').count()
+            };
+            if count != kinds.len() || names.split('\0').any(|name| count != 0 && name.is_empty()) {
+                return Err(ProtocolError::InvalidStringRange);
+            }
+            crate::schema::EventPayload::FileHandles {
+                request: read_u32(bytes, 16)?,
+                status,
+                filter: read_u32(bytes, 24)?,
+                delivery,
+                first_handle: read_u32(bytes, 32)?,
+                names,
+                kinds,
+            }
+        }
+        EVENT_FILE_HANDLES => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1170,6 +1258,50 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::IoAnswer {
+        request,
+        status,
+        data,
+    } = event.payload
+    {
+        put_event_header(output, EVENT_IO_ANSWER, IO_ANSWER_LEN as u16, event);
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
+        let len = u32::try_from(data.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(IO_ANSWER_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(data);
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::FileHandles {
+        request,
+        status,
+        filter,
+        delivery,
+        first_handle,
+        names,
+        kinds,
+    } = event.payload
+    {
+        put_event_header(output, EVENT_FILE_HANDLES, FILE_HANDLES_LEN as u16, event);
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
+        output.extend_from_slice(&filter.to_le_bytes());
+        output.extend_from_slice(&u32::from(delivery as u16).to_le_bytes());
+        output.extend_from_slice(&first_handle.to_le_bytes());
+        let names_len = u32::try_from(names.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        let kinds_len = u32::try_from(kinds.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        let kinds_at = (FILE_HANDLES_LEN as u32)
+            .checked_add(names_len)
+            .ok_or(ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(FILE_HANDLES_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&names_len.to_le_bytes());
+        output.extend_from_slice(&kinds_at.to_le_bytes());
+        output.extend_from_slice(&kinds_len.to_le_bytes());
+        output.extend_from_slice(names.as_bytes());
+        output.extend_from_slice(kinds.as_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1249,7 +1381,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
         | crate::schema::EventPayload::FileDialogResult { .. }
-        | crate::schema::EventPayload::ClipboardText { .. } => unreachable!(),
+        | crate::schema::EventPayload::ClipboardText { .. }
+        | crate::schema::EventPayload::IoAnswer { .. }
+        | crate::schema::EventPayload::FileHandles { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1587,6 +1721,26 @@ impl BatchEncoder {
             Mutation::ReadClipboard { request } => {
                 self.begin_record(TAG_READ_CLIPBOARD, 4);
                 self.put_u32(*request);
+            }
+            Mutation::FileCall {
+                request,
+                op,
+                create,
+                handle,
+                name,
+                data,
+            } => {
+                self.begin_record(TAG_FILE_CALL, FILE_CALL_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u16(*op as u16);
+                self.put_u16(u16::from(*create));
+                self.put_u32(*handle);
+                self.put_string_ref(name)?;
+                self.put_bytes_ref(data)?;
+            }
+            Mutation::ReleaseFileHandle { handle } => {
+                self.begin_record(TAG_RELEASE_FILE_HANDLE, 4);
+                self.put_u32(*handle);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2079,6 +2233,25 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
                 request: read_u32(bytes, payload)?,
             },
+            TAG_FILE_CALL if len == 4 + FILE_CALL_PAYLOAD_LEN => {
+                let raw_op = read_u16(bytes, payload + 4)?;
+                let raw_create = read_u16(bytes, payload + 6)?;
+                if raw_create > 1 {
+                    return Err(ProtocolError::InvalidValueKind(raw_create));
+                }
+                Mutation::FileCall {
+                    request: read_u32(bytes, payload)?,
+                    op: FileOp::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_op))?,
+                    create: raw_create == 1,
+                    handle: read_u32(bytes, payload + 8)?,
+                    name: read_string(bytes, payload + 12, records_len)?,
+                    data: read_bytes(bytes, payload + 20, records_len)?,
+                }
+            }
+            TAG_RELEASE_FILE_HANDLE if len == 8 => Mutation::ReleaseFileHandle {
+                handle: read_u32(bytes, payload)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2250,7 +2423,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
             | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
-            | TAG_READ_CLIPBOARD => {
+            | TAG_READ_CLIPBOARD
+            | TAG_FILE_CALL
+            | TAG_RELEASE_FILE_HANDLE => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),

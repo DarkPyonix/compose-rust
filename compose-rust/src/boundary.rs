@@ -614,6 +614,61 @@ impl Host {
         self.render_and_finish(0)
     }
 
+    /// Hands the end of a request for bytes to whoever asked: a file operation, found by its
+    /// request number. An answer nobody is waiting for is dropped.
+    fn io_answer(
+        &mut self,
+        request: u32,
+        status: crate::schema::IoStatus,
+        data: &[u8],
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::picked_file::deliver_io(request, status, data)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands files the Renderer now holds handles for to whoever asked: a folder's listing or
+    /// child, or a file dialog, which receives them as `webfile:` references.
+    #[allow(clippy::too_many_arguments)]
+    fn file_handles(
+        &mut self,
+        request: u32,
+        status: crate::schema::FileDialogStatus,
+        filter: u32,
+        delivery: crate::schema::FileDelivery,
+        first_handle: u32,
+        names: &str,
+        kinds: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::picked_file::deliver_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                )
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     /// Tells the components that listen that the application was opened with no window.
     fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
         let mut delivered = false;
@@ -751,6 +806,40 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.clipboard_text(request, status, len, text);
+            }
+            // The end of a file operation: the Host's own business, found by request number.
+            EventPayload::IoAnswer {
+                request,
+                status,
+                data,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.io_answer(request, status, data);
+            }
+            // Files the Renderer holds handles for, for a dialog or a folder that asked.
+            EventPayload::FileHandles {
+                request,
+                status,
+                filter,
+                delivery,
+                first_handle,
+                names,
+                kinds,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.file_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                );
             }
             _ => {}
         }
@@ -929,6 +1018,13 @@ impl Host {
         // File dialogs an application asked for, from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::file_dialog::drain(|request| batch.file_dialog(request));
+        // Handles the Host let go of, then the operations asked of the files it holds.
+        let batch = self.runtime.batch_mut();
+        let calls = std::cell::RefCell::new(batch);
+        crate::picked_file::drain(
+            |handle| calls.borrow_mut().release_file_handle(handle),
+            |call| calls.borrow_mut().file_call(call),
+        );
         // Animations an application started from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::animation::drain(|mutation| batch.write(mutation));

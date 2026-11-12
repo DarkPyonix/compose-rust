@@ -37,6 +37,14 @@ fun main() {
     dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform = { clipboard ->
         dev.darkpyonix.composerust.ui.platform.readWebClipboardText(clipboard)
     }
+    // The user's files: the browser's pickers, and the handles they give, behind the same
+    // dialog and file requests every platform answers. The event buffer does not grow, so an
+    // answer longer than it is refused whole instead of cut.
+    val files = dev.darkpyonix.composerust.ui.platform.WebFiles()
+    dev.darkpyonix.composerust.ui.platform.FileDialogs.platform = files
+    dev.darkpyonix.composerust.ui.platform.FileCalls.platform = files
+    dev.darkpyonix.composerust.ui.platform.FileDialogs.maxEventBytes =
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_BYTES
     // The browser's own answer to the media query a page would ask.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
         if (prefersReducedMotion()) {
