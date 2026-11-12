@@ -9,6 +9,7 @@ import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.FontRef
 import dev.darkpyonix.composerust.protocol.GenericFamily
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -153,6 +154,27 @@ class FontStackTest {
             Density(1f),
         )
         assertInShippedFace(drawnLayout(NODE), 2, "text field with its own fonts")
+    }
+
+    /** A field with a role does not use a font list sent for it, and the Host is told so. */
+    @Test
+    fun fr40_an_ignored_font_on_a_text_field_is_reported() = runComposeUiTest {
+        val fonts = PropertyKind.Font to PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(LATIN))))
+        val withRole = FakeHostConnection(screen(0, WidgetKind.TextField, "A", fonts))
+        startHost(withRole, Density(1f))
+        val reported = withRole.events.filterIsInstance<HostEvent.ProtocolError>()
+        assertEquals(1, reported.size, "$reported")
+        assertEquals(NODE, reported.single().nodeId)
+        assertTrue(reported.single().message.contains("ignored"), reported.single().message)
+    }
+
+    @Test
+    fun fr40_a_font_on_a_text_field_with_no_role_is_not_reported() = runComposeUiTest {
+        val fonts = PropertyKind.Font to PropertyValue.Bytes(fontBlob(listOf(FontRef.Asset(LATIN))))
+        val noRole = PropertyKind.TypeRole to PropertyValue.Integer(TYPE_ROLE_NONE.toLong())
+        val connection = FakeHostConnection(screen(0, WidgetKind.TextField, "A", noRole, fonts))
+        startHost(connection, Density(1f))
+        assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.ProtocolError>())
     }
 
     @Test
