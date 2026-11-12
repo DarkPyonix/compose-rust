@@ -52,6 +52,11 @@ while read -r name; do
         compose-rust renderer samples 2>/dev/null; then
         continue
     fi
+    # A check that only CI can run, because it needs the built pages and a browser, is a
+    # script under .github/scripts/ whose function carries the requirement's name.
+    if grep -rq "function $name\b" --include='*.mjs' .github/scripts 2>/dev/null; then
+        continue
+    fi
     if file="$(moved_file "$name")"; then
         if [[ "$have_moved_rev" == true ]] &&
             ! git show "$moved_rev:$file" 2>/dev/null | grep -q "fn $name\b"; then
