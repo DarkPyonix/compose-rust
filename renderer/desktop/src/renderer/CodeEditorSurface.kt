@@ -67,6 +67,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -176,7 +177,49 @@ class CodeEditorLook(
     val changeBarGap: Dp = 12.dp,
     /** The word a screen reader hears for a changed line. */
     val changeMarkWord: (ChangeMark) -> String = { localizedChangeMarkWord(it) },
+    /** Whether the line numbers are drawn. Without them the number column takes no room. */
+    val lineNumbers: Boolean = true,
+    /** The least width of the line number column, its padding included. */
+    val gutterMinWidth: Dp = 0.dp,
+    /**
+     * The runs of a piece of shown text that are set in a later family of the application's
+     * own font list, because the first family has no glyph for them. Null where the text is
+     * set in the design system's face.
+     */
+    val fontFallback: ((String) -> List<AnnotatedString.Range<SpanStyle>>)? = null,
 )
+
+/**
+ * The width of the line number column: the digits of the last line with the padding on both
+ * sides, never narrower than the look's minimum, and the divider after it. Nothing at all
+ * where the numbers are not drawn.
+ */
+internal fun Density.numberColumnPx(look: CodeEditorLook, digits: Int, digitWidth: Int): Int {
+    if (!look.lineNumbers) return 0
+    val natural = digits * digitWidth + (look.gutterPadding * 2).roundToPx()
+    return max(natural, look.gutterMinWidth.roundToPx()) + look.gutterDividerWidth.roundToPx()
+}
+
+/** The divider's width where there is a number column for it to close, and none otherwise. */
+internal fun Density.gutterDividerPx(look: CodeEditorLook): Float =
+    if (look.lineNumbers) look.gutterDividerWidth.toPx() else 0f
+
+/**
+ * Goes to the offset the Host asked for, once the view has a height to clamp it by. The
+ * limit is set first because this can run before the pass that sets it.
+ */
+internal fun scrollToRequest(
+    model: CodeEditorModel,
+    vertical: EditorScroll,
+    request: ScrollRequest,
+    totalRows: Int,
+    rowPx: Int,
+    viewportHeight: Int,
+) {
+    vertical.max = totalRows * rowPx - viewportHeight
+    vertical.scrollTo(request.offsetPx)
+    model.scrollDone(request)
+}
 
 /** The word for a changed line in [language], in the same set of languages as the sidebar's. */
 internal fun localizedChangeMarkWord(change: ChangeMark, language: String = androidx.compose.ui.text.intl.Locale.current.language): String =
@@ -758,6 +801,11 @@ internal class EditorDisplay(
             if (shownTo <= shownFrom) continue
             addStyle(SpanStyle(color = look.paint(span.paint)), shownFrom, shownTo)
         }
+        // Letters the first family of the application's font list lacks are set in the next
+        // family that has them, over the text as it is shown.
+        look.fontFallback?.let { fallback ->
+            for (piece in fallback(asCharSequence().toString())) addStyle(piece.item, piece.start, piece.end)
+        }
     }
 }
 
@@ -875,9 +923,8 @@ private fun FieldSurface(
     val hasFolds = model.folds.isNotEmpty()
     val markColumnPx = if (hasMarks) rowPx else 0
     val foldColumnPx = if (hasFolds) rowPx else 0
-    val gutterWidthPx = with(density) {
-        digits * digitWidth + (look.gutterPadding * 2).roundToPx() + look.gutterDividerWidth.roundToPx()
-    } + markColumnPx + foldColumnPx + density.changeColumnPx(model, look)
+    val gutterWidthPx = density.numberColumnPx(look, digits, digitWidth) +
+        markColumnPx + foldColumnPx + density.changeColumnPx(model, look)
 
     // Refilling the window recomposes this, so the field moves to where the new lines are.
     window.revision
@@ -910,6 +957,15 @@ private fun FieldSurface(
         scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
         model.revealDone(reveal)
         callbacks.onOutput()
+    }
+
+    // The Host asked for an offset. It waits for the first measure: before it the view has
+    // no height, and an offset clamped by a height of nothing would be the wrong one.
+    val scrollRequest = model.scrollRequest
+    val measured = viewportHeight > 0
+    LaunchedEffect(scrollRequest, measured) {
+        if (scrollRequest == null || !measured) return@LaunchedEffect
+        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
     }
 
     val hover = remember { HoverTracker() }
@@ -981,7 +1037,7 @@ private fun FieldSurface(
                                     look,
                                 )
                             }
-                            val divider = look.gutterDividerWidth.toPx()
+                            val divider = gutterDividerPx(look)
                             if (divider > 0f && look.gutterDivider.alpha > 0f) {
                                 drawRect(look.gutterDivider, Offset(size.width - divider, 0f), Size(divider, size.height))
                             }
@@ -1102,7 +1158,12 @@ private fun Sync(
         if (window.end == 0) window.load(firstVisible - FieldWindow.MIN_MARGIN, lastVisible + FieldWindow.MIN_MARGIN)
         window.sync(firstVisible, lastVisible)
         if (!composing) window.model.compositionChanged(false)
-        if (viewportHeight > 0) reportVisible(window.model, rows, scroll, viewportHeight, rowPx)
+        if (viewportHeight > 0) {
+            reportVisible(window.model, rows, scroll, viewportHeight, rowPx)
+            // Once the editor has a size it has been laid out, so the row height is the one
+            // it draws with. The offset is read in this pass, so a frame says it once.
+            window.model.reportGeometry(rowPx, scroll)
+        }
         callbacks.onOutput()
     }
 }
@@ -1385,16 +1446,19 @@ private fun DrawScope.drawGutter(
     val first = rows.lineAtRow(scroll / rowPx)
     val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
     val padding = look.gutterPadding.toPx()
-    val divider = look.gutterDividerWidth.toPx()
+    val divider = gutterDividerPx(look)
     val changeColumn = changeColumnPx(window.model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
-        val label = (line + 1).toString()
-        val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
-        val measured = measurer.measure(label, style.copy(color = color))
-        val x = width - divider - foldColumn - changeColumn - padding - measured.size.width
         val top = rows.textRow(line) * rowPx.toFloat()
-        drawText(measured, topLeft = Offset(x, top))
+        if (look.lineNumbers) {
+            val label = (line + 1).toString()
+            val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
+            // The same style as the text, so a number is the size of the code beside it.
+            val measured = measurer.measure(label, style.copy(color = color))
+            val x = width - divider - foldColumn - changeColumn - padding - measured.size.width
+            drawText(measured, topLeft = Offset(x, top))
+        }
         drawGutterAdornments(window.model, line, top, rowPx, markColumn, width - divider - foldColumn, foldColumn, changeColumn, measurer, style, look)
     }
 }
