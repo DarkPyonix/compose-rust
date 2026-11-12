@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Samples · compose-rust guide</title>
+<meta name="description" content="Every compose-rust sample application, running in the browser with nothing to install.">
+<link rel="alternate" hreflang="en" href="../en/samples.html">
+<link rel="alternate" hreflang="ko" href="../ko/samples.html">
+<link rel="alternate" hreflang="x-default" href="../en/samples.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>guide</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+  <nav class="langswitch" aria-label="Language">
+    <a href="samples.html" aria-current="true" hreflang="en">EN</a>
+    <a href="../ko/samples.html" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="Dark" data-light="Light" aria-pressed="false">Dark</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="Guide">
+      <h2>Guide</h2>
+      <ul>
+        <li><a href="overview.html">Overview</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
+        <li><a href="writing-ui.html">Writing UI</a></li>
+        <li><a href="composables.html">Widget reference</a></li>
+        <li><a href="lists-and-streaming.html">Lists &amp; streaming</a></li>
+        <li><a href="design-systems.html">Design systems</a></li>
+        <li><a href="architecture.html">Architecture</a></li>
+        <li><a href="troubleshooting.html">Troubleshooting</a></li>
+        <li><a href="samples.html" aria-current="page">Samples</a></li>
+      </ul>
+      <h2>Repository</h2>
+      <ul>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">Issues</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">Samples</p>
+    <h1>Run the samples in your browser</h1>
+    <p class="lede">
+      Every sample application in the repository, built for the web from the same Rust source it
+      ships as a desktop program. Open one and it runs in the page, with nothing to install.
+    </p>
+    <p>
+      A page is the renderer's WebAssembly module, Skia's and the sample's own, about 40 MB before
+      compression, so the first load takes a moment. They need a browser with WebAssembly garbage
+      collection, which current Chrome, Edge and Firefox have; they are checked in Chromium. The
+      pages come from the newest sample release, so they can be a little behind the repository.
+      The source of each one is under
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples"><code>samples/</code></a>.
+    </p>
+
+    <h2 id="adaptive">Adaptive</h2>
+    <p>These four take the design system of the platform they run on. In a browser that is Fluent.</p>
+    <div class="cards">
+      <a class="card" href="../samples/calculator/"><h3><code>calculator</code></h3><p>Clone coded from the Windows, macOS and Deepin calculators: a dense key grid, a memory register, and a tape beside the keys or in a sheet.</p></a>
+      <a class="card" href="../samples/notepad/"><h3><code>notepad</code></h3><p>Clone coded from the iOS and Windows memo apps: multiline editing, several documents, and the list beside the page or in a sheet.</p></a>
+      <a class="card" href="../samples/todo/"><h3><code>todo</code></h3><p>A task list: stable keys, checkboxes, filters as a destination set, and a lazy list over thousands of rows.</p></a>
+      <a class="card" href="../samples/chat/"><h3><code>chat</code></h3><p>Clone coded from Google Gemini: conversations as a destination set, scrollback, and a reply streamed in from a worker thread.</p></a>
+    </div>
+    <h2 id="unified">Unified</h2>
+    <p>Each of these names one design system and draws the same way everywhere. All of them rebuild published iOS designs.</p>
+    <div class="cards">
+      <a class="card" href="../samples/minimal/"><h3><code>minimal</code></h3><p>A playground: every control the schema has, the nine fills, the type and corner ladders, and a Canvas drawing.</p></a>
+      <a class="card" href="../samples/store/"><h3><code>store</code></h3><p>A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page and a bag that adds up.</p></a>
+      <a class="card" href="../samples/statistics/"><h3><code>statistics</code></h3><p>Charts drawn with Canvas: a dial and a week of costs, on a tinted page.</p></a>
+      <a class="card" href="../samples/selfcare/"><h3><code>selfcare</code></h3><p>A mood check-in: a drawn face per feeling, a chip grid, a row of session cards and a week as a line.</p></a>
+      <a class="card" href="../samples/podcast/"><h3><code>podcast</code></h3><p>A player with a Canvas waveform, a cover per show, and a full-screen page over the navigation bar.</p></a>
+      <a class="card" href="../samples/academic/"><h3><code>academic</code></h3><p>A drum school: a grid of subject tiles, a stage strip, and open and locked lessons.</p></a>
+      <a class="card" href="../samples/social/"><h3><code>social</code></h3><p>A meditation app: an illustration on every card, three shelves, and a course page over the navigation bar.</p></a>
+    </div>
+
+    <nav class="pagenav" aria-label="Pagination">
+      <a class="prev" href="troubleshooting.html"><span>Previous</span>&larr; Troubleshooting</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

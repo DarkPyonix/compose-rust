@@ -505,6 +505,21 @@ sealed interface Mutation {
 
     /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
+
+    /**
+     * Puts [text] on the platform clipboard as plain text. Not answered: a Renderer with no
+     * clipboard drops it. [text] can be anything the application copies, so it is never
+     * written to a log.
+     */
+    data class SetClipboardText(val text: String) : Mutation {
+        override fun toString(): String = "SetClipboardText(length=${text.length})"
+    }
+
+    /**
+     * Asks for the plain text on the platform clipboard. Answered exactly once, later, by a
+     * `ClipboardText` event carrying [request].
+     */
+    data class ReadClipboard(val request: Int) : Mutation
 }
 
 "#,
@@ -591,8 +606,21 @@ sealed interface Mutation {
             EventPayloadType::FileDialogResult => output.push_str(
                 ", val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String",
             ),
+            // The status is a word: 0 no text, 1 text, 2 text too long to carry. The length is
+            // the text's size in UTF-8 bytes. The text itself is never in `toString`.
+            EventPayloadType::ClipboardText => output.push_str(
+                ", val request: Int, val status: Int, val length: Int, val text: String",
+            ),
         }
-        output.push_str(") : HostEvent\n");
+        if event.payload == EventPayloadType::ClipboardText {
+            // What the clipboard held can be anything the user copied, so no log line that
+            // prints the event prints the text.
+            output.push_str(
+                ") : HostEvent {\n        override fun toString(): String =\n            \"ClipboardText(request=$request, status=$status, length=$length)\"\n    }\n",
+            );
+        } else {
+            output.push_str(") : HostEvent\n");
+        }
     }
     output.push_str("}\n\n");
 
@@ -644,6 +672,8 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_SET_CLIPBOARD_TEXT = 29
+    private const val TAG_READ_CLIPBOARD = 31
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -826,6 +856,14 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                             ),
                         )
+                    }
+                    TAG_SET_CLIPBOARD_TEXT -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.SetClipboardText(readString(batch, base, available, offset + 4))
+                    }
+                    TAG_READ_CLIPBOARD -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReadClipboard(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1098,6 +1136,14 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::ClipboardText => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::None => {
                 writeln!(
                     output,
@@ -1190,6 +1236,8 @@ object Protocol {
             EventPayloadType::WindowRequest => 28,
             // The request, the status and the filter, then the paths' reference.
             EventPayloadType::FileDialogResult => 36,
+            // The request, the status and the length, then the text's reference.
+            EventPayloadType::ClipboardText => 36,
         };
         writeln!(
             output,
@@ -1485,6 +1533,16 @@ object Protocol {
                     "                    out.putInt(fileDialogStatusTag(event.status))\n",
                 );
                 output.push_str("                    out.putInt(event.filter)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::ClipboardText => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(event.status)\n");
+                output.push_str("                    out.putInt(event.length)\n");
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
@@ -3127,6 +3185,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             name: "보고서.txt",
             filters: "이미지\0png,jpg\0문서\0pdf,txt",
         },
+        // Plain text for the platform clipboard.
+        Mutation::SetClipboardText {
+            text: "초대 링크"
+        },
+        // A clipboard read, answered by the ClipboardText event in the event vector.
+        Mutation::ReadClipboard { request: 9 },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3435,6 +3499,16 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 paths: "/Users/한글/문서.txt\0/tmp/a b.png",
             },
         },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ClipboardText {
+                request: 9,
+                status: crate::clipboard::read_status::TEXT,
+                len: "한글\n줄 🙂".len() as u32,
+                text: "한글\n줄 🙂",
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3454,14 +3528,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 104,
+    "recordCount": 106,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{
@@ -3511,7 +3585,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 }},
       {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
       {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
-      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
+      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
+      {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }}
     ]
   }}
 }}

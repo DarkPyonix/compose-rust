@@ -33,6 +33,10 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
 fun main() {
     // Before the Host: its first batch may already post a notification.
     dev.darkpyonix.composerust.ui.platform.Notifications.platform = dev.darkpyonix.composerust.ui.platform.WebNotifications()
+    // The browser reads its clipboard only asynchronously, after asking the user.
+    dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform = { clipboard ->
+        dev.darkpyonix.composerust.ui.platform.readWebClipboardText(clipboard)
+    }
     // The browser's own answer to the media query a page would ask.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
         if (prefersReducedMotion()) {

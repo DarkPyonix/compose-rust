@@ -11,6 +11,8 @@ check() { # expected description files...
     if [[ "$got" == "macos=$expected" ]]; then echo "ok   - $what"; else echo "FAIL - $what: $got"; failures=$((failures + 1)); fi
 }
 check false "Windows renderer only" renderer/windows/src/Main.kt renderer/desktop/scripts/build-windows.sh .github/workflows/windows-static.yml
+check false "the Windows consumer check and the multi-window fixture it builds" scripts/check-windows-consumer.sh compose-rust/tests/fixtures/multi-window/src/app.rs
+check true "the consumer fixture (the macOS single executable builds it)" compose-rust/tests/fixtures/consumer/src/main.rs
 check false "Linux renderer only" renderer/linux/src/shared/Window.kt .github/scripts/check-linux-input-access.sh
 check true "the packager and the single-executable check (macOS legs run them)" .github/scripts/package-static-renderer.sh renderer/desktop/scripts/build-windows.sh
 check true "shared desktop sources" renderer/desktop/src/Main.kt

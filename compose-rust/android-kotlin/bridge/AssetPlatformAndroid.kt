@@ -81,6 +81,14 @@ internal fun systemFontFamily(name: String): FontFamily? {
     return FontFamily(typeface)
 }
 
+/**
+ * No face here is tracked by its `trak` table. The table is Apple's, Android's own faces
+ * (Roboto, Noto) carry none, and Android's text stack does not read it, so text set here
+ * already matches the platform's own text.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): FontTracking? = null
+
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     // Unreachable: nothing produces a VectorDocument on this platform.
 }

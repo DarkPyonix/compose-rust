@@ -1296,6 +1296,21 @@ sealed interface Mutation {
 
     /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
+
+    /**
+     * Puts [text] on the platform clipboard as plain text. Not answered: a Renderer with no
+     * clipboard drops it. [text] can be anything the application copies, so it is never
+     * written to a log.
+     */
+    data class SetClipboardText(val text: String) : Mutation {
+        override fun toString(): String = "SetClipboardText(length=${text.length})"
+    }
+
+    /**
+     * Asks for the plain text on the platform clipboard. Answered exactly once, later, by a
+     * `ClipboardText` event carrying [request].
+     */
+    data class ReadClipboard(val request: Int) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1345,13 +1360,17 @@ sealed interface HostEvent {
     data class FocusGained(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class KeyUp(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class FileDialogResult(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String) : HostEvent
+    data class ClipboardText(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: Int, val length: Int, val text: String) : HostEvent {
+        override fun toString(): String =
+            "ClipboardText(request=$request, status=$status, length=$length)"
+    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4507206672642132797L
+    const val SCHEMA_HASH: Long = 566194655694873154L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1382,6 +1401,8 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_SET_CLIPBOARD_TEXT = 29
+    private const val TAG_READ_CLIPBOARD = 31
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1564,6 +1585,14 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                             ),
                         )
+                    }
+                    TAG_SET_CLIPBOARD_TEXT -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.SetClipboardText(readString(batch, base, available, offset + 4))
+                    }
+                    TAG_READ_CLIPBOARD -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReadClipboard(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1843,6 +1872,7 @@ object Protocol {
                 is HostEvent.FocusGained -> null
                 is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1888,6 +1918,7 @@ object Protocol {
                 is HostEvent.FocusGained -> 16
                 is HostEvent.KeyUp -> 32
                 is HostEvent.FileDialogResult -> 36
+                is HostEvent.ClipboardText -> 36
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1937,6 +1968,7 @@ object Protocol {
                 is HostEvent.FocusGained -> 48
                 is HostEvent.KeyUp -> 49
                 is HostEvent.FileDialogResult -> 50
+                is HostEvent.ClipboardText -> 56
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2123,6 +2155,12 @@ object Protocol {
                     out.putInt(event.request)
                     out.putInt(fileDialogStatusTag(event.status))
                     out.putInt(event.filter)
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.ClipboardText -> {
+                    out.putInt(event.request)
+                    out.putInt(event.status)
+                    out.putInt(event.length)
                     writeStringReference(out, recordLength, text!!)
                 }
             }

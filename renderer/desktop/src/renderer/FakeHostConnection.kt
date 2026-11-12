@@ -73,6 +73,8 @@ class FakeHostConnection(
         // The end of a file dialog is the Renderer reporting too, not something a fixture's
         // reply to a click is about.
         if (event is HostEvent.FileDialogResult) return 0
+        // And a clipboard read's answer.
+        if (event is HostEvent.ClipboardText) return 0
         // And the motion setting, for the same reason.
         if (event is HostEvent.ReducedMotionChanged) return 0
         // And the zoom, reported at start and on every change.
