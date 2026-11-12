@@ -37,7 +37,7 @@ them name Cupertino.
 | `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
 | `academic` | A grid of subject tiles, a stage strip, open and locked lessons, and the one place the role vocabulary ran out |
-| `social` | A meditation app whose every card carries an illustration, three shelves, and a course page that covers the navigation bar |
+| `social` | A meditation app: an edge-to-edge course of the day, shelves of illustrated cards, sleep stories on a navy page, its own icon bar, and a course page that covers it |
 
 Each of them names its colour scheme as well as its design system, because the design each
 is a rebuild of is a light one or a dark one and a screen that flips with the machine it is
