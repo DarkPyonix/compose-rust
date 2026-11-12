@@ -304,7 +304,7 @@ jobs:
       - name: The drawing keeps up with the right edge while it is dragged
         # Runs the application with DXC_EDGE_MARK=1 under openbox, drags the right edge with
         # xdotool and reads, from a capture after every step, how many pixels lie between the
-        # window's edge and the black bar the renderer draws flush with what it drew. Every
+        # window's edge and the magenta bar the renderer draws flush with what it drew. Every
         # frame shown during a resize must be drawn at the window's size, so the bound is 0 px.
         # See .github/scripts/linux-live-resize.sh.
         if: matrix.module == 'linux'

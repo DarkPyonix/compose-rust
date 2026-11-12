@@ -53,19 +53,20 @@ class EdgeMarkTest {
             canvas.drawPaint(Paint().apply { color = Color.WHITE })
             canvas.clear(Color.WHITE)
         }
+        assertEquals(0xFFFF00FF.toInt(), EdgeMark.COLOR, "the measuring script looks for opaque magenta")
         val bitmap = Bitmap.makeFromImage(surface.makeImageSnapshot())
         val row = height / 2
         for (x in width - EdgeMark.WIDTH until width) {
-            assertEquals(Color.BLACK, bitmap.getColor(x, row), "column $x of the bar is not black")
+            assertEquals(EdgeMark.COLOR, bitmap.getColor(x, row), "column $x of the bar is not the mark's colour")
         }
         assertEquals(
-            Color.BLACK,
+            EdgeMark.COLOR,
             bitmap.getColor(width - 1, height - 1),
             "the bar does not reach the bottom right corner, so the scene's clip was left on",
         )
         assertTrue(
-            bitmap.getColor(width - EdgeMark.WIDTH - 1, row) != Color.BLACK,
-            "the column left of the bar is black, so the bar is wider than it says",
+            bitmap.getColor(width - EdgeMark.WIDTH - 1, row) != EdgeMark.COLOR,
+            "the column left of the bar has the mark's colour, so the bar is wider than it says",
         )
     }
 }

@@ -6,14 +6,16 @@ import org.jetbrains.skia.Paint
 import org.jetbrains.skia.Rect
 
 /**
- * A probe for live resize: a black bar flush with the right edge of what a frame drew.
+ * A probe for live resize: a magenta bar flush with the right edge of what a frame drew.
  *
  * Switched on by the `DXC_EDGE_MARK` environment variable, read once when a window opens, and
  * off otherwise, when the frame is drawn exactly as it would be without this file. With it on,
  * the distance in a screenshot from the window's own right edge to the bar is how far the
  * drawing is behind the frame the window manager has already moved. Painting the window's
  * background instead would measure nothing: a scene leaves parts of itself transparent, so that
- * colour means "not drawn yet" and "drawn as nothing" at once.
+ * colour means "not drawn yet" and "drawn as nothing" at once. The bar is magenta for the same
+ * reason: where the scene is transparent the window shows black, so a black bar there is one
+ * with no edges, and magenta is a colour no scene and no empty buffer has in it.
  *
  * `.github/scripts/linux-live-resize.sh` drags a window's edge and reads that distance.
  */
@@ -21,7 +23,10 @@ internal object EdgeMark {
     /** How wide the bar is, in pixels. The measuring script looks for a run this wide. */
     const val WIDTH = 12
 
-    private val black = Paint().apply { color = 0xFF000000.toInt() }
+    /** The bar's colour: opaque magenta. The measuring script looks for this colour. */
+    const val COLOR = 0xFFFF00FF.toInt()
+
+    private val paint = Paint().apply { color = COLOR }
 
     fun enabled(): Boolean = System.getenv("DXC_EDGE_MARK") != null
 
@@ -38,6 +43,6 @@ internal object EdgeMark {
         val depth = canvas.save()
         draw()
         canvas.restoreToCount(depth)
-        canvas.drawRect(rect(width, height), black)
+        canvas.drawRect(rect(width, height), paint)
     }
 }
