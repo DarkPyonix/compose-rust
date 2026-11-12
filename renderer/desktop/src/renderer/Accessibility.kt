@@ -33,6 +33,9 @@ private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
 private const val FOCUS_ACTION_BIT = 1 shl 12
 
+/** Every bit the state word of a `Semantics` modifier may set. */
+internal const val SEMANTICS_STATE_MASK = (1 shl 13) - 1
+
 /**
  * Whether the Host asked for this node to offer a focus action to assistive technology.
  *

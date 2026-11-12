@@ -26,6 +26,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
@@ -637,4 +638,39 @@ class AccessibilityModifierTest {
         }
     }
 
+    @Test
+    fun nfr7_unknown_semantics_bit_is_a_protocol_error() {
+        val box = 1
+        runComposeUiTest {
+            // Bit 13 is the first one above the two action bits.
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 13)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+            assertEquals(listOf(TableError.INVALID_MODIFIER), errors.map { it.code }, "events were ${connection.events}")
+            // The renderer is still running and the node is still drawn, without the role
+            // the refused modifier carried.
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertEquals(listOf("Files"), config.getOrNull(SemanticsProperties.ContentDescription))
+            assertEquals(null, config.getOrNull(SemanticsProperties.Role))
+        }
+        runComposeUiTest {
+            // Every bit that has a meaning is accepted.
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 13) - 1)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.ProtocolError>())
+        }
+    }
 }
