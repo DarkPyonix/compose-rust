@@ -1574,7 +1574,7 @@ mod tests {
     #[test]
     fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
         let mut screen = Screen::new();
-        let mut check = |screen: &Screen, place: &str| {
+        let check = |screen: &Screen, place: &str| {
             for mutation in screen.live() {
                 match mutation {
                     Mutation::SetModifier {
