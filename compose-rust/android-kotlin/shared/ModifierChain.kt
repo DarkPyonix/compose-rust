@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -245,7 +246,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Only a node that asked is measured. Nothing is attached to a node without
             // this modifier, so a tree that observes nothing is laid out exactly as it
             // was before any of this existed.
-            is ProtocolModifier.ObserveSize -> chain.reportSizeTo(nodeId, dispatcher)
+            is ProtocolModifier.ObserveSize ->
+                if (value.everyDp) chain.reportEveryDpTo(nodeId, dispatcher) else chain.reportSizeTo(nodeId, dispatcher)
 
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
@@ -941,6 +943,84 @@ internal fun Modifier.pressFeedback(
             }
         }
 }
+
+/**
+ * A size rounded to the nearest whole dp, a half rounding up. The same rule the window's
+ * own every-dp report uses, so a node and a window that are the same size say the same.
+ */
+private fun wholeDp(dp: Float): Int = floor(dp + 0.5f).toInt()
+
+/**
+ * What a node that asked for every whole dp change has measured and last sent.
+ *
+ * A layout pass can run more than once in a frame, and a drag runs one every frame. The
+ * measurement is only written down where it happens; it is sent from the draw pass,
+ * which runs once a frame, so several measurements in one frame are one event carrying
+ * the last of them.
+ */
+internal class EveryDpReport {
+    var widthDp = 0f
+    var heightDp = 0f
+    var measured = false
+    private var sent = false
+    private var lastWidth = 0
+    private var lastHeight = 0
+    private var lastClass: WindowSizeClass? = null
+    private var lastHeightClass: WindowHeightClass? = null
+
+    fun flush(nodeId: Int, dispatcher: EventDispatcher) {
+        if (!measured) return
+        measured = false
+        val width = wholeDp(widthDp)
+        val height = wholeDp(heightDp)
+        val sizeClass = windowSizeClassOf(widthDp)
+        val heightClass = windowHeightClassOf(heightDp)
+        // A class can change without the rounded size changing (600 dp to 599.9 dp), so
+        // the classes are compared as well.
+        if (sent && width == lastWidth && height == lastHeight &&
+            sizeClass == lastClass && heightClass == lastHeightClass
+        ) {
+            return
+        }
+        sent = true
+        lastWidth = width
+        lastHeight = height
+        lastClass = sizeClass
+        lastHeightClass = heightClass
+        dispatcher.dispatch(
+            HostEvent.WindowSizeChanged(
+                nodeId = nodeId,
+                handlerId = 0,
+                widthDp = widthDp,
+                heightDp = heightDp,
+                sizeClass = sizeClass,
+                heightClass = heightClass,
+                safeAreaTop = 0f,
+                safeAreaLeading = 0f,
+                safeAreaTrailing = 0f,
+            ),
+        )
+    }
+}
+
+/**
+ * Reports this node's size whenever it changes by a whole dp, as well as when a class
+ * changes. The first measurement is always sent. The event carries the measured,
+ * unrounded size, the one measured last in the frame.
+ */
+private fun Modifier.reportEveryDpTo(nodeId: Int, dispatcher: EventDispatcher): Modifier =
+    composed {
+        val density = LocalDensity.current
+        val report = remember(nodeId) { EveryDpReport() }
+        onSizeChanged { size ->
+            report.widthDp = with(density) { size.width.toDp().value }
+            report.heightDp = with(density) { size.height.toDp().value }
+            report.measured = true
+        }.drawWithContent {
+            drawContent()
+            report.flush(nodeId, dispatcher)
+        }
+    }
 
 private const val HOVER_LAYER = 0.08f
 private val FOCUS_RING_WIDTH = 2.dp
