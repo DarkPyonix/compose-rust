@@ -15,6 +15,7 @@ import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.Severity
 import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
 import kotlin.time.TimeSource
+import kotlin.math.roundToInt
 
 private val clockOrigin = TimeSource.Monotonic.markNow()
 
@@ -83,6 +84,12 @@ fun LiveGutterMark.changeMark(): ChangeMark? {
 /** A range the Host asked to have brought into view. A new request is a new object. */
 class RevealRequest(val start: CodePosition, val end: CodePosition, val align: RevealAlign)
 
+/**
+ * A scroll offset the Host asked for, in the surface's own pixels, until the surface has
+ * gone there. The surface keeps it inside what the document allows.
+ */
+class ScrollRequest(val offsetPx: Int)
+
 /** One colour run of the syntax as it stands in the current version of the document. */
 class LiveSpan(var start: CodePosition, var end: CodePosition, val paint: Paint)
 
@@ -114,6 +121,12 @@ sealed interface EditorOutput {
 
     /** The editor gained or lost the keyboard focus. */
     class Focus(val focused: Boolean) : EditorOutput
+
+    /** The height of one row as it is drawn, in pixels: the first time, and when it changes. */
+    class LineHeight(val px: Int) : EditorOutput
+
+    /** How far the view is scrolled, in pixels. Steps between two reports are one report. */
+    class Scrolled(val offsetPx: Int) : EditorOutput
 
     /** The reader folded or unfolded the stretch that starts on [startLine]. */
     class FoldToggled(val startLine: Int, val collapsed: Boolean) : EditorOutput
@@ -185,6 +198,24 @@ class CodeEditorModel(
     private var pendingVisible: Pair<Int, Int>? = null
     private var reportedVisible: Pair<Int, Int>? = null
 
+    /**
+     * The row height and the scroll offset, as the surface last said and as the Host was
+     * last told. No row height has been told before the first draw. An editor starts at
+     * the top, so an offset of zero is what the Host already takes it to be.
+     */
+    private var pendingLineHeight = 0
+    private var reportedLineHeight = 0
+    private var pendingScroll = 0
+    private var reportedScroll = 0
+
+    /**
+     * Whether the Host listens for the row height and for the offset. What nobody listens
+     * for is not counted as told, so a listener attached after the editor was drawn still
+     * hears the row height, and one attached after a scroll hears where the view is.
+     */
+    var hearsLineHeight = false
+    var hearsScroll = false
+
     private var focused = false
     private var composing = false
 
@@ -198,6 +229,10 @@ class CodeEditorModel(
 
     /** The range the Host last asked to have brought into view, until the surface has done it. */
     var reveal: RevealRequest? by mutableStateOf(null)
+        private set
+
+    /** The offset the Host last asked the view to be scrolled to, until the surface has done it. */
+    var scrollRequest: ScrollRequest? by mutableStateOf(null)
         private set
 
     private val foldList = ArrayList<LiveFold>()
@@ -528,6 +563,16 @@ class CodeEditorModel(
                 output += EditorOutput.VisibleRange(document.version, visible.first, visible.second)
             }
         }
+        // The row height goes first: an offset means little to a Host that does not yet
+        // know how tall a row is.
+        if (hearsLineHeight && pendingLineHeight > 0 && pendingLineHeight != reportedLineHeight) {
+            reportedLineHeight = pendingLineHeight
+            output += EditorOutput.LineHeight(pendingLineHeight)
+        }
+        if (hearsScroll && pendingScroll != reportedScroll) {
+            reportedScroll = pendingScroll
+            output += EditorOutput.Scrolled(pendingScroll)
+        }
     }
 
     /** A position moved to the nearest place the document has, never between a pair's halves. */
@@ -549,6 +594,35 @@ class CodeEditorModel(
      */
     fun reportVisibleRange(first: Int, last: Int) {
         pendingVisible = first to last
+    }
+
+    /**
+     * The surface says how tall it draws a row and how far it is scrolled, both in pixels.
+     * Said every frame, reported only when it is not what the Host was last told, and at
+     * most once per drain, so a frame reports each of them at most once.
+     */
+    fun reportGeometry(lineHeightPx: Int, scrollPx: Int) {
+        pendingLineHeight = lineHeightPx
+        pendingScroll = scrollPx
+    }
+
+    /**
+     * An offset the Host asked the view to be scrolled to, in the pixels the surface
+     * reports its own offset in. Below zero is the top. A value that is not a number is
+     * reported and dropped.
+     */
+    fun hostScrollTo(offsetPx: Double) {
+        if (offsetPx.isNaN() || offsetPx.isInfinite()) {
+            output += EditorOutput.Error("a scroll offset of $offsetPx is not a distance")
+            return
+        }
+        val whole = offsetPx.coerceIn(0.0, Int.MAX_VALUE.toDouble())
+        scrollRequest = ScrollRequest(whole.roundToInt())
+    }
+
+    /** The surface went where the last scroll request asked. */
+    fun scrollDone(request: ScrollRequest) {
+        if (scrollRequest === request) scrollRequest = null
     }
 
     /** The surface says whether it holds the keyboard focus. */
