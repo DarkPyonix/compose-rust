@@ -81,9 +81,9 @@ fn play_badge(id: u32, opened: MutableState<Option<u32>>) {
         .modifier(
             Modifier
                 .shape_role(ShapeRole::Full)
-                .background(Paint::Literal(palette::SCRIM_BADGE)),
+                .background(palette::SCRIM_BADGE),
         )
-        .color(Paint::Literal(palette::ON_ART))
+        .color(palette::ON_ART)
         .on_click(move || opened.set(Some(id)));
 }
 
@@ -119,7 +119,7 @@ fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Opti
                 .modifier(
                     Modifier
                         .fill_max_width()
-                        .background(Paint::Literal(palette::SCRIM))
+                        .background(palette::SCRIM)
                         .padding_role(SpaceRole::Md),
                 )
                 .space_role(SpaceRole::Sm)
@@ -129,12 +129,12 @@ fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Opti
                     Column().modifier(Modifier.weight(1.0)).content(|| {
                         Text(found.title)
                             .type_role(TypeRole::Subtitle)
-                            .color(Paint::Literal(palette::ON_ART))
+                            .color(palette::ON_ART)
                             .max_lines(2)
                             .overflow(TextOverflow::Ellipsis);
                         Text(sessions_label(found).to_uppercase())
                             .type_role(TypeRole::Caption)
-                            .color(Paint::Literal(palette::ON_ART_MUTED));
+                            .color(palette::ON_ART_MUTED);
                     });
                 });
         });
@@ -167,10 +167,10 @@ fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
             // it, it is the label the card is filed under, which is what it is.
             Text(sessions_label(found).to_uppercase())
                 .type_role(TypeRole::Caption)
-                .color(Paint::Literal(palette::META));
+                .color(palette::META);
             Text(found.title)
                 .type_role(TypeRole::Body)
-                .color(Paint::Literal(palette::INK))
+                .color(palette::INK)
                 .max_lines(2)
                 .overflow(TextOverflow::Ellipsis);
         });
@@ -236,21 +236,21 @@ fn shelf_page(
                     Text(heading).type_role(TypeRole::Headline);
                     Text(strapline)
                         .type_role(TypeRole::Body)
-                        .color(Paint::Literal(palette::MUTED));
+                        .color(palette::MUTED);
                 });
 
             hero_card(hero, HERO, opened);
 
             Text("Recommended for you")
                 .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
+                .color(palette::MUTED);
             grid(rest, opened);
 
             // The wide card the reference ends each shelf with: one course, given the
             // whole width, because a shelf that is all the same size has no shape.
             Text("Recommended category")
                 .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
+                .color(palette::MUTED);
             hero_card(last, WIDE, opened);
         });
 }
@@ -260,7 +260,7 @@ fn shelf_page(
 fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
     let (strong, quiet, ink) = found.palette.roles();
     Column()
-        .modifier(Modifier.fill_max_size().background(Paint::Literal(quiet)))
+        .modifier(Modifier.fill_max_size().background(quiet))
         .content(|| {
             Box()
                 .modifier(Modifier.fill_max_width().height(HERO.1))
@@ -287,12 +287,10 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                 )
                 .space_role(SpaceRole::Md)
                 .content(|| {
-                    Text(found.title)
-                        .type_role(TypeRole::Headline)
-                        .color(Paint::Literal(ink));
+                    Text(found.title).type_role(TypeRole::Headline).color(ink);
                     Text(sessions_label(found))
                         .type_role(TypeRole::Body)
-                        .color(Paint::Literal(ink));
+                        .color(ink);
                     Column()
                         .modifier(Modifier.fill_max_width())
                         .space_role(SpaceRole::Sm)
@@ -303,7 +301,7 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                                         .modifier(
                                             Modifier
                                                 .fill_max_width()
-                                                .background(Paint::Literal(palette::CARD))
+                                                .background(palette::CARD)
                                                 .shape_role(ShapeRole::Medium)
                                                 .padding_role(SpaceRole::Md),
                                         )
@@ -315,14 +313,14 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                                                 .modifier(Modifier.weight(1.0));
                                             Text(format!("{} min", found.minutes))
                                                 .type_role(TypeRole::Caption)
-                                                .color(Paint::Literal(palette::MUTED));
+                                                .color(palette::MUTED);
                                         });
                                 });
                             }
                         });
                     Spacer().modifier(Modifier.weight(1.0));
                     Button("Begin")
-                        .modifier(Modifier.fill_max_width().background(Paint::Literal(strong)))
+                        .modifier(Modifier.fill_max_width().background(strong))
                         .variant(ButtonVariant::Filled)
                         .on_click(|| {
                             Message::new("Playback is not part of this sample").show();
@@ -377,7 +375,7 @@ pub fn app() {
                         NavigationItem(choice.label())
                             // The reference's bar is the page's own ink rather than an
                             // accent.
-                            .color(Paint::Literal(palette::INK))
+                            .color(palette::INK)
                             .icon(choice.icon())
                             .on_click(move || pick.set(choice));
                     });
@@ -386,11 +384,7 @@ pub fn app() {
         })
         .content(|| {
             Column()
-                .modifier(
-                    Modifier
-                        .fill_max_size()
-                        .background(Paint::Literal(palette::PAGE)),
-                )
+                .modifier(Modifier.fill_max_size().background(palette::PAGE))
                 .content(|| {
                     Box()
                         .modifier(Modifier.fill_max_size())

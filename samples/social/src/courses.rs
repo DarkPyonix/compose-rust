@@ -1,6 +1,6 @@
 //! The courses, the categories, and the scenes drawn on their cards.
 
-use compose_rust::schema::Color;
+use compose_rust::ui::Paint;
 
 /// The scenes, drawn.
 ///
@@ -44,7 +44,7 @@ impl Palette {
     /// Literals, from the sample's own palette. The reference alternates its illustrations
     /// between a sage and a blush and writes on them in the same deep plum throughout, and
     /// no design system holds any of the three.
-    pub fn roles(self) -> (Color, Color, Color) {
+    pub fn roles(self) -> (Paint, Paint, Paint) {
         match self {
             Palette::First => (
                 crate::palette::SAGE,
