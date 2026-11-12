@@ -17,6 +17,11 @@
 # of them back because one of them broke on one platform helps nobody. A platform where
 # nothing at all built is a different thing and still fails the run.
 #
+# The web is the exception: a sample that does not build as a page fails the web job, and
+# with it the release. The guide site serves every sample's page from this release, so a
+# page left out would be a dead link that hides the broken build. Once samples-latest
+# holds the new files, the release job starts the Pages workflow on main to publish them.
+#
 # Separate from release.yml on purpose. That workflow ships the library: the renderer
 # artifacts and the crate. This one ships programs a person downloads and runs, and the
 # two should be versioned apart so a sample can be rebuilt without implying a library
@@ -27,8 +32,10 @@
 # (compose-rust-renderer-v<version>-<target>.tar.gz, checked against its .sha256), so a
 # sample build does not rebuild it; when the release has no such asset yet (a version still
 # in a pull request), the resolve job says so and the renderer is built here by
-# static-renderer.yml. On Windows the renderer is the Kotlin/Native static library built by
-# windows-static.yml, so each sample is one executable on every desktop platform.
+# static-renderer.yml. On Windows the renderer is the Kotlin/Native static kit, taken from
+# the same release when its windows-x64 tarball is that kit and built by windows-static.yml
+# otherwise (a release that still carries the GraalVM DLL under that name), so each sample
+# is one executable on every desktop platform.
 #
 # What a release carries, per sample and target, named `<sample>-<target>.<ext>`:
 #   - every desktop target: `.tar.gz` of the executable;
@@ -37,7 +44,8 @@
 #   - linux-x64, linux-arm64: an `.AppImage` (packager-linux);
 #   - windows-x64: a `.zip` and an unsigned `.msix` (packager-windows, sideload channel).
 # Android ships an APK, iOS a simulator bundle, the web one archive of pages. Velopack
-# installers and updates are not part of this release; that is still open under FR-22.6.
+# installers and updates are not part of this release yet (issues #3 and #4).
+# Every desktop file is checked by .github/scripts/check-sample-bundles.py before upload.
 #
 # Tag and release naming:
 #   - The tag is `sample-v<crate version>` (compose-rust/Cargo.toml) and goes on a merge
@@ -65,6 +73,7 @@ on:
       - scripts/build-sample-pages.sh
       - renderer/desktop/scripts/build-sample-ios.sh
       - .github/workflows/test-samples.yml
+      - .github/scripts/check-sample-bundles.py
   workflow_dispatch:
     inputs:
       tag:
@@ -106,14 +115,16 @@ jobs:
   # The renderer used is the one released for the crate version, unless the release carries
   # another schema than this head (compared by schema-hash.txt): then the renderer is built
   # from this head and the run says so in a notice.
-  # The Windows static branches below take effect once the release carries a static
-  # windows-x64 tarball; until then the Windows build still uses the DLL kit.
+  # Windows takes the release's windows-x64 tarball only when it is the Kotlin/Native static
+  # kit. Releases up to v0.0.7 carry the GraalVM DLL under that name, which the crate's build
+  # script no longer links, so for those the kit is built here as before.
   resolve:
     name: Find the released renderer
     needs: requested
     runs-on: ubuntu-latest
     outputs:
       released: ${{ steps.find.outputs.released }}
+      windows_released: ${{ steps.find.outputs.windows_released }}
       version: ${{ steps.find.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +161,20 @@ jobs:
           fi
           echo "released=$released" >> "$GITHUB_OUTPUT"
           echo "crate $version, released renderer: $released"
+          # Windows also needs the tarball to be the static kit.
+          windows_released=false
+          if [[ "$released" == "true" ]]; then
+            asset="compose-rust-renderer-v$version-windows-x64.tar.gz"
+            gh release download "v$version" -R "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$work"
+            kind="$(.github/scripts/windows-renderer-is-static.sh "$work/$asset")"
+            echo "$kind"
+            windows_released="$(sed -n 's/^windows_static=//p' <<<"$kind")"
+            if [[ "$windows_released" != "true" ]]; then
+              echo "::notice title=No static Windows renderer in v$version::its windows-x64 tarball is not the Kotlin/Native kit, so the Windows samples are built against the kit built here"
+            fi
+          fi
+          echo "windows_released=$windows_released" >> "$GITHUB_OUTPUT"
+          echo "crate $version, released Windows renderer: $windows_released"
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
   # Only when the release does not carry them yet.
@@ -168,10 +193,12 @@ jobs:
 
   # The Windows renderer: Kotlin/Native, linked into the executable, so a Windows sample
   # is one file like the others. This replaces the GraalVM DLL the samples used to ship
-  # beside the program. Its long first half is cached on exactly its inputs.
+  # beside the program. Its long first half is cached on exactly its inputs. Only when the
+  # release does not carry the kit.
   windows-static:
     name: renderer (windows-x64)
-    needs: requested
+    needs: resolve
+    if: needs.resolve.outputs.windows_released != 'true'
     uses: ./.github/workflows/windows-static.yml
 
   build:
@@ -207,6 +234,11 @@ jobs:
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: actions/setup-python@v5
+        # The bundle check reads each sample's Dioxus.toml with tomllib (Python 3.11 and newer).
+        with:
+          python-version: '3.12'
 
       - name: Take Git's coreutils out of the linker's way
         # Git for Windows carries a coreutils `link` in usr/bin, and a bash step finds it
@@ -281,11 +313,30 @@ jobs:
           echo "DIST=$dir" >> "$GITHUB_ENV"
 
       - name: Take the Windows renderer kit
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.windows_released != 'true'
         uses: actions/download-artifact@v4
         with:
           name: windows-static-renderer-kit
           path: ${{ runner.temp }}/renderer-kit
+
+      - name: Download the released Windows renderer kit
+        if: runner.os == 'Windows' && needs.resolve.outputs.windows_released == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p renderer-artifact
+          asset="compose-rust-renderer-v$VERSION-windows-x64.tar.gz"
+          gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" \
+            --pattern "$asset" --pattern "$asset.sha256" --dir renderer-artifact
+          (cd renderer-artifact && sha256sum -c "$asset.sha256")
+          # The tarball root is the kit root. Forward slashes: GNU tar reads "D:" as a host.
+          kit="$(cygpath -m "$RUNNER_TEMP/renderer-kit")"
+          mkdir -p "$kit"
+          tar -xzf "renderer-artifact/$asset" -C "$kit"
+          ls -la "$kit"
 
       - name: Point the build at the Windows renderer
         if: runner.os == 'Windows'
@@ -397,6 +448,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # The crate's version, as the .app and the AppImage carry it.
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
           cargo build --release -p compose-rust-msix --bin compose-rust-msix
           while read -r app; do
             [[ -n "$app" ]] || continue
@@ -405,7 +458,7 @@ jobs:
             out="msix/$app"; mkdir -p "$out"
             if target/release/compose-rust-msix.exe --project "samples/$app" \
                  --exe "target/release/sample-$app.exe" --channel sideload \
-                 --out "$out" --summary "$out/summary.txt"; then
+                 --version "$version" --out "$out" --summary "$out/summary.txt"; then
               pkg="$(sed -n 's/^package=//p' "$out/summary.txt" | tr -d '\r' | head -n 1)"
               if [[ -f "$pkg" ]]; then cp "$pkg" "artifacts/$app-${{ matrix.target }}.msix"
               else echo "::warning title=No MSIX::the packager reported no package for sample-$app"; fi
@@ -444,13 +497,22 @@ jobs:
             # one the window wears; a sample that brings its own may have only the one.
             icons=(--icon "samples/$app/assets/icon.png")
             [[ -f "samples/$app/assets/icon-256.png" ]] && icons+=(--icon "samples/$app/assets/icon-256.png")
-            if ! scripts/packager-linux/appimage.sh \
+            # The packager names the file after the application and version
+            # (Self-care-1.2.3-x86_64.AppImage); the release names every file
+            # <sample>-<target>.<ext>, so it is renamed once it is made.
+            out="appimages/$app"
+            mkdir -p "$out"
+            if scripts/packager-linux/appimage.sh \
                 --dioxus-toml "samples/$app/Dioxus.toml" \
                 --overlay scripts/packager-linux/samples.toml \
                 --exec "sample-$app" "${icons[@]}" \
                 --payload "staging/$app" --version "$version" \
                 ${sign[@]+"${sign[@]}"} \
-                --out-dir artifacts; then
+                --out-dir "$out" \
+               && made="$(find "$out" -maxdepth 1 -name '*.AppImage' | head -n 1)" \
+               && [[ -n "$made" ]]; then
+              mv "$made" "artifacts/$app-${{ matrix.target }}.AppImage"
+            else
               echo "::warning title=No AppImage::sample-$app was not wrapped as an AppImage for ${{ matrix.target }}"
             fi
           done < built.txt
@@ -467,6 +529,20 @@ jobs:
           # shellcheck disable=SC2086
           "${sum[@]}" $files > "SHA256SUMS-${{ matrix.target }}"
           cat "SHA256SUMS-${{ matrix.target }}"
+
+      - name: Check what was packaged
+        # Every bundle is opened: it holds the sample's one executable, its icon and its
+        # metadata and nothing else, the executable loads only the system's libraries and
+        # nothing by a path on this machine, the name, identifier, description and
+        # version are the sample's, the MSIX is unsigned, and the checksum list covers
+        # every file. A format a sample lost in packaging is a warning and goes in the
+        # release notes; a bundle that is wrong inside fails the run.
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' compose-rust/Cargo.toml | head -n 1)"
+          python .github/scripts/check-sample-bundles.py --target "${{ matrix.target }}" \
+            --artifacts artifacts --samples samples --built built.txt --version "$version"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -682,6 +758,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # To start the Pages workflow once samples-latest holds the new pages.
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -745,8 +823,10 @@ jobs:
             echo "Windows developer mode, or signing it again with a certificate the machine"
             echo "trusts."
             echo
-            echo "No Velopack installers or auto-update yet; that is a remaining part of"
-            echo "FR-22.6."
+            echo "Every desktop file is listed in SHA256SUMS-<platform>. Each bundle holds the"
+            echo "sample's one executable, its icon and its metadata, and nothing else."
+            echo
+            echo "No Velopack installers or auto-update yet."
             echo
             echo "Built from $GITHUB_REPOSITORY at $(git rev-parse --short HEAD) ($TAG)."
             echo
@@ -758,8 +838,10 @@ jobs:
             done
             echo
             echo "A sample that does not build on a platform is skipped rather than"
-            echo "holding up the rest. Skipped sample and platform pairs (empty means none"
-            echo "on the desktop; the workflow log says why):"
+            echo "holding up the rest, and a sample that built but could not be packaged in"
+            echo "one format loses only that format. Skipped sample and platform pairs, and"
+            echo "sample, platform and format triples (empty means none on the desktop; the"
+            echo "workflow log says why):"
             echo
             for f in artifacts/skipped-*.txt; do
               [ -s "$f" ] || continue
@@ -790,6 +872,7 @@ jobs:
           fi
 
       - name: Replace the files of the samples-latest release
+        id: feed
         # The release tagged samples-latest always holds the newest samples at one fixed
         # address. It is a pre-release and never latest, so it does not compete with the
         # library's v* releases. It is updated in place: the new files are uploaded over
@@ -829,3 +912,13 @@ jobs:
               gh release delete-asset "$FEED" "$asset" --yes
             fi
           done
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the new sample pages on the guide site
+        # The guide serves the sample pages from samples-latest, so it is deployed again
+        # once that release holds the new files. Pages deploys from main only, so that is
+        # the ref it runs on.
+        if: steps.feed.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml -R "$GITHUB_REPOSITORY" --ref main

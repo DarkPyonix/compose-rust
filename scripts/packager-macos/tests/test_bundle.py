@@ -134,6 +134,28 @@ class Bundle(unittest.TestCase):
         with self.assertRaisesRegex(metadata.PackagingError, "fonts.conf"):
             bundle.assemble(meta, self.executable, self.scratch / "again")
 
+    def test_fr22_6_2_one_executable_is_the_whole_bundle_with_its_icon_and_metadata(self):
+        # The renderer linked into the executable: the bundle holds that file, the icon and
+        # the metadata, and no Frameworks directory waiting for a library that never comes.
+        scratch = self.scratch / "single"
+        scratch.mkdir()
+        executable = scratch / "sample-demo"
+        compile_c("int main(void) { return 0; }", executable)
+        meta = metadata.with_overrides(metadata.load(project(CARGO, DIOXUS)), icon=ICON)
+        app = bundle.sign(bundle.assemble(meta, executable, scratch / "out"))
+        files = sorted(
+            str(path.relative_to(app)) for path in app.rglob("*") if not path.is_dir()
+        )
+        self.assertEqual(files, [
+            "Contents/Info.plist",
+            "Contents/MacOS/sample-demo",
+            "Contents/PkgInfo",
+            "Contents/Resources/AppIcon.icns",
+            "Contents/_CodeSignature/CodeResources",
+        ])
+        self.assertFalse((app / "Contents" / "Frameworks").exists())
+        self.assertEqual(cli._verify(app), [])
+
     def test_fr22_6_5_disk_image_carries_the_app_applications_and_install_notes(self):
         image = bundle.dmg(self.app, self.scratch / "Demo.dmg", "Demo App")
         mount = self.scratch / "mount"

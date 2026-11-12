@@ -306,10 +306,9 @@ jobs:
 
       - name: Package the kit the way the release carries it
         id: package
-        # The same tarball the other platforms ship: the static kit under lib/ and include/,
-        # with the rest of what an MSVC link needs beside it, and its checksum. A tag keeps
-        # the GraalVM tarball of the same name until the release takes this one instead.
-        if: steps.renderer.outcome == 'success' && !startsWith(github.ref, 'refs/tags/v')
+        # The tarball the release carries for windows-x64: the kit root, with what an MSVC
+        # link needs beside the archive, and its checksum. On a tag this is the release asset.
+        if: steps.renderer.outcome == 'success'
         run: |
           set -euo pipefail
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"

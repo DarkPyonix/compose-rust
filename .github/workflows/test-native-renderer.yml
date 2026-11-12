@@ -12,8 +12,10 @@
 #                              application, so the application is one executable that needs
 #                              nothing but the system's own libraries. arm64 Linux is cross
 #                              compiled on x86-64, because Kotlin/Native has no arm64 host.
-#   windows-x64                the GraalVM native image, a DLL with Skia and the AWT DLLs
-#                              beside it, until the Windows static renderer exists.
+#   windows-x64                the Kotlin/Native renderer as the static kit an MSVC link
+#                              needs (windows-static.yml), so a Windows application is one
+#                              executable as well. The GraalVM native image is still built
+#                              and smoke tested below, and is not released.
 #   ios                        the Kotlin/Native archive as an XCFramework.
 #
 # The crate stays an ordinary crate that builds with no renderer present, and each
@@ -167,14 +169,9 @@ jobs:
               ./.github/scripts/native-needs-macos.sh)" || decision="macos=true"
             [[ "$decision" == "macos=false" ]] && macos=false
           fi
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            # Windows is left out of a tag's run for now: the tag's windows-x64 artifact is still the
-            # GraalVM one (the `windows` job names it the same way), and windows-static does not
-            # upload its own on a tag until the release takes the static kit instead.
-            all='{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"}]}'
-          else
-            all='{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}'
-          fi
+          # A tag checks the same four, Windows included: its windows-x64 tarball is the
+          # static kit the release carries.
+          all='{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}'
           if [[ "$macos" == "false" ]]; then
             all="$(jq -c '.include |= map(select(.["runs-on"] != "macos-latest"))' <<< "$all")"
           fi
@@ -261,9 +258,8 @@ jobs:
           cp "$(command -v python)" "$RUNNER_TEMP/python3/python3.exe"
           PATH="$RUNNER_TEMP/python3:$PATH" bash scripts/tests/renderer/linux-image-toolkit-boundary.test.sh renderer/build/native-image/dist/bin
 
-      # A run artifact, which is a different thing from the release asset below: it belongs
-      # to this run, lasts a fortnight, and is not published anywhere. The release asset
-      # stays tag-only, which is right.
+      # A run artifact: it belongs to this run, lasts a fortnight, and is not published
+      # anywhere. The release carries the Kotlin/Native kit for windows-x64, not this.
       #
       # It exists because a renderer built from the current schema was otherwise
       # unobtainable between releases. Anyone working on Windows had the choice of
@@ -276,33 +272,6 @@ jobs:
           name: renderer-windows-x64
           path: renderer/build/native-image/dist
           retention-days: 14
-
-      - name: Package the distribution for a release
-        id: package
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          name="compose-rust-renderer-${{ github.ref_name }}-windows-x64"
-          # dist/ holds the renderer, Skia and the AWT libraries, plus include/.
-          tar -czf "${name}.tar.gz" -C renderer/build/native-image/dist .
-          if command -v shasum >/dev/null; then
-            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
-          else
-            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
-          fi
-          cat "${name}.tar.gz.sha256"
-          echo "name=${name}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload the release artifact
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.package.outputs.name }}
-          path: |
-            ${{ steps.package.outputs.name }}.tar.gz
-            ${{ steps.package.outputs.name }}.tar.gz.sha256
-          retention-days: 7
 
       - name: Upload the renderer
         uses: actions/upload-artifact@v4
@@ -541,7 +510,7 @@ jobs:
   # never be made to work.
   release:
     name: Attach the renderer to the GitHub release
-    needs: [changed, windows, macos-static, linux-static, linux-arm64-static, single-executable, ios]
+    needs: [changed, windows, windows-static, macos-static, linux-static, linux-arm64-static, single-executable, ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
