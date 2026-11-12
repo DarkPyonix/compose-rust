@@ -36,7 +36,7 @@ them name Cupertino.
 | `statistics` | Charts: a dial and a week of hatched columns drawn with `Canvas` in the reference's own palette, and a costs page that is sage to the window's edges |
 | `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
-| `academic` | A grid of subject tiles, a stage strip, open and locked lessons, and the one place the role vocabulary ran out |
+| `academic` | A grid of subject tiles, a stage strip, open and locked lessons, in the reference picture's own colours |
 | `social` | A meditation app whose every card carries an illustration, three shelves, and a course page that covers the navigation bar |
 
 Each of them names its colour scheme as well as its design system, because the design each
