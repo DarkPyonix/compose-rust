@@ -87,7 +87,7 @@ internal class TextInput(
     val overflowWrap: OverflowWrap? = null,
     /** Sizes are CSS pixels, which the system's font scale does not enlarge. */
     val absoluteSize: Boolean = false,
-    /** The fonts to try, for [noRole] text. Ignored where there is a role. */
+    /** The fonts to try, for [noRole] text. Ignored, and reported, where there is a role. */
     val fonts: List<FontRef> = emptyList(),
     /** Drawing only: neither changes a size. */
     val color: Paint? = null,
@@ -123,6 +123,8 @@ internal class ResolvedText(
     val runsProblem: String?,
     /** What was wrong with the fonts, one sentence each, for the caller to report. */
     val problems: List<String>,
+    /** Which fonts the text named and is not set in, or null where it is set in all it named. */
+    val ignoredFonts: String? = null,
 )
 
 /**
@@ -237,6 +239,7 @@ internal fun resolveText(
         minContentPlaceholders = minContentPlaceholders,
         runsProblem = badRuns,
         problems = problems,
+        ignoredFonts = ignoredFontsProblem(input),
     )
 }
 
@@ -322,6 +325,37 @@ internal fun cssUiFontFamily(name: String): FontFamily? = when (name.lowercase()
     "ui-monospace" -> systemFontFamily(".AppleSystemUIFontMonospaced") ?: FontFamily.Monospace
     "ui-rounded" -> systemFontFamily(".AppleSystemUIFontRounded")
     else -> null
+}
+
+/**
+ * What is ignored about the fonts [input] names, or null where nothing is.
+ *
+ * Text with a type role is set in the theme's font for that role, and so is a run with a
+ * role of its own. A font list sent for either is thrown away, which a Host has no way to
+ * see on screen beyond letters in the wrong face, so it is said. Text that sends no type
+ * role at all has the role [TextInput.defaultRole], not no role: naming fonts is not
+ * enough, the text has to say it has no role as well.
+ */
+internal fun ignoredFontsProblem(input: TextInput): String? {
+    if (input.noRole) {
+        val runs = input.runs.withIndex()
+            .filter { (index, run) -> run.role != null && input.runFonts.containsKey(index) }
+            .map { it.index }
+        if (runs.isEmpty()) return null
+        return "run ${runs.joinToString()} names fonts and a type role; a run with a role is set in the theme's font for it, so its fonts are ignored"
+    }
+    val nodeFonts = input.fonts.isNotEmpty()
+    val runFonts = input.runFonts.isNotEmpty()
+    if (!nodeFonts && !runFonts) return null
+    val named = when {
+        nodeFonts && runFonts -> "a font list and run fonts"
+        nodeFonts -> "a font list"
+        else -> "run fonts"
+    }
+    val role = input.role?.let { "the type role $it" }
+        ?: "no type role, which is the role ${input.defaultRole}"
+    return "$named for text with $role: ignored, because text with a role is set in the theme's font for it. " +
+        "Send the type role None for text set in its own fonts"
 }
 
 /** Which installed family each generic name is, which is the platform's answer. */

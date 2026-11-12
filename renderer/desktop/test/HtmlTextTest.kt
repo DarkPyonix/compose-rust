@@ -387,6 +387,63 @@ class HtmlTextTest {
         assertEquals(GLYPH_AT_20, results[2].width, "without a role the same font is used")
     }
 
+    /**
+     * A font list on text that has a role is not used, and the Host is told so. Text that
+     * sends no type role at all has the Body role, which is the case that is easiest to
+     * miss, so it is reported too. Text with no role uses its fonts and reports nothing.
+     */
+    @Test
+    fun fr40_an_ignored_font_on_drawn_text_is_reported() = runComposeUiTest {
+        val list = fonts(listOf(FontRef.Generic(GenericFamily.Serif)))
+        fun text(id: Int, vararg props: Pair<PropertyKind, PropertyValue>) =
+            listOf(
+                Mutation.Create(id, WidgetKind.Text),
+                Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("words")),
+            ) + props.map { (kind, value) -> Mutation.SetProp(id, kind, value) } + Mutation.Insert(COLUMN, id, id - TEXT)
+        val connection = FakeHostConnection(
+            listOf(Mutation.Create(COLUMN, WidgetKind.Column)) +
+                text(TEXT, PropertyKind.TypeRole to PropertyValue.Integer(5), list) +
+                text(ROLE_TEXT, list) +
+                text(ROLE_TEXT + 1, noRole, list),
+        )
+        startHost(connection, Density(1f))
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        val byNode = errors.groupBy { it.nodeId }
+        assertEquals(setOf(TEXT, ROLE_TEXT), byNode.keys, "$errors")
+        for (error in errors) {
+            assertTrue(error.message.contains("ignored"), error.message)
+            assertTrue(error.message.contains("None"), "the report says how to have the fonts used: ${error.message}")
+        }
+        assertTrue(
+            byNode.getValue(ROLE_TEXT).single().message.contains("no type role, which is the role Body"),
+            "text that sent no role is told it has the Body role: ${byNode.getValue(ROLE_TEXT).single().message}",
+        )
+    }
+
+    /**
+     * A measure request with a role and a font list is reported once, however many such
+     * requests a call carries, and a request with no role is not reported at all.
+     */
+    @Test
+    fun fr40_an_ignored_font_in_a_measure_request_is_reported_once() = runComposeUiTest {
+        val connection = FakeHostConnection(htmlText(200f, "x"))
+        val host = startHost(connection, Density(1f))
+        val serif = listOf(FontRef.Generic(GenericFamily.Serif))
+        measure(
+            MeasureRequests()
+                .text("one", role = 5, fonts = serif, width = 200f)
+                .text("two", role = 5, fonts = serif, width = 200f)
+                .text("three", role = 0, fonts = serif, width = 200f),
+        )
+        connection.scheduleFrame(emptyList())
+        runOnIdle { host.renderFrame(0L) }
+        waitForIdle()
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+            .filter { it.message.contains("measure request") }
+        assertEquals(1, errors.size, "$errors")
+        assertTrue(errors.single().message.contains("ignored"), errors.single().message)
+    }
+
     private val onApple = System.getProperty("os.name").orEmpty().let { it.startsWith("Mac") || it.contains("iOS") }
 
     /** The identity every font of [family] is asked for by, or null where it is not a list of installed faces. */
