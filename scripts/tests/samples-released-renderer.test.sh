@@ -125,6 +125,10 @@ nfr15_tag_releases_the_windows_static_kit() {
         || fail "the release does not wait for windows-static"
 }
 
+nfr15_windows_kit_tarball_is_recognised
+nfr15_samples_skip_the_renderer_builds_when_released
+nfr15_samples_build_windows_against_the_verified_release
+nfr15_samples_dispatch_keeps_the_tag_input
 nfr15_tag_releases_the_windows_static_kit
 
 [[ "$failures" -eq 0 ]] || { echo "$failures failed"; exit 1; }
