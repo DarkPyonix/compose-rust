@@ -1051,6 +1051,7 @@ sealed interface Modifier {
     data class WindowDrag(val enabled: Boolean) : Modifier
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
     data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
+    data class CornerCurve(val smoothing: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -3045,6 +3046,7 @@ object Protocol {
         32 -> 0
         33 -> 0
         34 -> 0
+        35 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -3084,6 +3086,7 @@ object Protocol {
             32 -> Modifier.WindowDrag(flag(first, offset))
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
+            35 -> Modifier.CornerCurve(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

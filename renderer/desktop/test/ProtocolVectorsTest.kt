@@ -279,6 +279,13 @@ class ProtocolVectorsTest {
         assertTrue(patched, "the vector carries a file dialog request")
     }
 
+    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    @Test
+    fun fr50_corner_curve_round_trips() {
+        val last = decodeVector("mutations.bin").last()
+        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+    }
+
     @Test
     fun fr10_every_modifier_variant_in_the_vector_round_trips() {
         val modifiers = decodeVector("mutations.bin")
@@ -318,6 +325,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
         )

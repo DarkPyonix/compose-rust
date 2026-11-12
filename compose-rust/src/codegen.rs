@@ -3127,6 +3127,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             name: "보고서.txt",
             filters: "이미지\0png,jpg\0문서\0pdf,txt",
         },
+        // Last, so every byte before it is where it was.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 9,
+            modifier: Modifier::CornerCurve { smoothing: 0.6 },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
