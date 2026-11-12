@@ -15,6 +15,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
@@ -428,15 +429,29 @@ private fun ComposeRustTree(
     // shares it, so the root window's is enough.
     @Suppress("DEPRECATION")
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // The suspending clipboard, which is the only one a browser can read, and the scope its
+    // reads run in: the composition's own, so they run on the UI thread.
+    val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
     if (windowNodeId == 0) {
         SideEffect {
             host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
                 @Suppress("DEPRECATION")
                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
             }
+            host.table.clipboardReads.launcher = { read ->
+                clipboardScope.launch(block = { read() })
+            }
             host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
-                @Suppress("DEPRECATION")
-                clipboardManager.getText()?.text
+                // A platform with a suspending read uses it. Elsewhere the clipboard manager
+                // answers at once, which every other target supports.
+                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+                if (platformRead != null) {
+                    platformRead(composeClipboard)
+                } else {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.getText()?.text
+                }
             }
         }
     }

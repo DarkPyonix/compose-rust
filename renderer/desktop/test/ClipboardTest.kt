@@ -7,6 +7,8 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.platform.ClipboardReadStatus
 import dev.darkpyonix.composerust.ui.platform.ClipboardSink
 import dev.darkpyonix.composerust.ui.platform.ClipboardSource
+import kotlin.coroutines.resume
+import kotlin.coroutines.startCoroutine
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -24,7 +26,7 @@ private class FakeClipboard : ClipboardSink {
 private class FakeReadableClipboard(var text: String?) : ClipboardSource {
     var reads = 0
 
-    override fun getText(): String? {
+    override suspend fun getText(): String? {
         reads += 1
         return text
     }
@@ -32,7 +34,20 @@ private class FakeReadableClipboard(var text: String?) : ClipboardSource {
 
 /** A clipboard read that throws, as a browser does when permission is refused. */
 private class DeniedClipboard(private val quote: String) : ClipboardSource {
-    override fun getText(): String? = throw IllegalStateException("denied: \"$quote\"")
+    override suspend fun getText(): String? = throw IllegalStateException("denied: \"$quote\"")
+}
+
+/** A clipboard read that answers only when the test says so, as a browser does after asking. */
+private class SlowClipboard : ClipboardSource {
+    var pending: kotlin.coroutines.Continuation<String?>? = null
+
+    override suspend fun getText(): String? =
+        kotlin.coroutines.suspendCoroutine { continuation -> pending = continuation }
+}
+
+/** Runs a read at once on the calling thread, suspending where the source does. */
+private val immediately: (suspend () -> Unit) -> Unit = { read ->
+    read.startCoroutine(kotlin.coroutines.Continuation(kotlin.coroutines.EmptyCoroutineContext) { })
 }
 
 /** A clipboard that is there but refuses every write, as a headless platform's may. */
@@ -52,6 +67,7 @@ class ClipboardTest {
         val connection = FakeHostConnection()
         val host = ComposeRustHost(connection)
         host.start()
+        host.table.clipboardReads.launcher = immediately
         return host to connection
     }
 
@@ -248,5 +264,58 @@ class ClipboardTest {
         lines += connection.reads().map { it.toString() }
         assertTrue(lines.none { secret in it }, "no line carries the text: $lines")
         assertTrue(lines.any { "length=${secret.encodeToByteArray().size}" in it }, "the length may be said: $lines")
+    }
+
+    @Test
+    fun fr78_a_delayed_read_is_answered_once_when_it_finishes() {
+        val (host, connection) = host()
+        val clipboard = SlowClipboard()
+        var wakes = 0
+        host.table.clipboardReads.wake = { wakes += 1 }
+        host.table.clipboardReads.source = clipboard
+
+        host.table.apply(Mutation.ReadClipboard(12))
+        host.renderFrame(0)
+        assertTrue(connection.reads().isEmpty(), "nothing is answered while the platform asks")
+        host.renderFrame(0)
+        assertTrue(connection.reads().isEmpty())
+
+        val wakesBefore = wakes
+        clipboard.pending!!.resume("늦은 글자")
+        assertTrue(wakes > wakesBefore, "a finished read asks for the frame that answers it")
+        host.renderFrame(0)
+        host.renderFrame(0)
+        assertEquals(
+            listOf(HostEvent.ClipboardText(0, 0, 12, ClipboardReadStatus.TEXT, "늦은 글자".encodeToByteArray().size, "늦은 글자")),
+            connection.reads(),
+        )
+    }
+
+    @Test
+    fun fr78_a_read_that_throws_after_suspending_answers_none() {
+        val (host, connection) = host()
+        val clipboard = SlowClipboard()
+        host.table.clipboardReads.source = clipboard
+        val lines = mutableListOf<String>()
+        host.table.clipboardReads.log = { lines += it }
+
+        host.table.apply(Mutation.ReadClipboard(13))
+        host.renderFrame(0)
+        // The browser refuses after asking the user.
+        clipboard.pending!!.resumeWith(Result.failure(IllegalStateException("denied: 비밀")))
+        host.renderFrame(0)
+
+        assertEquals(listOf(HostEvent.ClipboardText(0, 0, 13, ClipboardReadStatus.NONE, 0, "")), connection.reads())
+        assertTrue(lines.none { "비밀" in it }, "the platform's message is not repeated: $lines")
+    }
+
+    @Test
+    fun fr78_without_a_launcher_a_read_answers_none() {
+        val (host, connection) = host()
+        host.table.clipboardReads.launcher = null
+        host.table.clipboardReads.source = FakeReadableClipboard("있음")
+        host.table.apply(Mutation.ReadClipboard(14))
+        host.renderFrame(0)
+        assertEquals(listOf(HostEvent.ClipboardText(0, 0, 14, ClipboardReadStatus.NONE, 0, "")), connection.reads())
     }
 }
