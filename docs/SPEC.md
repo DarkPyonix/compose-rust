@@ -4199,6 +4199,20 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 4. 닫히면 포커스가 기준점으로 돌아갑니다(fr77_popover_restores_focus).
 5. 창 크기가 바뀌면 다시 배치합니다(fr77_popover_follows_resize).
 
+### FR-78 프로그램에서 클립보드 글자 읽기 (`Agreed`, 이슈 #546, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(편집기 터미널의 붙여넣기: Command V, Control Shift V, bracketed paste, 여러 줄 경고). FR-73은 쓰기만 하므로 붙여넣기 단축키가 글자를 얻을 수 없습니다. FR-73과 같은 모양입니다.
+
+- **Host API**: `compose_rust::clipboard::read_text(callback)`, 또는 `use_clipboard().read_text()`가 `Option<String>`을 주는 future. 명령 레코드 하나(`ReadClipboard { request: u32 }`)와 이벤트 하나(`ClipboardText { request: u32, text }`, 글자가 없으면 "없음" 표시)입니다. 경계 함수는 늘지 않고(PR-2) 스키마 해시가 움직입니다.
+- 데스크톱에서는 권한을 묻지 않습니다. 웹에서는 브라우저가 묻는 권한을 따르고, 거부되면 "없음"이 옵니다.
+- 크기 한도는 FR-73과 같은 64 KiB입니다. 넘는 글자는 잘라서 보내지 않고 오류로 알립니다(앱이 붙여넣기를 거절할 수 있게).
+- Renderer는 글자를 로그에 남기지 않습니다(길이만).
+
+수용 기준.
+1. 가짜 클립보드에 "한글\n줄 🙂"을 넣고 읽으면 같은 글자가 같은 request 번호로 옵니다(fr78_read_clipboard_round_trips).
+2. 클립보드가 비었거나 글자가 아니면 "없음"이 옵니다(fr78_empty_clipboard_reads_none).
+3. 클립보드가 없는 환경에서도 이벤트가 한 번 오고("없음") 프로세스가 계속 돕니다(fr78_unavailable_clipboard_reads_none).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
