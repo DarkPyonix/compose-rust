@@ -207,19 +207,18 @@ fun RenderNode(
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
     val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
-    val keyed = if ((keyDownHandler == null && keyUpHandler == null) ||
-        node.widget == WidgetKind.TextField
-    ) {
-        profiled
-    } else {
-        // Plain containers and text are not focus targets on their own, so a node that
-        // listens for keys is made one, ahead of its modifiers like the handlers. Without it
-        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
-        // Widgets that are controls bring their own focus handling and are left alone.
-        val focusTarget = node.widget in KeyFocusTargets
+    val listensForKeys = (keyDownHandler != null || keyUpHandler != null) &&
+        node.widget != WidgetKind.TextField
+    val keyed = if (listensForKeys) {
         profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
-            .let { if (focusTarget) it.focusable() else it }
+    } else {
+        profiled
     }
+    // Plain containers and text are not focus targets on their own, so a node that
+    // listens for keys is made one, ahead of its modifiers like the handlers. Without it
+    // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+    // Widgets that are controls bring their own focus handling and are left alone.
+    val keyFocusTarget = listensForKeys && node.widget in KeyFocusTargets
     // A node that subscribed to pointer events listens for them. One that did not carries
     // nothing for them at all.
     val pointerEvents = if (node.subscribesToPointer()) {
@@ -248,7 +247,11 @@ fun RenderNode(
     // Ahead of the node's own modifiers. A requester moves focus to the first focus target
     // after it, and a node that can be pressed has that target among its modifiers: placed
     // after them, the requester missed the node and reached for its children instead.
-    val requested = if (focusRequester == null) keyed else keyed.focusRequester(focusRequester)
+    // It is also ahead of the focus target a key listener is given, and behind the key
+    // handlers. That target is then the one a request focuses, so the node keeps a single
+    // focus target that reports it is focused and whose keys pass the node's handlers.
+    val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
+        .let { if (keyFocusTarget) it.focusable() else it }
     val chain = requested
         .then(
             node.modifiers.toComposeModifier(
@@ -299,6 +302,7 @@ fun RenderNode(
     // A container nothing else made a focus target becomes one here, so the requester above
     // has somewhere to send focus.
     val focusableModifier = if (focusRequester != null &&
+        !keyFocusTarget &&
         clickHandler == null &&
         node.widget in CLICKABLE_CONTAINERS &&
         node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
