@@ -367,9 +367,12 @@ class CornerCurveTest {
                     4, ROOT, 1,
                     ProtocolModifier.Offset(210f, 20f),
                     ProtocolModifier.RequiredSize(160f, 160f),
+                    // Ahead of the shape: a `Shape` clips what follows it in the list to
+                    // its outline, and a shadow is drawn outside that outline. The shadow
+                    // still reads the node's shape and curve from wherever they are.
+                    ProtocolModifier.Shadow(12f, 12f, 0f, 0f, Paint.Literal(BLUE)),
                     ProtocolModifier.Shape(40f, 40f, 40f, 40f),
                     ProtocolModifier.CornerCurve(1f),
-                    ProtocolModifier.Shadow(12f, 12f, 0f, 0f, Paint.Literal(BLUE)),
                     ProtocolModifier.Background(Paint.Literal(RED)),
                 )
             },
