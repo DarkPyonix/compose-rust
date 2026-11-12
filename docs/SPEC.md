@@ -152,6 +152,14 @@ Host 측 규칙:
 4. 핸들러가 소비한 키는 이전처럼 Renderer가 처리하지 않습니다(fr12_consumed_key_is_not_handled_by_the_renderer).
 5. `KeyDown`의 `text`가 레코드 밖을 가리키면 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_malformed_key_down_text_is_a_protocol_error).
 
+#### 12.2 메뉴와 목록이 쓰는 키에 이름을 줍니다 (이슈 #476, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember. 서랍과 팝업 메뉴를 Esc로 닫고 화살표로 목록을 움직이려면 `text` 문자열을 비교해야 했습니다. `Key` 열거형에 `Escape=3, Tab=4, Backspace=5, Delete=6, ArrowUp=7, ArrowDown=8, ArrowLeft=9, ArrowRight=10, Home=11, End=12, PageUp=13, PageDown=14`를 `Other=2` 뒤에 덧붙입니다. 12.1의 "기존 `key: Key` 열거형도 유지합니다"는 이렇게 덧붙이는 것을 막지 않습니다. 기존 태그는 움직이지 않으며, 이 값들을 모르는 이전 Renderer는 계속 `Other`를 보냅니다. `code`와 `text`는 그대로 실립니다. 스키마 해시가 바뀝니다.
+
+수용 기준:
+1. 새 키마다 태그가 위 값이고 인코딩 후 디코딩해도 같습니다(fr12_named_keys_are_appended_and_round_trip).
+2. Renderer가 Compose의 해당 키를 각 이름으로 보냅니다(fr12_named_keys_map_to_their_protocol_key).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
