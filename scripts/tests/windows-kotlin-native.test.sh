@@ -137,14 +137,6 @@ else
         sed -E 's/@SymbolName\("(.*)"\)/\1/' | sort -u)"
     for symbol in $called; do
         defined="$(cat "${c_files[@]}" 2>/dev/null | grep -cE "^[a-zA-Z_][a-zA-Z0-9_ *]*[ *]$symbol\(" || true)"
-        # A name newer than the pinned fork commit is answered by a stand-in the linker takes
-        # only where nothing defines the name (/alternatename), so it links with no definition
-        # of its own as long as the stand-in it names is defined once.
-        stand_in="$(cat "${c_files[@]}" 2>/dev/null |
-            sed -nE "s#.*/alternatename:$symbol=([a-z0-9_]+).*#\\1#p" | head -n 1)"
-        if [[ "$defined" -eq 0 && -n "$stand_in" ]]; then
-            defined="$(cat "${c_files[@]}" 2>/dev/null | grep -cE "^[a-zA-Z_][a-zA-Z0-9_ *]*[ *]$stand_in\(" || true)"
-        fi
         [[ "$defined" -eq 1 ]] ||
             fail "$symbol is called from windows/src and defined $defined times in what build-windows.sh compiles"
     done

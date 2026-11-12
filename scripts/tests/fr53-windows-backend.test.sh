@@ -84,28 +84,19 @@ grep -Fq 'cancelCapture = { backend.cancelPointerCapture() }' "$src/WindowsMulti
 grep -Fq 'scene.cancelPointerInput()' "$src/Win32Window.kt" ||
     fail "a window never tells its scene that the held pointer's gesture was cancelled"
 
-# A window call newer than the pinned fork commit has a stand-in the linker takes only where
-# the fork's definition is missing, so the renderer links against either. Every stand-in is
-# for a name the Kotlin declares, and the build compiles the file into the library the Host
-# links.
-fallbacks="$repo_root/renderer/windows/native/window_layer_fallbacks.c"
+# Resizable and the color scheme of an open window are the fork's own Win32 calls. Nothing
+# here stands in for them: a second definition of a window call in this repository is window
+# code outside the fork, and it would hide a pin that lacks the call until a window misbehaved.
 build_script="$repo_root/renderer/desktop/scripts/build-windows.sh"
-[[ -f "$fallbacks" ]] || fail "missing renderer/windows/native/window_layer_fallbacks.c"
-alternates="$(grep -oE '/alternatename:[a-z0-9_]+=[a-z0-9_]+' "$fallbacks" 2>/dev/null || true)"
-[[ -n "$alternates" ]] || fail "window_layer_fallbacks.c names no /alternatename"
-for alternate in $alternates; do
-    real="${alternate#/alternatename:}"
-    stand_in="${real#*=}"
-    real="${real%%=*}"
-    grep -Fq "@SymbolName(\"$real\")" "$src/Win32Calls.kt" ||
-        fail "window_layer_fallbacks.c stands in for $real, which Win32Calls.kt does not declare"
-    grep -Eq "^int32_t $stand_in\(" "$fallbacks" ||
-        fail "window_layer_fallbacks.c names the stand-in $stand_in and does not define it"
+for call in dxc_native_window_set_resizable dxc_native_window_set_color_scheme dxc_native_window_caption_dark; do
+    grep -Fq "@SymbolName(\"$call\")" "$src/Win32Calls.kt" ||
+        fail "Win32Calls.kt does not declare $call"
 done
-grep -Fq 'window_layer_fallbacks.c' "$build_script" ||
-    fail "build-windows.sh does not compile window_layer_fallbacks.c"
-grep -Fq 'window_layer_fallbacks.obj embedded_icu.obj)' "$build_script" ||
-    fail "build-windows.sh does not put window_layer_fallbacks.obj into dxc-windows-native.lib"
+[[ ! -e "$repo_root/renderer/windows/native/window_layer_fallbacks.c" ]] ||
+    fail "renderer/windows/native/window_layer_fallbacks.c is back; the pinned fork commit defines those calls"
+if grep -rFq '/alternatename' "$repo_root/renderer/windows/native" "$build_script"; then
+    fail "a window call is given a stand-in with /alternatename; the fork's definition is the only one"
+fi
 grep -Fq 'setWindowResizable(resizable)' "$src/WindowsWindowBackend.kt" ||
     fail "a change of Resizable on an open window never reaches the window layer"
 
