@@ -14,6 +14,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign as ComposeTextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
@@ -172,6 +173,12 @@ internal fun resolveText(
             lineHeight = input.lineHeight?.let(::sized) ?: TextUnit.Unspecified,
             letterSpacing = input.letterSpacing?.let(::sized) ?: TextUnit.Unspecified,
             fontFamily = chain?.primary,
+            // As CSS sets a line box: every line is exactly its line height, the first and
+            // the last included, with the room the glyphs leave split evenly above and
+            // below them. Compose's default trims the first line's top and the last line's
+            // bottom back to the font's own, so a single line came out at the font's
+            // height whatever line height the page asked for.
+            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
         )
     } else {
         val role = input.role ?: input.defaultRole
