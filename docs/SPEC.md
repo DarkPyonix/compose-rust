@@ -4240,7 +4240,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 요청한 쪽: darkpyonix-ember(편집기 터미널의 붙여넣기: Command V, Control Shift V, bracketed paste, 여러 줄 경고). FR-73은 쓰기만 하므로 붙여넣기 단축키가 글자를 얻을 수 없습니다. FR-73과 같은 모양입니다.
 
-- **Host API**: `compose_rust::clipboard::read_text(callback)`, 또는 `use_clipboard().read_text()`가 `Option<String>`을 주는 future. 명령 레코드 하나(`ReadClipboard { request: u32 }`)와 이벤트 하나(`ClipboardText { request: u32, text }`, 글자가 없으면 "없음" 표시)입니다. 경계 함수는 늘지 않고(PR-2) 스키마 해시가 움직입니다.
+- **Host API**: `compose_rust::clipboard::read_text(callback)`와 `use_clipboard().read_text()`(future)는 `Result<Option<String>, ClipboardError>`를 줍니다. 글자가 없으면 `Ok(None)`, 64 KiB를 넘으면 `Err(TooLong)`입니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 명령 레코드 하나(`ReadClipboard { request: u32 }`, 명령 태그 31)와 이벤트 하나(`ClipboardText { request: u32, text }`, 이벤트 태그 56)입니다. 경계 함수는 늘지 않고(PR-2) 스키마 해시가 움직입니다.
 - 데스크톱에서는 권한을 묻지 않습니다. 웹에서는 브라우저가 묻는 권한을 따르고, 거부되면 "없음"이 옵니다.
 - 크기 한도는 FR-73과 같은 64 KiB입니다. 넘는 글자는 잘라서 보내지 않고 오류로 알립니다(앱이 붙여넣기를 거절할 수 있게).
 - Renderer는 글자를 로그에 남기지 않습니다(길이만).
