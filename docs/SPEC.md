@@ -4164,6 +4164,21 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 2. `TextField`에 명시적 여백이나 높이가 지정되면 렌더러가 지정된 여백과 높이를 적용합니다(시험 이름 fr75_text_field_honors_content_padding_and_height).
 3. 명시적 크기를 가진 아이콘 버튼이 테마의 최소 높이에 의해 확장되지 않고 지정된 크기로 렌더링됩니다(시험 이름 fr75_icon_button_honors_explicit_size).
 
+### FR-76 `FlowRow`: 줄이 넘치면 다음 줄로 흐르는 행 (`Agreed`, 이슈 #521, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(목업 `.seg`, `flex-wrap: wrap`, 간격 8px). 지금은 줄을 바꾸는 행이 없어서, 390dp에서 행이 옆으로 스크롤되거나(고른 항목이 화면 밖으로 나갑니다) 앱이 글자 폭을 어림해 줄을 직접 나눕니다. 어림이 실제 폭과 다르면 줄 나눔이 틀립니다.
+
+- 새 위젯 `FlowRow`(위젯 종류는 추가 전용으로 맨 끝에 더합니다). Compose의 `FlowRow`입니다. 자식을 실제로 잰 폭으로 한 줄에 놓고, 다음 자식이 남은 폭에 들어가지 않으면 다음 줄에 놓습니다.
+- 속성: `horizontal_spacing(dp)`(한 줄 안의 자식 사이), `vertical_spacing(dp)`(줄 사이), `horizontal_alignment`(`Start`/`Center`/`End`, 기본 `Start`), `vertical_alignment`(한 줄 안의 세로 정렬, 기본 `Top`), `max_items_in_each_row`(선택).
+- 한 자식이 혼자 한 줄 폭보다 넓으면 그 줄을 혼자 차지하고 줄 폭에 맞게 잽니다(넘치지 않습니다).
+- 고정된 Compose가 `FlowRow`를 아직 실험 API로 표시하면, 그 호출은 어댑터 파일 하나에만 둡니다(NFR-6).
+- 스키마 해시가 움직입니다. 경계 함수는 늘지 않습니다(PR-2).
+
+수용 기준.
+1. 폭 390dp에서 너비가 다른 칩 8개가 간격 8dp로 줄을 바꿔 놓이고, 어느 칩도 행 밖으로 나가지 않습니다(fr76_flow_row_wraps_by_measured_width).
+2. 줄 사이 간격이 `vertical_spacing`과 같습니다(fr76_flow_row_spacing).
+3. 같은 트리가 macOS, Windows, Linux, iOS, Android, 웹에서 같은 줄 나눔을 냅니다(글자 폭이 같은 글꼴일 때)(fr76_flow_row_same_on_every_target).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
