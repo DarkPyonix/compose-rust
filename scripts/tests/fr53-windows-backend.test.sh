@@ -32,7 +32,8 @@ for required in \
     fr53_windows_close_request_reaches_the_app_and_window_stays \
     fr53_windows_position_round_trips \
     fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node \
-    fr53_windows_tear_off_ends_the_source_pointer_capture; do
+    fr53_windows_tear_off_ends_the_source_pointer_capture \
+    fr53_windows_resizable_change_toggles_the_frame_of_an_open_window; do
     grep -qx "$required" <<< "$names" || fail "Fr53WindowsCheck.kt has no check named $required"
 done
 grep -Fq 'compose-rust: $name: ok' "$src/Fr53WindowsCheck.kt" ||
@@ -79,6 +80,31 @@ grep -Fq 'cancelCapture = { backend.cancelPointerCapture() }' "$src/WindowsMulti
     fail "a tear-off does not end the pointer capture of the window the pointer went down in"
 grep -Fq 'scene.cancelPointerInput()' "$src/Win32Window.kt" ||
     fail "a window never tells its scene that the held pointer's gesture was cancelled"
+
+# A window call newer than the pinned fork commit has a stand-in the linker takes only where
+# the fork's definition is missing, so the renderer links against either. Every stand-in is
+# for a name the Kotlin declares, and the build compiles the file into the library the Host
+# links.
+fallbacks="$repo_root/renderer/windows/native/window_layer_fallbacks.c"
+build_script="$repo_root/renderer/desktop/scripts/build-windows.sh"
+[[ -f "$fallbacks" ]] || fail "missing renderer/windows/native/window_layer_fallbacks.c"
+alternates="$(grep -oE '/alternatename:[a-z0-9_]+=[a-z0-9_]+' "$fallbacks" 2>/dev/null || true)"
+[[ -n "$alternates" ]] || fail "window_layer_fallbacks.c names no /alternatename"
+for alternate in $alternates; do
+    real="${alternate#/alternatename:}"
+    stand_in="${real#*=}"
+    real="${real%%=*}"
+    grep -Fq "@SymbolName(\"$real\")" "$src/Win32Calls.kt" ||
+        fail "window_layer_fallbacks.c stands in for $real, which Win32Calls.kt does not declare"
+    grep -Eq "^int32_t $stand_in\(" "$fallbacks" ||
+        fail "window_layer_fallbacks.c names the stand-in $stand_in and does not define it"
+done
+grep -Fq 'window_layer_fallbacks.c' "$build_script" ||
+    fail "build-windows.sh does not compile window_layer_fallbacks.c"
+grep -Fq 'window_layer_fallbacks.obj embedded_icu.obj)' "$build_script" ||
+    fail "build-windows.sh does not put window_layer_fallbacks.obj into dxc-windows-native.lib"
+grep -Fq 'setWindowResizable(resizable)' "$src/WindowsWindowBackend.kt" ||
+    fail "a change of Resizable on an open window never reaches the window layer"
 
 # Windows report real activation in a multi-window process, not the constant a single window has.
 grep -Fq 'isWindowFocused: Boolean get() = focused.value' "$src/Win32Window.kt" ||

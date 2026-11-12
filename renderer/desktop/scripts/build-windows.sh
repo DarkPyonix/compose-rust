@@ -9,7 +9,8 @@
 #     gcc/                              the GCC runtime the renderer object carries: libstdc++
 #                                       (rewritten too), libgcc, libgcc_eh, winpthread
 #     native/dxc-windows-native.lib     MSVC objects: the Win32 window, its toasts, the MinGW
-#                                       bridge and the embedded ICU loader, linked whole
+#                                       bridge, the stand-ins for window calls the pinned fork
+#                                       commit lacks and the embedded ICU loader, linked whole
 #     native/dxc-windows-static-ucrt.lib  the bridge's import pointers, for an application that
 #                                       links the UCRT statically (+crt-static) and only then
 #     skiko/                            skiko's C++ half and the prebuilt Skia libraries, MSVC
@@ -286,6 +287,9 @@ c_dir="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window/windows
 compile "$c_dir/win32_window.c" "$OUT_DIR/native/win32_window.obj" "/I$(tool_path "$c_dir")"
 compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"
+# The window calls the renderer makes that the pinned fork commit may not define yet, each
+# linked only where the fork's own definition is missing.
+compile "$PROJECT_DIR/windows/native/window_layer_fallbacks.c" "$OUT_DIR/native/window_layer_fallbacks.obj"
 # Skia's ICU data, compiled in by the fork's skiko build (embedded_icu.obj), so no icudtl.dat sits
 # beside the executable. Taken as it is built: the fork compiles it with the flags clang 19 needs.
 cp "$SKIKO_OUT/embedded_icu.obj" "$OUT_DIR/native/embedded_icu.obj"
@@ -301,7 +305,7 @@ rm -rf "$OUT_DIR/static-ucrt"
 # the ICU loader or the initialiser the bridge registers, and a member nothing calls is a
 # member the linker leaves out.
 (cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib win32_window.obj \
-    win32_notifications.obj mingw_bridge.obj embedded_icu.obj)
+    win32_notifications.obj mingw_bridge.obj window_layer_fallbacks.obj embedded_icu.obj)
 cp "$SKIKO_OUT/skiko-bridges.lib" "$OUT_DIR/skiko/"
 cp "$SKIKO_OUT"/skia/*.lib "$OUT_DIR/skiko/"
 

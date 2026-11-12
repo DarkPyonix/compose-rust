@@ -48,6 +48,7 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr53_windows_focus_follows_the_real_activation",
     "fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node",
     "fr53_windows_tear_off_ends_the_source_pointer_capture",
+    "fr53_windows_resizable_change_toggles_the_frame_of_an_open_window",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -69,6 +70,7 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::focusFollowsTheRealActivation,
         ::draggedWindowEntersMovesAndDropsOnASubscribedNode,
         ::tearOffEndsTheSourcePointerCapture,
+        ::resizableChangeTogglesTheFrameOfAnOpenWindow,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -419,6 +421,36 @@ private fun tearOffEndsTheSourcePointerCapture() {
     }
 }
 
+private fun resizableChangeTogglesTheFrameOfAnOpenWindow() {
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(1) +
+            windowNode(2, PropertyKind.WindowResizable to PropertyValue.Bool(false)),
+    )
+    try {
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val two = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        check(resizeFrame(one.handle) == RESIZE_FRAME) { "a window that did not say opened without the thick frame and the maximize box" }
+        check(resizeFrame(two.handle) == 0L) { "a window opened with Resizable false has a thick frame or a maximize box" }
+
+        // The application changes its mind about an open window, one way and then the other.
+        h.batch(Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(false)))
+        check(!one.resizableRefused) { NO_RESIZABLE_CALL }
+        h.until("the thick frame and the maximize box to go from the open window") { resizeFrame(one.handle) == 0L }
+        check(isWindow(one.handle) && h.loop.manager.openWindows == listOf(1, 2)) { "changing Resizable closed a window" }
+        h.batch(Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(true)))
+        h.until("the thick frame and the maximize box to come back") { resizeFrame(one.handle) == RESIZE_FRAME }
+
+        // The same for a window that opened fixed, and only for it.
+        h.batch(Mutation.SetProp(2, PropertyKind.WindowResizable, PropertyValue.Bool(true)))
+        check(!two.resizableRefused) { NO_RESIZABLE_CALL }
+        h.until("a window opened fixed to become resizable") { resizeFrame(two.handle) == RESIZE_FRAME }
+        check(resizeFrame(one.handle) == RESIZE_FRAME) { "changing one window's Resizable changed the other's frame" }
+    } finally {
+        h.close()
+    }
+}
+
 private fun lastWindowRemovedExitsTheLoop() {
     val h = Fr53Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
     try {
@@ -602,6 +634,19 @@ private fun postButton(handle: COpaquePointer, down: Boolean, x: Int, y: Int) {
     )
     check(posted != 0) { "the button message could not be posted to the window" }
 }
+
+/** The thick frame and the maximize box of a window's style, as the system has them now. */
+private fun resizeFrame(handle: COpaquePointer): Long =
+    platform.windows.GetWindowLongPtrW(handle.reinterpret(), GWL_STYLE) and RESIZE_FRAME
+
+private const val GWL_STYLE = -16
+
+/** WS_THICKFRAME or WS_MAXIMIZEBOX. */
+private const val RESIZE_FRAME = 0x00040000L or 0x00010000L
+
+private const val NO_RESIZABLE_CALL =
+    "the window layer linked into this renderer has no dxc_native_window_set_resizable, so Resizable " +
+        "cannot change on an open window; the Compose fork commit the build pins has to define it"
 
 private const val WM_LBUTTONDOWN = 0x0201u
 private const val WM_LBUTTONUP = 0x0202u

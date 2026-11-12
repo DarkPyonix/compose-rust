@@ -199,6 +199,25 @@ internal class WindowsPlatformWindow(
         setWindowMinSize(width.roundToInt(), height.roundToInt())
     }
 
+    /**
+     * True when the last change of Resizable did not reach the window, because the window
+     * layer linked into this renderer has no call for it. The window then keeps the frame it
+     * opened with.
+     */
+    var resizableRefused = false
+        private set
+
+    /**
+     * Whether the window has the frame a reader resizes it by and the maximize box. The style
+     * is the window layer's to change, which also keeps what it measures a frame with in step.
+     */
+    override fun setResizable(resizable: Boolean) {
+        if (closed) return
+        window.select()
+        resizableRefused = !setWindowResizable(resizable)
+        if (resizableRefused) reportUnsupportedOnce("Resizable")
+    }
+
     override fun setPosition(x: Float, y: Float) {
         if (closed) return
         window.select()
@@ -386,6 +405,17 @@ internal class WindowsPlatformWindow(
             null
         }
     }
+}
+
+private val reportedUnsupported = HashSet<String>()
+
+/** Says once for the process that a change to an open window has no call in the linked window layer. */
+private fun reportUnsupportedOnce(what: String) {
+    if (!reportedUnsupported.add(what)) return
+    java.lang.System.err.println(
+        "compose-rust: the window layer this renderer was built with cannot change $what on an open " +
+            "window. The window keeps what it opened with.",
+    )
 }
 
 /** True once the selected window has been destroyed. */
