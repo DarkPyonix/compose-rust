@@ -4155,6 +4155,50 @@ mod tests {
         }
     }
 
+    /// The keys menus, lists and overlays act on have their own name, appended after
+    /// `Other` so no earlier tag moves, and each one survives the wire.
+    #[test]
+    fn fr12_named_keys_are_appended_and_round_trip() {
+        let named = [
+            (Key::Enter, 1u16, 0x28u32, "Enter"),
+            (Key::Other, 2, 0x04, "a"),
+            (Key::Escape, 3, 0x29, "Escape"),
+            (Key::Tab, 4, 0x2B, "Tab"),
+            (Key::Backspace, 5, 0x2A, "Backspace"),
+            (Key::Delete, 6, 0x4C, "Delete"),
+            (Key::ArrowUp, 7, 0x52, "ArrowUp"),
+            (Key::ArrowDown, 8, 0x51, "ArrowDown"),
+            (Key::ArrowLeft, 9, 0x50, "ArrowLeft"),
+            (Key::ArrowRight, 10, 0x4F, "ArrowRight"),
+            (Key::Home, 11, 0x4A, "Home"),
+            (Key::End, 12, 0x4D, "End"),
+            (Key::PageUp, 13, 0x4B, "PageUp"),
+            (Key::PageDown, 14, 0x4E, "PageDown"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, code, text) in named {
+            assert_eq!(Key::try_from(tag), Ok(key), "tag {tag} names {text}");
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key: false,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag);
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
+        assert_eq!(Key::try_from(15), Err(()));
+    }
+
     /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the
     /// Renderer does not dismiss it. Its own `on_key_down` sees Escape by its DOM key
     /// string and HID usage, and consuming it is the call's result.
@@ -4210,7 +4254,11 @@ mod tests {
                     node_id,
                     handler_id,
                     payload: crate::EventPayload::KeyDown {
-                        key: Key::Other,
+                        key: if code == 0x29 {
+                            Key::Escape
+                        } else {
+                            Key::ArrowDown
+                        },
                         shift_key: false,
                         ctrl_key: false,
                         alt_key: false,

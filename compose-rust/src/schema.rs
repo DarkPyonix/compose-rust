@@ -595,6 +595,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     Enter = 1,
     // Any key the enum does not name. The event's `code` and `text` say which one.
     Other = 2,
+    // Keys a menu, a list or an overlay acts on. Appended only: a tag never moves, so an
+    // older Renderer that sends `Other` for these still decodes.
+    Escape = 3,
+    Tab = 4,
+    Backspace = 5,
+    Delete = 6,
+    ArrowUp = 7,
+    ArrowDown = 8,
+    ArrowLeft = 9,
+    ArrowRight = 10,
+    Home = 11,
+    End = 12,
+    PageUp = 13,
+    PageDown = 14,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {

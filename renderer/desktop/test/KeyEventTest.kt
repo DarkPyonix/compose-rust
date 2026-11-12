@@ -301,7 +301,7 @@ class KeyEventTest {
         val events = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
         assertEquals(pressed.map { it.second }, events.map { it.code to it.text })
         assertTrue(events.all { !it.repeat })
-        assertEquals(ProtocolKey.Other, events.first().key)
+        assertEquals(ProtocolKey.ArrowDown, events.first().key)
         assertEquals("A", keyName(Key.A, shift = true).text)
     }
 
@@ -450,6 +450,29 @@ class KeyEventTest {
 
         val keys = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
         assertEquals(listOf(Triple(drawer, drawerKeys, 0x29 to "Escape")), keys.map { Triple(it.nodeId, it.handlerId, it.code to it.text) })
+        assertEquals(ProtocolKey.Escape, keys.single().key)
         onNodeWithTag(nodeTestTag(opener)).assertIsFocused()
+    }
+
+    /** Escape, Tab, the arrows and the other keys menus and lists act on have their own name. */
+    @Test
+    fun fr12_named_keys_map_to_their_protocol_key() {
+        val named = listOf(
+            Key.Escape to ProtocolKey.Escape,
+            Key.Tab to ProtocolKey.Tab,
+            Key.Backspace to ProtocolKey.Backspace,
+            Key.Delete to ProtocolKey.Delete,
+            Key.DirectionUp to ProtocolKey.ArrowUp,
+            Key.DirectionDown to ProtocolKey.ArrowDown,
+            Key.DirectionLeft to ProtocolKey.ArrowLeft,
+            Key.DirectionRight to ProtocolKey.ArrowRight,
+            Key.MoveHome to ProtocolKey.Home,
+            Key.MoveEnd to ProtocolKey.End,
+            Key.PageUp to ProtocolKey.PageUp,
+            Key.PageDown to ProtocolKey.PageDown,
+        )
+        for ((key, expected) in named) assertEquals(expected, protocolKey(key), "$key")
+        assertEquals(ProtocolKey.Enter, protocolKey(Key.NumPadEnter))
+        assertEquals(ProtocolKey.Other, protocolKey(Key.F5))
     }
 }
