@@ -93,7 +93,7 @@ else
     grep -qF 'process.exit(1)' "$script" ||
         fail "$script never exits with a failure"
     grep -qF 'function fr22_web_every_sample_draws_without_a_page_error' "$script" ||
-        fail "$script lost the function the SPEC's criterion names"
+        fail "$script lost fr22_web_every_sample_draws_without_a_page_error, the check that every page draws"
 fi
 
 if [[ "$failures" -eq 0 ]]; then
