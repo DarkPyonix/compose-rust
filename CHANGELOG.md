@@ -4,7 +4,7 @@
 
 ### Copying text to the clipboard from application code
 
-`compose_rust::clipboard::set_text(&str)` puts plain text on the platform clipboard through Compose's clipboard, for a "Copy link" button whose text the application already holds. It is one new `SetClipboardText` command (tag 28) with no answering event. Text over 64 KiB is refused with `Err` and nothing is sent, and where there is no clipboard the write does nothing. The Renderer never logs the text. Do not copy passwords or tokens this way: other applications can read the clipboard ([#471](https://github.com/DarkPyonix/compose-rust/issues/471)).
+`compose_rust::clipboard::set_text(&str)` puts plain text on the platform clipboard through Compose's clipboard, for a "Copy link" button whose text the application already holds. It is one new `SetClipboardText` command (tag 29) with no answering event. Text over 64 KiB is refused with `Err` and nothing is sent, and where there is no clipboard the write does nothing. The Renderer never logs the text. Do not copy passwords or tokens this way: other applications can read the clipboard ([#471](https://github.com/DarkPyonix/compose-rust/issues/471)).
 
 ## v0.0.7
 

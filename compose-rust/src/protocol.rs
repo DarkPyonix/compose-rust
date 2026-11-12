@@ -46,8 +46,9 @@ const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
-// 28 puts plain text on the platform clipboard. Nothing answers it.
-const TAG_SET_CLIPBOARD_TEXT: u16 = 28;
+// 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
+// code editor's grouped edit.
+const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.

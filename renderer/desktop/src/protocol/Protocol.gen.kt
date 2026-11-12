@@ -1391,7 +1391,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
-    private const val TAG_SET_CLIPBOARD_TEXT = 28
+    private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24

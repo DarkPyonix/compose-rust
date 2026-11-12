@@ -84,7 +84,7 @@ impl Session {
     }
 }
 
-/// The record is tag 28, a 4-byte header and one string reference, and it decodes to the
+/// The record is tag 29, a 4-byte header and one string reference, and it decodes to the
 /// text it was given. The Kotlin side reads the same record from the checked-in vector.
 #[test]
 fn fr73_set_clipboard_text_round_trips() {
@@ -97,7 +97,7 @@ fn fr73_set_clipboard_text_round_trips() {
     let bytes = encoder.finish().unwrap().to_vec();
 
     // The envelope is 12 bytes, then the record's tag and length.
-    assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]), 28, "tag 28");
+    assert_eq!(u16::from_le_bytes([bytes[12], bytes[13]]), 29, "tag 29");
     assert_eq!(
         u16::from_le_bytes([bytes[14], bytes[15]]),
         12,
