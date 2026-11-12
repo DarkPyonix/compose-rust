@@ -23,7 +23,7 @@ class ClipboardWriter {
     var sink: ClipboardSink? = null
 
     /** Where a failed write is reported. Tests replace it to read what was said. */
-    var log: (String) -> Unit = { line -> println(line) }
+    var log: (String) -> Unit = { line -> System.err.println(line) }
 
     fun write(text: String) {
         val target = sink ?: return
@@ -101,7 +101,7 @@ class ClipboardReader {
     var launcher: ((suspend () -> Unit) -> Unit)? = null
 
     /** Where a failed read is reported. Tests replace it to read what was said. */
-    var log: (String) -> Unit = { line -> println(line) }
+    var log: (String) -> Unit = { line -> System.err.println(line) }
 
     /** How a request or a finished read asks for the frame that answers it. */
     var wake: () -> Unit = {}
