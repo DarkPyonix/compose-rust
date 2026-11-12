@@ -47,8 +47,11 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # `Density.fontScale`, and the Windows window's file drop through IDropTarget (fork #157), which
 # the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
 # are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
-# compiles beside the window.
-WINDOW_REVISION="f9760f9755c8a0cee6964ed79a0ac78bca7f1a40"
+# compiles beside the window. It also holds the macOS right click's single system edit menu and
+# the GraalVM window's dropping of Control characters (fork #158), and the Kotlin/Native macOS
+# window's `setApplicationIcon`, live appearance watch and explicit text clipboard (fork #159),
+# all Kotlin in the window modules, so nothing new is compiled or published here.
+WINDOW_REVISION="5b91c514783cdea9c5e75216ab28b68a79f47c6f"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
