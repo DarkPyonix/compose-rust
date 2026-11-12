@@ -505,6 +505,12 @@ sealed interface Mutation {
 
     /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
+
+    /**
+     * Scrolls a code editor so that [offsetPx] physical pixels of its document are above
+     * the top of its view. The same unit the `CodeScrolled` event reports.
+     */
+    data class SetScrollOffset(val nodeId: Int, val offsetPx: Double) : Mutation
 }
 
 "#,
@@ -644,6 +650,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_SET_SCROLL_OFFSET = 30
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -969,6 +976,13 @@ object Protocol {
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU32(batch, base, available, offset + 8).toInt(),
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
+                    TAG_SET_SCROLL_OFFSET -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetScrollOffset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            kotlin.Double.fromBits(readU64(batch, base, available, offset + 8)),
                         )
                     }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
@@ -3127,6 +3141,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             name: "보고서.txt",
             filters: "이미지\0png,jpg\0문서\0pdf,txt",
         },
+        // The code editor's scroll command, after everything that was here before it. The
+        // offset has a fraction so that a reader of the wrong width cannot pass.
+        Mutation::SetScrollOffset {
+            node_id: 12,
+            offset_px: 1234.5,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3435,6 +3455,18 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 paths: "/Users/한글/문서.txt\0/tmp/a b.png",
             },
         },
+        HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeMetrics {
+                line_height_px: 40.0,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 29,
+            payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3454,7 +3486,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 104,
+    "recordCount": 105,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -3476,7 +3508,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-four independently decodable event records concatenated in schema order",
+    "description": "Thirty-six independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3511,7 +3543,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 }},
       {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
       {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
-      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
+      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
+      {{ "type": "CodeMetrics", "offset": 1042, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1066, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
     ]
   }}
 }}
@@ -3860,11 +3894,11 @@ object SpanRecords {
 /// that record's problem rather than the batch's.
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
-        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
-        SYNTAX_SPAN_RECORD,
+        CODE_EDITOR_COLORS_RECORD, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
+        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD,
     };
 
-    let records: [(RecordSchema, &str, &str); 4] = [
+    let records: [(RecordSchema, &str, &str); 5] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -3892,6 +3926,11 @@ fn write_code_editor_records(output: &mut String) {
             "One mark beside a line number of a code editor. The line is in the document at \
              `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. \
              `id` is the application's own name for it, zero where it cannot be pressed.",
+        ),
+        (
+            CODE_EDITOR_COLORS_RECORD,
+            "decodeCodeEditorColors",
+            "The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour.",
         ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
@@ -3937,6 +3976,7 @@ object CodeEditorRecords {
             "DecorationRecord" => "DECORATION_LENGTH",
             "FoldRecord" => "FOLD_LENGTH",
             "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
+            "CodeEditorColorsRecord" => "CODE_EDITOR_COLORS_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -4115,6 +4155,7 @@ object CodeEditorRecords {
         SYNTAX_SPAN_RECORD,
         FOLD_RECORD,
         GUTTER_DECORATION_RECORD,
+        CODE_EDITOR_COLORS_RECORD,
     ]
     .iter()
     .flat_map(|schema| schema.fields.iter())
