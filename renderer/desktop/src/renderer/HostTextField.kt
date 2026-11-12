@@ -102,6 +102,9 @@ internal fun HostTextField(
     val overlayFocusStack = LocalOverlayFocusStack.current
 
     val multiline = node.flag(PropertyKind.Multiline, default = false)
+    // A bare field draws none of the design system's frame. It sits inside a box that
+    // already drew one, and a second frame inside the first reads as a field in a field.
+    val bare = node.flag(PropertyKind.Bare, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val changeHandler = node.handler(PropertyKind.OnValueChange)
     val submitHandler = node.handler(PropertyKind.OnSubmit)
@@ -345,15 +348,31 @@ internal fun HostTextField(
                     // could only put the caret in by hitting the words.
                     .fillMaxWidth()
                     .let { if (fillsHeight) it.fillMaxHeight() else it }
-                    .let { if (setsOwnHeight) it else it.defaultMinSize(minHeight = frame.minHeight) }
-                    .clip(frameShape)
                     .let {
-                        if (ownFill) it else it.background(if (focused) frame.containerFocused else frame.container)
+                        if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    .let { if (ownLine) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
-                    .let { if (ownLine || ownFill) it else it.fieldUnderline(frame.underline, focused) }
-                    .padding(node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)),
-                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
+                    // A bare field clips only to a corner the node named itself.
+                    .let { if (bare && !ownShape) it else it.clip(frameShape) }
+                    .let {
+                        if (ownFill || bare) {
+                            it
+                        } else {
+                            it.background(if (focused) frame.containerFocused else frame.container)
+                        }
+                    }
+                    .let { if (ownLine || bare) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
+                    .let { if (ownLine || ownFill || bare) it else it.fieldUnderline(frame.underline, focused) }
+                    .padding(
+                        if (bare) {
+                            node.contentPadding(theme, 0.dp, 0.dp)
+                        } else {
+                            node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)
+                        },
+                    ),
+                // A bare field is as tall as its text, so the placeholder and the text share
+                // the first line's baseline from the top edge rather than being centred in
+                // a minimum height the field no longer has.
+                contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     ThemedText(

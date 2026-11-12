@@ -973,6 +973,7 @@ pub struct TextFieldScope {
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
     focus_handle: Option<super::FocusHandle>,
+    bare: bool,
     done: bool,
 }
 
@@ -1001,6 +1002,7 @@ pub fn TextField() -> TextFieldScope {
         on_key_up: None,
         on_composition_change: None,
         focus_handle: None,
+        bare: false,
         done: false,
     }
 }
@@ -1117,11 +1119,22 @@ impl TextFieldScope {
         self
     }
 
+    /// Draws the field without the design system's frame: no fill, line, underline,
+    /// corner clip, inner padding, minimum height or focus line. Text, placeholder, caret,
+    /// selection and input methods stay as they are. For a field that sits inside a box
+    /// which already draws its own frame, so the frame is not drawn twice. A `background`
+    /// or `border` given on the node is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let bare = self.bare;
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1184,6 +1197,10 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
+                // Written only for a bare field, so a framed one sends what it always did.
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
+                }
             },
             listeners,
             content,
@@ -2101,6 +2118,7 @@ pub struct DropdownScope {
     selected_index: usize,
     enabled: bool,
     closed: bool,
+    bare: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
     done: bool,
 }
@@ -2112,6 +2130,7 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         selected_index,
         enabled: true,
         closed: false,
+        bare: false,
         on_change: None,
         done: false,
     }
@@ -2141,9 +2160,19 @@ impl DropdownScope {
         self
     }
 
+    /// Draws the closed field without the design system's frame: no fill, line, corner
+    /// clip, inner padding, minimum height or focus line. For a select that sits inside a
+    /// box which already draws its own frame. A `background` or `border` given on the node
+    /// is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
+        let bare = self.bare;
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler((value as i64).max(0) as usize)
@@ -2159,6 +2188,9 @@ impl DropdownScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 if closed {
                     attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
                 }
             },
             vec![("onchange", handler)],
