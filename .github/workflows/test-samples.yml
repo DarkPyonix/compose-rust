@@ -743,6 +743,61 @@ jobs:
             ~/.m2/repository
           key: ${{ steps.cache-4.outputs.cache-primary-key }}
 
+  # A page that builds is not a page that draws. A sample that panics at startup in the
+  # browser builds, packs and uploads like any other, and its page keeps the loading
+  # spinner forever; notepad and todo shipped that way. This opens every sample's page from
+  # the archive above in Chromium and fails on a page error or a page that never draws.
+  # It is a job of its own so the release, which ships what built, is not held by it.
+  web-pages:
+    needs: [requested, web]
+    name: Check every sample page draws (web)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Pinned so a new Playwright or Chromium cannot change the verdict between two runs
+      # of the same pages.
+      PLAYWRIGHT_VERSION: 1.56.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: samples-web
+          path: artifacts
+
+      - name: Unpack the pages
+        run: |
+          set -euo pipefail
+          (cd artifacts && sha256sum -c SHA256SUMS-web)
+          mkdir -p pages
+          tar -xzf artifacts/samples-web.tar.gz -C pages
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the pinned Playwright and its Chromium
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/playwright" --no-save --no-audit --no-fund \
+            "playwright@$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/playwright/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Open every sample's page and check it draws its first screen
+        run: |
+          set -euo pipefail
+          # Every application under samples/, the same rule build-sample-pages.sh builds
+          # by, so a sample whose page did not build is a failure here rather than a page
+          # nobody opens.
+          samples=()
+          for main in samples/*/src/main.rs; do
+            samples+=("$(basename "$(dirname "$(dirname "$main")")")")
+          done
+          PLAYWRIGHT_DIR="$RUNNER_TEMP/playwright" \
+            node .github/scripts/check-sample-pages.mjs pages "${samples[@]}"
+
   release:
     name: Attach the samples to the GitHub release
     needs: [build, android, ios, web]
