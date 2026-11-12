@@ -48,7 +48,7 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
 # are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
 # compiles beside the window.
-WINDOW_REVISION="fa4781bafd8cc29f05f530ac52499dc2a2cea7ac"
+WINDOW_REVISION="f9760f9755c8a0cee6964ed79a0ac78bca7f1a40"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
