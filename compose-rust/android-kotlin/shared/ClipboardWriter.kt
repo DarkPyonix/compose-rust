@@ -132,6 +132,17 @@ class ClipboardReader {
         drain()
     }
 
+    /**
+     * The composition whose scope ran the reads is gone. A read it had not started, or not
+     * finished, never will be, so each is answered now as no text, once. Later reads answer
+     * none too until a composition installs a launcher again.
+     */
+    fun detach() {
+        launcher = null
+        source = null
+        for (request in running.toList()) finish(request, null)
+    }
+
     /** The process is ending. Nothing is answered any more. */
     fun shutdown() {
         dispatcher = null

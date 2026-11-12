@@ -434,6 +434,7 @@ private fun ComposeRustTree(
     val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
     val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
     if (windowNodeId == 0) {
+        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
         SideEffect {
             host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
                 @Suppress("DEPRECATION")

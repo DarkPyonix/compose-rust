@@ -318,4 +318,27 @@ class ClipboardTest {
         host.renderFrame(0)
         assertEquals(listOf(HostEvent.ClipboardText(0, 0, 14, ClipboardReadStatus.NONE, 0, "")), connection.reads())
     }
+
+    @Test
+    fun fr78_a_read_whose_composition_leaves_before_it_starts_answers_none_once() {
+        val (host, connection) = host()
+        // A launcher whose scope is already cancelled: the read is handed over and never runs.
+        host.table.clipboardReads.launcher = { _ -> }
+        host.table.clipboardReads.source = FakeReadableClipboard("안 읽힘")
+
+        host.table.apply(Mutation.ReadClipboard(15))
+        host.renderFrame(0)
+        assertTrue(connection.reads().isEmpty())
+
+        host.table.clipboardReads.detach()
+        host.renderFrame(0)
+        host.table.clipboardReads.detach()
+        host.renderFrame(0)
+        assertEquals(listOf(HostEvent.ClipboardText(0, 0, 15, ClipboardReadStatus.NONE, 0, "")), connection.reads())
+
+        // After it, a read answers none at once rather than waiting for a scope that is gone.
+        host.table.apply(Mutation.ReadClipboard(16))
+        host.renderFrame(0)
+        assertEquals(listOf(15, 16), connection.reads().map { it.request })
+    }
 }
