@@ -3547,6 +3547,13 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 지원하지 않는 렌더러라는 경우는 **없습니다**. Android, 데스크톱 JVM과 GraalVM, 데스크톱 Kotlin/Native, iOS, 웹의 렌더러가 모두 구현합니다. 모양은 공통 Kotlin 코드(`ContinuousCornerShape`가 있는 파일)에 한 벌만 두고 렌더러마다 따로 쓰지 않습니다. 구현하지 않은 렌더러는 스키마 해시가 같아도 이 수정자를 받으면 `ProtocolError`가 아니라 빌드가 깨지도록 인터프리터의 수정자 분기에 빠짐 없이 넣습니다.
 
+구현에서 정한 것([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)):
+
+- 번호는 수정자 태그 **35**입니다. 30에서 34까지는 다른 항목이 먼저 가졌습니다(31 `MatchParentSize`, 32 `WindowDrag`, 33 `PressFeedback`, 34 `Semantics`).
+- 모양은 모든 렌더러가 함께 쓰는 공통 Kotlin 파일(`CornerCurveShape.kt`) 한 곳에만 둡니다. `ContinuousCornerShape`가 있는 파일은 Compose 포크에서 한쪽으로 복사해 오는 파일이라 이 저장소에서 고치지 않습니다.
+- 50.3의 원호는 세제곱 베지어 하나로 그립니다(반지름의 0.03% 안). 그래서 모서리 하나는 세제곱 베지어 셋입니다.
+- 디자인 시스템의 기본 모서리는 옵트인입니다. `CornerCurve`를 가진 노드만 자기 모양이 없을 때 디자인 시스템의 기본 모서리를 곡선으로 그립니다. `CornerCurve`가 없는 노드는 지금과 같습니다.
+
 #### 50.5 수용 기준
 
 1. 인코딩 후 디코딩한 `CornerCurve { smoothing }`이 같고, 프로토콜 벡터가 Rust와 Kotlin에서 같은 바이트입니다(fr50_corner_curve_round_trips).
