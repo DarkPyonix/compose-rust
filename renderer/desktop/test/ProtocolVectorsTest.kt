@@ -30,6 +30,9 @@ import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.BatchBytes
+import dev.darkpyonix.composerust.protocol.IoStatus
+import dev.darkpyonix.composerust.protocol.StorageOp
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -122,6 +125,8 @@ class ProtocolVectorsTest {
                 // The clipboard is the platform's, not a node's.
                 is Mutation.SetClipboardText -> false
                 is Mutation.ReadClipboard -> false
+                // Storage is the application's, not a node's.
+                is Mutation.StorageCall -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -251,6 +256,76 @@ class ProtocolVectorsTest {
         )
         assertEquals(51, length)
         assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
+    }
+
+    /**
+     * The storage request and both events, read from and encoded to the bytes the Host
+     * wrote: a request, an operation and three references; two words and a reference to the
+     * bytes; and one string reference.
+     */
+    @Test
+    fun fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
+        val value = "1\t0\t할 일\u0000".encodeToByteArray()
+        assertEquals(
+            listOf(
+                Mutation.StorageCall(
+                    request = 11,
+                    op = StorageOp.Write,
+                    store = "dev.darkpyonix.composerust.samples.todo",
+                    key = "tasks.tsv",
+                    data = BatchBytes.of(value),
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.StorageCall>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(256)
+        val answer = HostEvent.IoAnswer(
+            nodeId = 0,
+            handlerId = 0,
+            request = 11,
+            status = IoStatus.Ok,
+            data = byteArrayOf(0xea.toByte(), 0xb0.toByte(), 0x92.toByte(), 0, 0xff.toByte()),
+        )
+        val answerLength = Protocol.encodeEvent(answer, out)
+        assertEquals(37, answerLength)
+        assertEquals(bytes.copyOfRange(1093, 1093 + 37).toList(), out.array().copyOf(answerLength).toList())
+        assertTrue("length=5" in answer.toString(), "the answer prints its length, not its bytes")
+
+        out.clear()
+        val locationLength = Protocol.encodeEvent(
+            HostEvent.StorageLocation(
+                nodeId = 0,
+                handlerId = 0,
+                text = "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
+            ),
+            out,
+        )
+        assertEquals(82, locationLength)
+        assertEquals(bytes.copyOfRange(1130, 1130 + 82).toList(), out.array().copyOf(locationLength).toList())
+
+        // An operation this side does not know is a record the two sides disagree on, which
+        // the decoder refuses instead of guessing.
+        val batch = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        var offset = 12
+        var patched = false
+        while (offset < recordsLength) {
+            val tag = view.getShort(offset).toInt()
+            val length = view.getShort(offset + 2).toInt()
+            if (tag == 32) {
+                view.putShort(offset + 8, 9.toShort())
+                patched = true
+            }
+            offset += length
+        }
+        assertTrue(patched, "the vector holds a storage request")
+        val failure = runCatching {
+            Protocol.decode(ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)) { }
+        }.exceptionOrNull()
+        assertTrue(failure is ProtocolException, "an unknown operation is a protocol error, got $failure")
     }
 
     /**

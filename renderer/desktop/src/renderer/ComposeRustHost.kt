@@ -147,6 +147,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.attach(this)
         table.fileDialogs.attach(this)
         table.clipboardReads.attach(this)
+        table.storage.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -182,6 +183,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.drain()
         table.fileDialogs.drain()
         table.clipboardReads.drain()
+        table.storage.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -197,6 +199,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         table.notifications.shutdown()
         table.fileDialogs.shutdown()
         table.clipboardReads.shutdown()
+        table.storage.shutdown()
         connection.shutdown()
     }
 
@@ -424,6 +427,8 @@ private fun ComposeRustTree(
     SideEffect { host.table.fileDialogs.wake = frames::request }
     // A clipboard read is answered at the top of the frame it asks for.
     SideEffect { host.table.clipboardReads.wake = frames::request }
+    // A storage answer from the browser is delivered at the top of the frame it asks for.
+    SideEffect { host.table.storage.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares it, so the root window's is enough.
     @Suppress("DEPRECATION")

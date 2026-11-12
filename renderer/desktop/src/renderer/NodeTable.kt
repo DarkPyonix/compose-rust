@@ -99,6 +99,8 @@ data class TableError(val code: Int, val message: String) {
         const val DUPLICATE_FILE_DIALOG = 15
         /** A modifier whose value could not be honoured. The modifier is dropped. */
         const val INVALID_MODIFIER = 16
+        /** An input or output request whose number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_IO_REQUEST = 17
     }
 }
 
@@ -201,6 +203,14 @@ class NodeTable {
      */
     val clipboardReads: dev.darkpyonix.composerust.ui.platform.ClipboardReader =
         dev.darkpyonix.composerust.ui.platform.ClipboardReader()
+
+    /**
+     * The storage operations the Host asked this side to carry out, each answered once.
+     * Not cleared with the tree: a request the Host waits on is owed its answer after a
+     * resync too.
+     */
+    val storage: dev.darkpyonix.composerust.ui.platform.StorageCenter =
+        dev.darkpyonix.composerust.ui.platform.StorageCenter()
 
     private var revision = 0L
 
@@ -397,6 +407,10 @@ class NodeTable {
             // A read is answered later, outside the batch, by one event with its number.
             is Mutation.ReadClipboard -> clipboardReads.request(mutation.request)
 
+            // Started now, while the value to write can still be read where the Host put it,
+            // and answered later, outside the batch, by one event with its number.
+            is Mutation.StorageCall -> storageCall(mutation)
+
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
@@ -471,6 +485,16 @@ class NodeTable {
             dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.UnknownWindow -> fail(
                 TableError.UNKNOWN_NODE,
                 "ShowFileDialog for unknown window ${mutation.window}",
+            )
+        }
+    }
+
+    private fun storageCall(mutation: Mutation.StorageCall) {
+        when (storage.request(mutation)) {
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Accepted -> Unit
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Duplicate -> fail(
+                TableError.DUPLICATE_IO_REQUEST,
+                "StorageCall request ${mutation.request} is already waiting for its answer",
             )
         }
     }
