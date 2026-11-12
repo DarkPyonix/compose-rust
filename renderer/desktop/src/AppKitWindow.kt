@@ -4,6 +4,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.foundation.background
+import org.thisisthepy.compose.window.graalvm.windows.Win32Frames
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource

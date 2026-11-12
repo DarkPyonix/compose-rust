@@ -155,6 +155,8 @@ internal class Win32Window private constructor(
     )
 
     private var nanos = 0L
+    /** This window's own clock, for a window on its own; one of several reads [frameNanos]. */
+    private val ownTime = WindowFrameTime()
     private var drawing = false
     private var painted = false
     private var drew = false
@@ -299,7 +301,7 @@ internal class Win32Window private constructor(
             // place that runs at all.
             work.runPending()
             val shared = frameNanos
-            if (shared != null) nanos = shared() else nanos += FRAME_NANOS
+            nanos = if (shared != null) shared() else ownTime.next()
             ResizeMetrics.frameBegin()
             // While the window is changing size the C side asks for the frame in CPU
             // pixels, which it copies into the window before the resize returns.
@@ -501,4 +503,3 @@ private const val DEFAULT_OPEN_HEIGHT = 360
 private const val SWAPCHAIN_FORMAT = 87
 
 private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L

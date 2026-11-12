@@ -33,7 +33,7 @@ tree="$work/tree"
 fork="$work/fork"
 window="$fork/extended/window"
 mkdir -p "$tree/renderer/scripts" "$tree/scripts" "$window/common" "$window/graalvm/graalvm-macos" \
-    "$window/graalvm/graalvm-linux" "$window/native/macos" "$window/scene"
+    "$window/graalvm/graalvm-linux" "$window/graalvm/graalvm-windows" "$window/native/macos" "$window/scene"
 cp "$repo/renderer/scripts/publish-window.sh" "$tree/renderer/scripts/"
 printf '#!/usr/bin/env bash\necho "%s"\n' "$fork" > "$tree/scripts/fetch-fork-window.sh"
 chmod +x "$tree/scripts/fetch-fork-window.sh"
