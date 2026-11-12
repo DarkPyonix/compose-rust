@@ -315,6 +315,9 @@ fn fr12_key_consumption_is_returned_and_does_not_leak() {
                 ctrl_key: false,
                 alt_key: false,
                 meta_key: false,
+                repeat: false,
+                code: 0x28,
+                text: "Enter",
             },
         });
         // SAFETY: The encoded event and output storage remain live for the call.

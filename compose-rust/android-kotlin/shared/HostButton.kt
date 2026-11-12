@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -21,10 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -42,10 +49,14 @@ import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.design.compositeOver
 import dev.darkpyonix.composerust.design.ensureContrast
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.Children
+import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.pressFeedback
 import dev.darkpyonix.composerust.ui.groupAlpha
 import dev.darkpyonix.composerust.ui.intProp
@@ -66,6 +77,7 @@ import dev.darkpyonix.composerust.ui.variant
 internal fun HostButton(
     node: Node,
     modifier: Modifier,
+    table: NodeTable,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
@@ -118,22 +130,50 @@ internal fun HostButton(
     // label instead of staying opaque behind it. The label is the exception: it is drawn
     // again outside the fade, in a colour that keeps its contrast with the faded fill.
     val available = if (enabled) Modifier else Modifier.groupAlpha { style.disabledAlpha }
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(node.id) { FocusRequester() }
+    val ownShape = node.modifiers.any {
+        it is ProtocolModifier.Shape ||
+            it is ProtocolModifier.ShapeRole ||
+            it is ProtocolModifier.CornerEach
+    }
+    val shape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape
+    val hasExplicitSize = node.modifiers.any {
+        it is ProtocolModifier.Size ||
+            it is ProtocolModifier.Width ||
+            it is ProtocolModifier.Height ||
+            it is ProtocolModifier.RequiredSize
+    }
+    val setsOwnHeight = node.modifiers.any {
+        it is ProtocolModifier.Size ||
+            it is ProtocolModifier.Height ||
+            it is ProtocolModifier.RequiredSize
+    }
+    // Read before the decoration, because how much room the button needs depends on it.
+    val wordless = node.text(PropertyKind.Text).isEmpty() &&
+        node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
+    val labelPadH = if (wordless && hasExplicitSize) 0.dp else if (wordless) style.verticalPadding else style.horizontalPadding
+    val labelPadV = if (wordless && hasExplicitSize) 0.dp else style.verticalPadding
+
     val clickable = if (handlerId == null) {
         available.then(modifier)
     } else {
         // The Host result is not used here: a click that reached a Button is never offered
         // to anything below it. Indication is null because the design system owns the
         // feedback, and a ripple is only one system's answer.
-        available.then(modifier).pressFeedback(
-            interactions, enabled, theme, style.shape,
-            node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
-            node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
-        ).clickable(
-            interactionSource = interactions,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-        ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
+        available.then(modifier)
+            .focusRequester(focusRequester)
+            .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
+            .pressFeedback(
+                interactions, enabled, theme, shape,
+                node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: style.content,
+                node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.PressFeedback } as? dev.darkpyonix.composerust.protocol.Modifier.PressFeedback,
+            ).clickable(
+                interactionSource = interactions,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+            ) { dispatcher.dispatch(HostEvent.Clicked(node.id, handlerId)) }
     }
 
     // A Host that named its own Background has already had it applied to this node's
@@ -145,30 +185,29 @@ internal fun HostButton(
     // pill, and asking for a variant instead hands the question to whichever design
     // system is active, which answers with its own accent.
     val ownFill = node.setsOwnBackground()
-    // Read before the decoration, because how much room the button needs depends on it.
-    val wordless = node.text(PropertyKind.Text).isEmpty() &&
-        node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
     val decorated = theme.rules
-        .elevation(clickable, elevation, style.shape, theme)
-        .clip(style.shape)
-        .then(if (ownFill) Modifier else Modifier.background(container, style.shape))
+        .elevation(clickable, elevation, shape, theme)
+        .clip(shape)
+        .then(if (ownFill) Modifier else Modifier.background(container, shape))
         .then(
             if (style.borderWidth.value > 0f) {
-                Modifier.border(style.borderWidth, borderColor, style.shape)
+                Modifier.border(style.borderWidth, borderColor, shape)
             } else {
                 Modifier
             },
         )
         .topHighlight(style.topHighlight)
-        .defaultMinSize(minHeight = style.minHeight)
+        .let {
+            if (setsOwnHeight || (wordless && hasExplicitSize)) it else it.defaultMinSize(minHeight = style.minHeight)
+        }
         // A button with a glyph and no word gets the same room on both axes. The
         // horizontal padding is there to keep a word off the button's ends, and a button
         // with no word has nothing to keep off them: using it anyway makes every icon
         // control half as wide again as it needs to be, which two of them in a floating
         // group and one at the head of a composer both showed.
         .labelPadding(
-            horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
-            vertical = style.verticalPadding,
+            horizontal = labelPadH,
+            vertical = labelPadV,
             alignStart = alignStart,
         )
 
@@ -202,13 +241,28 @@ internal fun HostButton(
     // the glyph means, so it is what the name is made of, and assistive technology never
     // meets an unnamed control.
     val named = decorated
-        .let { if (icon != null && text.isEmpty()) it.semantics { contentDescription = icon.name } else it }
+        .let {
+            // The Host's own name for the button is read instead of the icon's meaning.
+            if (icon != null && text.isEmpty() && node.text(PropertyKind.AccessibleName).isEmpty()) {
+                it.semantics { contentDescription = icon.name }
+            } else {
+                it
+            }
+        }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
     fun ButtonLabel() {
-        if (icon == null) {
+        if (node.children.isNotEmpty()) {
+            // Children replace the label. They are laid out as a Row centred vertically, so
+            // a weighted Spacer pushes whatever follows it to the button's inner edge.
+            CompositionLocalProvider(LocalInheritedTextColor provides ColorProducer { tint }) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Children(node, table, dispatcher)
+                }
+            }
+        } else if (icon == null) {
             ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
         } else {
             Row(
@@ -222,7 +276,10 @@ internal fun HostButton(
     }
 
     val alignment = if (alignStart) Alignment.CenterStart else Alignment.Center
-    if (enabled) {
+    // A button with children is faded as one group, children included: its content is the
+    // Host's to colour, so there is no label tint to keep readable, and composing the
+    // children twice would draw and expose each of them twice.
+    if (enabled || node.children.isNotEmpty()) {
         Box(named, contentAlignment = alignment) { ButtonLabel() }
     } else {
         Box {
@@ -233,8 +290,8 @@ internal fun HostButton(
             }
             Box(
                 Modifier.matchParentSize().labelPadding(
-                    horizontal = if (wordless) style.verticalPadding else style.horizontalPadding,
-                    vertical = style.verticalPadding,
+                    horizontal = labelPadH,
+                    vertical = labelPadV,
                     alignStart = alignStart,
                 ),
                 contentAlignment = alignment,

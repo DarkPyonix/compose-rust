@@ -63,6 +63,7 @@ on:
       - scripts/parity/**
       - .github/workflows/test-native-renderer.yml
       - .github/workflows/static-renderer.yml
+      - .github/workflows/windows-static.yml
       - .github/workflows/fork-desktop-modules.yml
   # Pushes to main as well: the release branch is rebuilt from develop, so its head is a
   # different commit from any that was checked as a pull request. The release workflow
@@ -115,6 +116,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       renderer: ${{ steps.check.outputs.renderer }}
+      macos: ${{ steps.macos.outputs.macos }}
+      executables: ${{ steps.macos.outputs.executables }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -145,6 +148,35 @@ jobs:
             echo "nothing under the renderer changed"
             echo "renderer=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - id: macos
+        # The macOS runners are the scarce ones, so a pull request that only touches another
+        # platform's own files leaves the macOS jobs out (native-needs-macos.sh). Anything
+        # but an explicit macos=false keeps them: tags, main, the nightly run, manual runs,
+        # an error, an empty list or any other path. A job-level condition cannot read a
+        # matrix, so the single-executable matrix is built here.
+        if: always()
+        run: |
+          macos=true
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            decision="$(git -c core.quotepath=off diff --no-renames --name-only HEAD^1 HEAD |
+              ./.github/scripts/native-needs-macos.sh)" || decision="macos=true"
+            [[ "$decision" == "macos=false" ]] && macos=false
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # Windows is left out of a tag's run for now: the tag's windows-x64 artifact is still the
+            # GraalVM one (the `windows` job names it the same way), and windows-static does not
+            # upload its own on a tag until the release takes the static kit instead.
+            all='{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"}]}'
+          else
+            all='{"include":[{"target":"macos-aarch64","runs-on":"macos-latest"},{"target":"linux-x64","runs-on":"ubuntu-24.04"},{"target":"linux-arm64","runs-on":"ubuntu-24.04-arm"},{"target":"windows-x64","runs-on":"windows-latest"}]}'
+          fi
+          if [[ "$macos" == "false" ]]; then
+            all="$(jq -c '.include |= map(select(.["runs-on"] != "macos-latest"))' <<< "$all")"
+          fi
+          echo "macos=$macos" >> "$GITHUB_OUTPUT"
+          echo "executables=$all" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
 
   # Runs on every push to develop and main, and nightly. Nobody here owns a Windows
   # machine, so this job *is* the Windows verification: if it goes red, Windows is
@@ -280,7 +312,7 @@ jobs:
   # x86-64 there, because Kotlin/Native has no arm64 Linux host.
   macos-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false'
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: macos-aarch64
@@ -309,21 +341,14 @@ jobs:
   single-executable:
     # Each platform's check needs only its own artifact, so one platform failing to build
     # does not hide whether the others are one executable.
-    needs: [changed, macos-static, linux-static, linux-arm64-static]
+    needs: [changed, macos-static, linux-static, linux-arm64-static, windows-static]
     if: ${{ !cancelled() && needs.changed.outputs.renderer == 'true' }}
     name: One executable on ${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: macos-aarch64
-            runs-on: macos-latest
-          - target: linux-x64
-            runs-on: ubuntu-24.04
-          - target: linux-arm64
-            runs-on: ubuntu-24.04-arm
+      matrix: ${{ fromJSON(needs.changed.outputs.executables) }}
     env:
       # Mesa draws with the processor; a hosted runner has no card.
       LIBGL_ALWAYS_SOFTWARE: '1'
@@ -332,6 +357,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install the Rust toolchain
+        shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
 
       - name: Install the libraries an application links on Linux, and a virtual display
@@ -359,8 +385,16 @@ jobs:
         run: |
           # find reports the directories it may not read and exits non-zero for them,
           # which is not a failure to find anything; what is left is checked afterwards.
-          { find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true; } |
-            while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            # Git Bash's view of the drives; no sudo, the runner is an administrator.
+            { find "/c/Program Files" "/c/Program Files (x86)" "/c/ProgramData" "/c/Users" \
+                "/c/Windows" "/c/hostedtoolcache" "/c/msys64" "/d/a/_tool" "/d/a/_temp" \
+                -name 'icudtl.dat' 2>/dev/null || true; } |
+              while IFS= read -r file; do echo "removing $file"; rm -f "$file"; done
+          else
+            { find /usr /opt /Library /Applications /home /Users -name 'icudtl.dat' 2>/dev/null || true; } |
+              while IFS= read -r file; do echo "removing $file"; sudo rm -f "$file"; done
+          fi
 
       - name: Build it, check what it needs, and run it alone
         shell: bash
@@ -390,7 +424,7 @@ jobs:
   # it evidence for PR-2: one unmodified host, two renderers, one ABI.
   ios:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    if: needs.changed.outputs.renderer == 'true' && needs.changed.outputs.macos != 'false'
     name: Build and smoke test the renderer (iOS, simulator)
     # macos-26, not macos-latest. Compose Multiplatform's iOS artifacts carry
     # precompiled Objective-C objects built against the iOS 26 SDK, and one of them
@@ -403,7 +437,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache the Kotlin toolchain, konan and Maven dependencies
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/Library/Caches/JetBrains/Kotlin
@@ -484,6 +519,16 @@ jobs:
             ${{ runner.temp }}/ios-smoke.png
             ${{ runner.temp }}/ios-navigation.png
           retention-days: 7
+
+      - name: Save the Kotlin toolchain, konan and Maven dependencies (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+            ~/.m2/repository
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}
 
   # Everything below runs only for a version tag, and only after every platform above has
   # built and smoke tested. A crates.io version can be yanked but never replaced, and the

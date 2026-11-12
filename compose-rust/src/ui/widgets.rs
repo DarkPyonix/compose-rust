@@ -200,6 +200,71 @@ macro_rules! click_handler {
     };
 }
 
+/// Optional focus and key handlers on a node. A node that registers none of these
+/// emits no focus or key listener property on the wire.
+#[derive(Default)]
+struct FocusAndKeyHandlers {
+    on_focus_gained: Option<Box<dyn FnMut()>>,
+    on_focus_lost: Option<Box<dyn FnMut()>>,
+    on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+}
+
+fn focus_and_key_input(
+    mut handlers: FocusAndKeyHandlers,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handlers.on_focus_gained.take() {
+        listeners.push(("onfocusgained", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_focus_lost.take() {
+        listeners.push(("onfocuslost", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_key_down.take() {
+        listeners.push((
+            "onkeydown",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+    if let Some(handler) = handlers.on_key_up.take() {
+        listeners.push((
+            "onkeyup",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+}
+
+macro_rules! focus_and_key_handlers {
+    ($name:ident) => {
+        impl $name {
+            /// Runs when this node or a descendant inside it gains keyboard focus.
+            pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_gained = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Runs when this node and its descendants lose keyboard focus.
+            pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_lost = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key pressed while this node or a descendant inside it holds focus;
+            /// calling `consume` on the event keeps the Renderer from acting on it.
+            pub fn on_key_down(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_down = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key released while this node or a descendant inside it holds focus.
+            pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_up = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
 /// Composes the description when the statement it was written in ends.
 macro_rules! composed_on_drop {
     ($name:ident $(<$lifetime:lifetime>)?) => {
@@ -271,6 +336,7 @@ macro_rules! linear {
             linear: Linear,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             tear_off: Option<TearOff>,
             done: bool,
         }
@@ -282,6 +348,7 @@ macro_rules! linear {
                 linear: Linear::default(),
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 tear_off: None,
                 done: false,
             }
@@ -329,6 +396,7 @@ macro_rules! linear {
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 tear_off_input(tear_off, &mut subscription, &mut listeners);
                 emit(
                     widget_key($key),
@@ -347,6 +415,7 @@ macro_rules! linear {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
         tear_off!($name);
     };
 }
@@ -377,6 +446,7 @@ pub struct ComposeBox {
     alignment: Option<Alignment>,
     pointer: Option<PointerSubscription>,
     on_click: Option<Box<dyn FnMut()>>,
+    focus_and_keys: FocusAndKeyHandlers,
     tear_off: Option<TearOff>,
     done: bool,
 }
@@ -388,6 +458,7 @@ pub fn Box() -> ComposeBox {
         alignment: None,
         pointer: None,
         on_click: None,
+        focus_and_keys: FocusAndKeyHandlers::default(),
         tear_off: None,
         done: false,
     }
@@ -408,6 +479,7 @@ impl ComposeBox {
         let mut subscription = Attrs::new();
         pointer_input(pointer, &mut subscription, &mut listeners);
         click_input(self.on_click.take(), &mut listeners);
+        focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
         tear_off_input(tear_off, &mut subscription, &mut listeners);
         emit(
             widget_key("compose_rust::ui::Box"),
@@ -426,6 +498,7 @@ impl ComposeBox {
 container!(ComposeBox);
 pointer_subscription!(ComposeBox);
 click_handler!(ComposeBox);
+focus_and_key_handlers!(ComposeBox);
 tear_off!(ComposeBox);
 
 /// A plain container with the standard Modifiers and nothing of its own.
@@ -436,6 +509,7 @@ macro_rules! plain_container {
             modifier: Modifier,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             done: bool,
         }
 
@@ -445,6 +519,7 @@ macro_rules! plain_container {
                 modifier: Modifier::new(),
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 done: false,
             }
         }
@@ -457,6 +532,7 @@ macro_rules! plain_container {
                 let mut subscription = Attrs::new();
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -473,6 +549,7 @@ macro_rules! plain_container {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
     };
 }
 
@@ -550,8 +627,8 @@ fn scroll_state_input(
         attrs.push(("determinate", OwnedAttr::Bool(animate)));
         attrs.push(("count", OwnedAttr::Int(revision)));
     }
-    let offset = state.offset.clone();
-    let max_offset = state.max_offset.clone();
+    let offset = state.offset;
+    let max_offset = state.max_offset;
     listeners.push((
         "onrangerequest",
         EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
@@ -575,6 +652,7 @@ macro_rules! scroll_container {
             scroll_state: Option<ScrollState>,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
             done: bool,
         }
 
@@ -585,6 +663,7 @@ macro_rules! scroll_container {
                 scroll_state: None,
                 pointer: None,
                 on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
                 done: false,
             }
         }
@@ -606,6 +685,7 @@ macro_rules! scroll_container {
                 scroll_state_input(scroll_state, &mut subscription, &mut listeners);
                 pointer_input(pointer, &mut subscription, &mut listeners);
                 click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -622,6 +702,7 @@ macro_rules! scroll_container {
         container!($name);
         pointer_subscription!($name);
         click_handler!($name);
+        focus_and_key_handlers!($name);
     };
 }
 
@@ -868,11 +949,19 @@ pub struct TextFieldScope {
     enabled: bool,
     multiline: bool,
     type_role: Option<TypeRole>,
+    font_size: Option<f32>,
+    font_weight: Option<u16>,
+    line_height: Option<f32>,
+    letter_spacing: Option<f32>,
+    color: Option<Paint>,
     font: FontRefs,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
+    on_focus_gained: Option<Box<dyn FnMut()>>,
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_composition_change: Option<Box<dyn FnMut(bool)>>,
     done: bool,
 }
 
@@ -887,11 +976,19 @@ pub fn TextField() -> TextFieldScope {
         enabled: true,
         multiline: false,
         type_role: None,
+        font_size: None,
+        font_weight: None,
+        line_height: None,
+        letter_spacing: None,
+        color: None,
         font: FontRefs::default(),
         on_value_change: None,
         on_submit: None,
+        on_focus_gained: None,
         on_focus_lost: None,
         on_key_down: None,
+        on_key_up: None,
+        on_composition_change: None,
         done: false,
     }
 }
@@ -927,6 +1024,36 @@ impl TextFieldScope {
         self
     }
 
+    /// Explicit font size in sp. Overrides the type role's size.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
+    /// Explicit font weight (e.g. 400, 500, 600, 700). Overrides the type role's weight.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// Explicit line height in sp.
+    pub fn line_height(mut self, sp: f32) -> Self {
+        self.line_height = Some(sp);
+        self
+    }
+
+    /// Explicit letter spacing in sp.
+    pub fn letter_spacing(mut self, sp: f32) -> Self {
+        self.letter_spacing = Some(sp);
+        self
+    }
+
+    /// Explicit text colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
     /// The fonts to try for the field's text, in order. Taken only with `TypeRole::None`.
     pub fn font(mut self, font: FontRefs) -> Self {
         self.font = font;
@@ -943,6 +1070,11 @@ impl TextFieldScope {
         self
     }
 
+    pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_focus_gained = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_focus_lost = Some(std::boxed::Box::new(handler));
         self
@@ -955,22 +1087,54 @@ impl TextFieldScope {
         self
     }
 
+    /// Sees each key released while the field holds focus.
+    pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+        self.on_key_up = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Reports when an input method begins or ends an active composition in the field.
+    pub fn on_composition_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_composition_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let (font_size, font_weight, line_height) =
+            (self.font_size, self.font_weight, self.line_height);
+        let (letter_spacing, color) = (self.letter_spacing, self.color);
         let font = std::mem::take(&mut self.font);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
         };
-        let listeners = vec![
+        let mut listeners = vec![
             ("onvaluechange", text_handler(self.on_value_change.take())),
             ("onsubmit", text_handler(self.on_submit.take())),
             ("onfocuslost", unit(self.on_focus_lost.take())),
             ("onkeydown", key_down),
         ];
+        if let Some(handler) = self.on_focus_gained.take() {
+            listeners.push(("onfocusgained", unit(Some(handler))));
+        }
+        if let Some(handler) = self.on_key_up.take() {
+            listeners.push((
+                "onkeyup",
+                EventCallback::Key(Rc::new(RefCell::new(handler))),
+            ));
+        }
+        if let Some(mut handler) = self.on_composition_change.take() {
+            listeners.push((
+                "oncompositionchange",
+                EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                    handler(value != 0.0);
+                }))),
+            ));
+        }
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,
@@ -985,6 +1149,21 @@ impl TextFieldScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
                 attrs.push(("type_role", role_or_zero(type_role)));
+                if let Some(font_size) = font_size {
+                    attrs.push(("font_size", OwnedAttr::Float(font_size as f64)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(font_weight as i64)));
+                }
+                if let Some(line_height) = line_height {
+                    attrs.push(("line_height", OwnedAttr::Float(line_height as f64)));
+                }
+                if let Some(letter_spacing) = letter_spacing {
+                    attrs.push(("letter_spacing", OwnedAttr::Float(letter_spacing as f64)));
+                }
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
                 attrs.push(("font", font_bytes(&font)));
             },
             listeners,
@@ -1008,6 +1187,79 @@ fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, at
     }
 }
 
+/// The colours and size a Switch, Slider or Checkbox was asked to draw with. Each is sent
+/// only when it was set, so a control that sets none sends the properties it always has
+/// and the design system draws it.
+#[derive(Clone, Copy, Default)]
+struct ControlLook {
+    track: Option<Paint>,
+    thumb: Option<Paint>,
+    active_track: Option<Paint>,
+    container: Option<Paint>,
+    check: Option<Paint>,
+    size: Option<(f32, f32)>,
+}
+
+impl ControlLook {
+    fn push(&self, attrs: &mut Attrs) {
+        let paints = [
+            ("track_color", self.track),
+            ("thumb_color", self.thumb),
+            ("active_track_color", self.active_track),
+            ("container_color", self.container),
+            ("check_color", self.check),
+        ];
+        for (name, paint) in paints {
+            if let Some(paint) = paint {
+                attrs.push((name, super::paint(Some(paint))));
+            }
+        }
+        if let Some((width, height)) = self.size {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&width.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&height.to_bits().to_le_bytes());
+            attrs.push(("control_size", OwnedAttr::Bytes(bytes)));
+        }
+    }
+}
+
+/// Adds a colour setter that fills one slot of `look`.
+macro_rules! control_colour {
+    ($name:ident, $slot:ident, $setter:ident, $doc:literal) => {
+        impl $name {
+            #[doc = $doc]
+            pub fn $setter(mut self, paint: Paint) -> Self {
+                self.look.$slot = Some(paint);
+                self
+            }
+        }
+    };
+}
+
+/// Writes a widget's own accessible name. It replaces one the Modifier gave, so the name
+/// said on the widget is the one that reaches assistive technology.
+fn push_accessible_name(name: Option<String>, attrs: &mut Attrs) {
+    if let Some(name) = name.filter(|name| !name.is_empty()) {
+        attrs.retain(|(key, _)| *key != "accessible_name");
+        attrs.push(("accessible_name", OwnedAttr::Text(name)));
+    }
+}
+
+/// Adds `accessible_name` to a builder that has an `accessible_name` field.
+macro_rules! accessible_name {
+    ($name:ident) => {
+        impl $name {
+            /// The name assistive technology reads. With no visible label it is the
+            /// control's name; with one it replaces the label, and on an icon-only button
+            /// it is read instead of the icon's meaning.
+            pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+                self.accessible_name = Some(name.into());
+                self
+            }
+        }
+    };
+}
+
 /// A `Button` and its builder.
 pub struct ButtonScope {
     modifier: Modifier,
@@ -1019,6 +1271,9 @@ pub struct ButtonScope {
     color: Option<Paint>,
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
+    accessible_name: Option<String>,
+    text_align: Option<TextAlign>,
+    font_size: Option<f32>,
     on_click: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -1039,12 +1294,31 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         color: None,
         max_lines: None,
         overflow: None,
+        accessible_name: None,
+        text_align: None,
+        font_size: None,
         on_click: None,
         done: false,
     }
 }
 
+accessible_name!(ButtonScope);
+
 impl ButtonScope {
+    /// Where the label sits in the button. A button that never calls this sends nothing
+    /// and keeps its label centred.
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = Some(align);
+        self
+    }
+
+    /// The label's size in sp. A button that never calls this sends nothing and takes the
+    /// design system's size for its variant.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
     /// The meaning of the glyph on it, never a picture.
     pub fn icon(mut self, icon: IconRole) -> Self {
         self.icon = Some(icon);
@@ -1104,6 +1378,8 @@ impl ButtonScope {
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
+        let accessible_name = self.accessible_name.take();
+        let (text_align, font_size) = (self.text_align, self.font_size);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         emit(
             widget_key("compose_rust::ui::Button"),
@@ -1117,6 +1393,13 @@ impl ButtonScope {
                 attrs.push(("button_kind", role_or_zero(kind)));
                 attrs.push(("color", super::paint(color)));
                 lines_and_overflow(max_lines, overflow, attrs);
+                push_accessible_name(accessible_name, attrs);
+                if text_align.is_some() {
+                    attrs.push(("text_align", role_or_zero(text_align)));
+                }
+                if font_size.is_some() {
+                    attrs.push(("font_size", dp_or_zero(font_size)));
+                }
             },
             listeners,
             content,
@@ -1124,7 +1407,7 @@ impl ButtonScope {
     }
 }
 
-composed_on_drop!(ButtonScope);
+container!(ButtonScope);
 
 /// A two-state control, for Checkbox, RadioButton and Switch alike: the Host owns the
 /// value, the control draws exactly what it is told and reports what the user asked for.
@@ -1135,6 +1418,8 @@ macro_rules! toggle {
             modifier: Modifier,
             checked: bool,
             enabled: bool,
+            accessible_name: Option<String>,
+            look: ControlLook,
             on_change: Option<Box<dyn FnMut(bool)>>,
             done: bool,
         }
@@ -1145,10 +1430,14 @@ macro_rules! toggle {
                 modifier: Modifier::new(),
                 checked: $setter,
                 enabled: true,
+                accessible_name: None,
+                look: ControlLook::default(),
                 on_change: None,
                 done: false,
             }
         }
+
+        accessible_name!($name);
 
         impl $name {
             pub fn enabled(mut self, enabled: bool) -> Self {
@@ -1166,6 +1455,8 @@ macro_rules! toggle {
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
                 let (checked, enabled) = (self.checked, self.enabled);
+                let accessible_name = self.accessible_name.take();
+                let look = self.look;
                 let handler: EventCallback = match self.on_change.take() {
                     Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(
                         // Off is 0.0 and on is anything else, so a Renderer that reports a
@@ -1181,6 +1472,8 @@ macro_rules! toggle {
                         push_modifiers(&modifier, Mods::Standard, attrs);
                         attrs.push(("checked", OwnedAttr::Bool(checked)));
                         attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                        push_accessible_name(accessible_name, attrs);
+                        look.push(attrs);
                     },
                     vec![("onchange", handler)],
                     content,
@@ -1190,6 +1483,44 @@ macro_rules! toggle {
 
         composed_on_drop!($name);
     };
+}
+
+control_colour!(
+    SwitchScope,
+    track,
+    track_color,
+    "The track, whichever state it is in. The Host owns the state, so it passes the colour \
+     that goes with it."
+);
+control_colour!(
+    SwitchScope,
+    thumb,
+    thumb_color,
+    "The thumb that travels along the track."
+);
+
+impl SwitchScope {
+    /// The track's width and height in dp. The thumb scales with the height.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.look.size = Some((width, height));
+        self
+    }
+}
+
+control_colour!(
+    CheckboxScope,
+    container,
+    container_color,
+    "The box when it is checked."
+);
+control_colour!(CheckboxScope, check, check_color, "The check mark.");
+
+impl CheckboxScope {
+    /// The length of the box's side in dp.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
 }
 
 toggle!(
@@ -1223,6 +1554,8 @@ pub struct SliderScope {
     max: f32,
     steps: u32,
     enabled: bool,
+    accessible_name: Option<String>,
+    look: ControlLook,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1238,10 +1571,27 @@ pub fn Slider(value: f32) -> SliderScope {
         max: 1.0,
         steps: 0,
         enabled: true,
+        accessible_name: None,
+        look: ControlLook::default(),
         on_change: None,
         done: false,
     }
 }
+
+accessible_name!(SliderScope);
+control_colour!(
+    SliderScope,
+    track,
+    track_color,
+    "The part of the track that is not filled."
+);
+control_colour!(SliderScope, thumb, thumb_color, "The thumb.");
+control_colour!(
+    SliderScope,
+    active_track,
+    active_track_color,
+    "The part of the track up to the thumb."
+);
 
 impl SliderScope {
     /// The two ends. Compose's `valueRange`.
@@ -1283,6 +1633,8 @@ impl SliderScope {
             self.steps,
             self.enabled,
         );
+        let accessible_name = self.accessible_name.take();
+        let look = self.look;
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler(value as f32)
@@ -1300,6 +1652,8 @@ impl SliderScope {
                 attrs.push(("max", OwnedAttr::Float(f64::from(max))));
                 attrs.push(("steps", OwnedAttr::Int(i64::from(steps))));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                push_accessible_name(accessible_name, attrs);
+                look.push(attrs);
             },
             vec![("onchange", handler)],
             content,
@@ -1857,6 +2211,7 @@ pub struct ModalScope {
     modifier: Modifier,
     widget: WidgetKind,
     open: bool,
+    scrim: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -1868,6 +2223,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Dialog,
         open,
+        scrim: None,
         on_dismiss: None,
         done: false,
     }
@@ -1880,6 +2236,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Sheet,
         open,
+        scrim: None,
         on_dismiss: None,
         done: false,
     }
@@ -1891,6 +2248,12 @@ impl ModalScope {
         self
     }
 
+    /// Sets the modal scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, open) = (self.widget, self.open);
@@ -1899,12 +2262,16 @@ impl ModalScope {
         } else {
             widget_key("compose_rust::ui::Sheet")
         };
+        let scrim = self.scrim;
         emit(
             key,
             widget,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
             content,
@@ -1918,6 +2285,7 @@ container!(ModalScope);
 pub struct MenuScope<'a> {
     modifier: Modifier,
     expanded: bool,
+    scrim: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     anchor: Option<Box<dyn FnOnce() + 'a>>,
     done: bool,
@@ -1929,6 +2297,7 @@ pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
     MenuScope {
         modifier: Modifier::new(),
         expanded,
+        scrim: None,
         on_dismiss: None,
         anchor: None,
         done: false,
@@ -1938,6 +2307,12 @@ pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
 impl<'a> MenuScope<'a> {
     pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
         self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sets the popup scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
         self
     }
 
@@ -1951,12 +2326,16 @@ impl<'a> MenuScope<'a> {
         let modifier = self.modifier;
         let expanded = self.expanded;
         let anchor = self.anchor.take();
+        let scrim = self.scrim;
         emit(
             widget_key("compose_rust::ui::Menu"),
             WidgetKind::Menu,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("open", OwnedAttr::Bool(expanded)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
             || {
@@ -2773,6 +3152,7 @@ pub struct WindowScope {
     size: Option<(f32, f32)>,
     min_size: Option<(f32, f32)>,
     resizable: Option<bool>,
+    report_size: Option<bool>,
     chrome: Option<crate::schema::Chrome>,
     title_bar: Option<crate::schema::TitleBar>,
     icon: Option<u32>,
@@ -2809,6 +3189,7 @@ pub fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
         size: None,
         min_size: None,
         resizable: None,
+        report_size: None,
         chrome: None,
         title_bar: None,
         icon: None,
@@ -2863,6 +3244,15 @@ impl WindowScope {
 
     pub fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = Some(resizable);
+        self
+    }
+
+    /// Asks to be told every time the window's width or height, rounded to whole dp,
+    /// changes. Without it the size is reported only when its class or the safe area
+    /// changes. Turn it on only for a window that lays out by its exact size: each
+    /// whole-dp change while the user drags an edge costs one call into the Host.
+    pub fn report_size(mut self, report: bool) -> Self {
+        self.report_size = Some(report);
         self
     }
 
@@ -2980,6 +3370,9 @@ impl WindowScope {
         }
         if let Some(resizable) = self.resizable {
             properties.push(("window_resizable", OwnedAttr::Bool(resizable)));
+        }
+        if let Some(report) = self.report_size {
+            properties.push(("report_size", OwnedAttr::Bool(report)));
         }
         if let Some(chrome) = self.chrome {
             properties.push(("window_chrome", OwnedAttr::Int(i64::from(chrome as u16))));

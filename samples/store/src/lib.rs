@@ -113,7 +113,7 @@ impl Destination {
 /// marks the destination you are on is that its icon is drawn in the accent. The button
 /// carries no text and sits over the drawing, so the press lands on it whatever the
 /// design system drew.
-#[composable]
+#[Composable]
 fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
     Box()
         .modifier(Modifier.size(ICON_TAP, ICON_TAP))
@@ -150,7 +150,7 @@ fn logo_mark() -> DrawList {
 
 /// The top of the catalogue: the mark on the left, and what you can reach from anywhere
 /// on the right.
-#[composable]
+#[Composable]
 fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
     Row()
         .modifier(Modifier.fill_max_width())
@@ -190,7 +190,7 @@ fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
 /// The card is the control. The reference has no button on it, and a tile cannot be
 /// tapped: `Modifier::Clickable` is on the wire but no container widget exposes it, so
 /// what carries the press is a `Button` with no label, filling the picture area.
-#[composable]
+#[Composable]
 fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
     let id = product.id;
     Box()
@@ -219,7 +219,7 @@ fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
 /// No weight of its own. The cell's parent in the grid is a `Column`, where weight is
 /// vertical, and a vertical weight inside a column that is measuring its own height comes
 /// out as a height of zero. The width share belongs to the wrapper in the row above.
-#[composable]
+#[Composable]
 fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
     Column()
         .modifier(Modifier.fill_max_width())
@@ -248,7 +248,7 @@ fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
 /// belongs to the Renderer and is never reported back: dots driven by one would be drawn
 /// in the right place and never move. Pressing the card turns it, which is the nearest
 /// thing to the reference's swipe that the vocabulary has.
-#[composable]
+#[Composable]
 fn carousel(slide: MutableState<usize>) {
     let showing = slide.get() % FEATURED;
     Box()
@@ -263,7 +263,7 @@ fn carousel(slide: MutableState<usize>) {
         .content(|| {
             Image(asset(AssetKind::Svg, catalogue::featured()[showing]))
                 .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
-            let turn = slide.clone();
+            let turn = slide;
             Button("")
                 .variant(ButtonVariant::Text)
                 .modifier(Modifier.fill_max_size())
@@ -302,7 +302,7 @@ fn carousel(slide: MutableState<usize>) {
 
 /// The catalogue: the header, the heading, the carousel, the category strip and a two-up
 /// grid.
-#[composable]
+#[Composable]
 fn catalogue_screen(
     category: MutableState<Category>,
     slide: MutableState<usize>,
@@ -325,7 +325,7 @@ fn catalogue_screen(
                 .color(palette::INK)
                 .modifier(Modifier.fill_max_width());
 
-            carousel(slide.clone());
+            carousel(slide);
 
             // A strip that runs off the edge, not a segmented control.
             //
@@ -334,7 +334,7 @@ fn catalogue_screen(
             // and a button inside one carries its own horizontal padding: every label
             // broke into a column of single letters. The reference's own strip runs past
             // the right edge with the last category half shown, which is this.
-            let strip = category.clone();
+            let strip = category;
             LazyRow()
                 .modifier(Modifier.fill_max_width().height(STRIP_HEIGHT))
                 .content(move |list| {
@@ -344,7 +344,7 @@ fn catalogue_screen(
                         move |position| {
                             let choice = Category::STRIP[position];
                             let chosen = strip.get() == choice;
-                            let pick = strip.clone();
+                            let pick = strip;
                             Box().alignment(Alignment::Center).content(|| {
                                 // Every category is a label and one of them is the one you
                                 // are looking at, which is what the reference draws: the
@@ -394,7 +394,7 @@ fn catalogue_screen(
 }
 
 /// One garment: the picture, what it is, what size, how many, and what it costs.
-#[composable]
+#[Composable]
 fn detail_screen(
     product: &'static Product,
     size: MutableState<&'static str>,
@@ -495,7 +495,7 @@ fn detail_screen(
                                             // page in the accent. The rest are the same
                                             // flat grey as the card the garment is drawn
                                             // on.
-                                            let pick = size.clone();
+                                            let pick = size;
                                             Button(option)
                                                 .modifier(
                                                     Modifier
@@ -521,7 +521,7 @@ fn detail_screen(
                         .space_role(SpaceRole::Sm)
                         .alignment(Alignment::CenterStart)
                         .content(|| {
-                            let fewer = quantity.clone();
+                            let fewer = quantity;
                             Button("\u{2212}")
                                 .modifier(
                                     Modifier
@@ -538,7 +538,7 @@ fn detail_screen(
                             Text(count.to_string())
                                 .type_role(TypeRole::Subtitle)
                                 .color(palette::INK);
-                            let more = quantity.clone();
+                            let more = quantity;
                             Button("+")
                                 .modifier(
                                     Modifier
@@ -572,7 +572,7 @@ fn detail_screen(
 }
 
 /// What is waiting to be paid for.
-#[composable]
+#[Composable]
 fn bag_screen(bag: MutableState<Vec<BagLine>>) {
     let lines = bag.get();
     let sum = total(&lines);
@@ -609,7 +609,7 @@ fn bag_screen(bag: MutableState<Vec<BagLine>>) {
                     .content(|| {
                         for (index, line) in lines.iter().copied().enumerate() {
                             let last = index + 1 == lines.len();
-                            key(index, || bag_line(bag.clone(), index, line, last));
+                            key(index, || bag_line(bag, index, line, last));
                         }
                     });
                 Spacer().modifier(Modifier.weight(1.0));
@@ -641,7 +641,7 @@ fn bag_screen(bag: MutableState<Vec<BagLine>>) {
 }
 
 /// One line of the bag, with the hairline under it unless it is the last.
-#[composable]
+#[Composable]
 fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: bool) {
     let named = catalogue::product(line.product);
     Column().modifier(Modifier.fill_max_width()).content(|| {
@@ -666,7 +666,7 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                 Text(price(named.map_or(0, |found| found.cents) * line.quantity))
                     .type_role(TypeRole::BodyStrong)
                     .color(palette::INK);
-                let lines = bag.clone();
+                let lines = bag;
                 Button("Remove")
                     .variant(ButtonVariant::Text)
                     .color(palette::ALERT)
@@ -680,7 +680,7 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
                         let Some(removed) = removed else { return };
                         let name = catalogue::product(removed.product)
                             .map_or("An item", |found| found.name);
-                        let restore = lines.clone();
+                        let restore = lines;
                         Message::new(format!("Removed {name}"))
                             .with_action("Undo", move |()| {
                                 let at = index.min(restore.with(Vec::len));
@@ -697,7 +697,7 @@ fn bag_line(bag: MutableState<Vec<BagLine>>, index: usize, line: BagLine, last: 
 }
 
 /// Search, which is a field and the shelves as a list.
-#[composable]
+#[Composable]
 fn search_screen(on_open: Rc<dyn Fn(u32)>) {
     Column()
         .modifier(
@@ -765,7 +765,7 @@ fn search_screen(on_open: Rc<dyn Fn(u32)>) {
 }
 
 /// The account page, which is a short list of the things a shop keeps about a person.
-#[composable]
+#[Composable]
 fn account_screen() {
     Column()
         .modifier(
@@ -822,7 +822,7 @@ fn account_screen() {
 /// labelled bar with a selection pill under a hairline. The reference is four bare icons
 /// on the page, the one you are on in the accent, and that is a shape no design system
 /// would be right to give a set of destinations.
-#[composable]
+#[Composable]
 fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
     Row()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
@@ -845,7 +845,7 @@ fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
         });
 }
 
-#[composable]
+#[Composable]
 pub fn app() {
     let window = current_window_size();
     let measure = if window.is_compact() {
@@ -872,14 +872,14 @@ pub fn app() {
     });
 
     let on_open: Rc<dyn Fn(u32)> = {
-        let (destination, open) = (destination.clone(), open.clone());
+        let (destination, open) = (destination, open);
         Rc::new(move |id: u32| {
             destination.set(Destination::Shop);
             open.set(Some(id));
         })
     };
     let on_go: Rc<dyn Fn(Destination)> = {
-        let (destination, open) = (destination.clone(), open.clone());
+        let (destination, open) = (destination, open);
         Rc::new(move |choice: Destination| {
             destination.set(choice);
             if choice != Destination::Shop {
@@ -896,27 +896,20 @@ pub fn app() {
 
     let body = || match (current, showing) {
         (Destination::Shop, Some(product)) => {
-            let back: Rc<dyn Fn()> = {
-                let open = open.clone();
-                Rc::new(move || open.set(None))
-            };
+            let back: Rc<dyn Fn()> = { Rc::new(move || open.set(None)) };
             detail_screen(
                 product,
-                size.clone(),
-                quantity.clone(),
+                size,
+                quantity,
                 back,
-                add_to_bag(bag.clone(), open.clone(), size.clone(), quantity.clone()),
+                add_to_bag(bag, open, size, quantity),
             );
         }
-        (Destination::Shop, None) => catalogue_screen(
-            category.clone(),
-            slide.clone(),
-            bag.clone(),
-            Rc::clone(&on_open),
-            Rc::clone(&on_go),
-        ),
+        (Destination::Shop, None) => {
+            catalogue_screen(category, slide, bag, Rc::clone(&on_open), Rc::clone(&on_go))
+        }
         (Destination::Search, _) => search_screen(Rc::clone(&on_open)),
-        (Destination::Bag, _) => bag_screen(bag.clone()),
+        (Destination::Bag, _) => bag_screen(bag),
         (Destination::Account, _) => account_screen(),
     };
 

@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import dev.darkpyonix.composerust.runtime.LocalWindowDragExclusion
@@ -53,6 +54,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
@@ -106,6 +111,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     containerShape: Shape? = null,
     pressColor: Color = theme.color(ColorRole.OnSurface),
     allowPress: Boolean = true,
+    allowPadding: Boolean = true,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -164,20 +170,31 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     awaitEachGesture {
                         if (value.enabled) {
                             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-                            if (!down.isConsumed) {
+                            // A no-drag node under the press has marked it already (children see the
+                            // Main pass first), so the window stays where it is.
+                            val excludedHere = exclusion?.isMarked(down.id.value, down.uptimeMillis) == true
+                            if (!down.isConsumed && !excludedHere) {
                                 down.consume()
                                 drag()
                             }
                         } else {
                             // Mark this down for the strip without consuming it, so ancestors can click.
-                            val excluded = awaitFirstDown(requireUnconsumed = false); exclusion?.downKey = excluded.id.value to excluded.uptimeMillis
+                            val excluded = awaitFirstDown(requireUnconsumed = false)
+                            exclusion?.mark(excluded.id.value, excluded.uptimeMillis)
+                            // Forget the press once it ends, so a later press that happens to
+                            // share an id and a timestamp is not taken for this one.
+                            waitForUpOrCancellation()
+                            exclusion?.clear()
                         }
                     }
                 }
             }
             is ProtocolModifier.PressFeedback -> chain
+            // Applied with the node's accessible name in one place, `accessibility`.
+            is ProtocolModifier.Semantics -> chain
             is ProtocolModifier.Empty -> chain
-            is ProtocolModifier.Padding -> attachPressableIfNeeded(chain).padding(value.value.dp)
+            is ProtocolModifier.Padding ->
+                if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
@@ -198,9 +215,17 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             }
 
             is ProtocolModifier.PaddingEach ->
-                attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                if (allowPadding) {
+                    attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                } else {
+                    chain
+                }
             is ProtocolModifier.PaddingRole ->
-                attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                if (allowPadding) {
+                    attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                } else {
+                    chain
+                }
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
@@ -293,6 +318,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                         matrix[5] = value.f
                     }
                 }
+            }
+
+            // CSS 3D `transform`: one matrix, drawn through the layers that reproduce it
+            // exactly, so the layout is untouched and a pointer is tested against the shape
+            // that is drawn. The plan is worked out here, once for each value of the record.
+            is ProtocolModifier.Transform3D -> {
+                val plan = Transform3DPlan()
+                plan.solve(
+                    floatArrayOf(value.m0, value.m1, value.m2, value.m3, value.m4, value.m5, value.m6, value.m7, value.m8, value.m9, value.m10, value.m11, value.m12, value.m13, value.m14, value.m15),
+                    value.backfaceHidden,
+                )
+                chain.perspectiveTransform(plan, value.originX, value.originY)
             }
 
             // The node and everything in it are drawn into one layer first, and the layer is
@@ -786,7 +823,11 @@ internal fun Modifier.pressable(
     }
     val ink = theme.color(ColorRole.OnSurface)
     val ring = theme.color(ColorRole.Primary)
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(nodeId) { FocusRequester() }
     this
+        .focusRequester(focusRequester)
+        .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
         .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
         .hoverable(source, enabled)
         .clickable(

@@ -37,6 +37,11 @@ on:
       - renderer/desktop/src/**
       - renderer/desktop/module.yaml
       - renderer/desktop/scripts/**
+      # The Windows build's own files feed no job here (macOS and Linux modules only).
+      - '!renderer/desktop/scripts/build-windows.sh'
+      - '!renderer/desktop/scripts/*.ps1'
+      - '!renderer/desktop/scripts/windows-build-contract.test.sh'
+      - '!renderer/desktop/scripts/windows-metadata/**'
       - renderer/ios/src/shared/**
       - renderer/scripts/**
       - renderer/kotlin
@@ -135,7 +140,8 @@ jobs:
           key: compose-${{ matrix.compose_key }}-${{ hashFiles('renderer/scripts/build-compose.sh', 'renderer/scripts/compose-fork.changes') }}
 
       - name: Cache the Kotlin toolchain
-        uses: actions/cache@v4
+        id: cache-1
+        uses: actions/cache/restore@v4
         with:
           path: |
             ${{ matrix.toolchain }}
@@ -177,7 +183,7 @@ jobs:
         run: ./renderer/scripts/require-fork-artifacts.sh ${{ matrix.module }}
 
       - name: Keep the patched Compose for the next run
-        if: steps.compose-cache.outputs.cache-hit != 'true'
+        if: github.event_name != 'pull_request' && (steps.compose-cache.outputs.cache-hit != 'true')
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository
@@ -293,3 +299,12 @@ jobs:
         # The same check as the macOS job's, with the main dispatcher Linux has.
         if: matrix.module == 'linux'
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer linux
+
+      - name: Save the Kotlin toolchain (not from a pull request)
+        if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ matrix.toolchain }}
+            ~/.konan
+          key: ${{ steps.cache-1.outputs.cache-primary-key }}

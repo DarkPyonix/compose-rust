@@ -169,7 +169,7 @@ impl LazyList {
         // them and nothing else.
         let range = remember(|| mutable_state_of((0_usize, 0_usize)));
         let total = scope.total();
-        let request = range.clone();
+        let request = range;
         let listener = EventCallback::Range(Rc::new(RefCell::new(move |asked: RangeRequest| {
             request.set((asked.start(), asked.count()));
         })));
@@ -230,8 +230,8 @@ fn Items(range: MutableState<(usize, usize)>, intervals: Rc<Vec<Interval>>) {
         return;
     }
     {
-        let (range, intervals) = (range.clone(), Rc::clone(&intervals));
-        scope.set_restart(move || Items(range.clone(), Rc::clone(&intervals)));
+        let (range, intervals) = (range, Rc::clone(&intervals));
+        scope.set_restart(move || Items(range, Rc::clone(&intervals)));
     }
     let total: usize = intervals.iter().map(|interval| interval.count).sum();
     let (start, count) = range.get();

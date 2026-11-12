@@ -61,7 +61,7 @@ fn live_bytes() -> isize {
     LIVE.with(|live| live.get())
 }
 
-#[composable]
+#[Composable]
 fn Busy(count: MutableState<i32>) {
     Column().content(|| {
         for row in 0..40 {
@@ -99,7 +99,7 @@ fn nfr_17_live_memory_does_not_grow_with_the_frames_drawn() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Toggled(shown: MutableState<bool>) {
     Column().content(|| {
         if shown.get() {
@@ -146,7 +146,7 @@ fn nfr_17_the_writer_keeps_nothing_for_nodes_that_were_removed() {
     );
 }
 
-#[composable]
+#[Composable]
 fn Chat(count: MutableState<usize>, tail: MutableState<usize>) {
     LazyColumn().content(move |list| {
         let rows = count.get();

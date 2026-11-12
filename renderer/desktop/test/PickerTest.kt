@@ -209,9 +209,13 @@ class PickerTest {
             PropertyKind.OnValueChange,
             PropertyKind.OnSubmit,
             PropertyKind.OnFocusLost,
+            PropertyKind.OnFocusGained,
             PropertyKind.OnKeyDown,
+            PropertyKind.OnKeyUp,
             PropertyKind.OnRangeRequested,
             PropertyKind.OnDismiss,
+            // The name assistive technology reads can be given to any node.
+            PropertyKind.AccessibleName,
         )
         listOf(WidgetKind.DatePicker, WidgetKind.TimePicker).forEach { widget ->
             PropertyKind.entries.forEach { property ->

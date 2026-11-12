@@ -36,6 +36,7 @@ pub const GENERATED_RELATIVE_PATH: &str = "../renderer/desktop/src/protocol/Prot
 pub const SCHEMA_HASH_RELATIVE_PATH: &str = "schema-hash.txt";
 pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
+pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -147,6 +148,20 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
+/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+data class OverlayTokens(
+    val sheetCornerRadius: Int = 0,
+    val dialogCornerRadius: Int = 0,
+    val popupCornerRadius: Int = 0,
+    val sheetElevation: Int = 0,
+    val popupElevation: Int = 0,
+    val dialogElevation: Int = 0,
+    val sheetPadding: Int = 0,
+    val dialogPadding: Int = 0,
+    val popupPadding: Int = 0,
+    val scrim: Long = 0L,
+)
+
 /**
  * What the application asked of its own window.
  *
@@ -201,6 +216,11 @@ data class Window(
     val mode: WindowMode = WindowMode.Single,
     /** What happens when the last window goes. Only read in [WindowMode.Windows]. */
     val lastWindowClosed: LastWindowClosed = LastWindowClosed.Exit,
+    /**
+     * Whether the implicit single window reports every whole-dp change of its size, not
+     * only a change of size class. Windows made of `Window` nodes use the node property.
+     */
+    val reportSize: Boolean = false,
 )
 
 "#,
@@ -462,6 +482,29 @@ sealed interface Mutation {
 
     /** Brings a window forward and makes it the key window. Happens once. */
     data class FocusWindow(val nodeId: Int) : Mutation
+
+    /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
+    data class RequestFocus(val nodeId: Int) : Mutation
+
+    /**
+     * Asks the platform for a file dialog on the window [window] (0 is the implicit root
+     * window). Answered exactly once, later, by a `FileDialogResult` event carrying
+     * [request]. [filters] is one string: a label and its comma-joined extensions as a pair,
+     * pairs joined by NUL.
+     */
+    data class ShowFileDialog(
+        val request: Int,
+        val window: Int,
+        val kind: FileDialogKind,
+        val defaultFilter: Int,
+        val title: String,
+        val directory: String,
+        val name: String,
+        val filters: String,
+    ) : Mutation
+
+    /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+    data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
 }
 
 "#,
@@ -484,7 +527,7 @@ sealed interface Mutation {
                 output.push_str(", val code: Int, val message: String");
             }
             EventPayloadType::KeyDown => {
-                output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean");
+                output.push_str(", val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String");
             }
             EventPayloadType::Range => output.push_str(", val start: Int, val count: Int"),
             EventPayloadType::Double => output.push_str(", val value: Double"),
@@ -543,6 +586,11 @@ sealed interface Mutation {
                 ", val kind: Int, val window: Int, val x: kotlin.Float, val y: kotlin.Float",
             ),
             EventPayloadType::WindowRequest => output.push_str(", val request: Int, val key: String"),
+            // The filter is the position of the filter in use, or -1 (the wire's 0xFFFFFFFF)
+            // when there is none.
+            EventPayloadType::FileDialogResult => output.push_str(
+                ", val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String",
+            ),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -593,6 +641,9 @@ object Protocol {
     private const val TAG_SET_FOLDED = 22
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
+    private const val TAG_REQUEST_FOCUS = 25
+    private const val TAG_SHOW_FILE_DIALOG = 26
+    private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -742,16 +793,51 @@ object Protocol {
                         requireRecordLength(length, 8, offset)
                         Mutation.FocusWindow(readU32(batch, base, available, offset + 4).toInt())
                     }
+                    TAG_REQUEST_FOCUS -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.RequestFocus(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SHOW_FILE_DIALOG -> {
+                        requireRecordLength(length, 48, offset)
+                        Mutation.ShowFileDialog(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            readU32(batch, base, available, offset + 8).toInt(),
+                            fileDialogKind(readU16(batch, base, available, offset + 12), offset + 12),
+                            readU16(batch, base, available, offset + 14),
+                            readString(batch, base, available, offset + 16),
+                            readString(batch, base, available, offset + 24),
+                            readString(batch, base, available, offset + 32),
+                            readString(batch, base, available, offset + 40),
+                        )
+                    }
+                    TAG_SET_OVERLAY_TOKENS -> {
+                        requireRecordLength(length, 28, offset)
+                        Mutation.SetOverlayTokens(
+                            OverlayTokens(
+                                sheetCornerRadius = readU16(batch, base, available, offset + 4),
+                                dialogCornerRadius = readU16(batch, base, available, offset + 6),
+                                popupCornerRadius = readU16(batch, base, available, offset + 8),
+                                sheetElevation = readU16(batch, base, available, offset + 10),
+                                popupElevation = readU16(batch, base, available, offset + 12),
+                                dialogElevation = readU16(batch, base, available, offset + 14),
+                                sheetPadding = readU16(batch, base, available, offset + 16),
+                                dialogPadding = readU16(batch, base, available, offset + 18),
+                                popupPadding = readU16(batch, base, available, offset + 20),
+                                scrim = readU32(batch, base, available, offset + 24),
+                            ),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
-                        // Bit 0 is `resizable`; the mode and the last window policy are the
-                        // nibbles above the second byte. Anything else standing is a record
-                        // the sides disagree on.
+                        // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
+                        // mode and the last window policy are the nibbles above the second
+                        // byte. Anything else standing is a record the sides disagree on.
                         val flags = readU16(batch, base, available, offset + 16)
-                        if ((flags and 0x00FE) != 0) {
+                        if ((flags and 0x00FC) != 0) {
                             throw ProtocolException("invalid window flags $flags", offset + 16)
                         }
                         val resizable = flags and 1
+                        val reportSize = (flags and 0x0002) != 0
                         // A byte saying whether there is a zoom level, then the level as a
                         // signed byte.
                         val zoom = readU16(batch, base, available, offset + 18)
@@ -778,6 +864,7 @@ object Protocol {
                                 zoomLevel,
                                 windowMode((flags shr 8) and 0xF, offset + 16),
                                 lastWindowClosed(flags shr 12, offset + 16),
+                                reportSize,
                             ),
                         )
                     }
@@ -979,7 +1066,7 @@ object Protocol {
     );
     for event in EVENT_SCHEMA {
         match event.payload {
-            EventPayloadType::Text => {
+            EventPayloadType::Text | EventPayloadType::KeyDown => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> event.text.toByteArray(StandardCharsets.UTF_8)",
@@ -1003,6 +1090,14 @@ object Protocol {
                 )
                 .unwrap();
             }
+            EventPayloadType::FileDialogResult => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.paths.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::None => {
                 writeln!(
                     output,
@@ -1019,8 +1114,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::KeyDown
-            | EventPayloadType::Range
+            EventPayloadType::Range
             | EventPayloadType::Double
             | EventPayloadType::WindowSize
             | EventPayloadType::DesignSystem
@@ -1061,7 +1155,7 @@ object Protocol {
             EventPayloadType::None => 16,
             EventPayloadType::Text => 24,
             EventPayloadType::ProtocolError => 28,
-            EventPayloadType::KeyDown => 20,
+            EventPayloadType::KeyDown => 32,
             EventPayloadType::Range => 24,
             EventPayloadType::Double => 24,
             EventPayloadType::WindowSize => 44,
@@ -1094,6 +1188,8 @@ object Protocol {
             | EventPayloadType::WindowDragOver => 32,
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::WindowRequest => 28,
+            // The request, the status and the filter, then the paths' reference.
+            EventPayloadType::FileDialogResult => 36,
         };
         writeln!(
             output,
@@ -1171,7 +1267,13 @@ object Protocol {
                     "                    if (event.metaKey) modifiers = modifiers or 0x08\n",
                 );
                 output.push_str("                    out.put(modifiers.toByte())\n");
-                output.push_str("                    out.put(0.toByte())\n");
+                output.push_str(
+                    "                    out.put((if (event.repeat) 1 else 0).toByte())\n",
+                );
+                output.push_str("                    out.putInt(event.code)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::Range => {
@@ -1376,6 +1478,18 @@ object Protocol {
                 output.push_str("                    out.putFloat(event.y)\n");
                 output.push_str("                }\n");
             }
+            EventPayloadType::FileDialogResult => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str(
+                    "                    out.putInt(fileDialogStatusTag(event.status))\n",
+                );
+                output.push_str("                    out.putInt(event.filter)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
             EventPayloadType::WindowRequest => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.request)\n");
@@ -1533,6 +1647,19 @@ object Protocol {
         writeln!(
             output,
             "        NotificationPermission.{} -> {}",
+            variant.name, variant.tag
+        )
+        .unwrap();
+    }
+    output.push_str("    }\n\n");
+    // The dialog's status travels out too: the Renderer is the side that learns how it ended.
+    output.push_str(
+        "    private fun fileDialogStatusTag(status: FileDialogStatus): Int = when (status) {\n",
+    );
+    for variant in crate::schema::FILE_DIALOG_STATUS_SCHEMA {
+        writeln!(
+            output,
+            "        FileDialogStatus.{} -> {}",
             variant.name, variant.tag
         )
         .unwrap();
@@ -2870,7 +2997,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .with_size(800, 600)
                 .with_min_size(320, 240)
                 .resizable(false)
-                .with_zoom_level(-2),
+                .with_zoom_level(-2)
+                .with_report_size(true),
         ),
         Mutation::Create {
             node_id: 20,
@@ -2986,11 +3114,47 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 8,
             modifier: Modifier::MatchParentSize,
         },
+        Mutation::RequestFocus { node_id: 1 },
+        // A dialog on the implicit root window, with every string filled and a list of two
+        // filters in the one NUL separated string.
+        Mutation::ShowFileDialog {
+            request: 7,
+            window: 0,
+            kind: crate::schema::FileDialogKind::OpenFiles,
+            default_filter: 1,
+            title: "파일 고르기",
+            directory: "/home/한글",
+            name: "보고서.txt",
+            filters: "이미지\0png,jpg\0문서\0pdf,txt",
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
         encoder.encode(mutation)?;
     }
+    Ok(encoder.finish()?.to_vec())
+}
+
+/// The matrix the 3D transform vector carries: sixteen different values, so a value read
+/// from the wrong half of the wrong word cannot pass.
+pub const TRANSFORM_3D_VECTOR_MATRIX: [f32; 16] = [
+    0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0, -6.0, 8.0, 1.0,
+];
+
+/// One batch holding one `Transform3D` on node 3, the only record 92 bytes long. It is a
+/// file of its own so that every byte of the main mutation vector stays where it was.
+pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 3,
+        index: 0,
+        modifier: Modifier::Transform3D {
+            m: TRANSFORM_3D_VECTOR_MATRIX,
+            origin_x: 0.5,
+            origin_y: 0.25,
+            backface_hidden: true,
+        },
+    })?;
     Ok(encoder.finish()?.to_vec())
 }
 
@@ -3033,6 +3197,9 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 ctrl_key: true,
                 alt_key: true,
                 meta_key: true,
+                repeat: true,
+                code: 0x28,
+                text: "Enter",
             },
         },
         HostEvent {
@@ -3258,6 +3425,16 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 0,
             payload: EventPayload::ApplicationReopen,
         },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::FileDialogResult {
+                request: 7,
+                status: crate::schema::FileDialogStatus::Chosen,
+                filter: 1,
+                paths: "/Users/한글/문서.txt\0/tmp/a b.png",
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3277,53 +3454,64 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 103,
+    "recordCount": 104,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
+  }},
+  "transform3d": {{
+    "file": "transform3d.bin",
+    "description": "One batch with one 92 byte Transform3D modifier on node 3: the column-major matrix, the origin (0.5, 0.25) and backface-visibility hidden",
+    "recordCount": 1,
+    "length": 104,
+    "matrix": [0.5, -0.25, 1.5, 0.125, -2.0, 3.0, 0.75, -0.5, 4.0, -1.25, 2.5, -0.0625, 12.0, -6.0, 8.0, 1.0],
+    "originX": 0.5,
+    "originY": 0.25,
+    "backfaceHidden": true
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-three independently decodable event records concatenated in schema order",
+    "description": "Thirty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
       {{ "type": "TextSubmitted", "offset": 46, "length": 28, "nodeId": 8, "handlerId": 13, "text": "done" }},
       {{ "type": "FocusLost", "offset": 74, "length": 16, "nodeId": 8, "handlerId": 14 }},
       {{ "type": "ProtocolError", "offset": 90, "length": 35, "nodeId": 0, "handlerId": 0, "code": 9, "message": "bad tag" }},
-      {{ "type": "KeyDown", "offset": 125, "length": 20, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true }},
-      {{ "type": "RangeRequested", "offset": 145, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
-      {{ "type": "ValueChanged", "offset": 169, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
-      {{ "type": "WindowSizeChanged", "offset": 193, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
-      {{ "type": "NotificationActivated", "offset": 237, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
-      {{ "type": "NotificationPermissionChanged", "offset": 274, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
-      {{ "type": "CodeChanged", "offset": 294, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
-      {{ "type": "CodeEditRejected", "offset": 342, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
-      {{ "type": "CodeHovered", "offset": 386, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
-      {{ "type": "CodeSaveRequested", "offset": 422, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
-      {{ "type": "DecorationActivated", "offset": 446, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
-      {{ "type": "AnimationEvent", "offset": 470, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
-      {{ "type": "ReducedMotionChanged", "offset": 510, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
-      {{ "type": "Pointer", "offset": 530, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
-      {{ "type": "SelectionChanged", "offset": 602, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
-      {{ "type": "VisibleRangeChanged", "offset": 638, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
-      {{ "type": "EditorFocusChanged", "offset": 666, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
-      {{ "type": "FoldChanged", "offset": 690, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
-      {{ "type": "CompositionChanged", "offset": 714, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
-      {{ "type": "WindowCloseRequested", "offset": 738, "length": 16, "nodeId": 20, "handlerId": 201 }},
-      {{ "type": "WindowFocusChanged", "offset": 754, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
-      {{ "type": "WindowMoved", "offset": 774, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
-      {{ "type": "WindowDrag", "offset": 806, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
-      {{ "type": "WindowDragOver", "offset": 838, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
-      {{ "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 }},
-      {{ "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 }},
-      {{ "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }}
+      {{ "type": "KeyDown", "offset": 125, "length": 37, "nodeId": 9, "handlerId": 15, "key": "Enter", "shiftKey": true, "ctrlKey": true, "altKey": true, "metaKey": true, "repeat": true, "code": 40, "text": "Enter" }},
+      {{ "type": "RangeRequested", "offset": 162, "length": 24, "nodeId": 10, "handlerId": 16, "start": 100, "count": 20 }},
+      {{ "type": "ValueChanged", "offset": 186, "length": 24, "nodeId": 11, "handlerId": 17, "value": -19723.5 }},
+      {{ "type": "WindowSizeChanged", "offset": 210, "length": 44, "nodeId": 0, "handlerId": 0, "widthDp": 840.0, "heightDp": 600.0, "sizeClass": "Expanded", "heightClass": "Medium", "safeAreaTop": 0.0, "safeAreaLeading": 0.0, "safeAreaTrailing": 0.0 }},
+      {{ "type": "NotificationActivated", "offset": 254, "length": 37, "nodeId": 0, "handlerId": 0, "action": 1, "key": "session/7" }},
+      {{ "type": "NotificationPermissionChanged", "offset": 291, "length": 20, "nodeId": 0, "handlerId": 0, "state": "Denied" }},
+      {{ "type": "CodeChanged", "offset": 311, "length": 48, "nodeId": 12, "handlerId": 18, "version": 1, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 8, "text": "mut " }},
+      {{ "type": "CodeEditRejected", "offset": 359, "length": 44, "nodeId": 12, "handlerId": 19, "requestId": 7, "baseVersion": 0, "currentVersion": 2, "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 9 }},
+      {{ "type": "CodeHovered", "offset": 403, "length": 36, "nodeId": 12, "handlerId": 20, "decoration": 42, "line": 0, "column": 4, "phase": "Rest" }},
+      {{ "type": "CodeSaveRequested", "offset": 439, "length": 24, "nodeId": 12, "handlerId": 21, "version": 2 }},
+      {{ "type": "DecorationActivated", "offset": 463, "length": 24, "nodeId": 12, "handlerId": 22, "decoration": 41 }},
+      {{ "type": "AnimationEvent", "offset": 487, "length": 40, "nodeId": 8, "handlerId": 0, "animationId": 7, "kind": "End", "property": "Transform", "slot": 2, "iteration": 3, "elapsedMs": 3000.0, "timeNanos": 123456789012 }},
+      {{ "type": "ReducedMotionChanged", "offset": 527, "length": 20, "nodeId": 0, "handlerId": 0, "state": "On" }},
+      {{ "type": "Pointer", "offset": 547, "length": 72, "nodeId": 13, "handlerId": 23, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 12.5, "y": -3.0, "buttons": 9, "button": 8, "modifiers": 5, "clickCount": 2, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 987654321000 }},
+      {{ "type": "SelectionChanged", "offset": 619, "length": 36, "nodeId": 12, "handlerId": 23, "version": 2, "anchorLine": 1, "anchorColumn": 12, "activeLine": 0, "activeColumn": 3 }},
+      {{ "type": "VisibleRangeChanged", "offset": 655, "length": 28, "nodeId": 12, "handlerId": 24, "version": 2, "firstLine": 0, "lastLine": 3 }},
+      {{ "type": "EditorFocusChanged", "offset": 683, "length": 24, "nodeId": 12, "handlerId": 25, "focused": true }},
+      {{ "type": "FoldChanged", "offset": 707, "length": 24, "nodeId": 12, "handlerId": 26, "startLine": 0, "collapsed": true }},
+      {{ "type": "CompositionChanged", "offset": 731, "length": 24, "nodeId": 12, "handlerId": 27, "composing": true }},
+      {{ "type": "WindowCloseRequested", "offset": 755, "length": 16, "nodeId": 20, "handlerId": 201 }},
+      {{ "type": "WindowFocusChanged", "offset": 771, "length": 20, "nodeId": 20, "handlerId": 202, "focused": true }},
+      {{ "type": "WindowMoved", "offset": 791, "length": 32, "nodeId": 20, "handlerId": 203, "x": 100.5, "y": -20.0, "width": 800.0, "height": 600.0 }},
+      {{ "type": "WindowDrag", "offset": 823, "length": 32, "nodeId": 20, "handlerId": 204, "phase": 2, "screenX": 640.25, "screenY": 360.5, "overWindow": 21 }},
+      {{ "type": "WindowDragOver", "offset": 855, "length": 32, "nodeId": 1, "handlerId": 207, "kind": 4, "window": 20, "x": 12.5, "y": 3.0 }},
+      {{ "type": "WindowUnavailable", "offset": 887, "length": 16, "nodeId": 20, "handlerId": 205 }},
+      {{ "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 }},
+      {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
+      {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }}
     ]
   }}
 }}

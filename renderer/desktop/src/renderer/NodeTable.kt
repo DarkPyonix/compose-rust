@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.ChromeInsets
 import dev.darkpyonix.composerust.foundation.MessageQueue
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
@@ -46,6 +47,7 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal val children = mutableStateListOf<Int>()
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
+    internal var focusRequestRevision by mutableStateOf(0L)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -92,6 +94,8 @@ data class TableError(val code: Int, val message: String) {
         const val MISPLACED_WINDOW = 13
         /** A node moved from the content of one `Window` into another, or out of its window. */
         const val MOVE_BETWEEN_WINDOWS = 14
+        /** A file dialog request whose number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_FILE_DIALOG = 15
     }
 }
 
@@ -165,10 +169,27 @@ class NodeTable {
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
 
+    /**
+     * The file dialogs the Host has asked for, and their answers on the way back.
+     *
+     * Not cleared with the tree, for the reason the notifications are not: a request the Host
+     * is waiting on is still owed its one answer after a resync.
+     */
+    val fileDialogs: dev.darkpyonix.composerust.ui.platform.FileDialogCenter =
+        dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
+
     private var revision = 0L
+
+    /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
+    var focusClearRevision by mutableStateOf(0L)
+        private set
 
     /** Null until the Host sends its first `SetTheme` record. */
     var theme: Theme? by mutableStateOf(null)
+        private set
+
+    /** Null until the Host sends an overlay tokens record. */
+    var overlayTokens: OverlayTokens? by mutableStateOf(null)
         private set
 
     /** Null until the Host sends its first `SetWindow` record. */
@@ -193,6 +214,16 @@ class NodeTable {
         if (windowId == ROOT_ID) return window?.zoomLevel
         val level = (nodes[windowId]?.props?.get(PropertyKind.WindowZoomLevel) as? PropertyValue.Integer)?.value
         return level?.toInt()?.coerceIn(-8, 8)
+    }
+
+    /**
+     * Whether the window [windowId] asked for every whole-dp change of its size. Node 0 is
+     * the single window of `SetWindow`, which asks through its settings; a `Window` node
+     * asks through its `report_size` property.
+     */
+    fun reportSizeFor(windowId: Int): Boolean {
+        if (windowId == ROOT_ID) return window?.reportSize == true
+        return node(windowId)?.flag(PropertyKind.ReportSize, false) == true
     }
 
     /**
@@ -253,6 +284,9 @@ class NodeTable {
      * start over and anything kept from before would collide with them.
      */
     fun clear() {
+        // The windows go with the nodes, and a dialog open on one of them ends with a cancel.
+        nodes.filterValues { it.widget == WidgetKind.Window }.keys.toList()
+            .forEach(fileDialogs::windowRemoved)
         animations.clear()
         nodes.clear()
         codeNodes.clear()
@@ -267,6 +301,7 @@ class NodeTable {
         window = null
         materials = 0
         revision = 0
+        focusClearRevision = 0
     }
 
     fun apply(mutation: Mutation) {
@@ -290,6 +325,7 @@ class NodeTable {
                     fail(TableError.INVALID_PALETTE, "theme palette: $problem")
                 }
             }
+            is Mutation.SetOverlayTokens -> overlayTokens = mutation.overlay
             // Read before there is a window to apply it to. The platform layer asks for
             // this out of the first batch and builds the window from it, so by the time
             // the batch is applied the window already looks the way it says. Keeping it
@@ -301,6 +337,7 @@ class NodeTable {
             // the batch.
             is Mutation.SetWindowTheme -> setWindowTheme(mutation)
             is Mutation.FocusWindow -> focusWindow(mutation)
+            is Mutation.RequestFocus -> requestFocus(mutation)
             // The bytes are read here, once, and never again: what a frame carries is the
             // id. A kind this Renderer cannot read, or a release of something that was
             // never registered, is reported and the rest of the batch still applies.
@@ -324,6 +361,10 @@ class NodeTable {
             is Mutation.PostNotification -> notifications.apply(mutation)
             is Mutation.WithdrawNotification -> notifications.withdraw(mutation.key)
             is Mutation.RequestNotificationPermission -> notifications.requestPermission()
+
+            // Not a node either. A request on a window that is not there is answered as
+            // unavailable, so the Host's one answer per request holds, and is reported too.
+            is Mutation.ShowFileDialog -> showFileDialog(mutation)
 
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
@@ -385,6 +426,36 @@ class NodeTable {
     private fun focusWindow(mutation: Mutation.FocusWindow) {
         windowNode(mutation.nodeId, "FocusWindow") ?: return
         focusRequests += mutation.nodeId
+    }
+
+    private fun showFileDialog(mutation: Mutation.ShowFileDialog) {
+        val windowKnown = mutation.window == ROOT_ID ||
+            nodes[mutation.window]?.widget == WidgetKind.Window
+        when (fileDialogs.request(mutation, windowKnown)) {
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.Accepted -> Unit
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.Duplicate -> fail(
+                TableError.DUPLICATE_FILE_DIALOG,
+                "ShowFileDialog request ${mutation.request} is already waiting for its answer",
+            )
+            dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.UnknownWindow -> fail(
+                TableError.UNKNOWN_NODE,
+                "ShowFileDialog for unknown window ${mutation.window}",
+            )
+        }
+    }
+
+    private fun requestFocus(mutation: Mutation.RequestFocus) {
+        if (mutation.nodeId == ROOT_ID) {
+            revision += 1
+            focusClearRevision = revision
+            return
+        }
+        val node = nodes[mutation.nodeId] ?: return fail(
+            TableError.UNKNOWN_NODE,
+            "RequestFocus for unknown node ${mutation.nodeId}",
+        )
+        revision += 1
+        node.focusRequestRevision = revision
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -608,7 +679,10 @@ class NodeTable {
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
         codeNodes.remove(nodeId)
-        if (node.widget == WidgetKind.Window) windowThemes.remove(nodeId)
+        if (node.widget == WidgetKind.Window) {
+            windowThemes.remove(nodeId)
+            fileDialogs.windowRemoved(nodeId)
+        }
         animations.removeNode(nodeId)
         materials -= node.modifiers.count { it is ProtocolModifier.Material }
         node.children.toList().forEach(::removeSubtree)
@@ -694,12 +768,30 @@ class NodeTable {
 
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
+                // The name assistive technology reads can be given to any node.
+                PropertyKind.AccessibleName -> true
+
+                // Colours and size of the selection controls.
+                PropertyKind.TrackColor,
+                PropertyKind.ThumbColor,
+                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+
+                PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+
+                PropertyKind.ContainerColor,
+                PropertyKind.CheckColor,
+                -> widget == WidgetKind.Checkbox
+
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
                 PropertyKind.OnValueChange,
                 PropertyKind.OnSubmit,
                 PropertyKind.OnFocusLost,
+                PropertyKind.OnFocusGained,
                 PropertyKind.OnKeyDown,
+                PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
                 -> true
@@ -888,6 +980,11 @@ class NodeTable {
                     widget == WidgetKind.Menu ||
                     // A sheet is an overlay on the same terms as a dialog.
                     widget == WidgetKind.Sheet
+
+                // A custom scrim colour for modal and popup overlays.
+                PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
+                    widget == WidgetKind.Menu ||
+                    widget == WidgetKind.Sheet
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->
@@ -977,8 +1074,10 @@ class NodeTable {
                 PropertyKind.OnVisibleRangeChange,
                 PropertyKind.OnEditorFocusChange,
                 PropertyKind.OnFoldChange,
-                PropertyKind.OnCompositionChange,
                 -> widget == WidgetKind.CodeEditor
+
+                PropertyKind.OnCompositionChange ->
+                    widget == WidgetKind.CodeEditor || widget == WidgetKind.TextField
 
                 // Files over a node and files let go on it. Only the widget that exists
                 // to receive them, because a handler is attached whether or not a screen
@@ -999,6 +1098,7 @@ class NodeTable {
                 PropertyKind.WindowSize,
                 PropertyKind.WindowMinSize,
                 PropertyKind.WindowResizable,
+                PropertyKind.ReportSize,
                 PropertyKind.WindowChrome,
                 PropertyKind.WindowTitleBar,
                 PropertyKind.WindowIcon,

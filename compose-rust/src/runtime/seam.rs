@@ -86,6 +86,14 @@ impl Batch {
     /// The root theme record. Written once per rebuild, never per frame.
     pub fn set_theme(&mut self, theme: Theme) {
         self.write(Mutation::SetTheme(theme));
+        if let Some(overlay) = theme.overlay {
+            self.write(Mutation::SetOverlayTokens(*overlay));
+        }
+    }
+
+    /// Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+    pub fn set_overlay_tokens(&mut self, tokens: crate::schema::OverlayTokens) {
+        self.write(Mutation::SetOverlayTokens(tokens));
     }
 
     /// The root window record. Written once per rebuild, never per frame.
@@ -160,6 +168,21 @@ impl Batch {
                 self.write(Mutation::RequestNotificationPermission);
             }
         }
+    }
+
+    /// Writes one file dialog request. Like a notification it names no node: the dialog is
+    /// not in the tree, and `window` only says which window it is modal for.
+    pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {
+        self.write(Mutation::ShowFileDialog {
+            request: request.id,
+            window: request.window,
+            kind: request.kind,
+            default_filter: request.default_filter,
+            title: &request.title,
+            directory: &request.directory,
+            name: &request.name,
+            filters: &request.filters,
+        });
     }
 
     /// Writes one edit the application asked of a code editor: replace `range` of the
@@ -239,6 +262,11 @@ impl Batch {
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });
+    }
+
+    /// Requests input focus for `node_id`, or clears focus when `node_id` is 0.
+    pub fn request_focus(&mut self, node_id: u32) {
+        self.write(Mutation::RequestFocus { node_id });
     }
 }
 

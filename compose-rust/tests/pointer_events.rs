@@ -31,7 +31,7 @@ thread_local! {
     static SEEN: RefCell<Vec<(PointerKind, f32, f32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
 }
 
-#[composable]
+#[Composable]
 fn Screen() {
     Column().content(|| {
         // Subscribed to presses and moves. A press is consumed, a move is not.

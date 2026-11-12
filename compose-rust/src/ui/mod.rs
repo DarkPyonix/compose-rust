@@ -5,7 +5,7 @@
 //! use compose_rust::runtime::*;
 //! use compose_rust::ui::*;
 //!
-//! #[composable]
+//! #[Composable]
 //! fn Greeting(name: String) {
 //!     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
 //!         Text(format!("Hello, {name}")).type_role(TypeRole::Title);
@@ -34,10 +34,11 @@ pub use crate::brush::{Brush, Stop, brush};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
+pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
-    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, ShapeRole, SpaceRole,
-    TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
+    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, SemanticsRole, ShapeRole,
+    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -85,6 +86,193 @@ impl Shadow {
     }
 }
 
+/// How a node presents itself to assistive technology. Each tri-state field is unset until
+/// it is given a value, and an unset one sends nothing. The flags are off until set.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticsState {
+    pub checked: Option<bool>,
+    pub selected: Option<bool>,
+    pub expanded: Option<bool>,
+    pub disabled: Option<bool>,
+    pub focused: Option<bool>,
+    pub hidden: bool,
+    pub click_action: bool,
+    pub focus_action: bool,
+}
+
+impl SemanticsState {
+    const NONE: Self = Self {
+        checked: None,
+        selected: None,
+        expanded: None,
+        disabled: None,
+        focused: None,
+        hidden: false,
+        click_action: false,
+        focus_action: false,
+    };
+
+    pub const fn checked(checked: bool) -> Self {
+        Self {
+            checked: Some(checked),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn selected(selected: bool) -> Self {
+        Self {
+            selected: Some(selected),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn expanded(expanded: bool) -> Self {
+        Self {
+            expanded: Some(expanded),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn disabled(disabled: bool) -> Self {
+        Self {
+            disabled: Some(disabled),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn focused(focused: bool) -> Self {
+        Self {
+            focused: Some(focused),
+            ..Self::NONE
+        }
+    }
+
+    pub const fn hidden(hidden: bool) -> Self {
+        Self {
+            hidden,
+            ..Self::NONE
+        }
+    }
+
+    pub const fn click_action(exposed: bool) -> Self {
+        Self {
+            click_action: exposed,
+            ..Self::NONE
+        }
+    }
+
+    pub const fn focus_action(exposed: bool) -> Self {
+        Self {
+            focus_action: exposed,
+            ..Self::NONE
+        }
+    }
+
+    /// The state word the `Semantics` modifier carries.
+    pub(crate) fn bits(self) -> u32 {
+        use crate::schema::*;
+        let tri = |value: Option<bool>| value.map_or(0_u32, |on| if on { 2 } else { 1 });
+        (tri(self.checked) << SEMANTICS_CHECKED_SHIFT)
+            | (tri(self.selected) << SEMANTICS_SELECTED_SHIFT)
+            | (tri(self.expanded) << SEMANTICS_EXPANDED_SHIFT)
+            | (tri(self.disabled) << SEMANTICS_DISABLED_SHIFT)
+            | (tri(self.focused) << SEMANTICS_FOCUSED_SHIFT)
+            | if self.hidden { SEMANTICS_HIDDEN_BIT } else { 0 }
+            | if self.click_action {
+                SEMANTICS_CLICK_ACTION_BIT
+            } else {
+                0
+            }
+            | if self.focus_action {
+                SEMANTICS_FOCUS_ACTION_BIT
+            } else {
+                0
+            }
+    }
+}
+
+/// The most distinct accessible names a program can keep. Names are kept for the life of
+/// the program so a `Modifier` can stay `Copy`; the cap keeps a name built from data
+/// (an id, a counter) from growing that memory without end.
+pub(crate) const MAX_LABELS: usize = 4096;
+
+/// The distinct accessible names seen so far, each leaked once.
+struct LabelTable {
+    kept: std::sync::RwLock<std::collections::HashSet<&'static str>>,
+    warned: std::sync::atomic::AtomicBool,
+}
+
+impl LabelTable {
+    fn new() -> Self {
+        Self {
+            kept: Default::default(),
+            warned: Default::default(),
+        }
+    }
+
+    /// The kept copy of `label`. A name already kept is found under a shared lock with no
+    /// allocation. A new name is kept until the table holds `cap` names; past that it is
+    /// dropped (and reported in debug builds) so memory stays bounded.
+    fn intern(&self, label: &str, cap: usize) -> Option<&'static str> {
+        use std::sync::atomic::Ordering;
+
+        if label.is_empty() {
+            return None;
+        }
+        {
+            let kept = self.kept.read().unwrap_or_else(|p| p.into_inner());
+            if let Some(found) = kept.get(label) {
+                return Some(*found);
+            }
+        }
+        let mut kept = self.kept.write().unwrap_or_else(|p| p.into_inner());
+        if let Some(found) = kept.get(label) {
+            return Some(*found);
+        }
+        if kept.len() >= cap {
+            if cfg!(debug_assertions) && !self.warned.swap(true, Ordering::Relaxed) {
+                eprintln!(
+                    "compose-rust: more than {cap} distinct accessible names; \
+                     names past the limit are left off. Use a fixed set of names."
+                );
+            }
+            return None;
+        }
+        let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
+        kept.insert(leaked);
+        Some(leaked)
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.kept.read().unwrap_or_else(|p| p.into_inner()).len()
+    }
+}
+
+fn keep_label(label: &str) -> Option<&'static str> {
+    use std::cell::Cell;
+    use std::sync::OnceLock;
+
+    static LABELS: OnceLock<LabelTable> = OnceLock::new();
+    thread_local! {
+        // The name this thread kept last. A name written on every frame is found here
+        // without taking any lock.
+        static LAST: Cell<Option<&'static str>> = const { Cell::new(None) };
+    }
+    if let Some(last) = LAST.with(Cell::get) {
+        if last == label {
+            return Some(last);
+        }
+    }
+    let kept = LABELS
+        .get_or_init(LabelTable::new)
+        .intern(label, MAX_LABELS);
+    if kept.is_some() {
+        LAST.with(|last| last.set(kept));
+    }
+    kept
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -116,6 +304,9 @@ pub struct Modifier {
     elevation: Option<f32>,
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
+    semantics_role: Option<SemanticsRole>,
+    semantics_label: Option<&'static str>,
+    semantics_state: SemanticsState,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
     animated_background: Option<crate::Animated<Paint>>,
@@ -156,6 +347,9 @@ impl Modifier {
             elevation: None,
             alpha: None,
             press_feedback: None,
+            semantics_role: None,
+            semantics_label: None,
+            semantics_state: SemanticsState::NONE,
             transform: None,
             animated_alpha: None,
             animated_background: None,
@@ -358,6 +552,79 @@ impl Modifier {
         self
     }
 
+    /// The name assistive technology reads for this node. On a widget with a visible label
+    /// it replaces that label; an empty name is the same as none.
+    ///
+    /// Names are kept for the life of the program, and at most 4096 distinct names are
+    /// kept. A name past that limit is left off (debug builds print a warning once), so
+    /// use a fixed set of names rather than one built from changing data.
+    pub fn label(mut self, label: &str) -> Self {
+        self.semantics_label = keep_label(label);
+        self
+    }
+
+    /// What this node is to assistive technology, for a node that is not a widget with
+    /// a role of its own: a `Box` that is pressed is a button.
+    pub const fn role(mut self, role: Role) -> Self {
+        self.semantics_role = Some(role);
+        self
+    }
+
+    /// Whether the node is checked, as a toggle announces it.
+    pub const fn checked(mut self, checked: bool) -> Self {
+        self.semantics_state.checked = Some(checked);
+        self
+    }
+
+    /// Whether the node is the selected one of its group.
+    pub const fn selected(mut self, selected: bool) -> Self {
+        self.semantics_state.selected = Some(selected);
+        self
+    }
+
+    /// Whether the node is expanded, as a disclosure or a tree item announces it.
+    pub const fn expanded(mut self, expanded: bool) -> Self {
+        self.semantics_state.expanded = Some(expanded);
+        self
+    }
+
+    /// Whether the node is disabled for assistive technology.
+    pub const fn disabled(mut self, disabled: bool) -> Self {
+        self.semantics_state.disabled = Some(disabled);
+        self
+    }
+
+    /// Whether the node holds the focus, as assistive technology reads it.
+    pub const fn focused(mut self, focused: bool) -> Self {
+        self.semantics_state.focused = Some(focused);
+        self
+    }
+
+    /// Leaves the node out of the accessibility tree when true.
+    pub const fn hidden(mut self, hidden: bool) -> Self {
+        self.semantics_state.hidden = hidden;
+        self
+    }
+
+    /// Exposes a click action on the node, which runs the node's click handler.
+    pub const fn click_action(mut self, exposed: bool) -> Self {
+        self.semantics_state.click_action = exposed;
+        self
+    }
+
+    /// Exposes a focus action on the node.
+    pub const fn focus_action(mut self, exposed: bool) -> Self {
+        self.semantics_state.focus_action = exposed;
+        self
+    }
+
+    /// The role, the name and the state in one call.
+    pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
+        let mut named = self.role(role).label(label);
+        named.semantics_state = state;
+        named
+    }
+
     /// Compose's `graphicsLayer`: a rotation, a scale and a translation about an origin,
     /// drawn without moving the layout, and an opacity for the whole group. A pointer is
     /// tested against the shape that is drawn.
@@ -469,6 +736,19 @@ pub(crate) fn optional_text(value: Option<String>) -> OwnedAttr {
     value.map_or(OwnedAttr::None, OwnedAttr::Text)
 }
 
+/// The role and state of a Modifier as the one integer the `semantics` attribute carries,
+/// or none when neither was given.
+fn semantics_bits(modifier: &Modifier) -> Option<i64> {
+    let state = modifier.semantics_state;
+    if modifier.semantics_role.is_none() && state == SemanticsState::NONE {
+        return None;
+    }
+    let role = i64::from(u16::from(
+        modifier.semantics_role.unwrap_or(SemanticsRole::None),
+    ));
+    Some(role | (i64::from(state.bits()) << 16))
+}
+
 /// Writes the Modifier attributes, in the order the `rsx!` widgets write them.
 pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     let container = mods == Mods::Container;
@@ -555,6 +835,20 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             .map_or(OwnedAttr::None, |(scale, alpha)| {
                 OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
             }),
+    );
+    // The role and state travel as one integer, the role in the low 16 bits; the name is a
+    // property of the node because a string does not fit in a modifier's words.
+    push(
+        false,
+        "semantics",
+        semantics_bits(modifier).map_or(OwnedAttr::None, OwnedAttr::Int),
+    );
+    push(
+        false,
+        "accessible_name",
+        modifier
+            .semantics_label
+            .map_or(OwnedAttr::None, OwnedAttr::Label),
     );
     push(
         false,
@@ -728,5 +1022,34 @@ mod fr19_9_tests {
             assert!(attrs.iter().any(|(name, value)| *name == "window_drag"
                 && matches!(value, OwnedAttr::Bool(value) if *value == enabled)));
         }
+    }
+}
+
+#[cfg(test)]
+mod fr68_label_tests {
+    use super::*;
+
+    #[test]
+    fn fr68_repeated_labels_do_not_grow_the_table() {
+        let table = LabelTable::new();
+        let first = table.intern("Refresh", MAX_LABELS).unwrap();
+        for _ in 0..10_000 {
+            let again = table.intern("Refresh", MAX_LABELS).unwrap();
+            assert!(std::ptr::eq(first, again));
+        }
+        assert_eq!(table.len(), 1);
+    }
+
+    #[test]
+    fn fr68_labels_past_the_cap_are_dropped() {
+        let table = LabelTable::new();
+        for n in 0..MAX_LABELS {
+            assert!(table.intern(&format!("label {n}"), MAX_LABELS).is_some());
+        }
+        assert_eq!(table.len(), MAX_LABELS);
+        assert_eq!(table.intern("one too many", MAX_LABELS), None);
+        assert_eq!(table.len(), MAX_LABELS);
+        // A name already kept is still found.
+        assert!(table.intern("label 0", MAX_LABELS).is_some());
     }
 }

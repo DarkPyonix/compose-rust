@@ -8,6 +8,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
@@ -30,6 +31,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +41,7 @@ import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
+import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.FrameRequests
@@ -76,7 +79,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import dev.darkpyonix.composerust.design.HostPlatform
 
-internal class WindowDragExclusion { var downKey: Pair<Long, Long>? = null }
+/**
+ * The press a `WindowDrag(false)` node saw, as pointer id and uptime. Two fields rather than
+ * a pair, so marking a press allocates nothing.
+ */
+internal class WindowDragExclusion {
+    var downId: Long = -1L
+    var downUptime: Long = -1L
+    fun mark(id: Long, uptime: Long) { downId = id; downUptime = uptime }
+    fun clear() { downId = -1L; downUptime = -1L }
+    fun isMarked(id: Long, uptime: Long): Boolean = downId == id && downUptime == uptime
+}
 internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }
 
 /**
@@ -132,6 +145,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // After the first batch, so the first thing the Host hears is a press that started
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
+        table.fileDialogs.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -165,6 +179,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // answer from the platform asks for a frame for exactly this, because the frame is
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
+        table.fileDialogs.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -178,6 +193,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     fun shutdown() {
         table.notifications.shutdown()
+        table.fileDialogs.shutdown()
         connection.shutdown()
     }
 
@@ -379,6 +395,11 @@ private fun ComposeRustTree(
     // however many windows there are.
     val windowNodeId = LocalWindowNodeId.current
     val pageRoots = if (windowNodeId == 0) host.roots else host.table.node(windowNodeId)?.children?.toList().orEmpty()
+    val focusManager = LocalFocusManager.current
+    val clearFocusRevision = host.table.focusClearRevision
+    LaunchedEffect(clearFocusRevision) {
+        if (clearFocusRevision > 0L) focusManager.clearFocus()
+    }
     LaunchedEffect(host, frames, windowNodeId, servesFrames) {
         if (windowNodeId != 0 || !servesFrames) return@LaunchedEffect
         // Counted from the Host's start, not from the moment this loop began listening. The
@@ -396,6 +417,8 @@ private fun ComposeRustTree(
     // A notification centre answers on a thread of its own, and the way from any thread to
     // this one is a frame request. The centre asks through the same source this loop serves.
     SideEffect { host.table.notifications.wake = frames::request }
+    // A file dialog's answer arrives the same way, from whichever thread the platform uses.
+    SideEffect { host.table.fileDialogs.wake = frames::request }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
@@ -433,11 +456,17 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    // The height class is state too, so that a window which only crosses a height boundary
+    // (a phone-width window that is tall) recomposes and reaches the reporter below. Read
+    // only through the effect, the size is not observed, and a window whose width class did
+    // not change would never be reported.
+    var heightClass by remember(host) { mutableStateOf(WindowHeightClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
+            heightClass = windowHeightClassOf(size.height.toDp().value)
             measuredSize = size
         }
     }
@@ -455,6 +484,7 @@ private fun ComposeRustTree(
         chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
+        overlay = host.table.overlayTokens,
     )
     // The animations the Host handed over are played here, on this side's frame clock, and
     // the Host is not called while they play unless one asked for events. The loop waits
@@ -549,9 +579,25 @@ private fun ComposeRustTree(
             captionStyle.side == CaptionSide.Start
         WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
     }
+    // Read through a derived state so a recomposition does not repeat the map lookup (which
+    // boxes the node id) and the read only runs again when the property itself changes.
+    // The implicit root window (id 0) opts in through its SetWindow settings and any other
+    // window through its node property; the table answers for both.
+    val reportEveryDp = remember(host, windowNodeId) {
+        derivedStateOf { host.table.reportSizeFor(windowNodeId) }
+    }.value
+    // A window that asked for every whole-dp change reads the size here, in the composition,
+    // so a new size recomposes this and reaches the effect. Any other window keeps reading it
+    // only inside the effect, as before, so a resize inside a size class costs it no
+    // recomposition.
+    val observedSize = if (reportEveryDp) measuredSize else null
+    // Subscribes this scope to the height class: reading the class here is what makes a
+    // height-only class change recompose, and so run the effect below with the new size.
+    @Suppress("UNUSED_VARIABLE")
+    val observedHeightClass = heightClass
     SideEffect {
-        measuredSize?.let { size ->
-            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea) }
+        (observedSize ?: measuredSize)?.let { size ->
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
     // How much room the buttons take and at which end. The platform's own are at the
@@ -575,12 +621,13 @@ private fun ComposeRustTree(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
+    val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
-            if (!down.isConsumed && dragExclusion.downKey != (down.id.value to down.uptimeMillis) && down.position.y < caption.height.toPx()) {
+            if (!down.isConsumed && !dragExclusion.isMarked(down.id.value, down.uptimeMillis) && down.position.y < caption.height.toPx()) {
                 while (true) {
                     val change = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
                     if (change.isConsumed || !change.pressed) break
@@ -595,6 +642,7 @@ private fun ComposeRustTree(
     } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
@@ -615,7 +663,9 @@ private fun ComposeRustTree(
                 modifier
                     .then(measured)
                     .then(dragStrip)
-                    .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
+                    .onKeyEvent { event ->
+                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                    }
                     .background(host.table.windowFill(pageRoots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {

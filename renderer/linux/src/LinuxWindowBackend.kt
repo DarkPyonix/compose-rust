@@ -4,7 +4,9 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
 import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.TitleBar
+import dev.darkpyonix.composerust.runtime.Zoom
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.thisisthepy.compose.window.TitleBarStyle
@@ -27,6 +29,7 @@ import platform.posix.usleep
  */
 internal class LinuxWindowBackend(
     private val work: FrameDispatcher,
+    private val makeZoom: () -> Zoom = { Zoom(nativeLinuxTextScale(), nativeLinuxZoomLevelStore()) },
     private val content: (nodeId: Int) -> @Composable () -> Unit,
 ) : WindowBackend {
 
@@ -59,8 +62,10 @@ internal class LinuxWindowBackend(
     override val supportsMultipleWindows: Boolean get() = true
 
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
-        val window = LinuxWindow.open(windowConfigOf(config), work) ?: return null
+        val window = LinuxWindow.open(windowConfigOf(config), work, makeZoom()) ?: return null
+        window.colorScheme = config.colorScheme
         window.platformListener = listener
+        window.setZoomLevel(config.zoomLevel ?: window.zoom.level)
         window.setContent(content(config.nodeId))
         val platform = LinuxPlatformWindow(this, window)
         windows += platform
@@ -180,6 +185,8 @@ internal class LinuxPlatformWindow(
 
     override fun setTitle(title: String) = x11.setTitle(title)
 
+    override fun setZoomLevel(level: Int) = window.setZoomLevel(level)
+
     override fun setMinimumSize(width: Float, height: Float) =
         x11.setMinimumSize(width.toInt(), height.toInt())
 
@@ -207,6 +214,11 @@ internal class LinuxPlatformWindow(
 
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean =
         x11.followPointer(anchorX, anchorY)
+
+    override fun setColorScheme(scheme: ColorScheme) {
+        window.colorScheme = scheme
+        window.x11.requestFrame()
+    }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
         var waiter: ((Long) -> Unit)? = null
