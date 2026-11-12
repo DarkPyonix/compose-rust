@@ -1830,6 +1830,23 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_13_the_manifest_declares_per_monitor_v2_awareness, fr22_6_13_the_resource_file_starts_with_the_empty_entry, fr22_6_13_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_13_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
 14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_14_every_piece_of_code_is_signed_ad_hoc, fr22_6_14_the_signed_application_runs).
 
+#### 22.7 가이드에서 샘플을 브라우저로 실행합니다 (`Draft`)
+
+가이드 사이트는 완성된 샘플을 웹으로 빌드해 함께 게시합니다. 읽는 사람이 아무것도 설치하지 않고 브라우저에서 샘플을 바로 실행할 수 있게 하려는 것입니다(소유자, 2026-09-20: "guide 문서에 샘플 앱들 제작 완료된거 web으로 내보내서 예제들 바로 볼 수 있도록 해줘", 이슈 #20). 페이지는 `build-sample-pages.sh`가 만드는 것과 같습니다.
+
+결정:
+
+- (a) Pages는 wasm을 직접 빌드하지 않고 태그의 릴리스(`samples-latest` 또는 해당 릴리스)에서 웹 샘플 아카이브를 가져옵니다. 이유: 배포가 수십 분 걸리는 빌드를 반복하지 않고, 게시되는 샘플이 main에서 온 태그의 것입니다. [leader, provisional, 2026-11-13]
+- (b) 배포는 지금처럼 main에서만 합니다. [leader, provisional, 2026-11-13]
+- (c) 빌드되지 않은 샘플이 있으면 배포가 실패합니다. 조용히 건너뛰면 고장이 가려지고, 샘플은 웹에서 빌드되어야 합니다(#2). [leader, provisional, 2026-11-13]
+
+수용 기준:
+
+1. Pages 배포는 `samples/` 아래 `src/main.rs`가 있는 샘플마다 `/samples/<name>/`에 실행 가능한 페이지를 싣습니다. 하나라도 빠지면 배포가 실패합니다(`fr22_7_1_pages_publishes_every_sample`).
+2. 가이드에 영어와 한국어 샘플 페이지가 있고, 샘플마다 실행 링크와 한 줄 설명을 두며 기존 탐색과 스타일을 따릅니다. 목록은 1번의 샘플 집합과 같습니다(`fr22_7_2_guide_lists_every_published_sample`).
+3. 배포는 main에서만 일어나고, 다른 브랜치의 실행은 산출물만 만듭니다.
+4. 각 샘플 페이지가 Chromium에서 뜨고 첫 화면을 그리는지는 수동으로 확인합니다. CI는 페이지의 파일 구성을 검사합니다.
+
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
 **2026-09-23: 그러나 일곱 플랫폼 중 여섯이 사용자가 겪을 경로로 만들어진 것이 아니었습니다.** Android 하나를 지적받고 나머지를 전부 확인한 결과입니다. 샘플은 "사용자가 쓰는 방식으로 쓴 것"이어야 하는데, 릴리스 아티팩트는 저장소 안에만 있는 스크립트로 만들었습니다. 그래서 배포한 것이 사용자가 만들 것과 다르고, 사용자 경로가 깨져 있어도 아무도 모릅니다. 실제로 셋이 깨져 있었습니다.
@@ -3251,11 +3268,11 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 위의 `ZoomChanged`는 밀도만 바뀌는 이동에는 오지 않습니다. 측정 호출은 Renderer가 `Density(density × k)`로 재므로 측정값은 밀도를 이미 따르지만, HTML 레이아웃은 CSS의 `window.devicePixelRatio`와 `@media (resolution)`, `image-set()`과 `srcset`으로 고를 이미지의 해상도, 1 CSS px 헤어라인 테두리를 장치 픽셀에 맞추는 일에 밀도 값이 필요합니다. CSS px에서 dp로의 배치 자체는 1 CSS px = 1 dp에 `k`를 곱하는 것이라 밀도가 필요 없습니다.
 
-- 새 이벤트 `DensityChanged`, 이벤트 태그 42. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
+- 새 이벤트 `DensityChanged`, 이벤트 태그 53. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
 - 페이로드는 `scale: f32`(장치 픽셀 ÷ dp, 예: 2.0)이고, 레코드는 20바이트(머리 16, `scale@16`)입니다. 0 이하나 NaN은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 값이 바뀔 때(모니터 이동, OS 배율 변경)마다 옵니다. 같은 값이 연달아 오지 않습니다. 오기 전에 Host가 읽는 값은 1.0입니다.
 - `ZoomChanged`와 독립입니다. `WindowSizeChanged`나 `ZoomChanged`에 칸을 더하지 않습니다. 속성 블록도 쓰지 않습니다(Host에서 Renderer로 가는 값이 아닙니다).
-- 번호는 FR-38.9(34-38), FR-45(39, 40), FR-44(41) 다음입니다. `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
+- 번호는 FR-53의 창 이벤트(39-47), FR-45(48, 49), `FileDialogResult`(50), FR-38의 `CodeEditGroupResult`(51), FR-44(52) 다음입니다. 처음에는 42였으나 FR-53의 `WindowDrag`와 겹쳐 53으로 옮겼습니다(2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
 
 수용 기준:
 1. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr43_density_event_round_trips).
@@ -3269,7 +3286,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 52(처음에는 41이었으나 FR-53의 `WindowMoved`와 겹쳐 옮겼습니다. 2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
 - 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
 - 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.

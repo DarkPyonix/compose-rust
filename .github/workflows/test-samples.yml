@@ -17,6 +17,11 @@
 # of them back because one of them broke on one platform helps nobody. A platform where
 # nothing at all built is a different thing and still fails the run.
 #
+# The web is the exception: a sample that does not build as a page fails the web job, and
+# with it the release. The guide site serves every sample's page from this release, so a
+# page left out would be a dead link that hides the broken build. Once samples-latest
+# holds the new files, the release job starts the Pages workflow on main to publish them.
+#
 # Separate from release.yml on purpose. That workflow ships the library: the renderer
 # artifacts and the crate. This one ships programs a person downloads and runs, and the
 # two should be versioned apart so a sample can be rebuilt without implying a library
@@ -27,8 +32,10 @@
 # (compose-rust-renderer-v<version>-<target>.tar.gz, checked against its .sha256), so a
 # sample build does not rebuild it; when the release has no such asset yet (a version still
 # in a pull request), the resolve job says so and the renderer is built here by
-# static-renderer.yml. On Windows the renderer is the Kotlin/Native static library built by
-# windows-static.yml, so each sample is one executable on every desktop platform.
+# static-renderer.yml. On Windows the renderer is the Kotlin/Native static kit, taken from
+# the same release when its windows-x64 tarball is that kit and built by windows-static.yml
+# otherwise (a release that still carries the GraalVM DLL under that name), so each sample
+# is one executable on every desktop platform.
 #
 # What a release carries, per sample and target, named `<sample>-<target>.<ext>`:
 #   - every desktop target: `.tar.gz` of the executable;
@@ -108,14 +115,16 @@ jobs:
   # The renderer used is the one released for the crate version, unless the release carries
   # another schema than this head (compared by schema-hash.txt): then the renderer is built
   # from this head and the run says so in a notice.
-  # The Windows static branches below take effect once the release carries a static
-  # windows-x64 tarball; until then the Windows build still uses the DLL kit.
+  # Windows takes the release's windows-x64 tarball only when it is the Kotlin/Native static
+  # kit. Releases up to v0.0.7 carry the GraalVM DLL under that name, which the crate's build
+  # script no longer links, so for those the kit is built here as before.
   resolve:
     name: Find the released renderer
     needs: requested
     runs-on: ubuntu-latest
     outputs:
       released: ${{ steps.find.outputs.released }}
+      windows_released: ${{ steps.find.outputs.windows_released }}
       version: ${{ steps.find.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -152,6 +161,20 @@ jobs:
           fi
           echo "released=$released" >> "$GITHUB_OUTPUT"
           echo "crate $version, released renderer: $released"
+          # Windows also needs the tarball to be the static kit.
+          windows_released=false
+          if [[ "$released" == "true" ]]; then
+            asset="compose-rust-renderer-v$version-windows-x64.tar.gz"
+            gh release download "v$version" -R "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$work"
+            kind="$(.github/scripts/windows-renderer-is-static.sh "$work/$asset")"
+            echo "$kind"
+            windows_released="$(sed -n 's/^windows_static=//p' <<<"$kind")"
+            if [[ "$windows_released" != "true" ]]; then
+              echo "::notice title=No static Windows renderer in v$version::its windows-x64 tarball is not the Kotlin/Native kit, so the Windows samples are built against the kit built here"
+            fi
+          fi
+          echo "windows_released=$windows_released" >> "$GITHUB_OUTPUT"
+          echo "crate $version, released Windows renderer: $windows_released"
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
   # Only when the release does not carry them yet.
@@ -170,10 +193,12 @@ jobs:
 
   # The Windows renderer: Kotlin/Native, linked into the executable, so a Windows sample
   # is one file like the others. This replaces the GraalVM DLL the samples used to ship
-  # beside the program. Its long first half is cached on exactly its inputs.
+  # beside the program. Its long first half is cached on exactly its inputs. Only when the
+  # release does not carry the kit.
   windows-static:
     name: renderer (windows-x64)
-    needs: requested
+    needs: resolve
+    if: needs.resolve.outputs.windows_released != 'true'
     uses: ./.github/workflows/windows-static.yml
 
   build:
@@ -288,11 +313,30 @@ jobs:
           echo "DIST=$dir" >> "$GITHUB_ENV"
 
       - name: Take the Windows renderer kit
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.resolve.outputs.windows_released != 'true'
         uses: actions/download-artifact@v4
         with:
           name: windows-static-renderer-kit
           path: ${{ runner.temp }}/renderer-kit
+
+      - name: Download the released Windows renderer kit
+        if: runner.os == 'Windows' && needs.resolve.outputs.windows_released == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p renderer-artifact
+          asset="compose-rust-renderer-v$VERSION-windows-x64.tar.gz"
+          gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" \
+            --pattern "$asset" --pattern "$asset.sha256" --dir renderer-artifact
+          (cd renderer-artifact && sha256sum -c "$asset.sha256")
+          # The tarball root is the kit root. Forward slashes: GNU tar reads "D:" as a host.
+          kit="$(cygpath -m "$RUNNER_TEMP/renderer-kit")"
+          mkdir -p "$kit"
+          tar -xzf "renderer-artifact/$asset" -C "$kit"
+          ls -la "$kit"
 
       - name: Point the build at the Windows renderer
         if: runner.os == 'Windows'
@@ -714,6 +758,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # To start the Pages workflow once samples-latest holds the new pages.
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -826,6 +872,7 @@ jobs:
           fi
 
       - name: Replace the files of the samples-latest release
+        id: feed
         # The release tagged samples-latest always holds the newest samples at one fixed
         # address. It is a pre-release and never latest, so it does not compete with the
         # library's v* releases. It is updated in place: the new files are uploaded over
@@ -865,3 +912,13 @@ jobs:
               gh release delete-asset "$FEED" "$asset" --yes
             fi
           done
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the new sample pages on the guide site
+        # The guide serves the sample pages from samples-latest, so it is deployed again
+        # once that release holds the new files. Pages deploys from main only, so that is
+        # the ref it runs on.
+        if: steps.feed.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml -R "$GITHUB_REPOSITORY" --ref main

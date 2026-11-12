@@ -162,6 +162,7 @@ internal fun HostRichText(
     val problem = when {
         runs != null -> "text runs on node ${node.id}: $runs; the string is drawn without them"
         fonts != null -> "text fonts on node ${node.id}: $fonts"
+        resolved.ignoredFonts != null -> "text fonts on node ${node.id}: ${resolved.ignoredFonts}"
         else -> null
     }
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
@@ -200,7 +201,7 @@ private class WordFloor(private val width: Int) : LayoutModifier {
  * composition runs on, which is the thread the Host was started on.
  */
 @Composable
-private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
+internal fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
     val said = remember(nodeId) { arrayOfNulls<String>(1) }
     SideEffect {
         if (said[0] == problem) return@SideEffect
