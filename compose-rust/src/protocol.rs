@@ -2524,7 +2524,9 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::ShapeRole(role) => (13, two_words(*role as u64, 0)),
         Modifier::Border { width, paint } => (14, two_words(float_word(*width), paint.to_bits())),
         Modifier::Elevation(dp) => (15, two_words(float_word(*dp), 0)),
-        Modifier::ObserveSize { token } => (16, two_words(u64::from(*token), 0)),
+        Modifier::ObserveSize { token, every_dp } => {
+            (16, two_words(u64::from(*token), u64::from(*every_dp)))
+        }
         Modifier::Motion(role) => (17, two_words(*role as u64, 0)),
         Modifier::Material(role) => (18, two_words(*role as u64, 0)),
         Modifier::Offset { x, y } => (19, two_words(float_word(*x), float_word(*y))),
@@ -2699,6 +2701,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         15 => Ok(Modifier::Elevation(f32::from_bits(first as u32))),
         16 => Ok(Modifier::ObserveSize {
             token: first as u32,
+            every_dp: match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(16)),
+            },
         }),
         17 => Ok(Modifier::Motion(decode_role::<MotionRole>(first)?)),
         18 => Ok(Modifier::Material(decode_role::<MaterialRole>(first)?)),
