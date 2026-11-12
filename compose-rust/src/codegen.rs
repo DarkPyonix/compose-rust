@@ -333,6 +333,35 @@ data class Animation(
     val keyframes: List<Keyframe>,
 )
 
+/**
+ * Bytes that stay where the Host wrote them, inside the batch being applied. They are valid
+ * only while the record that carries them is applied: the arena is the Host's, and its next
+ * call writes over it. [copy] takes them out when they have to outlive that.
+ */
+class BatchBytes(val buffer: ByteBuffer, val index: Int, val size: Int) {
+    /** The bytes, copied into an array of their own. */
+    fun copy(): ByteArray {
+        val copy = ByteArray(size)
+        val mark = buffer.position()
+        buffer.position(index)
+        buffer.get(copy, 0, size)
+        buffer.position(mark)
+        return copy
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is BatchBytes && copy().contentEquals(other.copy()))
+
+    override fun hashCode(): Int = copy().contentHashCode()
+
+    override fun toString(): String = "BatchBytes(size=$size)"
+
+    companion object {
+        /** Bytes of this side's own, for a test or a preview with no batch behind it. */
+        fun of(bytes: ByteArray): BatchBytes = BatchBytes(ByteBuffer.wrap(bytes), 0, bytes.size)
+    }
+}
+
 sealed interface Mutation {
     data class Create(val nodeId: Int, val widget: WidgetKind) : Mutation
     data class SetProp(val nodeId: Int, val property: PropertyKind, val value: PropertyValue) : Mutation
@@ -551,6 +580,22 @@ sealed interface Mutation {
 
     /** The Host names [handle] nowhere any more; the file behind it may be let go of. */
     data class ReleaseFileHandle(val handle: Int) : Mutation
+
+    /**
+     * Asks for one operation on the application's storage, which the Renderer carries out
+     * where it is the side that can reach it (a browser's IndexedDB). Answered exactly once,
+     * later, by an `IoAnswer` event carrying [request]. [store] is the application
+     * identifier, [key] the value's name (empty for `Keys`), and [data] the value to write,
+     * read in place and valid only while this record is applied (empty for every other
+     * operation).
+     */
+    data class StorageCall(
+        val request: Int,
+        val op: StorageOp,
+        val store: String,
+        val key: String,
+        val data: BatchBytes,
+    ) : Mutation
 }
 
 "#,
@@ -642,8 +687,8 @@ sealed interface Mutation {
             EventPayloadType::ClipboardText => output.push_str(
                 ", val request: Int, val status: Int, val length: Int, val text: String",
             ),
-            // The bytes are whatever the request read, the user's file or the application's
-            // stored value, so they are compared by content and never printed.
+            // What an input or output request handed back: a value or a file read, keys joined
+            // by NUL, or nothing. Never in `toString`, because it is the application's data.
             EventPayloadType::IoAnswer => {
                 output.push_str(", val request: Int, val status: IoStatus, val data: ByteArray")
             }
@@ -653,9 +698,12 @@ sealed interface Mutation {
             ),
         }
         if event.payload == EventPayloadType::IoAnswer {
-            output.push_str(
-                ") : HostEvent {\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is IoAnswer && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    request == other.request && status == other.status && data.contentEquals(other.data))\n\n        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()\n\n        override fun toString(): String =\n            \"IoAnswer(request=$request, status=$status, length=${data.size})\"\n    }\n",
-            );
+            writeln!(
+                output,
+                ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    request == other.request && status == other.status && data.contentEquals(other.data))\n\n        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(request=$request, status=$status, length=${{data.size}})\"\n    }}",
+                name = event.name
+            )
+            .unwrap();
         } else if event.payload == EventPayloadType::ClipboardText {
             // What the clipboard held can be anything the user copied, so no log line that
             // prints the event prints the text.
@@ -718,6 +766,7 @@ object Protocol {
     private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_STORAGE_CALL = 32
     private const val TAG_FILE_CALL = 33
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val ENVELOPE_LENGTH = 12
@@ -910,6 +959,16 @@ object Protocol {
                     TAG_READ_CLIPBOARD -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.ReadClipboard(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_STORAGE_CALL -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.StorageCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            storageOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            readString(batch, base, available, offset + 12),
+                            readString(batch, base, available, offset + 20),
+                            readByteView(batch, base, available, offset + 28),
+                        )
                     }
                     TAG_FILE_CALL -> {
                         requireRecordLength(length, 32, offset)
@@ -1320,7 +1379,7 @@ object Protocol {
             EventPayloadType::FileDialogResult => 36,
             // The request, the status and the length, then the text's reference.
             EventPayloadType::ClipboardText => 36,
-            // The request and the status, then the bytes' reference.
+            // The request and the status, then the data's reference.
             EventPayloadType::IoAnswer => 32,
             // Five words, then the names' and the kinds' references.
             EventPayloadType::FileHandles => 52,
@@ -2021,6 +2080,22 @@ object Protocol {
         val copy = ByteArray(length)
         copyOut(batch, base + offset, copy, length)
         return copy
+    }
+
+    /**
+     * An arena range left where it lies, for bytes the Renderer hands straight on (a value
+     * to store) while the record is applied, so this side copies nothing itself.
+     */
+    private fun readByteView(batch: ByteBuffer, base: Int, available: Int, referenceOffset: Int): BatchBytes {
+        val offsetLong = readU32(batch, base, available, referenceOffset)
+        val lengthLong = readU32(batch, base, available, referenceOffset + 4)
+        if (offsetLong > Int.MAX_VALUE || lengthLong > Int.MAX_VALUE) {
+            throw ProtocolException("byte range is too large", referenceOffset)
+        }
+        val offset = offsetLong.toInt()
+        val length = lengthLong.toInt()
+        requireRange(available, offset, length, referenceOffset)
+        return BatchBytes(batch, base + offset, length)
     }
 
     /**
@@ -2850,6 +2925,24 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 16,
             modifier: Modifier::Elevation(6.0),
         },
+        // A size report with the flag off is the record it always was, the second word
+        // zero; with it on, the second word is one.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 17,
+            modifier: Modifier::ObserveSize {
+                token: 9,
+                every_dp: false,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 18,
+            modifier: Modifier::ObserveSize {
+                token: 9,
+                every_dp: true,
+            },
+        },
         Mutation::Insert {
             parent_id: 1,
             node_id: 2,
@@ -3325,6 +3418,15 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
         },
         // A clipboard read, answered by the ClipboardText event in the event vector.
         Mutation::ReadClipboard { request: 9 },
+        // A storage write for the Renderer to carry out, answered by the IoAnswer event in
+        // the event vector. The value holds a NUL and Hangul, which a string could not.
+        Mutation::StorageCall {
+            request: 11,
+            op: crate::schema::StorageOp::Write,
+            store: "dev.darkpyonix.composerust.samples.todo",
+            key: "tasks.tsv",
+            data: "1\t0\t할 일\0".as_bytes(),
+        },
         // A write to a file the Renderer holds handle 3 for, with bytes that are not text.
         Mutation::FileCall {
             request: 0x8000_0011,
@@ -3666,6 +3768,15 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 0,
             handler_id: 0,
             payload: EventPayload::IoAnswer {
+                request: 11,
+                status: crate::schema::IoStatus::Ok,
+                data: &[0xea, 0xb0, 0x92, 0x00, 0xff],
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
                 request: 0x8000_0011,
                 status: crate::schema::IoStatus::Ok,
                 data: &[0x00, 0xff, 0x7f, 0x80],
@@ -3683,6 +3794,13 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 names: "문서.txt\0사진",
                 kinds: "fd",
             },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::StorageLocation(
+                "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
+            ),
         },
     ];
     let mut output = Vec::new();
@@ -3703,14 +3821,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 109,
+    "recordCount": 110,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "", "새 문서.txt"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv", "", "새 문서.txt"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{
@@ -3725,7 +3843,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-seven independently decodable event records concatenated in schema order",
+    "description": "Thirty-nine independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3762,8 +3880,10 @@ pub fn generate_vector_description() -> String {
       {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
       {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
       {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
-      {{ "type": "IoAnswer", "offset": 1093, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
-      {{ "type": "FileHandles", "offset": 1129, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }}
+      {{ "type": "IoAnswer", "offset": 1093, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
+      {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
+      {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
+      {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }}
     ]
   }}
 }}

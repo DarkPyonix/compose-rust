@@ -14,6 +14,12 @@ A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as 
 
 `compose_rust::clipboard::read_text(callback)` reads the plain text on the platform clipboard, for a paste shortcut, and `use_clipboard().read_text()` is the same read as a future. It is one new `ReadClipboard` command (tag 31) and one `ClipboardText` event (tag 56). Every read gets exactly one answer: the text, `None` when the clipboard is empty, holds no text, is missing, or the browser refused permission, or an error when the text is over 64 KiB, which is never cut short. The Renderer never logs the text, only its length ([#546](https://github.com/DarkPyonix/compose-rust/issues/546)).
 
+### Application storage
+
+`compose_rust::storage` keeps named values only the application reads and writes, the same code on every platform: `read`, `read_string`, `write`, `remove` and `keys`, each a future. An application names its storage with `LaunchBuilder::new().identifier(..)`, the same value as `[bundle] identifier` in its `Dioxus.toml`; without one every operation answers `StorageError::Unavailable`, and an identifier that cannot name a directory stops the launch with a sentence and a failing status. Keys are 1 to 128 bytes of `a-z`, `0-9`, `-`, `_` and `.`; a value is at most 16 MiB. Operations on one key apply in the order they are called, and a write is atomic.
+
+On macOS, iOS, Linux and Windows the values are files under the platform's data directory (`~/Library/Application Support`, `$XDG_DATA_HOME` or `~/.local/share`, `%APPDATA%`), read and written by a storage thread of the Host's; `COMPOSE_RUST_STORAGE_DIR` replaces the directory. Android keeps them in the application's files directory, which the Renderer reports at start with a new `StorageLocation` event (tag 59). In a browser the Renderer keeps them in IndexedDB, one database per identifier, through a new `StorageCall` command (tag 32) answered by one `IoAnswer` event (tag 57). A read there larger than the web's 4 KiB event buffer is reported as too large until #583 lets larger events through. Every sample now gives its identifier ([#611](https://github.com/DarkPyonix/compose-rust/issues/611), [#529](https://github.com/DarkPyonix/compose-rust/issues/529)).
+
 ### Reading and writing the files a dialog chose, in a browser too
 
 `FileDialogResult::files()` turns a choice into `PickedFile`s, with `read`, `write`, `entries` and `child` as futures. The code is the same on every platform ([#609](https://github.com/DarkPyonix/compose-rust/issues/609)).

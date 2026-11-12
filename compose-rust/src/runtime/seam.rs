@@ -192,6 +192,17 @@ impl Batch {
         });
     }
 
+    /// Writes one storage operation for the Renderer to carry out. It names no node either.
+    pub(crate) fn storage_call(&mut self, call: &crate::storage::RendererCall) {
+        self.write(Mutation::StorageCall {
+            request: call.request,
+            op: call.op,
+            store: &call.store,
+            key: &call.key,
+            data: &call.data,
+        });
+    }
+
     /// Lets the Renderer go of a file handle nothing on this side names any more.
     pub(crate) fn release_file_handle(&mut self, handle: u32) {
         self.write(Mutation::ReleaseFileHandle { handle });

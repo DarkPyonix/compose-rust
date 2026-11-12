@@ -38,27 +38,27 @@ fn Clickables() {
     let count = remember(|| mutable_state_of(0));
     Column().content(|| {
         Text(format!("{}", count.get()));
-        let c = count.clone();
+        let c = count;
         Row().on_click(move || c.update(|n| *n += 1)).content(|| {
             Text("row");
         });
-        let c = count.clone();
+        let c = count;
         Box().on_click(move || c.update(|n| *n += 10)).content(|| {
             Text("box");
         });
-        let c = count.clone();
+        let c = count;
         Card()
             .on_click(move || c.update(|n| *n += 100))
             .content(|| {
                 Text("card");
             });
-        let c = count.clone();
+        let c = count;
         Surface()
             .on_click(move || c.update(|n| *n += 1000))
             .content(|| {
                 Text("surface");
             });
-        let c = count.clone();
+        let c = count;
         Column()
             .on_click(move || c.update(|n| *n += 10000))
             .content(|| {

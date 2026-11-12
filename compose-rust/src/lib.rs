@@ -47,6 +47,7 @@ pub mod protocol;
 pub mod runtime;
 pub mod schema;
 pub mod spans;
+pub mod storage;
 pub mod theme;
 pub mod tokens;
 pub mod ui;
@@ -88,12 +89,12 @@ pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,
-    HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
-    PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole, Severity, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass,
-    WindowSizeClass, WordBreak,
+    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
+    GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    OverflowWrap, Paint, PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole,
+    Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
+    WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

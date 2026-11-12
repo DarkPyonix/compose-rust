@@ -603,7 +603,7 @@ static PENDING: AtomicBool = AtomicBool::new(false);
 /// request of theirs is never one a dialog or the application's storage numbered, and an
 /// answer finds its waiter by number alone.
 static NEXT_REQUEST: AtomicU32 = AtomicU32::new(1);
-const REQUEST_BIT: u32 = 0x8000_0000;
+pub(crate) const REQUEST_BIT: u32 = 0x8000_0000;
 
 fn next_request() -> u32 {
     loop {

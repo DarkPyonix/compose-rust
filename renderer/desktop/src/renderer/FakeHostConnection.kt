@@ -75,7 +75,7 @@ class FakeHostConnection(
         if (event is HostEvent.FileDialogResult) return 0
         // And a clipboard read's answer.
         if (event is HostEvent.ClipboardText) return 0
-        // And a file's answers: the Renderer reporting what a file operation or a dialog did.
+        // And the answers to storage and file operations, and to a dialog that handed over files.
         if (event is HostEvent.IoAnswer) return 0
         if (event is HostEvent.FileHandles) return 0
         // And the motion setting, for the same reason.

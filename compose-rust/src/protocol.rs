@@ -52,9 +52,15 @@ const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
 // answered by one `ClipboardText` event carrying the same request number.
 const TAG_READ_CLIPBOARD: u16 = 31;
-// 32 is the application storage's request. 33 asks something of a file the Renderer holds a
-// handle for, answered by one `IoAnswer` or `FileHandles` event carrying the same request
-// number. 34 lets go of such a handle and is not answered.
+// 32 asks the Renderer to carry out one storage operation, answered by one `IoAnswer`
+// event carrying the same request number.
+const TAG_STORAGE_CALL: u16 = 32;
+/// `StorageCall` after its header: the request, the operation, a reserved half word, then
+/// the store, the key and the bytes as three references. 32 bytes, so the record is 36.
+const STORAGE_CALL_PAYLOAD_LEN: usize = 4 + 2 + 2 + 3 * 8;
+// 33 asks something of a file the Renderer holds a handle for, answered by one `IoAnswer`
+// or `FileHandles` event carrying the same request number. 34 lets go of such a handle and
+// is not answered.
 const TAG_FILE_CALL: u16 = 33;
 /// `FileCall` after its header: the request, the operation, the create flag and the handle,
 /// then the name's and the bytes' references. 28 bytes, so the record is 32.
@@ -299,6 +305,19 @@ pub enum Mutation<'a> {
     ReadClipboard {
         request: u32,
     },
+    /// Asks the Renderer to carry out one operation on the application's storage, where the
+    /// Renderer is the side that can reach it (a browser's IndexedDB). Answered exactly
+    /// once, later, by an `IoAnswer` event that carries `request`.
+    ///
+    /// `store` is the application identifier, `key` the value's name (empty for `Keys`),
+    /// and `data` the value to write (empty for every operation but `Write`).
+    StorageCall {
+        request: u32,
+        op: crate::schema::StorageOp,
+        store: &'a str,
+        key: &'a str,
+        data: &'a [u8],
+    },
     /// Asks something of a file the Renderer holds a handle for: reading it, writing
     /// `data` to it, listing a folder, or finding (and with `create`, making) the child
     /// called `name`. Answered exactly once, later: a read or a write by an `IoAnswer`, a
@@ -415,11 +434,12 @@ const EVENT_CLIPBOARD_TEXT: u16 = 56;
 /// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
 const CLIPBOARD_TEXT_LEN: usize = 36;
 const EVENT_IO_ANSWER: u16 = 57;
-/// `IoAnswer` in full: the 16 byte header, two words and the bytes' reference.
+/// `IoAnswer` in full: the 16 byte header, two words and the data's reference.
 const IO_ANSWER_LEN: usize = 32;
 const EVENT_FILE_HANDLES: u16 = 58;
 /// `FileHandles` in full: the 16 byte header, five words and two string references.
 const FILE_HANDLES_LEN: usize = 52;
+const EVENT_STORAGE_LOCATION: u16 = 59;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -838,6 +858,10 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_FILE_HANDLES => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_STORAGE_LOCATION if record_len == 24 => {
+            crate::schema::EventPayload::StorageLocation(read_string(bytes, 16, record_len)?)
+        }
+        EVENT_STORAGE_LOCATION => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1266,10 +1290,10 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
     {
         put_event_header(output, EVENT_IO_ANSWER, IO_ANSWER_LEN as u16, event);
         output.extend_from_slice(&request.to_le_bytes());
-        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
-        let len = u32::try_from(data.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&u32::from(u16::from(status)).to_le_bytes());
+        let data_len = u32::try_from(data.len()).map_err(|_| ProtocolError::LengthOverflow)?;
         output.extend_from_slice(&(IO_ANSWER_LEN as u32).to_le_bytes());
-        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(&data_len.to_le_bytes());
         output.extend_from_slice(data);
         return Ok(());
     }
@@ -1334,6 +1358,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         crate::schema::EventPayload::FilesEntered => (EVENT_FILES_ENTERED, 16, None, None),
         crate::schema::EventPayload::FilesDropped(paths) => {
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
+        }
+        crate::schema::EventPayload::StorageLocation(path) => {
+            (EVENT_STORAGE_LOCATION, 24, Some(*path), None)
         }
         crate::schema::EventPayload::Resync => (EVENT_RESYNC, 16, None, None),
         crate::schema::EventPayload::WindowCloseRequested => {
@@ -1721,6 +1748,21 @@ impl BatchEncoder {
             Mutation::ReadClipboard { request } => {
                 self.begin_record(TAG_READ_CLIPBOARD, 4);
                 self.put_u32(*request);
+            }
+            Mutation::StorageCall {
+                request,
+                op,
+                store,
+                key,
+                data,
+            } => {
+                self.begin_record(TAG_STORAGE_CALL, STORAGE_CALL_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u16(u16::from(*op));
+                self.put_u16(0);
+                self.put_string_ref(store)?;
+                self.put_string_ref(key)?;
+                self.put_bytes_ref(data)?;
             }
             Mutation::FileCall {
                 request,
@@ -2233,6 +2275,17 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
                 request: read_u32(bytes, payload)?,
             },
+            TAG_STORAGE_CALL if len == 4 + STORAGE_CALL_PAYLOAD_LEN => {
+                let raw_op = read_u16(bytes, payload + 4)?;
+                Mutation::StorageCall {
+                    request: read_u32(bytes, payload)?,
+                    op: crate::schema::StorageOp::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_op))?,
+                    store: read_string(bytes, payload + 8, records_len)?,
+                    key: read_string(bytes, payload + 16, records_len)?,
+                    data: read_bytes(bytes, payload + 24, records_len)?,
+                }
+            }
             TAG_FILE_CALL if len == 4 + FILE_CALL_PAYLOAD_LEN => {
                 let raw_op = read_u16(bytes, payload + 4)?;
                 let raw_create = read_u16(bytes, payload + 6)?;
@@ -2424,6 +2477,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
             | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
             | TAG_READ_CLIPBOARD
+            | TAG_STORAGE_CALL
             | TAG_FILE_CALL
             | TAG_RELEASE_FILE_HANDLE => {
                 return Err(ProtocolError::InvalidRecordLength);
@@ -2699,7 +2753,9 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::ShapeRole(role) => (13, two_words(*role as u64, 0)),
         Modifier::Border { width, paint } => (14, two_words(float_word(*width), paint.to_bits())),
         Modifier::Elevation(dp) => (15, two_words(float_word(*dp), 0)),
-        Modifier::ObserveSize { token } => (16, two_words(u64::from(*token), 0)),
+        Modifier::ObserveSize { token, every_dp } => {
+            (16, two_words(u64::from(*token), u64::from(*every_dp)))
+        }
         Modifier::Motion(role) => (17, two_words(*role as u64, 0)),
         Modifier::Material(role) => (18, two_words(*role as u64, 0)),
         Modifier::Offset { x, y } => (19, two_words(float_word(*x), float_word(*y))),
@@ -2874,6 +2930,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         15 => Ok(Modifier::Elevation(f32::from_bits(first as u32))),
         16 => Ok(Modifier::ObserveSize {
             token: first as u32,
+            every_dp: match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(16)),
+            },
         }),
         17 => Ok(Modifier::Motion(decode_role::<MotionRole>(first)?)),
         18 => Ok(Modifier::Material(decode_role::<MaterialRole>(first)?)),
@@ -4270,8 +4331,9 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        let trace: Arc<Mutex<Vec<(&'static str, Key, bool, bool, bool, bool)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        // What each key event carried: which handler, the key, then the four modifiers.
+        type KeyTrace = Vec<(&'static str, Key, bool, bool, bool, bool)>;
+        let trace: Arc<Mutex<KeyTrace>> = Arc::new(Mutex::new(Vec::new()));
         let trace_for_root = Arc::clone(&trace);
         let mut host = crate::ComposeHost::with_content(move || {
             let down_trace = Arc::clone(&trace_for_root);
