@@ -6,6 +6,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
+import dev.darkpyonix.composerust.design.installPlatformUiFamily
 import dev.darkpyonix.composerust.protocol.AssetKind
 import dev.darkpyonix.composerust.protocol.FontRef
 import dev.darkpyonix.composerust.protocol.GenericFamily
@@ -87,6 +88,7 @@ class HtmlTextTest {
         val system = listOf(FontRef.System(installedName), FontRef.Generic(GenericFamily.Serif))
         val generic = listOf(FontRef.Generic(GenericFamily.Monospace))
         val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val systemUi = listOf(FontRef.Generic(GenericFamily.SystemUi))
         val korean = "다람쥐헌쳇바퀴에 타고파그리고한글 줄바꿈을확인합니다"
         return listOf(
             Case("asset font", "Icon  and words", 120f, listOf(noRole, fonts(asset), PropertyKind.FontSize to PropertyValue.Float(18f))) { text, width ->
@@ -94,6 +96,10 @@ class HtmlTextTest {
             },
             Case("system font $installedName", "Set in an installed family", 110f, listOf(noRole, fonts(system))) { text, width ->
                 text(text, role = 0, width = width, fonts = system)
+            },
+            // Tracked by the face's `trak` table where the platform's face has one (SF).
+            Case("system-ui", "Set in the face of the platform, with 한글 too", 110f, listOf(noRole, fonts(systemUi), PropertyKind.FontSize to PropertyValue.Float(16f))) { text, width ->
+                text(text, role = 0, width = width, fontSize = 16f, fonts = systemUi)
             },
             Case("generic font", "Set in the generic monospace", 110f, listOf(noRole, fonts(generic))) { text, width ->
                 text(text, role = 0, width = width, fonts = generic)
@@ -139,6 +145,9 @@ class HtmlTextTest {
 
     @Test
     fun fr40_measured_html_text_matches_the_drawn_text() {
+        // The platform's interface face, as the application installs it before its first
+        // frame, so the system-ui case is set in it.
+        installPlatformUiFamily()
         // At the system's own text size. A measure request carries the text size through its
         // zoom rather than through a font scale, so text drawn under another font scale is
         // compared in fr43_measure_follows_zoom, at the zoom that matches it.

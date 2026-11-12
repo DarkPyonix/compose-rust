@@ -58,6 +58,7 @@ import dev.darkpyonix.composerust.design.FieldUnderline
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.node.HostText
@@ -140,7 +141,20 @@ internal fun HostTextField(
         )
     }
     val roleStyle = node.textStyle(theme)
-    val textStyle = if (ownChain != null) roleStyle.copy(fontFamily = ownChain.primary) else roleStyle
+    // A field with no role that names its letter spacing is tracked by its face as a `Text`
+    // with no role is, so a value typed into it is as wide as the same words drawn beside
+    // it. One that names none is spaced by the design system's token, which on the Apple
+    // design systems already carries SF's tracking, so it is left as it is.
+    val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
+    val textStyle = if (ownChain != null) {
+        roleStyle.copy(
+            fontFamily = ownChain.primary,
+            letterSpacing = trackedLetterSpacing(roleStyle, ownChain.primary).takeIf { ownSpacing }
+                ?: roleStyle.letterSpacing,
+        )
+    } else {
+        roleStyle
+    }
     val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
     val fallbackFonts = remember(chain) {
         chain?.let { FontChainTransformation(it) } ?: VisualTransformation.None

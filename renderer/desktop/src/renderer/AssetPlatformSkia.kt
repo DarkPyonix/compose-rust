@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontListFontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
@@ -14,6 +15,7 @@ import androidx.compose.ui.text.platform.SystemFont
 import org.jetbrains.skia.Data
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
+import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.svg.SVGDOM
 
@@ -107,6 +109,52 @@ private fun buildSystemFontFamily(name: String): FontFamily? {
             SystemFont(name, FontWeight(weight), if (italic) FontStyle.Italic else FontStyle.Normal)
         },
     )
+}
+
+/**
+ * The `trak` tracking of the installed face [family] sets text in at [weight] and slant,
+ * or null where it has none, which is every face but Apple's own.
+ *
+ * Only a family of installed faces named by identity is read (the platform's interface
+ * family, and the installed families a font list names): the face is the one Compose
+ * itself loads for that identity, weight and slant, asked of the same font manager, so
+ * the table read is the table of the face the letters are drawn in. A family made from
+ * font bytes or from the toolkit's generic names is not tracked.
+ *
+ * Kept per identity, weight and slant: the machine's fonts do not change while the
+ * application runs, and text is resolved every time it is measured or drawn.
+ */
+@OptIn(ExperimentalTextApi::class)
+internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): FontTracking? {
+    val fonts = (family as? FontListFontFamily)?.fonts ?: return null
+    var identity: String? = null
+    for (font in fonts) {
+        if (font is SystemFont) {
+            identity = font.identity
+            break
+        }
+    }
+    if (identity == null) return null
+    val key = TrackingKey(identity, weight, italic)
+    return trackings.getOrPut(key) { KnownTracking(readTracking(identity, weight, italic)) }.tracking
+}
+
+private data class TrackingKey(val identity: String, val weight: Int, val italic: Boolean)
+
+private class KnownTracking(val tracking: FontTracking?)
+
+private val trackings = HashMap<TrackingKey, KnownTracking>()
+
+private fun readTracking(identity: String, weight: Int, italic: Boolean): FontTracking? {
+    val style = org.jetbrains.skia.FontStyle(
+        weight.coerceIn(1, 1000),
+        FontWidth.NORMAL,
+        if (italic) FontSlant.ITALIC else FontSlant.UPRIGHT,
+    )
+    val face = FontMgr.default.matchFamilyStyle(identity, style) ?: return null
+    val bytes = face.getTableData("trak")?.bytes ?: return null
+    val table = TrackTable.parse(bytes, face.unitsPerEm) ?: return null
+    return FontTracking(table) { codePoint -> face.getUTF32Glyph(codePoint) != 0.toShort() }
 }
 
 /** Draws the document into the whole of the current drawing area. */

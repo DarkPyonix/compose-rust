@@ -206,6 +206,7 @@ internal class MeasureContext(
         val resolved = resolveText(input, theme, table.assets, density, fontFamilyResolver, forMeasure = true)
         resolved.runsProblem?.let { table.report(TableError.UNSUPPORTED_PROPERTY, "text runs in a measure request: $it") }
         resolved.problems.forEach { table.report(TableError.UNKNOWN_ASSET, it) }
+        resolved.ignoredFonts?.let { table.reportOnce(TableError.UNSUPPORTED_PROPERTY, "text fonts in a measure request: $it") }
         return when (constraint) {
             MeasureRecords.CONSTRAINT_MIN_CONTENT -> intrinsic(resolved, minimum = true, density)
             MeasureRecords.CONSTRAINT_MAX_CONTENT -> intrinsic(resolved, minimum = false, density)

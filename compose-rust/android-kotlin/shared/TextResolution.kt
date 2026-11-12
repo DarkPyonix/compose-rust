@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
@@ -44,6 +45,8 @@ import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.FontChain
+import dev.darkpyonix.composerust.ui.node.FontTracking
+import dev.darkpyonix.composerust.ui.node.fontTracking
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
 import dev.darkpyonix.composerust.ui.overflow
@@ -88,7 +91,7 @@ internal class TextInput(
     val overflowWrap: OverflowWrap? = null,
     /** Sizes are CSS pixels, which the system's font scale does not enlarge. */
     val absoluteSize: Boolean = false,
-    /** The fonts to try, for [noRole] text. Ignored where there is a role. */
+    /** The fonts to try, for [noRole] text. Ignored, and reported, where there is a role. */
     val fonts: List<FontRef> = emptyList(),
     /** Drawing only: neither changes a size. */
     val color: Paint? = null,
@@ -124,6 +127,8 @@ internal class ResolvedText(
     val runsProblem: String?,
     /** What was wrong with the fonts, one sentence each, for the caller to report. */
     val problems: List<String>,
+    /** Which fonts the text named and is not set in, or null where it is set in all it named. */
+    val ignoredFonts: String? = null,
 )
 
 /**
@@ -166,12 +171,15 @@ internal fun resolveText(
     } else {
         theme.chainFor(theme.family(input.role ?: input.defaultRole))
     }
+    val tracking = if (input.noRole) noRoleTracking(input, chain) else null
     val style = if (input.noRole) {
         TextStyle(
             fontSize = sized(input.fontSize ?: TextInput.NO_ROLE_FONT_SIZE),
             fontWeight = FontWeight(input.fontWeight ?: TextInput.NO_ROLE_FONT_WEIGHT),
             lineHeight = input.lineHeight?.let(::sized) ?: TextUnit.Unspecified,
-            letterSpacing = input.letterSpacing?.let(::sized) ?: TextUnit.Unspecified,
+            letterSpacing = tracking?.let { sized(it.spacing(input.fontSize ?: TextInput.NO_ROLE_FONT_SIZE)) }
+                ?: input.letterSpacing?.let(::sized)
+                ?: TextUnit.Unspecified,
             fontFamily = chain?.primary,
             // As CSS sets a line box: every line is exactly its line height, the first and
             // the last included, with the room the glyphs leave split evenly above and
@@ -216,7 +224,7 @@ internal fun resolveText(
         WordBreak.BreakAll -> BreakMode.BreakAll
         WordBreak.Normal, null -> BreakMode.Normal
     }
-    val text = annotate(input, runs, mode, chain, theme, assets, density, ::sized, link, problems)
+    val text = annotate(input, runs, mode, chain, tracking, theme, assets, density, ::sized, link, problems)
     val (placeholders, inline) = tabStops(text, style, input.tabSize, density, fontFamilyResolver)
 
     // Breaking anywhere only matters to the narrowest width: laid out at any width, a word
@@ -224,7 +232,7 @@ internal fun resolveText(
     // made only for that question, and only where the answer differs.
     val anywhere = input.overflowWrap == OverflowWrap.Anywhere && mode != BreakMode.BreakAll
     val minContent = if (anywhere) {
-        annotate(input, runs, BreakMode.BreakAll, chain, theme, assets, density, ::sized, null, mutableListOf())
+        annotate(input, runs, BreakMode.BreakAll, chain, tracking, theme, assets, density, ::sized, null, mutableListOf())
     } else {
         null
     }
@@ -244,6 +252,7 @@ internal fun resolveText(
         minContentPlaceholders = minContentPlaceholders,
         runsProblem = badRuns,
         problems = problems,
+        ignoredFonts = ignoredFontsProblem(input),
     )
 }
 
@@ -253,6 +262,55 @@ internal fun resolveText(
  */
 internal fun textDensity(input: TextInput, density: Density): Density =
     if (input.absoluteSize && density.fontScale != 1f) Density(density.density, 1f) else density
+
+/**
+ * How text with no role is tracked: its own letter spacing, with the tracking of the face
+ * it is set in added on top. Null where that face has no tracking, which leaves the letter
+ * spacing exactly what the text asked for.
+ *
+ * Apple's text system tracks its faces by their `trak` table at every size, and a browser
+ * on a Mac sets text the same way, with CSS `letter-spacing` added to the tracked advances
+ * rather than in place of them. So the tracking is added whatever the text's own letter
+ * spacing is, including an explicit zero, which is what `letter-spacing: normal` arrives as.
+ *
+ * Text with a role is not tracked here: its letter spacing is the design system's token
+ * for the role, and the Cupertino design system already writes SF's tracking into those
+ * tokens by hand (-0.4sp at its 34sp title, for example), so adding the table as well
+ * would track that text twice.
+ *
+ * The size the table is read at is the text's own size, before the font scale or any zoom,
+ * which is the CSS pixel size a browser reads it at with no zoom. Measuring and drawing a
+ * text see different densities, so reading the table at a scaled size would set the same
+ * text at two widths.
+ */
+internal class TextTracking(
+    /** The face the text is set in. */
+    val face: FontTracking,
+    /** The text's own letter spacing, in sp. */
+    val letterSpacing: Float,
+) {
+    /** The letter spacing, in sp, of letters in [face] at [size] sp. */
+    fun spacing(size: Float): Float = letterSpacing + face.table.em(size) * size
+}
+
+/**
+ * [style]'s letter spacing with the tracking of [family]'s face added, for a field with no
+ * role, or null where the face has no tracking or the style is not sized in sp.
+ */
+internal fun trackedLetterSpacing(style: TextStyle, family: FontFamily?): TextUnit? {
+    val size = style.fontSize.takeIf { it.isSp }?.value ?: return null
+    val spacing = style.letterSpacing
+    if (!spacing.isSp && !spacing.isUnspecified) return null
+    val italic = style.fontStyle == FontStyle.Italic
+    val face = fontTracking(family, style.fontWeight?.weight ?: TextInput.NO_ROLE_FONT_WEIGHT, italic) ?: return null
+    val base = if (spacing.isSp) spacing.value else 0f
+    return (base + face.table.em(size) * size).sp
+}
+
+private fun noRoleTracking(input: TextInput, chain: FontChain?): TextTracking? {
+    val face = fontTracking(chain?.primary, input.fontWeight ?: TextInput.NO_ROLE_FONT_WEIGHT, input.italic) ?: return null
+    return TextTracking(face, input.letterSpacing ?: 0f)
+}
 
 /**
  * The text's family, as a CSS font list is read: the first candidate that resolves.
@@ -296,7 +354,7 @@ internal fun resolveFontChain(
                 }
             }
             is FontRef.System -> {
-                val family = systemFontFamily(ref.name) ?: continue
+                val family = cssUiFontFamily(ref.name) ?: systemFontFamily(ref.name) ?: continue
                 members += FontChain.Member(family, null)
                 break
             }
@@ -308,6 +366,58 @@ internal fun resolveFontChain(
     }
     if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
     return FontChain(members)
+}
+
+/**
+ * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this
+ * platform writes its own interface in, in each of those styles. Null for any other name,
+ * and for a `ui-` name this platform has no face for, which a font list passes over as a
+ * browser does.
+ *
+ * They arrive as installed family names, because that is what a CSS list leaves them as,
+ * but no machine has a family called `ui-monospace`. Apple's platforms have one under a
+ * private name (SF Mono, New York, SF Rounded), and asking for that name by the same route
+ * as any installed family answers only where it really exists, so elsewhere the name falls
+ * to the platform's own generic face of the same kind. There is no rounded interface face
+ * outside Apple's platforms, so `ui-rounded` is not found there and the list moves on.
+ */
+internal fun cssUiFontFamily(name: String): FontFamily? = when (name.lowercase()) {
+    "ui-sans-serif" -> platformUiFamily
+    "ui-serif" -> systemFontFamily(".AppleSystemUIFontSerif") ?: FontFamily.Serif
+    "ui-monospace" -> systemFontFamily(".AppleSystemUIFontMonospaced") ?: FontFamily.Monospace
+    "ui-rounded" -> systemFontFamily(".AppleSystemUIFontRounded")
+    else -> null
+}
+
+/**
+ * What is ignored about the fonts [input] names, or null where nothing is.
+ *
+ * Text with a type role is set in the theme's font for that role, and so is a run with a
+ * role of its own. A font list sent for either is thrown away, which a Host has no way to
+ * see on screen beyond letters in the wrong face, so it is said. Text that sends no type
+ * role at all has the role [TextInput.defaultRole], not no role: naming fonts is not
+ * enough, the text has to say it has no role as well.
+ */
+internal fun ignoredFontsProblem(input: TextInput): String? {
+    if (input.noRole) {
+        val runs = input.runs.withIndex()
+            .filter { (index, run) -> run.role != null && input.runFonts.containsKey(index) }
+            .map { it.index }
+        if (runs.isEmpty()) return null
+        return "run ${runs.joinToString()} names fonts and a type role; a run with a role is set in the theme's font for it, so its fonts are ignored"
+    }
+    val nodeFonts = input.fonts.isNotEmpty()
+    val runFonts = input.runFonts.isNotEmpty()
+    if (!nodeFonts && !runFonts) return null
+    val named = when {
+        nodeFonts && runFonts -> "a font list and run fonts"
+        nodeFonts -> "a font list"
+        else -> "run fonts"
+    }
+    val role = input.role?.let { "the type role $it" }
+        ?: "no type role, which is the role ${input.defaultRole}"
+    return "$named for text with $role: ignored, because text with a role is set in the theme's font for it. " +
+        "Send the type role None for text set in its own fonts"
 }
 
 /** Which installed family each generic name is, which is the platform's answer. */
@@ -381,6 +491,7 @@ private fun annotate(
     runs: List<TextRun>,
     mode: BreakMode,
     chain: FontChain?,
+    tracking: TextTracking?,
     theme: ResolvedTheme,
     assets: AssetCache,
     density: Density,
@@ -393,7 +504,10 @@ private fun annotate(
     // Letters the text's first family lacks, set in the family of its chain that has them.
     // Added before the runs, so a run that names its own font sets its letters in that.
     val fallback = chain?.spans(broken.text).orEmpty()
-    if (runs.isEmpty() && !hasTabs && fallback.isEmpty()) return AnnotatedString(broken.text)
+    // Letters the tracked face has no glyph for come from a face its tracking is not for.
+    val untracked = tracking?.face?.untracked(broken.text)
+    val hasUntracked = untracked != null && untracked.isNotEmpty()
+    if (runs.isEmpty() && !hasTabs && fallback.isEmpty() && !hasUntracked) return AnnotatedString(broken.text)
     val utf8 = if (runs.isEmpty()) null else input.text.encodeToByteArray()
     return buildAnnotatedString {
         // Tabs become placeholders, each standing in place of its own character, so the
@@ -407,8 +521,7 @@ private fun annotate(
             }
         }
         for (span in fallback) addStyle(span.item, span.start, span.end)
-        if (utf8 == null) return@buildAnnotatedString
-        runs.forEachIndexed { index, run ->
+        if (utf8 != null) runs.forEachIndexed { index, run ->
             val from = broken.position(utf8.decodeToString(0, run.start).length)
             val to = broken.position(utf8.decodeToString(0, run.start + run.length).length)
             // A run of text with no role may name its own font. Where the text has a
@@ -416,14 +529,47 @@ private fun annotate(
             val runChain = input.runFonts[index]
                 ?.takeIf { input.noRole && run.role == null }
                 ?.let { resolveFontChain(it, assets, problems) }
-            val style = spanStyle(run, runChain?.primary, theme, sized)
+            val spacing = if (input.noRole) runSpacing(input, run, runChain, tracking, theme) else null
+            val style = spanStyle(run, runChain?.primary, theme, sized, spacing?.let(sized) ?: TextUnit.Unspecified)
             addStyle(style, from, to)
             runChain?.spans(broken.text.substring(from, to))?.forEach { span ->
                 addStyle(span.item, from + span.start, from + span.end)
             }
             if (link != null && run.handlerId != 0L) addLink(link(run), from, to)
         }
+        // After the runs, so a letter drawn from a fallback face inside a run is untracked too.
+        if (hasUntracked) {
+            val spacing = SpanStyle(letterSpacing = sized(tracking!!.letterSpacing))
+            for (at in untracked!!.indices step 2) addStyle(spacing, untracked[at], untracked[at + 1])
+        }
     }
+}
+
+/**
+ * The letter spacing, in sp, of a run of text with no role whose tracking differs from the
+ * text's, or null where the run is tracked as the text is.
+ *
+ * A run set in fonts of its own is tracked by its own first face, or not at all where that
+ * face has no table. A run with a role is set at the role's size, and the table gives a
+ * different value at a different size.
+ */
+private fun runSpacing(
+    input: TextInput,
+    run: TextRun,
+    runChain: FontChain?,
+    tracking: TextTracking?,
+    theme: ResolvedTheme,
+): Float? {
+    val size = run.role?.let { theme.type(it).size } ?: input.fontSize ?: TextInput.NO_ROLE_FONT_SIZE
+    if (runChain != null) {
+        val weight = if (run.bold) FontWeight.Bold.weight else input.fontWeight ?: TextInput.NO_ROLE_FONT_WEIGHT
+        val face = fontTracking(runChain.primary, weight, input.italic || run.italic)
+        if (face == null && tracking == null) return null
+        val letterSpacing = input.letterSpacing ?: 0f
+        return letterSpacing + (face?.table?.em(size)?.times(size) ?: 0f)
+    }
+    if (tracking == null || run.role == null) return null
+    return tracking.spacing(size)
 }
 
 /**
@@ -436,6 +582,7 @@ private fun spanStyle(
     family: FontFamily?,
     theme: ResolvedTheme,
     sized: (Float) -> TextUnit,
+    letterSpacing: TextUnit = TextUnit.Unspecified,
 ): SpanStyle {
     return SpanStyle(
         color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
@@ -446,6 +593,7 @@ private fun spanStyle(
         fontStyle = if (run.italic) FontStyle.Italic else null,
         fontSize = run.role?.let { sized(theme.type(it).size) } ?: TextUnit.Unspecified,
         fontFamily = family,
+        letterSpacing = letterSpacing,
         textDecoration = when {
             run.underline && run.strikethrough ->
                 TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
