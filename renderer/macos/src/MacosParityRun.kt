@@ -124,21 +124,29 @@ internal object IdleSoakSetting {
     }
 }
 
-private class KnIdleSoakReport(private val seconds: Int) {
-    private val openedAt = System.nanoTime()
+internal class KnIdleSoakReport(
+    private val seconds: Int,
+    private val openedAt: Long = System.nanoTime(),
+) {
     private var idleStartedAt = 0L
     private var lastSampledSecond = 0
     private var framesDrawn = 0L
+    private var ended = false
 
     fun onFrameDrawn() {
         framesDrawn++
     }
 
+    /**
+     * True once, on the turn the soak ends. The process lives on for a moment after that so a
+     * script can read its CPU time, and the turns in that moment must not end the soak again.
+     */
     fun tick(now: Long): Boolean {
+        if (ended) return false
         if (idleStartedAt == 0L) {
             if ((now - openedAt) / 1_000_000_000L < 8L) return false
             GC.collect()
-            idleStartedAt = System.nanoTime()
+            idleStartedAt = now
             log("start", 0, breakdown = true)
             return false
         }
@@ -147,6 +155,7 @@ private class KnIdleSoakReport(private val seconds: Int) {
             GC.collect()
             log("end", seconds, breakdown = true)
             printStderr("compose-rust: idle-soak done seconds=$seconds")
+            ended = true
             return true
         }
         val step = (elapsed / 10) * 10

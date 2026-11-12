@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
 import dev.darkpyonix.composerust.ui.platform.IdleSoakSetting
+import dev.darkpyonix.composerust.ui.platform.KnIdleSoakReport
 import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
 import dev.darkpyonix.composerust.ui.platform.RestoreKeyStore
 import dev.darkpyonix.composerust.ui.platform.WindowRestore
@@ -599,6 +600,19 @@ class MacosMultiWindowTest {
         restore.remember(emptyList())
         keeps = true
         assertEquals(emptyList(), restore.keysToRequest(emptyList()))
+    }
+
+    @Test
+    fun fr53_macos_idle_soak_ends_once_while_the_process_waits_to_quit() {
+        val second = 1_000_000_000L
+        val soak = KnIdleSoakReport(seconds = 30, openedAt = 0L)
+        assertFalse(soak.tick(1 * second), "the soak waits for the windows to settle first")
+        assertFalse(soak.tick(9 * second), "the soak starts here")
+        assertFalse(soak.tick(20 * second))
+        assertTrue(soak.tick(39 * second), "thirty seconds after the start the soak ends")
+        // The process lives a moment longer so a script can read its CPU time; the turns in
+        // that moment keep calling tick and must not end the soak, or print its end, again.
+        for (turn in 1..60) assertFalse(soak.tick(39 * second + turn * 16_000_000L))
     }
 
     @Test
