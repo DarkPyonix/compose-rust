@@ -160,6 +160,7 @@ class WindowManager(
             match.taken = true
             entry.platform = adopted
             adopted.setListener(entry)
+            adopted.adoptedBy(id)
             // The window exists already; everything the node says is news to it.
             entry.applied = WindowSpec.Blank
             return

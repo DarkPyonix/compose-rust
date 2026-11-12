@@ -39,7 +39,13 @@ import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import platform.AppKit.NSApplication
+import platform.AppKit.NSApplicationWillTerminateNotification
+import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSOperationQueue
+import platform.Foundation.NSUserDefaults
 
 /**
  * The multi-window run of the macOS renderer (`SetWindow` mode `Windows`).
@@ -103,6 +109,18 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     }
     val manager = WindowManager(host, windows, onExit = { stopApplicationLoop() })
     manager.attach()
+    // The windows the application had open when it was last quit come back, when the system
+    // is set to keep windows across a quit: each is asked for by its restore key, and the
+    // application answers with the node or the window is closed again.
+    val restore = WindowRestore(UserDefaultsRestoreKeys, keepsWindows = ::systemKeepsWindows)
+    for (key in restore.keysToRequest(openRestoreKeys(host))) windows.requestWindow(key)
+    // A quit with windows open is the one that remembers them. The loop ending because the
+    // last window went leaves nothing to bring back.
+    NSNotificationCenter.defaultCenter.addObserverForName(
+        name = NSApplicationWillTerminateNotification,
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ -> restore.remember(openRestoreKeys(host)) }
     // A batch is one snapshot for every window: each is drawn again after it is applied, not
     // only the one whose frame carried it.
     host.afterBatch = {
@@ -124,9 +142,71 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
 
     application.activateIgnoringOtherApps(true)
     application.run()
+    restore.remember(emptyList())
     host.table.notifications.shutdown()
     return 0
 }
+
+/** The restore keys of the `Window` nodes at the root now, in order, without the empty ones. */
+internal fun openRestoreKeys(host: ComposeRustHost): List<String> =
+    host.table.roots.mapNotNull { id ->
+        host.table.node(id)
+            ?.takeIf { it.widget == WidgetKind.Window }
+            ?.text(PropertyKind.WindowRestoreKey)
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+/** Where the restore keys of the windows open at a quit are kept until the next start. */
+interface RestoreKeyStore {
+    fun load(): List<String>
+
+    fun save(keys: List<String>)
+}
+
+/**
+ * The windows a quit leaves to come back at the next start, by their restore keys.
+ *
+ * Only keys are kept. What a window showed is the application's to save and to put back when
+ * it answers the request, as it is on every platform that restores windows.
+ */
+internal class WindowRestore(
+    private val store: RestoreKeyStore,
+    private val keepsWindows: () -> Boolean,
+) {
+    /**
+     * The keys to ask the application for now: the ones the last quit left, less the ones a
+     * window the application already opened has. None when the system does not keep windows.
+     */
+    fun keysToRequest(present: Collection<String>): List<String> {
+        if (!keepsWindows()) return emptyList()
+        val have = present.toHashSet()
+        return store.load().filter { it.isNotEmpty() && it !in have }.distinct()
+    }
+
+    fun remember(open: List<String>) {
+        store.save(open.filter { it.isNotEmpty() }.distinct())
+    }
+}
+
+private const val RESTORE_KEYS_DEFAULT = "ComposeRustWindowRestoreKeys"
+
+/** The application's own defaults, which is where AppKit keeps what it restores too. */
+internal object UserDefaultsRestoreKeys : RestoreKeyStore {
+    override fun load(): List<String> =
+        NSUserDefaults.standardUserDefaults.stringArrayForKey(RESTORE_KEYS_DEFAULT)?.filterIsInstance<String>().orEmpty()
+
+    override fun save(keys: List<String>) {
+        NSUserDefaults.standardUserDefaults.setObject(keys, forKey = RESTORE_KEYS_DEFAULT)
+    }
+}
+
+/**
+ * Whether the system brings an application's windows back when it starts again: the setting
+ * "Close windows when quitting an application" turned off, which is `NSQuitAlwaysKeepsWindows`
+ * in the global defaults. That setting is on by default, so by default no window comes back.
+ */
+internal fun systemKeepsWindows(): Boolean =
+    NSUserDefaults.standardUserDefaults.boolForKey("NSQuitAlwaysKeepsWindows")
 
 /**
  * Which of the windows a multi-window run opens carry the start report and the parity run.
@@ -182,6 +262,8 @@ private fun MacosWindowScene(
     iconAsset: Int,
     fullSize: Boolean,
 ) {
+    // A window the system made waits for the application's node and draws nothing until then.
+    if (slot.nodeId == 0) return
     CompositionLocalProvider(
         LocalWindowNodeId provides slot.nodeId,
         LocalCursorBlinkEnabled provides cursorBlink,

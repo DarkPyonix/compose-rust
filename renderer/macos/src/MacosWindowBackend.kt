@@ -25,6 +25,8 @@ import platform.Foundation.NSProcessInfo
 import platform.AppKit.NSEventTypeApplicationDefined
 import platform.AppKit.NSScreen
 import platform.AppKit.NSWindow
+import kotlinx.cinterop.ObjCAction
+import platform.AppKit.NSWindowAbove
 import platform.AppKit.NSWindowDidMoveNotification
 import platform.AppKit.NSWindowDidResizeNotification
 import platform.AppKit.NSWindowStyleMaskResizable
@@ -189,6 +191,33 @@ class MacosWindowBackend(
 
     override fun setApplicationListener(listener: ApplicationListener?) {
         WindowApplication.onReopen = if (listener == null) null else ({ listener.onReopen() })
+        application = listener
+        macosNewWindowForTab = if (listener == null) null else ({ sender -> requestWindow("", tabWith = sender) })
+    }
+
+    private var application: ApplicationListener? = null
+
+    /**
+     * Opens a window the application did not ask for and asks the application for its node:
+     * a window the system made (the new tab button of a tabbed window) or one restored after
+     * the process started again. [key] is the restore key, empty for a new window.
+     *
+     * The window is opened first and handed over with the request, so the application's answer
+     * is drawn in it rather than in a second one; until then it draws nothing. The manager
+     * closes it when the application answers with no `Window` node of that key. A new tab is
+     * put beside [tabWith]. Returns whether the application took the window.
+     */
+    fun requestWindow(key: String, tabWith: NSWindow? = null): Boolean {
+        val listener = application ?: return false
+        val window = open(PlatformWindowConfig(nodeId = 0, restoreKey = key), UnclaimedWindow) as? MacosPlatformWindow
+            ?: return false
+        listener.onWindowRequested(key, window)
+        if (window.isClosed) return false
+        if (tabWith != null && tabWith !== window.nativeWindow) {
+            tabWith.addTabbedWindow(window.nativeWindow, ordered = NSWindowAbove)
+            window.focus()
+        }
+        return true
     }
 
     /** Asks every window to draw: the batch a frame applied is one snapshot for all of them. */
@@ -232,6 +261,9 @@ internal class MacosPlatformWindow(
 ) : PlatformWindow {
     private val native: NSWindow get() = window.window
     private var closed = false
+
+    /** Whether the window has been closed, by the application or because nobody claimed it. */
+    val isClosed: Boolean get() = closed
     private val observers = ArrayList<Any>()
     private var follow: Pair<Float, Float>? = null
     private var followTimer: NSTimer? = null
@@ -403,6 +435,12 @@ internal class MacosPlatformWindow(
         if (slot.zoom.setLevel(level)) requestFrame()
     }
 
+    override fun adoptedBy(nodeId: Int) {
+        if (closed) return
+        slot.drawNode(nodeId)
+        requestFrame()
+    }
+
     override fun setColorScheme(scheme: ColorScheme) {
         if (closed) return
         native.appearance = when (scheme) {
@@ -466,6 +504,17 @@ internal class MacosPlatformWindow(
     }
 }
 
+/** The listener of a window between its opening and the application claiming it: it hears nothing worth telling. */
+private object UnclaimedWindow : PlatformWindowListener {
+    override fun onCloseRequested() {}
+    override fun onFocusChanged(focused: Boolean) {}
+    override fun onMoved(bounds: ScreenBounds) {}
+    override fun onFollowEnded(cancelled: Boolean) {}
+}
+
+/** Where the application delegate sends the new tab button's request, while a manager is listening. */
+internal var macosNewWindowForTab: ((NSWindow?) -> Unit)? = null
+
 // The delegate is weak on the AppKit side, and Kotlin/Native forbids fields on the companion
 // of an Objective-C subclass.
 private var installedDelegate: MacosApplicationDelegate? = null
@@ -490,6 +539,16 @@ internal class MacosApplicationDelegate : NSObject(), NSApplicationDelegateProto
     }
 
     override fun applicationShouldTerminateAfterLastWindowClosed(sender: NSApplication): Boolean = false
+
+    /**
+     * The new tab button of a tabbed window, which AppKit shows when something in the
+     * responder chain answers this, and sends here through it. The system is the one making a
+     * window, so the application is asked for one with an empty restore key.
+     */
+    @ObjCAction
+    fun newWindowForTab(sender: NSObject?) {
+        macosNewWindowForTab?.invoke(sender as? NSWindow)
+    }
 }
 
 /** The height of the primary screen, the one with the menu bar, which is the first of `NSScreen.screens`. */

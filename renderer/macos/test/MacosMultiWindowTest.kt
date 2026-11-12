@@ -20,6 +20,8 @@ import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
 import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
+import dev.darkpyonix.composerust.ui.platform.RestoreKeyStore
+import dev.darkpyonix.composerust.ui.platform.WindowRestore
 import dev.darkpyonix.composerust.ui.platform.MacosWindowZoom
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
@@ -118,8 +120,12 @@ private class ScriptedHost(private val initial: List<Mutation>) : HostConnection
         initial.forEach(onMutation)
     }
 
+    /** What the application answers a `WindowRequested` with, by its key. */
+    val answers = mutableMapOf<String, List<Mutation>>()
+
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
         events += event
+        if (event is HostEvent.WindowRequested) answers[event.key]?.forEach(onMutation)
         if (event is HostEvent.Clicked) {
             val batch = next
             next = emptyList()
@@ -530,5 +536,67 @@ class MacosMultiWindowTest {
         } finally {
             h.close()
         }
+    }
+
+    @Test
+    fun fr53_macos_window_requested_matches_restore_key() {
+        NSApplication.sharedApplication()
+        val h = Harness(listOf(setWindow(LastWindowClosed.KeepRunning)) + windowNode(1))
+        try {
+            // The application answers the key with a node of that key: the window the system
+            // made is that node's window, and no second one opens.
+            h.connection.answers["ws:1"] = windowNode(
+                8,
+                PropertyKind.WindowRestoreKey to PropertyValue.Text("ws:1"),
+                PropertyKind.WindowTitle to PropertyValue.Text("Restored"),
+            )
+            assertTrue(h.backend.requestWindow("ws:1"))
+            val requested = h.connection.events.filterIsInstance<HostEvent.WindowRequested>()
+            assertEquals(listOf("ws:1"), requested.map { it.key })
+            assertEquals(0, requested.single().nodeId, "the request goes to the root")
+            assertEquals(listOf(1, 8), h.manager.openWindows)
+            assertEquals(2, h.backend.windows.size)
+            val adopted = h.backend.windows[1] as MacosPlatformWindow
+            assertEquals(8, adopted.nodeId, "the window draws the node that answered")
+            assertEquals("Restored", adopted.nativeWindow.title)
+            assertTrue(adopted.nativeWindow.visible)
+
+            // A key the application does not answer leaves no window behind.
+            assertFalse(h.backend.requestWindow("gone"))
+            spin()
+            assertEquals(listOf(1, 8), h.manager.openWindows)
+            assertEquals(2, h.backend.windows.size)
+
+            // The new tab button asks with an empty key.
+            h.connection.answers[""] = windowNode(9)
+            MacosApplicationDelegate().newWindowForTab(h.backend.windows[0].native())
+            assertEquals("", h.connection.events.filterIsInstance<HostEvent.WindowRequested>().last().key)
+            assertEquals(listOf(1, 8, 9), h.manager.openWindows)
+            assertEquals(3, h.backend.windows.size)
+            assertTrue(h.connection.events.none { it is HostEvent.ProtocolError })
+        } finally {
+            h.close()
+        }
+    }
+
+    @Test
+    fun fr53_macos_restore_asks_for_the_windows_the_last_quit_left() {
+        val store = object : RestoreKeyStore {
+            var saved = listOf<String>()
+            override fun load() = saved
+            override fun save(keys: List<String>) {
+                saved = keys
+            }
+        }
+        var keeps = true
+        val restore = WindowRestore(store, keepsWindows = { keeps })
+        restore.remember(listOf("ws:1", "", "ws:2", "ws:1"))
+        assertEquals(listOf("ws:1", "ws:2"), store.saved, "empty and repeated keys are not kept")
+        assertEquals(listOf("ws:1"), restore.keysToRequest(listOf("ws:2")), "a window already open is not asked for again")
+        keeps = false
+        assertEquals(emptyList(), restore.keysToRequest(emptyList()), "a system set to close windows at a quit restores none")
+        restore.remember(emptyList())
+        keeps = true
+        assertEquals(emptyList(), restore.keysToRequest(emptyList()))
     }
 }

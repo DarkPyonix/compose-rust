@@ -152,6 +152,13 @@ interface PlatformWindow {
     fun setZoomLevel(level: Int) {}
 
     /**
+     * The window was opened before the application had a node for it (the system made it) and
+     * is now the window of `Window` node [nodeId]. A platform whose window draws one node's
+     * content switches to that node here; the listener is replaced before this is called.
+     */
+    fun adoptedBy(nodeId: Int) {}
+
+    /**
      * This window's frame clock: suspends until the window draws its next frame and calls
      * [onFrame] with the frame time in nanoseconds. A window that is hidden or minimised may
      * never answer; the caller waits for the first of all of them.
