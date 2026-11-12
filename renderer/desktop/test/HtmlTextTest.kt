@@ -24,10 +24,23 @@ import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.design.platformUiFamily
+import dev.darkpyonix.composerust.foundation.resolveFontChain
+import dev.darkpyonix.composerust.protocol.HostEvent
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontListFontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.platform.SystemFont
+import org.jetbrains.skia.FontMgr
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -371,6 +384,56 @@ class HtmlTextTest {
         assertEquals(results[1].width, results[0].width, "the font was not ignored when measuring")
         assertNotEquals(GLYPH_AT_20, drawn.size.width.toFloat(), "drawn in the font a role should have ignored")
         assertEquals(GLYPH_AT_20, results[2].width, "without a role the same font is used")
+    }
+
+    /** A serif family with its own bold and italic, by name, on this machine, or null where none is installed. */
+    private val styledFamily: String? =
+        listOf("Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "Noto Serif")
+            .firstOrNull { name ->
+                val manager = FontMgr.default
+                val bold = manager.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.BOLD)
+                val italic = manager.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.ITALIC)
+                bold?.familyName.equals(name, true) && bold!!.fontStyle.weight >= 600 &&
+                    italic?.familyName.equals(name, true) && italic!!.fontStyle.slant != org.jetbrains.skia.FontSlant.UPRIGHT
+            }
+
+    /**
+     * An installed family is built with every face it has, so bold text in it is set in its
+     * own bold and italic text in its own italic, not in its regular face drawn heavier or
+     * slanted. Measured against the advance of the real faces: a regular face made bold or
+     * oblique keeps the regular face's advances, and these faces' differ.
+     */
+    @OptIn(ExperimentalTextApi::class)
+    @Test
+    fun fr40_an_installed_family_is_set_in_its_own_bold_and_italic() = runComposeUiTest {
+        val name = styledFamily ?: return@runComposeUiTest
+        val family = assertIs<FontListFontFamily>(systemFontFamily(name), "$name is installed, so it is a family of its faces")
+        val styles = family.fonts.map { (it.weight.weight >= 600) to (it.style == FontStyle.Italic) }.toSet()
+        assertEquals(setOf(false to false, true to false, false to true, true to true), styles, "$name: ${family.fonts}")
+
+        startHost(FakeHostConnection(htmlText(400f, "x")), Density(1f))
+        val text = "mmmmmmmmmm"
+        val size = 20f
+        val list = listOf(FontRef.System(name), FontRef.Generic(GenericFamily.Serif))
+        val (_, results) = measure(
+            MeasureRequests()
+                .text(text, role = 0, fontSize = size, fontWeight = 400, fonts = list, width = 400f)
+                .text(text, role = 0, fontSize = size, fontWeight = 700, fonts = list, width = 400f)
+                .text(text, role = 0, fontSize = size, fontWeight = 400, italic = true, fonts = list, width = 400f),
+        )
+        fun advance(style: org.jetbrains.skia.FontStyle): Float {
+            val face = FontMgr.default.matchFamilyStyle(name, style)!!
+            return org.jetbrains.skia.Font(face, size).measureTextWidth(text)
+        }
+        val regular = advance(org.jetbrains.skia.FontStyle.NORMAL)
+        val bold = advance(org.jetbrains.skia.FontStyle.BOLD)
+        val italic = advance(org.jetbrains.skia.FontStyle.ITALIC)
+        assertTrue(abs(results[0].width - regular) <= 1f, "$name regular: ${results[0].width} against $regular")
+        assertTrue(abs(bold - regular) > 2f, "$name's bold has the advances of its regular, so this case proves nothing")
+        assertTrue(abs(results[1].width - bold) <= 1f, "$name bold is set in $name Bold: ${results[1].width} against $bold")
+        if (abs(italic - regular) > 2f) {
+            assertTrue(abs(results[2].width - italic) <= 1f, "$name italic is set in $name Italic: ${results[2].width} against $italic")
+        }
     }
 
     private companion object {

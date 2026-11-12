@@ -5,11 +5,12 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
-import androidx.compose.ui.text.platform.Typeface
+import androidx.compose.ui.text.platform.SystemFont
 import org.jetbrains.skia.Data
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
@@ -62,17 +63,50 @@ internal fun decodeFontAsset(bytes: ByteArray): Asset.Font? {
 }
 
 /**
- * The installed family called [name], or null where this machine has none by that name.
+ * The installed family called [name], with every face of it the machine has, or null where
+ * this machine has none by that name.
  *
- * Asked of the font manager by name, and the face it answers is asked what it actually is:
- * a manager asked for a name it does not have can answer with a substitute, and a font
- * list has to move on to its next candidate rather than take that substitute for the one
- * it named.
+ * The font manager is asked for the family by name, and each face it answers is asked what
+ * it actually is: a manager asked for a name it does not have can answer with a substitute,
+ * and a font list has to move on to its next candidate rather than take that substitute for
+ * the one it named.
+ *
+ * Every face of the family becomes one font of it, at the weight and slant the face itself
+ * declares. Text in bold or italic is then set in the family's own bold or italic, the way a
+ * browser sets it, and where the family has no bold, Compose sees that it has none and draws
+ * one, rather than taking the regular face labelled bold at its word.
+ *
+ * The faces are listed rather than asked for one weight at a time. On macOS, asking for a
+ * weight that one of the system's own families does not have (SF Mono has nothing under
+ * 300) answers nothing, and from then on that family answers nothing for any weight, so
+ * the face Compose later loads by name would be Helvetica.
+ *
+ * Kept per name: the machine's fonts do not change while the application runs, and the
+ * same family object each time is what lets Compose reuse a layout it has already made.
  */
-internal fun systemFontFamily(name: String): FontFamily? {
-    val face = FontMgr.default.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.NORMAL) ?: return null
-    if (!face.familyName.equals(name, ignoreCase = true)) return null
-    return FontFamily(Typeface(face))
+internal fun systemFontFamily(name: String): FontFamily? =
+    installedFamilies.getOrPut(name) { InstalledFamily(buildSystemFontFamily(name)) }.family
+
+private class InstalledFamily(val family: FontFamily?)
+
+private val installedFamilies = HashMap<String, InstalledFamily>()
+
+@OptIn(ExperimentalTextApi::class)
+private fun buildSystemFontFamily(name: String): FontFamily? {
+    val set = FontMgr.default.matchFamily(name)
+    val faces = LinkedHashSet<Pair<Int, Boolean>>()
+    for (index in 0 until set.count()) {
+        val face = set.getTypeface(index) ?: continue
+        if (!face.familyName.equals(name, ignoreCase = true)) continue
+        val declared = face.fontStyle
+        faces += declared.weight.coerceIn(1, 1000) to (declared.slant != FontSlant.UPRIGHT)
+    }
+    if (faces.isEmpty()) return null
+    return FontFamily(
+        faces.map { (weight, italic) ->
+            SystemFont(name, FontWeight(weight), if (italic) FontStyle.Italic else FontStyle.Normal)
+        },
+    )
 }
 
 /** Draws the document into the whole of the current drawing area. */
