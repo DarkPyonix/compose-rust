@@ -269,6 +269,14 @@ impl Batch {
         });
     }
 
+    /// Writes one request to scroll a code editor so that `offset_px` physical pixels of its
+    /// document are above the top of its view. The offset is the unit `CodeScrolled`
+    /// reports, so what one editor reported can be given to another to keep the two level.
+    /// The Renderer keeps it inside what the document allows.
+    pub fn set_scroll_offset(&mut self, node_id: u32, offset_px: f64) {
+        self.write(Mutation::SetScrollOffset { node_id, offset_px });
+    }
+
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

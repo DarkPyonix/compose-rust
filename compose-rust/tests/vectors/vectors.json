@@ -1,11 +1,11 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "9883453844801280453",
+  "schemaHashUnsigned": "14886157802230485575",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 113,
+    "recordCount": 114,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
@@ -27,7 +27,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Thirty-four independently decodable event records concatenated in schema order",
+    "description": "Thirty-six independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -63,7 +63,9 @@
       { "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" },
       { "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 },
       { "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" },
-      { "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }
+      { "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" },
+      { "type": "CodeMetrics", "offset": 1093, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 },
+      { "type": "CodeScrolled", "offset": 1117, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }
     ]
   }
 }

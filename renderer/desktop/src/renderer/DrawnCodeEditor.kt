@@ -126,6 +126,12 @@ private class DrawnState(
     private val views = HashMap<Int, LineView>()
     private var viewsRevision = -1
 
+    /** Drops every line laid out so far, for a look that changed under them. */
+    fun forgetLines() {
+        views.clear()
+        viewsRevision = -1
+    }
+
     fun view(line: Int): LineView {
         // The caret changes a line's layout only through what is composed at it.
         val revision = model.contentRevision * 31 + model.overlayRevision * 7 +
@@ -174,6 +180,9 @@ private class DrawnState(
             val from = if (span.start.line < line) 0 else span.start.column.coerceAtMost(source.length)
             val to = if (span.end.line > line) source.length else span.end.column.coerceAtMost(source.length)
             if (to > from) builder.addStyle(SpanStyle(color = look.paint(span.paint)), charAt[from], caretAt[to])
+        }
+        look.fontFallback?.let { fallback ->
+            for (piece in fallback(builder.toAnnotatedString().text)) builder.addStyle(piece.item, piece.start, piece.end)
         }
         val layout = measurer!!.measure(builder.toAnnotatedString(), style, softWrap = false)
         return LineView(layout, caretAt, charAt)
@@ -283,6 +292,8 @@ private fun DrawnSurface(
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer(cacheSize = 0)
     val state = remember(model) { DrawnState(model, look, callbacks) }
+    // A line laid out in the old face or the old colours is not the line to draw now.
+    if (state.look !== look) state.forgetLines()
     state.look = look
     state.callbacks = callbacks
     state.clipboard = LocalClipboardManager.current
@@ -307,9 +318,10 @@ private fun DrawnSurface(
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
     val foldColumn = if (model.folds.isNotEmpty()) rowPx else 0
-    val gutterWidth = with(density) {
-        rows.lineCount.toString().length * digitWidth + (look.gutterPadding * 2).toPx() + look.gutterDividerWidth.toPx()
-    } + markColumn + foldColumn + density.changeColumnPx(model, look)
+    val gutterWidth = (
+        density.numberColumnPx(look, rows.lineCount.toString().length, digitWidth) +
+            markColumn + foldColumn + density.changeColumnPx(model, look)
+        ).toFloat()
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
@@ -319,6 +331,7 @@ private fun DrawnSurface(
         snapshotFlow { vertical.offset }.collect { scroll ->
             if (viewportHeight > 0) {
                 reportVisible(model, rows, scroll, viewportHeight, rowPx)
+                model.reportGeometry(rowPx, scroll)
                 callbacks.onOutput()
             }
         }
@@ -337,6 +350,13 @@ private fun DrawnSurface(
         scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
         model.revealDone(reveal)
         callbacks.onOutput()
+    }
+    // An offset the Host asked for, once the view has a height to clamp it by.
+    val scrollRequest = model.scrollRequest
+    val measured = viewportHeight > 0
+    LaunchedEffect(scrollRequest, measured) {
+        if (scrollRequest == null || !measured) return@LaunchedEffect
+        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
     }
 
     Box(
@@ -447,7 +467,7 @@ private fun DrawScope.drawLines(
     val last = min(rows.lineCount - 1, rows.lineAtRow(((scroll + viewportHeight) / rowPx).toInt() + 1))
     val selection = model.selection
     drawRect(look.gutter, Offset(0f, scroll.toFloat()), Size(gutterWidth, viewportHeight.toFloat()))
-    if (look.gutterDivider.alpha > 0f) {
+    if (look.lineNumbers && look.gutterDivider.alpha > 0f) {
         val width = look.gutterDividerWidth.toPx()
         drawRect(look.gutterDivider, Offset(gutterWidth - width, scroll.toFloat()), Size(width, viewportHeight.toFloat()))
     }
@@ -486,19 +506,22 @@ private fun DrawScope.drawLines(
             val x = state.textLeft + view.layout.getHorizontalPosition(shown, true)
             drawRect(look.cursor, Offset(x, top), Size(1.5.dp.toPx(), rowPx))
         }
-        val number = state.measurer!!.measure(
-            (line + 1).toString(),
-            state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
-        )
-        val padding = look.gutterPadding.toPx() + look.gutterDividerWidth.toPx() + foldColumn + changeColumn
-        drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
+        val divider = gutterDividerPx(look)
+        if (look.lineNumbers) {
+            val number = state.measurer!!.measure(
+                (line + 1).toString(),
+                state.style.copy(color = if (line == selection.caret.line) look.currentLineNumber else look.lineNumber),
+            )
+            val padding = look.gutterPadding.toPx() + divider + foldColumn + changeColumn
+            drawText(number, topLeft = Offset(gutterWidth - padding - number.size.width, top + (rowPx - number.size.height) / 2))
+        }
         drawGutterAdornments(
             model,
             line,
             top,
             state.rowPx,
             markColumn,
-            gutterWidth - look.gutterDividerWidth.toPx() - foldColumn,
+            gutterWidth - divider - foldColumn,
             foldColumn,
             changeColumn,
             state.measurer!!,

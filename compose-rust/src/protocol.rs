@@ -44,6 +44,8 @@ const TAG_SHOW_FILE_DIALOG: u16 = 26;
 const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 // 27 sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
+// 28 and 29 are numbered for commands that are not here yet.
+const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
 // 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
@@ -291,6 +293,13 @@ pub enum Mutation<'a> {
     ReadClipboard {
         request: u32,
     },
+    /// Scrolls a code editor so that `offset_px` physical pixels of its document are above
+    /// the top of its view. The Renderer keeps the offset inside what the document allows,
+    /// and reports where it ended up through `CodeScrolled` like any other scroll.
+    SetScrollOffset {
+        node_id: u32,
+        offset_px: f64,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -382,6 +391,10 @@ const EVENT_APPLICATION_REOPEN: u16 = 47;
 const EVENT_FOCUS_GAINED: u16 = 48;
 const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
+// 51 to 53 are numbered for events that are not here yet. 54 and 55 are the code editor's
+// row height and scroll offset, each one `f64` of physical pixels.
+const EVENT_CODE_METRICS: u16 = 54;
+const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
 const FILE_DIALOG_RESULT_LEN: usize = 36;
 // 51 to 55 are held by events other requirements have numbered.
@@ -750,6 +763,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CODE_METRICS if record_len == 24 => crate::schema::EventPayload::CodeMetrics {
+            line_height_px: f64::from_bits(read_u64(bytes, 16)?),
+        },
+        EVENT_CODE_SCROLLED if record_len == 24 => crate::schema::EventPayload::CodeScrolled {
+            offset_px: f64::from_bits(read_u64(bytes, 16)?),
+        },
+        EVENT_CODE_METRICS | EVENT_CODE_SCROLLED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1170,6 +1192,19 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
         return Ok(());
     }
+    match event.payload {
+        crate::schema::EventPayload::CodeMetrics { line_height_px } => {
+            put_event_header(output, EVENT_CODE_METRICS, 24, event);
+            output.extend_from_slice(&line_height_px.to_bits().to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeScrolled { offset_px } => {
+            put_event_header(output, EVENT_CODE_SCROLLED, 24, event);
+            output.extend_from_slice(&offset_px.to_bits().to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1248,6 +1283,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
+        | crate::schema::EventPayload::CodeMetrics { .. }
+        | crate::schema::EventPayload::CodeScrolled { .. }
         | crate::schema::EventPayload::FileDialogResult { .. }
         | crate::schema::EventPayload::ClipboardText { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
@@ -1545,6 +1582,11 @@ impl BatchEncoder {
             Mutation::RequestFocus { node_id } => {
                 self.begin_record(TAG_REQUEST_FOCUS, 4);
                 self.put_u32(*node_id);
+            }
+            Mutation::SetScrollOffset { node_id, offset_px } => {
+                self.begin_record(TAG_SET_SCROLL_OFFSET, 12);
+                self.put_u32(*node_id);
+                self.put_u64(offset_px.to_bits());
             }
             Mutation::ShowFileDialog {
                 request,
@@ -2245,6 +2287,11 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 start_line: read_u32(bytes, payload + 4)?,
                 collapsed: read_flag(bytes, payload + 8)?,
             },
+            TAG_SET_SCROLL_OFFSET if len == 16 => Mutation::SetScrollOffset {
+                node_id: read_u32(bytes, payload)?,
+                offset_px: f64::from_bits(read_u64(bytes, payload + 4)?),
+            },
+            TAG_SET_SCROLL_OFFSET => return Err(ProtocolError::InvalidRecordLength),
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION

@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -610,6 +610,15 @@ data class GutterDecorationRecord(
     val glyph: Int,
 )
 
+/** The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour. */
+data class CodeEditorColorsRecord(
+    val container: ColorRole?,
+    val gutter: ColorRole?,
+    val lineNumber: ColorRole?,
+    val currentLineNumber: ColorRole?,
+    val currentLine: ColorRole?,
+)
+
 /**
  * Reads the blobs a code editor carries.
  *
@@ -739,6 +748,39 @@ object CodeEditorRecords {
         val id = buffer.getLong(offset + 12)
         val glyph = buffer.getInt(offset + 20)
         return GutterDecorationRecord(version, line, kind, color, id, glyph)
+    }
+
+    const val CODE_EDITOR_COLORS_LENGTH = 12
+
+    fun decodeCodeEditorColors(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditorColorsRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<CodeEditorColorsRecord>(bytes.size / CODE_EDITOR_COLORS_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + CODE_EDITOR_COLORS_LENGTH <= end) {
+            readCodeEditorColorsRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += CODE_EDITOR_COLORS_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readCodeEditorColorsRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): CodeEditorColorsRecord? {
+        val containerTag = buffer.getShort(offset + 0).toInt() and 0xffff
+        val container = if (containerTag == 0) null else colorRoleOrNull(containerTag) ?: run { onError("record $index has an unknown container ${containerTag}"); return null }
+        val gutterTag = buffer.getShort(offset + 2).toInt() and 0xffff
+        val gutter = if (gutterTag == 0) null else colorRoleOrNull(gutterTag) ?: run { onError("record $index has an unknown gutter ${gutterTag}"); return null }
+        val lineNumberTag = buffer.getShort(offset + 4).toInt() and 0xffff
+        val lineNumber = if (lineNumberTag == 0) null else colorRoleOrNull(lineNumberTag) ?: run { onError("record $index has an unknown lineNumber ${lineNumberTag}"); return null }
+        val currentLineNumberTag = buffer.getShort(offset + 6).toInt() and 0xffff
+        val currentLineNumber = if (currentLineNumberTag == 0) null else colorRoleOrNull(currentLineNumberTag) ?: run { onError("record $index has an unknown currentLineNumber ${currentLineNumberTag}"); return null }
+        val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
+        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
     }
 
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
@@ -1320,6 +1362,12 @@ sealed interface Mutation {
      * `ClipboardText` event carrying [request].
      */
     data class ReadClipboard(val request: Int) : Mutation
+
+    /**
+     * Scrolls a code editor so that [offsetPx] physical pixels of its document are above
+     * the top of its view. The same unit the `CodeScrolled` event reports.
+     */
+    data class SetScrollOffset(val nodeId: Int, val offsetPx: Double) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1373,13 +1421,15 @@ sealed interface HostEvent {
         override fun toString(): String =
             "ClipboardText(request=$request, status=$status, length=$length)"
     }
+    data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8563290228908271163L
+    const val SCHEMA_HASH: Long = -3560586271479066041L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1412,6 +1462,7 @@ object Protocol {
     private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_SET_SCROLL_OFFSET = 30
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1747,6 +1798,13 @@ object Protocol {
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
                         )
                     }
+                    TAG_SET_SCROLL_OFFSET -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetScrollOffset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            kotlin.Double.fromBits(readU64(batch, base, available, offset + 8)),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -1882,6 +1940,8 @@ object Protocol {
                 is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeMetrics -> null
+                is HostEvent.CodeScrolled -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1928,6 +1988,8 @@ object Protocol {
                 is HostEvent.KeyUp -> 32
                 is HostEvent.FileDialogResult -> 36
                 is HostEvent.ClipboardText -> 36
+                is HostEvent.CodeMetrics -> 24
+                is HostEvent.CodeScrolled -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1978,6 +2040,8 @@ object Protocol {
                 is HostEvent.KeyUp -> 49
                 is HostEvent.FileDialogResult -> 50
                 is HostEvent.ClipboardText -> 56
+                is HostEvent.CodeMetrics -> 54
+                is HostEvent.CodeScrolled -> 55
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2172,6 +2236,8 @@ object Protocol {
                     out.putInt(event.length)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.CodeMetrics -> out.putDouble(event.value)
+                is HostEvent.CodeScrolled -> out.putDouble(event.value)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2377,6 +2443,13 @@ object Protocol {
         175 -> PropertyKind.Placement
         176 -> PropertyKind.Align
         177 -> PropertyKind.OffsetDp
+        178 -> PropertyKind.LineNumbers
+        179 -> PropertyKind.GutterMinWidthDp
+        180 -> PropertyKind.GutterPaddingDp
+        181 -> PropertyKind.TextInsetDp
+        182 -> PropertyKind.CodeEditorColors
+        183 -> PropertyKind.OnCodeMetrics
+        184 -> PropertyKind.OnCodeScrolled
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
