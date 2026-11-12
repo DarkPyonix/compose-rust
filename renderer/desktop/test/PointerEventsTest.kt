@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.MouseButton
+import androidx.compose.ui.test.SkikoComposeUiTest
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
@@ -145,6 +147,15 @@ class PointerEventsTest {
         }
         waitForIdle()
         return shown
+    }
+
+    /**
+     * Takes the pointers back from the content, as a window does when it loses them. The
+     * desktop test injector has no event for it, so the scene is told directly.
+     */
+    @OptIn(InternalComposeUiApi::class)
+    private fun ComposeUiTest.cancelPointerInput() {
+        runOnIdle { (this as SkikoComposeUiTest).scene.cancelPointerInput() }
     }
 
     @Test
@@ -452,8 +463,11 @@ class PointerEventsTest {
         show(connection)
         onNodeWithTag(nodeTestTag(OUTER)).performTouchInput {
             down(at(50f, 50f))
+            // On the desktop this only ends the gesture for the injector: its cancel sends
+            // the scene nothing. The scene is told below, the way a window tells it.
             cancel()
         }
+        cancelPointerInput()
         waitForIdle()
         val seen = connection.pointers()
         assertEquals(
@@ -622,8 +636,10 @@ class PointerEventsTest {
         runComposeUiTest {
             val connection = FakeHostConnection(nested(both, both))
             show(connection)
+            // A position given to a tagged node is measured from the box its tag is on,
+            // which is the one inside the padding: where the inner node begins.
             onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
-                moveTo(at(50f, 60f))
+                moveTo(at(30f, 40f))
                 press()
                 release()
             }
