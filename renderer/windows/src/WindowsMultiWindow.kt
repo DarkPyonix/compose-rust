@@ -85,8 +85,15 @@ internal class MultiWindowLoop(
         windowSystem(backend),
         onExit = onExit,
         dropTargets = dropTargets,
-        // A window torn off under a held pointer takes it over: the node that held it lets go.
-        cancelCapture = { backend.cancelPointerCapture() },
+        // A window torn off under a held pointer takes it over, and the node that held it lets
+        // go twice over. The node table's router tells the node its Cancel and drops what is
+        // left of that press, as on every platform. The window the press began in also ends
+        // the gesture inside its scene, so a control there (a click, a drag, a press that is
+        // drawn) does not act on a release that is no longer its own.
+        cancelCapture = { pointerId ->
+            host.table.pointers.cancelPointer(pointerId)
+            backend.cancelPointerCapture()
+        },
     )
 
     /** Hooks the manager to the Host's batches and opens the windows the tree already has. */
