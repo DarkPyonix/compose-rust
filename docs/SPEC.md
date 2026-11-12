@@ -4179,6 +4179,26 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 2. 줄 사이 간격이 `vertical_spacing`과 같습니다(fr76_flow_row_spacing).
 3. 같은 트리가 macOS, Windows, Linux, iOS, Android, 웹에서 같은 줄 나눔을 냅니다(글자 폭이 같은 글꼴일 때)(fr76_flow_row_same_on_every_target).
 
+### FR-77 `Popover`: 노드에 붙어 열리는 떠 있는 상자 (`Agreed`, 이슈 #313, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(작성창의 모델 고르기, 필터, 편집기의 ... 메뉴). `Menu`(FR-64)는 항목 의미를 가지므로 임의 내용을 담는 새 위젯이 필요합니다. dioxus-compose FR-21.9가 이 위젯 위에 섭니다.
+
+- 새 위젯 `Popover`(위젯 종류는 추가 전용). 자식 0은 기준점(anchor)이고 늘 그려집니다. 자식 1 이후가 떠 있는 내용입니다.
+- 속성: `Open`(bool, Host가 소유합니다), `Placement`(`Top`/`Bottom`/`Start`/`End`, 기본 `Bottom`), `Align`(`Start`/`Center`/`End`, 기본 `Start`), `OffsetDp`(기준점과의 간격, 기본은 디자인 시스템 토큰), `Scrim`(bool, 기본 false).
+- 배치 규칙은 Renderer의 것입니다. 창 안에 들어가지 않으면 반대쪽으로 뒤집고(flip), 그래도 넘치면 창 가장자리 안으로 밀어 넣습니다(shift). 내용 크기는 내용이 정하고, 창보다 크면 창 크기에서 여백을 뺀 만큼으로 줄어듭니다.
+- 바깥을 누르거나 Escape를 누르면 `OnDismiss`가 한 번 갑니다(21.3.2와 같은 규칙, 맨 위 오버레이 하나만). `Open`은 Host가 바꿉니다.
+- 열리면 포커스가 내용 안으로 가고, 닫히면 연 노드로 돌아갑니다(21.3.2).
+- 표면은 디자인 시스템의 오버레이 토큰(FR-74)을 씁니다. `Modifier::Material`이 붙으면 그 재질을 씁니다. 그림자, 모양, 테두리는 내용 노드의 수정자로 바꿀 수 있습니다.
+- 접근성: 내용은 대화상자가 아닌 팝업 그룹으로 노출됩니다.
+- Compose `Popup`과 `PopupPositionProvider`(안정 API)로 그립니다.
+
+수용 기준.
+1. 기준점 바로 아래 `OffsetDp`만큼 떨어져 내용이 열리고, 기준점의 시작 가장자리에 맞춥니다(fr77_popover_opens_below_anchor).
+2. 창 아래쪽 끝의 기준점에서 열면 위로 뒤집힙니다. 오른쪽 끝에서 열면 창 안으로 밀려 들어옵니다(fr77_popover_flips_and_shifts).
+3. 바깥 누름과 Escape가 각각 `OnDismiss`를 한 번 보냅니다(fr77_popover_dismisses_once).
+4. 닫히면 포커스가 기준점으로 돌아갑니다(fr77_popover_restores_focus).
+5. 창 크기가 바뀌면 다시 배치합니다(fr77_popover_follows_resize).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
