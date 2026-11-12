@@ -12,8 +12,10 @@ import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WindowMode
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.ui.platform.DropTargets
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.MacosApplicationDelegate
 import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
@@ -23,6 +25,7 @@ import dev.darkpyonix.composerust.ui.platform.PlatformWindow
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
 import dev.darkpyonix.composerust.ui.platform.ScreenBounds
+import dev.darkpyonix.composerust.ui.platform.ScreenPointer
 import dev.darkpyonix.composerust.ui.platform.TopLeftRect
 import dev.darkpyonix.composerust.ui.platform.WindowManager
 import dev.darkpyonix.composerust.ui.platform.appKitRectToTopLeft
@@ -157,6 +160,32 @@ private fun windowNode(id: Int, vararg props: Pair<PropertyKind, PropertyValue>)
     add(Mutation.Create(id, WidgetKind.Window))
     for ((kind, value) in props) add(Mutation.SetProp(id, kind, value))
     add(Mutation.Insert(0, id, APPEND))
+}
+
+/** A `Text` child of [parent] that asked to hear a dragged window pass over it. */
+private fun strip(parent: Int, id: Int, handler: Long): List<Mutation> = listOf(
+    Mutation.Create(id, WidgetKind.Text),
+    Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("tab strip")),
+    Mutation.SetProp(id, PropertyKind.OnWindowDragOver, PropertyValue.Integer(handler)),
+    Mutation.Insert(parent, id, APPEND),
+)
+
+/** `DragFromPointer`: the pointer, then the point of the content that stays under it. */
+private fun dragFrom(pointerId: Int, anchorX: Float, anchorY: Float): PropertyValue =
+    PropertyValue.Bytes(ByteArray(12).also { floats(anchorX, anchorY).copyInto(it, 4) }.also { it[0] = pointerId.toByte() })
+
+/**
+ * The top left corner of the subscribed node of [windowId], in dp of the window's content, to
+ * the dp: found by asking for every point as the manager asks for the pointer's, so the place
+ * is the one the scene laid the node out at and nothing the test assumes.
+ */
+private fun cornerOfTarget(targets: DropTargets, windowId: Int, width: Int, height: Int, step: Int = 1): Pair<Float, Float>? {
+    for (y in 0 until height step step) {
+        for (x in 0 until width step step) {
+            if (targets.targetAt(windowId, x.toFloat(), y.toFloat()) != null) return x.toFloat() to y.toFloat()
+        }
+    }
+    return null
 }
 
 private class Harness(initial: List<Mutation>) {
@@ -434,6 +463,113 @@ class MacosMultiWindowTest {
         } finally {
             h.close()
             assertEquals(null, WindowApplication.onReopen, "shutting the manager down removes the listener")
+        }
+    }
+
+    /**
+     * The whole path of a dragged window on macOS: the Host's `DragFromPointer`, two real
+     * NSWindows each drawing a real `Text` node that subscribed with `OnWindowDragOver` (where
+     * the nodes are comes from layout, where the windows are from AppKit), the manager polling
+     * the pointer, and the `WindowDragOver` events the Host receives. Only the pointer is
+     * scripted, because the runner has none to move.
+     */
+    @Test
+    fun fr53_macos_drag_over_reaches_the_drop_target() {
+        NSApplication.sharedApplication()
+        val connection = ScriptedHost(
+            listOf(setWindow(LastWindowClosed.KeepRunning)) +
+                windowNode(
+                    2,
+                    PropertyKind.WindowSize to PropertyValue.Bytes(floats(320f, 200f)),
+                    PropertyKind.WindowPosition to PropertyValue.Bytes(floats(420f, 160f)),
+                ) + strip(2, 20, 33L),
+        )
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val backend = MacosWindowBackend { config, _, _ ->
+            { ComposeRustContent(host, windowNodeId = config.nodeId) }
+        }
+        // The button is held from the start, away from the window.
+        var pointer = ScreenPointer(60f, 620f, true)
+        backend.pointer = { pointer }
+        val targets = DropTargets.registered(backend::contentScale)
+        val manager = WindowManager(host, backend, onExit = {}, dropTargets = targets)
+        try {
+            manager.attach()
+            val under = backend.windows.single()
+            spinUntil(turns = 100) { cornerOfTarget(targets, 2, 320, 200, step = 8) != null }
+            val corner = assertNotNull(
+                cornerOfTarget(targets, 2, 320, 200),
+                "the subscribed node never told where the scene laid it out",
+            )
+            // Six by four dp inside the strip of window 2, as a point of the screen.
+            val insideX = corner.first + 6f
+            val insideY = corner.second + 4f
+            val origin = assertNotNull(under.contentOrigin())
+            pointer = ScreenPointer(origin.x + insideX, origin.y + insideY, true)
+
+            // The application tears a tab off under the pointer: window 1, with a strip of its
+            // own at the same place of its content, held by the point the pointer is on.
+            connection.queue(
+                windowNode(
+                    1,
+                    PropertyKind.WindowSize to PropertyValue.Bytes(floats(320f, 200f)),
+                    PropertyKind.DragFromPointer to dragFrom(1, insideX, insideY),
+                    PropertyKind.OnWindowDrag to PropertyValue.Integer(11L),
+                ) + strip(1, 10, 44L),
+            )
+            host.dispatch(HostEvent.Clicked(nodeId = 0, handlerId = 0))
+            assertEquals(listOf(2, 1), manager.openWindows)
+            val dragged = backend.windows[1]
+            // It follows the pointer, so it lies over window 2 with its own strip under the
+            // pointer: the nearest subscribed node there is the dragged window's.
+            spinUntil(turns = 100) {
+                dragged.bounds()?.contains(pointer.x, pointer.y) == true &&
+                    targets.targetAt(1, insideX, insideY) != null
+            }
+            assertTrue(dragged.bounds()?.contains(pointer.x, pointer.y) == true, "the torn-off window is not under the pointer")
+            assertEquals(10, targets.targetAt(1, insideX, insideY)?.nodeId, "the dragged window's own strip is not under the pointer")
+
+            fun overs() = connection.events.filterIsInstance<HostEvent.WindowDragOver>()
+            fun drags() = connection.events.filterIsInstance<HostEvent.WindowDrag>()
+
+            // Over window 2's strip: Enter, in the node's own dp, naming the dragged window.
+            manager.flushFrame()
+            assertEquals(listOf(1), overs().map { it.kind }, "no Enter reached the Host")
+            val enter = overs()[0]
+            assertEquals(20, enter.nodeId)
+            assertEquals(33L, enter.handlerId)
+            assertEquals(1, enter.window)
+            // The corner was found to the dp, so the point is six to seven by four to five in.
+            assertTrue(enter.x >= 5.99f && enter.x <= 7.01f, "x in the node was ${enter.x}")
+            assertTrue(enter.y >= 3.99f && enter.y <= 5.01f, "y in the node was ${enter.y}")
+            assertEquals(2, drags().last().overWindow)
+
+            // Three dp to the right and one down inside it: Move, by that much.
+            pointer = ScreenPointer(pointer.x + 3f, pointer.y + 1f, true)
+            manager.flushFrame()
+            assertEquals(listOf(1, 2), overs().map { it.kind })
+            assertTrue(abs(overs()[1].x - enter.x - 3f) <= 0.01f, "x moved by ${overs()[1].x - enter.x}")
+            assertTrue(abs(overs()[1].y - enter.y - 1f) <= 0.01f, "y moved by ${overs()[1].y - enter.y}")
+
+            // The button is let go there: Drop, then the end of the drag.
+            pointer = ScreenPointer(pointer.x, pointer.y, false)
+            spinUntil(turns = 100) { drags().any { it.phase == 2 } }
+            assertEquals(listOf(1, 2, 4), overs().map { it.kind })
+            assertTrue(abs(overs()[2].x - overs()[1].x) <= 0.01f && abs(overs()[2].y - overs()[1].y) <= 0.01f)
+            assertTrue(overs().all { it.nodeId == 20 && it.window == 1 }, "the dragged window's own strip was hit")
+            val end = drags().last()
+            assertEquals(2, end.phase)
+            assertEquals(1, end.nodeId)
+            assertEquals(2, end.overWindow)
+            assertEquals(pointer.x, end.screenX)
+            assertEquals(pointer.y, end.screenY)
+            assertEquals(1, drags().count { it.phase == 2 }, "the drag ended more than once")
+            assertTrue(connection.events.none { it is HostEvent.ProtocolError })
+        } finally {
+            manager.shutdown()
+            spin()
+            host.shutdown()
         }
     }
 }
