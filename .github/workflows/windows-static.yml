@@ -293,19 +293,22 @@ jobs:
 
       - name: Keep the application
         if: always()
+        # multi-window.exe is the two-window application for the hand check of an input
+        # method and a screen reader in a second window (its README.md says what to check).
         uses: actions/upload-artifact@v4
         with:
           name: windows-static-consumer
-          path: ${{ runner.temp }}/consumer-windows/consumer.exe
+          path: |
+            ${{ runner.temp }}/consumer-windows/alone/consumer.exe
+            ${{ runner.temp }}/consumer-windows/multi-window/multi-window.exe
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Package the kit the way the release carries it
         id: package
-        # The same tarball the other platforms ship: the static kit under lib/ and include/,
-        # with the rest of what an MSVC link needs beside it, and its checksum. A tag keeps
-        # the GraalVM tarball of the same name until the release takes this one instead.
-        if: steps.renderer.outcome == 'success' && !startsWith(github.ref, 'refs/tags/v')
+        # The tarball the release carries for windows-x64: the kit root, with what an MSVC
+        # link needs beside the archive, and its checksum. On a tag this is the release asset.
+        if: steps.renderer.outcome == 'success'
         run: |
           set -euo pipefail
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' compose-rust/Cargo.toml | head -1)"

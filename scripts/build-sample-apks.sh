@@ -14,7 +14,19 @@
 #
 # A sample that does not build is skipped and named at the end. Eleven samples do not all
 # have to work for the ten that do to be worth shipping.
+#
+# The ABI is named, because dx does not pick a phone's. With no target it builds for the
+# machine it runs on, so on an x86-64 runner every APK carried its host library only at
+# lib/x86_64/ and died on an arm64 phone with "libmain.so is not in this APK". The name
+# this script gives an APK is a claim about what is inside it, so the APK is opened and the
+# claim checked: an APK without lib/$abi/libmain.so is not published under that name, and
+# the run fails naming it. That is not a sample that failed to build, it is every APK being
+# wrong, and it must not look like a smaller release.
 set -uo pipefail
+
+# The phone ABI and the Rust target that produces it. Every arm64 phone runs arm64-v8a.
+abi=arm64-v8a
+rust_target=aarch64-linux-android
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -36,6 +48,10 @@ command -v dx >/dev/null || {
     echo "  cargo install dioxus-cli" >&2
     exit 1
 }
+command -v unzip >/dev/null || {
+    echo "unzip is not on PATH. It is how each APK is checked for its $abi host library." >&2
+    exit 1
+}
 # Android Gradle 8.7 runs jlink to make a system image and that fails on a JDK newer than
 # 21. The failure names jlink and a cache directory and never mentions the JDK, so the
 # version is checked here instead of being discovered an hour later.
@@ -51,6 +67,7 @@ fi
 mkdir -p "$output"
 built=()
 skipped=()
+wrong_abi=()
 
 for manifest in samples/*/Cargo.toml; do
     sample="$(basename "$(dirname "$manifest")")"
@@ -60,7 +77,8 @@ for manifest in samples/*/Cargo.toml; do
     [[ -f "samples/$sample/src/main.rs" ]] || continue
     echo "== $sample"
 
-    if ! dx build --package "sample-$sample" --platform android ${profile:+$profile}; then
+    if ! dx build --package "sample-$sample" --platform android --target "$rust_target" \
+        ${profile:+$profile}; then
         skipped+=("$sample")
         continue
     fi
@@ -69,11 +87,25 @@ for manifest in samples/*/Cargo.toml; do
         skipped+=("$sample (no apk)")
         continue
     fi
-    cp "$apk" "$output/$sample-android-arm64-v8a.apk"
+    # `unzip -Z1` lists one entry name per line, so the match is on the whole path.
+    if ! unzip -Z1 "$apk" 2>/dev/null | grep -qx "lib/$abi/libmain.so"; then
+        echo "ERROR: $apk has no lib/$abi/libmain.so, so it is not an $abi APK." >&2
+        echo "       Its host libraries are:" >&2
+        unzip -Z1 "$apk" 2>/dev/null | grep -E '^lib/[^/]+/libmain\.so$' | sed 's/^/         /' >&2 ||
+            echo "         none" >&2
+        echo "       A phone would fail to load libmain.so at launch." >&2
+        wrong_abi+=("$sample")
+        continue
+    fi
+    cp "$apk" "$output/$sample-android-$abi.apk"
     built+=("$sample")
 done
 
 echo
 echo "built ${#built[@]}: ${built[*]:-none}"
 [[ ${#skipped[@]} -eq 0 ]] || echo "skipped ${#skipped[@]}: ${skipped[*]}"
+if [[ ${#wrong_abi[@]} -gt 0 ]]; then
+    echo "FAILED ${#wrong_abi[@]}: ${wrong_abi[*]} built an APK without lib/$abi/libmain.so" >&2
+    exit 1
+fi
 [[ ${#built[@]} -gt 0 ]] || { echo "no APK was built at all, which is the toolchain rather than a sample" >&2; exit 1; }
