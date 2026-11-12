@@ -257,7 +257,7 @@ class MacosAccessibilityTest {
         val host = ComposeRustHost(connection)
         host.start(FrameRequestSource())
 
-        val backend = MacosWindowBackend { _, _, _ ->
+        val backend = MacosWindowBackend { _, _, _, _ ->
             { ComposeRustContent(host) }
         }
         val opened = assertNotNull(

@@ -20,6 +20,11 @@ import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
 import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
+import dev.darkpyonix.composerust.ui.platform.MacosWindowZoom
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
+import dev.darkpyonix.composerust.runtime.Zoom
+import androidx.compose.runtime.CompositionLocalProvider
 import dev.darkpyonix.composerust.ui.platform.PlatformWindow
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
@@ -160,10 +165,25 @@ private fun windowNode(id: Int, vararg props: Pair<PropertyKind, PropertyValue>)
     add(Mutation.Insert(0, id, APPEND))
 }
 
-private class Harness(initial: List<Mutation>) {
+private class Harness(initial: List<Mutation>, withScenes: Boolean = false) {
     val connection = ScriptedHost(initial)
     val host = ComposeRustHost(connection)
-    val backend = MacosWindowBackend()
+    val backend = if (!withScenes) {
+        MacosWindowBackend()
+    } else {
+        // Each window draws its own node at its own zoom, as the renderer's windows do. The
+        // zoom is not saved, so one test's level is not the next one's start.
+        MacosWindowBackend(
+            scene = { _, _, _, slot ->
+                {
+                    CompositionLocalProvider(LocalWindowNodeId provides slot.nodeId) {
+                        MacosWindowZoom(slot.zoom) { keys -> ComposeRustContent(host, modifier = keys) }
+                    }
+                }
+            },
+            makeZoom = { Zoom() },
+        )
+    }
     var exits = 0
     val manager = WindowManager(host, backend, onExit = { exits++ })
 
@@ -473,6 +493,42 @@ class MacosMultiWindowTest {
             a.close()
             b.close()
             spin()
+        }
+    }
+
+    @Test
+    fun fr53_macos_zoom_is_per_window() {
+        NSApplication.sharedApplication()
+        val h = Harness(
+            listOf(setWindow()) +
+                windowNode(1, PropertyKind.WindowZoomLevel to PropertyValue.Integer(2L)) +
+                windowNode(2),
+            withScenes = true,
+        )
+        fun zoomOf(index: Int) = (h.backend.windows[index] as MacosPlatformWindow).zoom
+        fun reported(node: Int) = h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().filter { it.nodeId == node }
+        try {
+            assertEquals(listOf(1, 2), h.manager.openWindows)
+            assertEquals(2, zoomOf(0).level, "the level on node 1 is window 1's")
+            assertEquals(0, zoomOf(1).level, "window 2 asked for none and keeps its own")
+            spinUntil(turns = 100) { reported(1).isNotEmpty() && reported(2).isNotEmpty() }
+            assertEquals(2, reported(1).last().level)
+            assertEquals(0, reported(2).last().level)
+            assertTrue(
+                h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().none { it.nodeId !in setOf(1, 2) },
+                "every ZoomChanged names the window's node",
+            )
+
+            // A level set on node 2 changes window 2 and leaves window 1 where it was.
+            h.batch(Mutation.SetProp(2, PropertyKind.WindowZoomLevel, PropertyValue.Integer(-1L)))
+            assertEquals(-1, zoomOf(1).level)
+            assertEquals(2, zoomOf(0).level)
+            spinUntil(turns = 100) { reported(2).last().level == -1 }
+            assertEquals(-1, reported(2).last().level)
+            assertTrue(reported(1).all { it.level == 2 }, "window 1 reported no other level")
+            assertTrue(reported(2).last().k < reported(1).last().k)
+        } finally {
+            h.close()
         }
     }
 }

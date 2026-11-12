@@ -7,7 +7,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.composeZoomShortcut
+import dev.darkpyonix.composerust.runtime.zoomedDensity
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
@@ -65,11 +73,14 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
         ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
 
-    val scene: MacosSceneContent = { config, window, frames ->
-        val nodeId = config.nodeId
+    // A `Window` node's own `Icon` is not drawn on macOS. AppKit gives a window no icon of its
+    // own: the title bar of a window that is not a document's shows none, and the Dock and the
+    // application switcher show one icon for the application. The application's icon
+    // (`SetWindow`'s) is the one that applies, to every window.
+    val scene: MacosSceneContent = { config, window, frames, slot ->
         val body: @Composable () -> Unit = {
             MacosWindowScene(
-                host, nodeId, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
+                host, slot, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
             )
         }
         body
@@ -160,7 +171,7 @@ internal fun reportWindowStart(window: MacosWindow) {
 @Composable
 private fun MacosWindowScene(
     host: ComposeRustHost,
-    nodeId: Int,
+    slot: MacosWindowSlot,
     window: MacosWindow,
     frames: MacosSceneFrames,
     dark: MutableState<Boolean>,
@@ -172,7 +183,7 @@ private fun MacosWindowScene(
     fullSize: Boolean,
 ) {
     CompositionLocalProvider(
-        LocalWindowNodeId provides nodeId,
+        LocalWindowNodeId provides slot.nodeId,
         LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { dark.value },
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
@@ -196,16 +207,42 @@ private fun MacosWindowScene(
             }
         }
         val strip = window.caption.value
-        ComposeRustContent(
-            host,
-            caption = WindowCaption(
-                height = strip.height,
-                buttonsWidth = strip.buttonsWidth,
-                buttonsAtStart = strip.buttonsAtStart,
-                insetTop = strip.insetTop,
-                cornerRadius = strip.cornerRadius,
-                fullSize = fullSize,
-            ),
+        MacosWindowZoom(slot.zoom) { zoomKeys ->
+            ComposeRustContent(
+                host,
+                modifier = zoomKeys,
+                caption = WindowCaption(
+                    height = strip.height,
+                    buttonsWidth = strip.buttonsWidth,
+                    buttonsAtStart = strip.buttonsAtStart,
+                    insetTop = strip.insetTop,
+                    cornerRadius = strip.cornerRadius,
+                    fullSize = fullSize,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Draws [content] at the window's own [zoom]: the scene's density times the level, and the
+ * system's text size as the font scale. [content] is handed the modifier that takes the zoom
+ * shortcuts (Command with plus, minus or zero) for this window, after the application has had
+ * the key. The content reports the zoom under the window's node, which is how a level change
+ * on one node reaches the Host as that node's `ZoomChanged` and no other's.
+ */
+@Composable
+fun MacosWindowZoom(zoom: Zoom, content: @Composable (zoomKeys: Modifier) -> Unit) {
+    val base = LocalDensity.current
+    SideEffect { zoom.followOs(base.fontScale) }
+    CompositionLocalProvider(
+        LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
+        LocalZoom provides zoom,
+    ) {
+        content(
+            Modifier.onKeyEvent { event ->
+                zoom.takeShortcut(composeZoomShortcut(event, apple = true), consumedByApplication = false)
+            },
         )
     }
 }

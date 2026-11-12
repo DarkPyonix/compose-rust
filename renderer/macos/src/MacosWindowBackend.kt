@@ -3,6 +3,9 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.platformZoomLevelStore
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CancellableContinuation
@@ -91,14 +94,37 @@ class MacosSceneFrames {
 }
 
 /**
+ * What one window holds for itself rather than for the application: the zoom it is drawn at,
+ * and the `Window` node it draws.
+ *
+ * The zoom is the window's own, so a level set on one node or a shortcut pressed in one window
+ * changes that window and no other. The level is saved the one way the application saves it
+ * ([platformZoomLevelStore]), so a new window starts at the last saved level.
+ *
+ * The node is state because a window the system asked for is opened before the application has
+ * a node for it, and is told the node when the application answers ([PlatformWindow.adoptedBy]).
+ */
+class MacosWindowSlot(nodeId: Int, val zoom: Zoom) {
+    private val node = mutableIntStateOf(nodeId)
+
+    /** The `Window` node this window draws, 0 while it waits for one. */
+    val nodeId: Int get() = node.intValue
+
+    internal fun drawNode(id: Int) {
+        node.intValue = id
+    }
+}
+
+/**
  * Builds the content of the scene of one `Window` node. Null makes windows without a scene,
  * which is what a test of the window system itself needs.
  */
 typealias MacosSceneContent =
-    (config: PlatformWindowConfig, window: MacosWindow, frames: MacosSceneFrames) -> (@Composable () -> Unit)
+    (config: PlatformWindowConfig, window: MacosWindow, frames: MacosSceneFrames, slot: MacosWindowSlot) -> (@Composable () -> Unit)
 
 class MacosWindowBackend(
     private val scene: MacosSceneContent? = null,
+    private val makeZoom: () -> Zoom = { Zoom(store = platformZoomLevelStore()) },
 ) : WindowBackend {
     override val supportsMultipleWindows: Boolean get() = true
 
@@ -135,7 +161,9 @@ class MacosWindowBackend(
             topLeft = if (x != null && y != null) wholePoints(x) to wholePoints(y) else null,
         )
         val frames = MacosSceneFrames()
-        val content = scene?.invoke(config, created, frames)
+        val slot = MacosWindowSlot(config.nodeId, makeZoom())
+        config.zoomLevel?.let { slot.zoom.setLevel(it) }
+        val content = scene?.invoke(config, created, frames, slot)
         if (content != null) {
             @Suppress("DEPRECATION")
             created.setContent(content)
@@ -150,7 +178,7 @@ class MacosWindowBackend(
         }
         // After setContent: it hands the window's close, focus and event hooks to the scene's
         // own host, which closes the window when asked. Here the application is the one to ask.
-        val window = MacosPlatformWindow(created, frames, listener) { gone -> live.remove(gone); stopTurnsWhenIdle() }
+        val window = MacosPlatformWindow(created, frames, slot, listener) { gone -> live.remove(gone); stopTurnsWhenIdle() }
         live += window
         if (!config.resizable) window.setResizable(false)
         if (config.colorScheme != ColorScheme.FollowSystem) window.setColorScheme(config.colorScheme)
@@ -198,6 +226,7 @@ class MacosWindowBackend(
 internal class MacosPlatformWindow(
     private val window: MacosWindow,
     private val frames: MacosSceneFrames,
+    private val slot: MacosWindowSlot,
     private var sink: PlatformWindowListener,
     private val onClosed: (MacosPlatformWindow) -> Unit,
 ) : PlatformWindow {
@@ -215,6 +244,12 @@ internal class MacosPlatformWindow(
 
     /** Whether the window's accessibility tree is active for external readers. */
     val accessibilityActive: Boolean get() = window.accessibilityActive
+
+    /** The zoom this window is drawn at, its own and no other window's. */
+    val zoom: Zoom get() = slot.zoom
+
+    /** The `Window` node the window draws. */
+    val nodeId: Int get() = slot.nodeId
 
     init {
         window.onClose = {
@@ -360,6 +395,12 @@ internal class MacosPlatformWindow(
         followTimer = null
         escapeMonitor?.let { NSEvent.removeMonitor(it) }
         escapeMonitor = null
+    }
+
+    // The scene reports the change, naming this window's node, when it composes at the new level.
+    override fun setZoomLevel(level: Int) {
+        if (closed) return
+        if (slot.zoom.setLevel(level)) requestFrame()
     }
 
     override fun setColorScheme(scheme: ColorScheme) {
