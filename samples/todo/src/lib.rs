@@ -608,6 +608,8 @@ pub fn launch() {
 /// How this sample is configured, in one place because three entry points need it.
 fn launch_builder() -> LaunchBuilder {
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.todo")
         .with_theme(compose_rust::demo_theme())
         .with_window(
             compose_rust::schema::Window::new()
