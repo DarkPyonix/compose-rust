@@ -128,6 +128,10 @@ enum class StorageOp { Read, Write, Remove, Keys }
 
 enum class IoStatus { Ok, NotFound, QuotaExceeded, Unavailable, PermissionDenied, Failed, ReadOnly, TooLarge }
 
+enum class FileDelivery { Handle, Upload, Download }
+
+enum class FileOp { Read, Write, Entries, Child }
+
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
  * size, weight and font are its own. Present and zero; an absent property is the
@@ -1348,6 +1352,37 @@ sealed interface Mutation {
     data class ReadClipboard(val request: Int) : Mutation
 
     /**
+     * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
+     * it, list a folder, or find the child called [name] (making a file of that name when
+     * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
+     * listing or a child that was found by a `FileHandles`. [data] is the user's file, so it
+     * is never written to a log.
+     */
+    data class FileCall(
+        val request: Int,
+        val op: FileOp,
+        val create: Boolean,
+        val handle: Int,
+        val name: String,
+        val data: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is FileCall && request == other.request && op == other.op &&
+                    create == other.create && handle == other.handle && name == other.name &&
+                    data.contentEquals(other.data))
+
+        override fun hashCode(): Int =
+            ((request * 31 + op.hashCode()) * 31 + handle) * 31 + data.contentHashCode()
+
+        override fun toString(): String =
+            "FileCall(request=$request, op=$op, create=$create, handle=$handle, length=${data.size})"
+    }
+
+    /** The Host names [handle] nowhere any more; the file behind it may be let go of. */
+    data class ReleaseFileHandle(val handle: Int) : Mutation
+
+    /**
      * Asks for one operation on the application's storage, which the Renderer carries out
      * where it is the side that can reach it (a browser's IndexedDB). Answered exactly once,
      * later, by an `IoAnswer` event carrying [request]. [store] is the application
@@ -1426,6 +1461,7 @@ sealed interface HostEvent {
         override fun toString(): String =
             "IoAnswer(request=$request, status=$status, length=${data.size})"
     }
+    data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
 }
 
@@ -1433,7 +1469,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -378180997813787404L
+    const val SCHEMA_HASH: Long = 3391176991423237316L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1467,6 +1503,8 @@ object Protocol {
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
     private const val TAG_STORAGE_CALL = 32
+    private const val TAG_FILE_CALL = 33
+    private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1667,6 +1705,25 @@ object Protocol {
                             readString(batch, base, available, offset + 20),
                             readByteView(batch, base, available, offset + 28),
                         )
+                    }
+                    TAG_FILE_CALL -> {
+                        requireRecordLength(length, 32, offset)
+                        val create = readU16(batch, base, available, offset + 10)
+                        if (create > 1) {
+                            throw ProtocolException("invalid create flag $create", offset + 10)
+                        }
+                        Mutation.FileCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            fileOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            create == 1,
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readString(batch, base, available, offset + 16),
+                            readBytes(batch, base, available, offset + 24),
+                        )
+                    }
+                    TAG_RELEASE_FILE_HANDLE -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1948,6 +2005,7 @@ object Protocol {
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.IoAnswer -> event.data
+                is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
             }
             val recordLength = when (event) {
@@ -1996,6 +2054,7 @@ object Protocol {
                 is HostEvent.FileDialogResult -> 36
                 is HostEvent.ClipboardText -> 36
                 is HostEvent.IoAnswer -> 32
+                is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
@@ -2048,6 +2107,7 @@ object Protocol {
                 is HostEvent.FileDialogResult -> 50
                 is HostEvent.ClipboardText -> 56
                 is HostEvent.IoAnswer -> 57
+                is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
             }
             out.putShort(tag.toShort())
@@ -2247,6 +2307,18 @@ object Protocol {
                     out.putInt(event.request)
                     out.putInt(ioStatusTag(event.status))
                     writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.FileHandles -> {
+                    out.putInt(event.request)
+                    out.putInt(fileDialogStatusTag(event.status))
+                    out.putInt(event.filter)
+                    out.putInt(fileDeliveryTag(event.delivery))
+                    out.putInt(event.firstHandle)
+                    val namesLength = event.names.toByteArray(StandardCharsets.UTF_8).size
+                    out.putInt(recordLength)
+                    out.putInt(namesLength)
+                    out.putInt(recordLength + namesLength)
+                    out.putInt(text!!.size - namesLength)
                 }
                 is HostEvent.StorageLocation -> writeStringReference(out, recordLength, text!!)
             }
@@ -2505,7 +2577,13 @@ object Protocol {
         FileDialogStatus.Unavailable -> 3
     }
 
-    private fun ioStatusTag(status: IoStatus): Int = when (status) {
+    private fun fileDeliveryTag(value: FileDelivery): Int = when (value) {
+        FileDelivery.Handle -> 1
+        FileDelivery.Upload -> 2
+        FileDelivery.Download -> 3
+    }
+
+    private fun ioStatusTag(value: IoStatus): Int = when (value) {
         IoStatus.Ok -> 1
         IoStatus.NotFound -> 2
         IoStatus.QuotaExceeded -> 3
@@ -3159,6 +3237,21 @@ object Protocol {
         7 -> IoStatus.ReadOnly
         8 -> IoStatus.TooLarge
         else -> throw ProtocolException("unknown IoStatus tag $tag", offset)
+    }
+
+    private fun fileDelivery(tag: Int, offset: Int): FileDelivery = when (tag) {
+        1 -> FileDelivery.Handle
+        2 -> FileDelivery.Upload
+        3 -> FileDelivery.Download
+        else -> throw ProtocolException("unknown FileDelivery tag $tag", offset)
+    }
+
+    private fun fileOp(tag: Int, offset: Int): FileOp = when (tag) {
+        1 -> FileOp.Read
+        2 -> FileOp.Write
+        3 -> FileOp.Entries
+        4 -> FileOp.Child
+        else -> throw ProtocolException("unknown FileOp tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

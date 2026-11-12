@@ -101,6 +101,8 @@ data class TableError(val code: Int, val message: String) {
         const val INVALID_MODIFIER = 16
         /** An input or output request whose number is still waiting for its answer. The command is dropped. */
         const val DUPLICATE_IO_REQUEST = 17
+        /** A file operation whose request number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_FILE_CALL = 18
     }
 }
 
@@ -189,6 +191,14 @@ class NodeTable {
      */
     val fileDialogs: dev.darkpyonix.composerust.ui.platform.FileDialogCenter =
         dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
+
+    /**
+     * The operations the Host asked of files this side holds handles for, and their answers.
+     * Not cleared with the tree, for the reason the dialogs are not: every request is owed its
+     * one answer after a resync too.
+     */
+    val fileCalls: dev.darkpyonix.composerust.ui.platform.FileCallCenter =
+        dev.darkpyonix.composerust.ui.platform.FileCallCenter()
 
     /**
      * Where the text the Host asks to copy goes. Not part of the tree and not cleared with
@@ -407,6 +417,12 @@ class NodeTable {
             // A read is answered later, outside the batch, by one event with its number.
             is Mutation.ReadClipboard -> clipboardReads.request(mutation.request)
 
+            // An operation on a file this side holds a handle for, answered later, outside the
+            // batch, by one event with its number. Where nothing holds handles it is answered
+            // as unavailable, which is still its one answer.
+            is Mutation.FileCall -> fileCall(mutation)
+            // Nothing answers a release, and a handle nobody holds is no error.
+            is Mutation.ReleaseFileHandle -> fileCalls.release(mutation.handle)
             // Started now, while the value to write can still be read where the Host put it,
             // and answered later, outside the batch, by one event with its number.
             is Mutation.StorageCall -> storageCall(mutation)
@@ -485,6 +501,15 @@ class NodeTable {
             dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.UnknownWindow -> fail(
                 TableError.UNKNOWN_NODE,
                 "ShowFileDialog for unknown window ${mutation.window}",
+            )
+        }
+    }
+
+    private fun fileCall(mutation: Mutation.FileCall) {
+        if (fileCalls.request(mutation) == dev.darkpyonix.composerust.ui.platform.FileCallCenter.Accepted.Duplicate) {
+            fail(
+                TableError.DUPLICATE_FILE_CALL,
+                "FileCall request ${mutation.request} is already waiting for its answer",
             )
         }
     }

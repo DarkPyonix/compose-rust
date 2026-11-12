@@ -37,8 +37,11 @@ use std::sync::{Mutex, MutexGuard};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FileDialogResult {
     /// The user chose. `paths` holds at least one absolute path, exactly as the platform
-    /// gave it. `filter` is the position of the filter that was in use, when the request
-    /// carried filters.
+    /// gave it. In a browser, which gives a page no paths, each entry is a reference to a
+    /// file the Renderer holds instead, written `webfile:<handle>/<name>`; read and write
+    /// what was chosen through [`FileDialogResult::files`] on every platform rather than
+    /// taking the entries apart. `filter` is the position of the filter that was in use,
+    /// when the request carried filters and the platform says which one it was.
     Chosen {
         paths: Vec<String>,
         filter: Option<usize>,
