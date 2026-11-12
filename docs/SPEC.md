@@ -3344,7 +3344,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 | 48 | `click_count: u32` | `Down`과 `Up`에서 연속 누름 횟수(1, 2, ...). 그 밖의 종류는 0 |
 | 52 | `delta_x: f32` | `Wheel`만. 양수가 오른쪽 |
 | 56 | `delta_y: f32` | `Wheel`만. 양수가 아래쪽 |
-| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자) |
+| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자). Compose가 주는 휠 이동량은 스크롤 단위(휠 한 칸이 1)이므로 Renderer는 `Line`으로 보냅니다. 창이 픽셀 이동량을 주는 플랫폼만 `Pixel`로 보내고, 그때는 좌표와 같이 dp(HTML 영역 안에서는 CSS px)로 나눕니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). |
 | 64 | `timestamp_nanos: u64` | 입력이 OS에서 발생한 시각. 단조 시계이고 `render_frame`의 `frame_time_nanos`와 같은 시계 |
 
 - **버튼 비트.** `Primary=1, Secondary=2, Tertiary=4(가운데), Back=8, Forward=16`. Compose의 `PointerButtons`와 이름과 순서가 같고, DOM의 `buttons`와 숫자도 같습니다. Renderer는 `Back`과 `Forward`를 보조 버튼 하나로 합치거나 `Tertiary`로 바꾸지 않습니다. 포크 쪽 입력 수정(포크 PR #165, 진행 중)이 들어가기 전에는 플랫폼에 따라 뒤의 둘이 오지 않을 수 있고, 그 경우에도 오는 버튼의 비트는 위 표대로입니다.
@@ -3369,6 +3369,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 #### 46.5 소비
 
 핸들러의 동기 반환값을 `Clicked`와 같이 읽습니다(FR-12). 0이 아니면 소비로 보아 그 이벤트는 위로 올라가지 않고, Compose의 클릭, 스크롤, 선택 같은 기본 동작도 하지 않습니다. 0이면 가장 가까운 구독한 조상으로, 그다음에는 평소 처리로 넘어갑니다. `Wheel`을 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다. IME 조합 중에도 포인터 이벤트는 막지 않습니다(키 이벤트와 다릅니다). 조합 자체를 바꾸지 않기 때문입니다.
+
+`Wheel`과 `Move`는 프레임 시작에 합쳐 보내므로(46.4) 핸들러의 답이 Compose가 그 입력을 처리한 뒤에 옵니다. 그래서 Renderer는 그 노드의 직전 `Wheel` 답을 다음 휠에 적용합니다. 소비하는 핸들러가 있어도 제스처의 첫 프레임 휠은 감싸는 스크롤로 넘어갈 수 있습니다. `Move`의 소비는 조상 구독 노드로 올라가는 것만 막고 Compose의 기본 동작은 막지 않습니다. 이동을 소비하면 주변의 클릭이 취소되기 때문입니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 
 #### 46.6 수용 기준
 
