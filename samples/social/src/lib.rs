@@ -221,8 +221,10 @@ fn shelf_page(
     opened: MutableState<Option<u32>>,
 ) {
     let items = on(destination.shelf());
-    let (hero, rest) = items.split_first().expect("every shelf has a course on it");
-    let (hero, rest, last) = (*hero, rest.to_vec(), items[items.len() - 1]);
+    // The first course is the hero and the last is the wide card, so the grid is what is
+    // between them. Taking everything after the hero drew the last course twice.
+    let (hero, last) = (items[0], items[items.len() - 1]);
+    let rest = items[1..items.len() - 1].to_vec();
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
@@ -576,6 +578,27 @@ mod tests {
             true
         }
 
+        /// The words on screen now, one per text node.
+        ///
+        /// Only the live nodes, and only the latest words each one carries: a node that
+        /// was given new words keeps its old record in the run, and counting that would
+        /// count something nobody can see.
+        fn live_texts(&self) -> Vec<String> {
+            let mut texts: Vec<(u32, String)> = Vec::new();
+            for mutation in sample_frames::live(self.mutations()) {
+                if let Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String(text),
+                } = mutation
+                {
+                    texts.retain(|(node, _)| *node != node_id);
+                    texts.push((node_id, text.to_owned()));
+                }
+            }
+            texts.into_iter().map(|(_, text)| text).collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -611,6 +634,35 @@ mod tests {
                 "the bar has no destination called {}",
                 choice.label()
             );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Every course on a shelf is drawn once.
+    ///
+    /// Named for what it defends: the shelf took everything after its hero as the grid
+    /// and then drew the last course again as the wide card, so the third course of every
+    /// shelf was on screen twice.
+    #[test]
+    fn fr22_no_course_is_drawn_twice_on_its_shelf() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press(choice.label()),
+                "the bar has no destination called {}",
+                choice.label()
+            );
+            let texts = screen.live_texts();
+            for found in on(choice.shelf()) {
+                let times = texts.iter().filter(|text| *text == found.title).count();
+                assert_eq!(
+                    times,
+                    1,
+                    "{} is drawn {times} times on the {} shelf",
+                    found.title,
+                    choice.label()
+                );
+            }
         }
         compose_rust::window::reset_window_size();
     }
