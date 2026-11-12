@@ -260,7 +260,16 @@ fn fr72_web_file_records_round_trip() {
     let chosen = HostEvent {
         node_id: 0,
         handler_id: 0,
-        payload: handles(7, FileDelivery::Handle, 3, "문서.txt\0사진", "fd"),
+        // Filter 1 in use, as in the vector both sides test against.
+        payload: EventPayload::FileHandles {
+            request: 7,
+            status: FileDialogStatus::Chosen,
+            filter: 1,
+            delivery: FileDelivery::Handle,
+            first_handle: 3,
+            names: "문서.txt\0사진",
+            kinds: "fd",
+        },
     };
     let mut chosen_bytes = Vec::new();
     encode_event(&chosen, &mut chosen_bytes).unwrap();
@@ -307,8 +316,8 @@ fn fr72_web_file_records_round_trip() {
     // The vectors both sides test against hold the same bytes.
     let vectors = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors");
     let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
-    assert_eq!(&events[1093..1093 + 36], answer_bytes.as_slice());
-    assert_eq!(&events[1129..1129 + 71], chosen_bytes.as_slice());
+    assert_eq!(&events[1130..1130 + 36], answer_bytes.as_slice());
+    assert_eq!(&events[1166..1166 + 71], chosen_bytes.as_slice());
     let mutations = std::fs::read(format!("{vectors}/mutations.bin")).unwrap();
     let in_vector: Vec<Mutation<'_>> = decode_batch(&mutations)
         .unwrap()
