@@ -3268,11 +3268,11 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 위의 `ZoomChanged`는 밀도만 바뀌는 이동에는 오지 않습니다. 측정 호출은 Renderer가 `Density(density × k)`로 재므로 측정값은 밀도를 이미 따르지만, HTML 레이아웃은 CSS의 `window.devicePixelRatio`와 `@media (resolution)`, `image-set()`과 `srcset`으로 고를 이미지의 해상도, 1 CSS px 헤어라인 테두리를 장치 픽셀에 맞추는 일에 밀도 값이 필요합니다. CSS px에서 dp로의 배치 자체는 1 CSS px = 1 dp에 `k`를 곱하는 것이라 밀도가 필요 없습니다.
 
-- 새 이벤트 `DensityChanged`, 이벤트 태그 42. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
+- 새 이벤트 `DensityChanged`, 이벤트 태그 53. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
 - 페이로드는 `scale: f32`(장치 픽셀 ÷ dp, 예: 2.0)이고, 레코드는 20바이트(머리 16, `scale@16`)입니다. 0 이하나 NaN은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 값이 바뀔 때(모니터 이동, OS 배율 변경)마다 옵니다. 같은 값이 연달아 오지 않습니다. 오기 전에 Host가 읽는 값은 1.0입니다.
 - `ZoomChanged`와 독립입니다. `WindowSizeChanged`나 `ZoomChanged`에 칸을 더하지 않습니다. 속성 블록도 쓰지 않습니다(Host에서 Renderer로 가는 값이 아닙니다).
-- 번호는 FR-38.9(34-38), FR-45(39, 40), FR-44(41) 다음입니다. `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
+- 번호는 FR-53의 창 이벤트(39-47), FR-45(48, 49), `FileDialogResult`(50), FR-38의 `CodeEditGroupResult`(51), FR-44(52) 다음입니다. 처음에는 42였으나 FR-53의 `WindowDrag`와 겹쳐 53으로 옮겼습니다(2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
 
 수용 기준:
 1. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr43_density_event_round_trips).
@@ -3286,7 +3286,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 52(처음에는 41이었으나 FR-53의 `WindowMoved`와 겹쳐 옮겼습니다. 2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
 - 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
 - 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.
