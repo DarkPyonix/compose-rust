@@ -60,6 +60,17 @@ private external fun nativeSetTitle(title: CPointer<ByteVar>?)
 @SymbolName("dxc_native_window_set_min_size")
 private external fun nativeSetMinSize(width: Int, height: Int)
 
+// Newer than the fork commit this build may pin: `native/window_layer_fallbacks.c` answers 0
+// for it where the linked window layer does not define it.
+@SymbolName("dxc_native_window_set_resizable")
+private external fun nativeSetResizable(resizable: Int): Int
+
+@SymbolName("dxc_native_window_set_color_scheme")
+private external fun nativeSetColorScheme(scheme: Int): Int
+
+@SymbolName("dxc_native_window_caption_dark")
+private external fun nativeCaptionDark(dark: CPointer<IntVar>?): Int
+
 @SymbolName("dxc_native_window_focus")
 private external fun nativeFocus(): Int
 
@@ -119,6 +130,22 @@ internal fun setWindowContentSize(width: Int, height: Int) = nativeSetContentSiz
 internal fun setWindowTitle(title: CPointer<ByteVar>?) = nativeSetTitle(title)
 
 internal fun setWindowMinSize(width: Int, height: Int) = nativeSetMinSize(width, height)
+
+/**
+ * Gives the selected window the thick frame and the maximize box, or takes them away. False
+ * where the window layer linked into this renderer cannot change them on an open window.
+ */
+internal fun setWindowResizable(resizable: Boolean): Boolean = nativeSetResizable(if (resizable) 1 else 0) != 0
+
+/**
+ * Draws the selected window's caption and frame light or dark: [scheme] 0 follows the system
+ * and keeps following it, 1 is light, 2 is dark. False where the window layer linked into this
+ * renderer has no call for it.
+ */
+internal fun setWindowColorScheme(scheme: Int): Boolean = nativeSetColorScheme(scheme) != 0
+
+/** Whether the selected window's caption is drawn dark now; false where the window layer cannot say. */
+internal fun readCaptionDark(dark: CPointer<IntVar>?): Boolean = nativeCaptionDark(dark) != 0
 
 /** False where the foreground lock refused: the window's taskbar button flashes instead. */
 internal fun focusWindow(): Boolean = nativeFocus() != 0

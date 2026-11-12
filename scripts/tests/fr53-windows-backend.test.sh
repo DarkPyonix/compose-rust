@@ -30,7 +30,13 @@ for required in \
     fr53_windows_two_window_nodes_open_two_hwnds_and_close_one \
     fr53_windows_closing_one_window_does_not_quit \
     fr53_windows_close_request_reaches_the_app_and_window_stays \
-    fr53_windows_position_round_trips; do
+    fr53_windows_position_round_trips \
+    fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node \
+    fr53_windows_tear_off_ends_the_source_pointer_capture \
+    fr53_windows_resizable_change_toggles_the_frame_of_an_open_window \
+    fr53_windows_window_theme_sets_the_color_scheme_of_one_window \
+    fr53_windows_window_color_scheme_darkens_its_own_caption \
+    fr53_windows_zoom_level_reaches_its_window_and_reports_its_node; do
     grep -qx "$required" <<< "$names" || fail "Fr53WindowsCheck.kt has no check named $required"
 done
 grep -Fq 'compose-rust: $name: ok' "$src/Fr53WindowsCheck.kt" ||
@@ -66,6 +72,51 @@ grep -Fq 'LocalServesFrames provides false' "$src/WindowsMultiWindow.kt" ||
     fail "a window's content serves the Host's frame requests itself, so one frame asks the Host once per window"
 grep -Fq 'serveWindowFrames(' "$src/WindowsMultiWindow.kt" ||
     fail "the multi-window loop does not serve frame requests through serveWindowFrames"
+
+# A dragged window finds the subscribed nodes of the others from where their scenes laid them
+# out, and a window torn off under a held pointer takes it from the node that held it.
+grep -Fq 'dropTargets = dropTargets' "$src/WindowsMultiWindow.kt" ||
+    fail "the multi-window loop builds its window manager without drop targets, so a dragged window finds no node"
+grep -Fq 'DropTargets.Registered.targetAt(' "$src/WindowsWindowBackend.kt" ||
+    fail "the Windows backend does not answer drop targets from the nodes the scenes registered"
+grep -Fq 'cancelCapture = { backend.cancelPointerCapture() }' "$src/WindowsMultiWindow.kt" ||
+    fail "a tear-off does not end the pointer capture of the window the pointer went down in"
+grep -Fq 'scene.cancelPointerInput()' "$src/Win32Window.kt" ||
+    fail "a window never tells its scene that the held pointer's gesture was cancelled"
+
+# A window call newer than the pinned fork commit has a stand-in the linker takes only where
+# the fork's definition is missing, so the renderer links against either. Every stand-in is
+# for a name the Kotlin declares, and the build compiles the file into the library the Host
+# links.
+fallbacks="$repo_root/renderer/windows/native/window_layer_fallbacks.c"
+build_script="$repo_root/renderer/desktop/scripts/build-windows.sh"
+[[ -f "$fallbacks" ]] || fail "missing renderer/windows/native/window_layer_fallbacks.c"
+alternates="$(grep -oE '/alternatename:[a-z0-9_]+=[a-z0-9_]+' "$fallbacks" 2>/dev/null || true)"
+[[ -n "$alternates" ]] || fail "window_layer_fallbacks.c names no /alternatename"
+for alternate in $alternates; do
+    real="${alternate#/alternatename:}"
+    stand_in="${real#*=}"
+    real="${real%%=*}"
+    grep -Fq "@SymbolName(\"$real\")" "$src/Win32Calls.kt" ||
+        fail "window_layer_fallbacks.c stands in for $real, which Win32Calls.kt does not declare"
+    grep -Eq "^int32_t $stand_in\(" "$fallbacks" ||
+        fail "window_layer_fallbacks.c names the stand-in $stand_in and does not define it"
+done
+grep -Fq 'window_layer_fallbacks.c' "$build_script" ||
+    fail "build-windows.sh does not compile window_layer_fallbacks.c"
+grep -Fq 'window_layer_fallbacks.obj embedded_icu.obj)' "$build_script" ||
+    fail "build-windows.sh does not put window_layer_fallbacks.obj into dxc-windows-native.lib"
+grep -Fq 'setWindowResizable(resizable)' "$src/WindowsWindowBackend.kt" ||
+    fail "a change of Resizable on an open window never reaches the window layer"
+
+# A window's own color scheme reaches what the system draws of it, at open and after, and each
+# window's content runs under its node's id, which is what its theme and its zoom are read by.
+grep -Fq 'setWindowColorScheme(' "$src/WindowsWindowBackend.kt" ||
+    fail "a window's color scheme never reaches the window layer"
+grep -Fq 'platform.setColorScheme(config.colorScheme)' "$src/WindowsWindowBackend.kt" ||
+    fail "a window that opens with a theme of its own is not told its color scheme"
+grep -Fq 'LocalWindowNodeId provides nodeId' "$src/WindowsMultiWindow.kt" ||
+    fail "a window's content is not composed under its node id, so its theme and zoom are the application's"
 
 # Windows report real activation in a multi-window process, not the constant a single window has.
 grep -Fq 'isWindowFocused: Boolean get() = focused.value' "$src/Win32Window.kt" ||

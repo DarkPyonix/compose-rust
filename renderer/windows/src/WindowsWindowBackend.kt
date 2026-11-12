@@ -3,6 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.cinterop.COpaquePointer
@@ -66,7 +67,32 @@ internal class WindowsWindowBackend(
         val platform = WindowsPlatformWindow(this, config.nodeId, window, listener)
         window.setContent(contentOf(config, window))
         windows += platform
+        // The manager only tells a window what changed after it opened, and a window can open
+        // with a theme of its own already set.
+        platform.setColorScheme(config.colorScheme)
         return platform
+    }
+
+    /**
+     * The node of window [nodeId] that asked to hear a dragged window pass over it and is under
+     * the point ([x], [y]) of the window's content, in dp, with the point in the node's own dp.
+     *
+     * The nodes report where they were laid out in the pixels of their scene, so the point is
+     * taken to the pixels of the monitor the window is on before it is looked up.
+     */
+    fun dropTargetAt(nodeId: Int, x: Float, y: Float): DropTarget? {
+        val scale = find(nodeId)?.pixelsPerPoint ?: return null
+        if (scale <= 0f) return null
+        return DropTargets.Registered.targetAt(nodeId, x * scale, y * scale)
+    }
+
+    /**
+     * Ends the gesture of the pointer that is held down, in whichever window it went down in.
+     * The mouse is the one pointer a window reports here, so no pointer has to be told from
+     * another: at most one window holds it.
+     */
+    fun cancelPointerCapture() {
+        for (platform in windows) platform.cancelPointerInput()
     }
 
     override fun setApplicationListener(listener: ApplicationListener?) {
@@ -122,7 +148,17 @@ internal class WindowsWindowBackend(
 
 }
 
-/** One window of the Windows renderer, as the window manager sees it. */
+/**
+ * One window of the Windows renderer, as the window manager sees it.
+ *
+ * Two things a `Window` node sets are applied by the window's content and not from here,
+ * because the content is where they are read: the node's theme, which the content resolves
+ * under the node's id and draws the caption of a window without the system's chrome with, and
+ * the node's zoom level, which the content gives the zoom it holds for this window and reports
+ * to the Host under the node's id. Both follow the node table, so a change after the window
+ * opened reaches the scene with the batch that made it. What is left for this class is what
+ * the system draws: the caption and the frame of [setColorScheme].
+ */
 internal class WindowsPlatformWindow(
     private val backend: WindowsWindowBackend,
     /** The `Window` node this window is for. */
@@ -165,6 +201,69 @@ internal class WindowsPlatformWindow(
         if (closed) return
         window.select()
         setWindowMinSize(width.roundToInt(), height.roundToInt())
+    }
+
+    /**
+     * True when the last change of Resizable did not reach the window, because the window
+     * layer linked into this renderer has no call for it. The window then keeps the frame it
+     * opened with.
+     */
+    var resizableRefused = false
+        private set
+
+    /**
+     * Whether the window has the frame a reader resizes it by and the maximize box. The style
+     * is the window layer's to change, which also keeps what it measures a frame with in step.
+     */
+    override fun setResizable(resizable: Boolean) {
+        if (closed) return
+        window.select()
+        resizableRefused = !setWindowResizable(resizable)
+        if (resizableRefused) reportUnsupportedOnce("whether a reader can resize it")
+    }
+
+    /** The color scheme the window was last told: its own theme's, or the application's. */
+    var colorScheme = ColorScheme.FollowSystem
+        private set
+
+    /**
+     * True when the last color scheme did not reach the system's caption, because the window
+     * layer linked into this renderer has no call for it. The scene is not affected.
+     */
+    var colorSchemeRefused = false
+        private set
+
+    /**
+     * The window's own light or dark, for what the system draws of it: the caption of a window
+     * with the system's chrome, and the frame of every window. The scene takes the same scheme
+     * from the node's theme by itself.
+     */
+    override fun setColorScheme(scheme: ColorScheme) {
+        if (closed) return
+        colorScheme = scheme
+        window.select()
+        colorSchemeRefused = !setWindowColorScheme(
+            when (scheme) {
+                ColorScheme.FollowSystem -> 0
+                ColorScheme.Light -> 1
+                ColorScheme.Dark -> 2
+            },
+        )
+        // Said only for a scheme somebody chose: a window that follows the system loses nothing
+        // it was asked for.
+        if (colorSchemeRefused && scheme != ColorScheme.FollowSystem) {
+            reportUnsupportedOnce("the color scheme of the system's caption")
+        }
+    }
+
+    /** Whether the system draws this window's caption dark now, or null where the window layer cannot say. */
+    fun captionDark(): Boolean? {
+        if (closed) return null
+        window.select()
+        return memScoped {
+            val dark = alloc<IntVar>()
+            if (readCaptionDark(dark.ptr)) dark.value != 0 else null
+        }
     }
 
     override fun setPosition(x: Float, y: Float) {
@@ -231,6 +330,9 @@ internal class WindowsPlatformWindow(
             if (readPointerOnScreen(x.ptr, y.ptr, down.ptr)) ScreenPointer(x.value, y.value, down.value != 0) else null
         }
     }
+
+    /** Takes the held pointer from this window's content. True when one was held. */
+    fun cancelPointerInput(): Boolean = !closed && window.cancelPointerInput()
 
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean {
         if (closed) return false
@@ -351,6 +453,17 @@ internal class WindowsPlatformWindow(
             null
         }
     }
+}
+
+private val reportedUnsupported = HashSet<String>()
+
+/** Says once for the process that a change to an open window has no call in the linked window layer. */
+private fun reportUnsupportedOnce(what: String) {
+    if (!reportedUnsupported.add(what)) return
+    java.lang.System.err.println(
+        "compose-rust: the window layer this renderer was built with cannot set $what of a window " +
+            "after it is created. The window keeps what it was created with.",
+    )
 }
 
 /** True once the selected window has been destroyed. */
