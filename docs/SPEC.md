@@ -2477,6 +2477,16 @@ Notification::new("세션이 끝났습니다")
     10. Rust의 `Batch::edit_group`은 편집이 없으면 아무것도 쓰지 않습니다(fr38_an_empty_edit_group_writes_nothing).
     11. 편집이 하나도 없는 `EditCodeGroup`이 Renderer에 닿으면 문서가 바뀌지 않고, 변경 이벤트가 0개이고, 실행 취소 단계가 늘지 않고, 버전이 그대로이며, `Applied` 결과의 `base_version`과 `current_version`이 같고 지금 문서의 버전입니다(fr38_an_empty_group_changes_nothing_and_replies_applied).
     12. 레코드 길이가 맞지 않는 묶음은 문서를 바꾸지 않고 `ProtocolError` 하나를 보내며, 머리를 읽을 수 있으면 같은 `request_id`로 `Invalid` 결과가 뒤따릅니다. 의미가 틀린 묶음(기준 4, 5)에는 `ProtocolError`가 없습니다(fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not).
+18. 글자, 줄 높이, 거터, 색과 픽셀 스크롤(이슈 #544, Ember 디자인 검토 C2). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC). Ember 편집기는 목업 `editor.css`의 13/20, 거터 폭, 테마 색을 써야 하는데, 지금 편집기는 디자인 시스템의 `Mono` 역할(15/20)과 고정 거터로만 그립니다. Code-OSS식 diff는 두 편집기를 픽셀 스크롤로 맞춥니다.
+    - 편집기가 `FontSize`, `LineHeight`, `FontFamily`(FR-52 글꼴 스택), `TypeRole` 속성을 받습니다. 받지 않으면 지금처럼 `Mono` 역할입니다. 줄 번호도 같은 크기입니다.
+    - 거터 속성: `LineNumbers`(bool, 기본 true), `GutterMinWidthDp`(줄 번호 열 최소 폭), `GutterPaddingDp`, `TextInsetDp`. 받지 않으면 디자인 시스템의 `CodeEditorLook` 값입니다.
+    - 색: 컨테이너, 거터, 줄 번호, 현재 줄 번호, 현재 줄 색을 `ColorRole`로 바꿀 수 있습니다(`CodeEditorColors` 레코드 하나). 보내지 않은 칸은 디자인 시스템의 색입니다.
+    - 편집기가 실제 줄 높이(px)를 이벤트 `CodeMetrics { line_height_px }`로 처음 그릴 때와 바뀔 때 보고합니다. 스크롤할 때 `CodeScrolled { offset_px }`를 프레임당 최대 한 번 보내고, Host는 편집기 핸들의 `SetScrollOffset { offset_px }` 명령으로 스크롤합니다. 명령과 이벤트 태그는 추가 전용이고 스키마 해시가 움직입니다.
+    1. `font_size(13).line_height(20)`인 편집기의 한 줄 높이가 20dp이고 줄 번호도 13sp입니다(fr38_editor_type_and_line_height).
+    2. `line_numbers(false)`이면 줄 번호 열이 없고 코드가 `TextInsetDp`에서 시작합니다(fr38_editor_without_line_numbers).
+    3. 색 레코드로 준 컨테이너와 거터 색이 픽셀에 나오고, 보내지 않은 칸은 디자인 시스템의 색입니다(fr38_editor_colors_override_the_design_system).
+    4. 줄 높이 보고가 실제 그린 줄 높이와 같습니다(fr38_editor_reports_line_height).
+    5. 두 편집기 중 하나를 스크롤하면 `CodeScrolled`가 오고, 그 값으로 다른 편집기에 `SetScrollOffset`을 주면 같은 픽셀 위치에 섭니다(fr38_editor_scroll_offset_round_trips).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
