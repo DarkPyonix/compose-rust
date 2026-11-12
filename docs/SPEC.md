@@ -4365,6 +4365,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 1. `Mutation::RequestFocus { node_id }`가 배치로 인코딩·디코딩되고, Renderer에 두 개의 `TextField`(또는 포커스 가능 노드)가 있을 때 `RequestFocus(b)`를 적용하면 포커스가 `b`로 옮겨가며 `RequestFocus(0)`을 적용하면 포커스가 해제됩니다(`fr65_request_focus_moves_and_clears_focus`).
 2. 존재하지 않는 노드에 대한 `RequestFocus`는 `UNKNOWN_NODE` 오류로 보고되고 죽지 않습니다(`fr65_request_focus_unknown_node_reports_error`).
 3. `OnCompositionChange` 핸들러가 붙은 `TextField`에서 조합 범위가 생기면 `CompositionChanged(true)`가, 조합이 끝나면 `CompositionChanged(false)`가 그 핸들러 id로 전달됩니다(`fr65_text_field_reports_composition_changes`).
+4. **`ui`에서의 포커스 요청**(이슈 #476, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui` 위젯 스코프에 `.focus_handle(&FocusHandle)`이 있고, `FocusHandle::request()`가 다음 배치에 그 노드의 `RequestFocus`를 한 번 기록합니다. Dialog나 Sheet가 아닌 오버레이(서랍, 팝업 메뉴)를 연 앱이, 열 때 오버레이 컨테이너에 포커스를 주고 Esc로 닫을 때 연 컨트롤로 되돌리는 데 씁니다. 와이어 변경은 없습니다(`fr65_ui_focus_handle_requests_focus_for_its_node`).
 
 ## 4. 경계 프로토콜
 
