@@ -42,6 +42,7 @@ pub mod measure;
 pub mod message;
 pub mod notification;
 pub mod palette;
+pub mod picked_file;
 pub mod protocol;
 pub mod runtime;
 pub mod schema;
@@ -84,6 +85,7 @@ pub use notification::{
     request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
+pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,

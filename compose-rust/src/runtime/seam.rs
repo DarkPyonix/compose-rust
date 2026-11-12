@@ -180,6 +180,18 @@ impl Batch {
         self.write(Mutation::ReadClipboard { request });
     }
 
+    /// Writes one operation on a file the Renderer holds a handle for.
+    pub(crate) fn file_call(&mut self, call: &crate::picked_file::Call) {
+        self.write(Mutation::FileCall {
+            request: call.request,
+            op: call.op,
+            create: call.create,
+            handle: call.handle,
+            name: &call.name,
+            data: &call.data,
+        });
+    }
+
     /// Writes one storage operation for the Renderer to carry out. It names no node either.
     pub(crate) fn storage_call(&mut self, call: &crate::storage::RendererCall) {
         self.write(Mutation::StorageCall {
@@ -189,6 +201,11 @@ impl Batch {
             key: &call.key,
             data: &call.data,
         });
+    }
+
+    /// Lets the Renderer go of a file handle nothing on this side names any more.
+    pub(crate) fn release_file_handle(&mut self, handle: u32) {
+        self.write(Mutation::ReleaseFileHandle { handle });
     }
 
     /// Writes one file dialog request. Like a notification it names no node: the dialog is

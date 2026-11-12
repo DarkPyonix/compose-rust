@@ -840,7 +840,9 @@ thread_local! {
 fn next_request() -> u32 {
     NEXT_REQUEST.with(|next| {
         loop {
-            let id = next.get();
+            // The top bit belongs to the operations on files picked on the web, which share
+            // `IoAnswer` with storage and are told apart by it, so storage wraps before it.
+            let id = next.get() & !crate::picked_file::REQUEST_BIT;
             next.set(id.wrapping_add(1));
             // A number still waiting is not handed out twice, even after the counter wraps.
             if id != 0 && !WAITING.with_borrow(|waiting| waiting.contains_key(&id)) {
