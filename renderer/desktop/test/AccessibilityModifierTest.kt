@@ -9,6 +9,8 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
@@ -34,6 +36,14 @@ import kotlin.test.assertTrue
 private const val TREE_ROOT = 1
 private const val TAG_PREFIX = "compose-node-"
 private const val SOME_HANDLER = 77L
+private const val FOCUS_ACTION = 1 shl 12
+private const val FOCUS_COLUMN = 10
+private const val FIRST_BOX = 11
+private const val SECOND_BOX = 12
+private const val GAINED_FIRST = 31L
+private const val LOST_FIRST = 32L
+private const val GAINED_SECOND = 33L
+private const val LOST_SECOND = 34L
 
 private fun name(text: String) = PropertyValue.Text(text)
 
@@ -448,4 +458,183 @@ class AccessibilityModifierTest {
         )
         assertEquals(emptyList(), clicks, "a node whose enabled property is false is not clicked")
     }
+
+    /** A column of two plain boxes that report focus, the second with whatever [state] says. */
+    private fun twoBoxes(state: Int) = listOf(
+        Mutation.Create(FOCUS_COLUMN, WidgetKind.Column),
+        Mutation.Create(FIRST_BOX, WidgetKind.Box),
+        Mutation.SetProp(FIRST_BOX, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_FIRST)),
+        Mutation.SetProp(FIRST_BOX, PropertyKind.OnFocusLost, PropertyValue.Integer(LOST_FIRST)),
+        Mutation.SetModifier(FIRST_BOX, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, FOCUS_ACTION)),
+        Mutation.Insert(FOCUS_COLUMN, FIRST_BOX, 0),
+        Mutation.Create(SECOND_BOX, WidgetKind.Box),
+        Mutation.SetProp(SECOND_BOX, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_SECOND)),
+        Mutation.SetProp(SECOND_BOX, PropertyKind.OnFocusLost, PropertyValue.Integer(LOST_SECOND)),
+        Mutation.SetModifier(SECOND_BOX, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, state)),
+        Mutation.Insert(FOCUS_COLUMN, SECOND_BOX, 1),
+    )
+
+    private fun FakeHostConnection.focusEvents(): List<HostEvent> =
+        events.filter { it is HostEvent.FocusGained || it is HostEvent.FocusLost }
+
+    @Test
+    fun fr71_focus_action_moves_focus_to_the_node() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(twoBoxes(FOCUS_ACTION))
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val config = onNodeWithTag(nodeTestTag(FIRST_BOX)).fetchSemanticsNode().config
+            assertTrue(config.contains(SemanticsActions.RequestFocus), "the focus action must be offered")
+            assertEquals(false, config.getOrNull(SemanticsProperties.Focused), "nothing has focus before anyone asks")
+
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).assertIsFocused()
+            assertEquals(listOf<HostEvent>(HostEvent.FocusGained(FIRST_BOX, GAINED_FIRST)), connection.focusEvents())
+
+            onNodeWithTag(nodeTestTag(SECOND_BOX)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(SECOND_BOX)).assertIsFocused()
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).assertIsNotFocused()
+            assertEquals(
+                setOf<HostEvent>(
+                    HostEvent.FocusGained(FIRST_BOX, GAINED_FIRST),
+                    HostEvent.FocusLost(FIRST_BOX, LOST_FIRST),
+                    HostEvent.FocusGained(SECOND_BOX, GAINED_SECOND),
+                ),
+                connection.focusEvents().toSet(),
+            )
+            assertEquals(3, connection.focusEvents().size, "each move is reported once: ${connection.focusEvents()}")
+        }
+    }
+
+    @Test
+    fun fr71_focus_action_is_not_offered_unless_the_host_asked() {
+        runComposeUiTest {
+            // The second box declares a role and no action.
+            show(twoBoxes(state = 0))
+            val config = onNodeWithTag(nodeTestTag(SECOND_BOX)).fetchSemanticsNode().config
+            assertTrue(!config.contains(SemanticsActions.RequestFocus), "no focus action was asked for")
+            assertTrue(!config.contains(SemanticsProperties.Focused), "a node that cannot take focus says nothing about it")
+        }
+    }
+
+    /** What the Host hears when focus goes to the first box and then to the second, by [move]. */
+    private fun focusEventsWhenMovedBy(
+        move: ComposeUiTest.(FakeHostConnection, FrameRequestSource, Int) -> Unit,
+    ): List<HostEvent> {
+        var heard = emptyList<HostEvent>()
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val connection = FakeHostConnection(twoBoxes(FOCUS_ACTION))
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            for (target in listOf(FIRST_BOX, SECOND_BOX)) {
+                move(connection, frames, target)
+                waitForIdle()
+                onNodeWithTag(nodeTestTag(target)).assertIsFocused()
+            }
+            heard = connection.focusEvents()
+        }
+        return heard
+    }
+
+    @Test
+    fun fr71_focus_action_moves_focus_like_a_host_focus_request() {
+        val byHost = focusEventsWhenMovedBy { connection, frames, target ->
+            connection.scheduleFrame(listOf(Mutation.RequestFocus(target)))
+            frames.request()
+        }
+        val byReader = focusEventsWhenMovedBy { _, _, target ->
+            onNodeWithTag(nodeTestTag(target)).performSemanticsAction(SemanticsActions.RequestFocus)
+        }
+        assertEquals(3, byHost.size, "control: the host request moves focus twice: $byHost")
+        assertEquals(byHost, byReader, "the focus action must do what a focus request from the Host does")
+    }
+
+    @Test
+    fun fr71_focus_action_reaches_a_pressable_container_and_a_text_field() {
+        val box = 2
+        val field = 3
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(FOCUS_COLUMN, WidgetKind.Column),
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, FOCUS_ACTION)),
+                    Mutation.Insert(FOCUS_COLUMN, box, 0),
+                    Mutation.Create(field, WidgetKind.TextField),
+                    Mutation.SetProp(field, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_SECOND)),
+                    Mutation.SetModifier(field, 0, ProtocolModifier.Semantics(SemanticsRole.None, FOCUS_ACTION)),
+                    Mutation.Insert(FOCUS_COLUMN, field, 1),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+
+            onNodeWithTag(nodeTestTag(box)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            // The box is pressable, so the focus it takes is the one a Tab key would give it.
+            onNodeWithTag(nodeTestTag(box)).assertIsFocused()
+
+            onNodeWithTag(nodeTestTag(field)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(box)).assertIsNotFocused()
+            assertEquals(
+                listOf(HostEvent.FocusGained(field, GAINED_SECOND)),
+                connection.events.filterIsInstance<HostEvent.FocusGained>(),
+            )
+            // Focus moved and nothing was pressed on the way.
+            assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.Clicked>())
+        }
+    }
+
+    @Test
+    fun fr71_removing_semantics_restores_the_defaults() {
+        val text = 1
+        // Expanded on, disabled off, focused off, with both actions.
+        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(text, WidgetKind.Text),
+                    Mutation.SetProp(text, PropertyKind.Text, name("src")),
+                    Mutation.SetProp(text, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetModifier(text, 0, ProtocolModifier.Semantics(SemanticsRole.TreeItem, state)),
+                ),
+            )
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            fun config() = onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().config
+            assertEquals("treeitem, expanded", config().getOrNull(SemanticsProperties.StateDescription))
+            assertEquals(false, config().getOrNull(SemanticsProperties.Focused))
+            assertTrue(config().contains(SemanticsActions.OnClick))
+            assertTrue(config().contains(SemanticsActions.RequestFocus))
+
+            connection.scheduleFrame(listOf(Mutation.SetModifier(text, 0, ProtocolModifier.Empty)))
+            frames.request()
+            waitForIdle()
+            val after = config()
+            assertTrue(!after.contains(SemanticsProperties.StateDescription), "the role word and the expanded state must go")
+            assertTrue(!after.contains(SemanticsProperties.Focused), "the focused state must go")
+            assertTrue(!after.contains(SemanticsProperties.Disabled))
+            assertTrue(!after.contains(SemanticsProperties.Role))
+            assertTrue(!after.contains(SemanticsActions.OnClick), "the click action must go")
+            assertTrue(!after.contains(SemanticsActions.RequestFocus), "the focus action must go")
+            // What the widget says by itself is still there.
+            assertEquals("src", onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().spoken())
+        }
+    }
+
 }

@@ -450,12 +450,24 @@ class NodeTable {
             focusClearRevision = revision
             return
         }
-        val node = nodes[mutation.nodeId] ?: return fail(
-            TableError.UNKNOWN_NODE,
-            "RequestFocus for unknown node ${mutation.nodeId}",
-        )
+        if (!requestNodeFocus(mutation.nodeId)) {
+            fail(TableError.UNKNOWN_NODE, "RequestFocus for unknown node ${mutation.nodeId}")
+        }
+    }
+
+    /**
+     * Asks for keyboard focus to move to the node [nodeId] names, and says whether there is
+     * such a node.
+     *
+     * A `RequestFocus` from the Host and the focus action of the accessibility tree both end
+     * here, so a screen reader moves focus the way the application does: the node's own
+     * composable sees the new revision and calls its focus requester.
+     */
+    internal fun requestNodeFocus(nodeId: Int): Boolean {
+        val node = nodes[nodeId] ?: return false
         revision += 1
         node.focusRequestRevision = revision
+        return true
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
