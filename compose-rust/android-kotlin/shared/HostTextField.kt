@@ -61,6 +61,8 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
 import androidx.compose.foundation.layout.PaddingValues
@@ -323,7 +325,7 @@ internal fun HostTextField(
             it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole ||
             it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
     }
-    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape
+    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
 
     BasicTextField(
         value = value,

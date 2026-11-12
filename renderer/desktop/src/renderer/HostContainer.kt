@@ -43,6 +43,8 @@ import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.Children
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 import dev.darkpyonix.composerust.ui.weightOf
 import dev.darkpyonix.composerust.design.liftsOffThePage
 
@@ -62,7 +64,7 @@ internal fun Node.containerShape(style: ContainerStyle, theme: ResolvedTheme): S
     if (setsOwnShape()) {
         modifiers.resolvedShape(theme)
     } else {
-        style.shape
+        style.shape.withCornerCurve(modifiers.cornerCurve())
     }
 
 /** True when the Host set a resting height of its own, which then replaces the default. */
@@ -109,7 +111,7 @@ internal fun Modifier.containerDecoration(
     overlay: Boolean = false,
     role: ContainerRole? = null,
 ): Modifier {
-    val shape = if (node.setsOwnShape()) {
+    val shape = (if (node.setsOwnShape()) {
         node.containerShape(style, theme)
     } else if (overlay) {
         when (role) {
@@ -119,7 +121,7 @@ internal fun Modifier.containerDecoration(
         } ?: style.shape
     } else {
         style.shape
-    }
+    }).withCornerCurve(node.modifiers.cornerCurve())
     val effectiveElevation = if (node.setsOwnElevation()) {
         0.dp
     } else if (overlay) {

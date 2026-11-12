@@ -2597,6 +2597,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
             (33, two_words(pack_floats(*scale, *tint_alpha), 0))
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
+        Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
         Modifier::Transform {
             a,
             b,
@@ -2837,6 +2838,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 state,
             })
         }
+        // Carried as sent. An out-of-range value is not an error; the Renderer draws it as
+        // the nearer end of 0..=1.
+        35 => Ok(Modifier::CornerCurve {
+            smoothing: unpack_low(first),
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -3094,6 +3100,22 @@ mod tests {
         let mut encoder = BatchEncoder::default();
         encoder.encode(&expected[0]).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), expected);
+    }
+
+    #[test]
+    fn fr50_corner_curve_round_trips() {
+        for smoothing in [0.0, 0.6, 1.0, -2.5, 7.0] {
+            let expected = [Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::CornerCurve { smoothing },
+            }];
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&expected[0]).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 35);
+            assert_eq!(decode_batch(&bytes).unwrap(), expected);
+        }
     }
 
     /// Every design primitive fits in `(tag, u64, u64)` and survives a round trip.

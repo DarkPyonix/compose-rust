@@ -50,6 +50,8 @@ import dev.darkpyonix.composerust.design.compositeOver
 import dev.darkpyonix.composerust.design.ensureContrast
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
@@ -137,7 +139,7 @@ internal fun HostButton(
             it is ProtocolModifier.ShapeRole ||
             it is ProtocolModifier.CornerEach
     }
-    val shape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape
+    val shape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape.withCornerCurve(node.modifiers.cornerCurve())
     val hasExplicitSize = node.modifiers.any {
         it is ProtocolModifier.Size ||
             it is ProtocolModifier.Width ||
