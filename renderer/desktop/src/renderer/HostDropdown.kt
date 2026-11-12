@@ -44,6 +44,8 @@ import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 
 /** The test tag of whatever a dropdown opens over the page. */
 fun dropdownPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-options"
@@ -167,7 +169,7 @@ private fun OpeningList(
             it is ProtocolModifier.PaddingEach ||
             it is ProtocolModifier.PaddingRole
     }
-    val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape
+    val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape.withCornerCurve(node.modifiers.cornerCurve())
     Box(modifier) {
         Box(
             Modifier
