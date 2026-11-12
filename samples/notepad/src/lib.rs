@@ -19,10 +19,28 @@ mod document;
 
 use document::{Counts, Outcome, counts, display_path, file_name};
 
-/// The file the editor starts on, so the sample has something to open and save without a
-/// file picker.
+/// The name of the file the editor starts on, so the sample has something to open and save
+/// without a file picker.
+const STARTING_FILE: &str = "compose-rust-notepad.txt";
+
+/// The file the editor starts on: the name above, in the system's temporary directory.
 fn starting_path() -> PathBuf {
-    std::env::temp_dir().join("compose-rust-notepad.txt")
+    starting_directory().join(STARTING_FILE)
+}
+
+/// Where the starting file lives on a platform with a filesystem.
+#[cfg(not(target_family = "wasm"))]
+fn starting_directory() -> PathBuf {
+    std::env::temp_dir()
+}
+
+/// A browser page has no filesystem, and `std::env::temp_dir` panics there instead of
+/// answering, which aborted the page's first frame. The document keeps its name and no
+/// directory; opening or saving it returns the error the platform gives, and the status
+/// line says so like any other failed file operation.
+#[cfg(target_family = "wasm")]
+fn starting_directory() -> PathBuf {
+    PathBuf::new()
 }
 
 /// A piece of file work, handed to a worker.
@@ -1192,6 +1210,20 @@ mod tests {
             format!("{expected} characters")
         );
         assert_eq!(editor.counter(" lines"), "2 lines");
+    }
+
+    /// The starting file is a name joined to a directory, and only the directory depends
+    /// on the platform. A browser page cannot be asked for a temporary directory without
+    /// aborting, so there the directory is empty and the name is all there is; here it is
+    /// the system's temporary directory, as it always was.
+    #[test]
+    fn pr3_the_starting_file_is_a_name_in_a_platform_directory() {
+        let path = starting_path();
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(STARTING_FILE)
+        );
+        assert_eq!(path.parent(), Some(std::env::temp_dir().as_path()));
     }
 
     /// The document's name stands at the top of the page, which is where both memo
