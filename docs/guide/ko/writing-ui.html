@@ -291,6 +291,39 @@
       와 <code>todo</code> 샘플은 UI 스레드 밖에서 파일을 읽고 저장합니다.
     </p>
 
+    <h2 id="storage">다음 실행까지 남기는 상태</h2>
+    <p>
+      <code>compose_rust::storage</code> 는 앱만 읽고 쓰는 이름 붙은 값을 둡니다. 할 일 목록, 쓰다
+      만 글, 설정이 그렇습니다. 모든 플랫폼에서 같은 코드가 돕니다. 브라우저에는 페이지가 기다릴 수
+      있는 저장소가 없으므로, 연산마다 future입니다.
+    </p>
+    <pre><code>scope.launch(async move {
+    let saved = storage::read_string("tasks.tsv").await;
+    // ...
+    let _ = storage::write("tasks.tsv", text).await;
+});</code></pre>
+    <ul>
+      <li>앱 이름은 <code>LaunchBuilder::new().identifier("com.example.app")</code> 로 정합니다.
+        앱을 묶을 때 쓰는 번들 식별자와 같은 값입니다. 정하지 않으면
+        모든 연산이 <code>StorageError::Unavailable</code> 을 돌려주고 그 이유를 말합니다.</li>
+      <li>키는 <code>a-z</code>, <code>0-9</code>, <code>-</code>, <code>_</code>, <code>.</code> 로
+        된 1-128바이트이고, <code>.</code> 으로 시작하지 않습니다. 값 하나는 16 MiB까지입니다. 값이
+        없는 키를 읽으면 <code>Ok(None)</code> 입니다.</li>
+      <li>한 키에 대한 연산은 부른 순서대로 적용되고, 쓰기는 원자적입니다. 도중에 죽어도 앞의 값이나
+        새 값이 남습니다.</li>
+      <li>macOS와 iOS에서는 <code>~/Library/Application Support/&lt;identifier&gt;/storage</code>,
+        Linux에서는 <code>$XDG_DATA_HOME/&lt;identifier&gt;/storage</code>, Windows에서는
+        <code>%APPDATA%\&lt;identifier&gt;\storage</code> 아래의 파일이고, Android에서는 앱의 파일
+        폴더에 있습니다. Host가 자기 스레드에서 읽고 쓰며, UI 스레드에서는 하지 않습니다.
+        <code>COMPOSE_RUST_STORAGE_DIR</code> 로 시험 실행의 위치를 바꿉니다.</li>
+      <li>브라우저에서는 IndexedDB에 있고, 식별자마다 데이터베이스가 하나입니다. 브라우저는 이
+        저장소를 best-effort로 다룹니다. 디스크가 모자라면 지울 수 있고, 사생활 보호 창은 닫힐 때
+        잊습니다. 둘 다 앱이 바꿀 수 없는 일입니다.</li>
+    </ul>
+    <p>
+      사용자가 고른 파일은 저장소가 아닙니다. 파일 대화상자로 다룹니다.
+    </p>
+
     <h2 id="events">이벤트 핸들러</h2>
     <p>
       핸들러는 평범한 Rust 클로저이고, <code>on_click</code>, <code>on_change</code>,
