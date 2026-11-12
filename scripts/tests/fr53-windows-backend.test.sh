@@ -33,7 +33,10 @@ for required in \
     fr53_windows_position_round_trips \
     fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node \
     fr53_windows_tear_off_ends_the_source_pointer_capture \
-    fr53_windows_resizable_change_toggles_the_frame_of_an_open_window; do
+    fr53_windows_resizable_change_toggles_the_frame_of_an_open_window \
+    fr53_windows_window_theme_sets_the_color_scheme_of_one_window \
+    fr53_windows_window_color_scheme_darkens_its_own_caption \
+    fr53_windows_zoom_level_reaches_its_window_and_reports_its_node; do
     grep -qx "$required" <<< "$names" || fail "Fr53WindowsCheck.kt has no check named $required"
 done
 grep -Fq 'compose-rust: $name: ok' "$src/Fr53WindowsCheck.kt" ||
@@ -105,6 +108,15 @@ grep -Fq 'window_layer_fallbacks.obj embedded_icu.obj)' "$build_script" ||
     fail "build-windows.sh does not put window_layer_fallbacks.obj into dxc-windows-native.lib"
 grep -Fq 'setWindowResizable(resizable)' "$src/WindowsWindowBackend.kt" ||
     fail "a change of Resizable on an open window never reaches the window layer"
+
+# A window's own color scheme reaches what the system draws of it, at open and after, and each
+# window's content runs under its node's id, which is what its theme and its zoom are read by.
+grep -Fq 'setWindowColorScheme(' "$src/WindowsWindowBackend.kt" ||
+    fail "a window's color scheme never reaches the window layer"
+grep -Fq 'platform.setColorScheme(config.colorScheme)' "$src/WindowsWindowBackend.kt" ||
+    fail "a window that opens with a theme of its own is not told its color scheme"
+grep -Fq 'LocalWindowNodeId provides nodeId' "$src/WindowsMultiWindow.kt" ||
+    fail "a window's content is not composed under its node id, so its theme and zoom are the application's"
 
 # Windows report real activation in a multi-window process, not the constant a single window has.
 grep -Fq 'isWindowFocused: Boolean get() = focused.value' "$src/Win32Window.kt" ||

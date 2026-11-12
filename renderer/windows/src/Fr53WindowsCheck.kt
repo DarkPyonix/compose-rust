@@ -3,11 +3,14 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.protocol.Chrome
+import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LastWindowClosed
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.Window
@@ -49,6 +52,9 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node",
     "fr53_windows_tear_off_ends_the_source_pointer_capture",
     "fr53_windows_resizable_change_toggles_the_frame_of_an_open_window",
+    "fr53_windows_window_theme_sets_the_color_scheme_of_one_window",
+    "fr53_windows_window_color_scheme_darkens_its_own_caption",
+    "fr53_windows_zoom_level_reaches_its_window_and_reports_its_node",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -71,6 +77,9 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::draggedWindowEntersMovesAndDropsOnASubscribedNode,
         ::tearOffEndsTheSourcePointerCapture,
         ::resizableChangeTogglesTheFrameOfAnOpenWindow,
+        ::windowThemeSetsTheColorSchemeOfOneWindow,
+        ::windowColorSchemeDarkensItsOwnCaption,
+        ::zoomLevelReachesItsWindowAndReportsItsNode,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -451,6 +460,91 @@ private fun resizableChangeTogglesTheFrameOfAnOpenWindow() {
     }
 }
 
+private fun windowThemeSetsTheColorSchemeOfOneWindow() {
+    val h = Fr53Harness(listOf(setWindow(), Mutation.SetTheme(theme(ColorScheme.Light))) + windowNode(1) + windowNode(2))
+    try {
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val two = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        check(one.colorScheme == ColorScheme.Light && two.colorScheme == ColorScheme.Light) {
+            "the windows opened as ${one.colorScheme} and ${two.colorScheme} under a light application theme"
+        }
+
+        // One window gets a theme of its own. Its scene resolves the theme the table holds
+        // for its node, and the window is told the scheme; the other keeps the application's.
+        h.batch(Mutation.SetWindowTheme(2, theme(ColorScheme.Dark)))
+        check(h.host.table.themeFor(2)?.colorScheme == ColorScheme.Dark) { "window 2's scene does not resolve its own theme" }
+        check(h.host.table.themeFor(1)?.colorScheme == ColorScheme.Light) { "window 1's scene took window 2's theme" }
+        check(two.colorScheme == ColorScheme.Dark) { "window 2 was told ${two.colorScheme}, not Dark" }
+        check(one.colorScheme == ColorScheme.Light) { "window 1 was told ${one.colorScheme} when window 2's theme changed" }
+        h.forMillis(150)
+        check(isWindow(one.handle) && isWindow(two.handle)) { "a window did not survive drawing under its own theme" }
+
+        // A window that opens with its theme already set starts with it.
+        h.batch(windowNode(3) + Mutation.SetWindowTheme(3, theme(ColorScheme.Dark)))
+        val three = checkNotNull(h.backend.find(3)) { "no window for node 3" }
+        check(three.colorScheme == ColorScheme.Dark) { "a window opened under its own dark theme was told ${three.colorScheme}" }
+
+        // And back.
+        h.batch(Mutation.SetWindowTheme(2, theme(ColorScheme.Light)))
+        check(two.colorScheme == ColorScheme.Light) { "window 2 was told ${two.colorScheme} after its theme went back to light" }
+        check(three.colorScheme == ColorScheme.Dark) { "window 3 lost its theme when window 2's changed" }
+    } finally {
+        h.close()
+    }
+}
+
+private fun windowColorSchemeDarkensItsOwnCaption() {
+    val h = Fr53Harness(
+        listOf(setWindow(), Mutation.SetTheme(theme(ColorScheme.Light))) +
+            windowNode(1, PropertyKind.WindowChrome to SYSTEM_CHROME) +
+            windowNode(2, PropertyKind.WindowChrome to SYSTEM_CHROME),
+    )
+    try {
+        val one = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val two = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        h.batch(Mutation.SetWindowTheme(2, theme(ColorScheme.Dark)))
+        check(!two.colorSchemeRefused) { NO_COLOR_SCHEME_CALL }
+        check(two.captionDark() == true) { "the caption of the window with a dark theme is ${captionName(two.captionDark())}" }
+        check(one.captionDark() == false) { "the caption of the window that kept the light theme is ${captionName(one.captionDark())}" }
+        h.batch(Mutation.SetWindowTheme(2, theme(ColorScheme.Light)))
+        check(two.captionDark() == false) { "the caption stayed ${captionName(two.captionDark())} after the theme went back to light" }
+    } finally {
+        h.close()
+    }
+}
+
+private fun zoomLevelReachesItsWindowAndReportsItsNode() {
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(1, PropertyKind.WindowZoomLevel to PropertyValue.Integer(2)) +
+            windowNode(2),
+    )
+    try {
+        fun zooms(node: Int) = h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().filter { it.nodeId == node }
+        fun level(node: Int) = zooms(node).lastOrNull()?.level
+
+        // Each window reports the zoom it is drawn at under its own node: the one that asked
+        // for a level has it, and the one that did not is where it was.
+        h.until("window 1 to report the level its node asked for") { level(1) == 2 }
+        h.until("window 2 to report its zoom") { level(2) != null }
+        check(level(2) == 0) { "window 2 asked for no level and reports ${level(2)}" }
+        val first = zooms(1).last()
+        check(abs(first.k - first.os * 1.44f) < 0.01f) { "level 2 is a factor of ${first.k} over a system scale of ${first.os}, not 1.2 squared" }
+
+        // A level set after the window opened reaches that window and no other.
+        h.batch(Mutation.SetProp(2, PropertyKind.WindowZoomLevel, PropertyValue.Integer(-1)))
+        h.until("window 2 to report the level set after it opened") { level(2) == -1 }
+        h.forMillis(150)
+        check(level(1) == 2) { "window 1 reports level ${level(1)} after window 2's changed" }
+        h.batch(Mutation.SetProp(1, PropertyKind.WindowZoomLevel, PropertyValue.Integer(0)))
+        h.until("window 1 to report level 0") { level(1) == 0 }
+        check(level(2) == -1) { "window 2 reports level ${level(2)} after window 1's changed" }
+        check(zooms(0).isEmpty()) { "a window of several reported its zoom as the application's, with node 0" }
+    } finally {
+        h.close()
+    }
+}
+
 private fun lastWindowRemovedExitsTheLoop() {
     val h = Fr53Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
     try {
@@ -647,6 +741,18 @@ private const val RESIZE_FRAME = 0x00040000L or 0x00010000L
 private const val NO_RESIZABLE_CALL =
     "the window layer linked into this renderer has no dxc_native_window_set_resizable, so Resizable " +
         "cannot change on an open window; the Compose fork commit the build pins has to define it"
+
+private const val NO_COLOR_SCHEME_CALL =
+    "the window layer linked into this renderer has no dxc_native_window_set_color_scheme, so a window's " +
+        "own color scheme does not reach the system's caption; the Compose fork commit the build pins has to define it"
+
+private fun captionName(dark: Boolean?): String = when (dark) {
+    true -> "dark"
+    false -> "light"
+    null -> "something the window layer cannot report"
+}
+
+private fun theme(scheme: ColorScheme) = Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, false)
 
 private const val WM_LBUTTONDOWN = 0x0201u
 private const val WM_LBUTTONUP = 0x0202u
