@@ -372,7 +372,7 @@ class WindowSizeTest {
                 // window that changed size would not change the node's size at all.
                 Mutation.SetModifier(LABEL, 1, ProtocolModifier.FillMaxWidth),
                 Mutation.SetModifier(LABEL, 2, ProtocolModifier.FillMaxHeight),
-                Mutation.SetModifier(LABEL, 3, ProtocolModifier.ObserveSize(SIZE_TOKEN)),
+                Mutation.SetModifier(LABEL, 3, ProtocolModifier.ObserveSize(SIZE_TOKEN, false)),
             ),
         )
         var height by mutableStateOf(300.dp)

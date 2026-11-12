@@ -88,7 +88,14 @@ fn every_modifier() -> Vec<Modifier> {
             paint: Paint::Role(ColorRole::Outline),
         },
         Modifier::Elevation(6.0),
-        Modifier::ObserveSize { token: 9 },
+        Modifier::ObserveSize {
+            token: 9,
+            every_dp: false,
+        },
+        Modifier::ObserveSize {
+            token: 9,
+            every_dp: true,
+        },
         Modifier::Motion(MotionRole::Standard),
         Modifier::Material(MaterialRole::Regular),
         Modifier::Offset { x: 12.5, y: -4.0 },

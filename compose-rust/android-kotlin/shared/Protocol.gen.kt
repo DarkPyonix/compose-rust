@@ -1035,7 +1035,7 @@ sealed interface Modifier {
     data class ShapeRole(val role: dev.darkpyonix.composerust.protocol.ShapeRole) : Modifier
     data class Border(val width: kotlin.Float, val paint: Paint) : Modifier
     data class Elevation(val value: kotlin.Float) : Modifier
-    data class ObserveSize(val token: Int) : Modifier
+    data class ObserveSize(val token: Int, val everyDp: Boolean) : Modifier
     data class Motion(val role: dev.darkpyonix.composerust.protocol.MotionRole) : Modifier
     data class Material(val role: dev.darkpyonix.composerust.protocol.MaterialRole) : Modifier
     data class Offset(val x: kotlin.Float, val y: kotlin.Float) : Modifier
@@ -3068,7 +3068,7 @@ object Protocol {
             13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
             14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
             15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
-            16 -> Modifier.ObserveSize(first.toInt())
+            16 -> Modifier.ObserveSize(first.toInt(), flag(second, offset))
             17 -> Modifier.Motion(motionRole(first.toInt(), offset))
             18 -> Modifier.Material(materialRole(first.toInt(), offset))
             19 -> Modifier.Offset(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))

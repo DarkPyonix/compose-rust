@@ -376,7 +376,7 @@ impl NodeWriter {
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
             "padding" | "padding_role" => Some(PADDING),
-            "observe_size" => Some(OBSERVE_SIZE),
+            "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
             "press_feedback" => Some(PRESS_FEEDBACK),
@@ -420,10 +420,18 @@ impl NodeWriter {
             // The token is the application's name for this node, and it stays here: what
             // the Renderer reports back is its own node id, so the pairing has to be
             // remembered at the moment the two are both in hand.
-            "observe_size" => {
+            // `observe_size_every_dp` asks for a report on every whole dp change as well
+            // as on a class change; it shares the slot, so a node holds one or the other.
+            "observe_size" | "observe_size_every_dp" => {
                 let token = u32::try_from(integer(value)?).ok()?;
                 self.size_tokens.insert(node_id, token);
-                Some(Some((slot, Modifier::ObserveSize { token })))
+                Some(Some((
+                    slot,
+                    Modifier::ObserveSize {
+                        token,
+                        every_dp: name == "observe_size_every_dp",
+                    },
+                )))
             }
             "fill_max_width" | "fill_max_height" | "match_parent_size" => {
                 let AttrValue::Bool(enabled) = value else {

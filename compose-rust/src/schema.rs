@@ -2048,8 +2048,15 @@ pub enum Modifier {
     /// Renderer and is never something the Host chose, so a screen that wants to know how
     /// wide one of its own containers ended up needs a name it gave itself. The Renderer
     /// does not read it.
+    ///
+    /// With `every_dp` off, a report goes out on the first measurement and then only when
+    /// the node's width or height class changes. With it on, a report also goes out when
+    /// the width or height, rounded to the nearest whole dp, changes inside one class, at
+    /// most once a frame and carrying the last size. It rides in the second word, which
+    /// was always zero before, so a record with it off is the same bytes it always was.
     ObserveSize {
         token: u32,
+        every_dp: bool,
     },
     /// Which curve and length this node's changes run along.
     ///
@@ -2401,11 +2408,18 @@ pub struct Animation<'a> {
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
-const TOKEN_U32_FIELD: &[FieldSchema] = &[FieldSchema {
-    name: "token",
-    ty: FieldType::U32,
-    slot: FieldSlot::FirstLow,
-}];
+const OBSERVE_SIZE_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "token",
+        ty: FieldType::U32,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "everyDp",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Second,
+    },
+];
 const VALUE_FLOAT_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "value",
     ty: FieldType::Float,
@@ -2884,7 +2898,7 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         name: "ObserveSize",
         tag: 16,
         extra_words: 0,
-        fields: TOKEN_U32_FIELD,
+        fields: OBSERVE_SIZE_FIELDS,
     },
     VariantSchema {
         name: "Motion",
