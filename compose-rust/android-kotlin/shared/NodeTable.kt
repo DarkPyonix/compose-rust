@@ -1144,6 +1144,10 @@ class NodeTable {
                 PropertyKind.OnWindowClosed,
                 -> widget == WidgetKind.Window
 
+                // What a set of destinations becomes in a compact window, where the
+                // application chose. Only a navigation has destinations to place.
+                PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
+
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
                 PropertyKind.Progress -> widget == WidgetKind.LinearProgressIndicator
