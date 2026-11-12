@@ -142,6 +142,7 @@
           <tr><td><code>Tabs(selected_index)</code></td><td><code>content</code>; each child is one tab</td></tr>
           <tr><td><code>Dialog(open)</code>, <code>Sheet(open)</code></td><td><code>on_dismiss</code>, <code>content</code></td></tr>
           <tr><td><code>Menu(expanded)</code></td><td><code>anchor</code>, <code>on_dismiss</code>, <code>content</code></td></tr>
+          <tr><td><code>Popover(open)</code></td><td><code>anchor</code>, <code>placement</code>, <code>align</code>, <code>offset</code>, <code>scrim</code>, <code>on_dismiss</code>, <code>content</code>. Any content in a floating box on its anchor. The renderer keeps the box inside the window. The application owns <code>open</code>: a press outside or Escape only calls <code>on_dismiss</code>.</td></tr>
           <tr><td><code>Tooltip(text)</code>, <code>Badge()</code></td><td><code>content</code>; a badge takes <code>value</code>, <code>text</code>, <code>color</code></td></tr>
           <tr><td><code>FloatingAction(label)</code></td><td><code>icon</code>, <code>on_click</code></td></tr>
           <tr><td><code>SplitPane()</code></td><td><code>value</code>, <code>min</code>, <code>max</code>, <code>collapsible</code>, <code>on_change</code>, <code>content</code> with exactly two children</td></tr>
