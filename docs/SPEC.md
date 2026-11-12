@@ -4467,6 +4467,9 @@ compose_rust_host_dispatch_event: click 1
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
 - **UI 스레드에서 도메인 작업을 금지합니다.** 네트워크, 파일 I/O, 프로세스 관리 같은 작업은 Host 워커 스레드(tokio 등)에서 돌립니다. 워커는 Dioxus signal로 상태를 갱신하고, Host가 내부에서 `request_frame`을 호출합니다. 사용자 코드는 경계 함수를 직접 부르지 않습니다.
+  - **웹에서는 `with_worker`가 일을 UI 스레드에서 그 자리에서 돌립니다** [leader, provisional, 2026-11-13]. 바로 위의 금지에 대한 명시적인 예외입니다. PR-6의 메모리 모델에서 공유되지 않는 `WebAssembly.Memory` 하나를 Kotlin/Wasm이 소유하므로, Rust가 그 메모리 위에서 일을 맡길 다른 스레드가 없습니다. `with_worker`가 돌려준 future는 처음 poll될 때 일을 실행하고 그 결과로 끝납니다. 그동안 페이지는 멈추므로, 웹에서 이 예외가 감당할 수 있는 것은 짧은 일뿐입니다.
+  - **애플리케이션과 샘플은 스레드를 직접 시작하지 않습니다.** 워커의 일은 언제나 `with_worker`를 거칩니다. 그래야 같은 코드가 데스크톱과 모바일에서는 워커 스레드에서, 웹에서는 UI 스레드에서 돌고, 스레드를 만들 수 없는 웹에서 스레드 생성이 실패해 패닉하는 경로가 없습니다.
+  - 수용 기준: 웹 빌드의 모든 샘플 페이지가 페이지 오류 없이 첫 화면을 그립니다. CI가 `samples-web` 페이지를 Chromium으로 열어 확인합니다(`fr22_web_every_sample_draws_without_a_page_error`). **(미구현)**
 - `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`)이 돌고 있으면 그 안에서 실행됩니다.
 - **프레임 클록이 멈춰 있으면 Renderer가 `render_frame`을 직접 한 번 부릅니다** (2026-10-03 개정, `Draft`). 창이 최소화되거나 가려지거나 앱이 백그라운드로 가면 Compose의 프레임 클록이 멈출 수 있고, 그때 온 요청을 다음 그리기까지 미루면 워커가 낸 결과(FR-36의 알림이 대표적입니다)가 사용자가 창을 보지 않는 동안 나가지 않습니다. 그래서 그 동안 온 `request_frame`에 대해 Renderer는 UI 스레드에 작업 하나를 올리고, 그 안에서 `render_frame`을 한 번 부른 뒤 돌아온 배치를 같은 호출 스택 안에서 적용합니다. 여러 요청이 한 번으로 합쳐지는 것은 같고, `frame_time_nanos`는 프레임 클록과 같은 단조 시계의 현재 값입니다.
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
