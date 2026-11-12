@@ -31,7 +31,7 @@ them name Cupertino.
 
 | Sample | What it exercises |
 |---|---|
-| `minimal` | A playground: every control the schema has, all nine fills with the ink each carries, the type and corner ladders, and a `Canvas` drawing |
+| `minimal` | A monochrome component sheet in the reference's own black, white and greys: steppers, a segmented control, a panel with a red delete action, chips, a slider card, a card of button tiles, an inverted bar with a search field, a green and grey switch pair, and two overlapping discs with a gradient and a shadow |
 | `store` | A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
 | `statistics` | Charts: a dial and a week of hatched columns drawn with `Canvas` in the reference's own palette, and a costs page that is sage to the window's edges |
 | `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
