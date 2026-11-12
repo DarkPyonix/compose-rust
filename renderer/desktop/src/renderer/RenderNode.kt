@@ -71,6 +71,7 @@ import dev.darkpyonix.composerust.design.ContainerRole
 import androidx.compose.ui.graphics.Shape
 import dev.darkpyonix.composerust.foundation.containerShape
 import dev.darkpyonix.composerust.ui.accessibility
+import dev.darkpyonix.composerust.ui.offersFocusAction
 import dev.darkpyonix.composerust.ui.pressable
 import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.design.ToggleRole
@@ -217,7 +218,29 @@ fun RenderNode(
         profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
             .let { if (focusTarget) it.focusable() else it }
     }
-    val chain = keyed
+    // The requester a focus request for this node is made through. It exists from the first
+    // request on, and from the start for a node that offers a focus action to assistive
+    // technology, so such a node can already take focus when a reader asks. TextField and
+    // CodeEditor own their requesters and read the request themselves.
+    val focusRequest = node.focusRequestRevision
+    val focusRequester = if ((focusRequest > 0L || node.offersFocusAction()) &&
+        node.widget != WidgetKind.TextField &&
+        node.widget != WidgetKind.CodeEditor
+    ) {
+        remember(nodeId) { FocusRequester() }
+    } else {
+        null
+    }
+    if (focusRequester != null) {
+        LaunchedEffect(focusRequest) {
+            if (focusRequest > 0L) focusRequester.requestFocus()
+        }
+    }
+    // Ahead of the node's own modifiers. A requester moves focus to the first focus target
+    // after it, and a node that can be pressed has that target among its modifiers: placed
+    // after them, the requester missed the node and reached for its children instead.
+    val requested = if (focusRequester == null) keyed else keyed.focusRequester(focusRequester)
+    val chain = requested
         .then(
             node.modifiers.toComposeModifier(
                 nodeId,
@@ -240,6 +263,7 @@ fun RenderNode(
                 ?: (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
                     as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
                 ?: node.handler(PropertyKind.OnClick),
+            onFocusAction = { table.requestNodeFocus(nodeId) },
         )
     // Focus-gained and focus-lost for non-TextField nodes: `hasFocus` covers both the node
     // itself and any focusable descendant inside it.
@@ -262,33 +286,16 @@ fun RenderNode(
             hasFocusWithin = nowFocused
         }
     }
-    val pressable = withFocusEvents
-    val focusRequest = node.focusRequestRevision
-    val focusRequester = if (focusRequest > 0L &&
-        node.widget != WidgetKind.TextField &&
-        node.widget != WidgetKind.CodeEditor
+    // A container nothing else made a focus target becomes one here, so the requester above
+    // has somewhere to send focus.
+    val focusableModifier = if (focusRequester != null &&
+        clickHandler == null &&
+        node.widget in CLICKABLE_CONTAINERS &&
+        node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
     ) {
-        remember(nodeId) { FocusRequester() }
+        withFocusEvents.focusable()
     } else {
-        null
-    }
-    if (focusRequester != null) {
-        LaunchedEffect(focusRequest) {
-            focusRequester.requestFocus()
-        }
-    }
-    val focusableModifier = if (focusRequester == null) {
-        pressable
-    } else {
-        val withRequester = pressable.focusRequester(focusRequester)
-        if (clickHandler == null &&
-            node.widget in CLICKABLE_CONTAINERS &&
-            node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
-        ) {
-            withRequester.focusable()
-        } else {
-            withRequester
-        }
+        withFocusEvents
     }
     val windowId = LocalWindowNodeId.current
     val subscribed = windowId != 0 && node.handler(PropertyKind.OnWindowDragOver) != null

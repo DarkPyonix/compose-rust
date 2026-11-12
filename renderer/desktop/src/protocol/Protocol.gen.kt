@@ -10,7 +10,7 @@ enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyC
 
 enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Progress }
 
-enum class Key { Enter, Other }
+enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -1370,7 +1370,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1764802552173580919L
+    const val SCHEMA_HASH: Long = 566194655694873154L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2364,6 +2364,18 @@ object Protocol {
     private fun keyTag(key: Key): Int = when (key) {
         Key.Enter -> 1
         Key.Other -> 2
+        Key.Escape -> 3
+        Key.Tab -> 4
+        Key.Backspace -> 5
+        Key.Delete -> 6
+        Key.ArrowUp -> 7
+        Key.ArrowDown -> 8
+        Key.ArrowLeft -> 9
+        Key.ArrowRight -> 10
+        Key.Home -> 11
+        Key.End -> 12
+        Key.PageUp -> 13
+        Key.PageDown -> 14
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {

@@ -4222,4 +4222,139 @@ mod tests {
             }
         }
     }
+
+    /// The keys menus, lists and overlays act on have their own name, appended after
+    /// `Other` so no earlier tag moves, and each one survives the wire.
+    #[test]
+    fn fr12_named_keys_are_appended_and_round_trip() {
+        let named = [
+            (Key::Enter, 1u16, 0x28u32, "Enter"),
+            (Key::Other, 2, 0x04, "a"),
+            (Key::Escape, 3, 0x29, "Escape"),
+            (Key::Tab, 4, 0x2B, "Tab"),
+            (Key::Backspace, 5, 0x2A, "Backspace"),
+            (Key::Delete, 6, 0x4C, "Delete"),
+            (Key::ArrowUp, 7, 0x52, "ArrowUp"),
+            (Key::ArrowDown, 8, 0x51, "ArrowDown"),
+            (Key::ArrowLeft, 9, 0x50, "ArrowLeft"),
+            (Key::ArrowRight, 10, 0x4F, "ArrowRight"),
+            (Key::Home, 11, 0x4A, "Home"),
+            (Key::End, 12, 0x4D, "End"),
+            (Key::PageUp, 13, 0x4B, "PageUp"),
+            (Key::PageDown, 14, 0x4E, "PageDown"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, code, text) in named {
+            assert_eq!(Key::try_from(tag), Ok(key), "tag {tag} names {text}");
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key: false,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag);
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
+        assert_eq!(Key::try_from(15), Err(()));
+    }
+
+    /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the
+    /// Renderer does not dismiss it. Its own `on_key_down` sees Escape by its DOM key
+    /// string and HID usage, and consuming it is the call's result.
+    #[test]
+    fn fr45_container_key_down_sees_escape_and_consumes_it() {
+        use std::sync::{Arc, Mutex};
+
+        let seen: Arc<Mutex<Vec<(String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen_for_root = Arc::clone(&seen);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let seen = Arc::clone(&seen_for_root);
+            crate::ui::Column()
+                .on_key_down(move |event| {
+                    seen.lock()
+                        .unwrap()
+                        .push((event.text().to_owned(), event.code()));
+                    if event.text() == "Escape" {
+                        event.consume();
+                    }
+                })
+                .content(|| {
+                    crate::ui::Text("session list");
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let (node_id, handler_id) = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyDown,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("a Column with on_key_down must emit OnKeyDown");
+        let created_column = mutations.iter().any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::Create { node_id: id, widget: crate::WidgetKind::Column, .. } if *id == node_id
+            )
+        });
+        assert!(
+            created_column,
+            "the key handler belongs to the Column itself"
+        );
+
+        let mut wire = Vec::new();
+        let mut press = |code: u32, text: &'static str| {
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: crate::EventPayload::KeyDown {
+                        key: if code == 0x29 {
+                            Key::Escape
+                        } else {
+                            Key::ArrowDown
+                        },
+                        shift_key: false,
+                        ctrl_key: false,
+                        alt_key: false,
+                        meta_key: false,
+                        repeat: false,
+                        code,
+                        text,
+                    },
+                },
+                &mut wire,
+            )
+            .unwrap();
+            host.dispatch_event(&wire).unwrap().1
+        };
+        assert_ne!(
+            press(0x29, "Escape"),
+            0,
+            "Escape was consumed by the container"
+        );
+        assert_eq!(
+            press(0x51, "ArrowDown"),
+            0,
+            "an unhandled key is left to the Renderer"
+        );
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![("Escape".to_owned(), 0x29), ("ArrowDown".to_owned(), 0x51)]
+        );
+    }
 }

@@ -53,6 +53,11 @@ while read -r name; do
         compose-rust renderer samples 2>/dev/null; then
         continue
     fi
+    # A check that only CI can run, because it needs the built pages and a browser, is a
+    # script under .github/scripts/ whose function carries the requirement's name.
+    if grep -rq "function $name\b" --include='*.mjs' .github/scripts 2>/dev/null; then
+        continue
+    fi
     # A check with no cargo or Gradle build behind it (the workflows, the guide) is a
     # function of that name in a shell test.
     if grep -qE "^$name\(\) *\{" scripts/tests/*.test.sh 2>/dev/null; then
