@@ -3904,11 +3904,13 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `ui::Button`에 `text_align(TextAlign)`와 `font_size(Fs)`가 있습니다. 부르면 `TextAlign`과 `FontSize` 속성을 보내고, 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. FR-64의 `MenuItem`이 이미 쓰는 `TextAlign=Start` 경로를 Button 일반으로 넓힌 것입니다.
 - `Button`은 자식을 받을 수 있습니다(`Button { ... }` 형태). 자식이 있으면 Renderer는 라벨 대신 그 자식을 Compose `Button`의 content 슬롯에 그리고, 눌림 표시, 포커스, 비활성, 접근성 동작은 Button의 것을 그대로 씁니다. 자식과 `Text`가 함께 오면 자식이 이깁니다.
 - 라벨 정렬이 `Start`이면 라벨은 Button 안쪽 여백에서 시작하고, 자식 슬롯은 `Row` 배치(세로 가운데)로 놓입니다.
+- `ui::Button`에 `font_weight(u16)`과 `type_role(TypeRole)`이 있습니다(이슈 #500, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). FR-75의 `TextField`와 같은 규칙입니다. 부르면 `FontWeight`, `TypeRole` 속성을 보내고, 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. `type_role`은 그 역할의 크기, 굵기, 줄 높이를 라벨에 쓰고, `font_size`와 `font_weight`가 함께 오면 그 둘이 역할의 값을 이깁니다. Ember 목업의 `.btn`(14/500)과 `.btn.sm`(13/500)이 이 두 값을 씁니다.
 
 수용 기준.
 1. `Button("변경 사항").variant(Text).text_align(Start).font_size(Sm).modifier(fill_max_width().height(40.0))`에서 라벨의 왼쪽 가장자리가 Button의 왼쪽 안쪽 여백에 있고, 글자 크기가 `Sm`입니다.
 2. `text_align`, `font_size`를 부르지 않으면 두 속성이 나가지 않고 렌더러 결과가 바뀌지 않습니다.
 3. 자식으로 `Icon`, `Text`, `Spacer.weight(1.0)`, 개수 `Text`를 가진 Button에서 개수가 Button의 오른쪽 안쪽 가장자리에 붙고, Button 전체를 누르면 `on_click`이 한 번 옵니다.
+4. `Button("커밋").type_role(TypeRole::Caption)`의 라벨이 `Caption`의 크기와 굵기로 그려지고, `font_weight(500)`을 더하면 굵기만 500이 됩니다. 둘 다 부르지 않으면 두 속성이 나가지 않습니다(fr66_button_type_role_and_weight).
 
 ### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Done`, 이슈 #426, #428)
 
