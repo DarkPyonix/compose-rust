@@ -22,6 +22,10 @@ pub const MUTED: Paint = Paint::Literal(Color::rgb(0x7A7596));
 /// The small uppercase label that sits above a course title.
 pub const META: Paint = Paint::Literal(Color::rgb(0x5E8C87));
 
+/// The coral the reference marks things with: the heart on the favourites card, the
+/// shirts its figures wear. Here it is the destination you are on.
+pub const ACCENT: Paint = Paint::Literal(Color::rgb(0xEF6A63));
+
 /// The two illustration grounds the reference alternates between.
 pub const SAGE: Paint = Paint::Literal(Color::rgb(0xA8C5BF));
 pub const BLUSH: Paint = Paint::Literal(Color::rgb(0xF4938A));
@@ -57,6 +61,7 @@ mod tests {
         assert_eq!(argb(CARD), 0xffff_ffff);
         assert_eq!(argb(INK), 0xff2e_2a4f);
         assert_eq!(argb(MUTED), 0xff7a_7596);
+        assert_eq!(argb(ACCENT), 0xffef_6a63);
         assert_eq!(argb(META), 0xff5e_8c87);
         assert_eq!(argb(SAGE), 0xffa8_c5bf);
         assert_eq!(argb(BLUSH), 0xfff4_938a);

@@ -12,8 +12,10 @@ mod courses;
 mod palette;
 
 use compose_rust::runtime::*;
+use compose_rust::schema::AssetKind;
 use compose_rust::ui::*;
 use courses::{Course, Shelf, course, on, sessions_label};
+use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
@@ -22,6 +24,24 @@ const PAGE_MEASURE: f32 = 420.0;
 const HERO: (f32, f32) = (388.0, 240.0);
 const WIDE: (f32, f32) = (388.0, 180.0);
 const TILE: (f32, f32) = (186.0, 120.0);
+
+/// How much room a destination along the bottom takes to press.
+const ICON_TAP: f32 = 44.0;
+
+/// The icons along the bottom, as the bytes each registration carries: the meaning's wire
+/// tag, little endian, and nothing else.
+///
+/// An icon is a meaning rather than a picture. The Renderer holds the artwork for every
+/// design system, so the sample never says what a house looks like.
+mod icon {
+    use compose_rust::ui::IconRole;
+
+    pub static TODAY: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
+    pub static MEDITATE: [u8; 2] = (IconRole::List as u16).to_le_bytes();
+    /// A collection of stories. There is no meaning for sleep or for a story, and
+    /// `Library` is the one that says "many of these, to pick from".
+    pub static SLEEP: [u8; 2] = (IconRole::Library as u16).to_le_bytes();
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Destination {
@@ -37,6 +57,8 @@ impl Destination {
         Destination::Sleep,
     ];
 
+    /// What the destination is called. Nothing on screen says it: the bar is three bare
+    /// icons. It names the screen you arrive at and it is what a test asks for.
     fn label(self) -> &'static str {
         match self {
             Destination::Today => "Today",
@@ -45,11 +67,11 @@ impl Destination {
         }
     }
 
-    fn icon(self) -> IconRole {
+    fn icon(self) -> &'static [u8] {
         match self {
-            Destination::Today => IconRole::Home,
-            Destination::Meditate => IconRole::List,
-            Destination::Sleep => IconRole::Inbox,
+            Destination::Today => &icon::TODAY,
+            Destination::Meditate => &icon::MEDITATE,
+            Destination::Sleep => &icon::SLEEP,
         }
     }
 
@@ -59,13 +81,6 @@ impl Destination {
             Destination::Meditate => Shelf::Meditate,
             Destination::Sleep => Shelf::Sleep,
         }
-    }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
     }
 }
 
@@ -329,6 +344,55 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
         });
 }
 
+/// A destination along the bottom: its icon, and a press over it.
+///
+/// The button carries no text and sits over the icon, so the press lands on it whatever
+/// was drawn underneath.
+fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
+    Box()
+        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+        .alignment(Alignment::Center)
+        .content(|| {
+            Icon(compose_rust::asset::asset(AssetKind::VectorIcon, picture)).color(tint);
+            let press = Rc::clone(&on_click);
+            Button("")
+                .variant(ButtonVariant::Text)
+                .modifier(Modifier.fill_max_size())
+                .on_click(move || press());
+        });
+}
+
+/// The bar along the bottom: three icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill under a hairline, a rail, or a drawer. The
+/// reference draws none of those. A meditation app's bar is a few bare icons on the page,
+/// the one you are on in the coral the reference marks things with, and that is a shape
+/// no design system would be right to give a set of destinations.
+#[Composable]
+fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
+    Row()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                let tint = if choice == destination {
+                    palette::ACCENT
+                } else {
+                    palette::MUTED
+                };
+                key(choice.label(), || {
+                    Box().content(|| {
+                        let go = Rc::clone(&on_go);
+                        icon_button(choice.icon(), tint, Rc::new(move || go(choice)));
+                    });
+                });
+            }
+        });
+}
+
 /// The app.
 #[Composable]
 pub fn app() {
@@ -363,24 +427,26 @@ pub fn app() {
 
     let chosen = destination.get();
 
-    // The frame is named rather than built. Which of a bar, a rail or a drawer the
-    // destinations become, and where the page sits beside them, are answers this screen
-    // never has to know.
+    // The bar stays along the bottom at every width, under the same measure as the page,
+    // because the reference is a phone and a phone's bar does not become a rail.
     Scaffold()
+        .modifier(Modifier.background(palette::PAGE))
         .bottom_bar(|| {
-            Navigation(chosen.index()).content(|| {
-                for choice in Destination::STRIP {
-                    let pick = destination;
-                    key(choice.label(), || {
-                        NavigationItem(choice.label())
-                            // The reference's bar is the page's own ink rather than an
-                            // accent.
-                            .color(palette::INK)
-                            .icon(choice.icon())
-                            .on_click(move || pick.set(choice));
-                    });
-                }
-            });
+            Box()
+                .modifier(Modifier.fill_max_width().background(palette::PAGE))
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
+                        .content(|| {
+                            let go = destination;
+                            bottom_bar(chosen, Rc::new(move |choice| go.set(choice)));
+                        });
+                });
         })
         .content(|| {
             Column()
@@ -481,6 +547,69 @@ mod tests {
     use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
     use courses::COURSES;
 
+    /// The node and the handler that press the destination drawn with this icon.
+    ///
+    /// The bar has no words on it, so a destination is found by what the reader sees: the
+    /// icon registered with this meaning, the node drawing it, and the button that shares
+    /// its box.
+    fn destination_press(mutations: &[Mutation<'_>], choice: Destination) -> Option<(u32, u64)> {
+        let tag = choice.icon();
+        let asset_id = mutations.iter().find_map(|mutation| match mutation {
+            Mutation::RegisterAsset {
+                asset_id,
+                kind: AssetKind::VectorIcon,
+                bytes,
+            } if *bytes == tag => Some(*asset_id),
+            _ => None,
+        })?;
+        let icon = mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Asset,
+                value: PropertyValue::Integer(id),
+            } if *id as u32 == asset_id => Some(*node_id),
+            _ => None,
+        })?;
+        let parent = mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::Insert {
+                parent_id, node_id, ..
+            } if *node_id == icon => Some(*parent_id),
+            _ => None,
+        })?;
+        let siblings: Vec<u32> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *parent_id == parent && *node_id != icon => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::OnClick,
+                value: PropertyValue::Integer(handler),
+            } if siblings.contains(node_id) => Some((*node_id, *handler as u64)),
+            _ => None,
+        })
+    }
+
+    /// Presses a destination on a recording, which is how a screenshot reaches a page
+    /// other than the first.
+    fn go_to(screen: &mut sample_frames::Screen, choice: Destination) -> bool {
+        let found = destination_press(&screen.live_mutations(), choice);
+        let Some((node_id, handler_id)) = found else {
+            return false;
+        };
+        screen.dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::Clicked,
+        });
+        true
+    }
+
     /// The mark on the badge that opens a course. Named because two tests press it and a
     /// glyph nobody types is not something to spell twice.
     const PLAY: &str = "\u{25b6}";
@@ -530,6 +659,28 @@ mod tests {
                 .iter()
                 .flat_map(|frame| decode_batch(frame).expect("a batch did not decode"))
                 .collect()
+        }
+
+        /// Presses a destination along the bottom, which is an icon with nothing written
+        /// under it.
+        fn press_destination(&mut self, choice: Destination) -> bool {
+            let found = destination_press(&sample_frames::live(self.mutations()), choice);
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let (batch, _) = self
+                .host
+                .dispatch(HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                })
+                .expect("the click failed");
+            if !batch.is_empty() {
+                let batch = batch.to_vec();
+                self.frames.push(batch);
+            }
+            true
         }
 
         fn press(&mut self, label: &str) -> bool {
@@ -619,13 +770,114 @@ mod tests {
     }
 
     /// Every destination has to encode, not just the one the app opens on.
+    ///
+    /// Pressed by its icon, because the bar has no words on it.
     #[test]
     fn fr15_every_destination_encodes() {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The bar is the sample's own: icons, and not a word or a design system's bar.
+    ///
+    /// Named for what it defends: the bar was a `Navigation`, which the active design
+    /// system draws as a labelled bar with a selection pill, and as a rail or a drawer
+    /// once the window widens. The reference has none of those.
+    #[test]
+    fn fr22_the_bar_is_icons_and_nothing_else() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let mutations = sample_frames::live(screen.mutations());
+            assert!(
+                !mutations.iter().any(|mutation| matches!(
+                    mutation,
+                    Mutation::Create {
+                        widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                        ..
+                    }
+                )),
+                "the bar is the design system's again"
+            );
+            for other in Destination::STRIP {
+                assert!(
+                    !screen.live_texts().iter().any(|text| text == other.label()),
+                    "the bar writes {} under its icon",
+                    other.label()
+                );
+            }
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The destination you are on is the one icon in the accent, and it moves when you
+    /// go somewhere else.
+    #[test]
+    fn fr22_the_selected_destination_is_drawn_in_the_accent() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let mutations = sample_frames::live(screen.mutations());
+            let mut tints: Vec<(u32, Paint)> = Vec::new();
+            for mutation in &mutations {
+                let Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                } = mutation
+                else {
+                    continue;
+                };
+                let Some(paint) = Paint::from_bits(*bits as u64) else {
+                    continue;
+                };
+                tints.retain(|(node, _)| node != node_id);
+                tints.push((*node_id, paint));
+            }
+            let accented: Vec<u32> = tints
+                .iter()
+                .filter(|(_, paint)| *paint == palette::ACCENT)
+                .map(|(node, _)| *node)
+                .collect();
+            assert_eq!(
+                accented.len(),
+                1,
+                "on {} the accent marks {} things rather than the destination you are on",
+                choice.label(),
+                accented.len()
+            );
+            let (pressed, _) = destination_press(&mutations, choice).expect("the bar lost an icon");
+            let icon = mutations.iter().find_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *node_id != pressed && accented.contains(node_id) => Some(*parent_id),
+                _ => None,
+            });
+            let beside = mutations.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::Insert { parent_id, node_id, .. }
+                        if *node_id == pressed && Some(*parent_id) == icon
+                )
+            });
+            assert!(
+                beside,
+                "on {} the accent is on some other destination",
                 choice.label()
             );
         }
@@ -642,8 +894,8 @@ mod tests {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
                 choice.label()
             );
             let texts = screen.live_texts();
@@ -777,7 +1029,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Sleep.label()),
+                    go_to(screen, Destination::Sleep),
                     "the bar has no way to the sleep stories"
                 );
             },
