@@ -14,6 +14,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign as ComposeTextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow as ComposeOverflow
@@ -90,7 +91,7 @@ internal class TextInput(
     val overflowWrap: OverflowWrap? = null,
     /** Sizes are CSS pixels, which the system's font scale does not enlarge. */
     val absoluteSize: Boolean = false,
-    /** The fonts to try, for [noRole] text. Ignored where there is a role. */
+    /** The fonts to try, for [noRole] text. Ignored, and reported, where there is a role. */
     val fonts: List<FontRef> = emptyList(),
     /** Drawing only: neither changes a size. */
     val color: Paint? = null,
@@ -126,6 +127,8 @@ internal class ResolvedText(
     val runsProblem: String?,
     /** What was wrong with the fonts, one sentence each, for the caller to report. */
     val problems: List<String>,
+    /** Which fonts the text named and is not set in, or null where it is set in all it named. */
+    val ignoredFonts: String? = null,
 )
 
 /**
@@ -178,6 +181,12 @@ internal fun resolveText(
                 ?: input.letterSpacing?.let(::sized)
                 ?: TextUnit.Unspecified,
             fontFamily = chain?.primary,
+            // As CSS sets a line box: every line is exactly its line height, the first and
+            // the last included, with the room the glyphs leave split evenly above and
+            // below them. Compose's default trims the first line's top and the last line's
+            // bottom back to the font's own, so a single line came out at the font's
+            // height whatever line height the page asked for.
+            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
         )
     } else {
         val role = input.role ?: input.defaultRole
@@ -243,6 +252,7 @@ internal fun resolveText(
         minContentPlaceholders = minContentPlaceholders,
         runsProblem = badRuns,
         problems = problems,
+        ignoredFonts = ignoredFontsProblem(input),
     )
 }
 
@@ -344,7 +354,7 @@ internal fun resolveFontChain(
                 }
             }
             is FontRef.System -> {
-                val family = systemFontFamily(ref.name) ?: continue
+                val family = cssUiFontFamily(ref.name) ?: systemFontFamily(ref.name) ?: continue
                 members += FontChain.Member(family, null)
                 break
             }
@@ -356,6 +366,58 @@ internal fun resolveFontChain(
     }
     if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
     return FontChain(members)
+}
+
+/**
+ * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this
+ * platform writes its own interface in, in each of those styles. Null for any other name,
+ * and for a `ui-` name this platform has no face for, which a font list passes over as a
+ * browser does.
+ *
+ * They arrive as installed family names, because that is what a CSS list leaves them as,
+ * but no machine has a family called `ui-monospace`. Apple's platforms have one under a
+ * private name (SF Mono, New York, SF Rounded), and asking for that name by the same route
+ * as any installed family answers only where it really exists, so elsewhere the name falls
+ * to the platform's own generic face of the same kind. There is no rounded interface face
+ * outside Apple's platforms, so `ui-rounded` is not found there and the list moves on.
+ */
+internal fun cssUiFontFamily(name: String): FontFamily? = when (name.lowercase()) {
+    "ui-sans-serif" -> platformUiFamily
+    "ui-serif" -> systemFontFamily(".AppleSystemUIFontSerif") ?: FontFamily.Serif
+    "ui-monospace" -> systemFontFamily(".AppleSystemUIFontMonospaced") ?: FontFamily.Monospace
+    "ui-rounded" -> systemFontFamily(".AppleSystemUIFontRounded")
+    else -> null
+}
+
+/**
+ * What is ignored about the fonts [input] names, or null where nothing is.
+ *
+ * Text with a type role is set in the theme's font for that role, and so is a run with a
+ * role of its own. A font list sent for either is thrown away, which a Host has no way to
+ * see on screen beyond letters in the wrong face, so it is said. Text that sends no type
+ * role at all has the role [TextInput.defaultRole], not no role: naming fonts is not
+ * enough, the text has to say it has no role as well.
+ */
+internal fun ignoredFontsProblem(input: TextInput): String? {
+    if (input.noRole) {
+        val runs = input.runs.withIndex()
+            .filter { (index, run) -> run.role != null && input.runFonts.containsKey(index) }
+            .map { it.index }
+        if (runs.isEmpty()) return null
+        return "run ${runs.joinToString()} names fonts and a type role; a run with a role is set in the theme's font for it, so its fonts are ignored"
+    }
+    val nodeFonts = input.fonts.isNotEmpty()
+    val runFonts = input.runFonts.isNotEmpty()
+    if (!nodeFonts && !runFonts) return null
+    val named = when {
+        nodeFonts && runFonts -> "a font list and run fonts"
+        nodeFonts -> "a font list"
+        else -> "run fonts"
+    }
+    val role = input.role?.let { "the type role $it" }
+        ?: "no type role, which is the role ${input.defaultRole}"
+    return "$named for text with $role: ignored, because text with a role is set in the theme's font for it. " +
+        "Send the type role None for text set in its own fonts"
 }
 
 /** Which installed family each generic name is, which is the platform's answer. */

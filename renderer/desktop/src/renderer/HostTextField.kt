@@ -128,6 +128,18 @@ internal fun HostTextField(
             FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
         }
     }
+    // A font list on a field with a role is thrown away, and the Host is told so: on
+    // screen it would only be letters in a face nobody asked for.
+    if (fontBlob != null &&
+        (node.property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value != TYPE_ROLE_NONE.toLong()
+    ) {
+        ReportRuns(
+            node.id,
+            "text field fonts on node ${node.id}: a font list sent for a field with a type role is ignored: " +
+                "a field with a role is set in the theme's font for it. Send the type role None for a field set in its own fonts",
+            dispatcher,
+        )
+    }
     val roleStyle = node.textStyle(theme)
     // A field with no role that names its letter spacing is tracked by its face as a `Text`
     // with no role is, so a value typed into it is as wide as the same words drawn beside

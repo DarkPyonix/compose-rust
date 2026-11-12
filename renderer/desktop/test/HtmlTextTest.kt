@@ -25,10 +25,24 @@ import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.design.platformUiFamily
+import dev.darkpyonix.composerust.foundation.cssUiFontFamily
+import dev.darkpyonix.composerust.foundation.resolveFontChain
+import dev.darkpyonix.composerust.protocol.HostEvent
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontListFontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.platform.SystemFont
+import org.jetbrains.skia.FontMgr
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -111,6 +125,14 @@ class HtmlTextTest {
                 text(text, role = 0, width = width, fonts = sans, fontSize = 15f)
             },
             Case(
+                "css line height",
+                "Each line is its line height, the first and the last as well",
+                100f,
+                listOf(noRole, fonts(sans), PropertyKind.FontSize to PropertyValue.Float(16f), PropertyKind.LineHeight to PropertyValue.Float(24f)),
+            ) { text, width ->
+                text(text, role = 0, width = width, fonts = sans, fontSize = 16f, lineHeight = 24f)
+            },
+            Case(
                 "anywhere",
                 "Supercalifragilisticexpialidocious word",
                 60f,
@@ -138,6 +160,42 @@ class HtmlTextTest {
                 assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, case.name)
             }
         }
+    }
+
+    /**
+     * A CSS line box is exactly its line height, a single line included, with the room the
+     * glyphs leave split evenly above and below them. The pairs are ones whose ratio a float
+     * holds exactly, so the height can be compared without a tolerance.
+     */
+    @Test
+    fun fr40_a_line_is_exactly_its_css_line_height() = runComposeUiTest {
+        startHost(FakeHostConnection(htmlText(200f, "x")), Density(1f))
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val pairs = listOf(16f to 24f, 32f to 40f, 12f to 18f)
+        var requests = MeasureRequests()
+        for ((size, lineHeight) in pairs) {
+            requests = requests.text("Hello, Dioxus", role = 0, fonts = sans, fontSize = size, lineHeight = lineHeight, width = 400f)
+        }
+        requests = requests
+            .text("Hello, Dioxus", role = 0, fonts = sans, fontSize = 16f, width = 400f)
+            .text("first line\nsecond line", role = 0, fonts = sans, fontSize = 16f, lineHeight = 24f, width = 400f)
+        val (status, results) = measure(requests)
+        assertEquals(MeasureRecords.CALL_OK, status)
+        pairs.forEachIndexed { index, (size, lineHeight) ->
+            val line = results[index]
+            assertEquals(1, line.lineCount, "font size $size: one line")
+            assertEquals(lineHeight, line.height, "font size $size with line height $lineHeight: a single line is its line height")
+        }
+        val natural = results[pairs.size]
+        val twoLines = results[pairs.size + 1]
+        assertEquals(2, twoLines.lineCount, "two lines")
+        assertEquals(48f, twoLines.height, "two lines of line height 24 are 48 tall")
+        // Half-leading: the baseline moves down by half of what the line height adds to the
+        // font's own height, as in a browser, not by none of it (the first line's top trimmed)
+        // and not by all of it.
+        val shift = results[0].firstBaseline - natural.firstBaseline
+        val half = (24f - natural.height) / 2f
+        assertTrue(abs(shift - half) <= 0.75f, "the extra room is split evenly: baseline moved $shift, half the room is $half")
     }
 
     /** CSS keep-all breaks Korean only at spaces, so its narrowest is a whole word. */
@@ -380,6 +438,165 @@ class HtmlTextTest {
         assertEquals(results[1].width, results[0].width, "the font was not ignored when measuring")
         assertNotEquals(GLYPH_AT_20, drawn.size.width.toFloat(), "drawn in the font a role should have ignored")
         assertEquals(GLYPH_AT_20, results[2].width, "without a role the same font is used")
+    }
+
+    /**
+     * A font list on text that has a role is not used, and the Host is told so. Text that
+     * sends no type role at all has the Body role, which is the case that is easiest to
+     * miss, so it is reported too. Text with no role uses its fonts and reports nothing.
+     */
+    @Test
+    fun fr40_an_ignored_font_on_drawn_text_is_reported() = runComposeUiTest {
+        val list = fonts(listOf(FontRef.Generic(GenericFamily.Serif)))
+        fun text(id: Int, vararg props: Pair<PropertyKind, PropertyValue>) =
+            listOf(
+                Mutation.Create(id, WidgetKind.Text),
+                Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("words")),
+            ) + props.map { (kind, value) -> Mutation.SetProp(id, kind, value) } + Mutation.Insert(COLUMN, id, id - TEXT)
+        val connection = FakeHostConnection(
+            listOf(Mutation.Create(COLUMN, WidgetKind.Column)) +
+                text(TEXT, PropertyKind.TypeRole to PropertyValue.Integer(5), list) +
+                text(ROLE_TEXT, list) +
+                text(ROLE_TEXT + 1, noRole, list),
+        )
+        startHost(connection, Density(1f))
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+        val byNode = errors.groupBy { it.nodeId }
+        assertEquals(setOf(TEXT, ROLE_TEXT), byNode.keys, "$errors")
+        for (error in errors) {
+            assertTrue(error.message.contains("ignored"), error.message)
+            assertTrue(error.message.contains("None"), "the report says how to have the fonts used: ${error.message}")
+        }
+        assertTrue(
+            byNode.getValue(ROLE_TEXT).single().message.contains("no type role, which is the role Body"),
+            "text that sent no role is told it has the Body role: ${byNode.getValue(ROLE_TEXT).single().message}",
+        )
+    }
+
+    /**
+     * A measure request with a role and a font list is reported once, however many such
+     * requests a call carries, and a request with no role is not reported at all.
+     */
+    @Test
+    fun fr40_an_ignored_font_in_a_measure_request_is_reported_once() = runComposeUiTest {
+        val connection = FakeHostConnection(htmlText(200f, "x"))
+        val host = startHost(connection, Density(1f))
+        val serif = listOf(FontRef.Generic(GenericFamily.Serif))
+        measure(
+            MeasureRequests()
+                .text("one", role = 5, fonts = serif, width = 200f)
+                .text("two", role = 5, fonts = serif, width = 200f)
+                .text("three", role = 0, fonts = serif, width = 200f),
+        )
+        connection.scheduleFrame(emptyList())
+        runOnIdle { host.renderFrame(0L) }
+        waitForIdle()
+        val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+            .filter { it.message.contains("measure request") }
+        assertEquals(1, errors.size, "$errors")
+        assertTrue(errors.single().message.contains("ignored"), errors.single().message)
+    }
+
+    private val onApple = System.getProperty("os.name").orEmpty().let { it.startsWith("Mac") || it.contains("iOS") }
+
+    /** The identity every font of [family] is asked for by, or null where it is not a list of installed faces. */
+    @OptIn(ExperimentalTextApi::class)
+    private fun installedIdentity(family: FontFamily): String? =
+        (family as? FontListFontFamily)?.fonts?.map { (it as? SystemFont)?.identity }?.distinct()?.singleOrNull()
+
+    /**
+     * CSS's `ui-monospace` is the platform's monospaced interface face: SF Mono on Apple's
+     * platforms, the platform's monospace elsewhere. It is used before the next name in the
+     * list, which is how a browser reads `ui-monospace, Menlo, monospace`.
+     */
+    @Test
+    fun fr40_ui_monospace_is_the_platform_monospaced_face() {
+        val chain = resolveFontChain(
+            listOf(FontRef.System("ui-monospace"), FontRef.System("Menlo"), FontRef.Generic(GenericFamily.Monospace)),
+            AssetCache(),
+            mutableListOf(),
+        )
+        if (onApple) {
+            assertEquals(".AppleSystemUIFontMonospaced", installedIdentity(chain.primary))
+            assertTrue((chain.primary as FontListFontFamily).fonts.size > 1, "SF Mono is built with all its faces")
+        } else {
+            assertEquals(FontFamily.Monospace, chain.primary)
+        }
+        assertEquals(1, chain.members.size, "a family that answers takes every letter, so the list stops there")
+    }
+
+    /** The other three `ui-` names, each the face its name says, or passed over where there is none. */
+    @Test
+    fun fr40_ui_generic_names_are_the_platform_interface_faces() {
+        assertSame(platformUiFamily, cssUiFontFamily("ui-sans-serif"))
+        assertSame(platformUiFamily, cssUiFontFamily("UI-Sans-Serif"), "CSS names are not case sensitive")
+        val serif = cssUiFontFamily("ui-serif")
+        val rounded = cssUiFontFamily("ui-rounded")
+        if (onApple) {
+            assertEquals(".AppleSystemUIFontSerif", serif?.let(::installedIdentity))
+            assertEquals(".AppleSystemUIFontRounded", rounded?.let(::installedIdentity))
+        } else {
+            assertEquals(FontFamily.Serif, serif)
+            assertNull(rounded)
+            val chain = resolveFontChain(
+                listOf(FontRef.System("ui-rounded"), FontRef.Generic(GenericFamily.Serif)),
+                AssetCache(),
+                mutableListOf(),
+            )
+            assertEquals(FontFamily.Serif, chain.primary, "a ui- name with no face is passed over")
+        }
+        assertNull(cssUiFontFamily("ui-cursive"), "only the four ui- names CSS defines are read this way")
+        assertNull(cssUiFontFamily("Georgia"))
+    }
+
+    /** A serif family with its own bold and italic, by name, on this machine, or null where none is installed. */
+    private val styledFamily: String? =
+        listOf("Georgia", "Times New Roman", "DejaVu Serif", "Liberation Serif", "Noto Serif")
+            .firstOrNull { name ->
+                val manager = FontMgr.default
+                val bold = manager.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.BOLD)
+                val italic = manager.matchFamilyStyle(name, org.jetbrains.skia.FontStyle.ITALIC)
+                bold?.familyName.equals(name, true) && bold!!.fontStyle.weight >= 600 &&
+                    italic?.familyName.equals(name, true) && italic!!.fontStyle.slant != org.jetbrains.skia.FontSlant.UPRIGHT
+            }
+
+    /**
+     * An installed family is built with every face it has, so bold text in it is set in its
+     * own bold and italic text in its own italic, not in its regular face drawn heavier or
+     * slanted. Measured against the advance of the real faces: a regular face made bold or
+     * oblique keeps the regular face's advances, and these faces' differ.
+     */
+    @OptIn(ExperimentalTextApi::class)
+    @Test
+    fun fr40_an_installed_family_is_set_in_its_own_bold_and_italic() = runComposeUiTest {
+        val name = styledFamily ?: return@runComposeUiTest
+        val family = assertIs<FontListFontFamily>(systemFontFamily(name), "$name is installed, so it is a family of its faces")
+        val styles = family.fonts.map { (it.weight.weight >= 600) to (it.style == FontStyle.Italic) }.toSet()
+        assertEquals(setOf(false to false, true to false, false to true, true to true), styles, "$name: ${family.fonts}")
+
+        startHost(FakeHostConnection(htmlText(400f, "x")), Density(1f))
+        val text = "mmmmmmmmmm"
+        val size = 20f
+        val list = listOf(FontRef.System(name), FontRef.Generic(GenericFamily.Serif))
+        val (_, results) = measure(
+            MeasureRequests()
+                .text(text, role = 0, fontSize = size, fontWeight = 400, fonts = list, width = 400f)
+                .text(text, role = 0, fontSize = size, fontWeight = 700, fonts = list, width = 400f)
+                .text(text, role = 0, fontSize = size, fontWeight = 400, italic = true, fonts = list, width = 400f),
+        )
+        fun advance(style: org.jetbrains.skia.FontStyle): Float {
+            val face = FontMgr.default.matchFamilyStyle(name, style)!!
+            return org.jetbrains.skia.Font(face, size).measureTextWidth(text)
+        }
+        val regular = advance(org.jetbrains.skia.FontStyle.NORMAL)
+        val bold = advance(org.jetbrains.skia.FontStyle.BOLD)
+        val italic = advance(org.jetbrains.skia.FontStyle.ITALIC)
+        assertTrue(abs(results[0].width - regular) <= 1f, "$name regular: ${results[0].width} against $regular")
+        assertTrue(abs(bold - regular) > 2f, "$name's bold has the advances of its regular, so this case proves nothing")
+        assertTrue(abs(results[1].width - bold) <= 1f, "$name bold is set in $name Bold: ${results[1].width} against $bold")
+        if (abs(italic - regular) > 2f) {
+            assertTrue(abs(results[2].width - italic) <= 1f, "$name italic is set in $name Italic: ${results[2].width} against $italic")
+        }
     }
 
     private companion object {
