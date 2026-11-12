@@ -147,6 +147,11 @@ impl NodeWriter {
         self.windows.contains(&node_id)
     }
 
+    /// Whether `node_id` stands in the tree, under the root or under another node.
+    pub(crate) fn is_placed(&self, node_id: u32) -> bool {
+        self.parents.contains_key(&node_id)
+    }
+
     /// The windows that left the tree since the last call.
     pub(crate) fn take_forgotten_windows(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.forgotten_windows)

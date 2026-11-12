@@ -46,6 +46,9 @@ const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+// 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
+// code editor's grouped edit.
+const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -274,6 +277,12 @@ pub enum Mutation<'a> {
     },
     /// Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
     SetOverlayTokens(crate::schema::OverlayTokens),
+    /// Puts `text` on the platform clipboard as plain text.
+    ///
+    /// Not a node and not answered: a Renderer with no clipboard drops it.
+    SetClipboardText {
+        text: &'a str,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1527,6 +1536,10 @@ impl BatchEncoder {
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
             }
+            Mutation::SetClipboardText { text } => {
+                self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
+                self.put_string_ref(text)?;
+            }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
                 self.put_u16(window.chrome as u16);
@@ -2012,6 +2025,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_CLIPBOARD_TEXT if len == 12 => Mutation::SetClipboardText {
+                text: read_string(bytes, payload, records_len)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2182,7 +2198,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_SET_OVERLAY_TOKENS => {
+            | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),

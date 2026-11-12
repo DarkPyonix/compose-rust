@@ -253,6 +253,10 @@ pub(crate) struct Composer {
     seen_pool: Vec<Vec<(u64, u32)>>,
     /// Scratch for the dirty states drained from the signal, kept for its capacity.
     pub(crate) dirty_scratch: Vec<u64>,
+    /// The focus handle the widget being composed asked to be bound to its node.
+    focus_binding: Option<Rc<crate::ui::focus::FocusTarget>>,
+    /// The focus handles asked for since the last batch, each once.
+    focus_requests: Vec<Rc<crate::ui::focus::FocusTarget>>,
 }
 
 impl Composer {
@@ -291,6 +295,8 @@ impl Composer {
             attr_pool: Vec::new(),
             seen_pool: Vec::new(),
             dirty_scratch: Vec::new(),
+            focus_binding: None,
+            focus_requests: Vec::new(),
         }
     }
 
@@ -1145,7 +1151,49 @@ impl Composer {
         self.recycle_attrs(attrs);
         self.groups[group as usize].node = Some(node);
         self.place(node);
+        if let Some(target) = self.focus_binding.take() {
+            target.node.set(node);
+        }
         node
+    }
+
+    /// Binds a focus handle to the node the next `update_node` creates or updates, which
+    /// is the node of the widget that asked.
+    pub(crate) fn bind_focus_to_next_node(&mut self, target: Rc<crate::ui::focus::FocusTarget>) {
+        if self.composing() {
+            self.focus_binding = Some(target);
+        }
+    }
+
+    /// Records a focus request for the handle's node, to be written once with the next
+    /// batch. A handle whose node is not on screen asks for nothing.
+    pub(crate) fn request_focus(&mut self, target: Rc<crate::ui::focus::FocusTarget>) {
+        let node = target.node.get();
+        if node == 0 || !self.writer.is_placed(node) || target.requested.get() {
+            return;
+        }
+        target.requested.set(true);
+        self.focus_requests.push(target);
+    }
+
+    /// Writes the focus requests made since the last batch, each once, for the nodes
+    /// that are still on screen.
+    pub(crate) fn flush_focus_requests(&mut self) {
+        if self.focus_requests.is_empty() {
+            return;
+        }
+        let mut requests = std::mem::take(&mut self.focus_requests);
+        for target in requests.drain(..) {
+            target.requested.set(false);
+            let node = target.node.get();
+            if node != 0 && self.writer.is_placed(node) {
+                self.writer.batch_mut().request_focus(node);
+            }
+        }
+        // Keep the buffer, so a screen that moves focus often does not allocate for it.
+        if self.focus_requests.is_empty() {
+            self.focus_requests = requests;
+        }
     }
 
     /// Opens the node context a widget's children are placed in.

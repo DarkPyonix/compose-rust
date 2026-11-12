@@ -33,10 +33,10 @@ them name Cupertino.
 |---|---|
 | `minimal` | A playground: every control the schema has, all nine fills with the ink each carries, the type and corner ladders, and a `Canvas` drawing |
 | `store` | A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
-| `statistics` | Charts: a dial and a week of costs drawn with `Canvas`, both painted entirely in roles, on a tinted page |
+| `statistics` | Charts: a dial and a week of hatched columns drawn with `Canvas` in the reference's own palette, and a costs page that is sage to the window's edges |
 | `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
-| `academic` | A grid of subject tiles, a stage strip, open and locked lessons, and the one place the role vocabulary ran out |
+| `academic` | A grid of subject tiles, a stage strip, open and locked lessons, in the reference picture's own colours |
 | `social` | A meditation app whose every card carries an illustration, three shelves, and a course page that covers the navigation bar |
 
 Each of them names its colour scheme as well as its design system, because the design each
@@ -117,6 +117,11 @@ library.
 ./scripts/build-sample-pages.sh                 # a browser page per sample, plus an index
 ./renderer/desktop/scripts/build-sample-ios.sh calculator
 ```
+
+An APK is built for `arm64-v8a`, the ABI phones run, by passing dx
+`--target aarch64-linux-android`; without a target dx builds for the machine it runs on.
+The script opens each APK and fails if `lib/arm64-v8a/libmain.so` is not in it, because
+such an APK installs and then cannot find its host library at launch.
 
 Everything a sample settles before it launches is in one `launch_builder()` that all
 three entry points share, so a page and an APK draw the same design its desktop binary

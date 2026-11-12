@@ -60,6 +60,10 @@ on:
       - scripts/install-nik.sh
       - .github/scripts/check-single-executable.sh
       - .github/scripts/package-static-renderer.sh
+      - scripts/check-windows-consumer.sh
+      - compose-rust/tests/fixtures/consumer/**
+      - compose-rust/tests/fixtures/consumer-mixed-runtime/**
+      - compose-rust/tests/fixtures/multi-window/**
       - .github/scripts/check-linux-input-access.sh
       - .github/scripts/atspi-walk.py
       - scripts/parity/**
@@ -143,7 +147,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|scripts/install-nik\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|compose-rust/tests/fixtures/(consumer|consumer-mixed-runtime|multi-window)/|scripts/(install-nik|check-windows-consumer)\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
