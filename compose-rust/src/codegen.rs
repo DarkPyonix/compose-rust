@@ -505,6 +505,15 @@ sealed interface Mutation {
 
     /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
+
+    /**
+     * Puts [text] on the platform clipboard as plain text. Not answered: a Renderer with no
+     * clipboard drops it. [text] can be anything the application copies, so it is never
+     * written to a log.
+     */
+    data class SetClipboardText(val text: String) : Mutation {
+        override fun toString(): String = "SetClipboardText(length=${text.length})"
+    }
 }
 
 "#,
@@ -644,6 +653,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_SET_CLIPBOARD_TEXT = 28
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -826,6 +836,10 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                             ),
                         )
+                    }
+                    TAG_SET_CLIPBOARD_TEXT -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.SetClipboardText(readString(batch, base, available, offset + 4))
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -3127,6 +3141,10 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             name: "보고서.txt",
             filters: "이미지\0png,jpg\0문서\0pdf,txt",
         },
+        // Plain text for the platform clipboard.
+        Mutation::SetClipboardText {
+            text: "초대 링크"
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3454,14 +3472,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 104,
+    "recordCount": 105,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{

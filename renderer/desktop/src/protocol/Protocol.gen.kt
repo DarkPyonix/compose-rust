@@ -1296,6 +1296,15 @@ sealed interface Mutation {
 
     /** Sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     data class SetOverlayTokens(val overlay: OverlayTokens) : Mutation
+
+    /**
+     * Puts [text] on the platform clipboard as plain text. Not answered: a Renderer with no
+     * clipboard drops it. [text] can be anything the application copies, so it is never
+     * written to a log.
+     */
+    data class SetClipboardText(val text: String) : Mutation {
+        override fun toString(): String = "SetClipboardText(length=${text.length})"
+    }
 }
 
 sealed interface HostEvent {
@@ -1382,6 +1391,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_SET_CLIPBOARD_TEXT = 28
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1564,6 +1574,10 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                             ),
                         )
+                    }
+                    TAG_SET_CLIPBOARD_TEXT -> {
+                        requireRecordLength(length, 12, offset)
+                        Mutation.SetClipboardText(readString(batch, base, available, offset + 4))
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)

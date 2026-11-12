@@ -119,6 +119,8 @@ class ProtocolVectorsTest {
                 is Mutation.RequestNotificationPermission -> false
                 // The vector's dialog is on the implicit root window, which always exists.
                 is Mutation.ShowFileDialog -> false
+                // The clipboard is the platform's, not a node's.
+                is Mutation.SetClipboardText -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -211,6 +213,15 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, changedLength)
         assertEquals(bytes.copyOfRange(291, 311).toList(), changed.array().copyOf(changedLength).toList())
+    }
+
+    /** The clipboard write, read from the bytes the Host wrote: one string reference. */
+    @Test
+    fun fr73_set_clipboard_text_round_trips() {
+        assertEquals(
+            listOf(Mutation.SetClipboardText("초대 링크")),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetClipboardText>(),
+        )
     }
 
     /**

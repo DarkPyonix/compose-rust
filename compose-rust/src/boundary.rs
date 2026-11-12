@@ -347,6 +347,8 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // A clipboard write is the same: it belongs to the Host that asked for it.
+        crate::clipboard::reset_clipboard();
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
@@ -882,6 +884,9 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Text the application asked to put on the clipboard, in the order it asked.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain(|text| batch.set_clipboard_text(text));
         // File dialogs an application asked for, from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::file_dialog::drain(|request| batch.file_dialog(request));

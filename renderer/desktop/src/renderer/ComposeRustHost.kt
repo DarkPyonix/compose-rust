@@ -419,6 +419,18 @@ private fun ComposeRustTree(
     SideEffect { host.table.notifications.wake = frames::request }
     // A file dialog's answer arrives the same way, from whichever thread the platform uses.
     SideEffect { host.table.fileDialogs.wake = frames::request }
+    // The clipboard the Host's copies go to is the one this composition sees. Every window
+    // shares it, so the root window's is enough.
+    @Suppress("DEPRECATION")
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    if (windowNodeId == 0) {
+        SideEffect {
+            host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+                @Suppress("DEPRECATION")
+                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+        }
+    }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
