@@ -2831,6 +2831,24 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 16,
             modifier: Modifier::Elevation(6.0),
         },
+        // A size report with the flag off is the record it always was, the second word
+        // zero; with it on, the second word is one.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 17,
+            modifier: Modifier::ObserveSize {
+                token: 9,
+                every_dp: false,
+            },
+        },
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 18,
+            modifier: Modifier::ObserveSize {
+                token: 9,
+                every_dp: true,
+            },
+        },
         Mutation::Insert {
             parent_id: 1,
             node_id: 2,

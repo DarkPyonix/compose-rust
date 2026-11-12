@@ -447,7 +447,7 @@ fn shelf_page(
     Column().modifier(Modifier.fill_max_width()).content(|| {
         for block in &blocks {
             if let Block::Hero(found) = block {
-                hero_card(*found, opened);
+                hero_card(found, opened);
             }
         }
         Column()
@@ -466,7 +466,7 @@ fn shelf_page(
                                 .color(palette::INK);
                         }
                         Block::Tiles(row) => tile_row(row.clone(), night, opened),
-                        Block::Wide(found) => wide_card(*found, night, opened),
+                        Block::Wide(found) => wide_card(found, night, opened),
                     });
                 }
             });

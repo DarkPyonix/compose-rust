@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
+import dev.darkpyonix.composerust.foundation.navigationFor
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -599,10 +600,16 @@ private fun ComposeRustTree(
     // its own content clear of them. Leaving the page to take the strip instead drew a band
     // of page colour across the whole window above the sidebar, which is the leftover
     // title bar this exists to avoid.
-    val navigation = theme.rules.navigation(sizeClass, theme)
+    // Asked of the navigation the page opens with, so a compact window gets what that
+    // navigation chose rather than what its design system would have answered.
+    val openingNavigation = host.table.openingNavigation(pageRoots)
+    val navigation = theme.navigationFor(openingNavigation, sizeClass)
+    // A navigation that is not on the screen at all has no strip to take the top with,
+    // and the page under it starts below the window buttons like any other page.
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(pageRoots)
+        navigation.presentation != NavigationPresentation.Hidden &&
+        openingNavigation != null
     val barIsCaption = !caption.fullSize && (caption.height > 0.dp || bars.top > 0.dp) &&
         (host.table.opensWithABar(pageRoots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
@@ -610,7 +617,7 @@ private fun ComposeRustTree(
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(pageRoots)
+        openingNavigation != null
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
@@ -938,23 +945,27 @@ internal fun NodeTable.opensWithABar(roots: List<Int>): Boolean {
  * the strip the system's gesture bar sits in: a nested one has content below it and would
  * leave a gap in the middle of the screen.
  */
-internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean {
-    var id = roots.firstOrNull() ?: return false
+internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean =
+    openingNavigation(roots) != null
+
+/** The navigation [opensWithANavigation] finds, or null where the page opens with none. */
+internal fun NodeTable.openingNavigation(roots: List<Int>): Node? {
+    var id = roots.firstOrNull() ?: return null
     repeat(BAR_SEARCH_DEPTH) {
-        val node = node(id) ?: return false
+        val node = node(id) ?: return null
         when (node.widget) {
-            WidgetKind.Navigation -> return true
+            WidgetKind.Navigation -> return node
             // The same wrappers the search above passes through, for the same reason:
             // they are not things the reader sees.
-            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return false
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
             // A frame's destinations are whatever fills its bottom slot, and the frame
             // owns the page around them, which is what this question is really asking.
-            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return false
-            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return false
-            else -> return false
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
         }
     }
-    return false
+    return null
 }
 
 /**

@@ -87,12 +87,12 @@ pub use palette::{Palette, PaletteViolation};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,
-    HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
-    PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole, Severity, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass,
-    WindowSizeClass, WordBreak,
+    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
+    GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    OverflowWrap, Paint, PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole,
+    Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
+    WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

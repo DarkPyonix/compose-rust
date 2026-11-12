@@ -217,7 +217,7 @@ class TransformTest {
                             ProtocolModifier.Offset(50f, 50f),
                             ProtocolModifier.RequiredSize(100f, 40f),
                             transform,
-                            ProtocolModifier.ObserveSize(5),
+                            ProtocolModifier.ObserveSize(5, false),
                         )
                         node(BOX, ROOT, 0, *modifiers.toTypedArray())
                         node(3, ROOT, 1, ProtocolModifier.Offset(200f, 50f), ProtocolModifier.RequiredSize(30f, 30f))
