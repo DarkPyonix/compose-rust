@@ -17,6 +17,11 @@
 # of them back because one of them broke on one platform helps nobody. A platform where
 # nothing at all built is a different thing and still fails the run.
 #
+# The web is the exception: a sample that does not build as a page fails the web job, and
+# with it the release. The guide site serves every sample's page from this release, so a
+# page left out would be a dead link that hides the broken build. Once samples-latest
+# holds the new files, the release job starts the Pages workflow on main to publish them.
+#
 # Separate from release.yml on purpose. That workflow ships the library: the renderer
 # artifacts and the crate. This one ships programs a person downloads and runs, and the
 # two should be versioned apart so a sample can be rebuilt without implying a library
@@ -721,6 +726,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # To start the Pages workflow once samples-latest holds the new pages.
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -829,6 +836,7 @@ jobs:
           fi
 
       - name: Replace the files of the samples-latest release
+        id: feed
         # The release tagged samples-latest always holds the newest samples at one fixed
         # address. It is a pre-release and never latest, so it does not compete with the
         # library's v* releases. It is updated in place: the new files are uploaded over
@@ -868,3 +876,13 @@ jobs:
               gh release delete-asset "$FEED" "$asset" --yes
             fi
           done
+          echo "moved=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the new sample pages on the guide site
+        # The guide serves the sample pages from samples-latest, so it is deployed again
+        # once that release holds the new files. Pages deploys from main only, so that is
+        # the ref it runs on.
+        if: steps.feed.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml -R "$GITHUB_REPOSITORY" --ref main

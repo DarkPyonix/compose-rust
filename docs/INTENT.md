@@ -583,6 +583,10 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 출처: subsecond 문서 <https://docs.rs/subsecond/latest/subsecond/>(맨 위 크레이트 한정, 구조체, 지원 플랫폼), Dioxus 0.7 핫 리로드 문서 <https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload>(rsx 핫 리로드는 작업 공간 전체, Rust 핫 패치는 맨 위 크레이트만), `dioxus-devtools` <https://docs.rs/dioxus-devtools/latest/dioxus_devtools/>(`connect`, `apply_changes`), Jetpack Compose 미리보기 <https://developer.android.com/develop/ui/compose/tooling/previews>, SwiftUI 미리보기 <https://developer.apple.com/documentation/swiftui/previews-in-xcode>.
 
+### D25. 가이드 사이트는 릴리스의 웹 샘플을 그대로 싣고, 빠진 샘플이 있으면 배포가 실패한다 (2026-11-13)
+
+**결정**: Pages는 wasm을 직접 빌드하지 않고 태그의 릴리스에서 웹 샘플 아카이브를 가져와 `/samples/<name>/`에 싣는다. 배포는 main에서만 하고, 빌드되지 않은 샘플이 있으면 배포가 실패한다(SPEC FR-22.7, 이슈 #20). [leader, provisional, 2026-11-13]
+
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 
 FR-14.1-2가 이미 기록했듯 Liquid Glass는 Compose가 그릴 수 있는 효과가 아닙니다. 시스템이 네이티브 탭 바, 네이티브 내비게이션 바, 네이티브 툴바에만 입히고, Compose 표면 안에서 부르는 API는 없습니다. 그러므로 iOS에서 진짜 유리를 얻는 방법은 하나뿐입니다. **그 크롬을 우리가 그리지 말고, 시스템의 것을 가져다 쓰는 것입니다.**
