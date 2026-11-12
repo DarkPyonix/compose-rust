@@ -2496,6 +2496,7 @@ Notification::new("세션이 끝났습니다")
     3. 색 레코드로 준 컨테이너와 거터 색이 픽셀에 나오고, 보내지 않은 칸은 디자인 시스템의 색입니다(fr38_editor_colors_override_the_design_system).
     4. 줄 높이 보고가 실제 그린 줄 높이와 같습니다(fr38_editor_reports_line_height).
     5. 두 편집기 중 하나를 스크롤하면 `CodeScrolled`가 오고, 그 값으로 다른 편집기에 `SetScrollOffset`을 주면 같은 픽셀 위치에 섭니다(fr38_editor_scroll_offset_round_trips).
+    6. 와이어([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `LineNumbers` 178(bool, 없으면 true), `GutterMinWidthDp` 179(여백을 포함한 줄 번호 열의 최소 폭), `GutterPaddingDp` 180, `TextInsetDp` 181(각 f32, dp), `CodeEditorColors` 182(색 레코드의 블롭), `OnCodeMetrics` 183, `OnCodeScrolled` 184(핸들러 id). 색 레코드는 12바이트입니다: `container`, `gutter`, `lineNumber`, `currentLineNumber`, `currentLine`(각 `u16` `ColorRole`, 0이면 디자인 시스템의 색), 예약 `u16`. 모르는 역할이나 길이가 맞지 않는 레코드는 `ProtocolError`를 보내고 디자인 시스템의 색으로 그립니다. 이벤트 `CodeMetrics`(54)와 `CodeScrolled`(55)는 24바이트로, 공통 머리 16바이트 뒤에 `f64` 하나(물리 픽셀)가 오며 `ValueChanged`의 페이로드 모양을 씁니다. 듣는 핸들러가 없으면 보내지 않고, 나중에 붙으면 그때의 값을 한 번 보냅니다. 스크롤 위치가 0인 편집기는 `CodeScrolled`를 보내지 않습니다. 명령 `SetScrollOffset`(30)은 16바이트입니다: 머리 4, `node_id: u32`, `offset_px: f64`(물리 픽셀). 0보다 작으면 맨 위, 문서 끝을 넘으면 끝에 맞추고, 숫자가 아닌 값은 그 명령만 버리고 `ProtocolError`를 보냅니다. 편집기가 아직 크기를 받지 못했으면 첫 배치 뒤에 적용합니다. 편집기는 글자 속성 중 `TypeRole`, `FontSize`, `LineHeight`, `Font`만 받습니다. `Font` 목록을 보내면 역할과 관계없이 그 목록으로 그립니다. `LineNumbers`가 false이면 줄 번호 열과 구분선이 없고, 거터 장식, 접기 표시, 변경 표시 막대의 열은 있을 때만 남습니다.
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
