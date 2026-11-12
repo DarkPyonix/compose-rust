@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Pointer events reach the nodes that subscribed
+
+`on_pointer(PointerKinds::..., handler)` now runs its handler. The renderer sends `Down`, `Up`, `Move`, `Enter`, `Leave`, `Cancel`, `Wheel` and `ContextMenu` to a subscribed node, with the position in dp from the node's top left corner ([#417](https://github.com/DarkPyonix/compose-rust/issues/417)). Before this the subscription was written and accepted, and nothing was ever sent.
+
+- A double click is a `Down` and an `Up` whose `click_count()` is 2. The secondary button, and Control with the primary button on macOS, arrive as `ContextMenu` with no `Down` beside it.
+- The deepest subscribed node hears an event first. `consume()` keeps it from the nearest subscribed ancestor and from Compose, so a consumed press is not also a click.
+- A node that took a `Down` keeps the pointer until it is released, and gets its `Move` and `Up` wherever the pointer goes.
+- `Move` is sent once a frame for each node with the latest position, and `Wheel` once a frame with its travel added up. A wheel's travel is in lines.
+
+A node that does not call `on_pointer` carries no pointer input, as before.
+
 ## v0.0.7
 
 ### Native file open and save dialogs
