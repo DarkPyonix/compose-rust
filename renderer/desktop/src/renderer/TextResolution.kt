@@ -289,7 +289,7 @@ internal fun resolveFontChain(
                 }
             }
             is FontRef.System -> {
-                val family = systemFontFamily(ref.name) ?: continue
+                val family = cssUiFontFamily(ref.name) ?: systemFontFamily(ref.name) ?: continue
                 members += FontChain.Member(family, null)
                 break
             }
@@ -301,6 +301,27 @@ internal fun resolveFontChain(
     }
     if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
     return FontChain(members)
+}
+
+/**
+ * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this
+ * platform writes its own interface in, in each of those styles. Null for any other name,
+ * and for a `ui-` name this platform has no face for, which a font list passes over as a
+ * browser does.
+ *
+ * They arrive as installed family names, because that is what a CSS list leaves them as,
+ * but no machine has a family called `ui-monospace`. Apple's platforms have one under a
+ * private name (SF Mono, New York, SF Rounded), and asking for that name by the same route
+ * as any installed family answers only where it really exists, so elsewhere the name falls
+ * to the platform's own generic face of the same kind. There is no rounded interface face
+ * outside Apple's platforms, so `ui-rounded` is not found there and the list moves on.
+ */
+internal fun cssUiFontFamily(name: String): FontFamily? = when (name.lowercase()) {
+    "ui-sans-serif" -> platformUiFamily
+    "ui-serif" -> systemFontFamily(".AppleSystemUIFontSerif") ?: FontFamily.Serif
+    "ui-monospace" -> systemFontFamily(".AppleSystemUIFontMonospaced") ?: FontFamily.Monospace
+    "ui-rounded" -> systemFontFamily(".AppleSystemUIFontRounded")
+    else -> null
 }
 
 /** Which installed family each generic name is, which is the platform's answer. */

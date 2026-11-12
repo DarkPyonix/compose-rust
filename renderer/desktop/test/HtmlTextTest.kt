@@ -26,6 +26,7 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.systemFontFamily
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.design.platformUiFamily
+import dev.darkpyonix.composerust.foundation.cssUiFontFamily
 import dev.darkpyonix.composerust.foundation.resolveFontChain
 import dev.darkpyonix.composerust.protocol.HostEvent
 import androidx.compose.ui.text.ExperimentalTextApi
@@ -384,6 +385,58 @@ class HtmlTextTest {
         assertEquals(results[1].width, results[0].width, "the font was not ignored when measuring")
         assertNotEquals(GLYPH_AT_20, drawn.size.width.toFloat(), "drawn in the font a role should have ignored")
         assertEquals(GLYPH_AT_20, results[2].width, "without a role the same font is used")
+    }
+
+    private val onApple = System.getProperty("os.name").orEmpty().let { it.startsWith("Mac") || it.contains("iOS") }
+
+    /** The identity every font of [family] is asked for by, or null where it is not a list of installed faces. */
+    @OptIn(ExperimentalTextApi::class)
+    private fun installedIdentity(family: FontFamily): String? =
+        (family as? FontListFontFamily)?.fonts?.map { (it as? SystemFont)?.identity }?.distinct()?.singleOrNull()
+
+    /**
+     * CSS's `ui-monospace` is the platform's monospaced interface face: SF Mono on Apple's
+     * platforms, the platform's monospace elsewhere. It is used before the next name in the
+     * list, which is how a browser reads `ui-monospace, Menlo, monospace`.
+     */
+    @Test
+    fun fr40_ui_monospace_is_the_platform_monospaced_face() {
+        val chain = resolveFontChain(
+            listOf(FontRef.System("ui-monospace"), FontRef.System("Menlo"), FontRef.Generic(GenericFamily.Monospace)),
+            AssetCache(),
+            mutableListOf(),
+        )
+        if (onApple) {
+            assertEquals(".AppleSystemUIFontMonospaced", installedIdentity(chain.primary))
+            assertTrue((chain.primary as FontListFontFamily).fonts.size > 1, "SF Mono is built with all its faces")
+        } else {
+            assertEquals(FontFamily.Monospace, chain.primary)
+        }
+        assertEquals(1, chain.members.size, "a family that answers takes every letter, so the list stops there")
+    }
+
+    /** The other three `ui-` names, each the face its name says, or passed over where there is none. */
+    @Test
+    fun fr40_ui_generic_names_are_the_platform_interface_faces() {
+        assertSame(platformUiFamily, cssUiFontFamily("ui-sans-serif"))
+        assertSame(platformUiFamily, cssUiFontFamily("UI-Sans-Serif"), "CSS names are not case sensitive")
+        val serif = cssUiFontFamily("ui-serif")
+        val rounded = cssUiFontFamily("ui-rounded")
+        if (onApple) {
+            assertEquals(".AppleSystemUIFontSerif", serif?.let(::installedIdentity))
+            assertEquals(".AppleSystemUIFontRounded", rounded?.let(::installedIdentity))
+        } else {
+            assertEquals(FontFamily.Serif, serif)
+            assertNull(rounded)
+            val chain = resolveFontChain(
+                listOf(FontRef.System("ui-rounded"), FontRef.Generic(GenericFamily.Serif)),
+                AssetCache(),
+                mutableListOf(),
+            )
+            assertEquals(FontFamily.Serif, chain.primary, "a ui- name with no face is passed over")
+        }
+        assertNull(cssUiFontFamily("ui-cursive"), "only the four ui- names CSS defines are read this way")
+        assertNull(cssUiFontFamily("Georgia"))
     }
 
     /** A serif family with its own bold and italic, by name, on this machine, or null where none is installed. */
