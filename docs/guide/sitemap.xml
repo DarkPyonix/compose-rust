@@ -127,4 +127,18 @@
     <xhtml:link rel="alternate" hreflang="x-default" href="http://darkpyonix.dev/compose-rust/en/overview.html"/>
     <lastmod>2026-10-17</lastmod>
   </url>
+  <url>
+    <loc>http://darkpyonix.dev/compose-rust/en/samples.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="http://darkpyonix.dev/compose-rust/en/samples.html"/>
+    <xhtml:link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/compose-rust/ko/samples.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="http://darkpyonix.dev/compose-rust/en/samples.html"/>
+    <lastmod>2026-11-13</lastmod>
+  </url>
+  <url>
+    <loc>http://darkpyonix.dev/compose-rust/ko/samples.html</loc>
+    <xhtml:link rel="alternate" hreflang="ko" href="http://darkpyonix.dev/compose-rust/ko/samples.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="http://darkpyonix.dev/compose-rust/en/samples.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="http://darkpyonix.dev/compose-rust/en/samples.html"/>
+    <lastmod>2026-11-13</lastmod>
+  </url>
 </urlset>
