@@ -26,6 +26,7 @@
 //! `rsx!` counterpart does not accept is still written when it is set, because the wire
 //! carries every Modifier slot on every node.
 
+pub(crate) mod focus;
 mod lazy;
 mod widgets;
 
@@ -54,6 +55,7 @@ pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
+pub use focus::{FocusHandle, use_focus_handle};
 pub use lazy::{LazyColumn, LazyGrid, LazyList, LazyListScope, LazyRow};
 pub use widgets::*;
 

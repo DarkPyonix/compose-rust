@@ -782,6 +782,15 @@ class NodeTable {
      */
     internal fun report(code: Int, message: String) = fail(code, message)
 
+    /**
+     * [report], unless the same error is already waiting to be reported. For a mistake a
+     * Host makes in every request of a kind, which is one thing to fix however many
+     * requests it was made in.
+     */
+    internal fun reportOnce(code: Int, message: String) {
+        if (errors.none { it.code == code && it.message == message }) fail(code, message)
+    }
+
     companion object {
         /** Node id 0 is the Host's "no node" sentinel, so it names the virtual root. */
         const val ROOT_ID: Int = 0

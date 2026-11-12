@@ -24,6 +24,8 @@
 #    DLL. The UCRT's DLLs are part of Windows 10 and later and are allowed.
 # 3. Copied alone into an empty directory it starts and draws its frames: no icudtl.dat, no
 #    library beside it.
+#    Two windows of one application, through LaunchBuilder::windows(), open, share their
+#    state, close one at a time, and the process ends by itself after the last.
 # 4. An application that also links a C++ library built for the runtime DLL (/MD), which is
 #    what the `cc` crate builds by default, still links (the MSVC linker would otherwise stop
 #    on LNK2038, a RuntimeLibrary mismatch), still needs only Windows, and runs.
@@ -266,6 +268,39 @@ for name in $fr53_names; do
 done
 if [[ "$status" -ne 0 ]]; then
     failed+=("the several-windows checks ended with status $status")
+fi
+
+echo "== 3d. an application with two windows, through LaunchBuilder::windows()"
+# 3c drives the window manager from inside the renderer. This is the other end: a program
+# written against the Rust API (compose-rust/tests/fixtures/multi-window) opens two windows
+# that share their state, removes the second, removes the first, and has to end by itself
+# with status 0 once the last one is gone. It prints one `fr53_windows_app_*` line per step;
+# the names are read from its source so the two cannot drift.
+multi_fixture="$repo_root/compose-rust/tests/fixtures/multi-window"
+build "$multi_fixture/Cargo.toml" shared ||
+    fail "the multi-window application did not build"
+multi_binary="$target/shared/debug/multi-window.exe"
+[[ -f "$multi_binary" ]] || fail "the build produced no $multi_binary"
+only_windows "$multi_binary"
+mkdir -p "$scratch/multi-window"
+cp "$multi_binary" "$scratch/multi-window/multi-window.exe"
+multi_log="$scratch/multi-window-check.log"
+status=0
+# A watchdog inside the program fails it if a step is not reached or the process outlives its
+# last window; this timeout is for a process that hangs harder than that.
+( cd "$scratch/multi-window" && timeout 600 ./multi-window.exe --check ) > "$multi_log" 2>&1 || status=$?
+grep -E 'compose-rust:|event:' "$multi_log" || tail -40 "$multi_log"
+multi_names="$(grep -oE '"fr53_windows_app_[a-z0-9_]+"' "$multi_fixture/src/app.rs" | tr -d '"')"
+[[ "$(echo "$multi_names" | wc -l | tr -d ' ')" -eq 4 ]] ||
+    failed+=("the multi-window fixture does not name its four steps")
+for name in $multi_names; do
+    grep -q "^compose-rust: $name: ok" "$multi_log" || failed+=("$name (see the lines above)")
+done
+if [[ "$status" -ne 0 ]]; then
+    # Status 1 is the program's own verdict, said above; anything else is a crash or the
+    # timeout, and a crash is worth a stack.
+    [[ "$status" -eq 1 || "$status" -eq 124 ]] || explain_crash "$multi_binary" --check
+    failed+=("the multi-window application ended with status $status")
 fi
 
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"
