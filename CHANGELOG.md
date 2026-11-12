@@ -14,6 +14,17 @@ A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as 
 
 `compose_rust::clipboard::read_text(callback)` reads the plain text on the platform clipboard, for a paste shortcut, and `use_clipboard().read_text()` is the same read as a future. It is one new `ReadClipboard` command (tag 31) and one `ClipboardText` event (tag 56). Every read gets exactly one answer: the text, `None` when the clipboard is empty, holds no text, is missing, or the browser refused permission, or an error when the text is over 64 KiB, which is never cut short. The Renderer never logs the text, only its length ([#546](https://github.com/DarkPyonix/compose-rust/issues/546)).
 
+### Pointer events reach the nodes that subscribed
+
+`on_pointer(PointerKinds::..., handler)` now runs its handler. The renderer sends `Down`, `Up`, `Move`, `Enter`, `Leave`, `Cancel`, `Wheel` and `ContextMenu` to a subscribed node, with the position in dp from the node's top left corner ([#417](https://github.com/DarkPyonix/compose-rust/issues/417)). Before this the subscription was written and accepted, and nothing was ever sent.
+
+- A double click is a `Down` and an `Up` whose `click_count()` is 2. The secondary button, and Control with the primary button on macOS, arrive as `ContextMenu` with no `Down` beside it.
+- The deepest subscribed node hears an event first. `consume()` keeps it from the nearest subscribed ancestor and from Compose, so a consumed press is not also a click.
+- A node that took a `Down` keeps the pointer until it is released, and gets its `Move` and `Up` wherever the pointer goes.
+- `Move` is sent once a frame for each node with the latest position, and `Wheel` once a frame with its travel added up. A wheel's travel is in lines.
+
+A node that does not call `on_pointer` carries no pointer input, as before.
+
 ## v0.0.7
 
 ### Native file open and save dialogs

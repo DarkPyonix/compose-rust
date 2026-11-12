@@ -114,6 +114,8 @@ import dev.darkpyonix.composerust.foundation.HostTextField
 import dev.darkpyonix.composerust.foundation.SelectableRegion
 import dev.darkpyonix.composerust.foundation.Unselectable
 import dev.darkpyonix.composerust.foundation.hostKeyEvents
+import dev.darkpyonix.composerust.foundation.hostPointerEvents
+import dev.darkpyonix.composerust.foundation.subscribesToPointer
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.boxAlignment
@@ -217,6 +219,13 @@ fun RenderNode(
         profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
             .let { if (focusTarget) it.focusable() else it }
     }
+    // A node that subscribed to pointer events listens for them. One that did not carries
+    // nothing for them at all.
+    val pointerEvents = if (node.subscribesToPointer()) {
+        hostPointerEvents(node, table.pointers, dispatcher)
+    } else {
+        null
+    }
     val chain = keyed
         .then(
             node.modifiers.toComposeModifier(
@@ -230,6 +239,7 @@ fun RenderNode(
                 pressColor = node.paintProp(PropertyKind.Color)?.let { theme.color(it) } ?: theme.color(ColorRole.OnSurface),
                 allowPress = node.widget != WidgetKind.TextField,
                 allowPadding = node.widget != WidgetKind.TextField,
+                pointerEvents = pointerEvents,
             ),
         )
         .testTag(nodeTestTag(nodeId))
