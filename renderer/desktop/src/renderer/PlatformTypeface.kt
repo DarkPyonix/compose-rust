@@ -46,10 +46,18 @@ internal var platformUiFamilyName: String? = null
  *
  * Each list is the platform's own UI face followed by what stands in for it on machines
  * that do not have it: an older release, or the face a distribution ships instead.
+ *
+ * Windows is set in Segoe UI, a file per weight, and not in Segoe UI Variable, though
+ * Windows 11 draws its own newer controls in that. Segoe UI Variable is one file whose
+ * weights are positions on a `wght` axis, and through Skia's DirectWrite font manager weight
+ * 600 asked of it drew regular at 28px while 14px and 18px drew semibold (issue #551). A
+ * weight that is a face of its own cannot lose its weight at any size. Segoe UI is also
+ * what a browser sets `system-ui` in on Windows, and what the toolkit's own default family
+ * resolves to there.
  */
 internal fun platformUiFamilyNames(osName: String, desktop: String = ""): List<String> = when {
     osName.startsWith("Mac") -> listOf(".AppleSystemUIFont", "SF Pro Text", "SF Pro", "Helvetica Neue")
-    osName.startsWith("Windows") -> listOf("Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI")
+    osName.startsWith("Windows") -> listOf("Segoe UI")
     desktop.contains("KDE", ignoreCase = true) -> listOf("Noto Sans", "DejaVu Sans")
     else -> listOf("Adwaita Sans", "Cantarell", "Noto Sans", "DejaVu Sans")
 }
@@ -60,21 +68,30 @@ private fun resolvePlatformUiFamily(): FontFamily {
         System.getenv("XDG_CURRENT_DESKTOP") ?: System.getenv("DESKTOP_SESSION") ?: "",
     )
     val manager = FontMgr.default
-    for (name in names) {
-        val face = manager.matchFamilyStyle(name, FontStyle.NORMAL) ?: continue
-        // Asking for a name that is not installed can still answer with a substitute, so
-        // the face is asked what it actually is rather than trusted to be what was asked
-        // for. A substitute is the toolkit's default by another route.
-        if (!face.familyName.equals(name, ignoreCase = true) &&
-            !name.startsWith(".")
-        ) {
-            continue
-        }
-        platformUiFamilyName = face.familyName
-        return systemFontFamily(name)
-    }
-    return FontFamily.Default
+    val faces = HashMap<String, String?>()
+    val name = pickPlatformUiFamily(names) { candidate ->
+        faces.getOrPut(candidate) { manager.matchFamilyStyle(candidate, FontStyle.NORMAL)?.familyName }
+    } ?: return FontFamily.Default
+    platformUiFamilyName = faces[name]
+    return systemFontFamily(name)
 }
+
+/**
+ * The first of [names] this machine has, where [installedFamilyName] says which family the
+ * font manager answers a name with, or null where it has none at all.
+ *
+ * Asking for a name that is not installed can still answer with a substitute, so the answer
+ * is compared with the name rather than trusted to be what was asked for. A substitute is
+ * the toolkit's default by another route. A dotted name is the exception: it is a hidden
+ * alias (macOS's system face), and the family behind it answers with its real name.
+ *
+ * Null where none of the names is installed, and the toolkit's default is used.
+ */
+internal fun pickPlatformUiFamily(names: List<String>, installedFamilyName: (String) -> String?): String? =
+    names.firstOrNull { name ->
+        val answered = installedFamilyName(name) ?: return@firstOrNull false
+        answered.equals(name, ignoreCase = true) || name.startsWith(".")
+    }
 
 private val platformFontWeights = listOf(
     FontWeight.W100,
