@@ -4281,7 +4281,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
 - `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
 - 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
-- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 대신 그 파일의 길이를 4바이트 little-endian으로 실은 `TooLarge` 답 하나가 됩니다. FR-79.5와 같은 `IoAnswer`이고 같은 규칙입니다 [leader, provisional, 2026-11-13]. 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
 - 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
 
 
