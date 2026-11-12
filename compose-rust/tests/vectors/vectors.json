@@ -1,11 +1,11 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "15746206574510452257",
+  "schemaHashUnsigned": "1764802552173580919",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 105,
+    "recordCount": 106,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
@@ -62,7 +62,8 @@
       { "type": "WindowClosed", "offset": 903, "length": 16, "nodeId": 20, "handlerId": 206 },
       { "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" },
       { "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 },
-      { "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }
+      { "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" },
+      { "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }
     ]
   }
 }

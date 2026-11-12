@@ -32,6 +32,7 @@ mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
 pub use crate::brush::{Brush, Stop, brush};
+pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
