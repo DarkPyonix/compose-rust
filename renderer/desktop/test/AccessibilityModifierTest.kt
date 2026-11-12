@@ -344,6 +344,16 @@ class AccessibilityModifierTest {
             val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
             assertTrue(config.contains(SemanticsProperties.Heading), "a heading must be marked as one")
         }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.TextBox, 0)),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertEquals(true, config.getOrNull(SemanticsProperties.IsEditable), "a text box must be marked as editable")
+        }
     }
 
     @Test

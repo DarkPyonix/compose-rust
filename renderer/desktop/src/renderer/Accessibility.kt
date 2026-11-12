@@ -7,6 +7,7 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.focused
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.isEditable
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.requestFocus
 import androidx.compose.ui.semantics.role
@@ -112,6 +113,7 @@ internal fun Modifier.accessibility(
     val focused = state.field(FOCUSED_SHIFT)
     val hidden = state and HIDDEN_BIT != 0
     val isHeading = declaredRole == SemanticsRole.Heading
+    val isTextBox = declaredRole == SemanticsRole.TextBox
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
     val description = listOfNotNull(
         declaredRole?.word(),
@@ -125,6 +127,7 @@ internal fun Modifier.accessibility(
         if (name != null) contentDescription = name
         if (role != null) this.role = role
         if (isHeading) heading()
+        if (isTextBox) isEditable = true
         if (description != null) stateDescription = description
         if (checked != null) toggleableState = ToggleableState(checked)
         if (selected != null) this.selected = selected
