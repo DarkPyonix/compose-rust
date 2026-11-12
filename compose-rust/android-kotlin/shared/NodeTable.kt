@@ -985,6 +985,14 @@ class NodeTable {
                 PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
                     widget == WidgetKind.Sheet
+                // A wrapping row's gaps, alignments and per-line limit. Only it lays out by
+                // lines, so no other widget has anything to read them for.
+                PropertyKind.HorizontalSpacing,
+                PropertyKind.VerticalSpacing,
+                PropertyKind.HorizontalAlignment,
+                PropertyKind.VerticalAlignment,
+                PropertyKind.MaxItemsInEachRow,
+                -> widget == WidgetKind.FlowRow
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->

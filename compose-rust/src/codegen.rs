@@ -3127,6 +3127,41 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             name: "보고서.txt",
             filters: "이미지\0png,jpg\0문서\0pdf,txt",
         },
+        // A wrapping row with every one of its layout properties, appended after every
+        // older record so none of them moves.
+        Mutation::Create {
+            node_id: 21,
+            widget: WidgetKind::FlowRow,
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalSpacing,
+            value: PropertyValue::Float(8.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalSpacing,
+            value: PropertyValue::Float(12.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::HorizontalAlignment::Center as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::VerticalAlignment::Bottom as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::MaxItemsInEachRow,
+            value: PropertyValue::Integer(3),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3454,7 +3489,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 104,
+    "recordCount": 110,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

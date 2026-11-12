@@ -18,8 +18,9 @@ use crate::drawing::DrawList;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, IconRole, Paint, SlotRole,
-    SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind, WordBreak,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, HorizontalAlignment, IconRole,
+    Paint, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind,
+    WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
@@ -438,6 +439,103 @@ impl ColumnScope {
         self.intrinsic_size(enabled)
     }
 }
+
+/// A `FlowRow` and its builder.
+pub struct FlowRowScope {
+    modifier: Modifier,
+    horizontal_spacing: Option<f32>,
+    vertical_spacing: Option<f32>,
+    horizontal_alignment: Option<HorizontalAlignment>,
+    vertical_alignment: Option<VerticalAlignment>,
+    max_items_in_each_row: Option<u32>,
+    done: bool,
+}
+
+/// Lays its children out on a line and starts a new line when the next child does not fit
+/// in what is left of it. Each child is measured at its own width, so a line breaks where
+/// the text really ends rather than where an estimate put it. A child wider than the whole
+/// line has the line to itself and is measured at the line's width. Compose's `FlowRow`.
+pub fn FlowRow() -> FlowRowScope {
+    FlowRowScope {
+        modifier: Modifier::new(),
+        horizontal_spacing: None,
+        vertical_spacing: None,
+        horizontal_alignment: None,
+        vertical_alignment: None,
+        max_items_in_each_row: None,
+        done: false,
+    }
+}
+
+impl FlowRowScope {
+    /// The gap between two children on the same line, in dp.
+    pub fn horizontal_spacing(mut self, dp: f32) -> Self {
+        self.horizontal_spacing = Some(dp);
+        self
+    }
+
+    /// The gap between two lines, in dp.
+    pub fn vertical_spacing(mut self, dp: f32) -> Self {
+        self.vertical_spacing = Some(dp);
+        self
+    }
+
+    /// Where the children of a line sit along it when they do not fill it. `Start` when
+    /// not set.
+    pub fn horizontal_alignment(mut self, alignment: HorizontalAlignment) -> Self {
+        self.horizontal_alignment = Some(alignment);
+        self
+    }
+
+    /// Where a child sits inside the height of its line. `Top` when not set.
+    pub fn vertical_alignment(mut self, alignment: VerticalAlignment) -> Self {
+        self.vertical_alignment = Some(alignment);
+        self
+    }
+
+    /// The most children one line holds, even when more would fit. No limit when not set.
+    pub fn max_items_in_each_row(mut self, count: u32) -> Self {
+        self.max_items_in_each_row = Some(count);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (horizontal_spacing, vertical_spacing) =
+            (self.horizontal_spacing, self.vertical_spacing);
+        let (horizontal_alignment, vertical_alignment) =
+            (self.horizontal_alignment, self.vertical_alignment);
+        let max_items = self.max_items_in_each_row;
+        emit(
+            widget_key("compose_rust::ui::FlowRow"),
+            WidgetKind::FlowRow,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Container, attrs);
+                // Only what was set is written: an absent property is the Renderer's
+                // default, and a zero gap or tag would say nothing an absent one does not.
+                if let Some(dp) = horizontal_spacing {
+                    attrs.push(("horizontal_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(dp) = vertical_spacing {
+                    attrs.push(("vertical_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(alignment) = horizontal_alignment {
+                    attrs.push(("horizontal_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(alignment) = vertical_alignment {
+                    attrs.push(("vertical_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(count) = max_items {
+                    attrs.push(("max_items_in_each_row", OwnedAttr::Int(i64::from(count))));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(FlowRowScope);
 
 /// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
 /// this module would otherwise hide.

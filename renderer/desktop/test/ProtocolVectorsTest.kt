@@ -213,6 +213,23 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(291, 311).toList(), changed.array().copyOf(changedLength).toList())
     }
 
+    /** The wrapping row and its five layout properties, decoded from the bytes the Host wrote. */
+    @Test
+    fun fr76_the_flow_row_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(21, WidgetKind.FlowRow) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.SetProp(21, PropertyKind.HorizontalSpacing, PropertyValue.Float(8f)),
+                Mutation.SetProp(21, PropertyKind.VerticalSpacing, PropertyValue.Float(12f)),
+                Mutation.SetProp(21, PropertyKind.HorizontalAlignment, PropertyValue.Integer(2)),
+                Mutation.SetProp(21, PropertyKind.VerticalAlignment, PropertyValue.Integer(3)),
+                Mutation.SetProp(21, PropertyKind.MaxItemsInEachRow, PropertyValue.Integer(3)),
+            ),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 21 },
+        )
+    }
+
     /**
      * The file dialog request and its result, read from and encoded to the bytes the Host
      * wrote: four string references, a kind and a default filter, and three words and a
