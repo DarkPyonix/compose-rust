@@ -4221,6 +4221,14 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 - 접근성: 내용은 대화상자가 아닌 팝업 그룹으로 노출됩니다.
 - Compose `Popup`과 `PopupPositionProvider`(안정 API)로 그립니다.
 
+구현에서 정한 것([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)):
+
+- `Scrim`은 Popover에서 bool 또는 `Paint`입니다. true이면 디자인 시스템(또는 오버레이 토큰)의 스크림을, `Paint`이면 그 색을 씁니다. 스크림을 누르는 것은 바깥을 누르는 것과 같습니다.
+- 노드의 수정자는 떠 있는 상자에 적용됩니다(Dialog와 같습니다). 부모가 주는 것(행의 `Weight`)은 기준점에 적용됩니다.
+- 창 가장자리와의 여백은 `SpaceRole.Sm`, `OffsetDp`의 기본값은 `SpaceRole.Xs`입니다.
+- 닫히면 포커스는 열기 전에 포커스를 가졌던 컨트롤로 돌아가고, 그런 컨트롤이 없으면 기준점으로 갑니다.
+- 표면은 `ContainerRole.Menu`와 오버레이 토큰의 `popup_*` 값을 씁니다. 새 컨테이너 역할은 없습니다.
+
 수용 기준.
 1. 기준점 바로 아래 `OffsetDp`만큼 떨어져 내용이 열리고, 기준점의 시작 가장자리에 맞춥니다(fr77_popover_opens_below_anchor).
 2. 창 아래쪽 끝의 기준점에서 열면 위로 뒤집힙니다. 오른쪽 끝에서 열면 창 안으로 밀려 들어옵니다(fr77_popover_flips_and_shifts).
