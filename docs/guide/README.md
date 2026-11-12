@@ -23,9 +23,16 @@ docs/guide/
 │  ├─ lists-and-streaming.html   Lists & streaming
 │  ├─ design-systems.html        Design systems
 │  ├─ architecture.html          Architecture
-│  └─ troubleshooting.html       Troubleshooting
+│  ├─ troubleshooting.html       Troubleshooting
+│  └─ samples.html               Samples (브라우저에서 실행하는 샘플 목록)
 └─ ko/                   # 한국어 페이지. 파일 이름은 en/과 1:1로 같습니다
 ```
+
+배포된 사이트에는 `samples/<name>/`도 있습니다. 저장소에는 없고, Pages 워크플로가 샘플
+릴리스(`samples-latest`)의 `samples-web.tar.gz`를 받아 그 자리에 풉니다. `src/main.rs`가 있는
+샘플 중 하나라도 아카이브에 없으면 배포가 실패합니다. 샘플을 더하거나 빼면 `samples.html`의
+두 언어 목록도 같이 고칩니다. `scripts/tests/web-samples-on-the-guide.test.sh`가 목록과 샘플
+집합이 같은지 확인합니다.
 
 **파일 이름은 두 언어에서 반드시 같아야 합니다.** 언어 전환 링크가 같은 이름의 파일을
 가리키는 방식으로 동작하기 때문입니다.

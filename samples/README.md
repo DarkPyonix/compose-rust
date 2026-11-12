@@ -118,6 +118,11 @@ library.
 ./renderer/desktop/scripts/build-sample-ios.sh calculator
 ```
 
+An APK is built for `arm64-v8a`, the ABI phones run, by passing dx
+`--target aarch64-linux-android`; without a target dx builds for the machine it runs on.
+The script opens each APK and fails if `lib/arm64-v8a/libmain.so` is not in it, because
+such an APK installs and then cannot find its host library at launch.
+
 Everything a sample settles before it launches is in one `launch_builder()` that all
 three entry points share, so a page and an APK draw the same design its desktop binary
 does. An entry point that made its own builder would drop the theme, and seven of the

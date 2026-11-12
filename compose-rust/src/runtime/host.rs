@@ -189,6 +189,9 @@ impl Recomposer {
         effects::apply_effects();
         drain_graveyard();
         effects::poll_woken();
+        // Focus asked for by the handlers, the composition or its effects goes out last,
+        // once every node it may name has been placed.
+        with_composer(Composer::flush_focus_requests);
         // Whatever was written during this round, by the composition, an effect or a
         // future, is the next frame's.
         let pending = with_composer(|composer| {
