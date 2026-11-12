@@ -4128,7 +4128,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 **FR-36, FR-72와 같은 모양입니다.** Host가 명령 레코드 하나로 요청하고, 플랫폼 클립보드를 부르는 것은 Renderer입니다. 경계에 함수가 늘지 않고(PR-2) 스키마의 명령 하나가 늘며, 스키마 해시가 움직입니다(추가 전용).
 
-- **명령 `SetClipboardText`(명령 태그 27)**: 페이로드는 문자열 하나(`text`)이고 `TextChanged`와 같은 길이 붙은 문자열 꼬리 규약을 씁니다(PR-4). 26은 FR-72의 `ShowFileDialog`입니다.
+- **명령 `SetClipboardText`(명령 태그 28)**: 페이로드는 문자열 참조 하나(`text`)이며, 다른 명령(`ShowMessage` 등)과 같은 문자열 영역 참조 규약을 씁니다(PR-4). 26은 FR-72의 `ShowFileDialog`, 27은 FR-74의 `SetOverlayTokens`입니다(태그와 문자열 규약 정정, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 - **Renderer**: Compose의 플랫폼 클립보드(Compose 기본 클립보드 API)에 `text`를 일반 글자로 넣습니다. 새 플랫폼 코드는 없습니다. 빈 문자열은 클립보드를 빈 글자로 바꿉니다.
 - **이벤트는 없습니다.** 요청 하나에 결과 이벤트를 만들지 않습니다. 클립보드를 쓸 수 없는 환경(헤드리스 등)에서는 조용히 아무 일도 하지 않으며 `ProtocolError`가 아닙니다. 쓰기가 성공했는지 알아야 하는 앱은 지금 없습니다. 필요해지면 FR-72처럼 요청 번호와 결과 이벤트를 더하는 일이 추가 전용으로 가능합니다.
 - **Host API**: `compose_rust::clipboard::set_text(&str)`. 이벤트 핸들러나 효과 안에서 부릅니다(다른 Host 호출과 같은 규칙입니다. 작업자 스레드에서 직접 부르지 않고, 신호를 통해 UI 쪽에서 부릅니다, PR-3). 호출한 프레임의 배치에 명령으로 실려 나갑니다.
@@ -4136,7 +4136,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 - **민감한 글자**: 클립보드는 다른 앱과 클립보드 기록 도구가 읽을 수 있습니다. 비밀번호, 토큰, 개인 키처럼 남에게 보이면 안 되는 값을 이 호출로 복사하지 않습니다. Renderer는 `text`를 로그에 남기지 않습니다(길이만 남길 수 있습니다). 비밀번호 칸의 값을 복사하게 만드는 길은 이 항목에 없습니다.
 
 수용 기준.
-1. `set_text("초대 링크")`가 명령 레코드 하나(태그 27)로 인코딩되고 Rust와 Kotlin이 같은 바이트로 왕복합니다(프로토콜 벡터)(시험 이름 fr73_set_clipboard_text_round_trips).
+1. `set_text("초대 링크")`가 명령 레코드 하나(태그 28)로 인코딩되고 Rust와 Kotlin이 같은 바이트로 왕복합니다(프로토콜 벡터)(시험 이름 fr73_set_clipboard_text_round_trips).
 2. Renderer가 명령을 받으면 플랫폼 클립보드 대역(가짜 클립보드)에 그 글자가 들어갑니다. 한글과 줄바꿈과 이모지가 그대로입니다(시험 이름 fr73_renderer_writes_the_text_to_the_clipboard).
 3. 빈 문자열은 클립보드를 빈 글자로 바꿉니다(시험 이름 fr73_empty_text_clears_the_clipboard).
 4. 64 KiB를 넘는 글자는 `Err`이고 배치에 아무것도 실리지 않습니다(시험 이름 fr73_oversized_text_is_refused_by_the_host).
