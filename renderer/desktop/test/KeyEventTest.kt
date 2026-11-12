@@ -27,6 +27,7 @@ import dev.darkpyonix.composerust.foundation.protocolKey
 import dev.darkpyonix.composerust.foundation.shouldDispatchKeyDown
 import dev.darkpyonix.composerust.foundation.shouldDispatchKeyUp
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.tooling.HostResponse
@@ -406,5 +407,49 @@ class KeyEventTest {
             ),
             connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().filter { it.key == ProtocolKey.Enter },
         )
+    }
+
+    /**
+     * A drawer or popup menu that is a plain container closes on Escape through its own key
+     * handler. The Host moves focus into it with `RequestFocus`, so the drawer receives Escape
+     * even with nothing focusable inside, and moves focus back to the control that opened it
+     * the same way once it has closed.
+     */
+    @Test
+    fun fr65_a_container_given_focus_receives_escape_and_focus_returns_to_the_opener() = runComposeUiTest {
+        val root = 10
+        val opener = 2
+        val drawer = 3
+        val drawerKeys = 61L
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(root, WidgetKind.Column),
+                Mutation.Create(opener, WidgetKind.Box),
+                Mutation.SetModifier(opener, 0, ProtocolModifier.Size(40f, 40f)),
+                Mutation.SetModifier(opener, 1, ProtocolModifier.Clickable(77L)),
+                Mutation.Create(drawer, WidgetKind.Column),
+                Mutation.SetModifier(drawer, 0, ProtocolModifier.Size(200f, 200f)),
+                Mutation.SetProp(drawer, PropertyKind.OnKeyDown, PropertyValue.Integer(drawerKeys)),
+                Mutation.Insert(root, opener, 0),
+                Mutation.Insert(root, drawer, 1),
+                Mutation.Insert(0, root, 0),
+            ),
+        )
+        lateinit var host: ComposeRustHost
+        setContent { host = rememberComposeRustHost(connection); ComposeRustContent(host) }
+        waitForIdle()
+
+        connection.respondWith { HostResponse(listOf(Mutation.RequestFocus(drawer))) }
+        host.dispatch(HostEvent.Clicked(opener, 77L))
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(drawer)).assertIsFocused()
+
+        connection.respondWith { HostResponse(listOf(Mutation.RequestFocus(opener)), result = 1) }
+        onNodeWithTag(nodeTestTag(drawer)).performKeyInput { pressKey(Key.Escape) }
+        waitForIdle()
+
+        val keys = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
+        assertEquals(listOf(Triple(drawer, drawerKeys, 0x29 to "Escape")), keys.map { Triple(it.nodeId, it.handlerId, it.code to it.text) })
+        onNodeWithTag(nodeTestTag(opener)).assertIsFocused()
     }
 }
