@@ -89,8 +89,8 @@ pub use schema::{
     ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole, Severity,
-    ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
+    OverflowWrap, Paint, PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole,
+    Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
     WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{

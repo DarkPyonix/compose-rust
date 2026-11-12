@@ -18,13 +18,11 @@ thread_local! {
 
 #[Composable]
 fn Destinations() {
-    Navigation(0)
-        .compact(CHOICE.with(Cell::get))
-        .content(|| {
-            NavigationItem("Tasks").icon(IconRole::List);
-            NavigationItem("Done").icon(IconRole::Check);
-            Text("the screen");
-        });
+    Navigation(0).compact(CHOICE.with(Cell::get)).content(|| {
+        NavigationItem("Tasks").icon(IconRole::List);
+        NavigationItem("Done").icon(IconRole::Check);
+        Text("the screen");
+    });
 }
 
 /// The `CompactNavigation` records the first frame wrote on its `Navigation` node.
@@ -92,7 +90,10 @@ fn fr21_2_3_compact_navigation_writes_its_tag() {
 /// other role.
 #[test]
 fn fr21_2_3_only_the_two_choices_are_in_the_generated_table() {
-    assert_eq!(CompactNavigation::try_from(1), Ok(CompactNavigation::Sidebar));
+    assert_eq!(
+        CompactNavigation::try_from(1),
+        Ok(CompactNavigation::Sidebar)
+    );
     assert_eq!(CompactNavigation::try_from(2), Ok(CompactNavigation::None));
     assert_eq!(CompactNavigation::try_from(0), Err(()));
     assert_eq!(
