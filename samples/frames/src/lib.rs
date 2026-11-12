@@ -481,6 +481,7 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
         let scheme = theme.color_scheme;
         for viewport in VIEWPORTS {
             compose_rust::window::reset_window_size();
+            compose_rust::design::reset_design_system();
             let mut host = ComposeHost::with_theme(app, theme);
             let first = host
                 .rebuild()
@@ -499,6 +500,15 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
                 event: Vec::new(),
                 viewport,
             };
+            // The Renderer says which design system it resolved the theme to, and a
+            // screen that is a different screen under each one (the calculator's pads)
+            // reads that answer rather than the theme. Unsaid, every recording drew the
+            // screen Material 3 gets.
+            recording.dispatch(HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: EventPayload::DesignSystemResolved(system),
+            });
             recording.dispatch(HostEvent {
                 node_id: 0,
                 handler_id: 0,
@@ -522,6 +532,7 @@ pub fn record_as(screen: &str, themes: &[Theme], app: fn(), mut prepare: impl Fn
         }
     }
     compose_rust::window::reset_window_size();
+    compose_rust::design::reset_design_system();
 }
 
 /// The name carries the window it was recorded for, so the Renderer draws each recording
