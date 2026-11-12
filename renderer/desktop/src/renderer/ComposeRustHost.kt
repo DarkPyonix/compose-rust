@@ -15,6 +15,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
@@ -145,6 +146,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
         table.fileDialogs.attach(this)
+        table.clipboardReads.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -179,6 +181,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
         table.fileDialogs.drain()
+        table.clipboardReads.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -193,6 +196,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     fun shutdown() {
         table.notifications.shutdown()
         table.fileDialogs.shutdown()
+        table.clipboardReads.shutdown()
         connection.shutdown()
     }
 
@@ -418,15 +422,36 @@ private fun ComposeRustTree(
     SideEffect { host.table.notifications.wake = frames::request }
     // A file dialog's answer arrives the same way, from whichever thread the platform uses.
     SideEffect { host.table.fileDialogs.wake = frames::request }
+    // A clipboard read is answered at the top of the frame it asks for.
+    SideEffect { host.table.clipboardReads.wake = frames::request }
     // The clipboard the Host's copies go to is the one this composition sees. Every window
     // shares it, so the root window's is enough.
     @Suppress("DEPRECATION")
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // The suspending clipboard, which is the only one a browser can read, and the scope its
+    // reads run in: the composition's own, so they run on the UI thread.
+    val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
     if (windowNodeId == 0) {
+        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
         SideEffect {
             host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
                 @Suppress("DEPRECATION")
                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+            host.table.clipboardReads.launcher = { read ->
+                clipboardScope.launch(block = { read() })
+            }
+            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+                // A platform with a suspending read uses it. Elsewhere the clipboard manager
+                // answers at once, which every other target supports.
+                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+                if (platformRead != null) {
+                    platformRead(composeClipboard)
+                } else {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.getText()?.text
+                }
             }
         }
     }

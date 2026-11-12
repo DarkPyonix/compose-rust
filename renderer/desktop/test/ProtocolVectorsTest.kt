@@ -121,6 +121,7 @@ class ProtocolVectorsTest {
                 is Mutation.ShowFileDialog -> false
                 // The clipboard is the platform's, not a node's.
                 is Mutation.SetClipboardText -> false
+                is Mutation.ReadClipboard -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -222,6 +223,34 @@ class ProtocolVectorsTest {
             listOf(Mutation.SetClipboardText("초대 링크")),
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetClipboardText>(),
         )
+    }
+
+    /**
+     * The clipboard read and its answer, read from and encoded to the bytes the Host wrote:
+     * one word, then three words and a string reference.
+     */
+    @Test
+    fun fr78_clipboard_read_records_in_the_vector_round_trip() {
+        assertEquals(
+            listOf(Mutation.ReadClipboard(9)),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.ReadClipboard>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(128)
+        val length = Protocol.encodeEvent(
+            HostEvent.ClipboardText(
+                nodeId = 0,
+                handlerId = 0,
+                request = 9,
+                status = 1,
+                length = 15,
+                text = "한글\n줄 🙂",
+            ),
+            out,
+        )
+        assertEquals(51, length)
+        assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
     }
 
     /**
