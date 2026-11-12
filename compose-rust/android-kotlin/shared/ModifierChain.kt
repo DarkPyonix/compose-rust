@@ -112,6 +112,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     pressColor: Color = theme.color(ColorRole.OnSurface),
     allowPress: Boolean = true,
     allowPadding: Boolean = true,
+    pointerEvents: Modifier? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -161,8 +162,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             pressColor,
         )
     }
-    val folded = fold(surface) { chain, value ->
-        when (value) {
+    // A node's pointer subscription listens over the whole node, so it goes ahead of everything
+    // else. A node drawn through a transform is the exception: there it goes just inside the
+    // last one, where Compose has already taken the pointer back through the transform, so
+    // the node is hit where it is drawn and the position is in its own untransformed box.
+    val pointerAfter = if (pointerEvents == null) {
+        -1
+    } else {
+        indexOfLast { it is ProtocolModifier.Transform || it is ProtocolModifier.Transform3D }
+    }
+    val outermost = if (pointerEvents != null && pointerAfter < 0) pointerEvents.then(surface) else surface
+    val folded = foldIndexed(outermost) { index, chain, value ->
+        val next = when (value) {
             is ProtocolModifier.WindowDrag -> chain.composed {
                 val drag = LocalWindowDrag.current
                 val exclusion = LocalWindowDragExclusion.current
@@ -348,6 +359,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
         }
+        if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
     return attachPressableIfNeeded(folded)
 }

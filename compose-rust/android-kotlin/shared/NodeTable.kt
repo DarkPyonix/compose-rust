@@ -166,6 +166,13 @@ class NodeTable {
      */
     val animations: AnimationTable = AnimationTable(this)
 
+    /**
+     * Pointer input for the nodes that subscribed to it: who holds a press, and the moves
+     * and wheel travel waiting for the next frame.
+     */
+    internal val pointers: dev.darkpyonix.composerust.foundation.PointerRouter =
+        dev.darkpyonix.composerust.foundation.PointerRouter { id -> nodes.containsKey(id) }
+
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
 
@@ -798,8 +805,7 @@ class NodeTable {
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML
-                // region root. A picker takes only its value, range and events. The interpreter
-                // does not act on them yet.
+                // region root. A picker takes only its value, range and events.
                 PropertyKind.OnPointer,
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,
