@@ -31,7 +31,7 @@ fn fr_60_corner_radii_sends_one_shape_modifier_with_four_corners() {
 #[test]
 fn fr_60_clip_sends_one_clip_modifier_and_clears_when_disabled() {
     let enabled = mutable_state_of(true);
-    let state = enabled.clone();
+    let state = enabled;
     let (mut host, mut tree) = start(move || {
         Box().modifier(Modifier.clip(state.get())).content(|| {});
     });

@@ -11,8 +11,8 @@ asset_dir = "assets"
 [bundle]
 identifier = "dev.darkpyonix.composerust.samples.minimal"
 publisher = "DarkPyonix"
-short_description = "A playground for the role vocabulary."
-long_description = "Every control the schema has, every accent, every rung of the ladders, on one screen."
+short_description = "A monochrome component sheet."
+long_description = "The components of a monochrome iOS design system, in its own black, white and greys, on one sheet."
 
 [macos]
 bundle_name = "Minimal"
