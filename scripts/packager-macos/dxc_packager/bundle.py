@@ -6,7 +6,8 @@ Layout of what this makes:
         Info.plist, PkgInfo
         MacOS/<executable>
         Frameworks/lib/        the renderer's own lib directory, whole, when the
-                               executable loads the renderer as a library
+                               executable loads the renderer as a library (the GraalVM
+                               path); absent for one executable with the renderer inside
         Resources/AppIcon.icns
 
 The renderer directory goes to Frameworks/lib and not straight into Frameworks because AWT
@@ -172,7 +173,6 @@ def assemble(
     contents = app / "Contents"
     (contents / "MacOS").mkdir(parents=True)
     (contents / "Resources").mkdir()
-    (contents / "Frameworks").mkdir()
 
     staged = contents / "MacOS" / metadata.executable
     shutil.copy2(executable, staged)
@@ -200,6 +200,7 @@ def assemble(
             )
         # symlinks=True keeps the directory as it was laid out; nothing in it is a link
         # today, and a link pointing outside the bundle would be refused by codesign.
+        # Frameworks exists only then: a bundle of one executable has nothing to put there.
         shutil.copytree(renderer, contents / "Frameworks" / "lib", symlinks=True)
         run(["bash", str(BUNDLE_RENDERER), str(staged), "../Frameworks/lib"])
 

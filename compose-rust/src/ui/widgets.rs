@@ -208,12 +208,16 @@ struct FocusAndKeyHandlers {
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    focus_handle: Option<super::FocusHandle>,
 }
 
+/// Turns the handlers into listeners and binds the focus handle, if there is one, to the
+/// node the widget is about to emit, so it is called right before that `emit`.
 fn focus_and_key_input(
     mut handlers: FocusAndKeyHandlers,
     listeners: &mut Vec<(&'static str, EventCallback)>,
 ) {
+    super::focus::bind_focus_handle(handlers.focus_handle.take());
     if let Some(handler) = handlers.on_focus_gained.take() {
         listeners.push(("onfocusgained", unit(Some(handler))));
     }
@@ -259,6 +263,12 @@ macro_rules! focus_and_key_handlers {
             /// Sees each key released while this node or a descendant inside it holds focus.
             pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
                 self.focus_and_keys.on_key_up = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Binds `handle` to this node, so `handle.request()` puts keyboard focus here.
+            pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+                self.focus_and_keys.focus_handle = Some(handle.clone());
                 self
             }
         }
@@ -962,6 +972,7 @@ pub struct TextFieldScope {
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
+    focus_handle: Option<super::FocusHandle>,
     done: bool,
 }
 
@@ -989,6 +1000,7 @@ pub fn TextField() -> TextFieldScope {
         on_key_down: None,
         on_key_up: None,
         on_composition_change: None,
+        focus_handle: None,
         done: false,
     }
 }
@@ -1099,6 +1111,12 @@ impl TextFieldScope {
         self
     }
 
+    /// Binds `handle` to this field, so `handle.request()` puts keyboard focus here.
+    pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
@@ -1135,6 +1153,7 @@ impl TextFieldScope {
                 }))),
             ));
         }
+        super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
             widget_key("compose_rust::ui::TextField"),
             WidgetKind::TextField,
@@ -1275,6 +1294,7 @@ pub struct ButtonScope {
     text_align: Option<TextAlign>,
     font_size: Option<f32>,
     on_click: Option<Box<dyn FnMut()>>,
+    focus_handle: Option<super::FocusHandle>,
     done: bool,
 }
 
@@ -1298,6 +1318,7 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         text_align: None,
         font_size: None,
         on_click: None,
+        focus_handle: None,
         done: false,
     }
 }
@@ -1372,6 +1393,12 @@ impl ButtonScope {
         self
     }
 
+    /// Binds `handle` to this button, so `handle.request()` puts keyboard focus here.
+    pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
@@ -1381,6 +1408,7 @@ impl ButtonScope {
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
+        super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
             widget_key("compose_rust::ui::Button"),
             WidgetKind::Button,

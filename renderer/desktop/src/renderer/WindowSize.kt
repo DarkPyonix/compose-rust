@@ -76,6 +76,20 @@ val LocalWindowDrag = staticCompositionLocalOf<() -> Unit> { {} }
 
 data class WindowSafeArea(val top: Float = 0f, val leading: Float = 0f, val trailing: Float = 0f)
 
+/**
+ * One number that changes exactly when [WindowSizeReporter.report] would send for a new
+ * size: the two classes, and with [everyDpChange] the size rounded to whole dp the same way
+ * the reporter rounds it. A number rather than an object, so comparing it on every layout
+ * pass allocates nothing.
+ */
+fun windowReportKey(widthDp: Float, heightDp: Float, everyDpChange: Boolean): Long {
+    val classes = (windowSizeClassOf(widthDp).ordinal * 3 + windowHeightClassOf(heightDp).ordinal).toLong()
+    if (!everyDpChange) return classes
+    val width = floor(widthDp + 0.5f).toLong() and 0xFFFFFF
+    val height = floor(heightDp + 0.5f).toLong() and 0xFFFFFF
+    return (1L shl 62) or (classes shl 48) or (width shl 24) or height
+}
+
 class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
     private var lastSafeArea = WindowSafeArea()

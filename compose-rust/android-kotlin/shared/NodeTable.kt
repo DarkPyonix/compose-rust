@@ -178,6 +178,13 @@ class NodeTable {
     val fileDialogs: dev.darkpyonix.composerust.ui.platform.FileDialogCenter =
         dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
 
+    /**
+     * Where the text the Host asks to copy goes. Not part of the tree and not cleared with
+     * it: the clipboard is the platform's.
+     */
+    val clipboard: dev.darkpyonix.composerust.ui.platform.ClipboardWriter =
+        dev.darkpyonix.composerust.ui.platform.ClipboardWriter()
+
     private var revision = 0L
 
     /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
@@ -365,6 +372,10 @@ class NodeTable {
             // Not a node either. A request on a window that is not there is answered as
             // unavailable, so the Host's one answer per request holds, and is reported too.
             is Mutation.ShowFileDialog -> showFileDialog(mutation)
+
+            // Plain text for the platform clipboard. Nothing answers it, and where there is
+            // no clipboard it does nothing.
+            is Mutation.SetClipboardText -> clipboard.write(mutation.text)
 
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
@@ -760,6 +771,15 @@ class NodeTable {
      * after the call it was found in has returned, so the Host is never re-entered.
      */
     internal fun report(code: Int, message: String) = fail(code, message)
+
+    /**
+     * [report], unless the same error is already waiting to be reported. For a mistake a
+     * Host makes in every request of a kind, which is one thing to fix however many
+     * requests it was made in.
+     */
+    internal fun reportOnce(code: Int, message: String) {
+        if (errors.none { it.code == code && it.message == message }) fail(code, message)
+    }
 
     companion object {
         /** Node id 0 is the Host's "no node" sentinel, so it names the virtual root. */

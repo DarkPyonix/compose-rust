@@ -19,6 +19,7 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+pub mod clipboard;
 pub mod code;
 /// The rule the code colours of the two systems without a code editor scheme are derived
 /// by. Only the tests run it: the values themselves are literals in the token tables.
