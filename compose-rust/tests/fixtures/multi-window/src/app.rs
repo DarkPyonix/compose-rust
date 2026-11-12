@@ -90,7 +90,7 @@ pub fn app() {
         }
     }
     if CHECK.load(Ordering::SeqCst) {
-        launched_effect((), move || async move { scripted(clicks, open).await });
+        launched_effect((), move || scripted(clicks, open));
     }
 }
 
