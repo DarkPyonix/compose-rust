@@ -106,6 +106,7 @@ import dev.darkpyonix.composerust.foundation.HostTimePicker
 import dev.darkpyonix.composerust.foundation.HostLazyColumn
 import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
+import dev.darkpyonix.composerust.foundation.HostPopover
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -254,9 +255,17 @@ fun RenderNode(
     // after it, and a node that can be pressed has that target among its modifiers: placed
     // after them, the requester missed the node and reached for its children instead.
     val requested = if (focusRequester == null) keyed else keyed.focusRequester(focusRequester)
+    // A popover's material is what its floating box is made of, and the popover draws it
+    // in that box's own corner. Left in the chain it would be drawn a second time, square.
+    val ownModifiers: List<dev.darkpyonix.composerust.protocol.Modifier> =
+        if (node.widget == WidgetKind.Popover) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
+        } else {
+            node.modifiers
+        }
     val chain = requested
         .then(
-            node.modifiers.toComposeModifier(
+            ownModifiers.toComposeModifier(
                 nodeId,
                 dispatcher,
                 theme,
@@ -446,6 +455,10 @@ fun RenderNode(
             WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
             WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
             WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
+            // The anchor stands where the node does and takes what the parent gave the
+            // node; the node's own modifiers are the floating box's.
+            WidgetKind.Popover ->
+                HostPopover(node, parentModifier, modifier, table, dispatcher, theme)
             WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
             WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
             WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)

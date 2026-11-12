@@ -29,6 +29,16 @@ A node that does not call `on_pointer` carries no pointer input, as before.
 
 `Modifier.corner_curve(smoothing)` draws a node's rounded corners with continuous curvature, the way Figma's corner smoothing does: 0 is the plain circular arc, 1 the longest curve, and 0.6 the look of iOS. The radius still comes from `corner_radius`, `corner_radii` or `shape_role`, and the background, border, shadow, clip and press feedback all follow the same outline, in every design system. A value outside 0..=1 is drawn as the nearer end ([#294](https://github.com/DarkPyonix/compose-rust/issues/294)). It is a new modifier, `CornerCurve` (wire tag 35), so the schema hash changes and a renderer and a crate from before this change no longer agree.
 
+### `Popover`: a floating box of any content on an anchor
+
+`Popover(open).anchor(..).content(..)` attaches a floating box to its anchor. `placement`
+names the side it opens on (`Bottom` unless said), `align` the edge it lines up with
+(`Start` unless said), and `offset` the gap in dp. The renderer keeps the box inside the
+window: it opens on the opposite side when the asked-for one has no room, and slides along
+the edge when it would reach past the window. `open` is the application's. A press outside
+the box or Escape calls `on_dismiss` once and closes nothing. The schema hash changes, so
+the renderer and the crate have to be built from the same version.
+
 ## v0.0.7
 
 ### Native file open and save dialogs
