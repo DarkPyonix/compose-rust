@@ -23,7 +23,7 @@ fn App() {
 
 fn start() -> (ComposeHost, Tree) {
     compose_rust::zoom::reset_zoom();
-    let mut host = ComposeHost::with_content(|| App());
+    let mut host = ComposeHost::with_content(App);
     let mut tree = Tree::default();
     tree.apply(host.rebuild().expect("the first batch encodes"));
     (host, tree)

@@ -1,498 +1,582 @@
-//! A playground: every control the schema has, every accent, every rung of the ladders,
-//! on one screen, in one design system.
+//! A component sheet: the monochrome set of iOS components the reference draws, on one
+//! white page.
 //!
 //! The other samples adapt: they take whichever design system the platform picks. This one
-//! is unified. It names Cupertino and draws the same way on every platform, which is what
-//! an application does when the design is the product rather than the platform's
-//! convention.
+//! is unified. The reference is one picture of one design (black, white, a few greys, a red
+//! delete and a green switch), so the sheet draws that picture everywhere rather than the
+//! platform's version of it. `THEME` names the design system and the colour scheme, and
+//! `palette` names the colours, because no design system's palette has a sheet with no
+//! accent in it.
 //!
-//! Appearance comes from roles. A fill is a `ColorRole`, a size is a `TypeRole`, a corner is
-//! a `ShapeRole` and a gap is a `SpaceRole`, which is what lets the colour group be a
-//! picture of the design system rather than a picture of this file.
+//! Everything on the sheet is something on the reference: the two discs and the title, the
+//! steppers, the segmented control, the panel with its delete action, the chips with a
+//! coin, the slider card, the card of button tiles, the inverted bar, the switch pair and
+//! the three tiles. Nothing on it is a picture of the design system.
 
-mod playground;
+mod marks;
+mod palette;
 
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
-use playground::{Group, LADDER, SWATCHES, hero_marks};
-use std::rc::Rc;
+use compose_rust::{FontRef, FontRefs, GenericFamily};
 
-/// The side of the hero canvas, in dp.
-const HERO_SIDE: f32 = 168.0;
-
-/// How wide the page may grow past a phone, in dp.
+/// How wide the page may grow past a phone, in dp. A phone sheet in a desktop window is
+/// still a phone sheet.
 const PAGE_MEASURE: f32 = 420.0;
 
-/// A titled block of the sheet: a quiet label over whatever it shows.
-fn block(title: &str, children: impl FnOnce()) {
-    Column()
-        .modifier(Modifier.fill_max_width())
+/// The side of each hero disc, and how far the shaded one sits to the right of the solid
+/// one. About half, which is how much of the solid disc the reference leaves showing.
+///
+/// Numbers, because these are the proportions of a picture and the space ladder answers
+/// how far apart two things sit rather than how large a picture is. The same holds for
+/// every size below.
+const HERO_DISC: f32 = 116.0;
+const HERO_OVERLAP: f32 = 60.0;
+
+/// The round buttons: a stepper's minus and plus and the bar's back button.
+const ROUND: f32 = 36.0;
+
+/// The corner of every card on the sheet, and of the smaller tiles and chips.
+const CARD_CORNER: f32 = 18.0;
+const TILE_CORNER: f32 = 14.0;
+
+/// How tall a button tile and a chip are. Their width is a share of the row.
+const TILE_HEIGHT: f32 = 96.0;
+
+/// The red square beside the panel.
+const DELETE_WIDTH: f32 = 64.0;
+
+/// The small glyph on a button tile, and the coin on a chip.
+const GLYPH: f32 = 14.0;
+const COIN: f32 = 28.0;
+
+/// The grabber at the top of a card.
+const GRABBER_WIDTH: f32 = 28.0;
+const GRABBER_HEIGHT: f32 = 4.0;
+
+/// The search field on the inverted bar: a pill.
+const FIELD_HEIGHT: f32 = 40.0;
+
+/// The two serif letters at the ends of the slider: small on the left, large on the right.
+const SMALL_LETTER: f32 = 14.0;
+const LARGE_LETTER: f32 = 24.0;
+
+/// The three segments of the segmented control.
+const SEGMENTS: [&str; 3] = ["First", "Second", "Third"];
+
+/// The weight the sheet sets its headings in. The reference's titles are heavy and its
+/// stepper numeral is thin, and the design system's ladder has neither.
+const BOLD: u16 = 700;
+const THIN: u16 = 200;
+
+/// The state of everything a person can operate on the sheet.
+#[derive(Clone, Copy)]
+struct Sheet {
+    amount: MutableState<i32>,
+    segment: MutableState<usize>,
+    reading: MutableState<f32>,
+    first_switch: MutableState<bool>,
+    second_switch: MutableState<bool>,
+}
+
+/// A press that changes the amount every stepper shows.
+fn step(amount: MutableState<i32>, by: i32) -> impl FnMut() + 'static {
+    move || amount.set((amount.get_untracked() + by).clamp(0, 99))
+}
+
+/// One of a stepper's round buttons: a disc of `fill` with `glyph` on it in `ink`.
+fn round_step(glyph: &str, name: &str, fill: Paint, ink: Paint, on_click: impl FnMut() + 'static) {
+    Button(glyph)
+        .accessible_name(name)
+        .variant(ButtonVariant::Text)
+        .color(ink)
+        .modifier(
+            Modifier
+                .size(ROUND, ROUND)
+                .background(fill)
+                .corner_radius(ROUND / 2.0),
+        )
+        .on_click(on_click);
+}
+
+/// A minus and a plus, side by side.
+fn step_buttons(amount: MutableState<i32>, fill: Paint, ink: Paint) {
+    Row()
         .space_role(SpaceRole::Sm)
+        .alignment(Alignment::Center)
         .content(|| {
-            Text(title)
-                .type_role(TypeRole::Label)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
-            children();
+            round_step("\u{2212}", "Less", fill, ink, step(amount, -1));
+            round_step("+", "More", fill, ink, step(amount, 1));
         });
 }
 
-/// One stepper: the amount, and a minus and a plus in the panel's own inverted ink.
-fn counter(fill: ColorRole, ink: ColorRole, amount: i32, step: &Rc<dyn Fn(i32)>) {
-    Surface()
+/// The upright stepper: "Amount" in bold, the number large and thin, and the two round
+/// buttons under it. `card` is the fill and `ink` what is read on it; the round buttons
+/// are the other way round, which is how the reference draws both the light and the dark
+/// one.
+fn upright_stepper(amount: MutableState<i32>, card: Paint, ink: Paint) {
+    let shown = amount.get();
+    Column()
         .modifier(
             Modifier
                 .weight(1.0)
-                .background(Paint::Role(fill))
-                .shape_role(ShapeRole::Large)
+                .background(card)
+                .corner_radius(CARD_CORNER)
                 .padding_role(SpaceRole::Md),
         )
+        .space_role(SpaceRole::Sm)
+        .alignment(Alignment::Center)
         .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Text("Amount")
-                        .type_role(TypeRole::Label)
-                        .color(Paint::Role(ink));
-                    Text(format!("{amount}"))
-                        .type_role(TypeRole::Display)
-                        .color(Paint::Role(ink));
-                    Row()
-                        .space_role(SpaceRole::Sm)
+            Text("Amount")
+                .type_role(TypeRole::BodyStrong)
+                .font_weight(BOLD)
+                .color(ink);
+            Text(format!("{shown}"))
+                .type_role(TypeRole::Display)
+                .font_weight(THIN)
+                .color(ink);
+            step_buttons(amount, ink, card);
+        });
+}
+
+/// The stepper on its side: "Amount" over the number on the left, the round buttons on
+/// the right.
+fn wide_stepper(amount: MutableState<i32>) {
+    let shown = amount.get();
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(palette::TILE)
+                .corner_radius(CARD_CORNER)
+                .padding_role(SpaceRole::Md),
+        )
+        .arrangement(Arrangement::SpaceBetween)
+        .alignment(Alignment::CenterStart)
+        .content(|| {
+            Column().content(|| {
+                Text("Amount")
+                    .type_role(TypeRole::BodyStrong)
+                    .font_weight(BOLD)
+                    .color(palette::INK);
+                Text(format!("{shown}"))
+                    .type_role(TypeRole::Body)
+                    .color(palette::INK);
+            });
+            step_buttons(amount, palette::INK, palette::PAGE);
+        });
+}
+
+/// The segmented control: a grey track, and the segment that is chosen as a black pill
+/// with its label in white bold.
+///
+/// Drawn rather than taken from `Tabs`, because the design system draws the chosen
+/// segment of a `Tabs` its own way (a white segment, under Cupertino) and the reference's
+/// is black.
+fn segmented(segment: MutableState<usize>) {
+    let chosen = segment.get();
+    Row()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(palette::TRACK)
+                .corner_radius(TILE_CORNER / 2.0)
+                .padding(2.0),
+        )
+        .content(|| {
+            for (index, label) in SEGMENTS.into_iter().enumerate() {
+                let picked = index == chosen;
+                key(label, || {
+                    Box()
+                        .modifier(
+                            Modifier
+                                .weight(1.0)
+                                .background_if(picked.then_some(palette::INK))
+                                .corner_radius(TILE_CORNER / 2.0)
+                                .padding_role(SpaceRole::Xs),
+                        )
                         .alignment(Alignment::Center)
                         .content(|| {
-                            for (label, by) in [("\u{2212}", -1), ("+", 1)] {
-                                let step = Rc::clone(step);
-                                Button(label)
-                                    .variant(ButtonVariant::Filled)
-                                    .modifier(
-                                        Modifier
-                                            .shape_role(ShapeRole::Full)
-                                            .background(Paint::Role(ink)),
-                                    )
-                                    .color(Paint::Role(fill))
-                                    .on_click(move || step(by));
-                            }
+                            Text(label)
+                                .type_role(TypeRole::Label)
+                                .font_weight(if picked { BOLD } else { 400 })
+                                .color(if picked { palette::PAGE } else { palette::INK });
+                            Button("")
+                                .accessible_name(label)
+                                .variant(ButtonVariant::Text)
+                                .modifier(Modifier.match_parent_size().selected(picked))
+                                .on_click(move || segment.set(index));
                         });
+                });
+            }
+        });
+}
+
+/// The light panel with a title, a subtitle and a paragraph, and the red delete action
+/// beside it.
+fn panel_and_delete() {
+    Row()
+        .modifier(Modifier.fill_max_width())
+        .equal_height(true)
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Column()
+                .modifier(
+                    Modifier
+                        .weight(1.0)
+                        .background(palette::TILE)
+                        .corner_radius(CARD_CORNER)
+                        .padding_role(SpaceRole::Md),
+                )
+                .space_role(SpaceRole::Xs)
+                .content(|| {
+                    Text("Title")
+                        .type_role(TypeRole::BodyStrong)
+                        .font_weight(BOLD)
+                        .color(palette::INK);
+                    Text("Subtitle")
+                        .type_role(TypeRole::Body)
+                        .color(palette::INK);
+                    Text("A short paragraph that says what this row is about.")
+                        .type_role(TypeRole::Caption)
+                        .color(palette::MUTED);
+                });
+            // A word rather than the reference's bin, because no icon role means
+            // deleting yet (#593).
+            Box()
+                .modifier(
+                    Modifier
+                        .width(DELETE_WIDTH)
+                        .fill_max_height()
+                        .background(palette::DELETE)
+                        .corner_radius(CARD_CORNER),
+                )
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Text("Delete")
+                        .type_role(TypeRole::Label)
+                        .font_weight(BOLD)
+                        .color(palette::PAGE);
+                    Button("")
+                        .accessible_name("Delete")
+                        .variant(ButtonVariant::Text)
+                        .modifier(Modifier.match_parent_size())
+                        .on_click(|| {});
                 });
         });
 }
 
-/// The states the controls group shows.
-#[derive(Clone)]
-struct Controls {
-    amount: MutableState<i32>,
-    reading: MutableState<f32>,
-    notify: MutableState<bool>,
-    remember: MutableState<bool>,
-    digest: MutableState<bool>,
+/// A small pressable card whose face is laid out by `face`, with the press over all of it.
+fn pressable(name: &str, card: Paint, modifier: Modifier, face: impl FnOnce()) {
+    Box()
+        .modifier(
+            modifier
+                .weight(1.0)
+                .height(TILE_HEIGHT)
+                .background(card)
+                .corner_radius(TILE_CORNER),
+        )
+        .content(|| {
+            Column()
+                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Sm))
+                .arrangement(Arrangement::SpaceBetween)
+                .content(face);
+            Button("")
+                .accessible_name(name)
+                .variant(ButtonVariant::Text)
+                .modifier(Modifier.match_parent_size())
+                .on_click(|| {});
+        });
 }
 
-/// A button that does nothing, which is what every one on this sheet is.
-fn idle(label: &str, variant: ButtonVariant) -> ButtonScope {
-    Button(label)
-        .modifier(Modifier.weight(1.0))
-        .variant(variant)
-        .on_click(|| {})
-}
-
-/// A row with a label and a toggle at its far end.
-fn toggle_row(label: &str, toggle: impl FnOnce()) {
+/// The "Button / Description" chips: the coin, a bold name and a quiet line, once on the
+/// light card and once on the dark one.
+fn chips() {
     Row()
         .modifier(Modifier.fill_max_width())
-        .alignment(Alignment::CenterStart)
+        .space_role(SpaceRole::Sm)
         .content(|| {
-            Text(label)
+            for (chip, card, ink, quiet) in [
+                ("light", palette::TILE, palette::INK, palette::MUTED),
+                ("dark", palette::DARK, palette::PAGE, palette::TRACK),
+            ] {
+                key(chip, || {
+                    pressable("Button", card, Modifier, || {
+                        Canvas(marks::coin(COIN)).modifier(Modifier.size(COIN, COIN));
+                        Column().content(|| {
+                            Text("Button")
+                                .type_role(TypeRole::BodyStrong)
+                                .font_weight(BOLD)
+                                .color(ink);
+                            Text("Description")
+                                .type_role(TypeRole::Caption)
+                                .color(quiet);
+                        });
+                    });
+                });
+            }
+        });
+}
+
+/// The short bar at the top of a card that says it can be pulled.
+fn grabber(paint: Paint) {
+    Box()
+        .modifier(Modifier.fill_max_width())
+        .alignment(Alignment::Center)
+        .content(|| {
+            Box().modifier(
+                Modifier
+                    .size(GRABBER_WIDTH, GRABBER_HEIGHT)
+                    .background(paint)
+                    .corner_radius(GRABBER_HEIGHT / 2.0),
+            );
+        });
+}
+
+/// A letter in the platform's serif, which is how the reference marks the two ends of
+/// its reading-size slider.
+fn serif_letter(size: f32) {
+    Text("A")
+        .font(FontRefs::new([FontRef::Generic(GenericFamily::Serif)]))
+        .font_size(size)
+        .color(palette::PAGE);
+}
+
+/// The mid grey card: a grabber, "Card" in white bold, and a white slider between a small
+/// and a large serif "A".
+fn slider_card(reading: MutableState<f32>) {
+    let value = reading.get();
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(palette::SLATE)
+                .corner_radius(CARD_CORNER)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            grabber(palette::SLATE_LINE);
+            Text("Card")
+                .type_role(TypeRole::Title)
+                .font_weight(BOLD)
+                .color(palette::PAGE);
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    serif_letter(SMALL_LETTER);
+                    Slider(value)
+                        .accessible_name("Reading size")
+                        .modifier(Modifier.weight(1.0))
+                        .active_track_color(palette::PAGE)
+                        .thumb_color(palette::PAGE)
+                        .track_color(palette::SLATE_LINE)
+                        .on_change(move |next| reading.set(next));
+                    serif_letter(LARGE_LETTER);
+                });
+        });
+}
+
+/// A button tile: the small glyph in its corner and "Button" in bold at its foot.
+///
+/// `glyph` and `cut` are the glyph's sheet and the marks on it, which swap on a black tile
+/// so the glyph still reads.
+fn button_tile(card: Paint, ink: Paint, glyph: Paint, cut: Paint, lifted: bool) {
+    let modifier = if lifted {
+        Modifier.shadow(Shadow::new(0.0, 6.0, 18.0, 0.0, palette::SHADOW))
+    } else {
+        Modifier
+    };
+    pressable("Button", card, modifier, || {
+        Canvas(marks::tile_glyph(GLYPH, glyph, cut)).modifier(Modifier.size(GLYPH, GLYPH * 1.3));
+        Text("Button")
+            .type_role(TypeRole::BodyStrong)
+            .font_weight(BOLD)
+            .color(ink);
+    });
+}
+
+/// The large light card: a grabber, "Card", two white button tiles and a caption under
+/// them.
+fn tile_card() {
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .shadow(Shadow::new(0.0, 10.0, 30.0, 0.0, palette::SHADOW))
+                .background(palette::TILE)
+                .corner_radius(CARD_CORNER)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            grabber(palette::TRACK);
+            Text("Card")
+                .type_role(TypeRole::Headline)
+                .font_weight(BOLD)
+                .color(palette::INK);
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Md)
+                .content(|| {
+                    for tile in 0..2 {
+                        key(tile, || {
+                            button_tile(
+                                palette::PAGE,
+                                palette::INK,
+                                palette::INK,
+                                palette::PAGE,
+                                false,
+                            );
+                        });
+                    }
+                });
+            Text("Brief description or small text about the action of the buttons")
+                .type_role(TypeRole::Caption)
+                .color(palette::MUTED)
+                .text_align(TextAlign::Center)
+                .modifier(Modifier.fill_max_width());
+        });
+}
+
+/// The inverted bar: a white round back button, "Title" in white bold at the far end, and
+/// a dark grey pill to search in.
+fn inverted_bar() {
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .background(palette::INK)
+                .padding_role(SpaceRole::Md),
+        )
+        .space_role(SpaceRole::Md)
+        .content(|| {
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .arrangement(Arrangement::SpaceBetween)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Button("")
+                        .icon(IconRole::Back)
+                        .accessible_name("Back")
+                        .variant(ButtonVariant::Text)
+                        .color(palette::INK)
+                        .modifier(
+                            Modifier
+                                .size(ROUND, ROUND)
+                                .background(palette::PAGE)
+                                .corner_radius(ROUND / 2.0),
+                        )
+                        .on_click(|| {});
+                    Text("Title")
+                        .type_role(TypeRole::Headline)
+                        .font_weight(BOLD)
+                        .color(palette::PAGE);
+                });
+            // The placeholder and the caret are still the design system's, because a
+            // field cannot name either colour yet (#592).
+            TextField()
+                .placeholder("Search")
+                .color(palette::PAGE)
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .height(FIELD_HEIGHT)
+                        .background(palette::DARK)
+                        .corner_radius(FIELD_HEIGHT / 2.0),
+                );
+        });
+}
+
+/// A switch in the reference's colours: green when on, light grey when off, with a white
+/// thumb either way. The Host owns the state, so it hands over the track that goes with it.
+fn switch(name: &str, on: MutableState<bool>) {
+    let checked = on.get();
+    Switch(checked)
+        .accessible_name(name)
+        .track_color(if checked {
+            palette::SWITCH
+        } else {
+            palette::TRACK
+        })
+        .thumb_color(palette::PAGE)
+        .on_change(move |value| on.set(value));
+}
+
+/// The switch pair beside the three button tiles: white, black and dark grey.
+fn switches_and_tiles(sheet: Sheet) {
+    Row()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Sm)
+        .alignment(Alignment::Center)
+        .content(|| {
+            Column().space_role(SpaceRole::Sm).content(|| {
+                switch("First switch", sheet.first_switch);
+                switch("Second switch", sheet.second_switch);
+            });
+            button_tile(
+                palette::PAGE,
+                palette::INK,
+                palette::INK,
+                palette::PAGE,
+                true,
+            );
+            button_tile(
+                palette::INK,
+                palette::PAGE,
+                palette::PAGE,
+                palette::INK,
+                false,
+            );
+            button_tile(
+                palette::DARK,
+                palette::PAGE,
+                palette::PAGE,
+                palette::DARK,
+                false,
+            );
+        });
+}
+
+/// The two discs, the title and the line under it.
+fn hero() {
+    Column()
+        .modifier(Modifier.fill_max_width())
+        .alignment(Alignment::Center)
+        .space_role(SpaceRole::Sm)
+        .content(|| {
+            Box()
+                .modifier(Modifier.size(HERO_DISC + HERO_OVERLAP, HERO_DISC))
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Box().modifier(
+                        Modifier
+                            .size(HERO_DISC, HERO_DISC)
+                            .background(palette::INK)
+                            .corner_radius(HERO_DISC / 2.0),
+                    );
+                    // Drawn second, so it lies over the solid disc as it does on the
+                    // reference, and lifted by a soft shadow.
+                    Box().modifier(
+                        Modifier
+                            .size(HERO_DISC, HERO_DISC)
+                            .offset(HERO_OVERLAP, 0.0)
+                            .shadow(Shadow::new(0.0, 16.0, 32.0, 0.0, palette::SHADOW))
+                            .background(marks::hero_fade())
+                            .corner_radius(HERO_DISC / 2.0),
+                    );
+                });
+            Text("Every component")
+                .type_role(TypeRole::Display)
+                .font_weight(BOLD)
+                .color(palette::INK)
+                .text_align(TextAlign::Center);
+            Text("Including dark theme")
                 .type_role(TypeRole::Body)
-                .modifier(Modifier.weight(1.0));
-            toggle();
-        });
-}
-
-/// Everything a person can operate.
-fn controls_group(controls: &Controls) {
-    let amount = controls.amount;
-    let step: Rc<dyn Fn(i32)> =
-        Rc::new(move |by: i32| amount.set((amount.get_untracked() + by).clamp(0, 99)));
-    let reading = controls.reading.get();
-    let percent = (reading * 100.0).round() as i32;
-    let shown = controls.amount.get();
-
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Lg)
-        .content(|| {
-            block("Stepper", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Sm)
-                    .content(|| {
-                        counter(
-                            ColorRole::SurfaceContainer,
-                            ColorRole::OnSurface,
-                            shown,
-                            &step,
-                        );
-                        counter(ColorRole::OnSurface, ColorRole::Surface, shown, &step);
-                    });
-            });
-
-            block("Field", || {
-                TextField()
-                    .modifier(Modifier.fill_max_width())
-                    .placeholder("Search");
-            });
-
-            block("Slider", || {
-                Surface()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .shape_role(ShapeRole::Large)
-                            .padding_role(SpaceRole::Md),
-                    )
-                    .content(|| {
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                Row()
-                                    .modifier(Modifier.fill_max_width())
-                                    .space_role(SpaceRole::Sm)
-                                    .alignment(Alignment::CenterStart)
-                                    .content(|| {
-                                        Text("A").type_role(TypeRole::Caption);
-                                        let set = controls.reading;
-                                        Slider(reading)
-                                            .modifier(Modifier.weight(1.0))
-                                            // Ink on paper: the filled track is ink too.
-                                            .color(Paint::Role(ColorRole::OnSurface))
-                                            .on_change(move |value| set.set(value));
-                                        Text("A").type_role(TypeRole::Title);
-                                    });
-                                Text(format!("Reading size {percent}%"))
-                                    .type_role(TypeRole::Label)
-                                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                            });
-                    });
-            });
-
-            block("Toggles", || {
-                Surface()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .shape_role(ShapeRole::Large)
-                            .padding_role(SpaceRole::Md),
-                    )
-                    .content(|| {
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                toggle_row("Notifications", || {
-                                    let set = controls.notify;
-                                    Switch(controls.notify.get())
-                                        .on_change(move |value| set.set(value));
-                                });
-                                Separator(None);
-                                toggle_row("Remember me", || {
-                                    let set = controls.remember;
-                                    Checkbox(controls.remember.get())
-                                        .on_change(move |value| set.set(value));
-                                });
-                                Separator(None);
-                                toggle_row("Daily digest", || {
-                                    let set = controls.digest;
-                                    RadioButton(controls.digest.get())
-                                        .on_change(move |value| set.set(value));
-                                });
-                            });
-                    });
-            });
-
-            block("Progress", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Md)
-                    .alignment(Alignment::CenterStart)
-                    .content(|| {
-                        ProgressIndicator(reading).modifier(Modifier.weight(1.0));
-                        ProgressIndicator(reading).circular(true);
-                    });
-            });
-
-            block("Buttons", || {
-                Column()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Sm)
-                    .content(|| {
-                        Row()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                idle("Filled", ButtonVariant::Filled);
-                                idle("Tonal", ButtonVariant::Tonal);
-                            });
-                        Row()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                idle("Outlined", ButtonVariant::Outlined);
-                                idle("Text", ButtonVariant::Text);
-                            });
-                        Row()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Sm)
-                            .content(|| {
-                                idle("Disabled", ButtonVariant::Filled).enabled(false);
-                                idle("Delete", ButtonVariant::Text)
-                                    .color(Paint::Role(ColorRole::Error));
-                            });
-                    });
-            });
-        });
-}
-
-/// The containers those controls sit in.
-fn surfaces_group() {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Lg)
-        .content(|| {
-            block("Inverted bar", || {
-                Surface()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .background(Paint::Role(ColorRole::OnSurface))
-                            .shape_role(ShapeRole::Large)
-                            .padding_role(SpaceRole::Md),
-                    )
-                    .content(|| {
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Md)
-                            .content(|| {
-                                Row()
-                                    .modifier(Modifier.fill_max_width())
-                                    .alignment(Alignment::CenterStart)
-                                    .content(|| {
-                                        Button("\u{2190}")
-                                            .variant(ButtonVariant::Text)
-                                            .color(Paint::Role(ColorRole::Surface))
-                                            .on_click(|| {});
-                                        Text("Title")
-                                            .type_role(TypeRole::Title)
-                                            .color(Paint::Role(ColorRole::Surface))
-                                            .modifier(Modifier.weight(1.0))
-                                            .text_align(TextAlign::End);
-                                    });
-                                TextField()
-                                    .modifier(Modifier.fill_max_width())
-                                    .placeholder("Search");
-                            });
-                    });
-            });
-
-            block("Panel and action", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Sm)
-                    .alignment(Alignment::CenterStart)
-                    .content(|| {
-                        Surface()
-                            .modifier(
-                                Modifier
-                                    .weight(1.0)
-                                    .shape_role(ShapeRole::Large)
-                                    .padding_role(SpaceRole::Md),
-                            )
-                            .content(|| {
-                                Column()
-                                    .modifier(Modifier.fill_max_width())
-                                    .space_role(SpaceRole::Xs)
-                                    .content(|| {
-                                        Text("Title").type_role(TypeRole::Subtitle);
-                                        Text("Subtitle")
-                                            .type_role(TypeRole::Body)
-                                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                                        Text(
-                                            "A paragraph sitting on a panel, which is the \
-                                             reason the panel has a colour of its own.",
-                                        )
-                                        .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                                    });
-                            });
-                        Button("Delete")
-                            .variant(ButtonVariant::Text)
-                            .color(Paint::Role(ColorRole::Error))
-                            .on_click(|| {});
-                    });
-            });
-
-            block("Layers", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Sm)
-                    .content(|| {
-                        for (label, role, ink) in [
-                            ("Page", ColorRole::Background, ColorRole::OnBackground),
-                            ("Panel", ColorRole::SurfaceContainer, ColorRole::OnSurface),
-                            (
-                                "Recess",
-                                ColorRole::SurfaceVariant,
-                                ColorRole::OnSurfaceVariant,
-                            ),
-                        ] {
-                            key(label, || {
-                                Box()
-                                    .modifier(
-                                        Modifier
-                                            .weight(1.0)
-                                            .height(72.0)
-                                            .background(Paint::Role(role))
-                                            .shape_role(ShapeRole::Medium)
-                                            .border(1.0, Paint::Role(ColorRole::OutlineVariant)),
-                                    )
-                                    .alignment(Alignment::Center)
-                                    .content(|| {
-                                        Text(label)
-                                            .type_role(TypeRole::Label)
-                                            .color(Paint::Role(ink));
-                                    });
-                            });
-                        }
-                    });
-            });
-
-            block("Corners", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Xs)
-                    .content(|| {
-                        for (label, shape) in [
-                            ("XS", ShapeRole::ExtraSmall),
-                            ("S", ShapeRole::Small),
-                            ("M", ShapeRole::Medium),
-                            ("L", ShapeRole::Large),
-                            ("Full", ShapeRole::Full),
-                        ] {
-                            key(label, || {
-                                Box()
-                                    .modifier(
-                                        Modifier
-                                            .weight(1.0)
-                                            .height(56.0)
-                                            .background(Paint::Role(ColorRole::SurfaceVariant))
-                                            .shape_role(shape),
-                                    )
-                                    .alignment(Alignment::Center)
-                                    .content(|| {
-                                        Text(label)
-                                            .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                                    });
-                            });
-                        }
-                    });
-            });
-
-            block("Raised", || {
-                Row()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Md)
-                    .content(|| {
-                        for step in [0.0_f32, 2.0, 8.0] {
-                            key(format!("{step}"), || {
-                                Surface()
-                                    .modifier(
-                                        Modifier
-                                            .weight(1.0)
-                                            .height(72.0)
-                                            .elevation(step)
-                                            .shape_role(ShapeRole::Medium),
-                                    )
-                                    .content(|| {
-                                        Box()
-                                            .modifier(Modifier.fill_max_width().fill_max_height())
-                                            .alignment(Alignment::Center)
-                                            .content(|| {
-                                                Text(format!("{step} dp"))
-                                                    .type_role(TypeRole::Caption)
-                                                    .color(Paint::Role(
-                                                        ColorRole::OnSurfaceVariant,
-                                                    ));
-                                            });
-                                    });
-                            });
-                        }
-                    });
-            });
-        });
-}
-
-/// The fills and the type ladder.
-fn colour_group() {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Lg)
-        .content(|| {
-            block("Fills, and the ink that reads on each", || {
-                Column()
-                    .modifier(Modifier.fill_max_width())
-                    .space_role(SpaceRole::Xs)
-                    .content(|| {
-                        for (name, fill, ink) in SWATCHES {
-                            key(name, || {
-                                Column()
-                                    .modifier(
-                                        Modifier
-                                            .fill_max_width()
-                                            .background(Paint::Role(fill))
-                                            .shape_role(ShapeRole::Medium)
-                                            .padding_role(SpaceRole::Md),
-                                    )
-                                    .space_role(SpaceRole::Xs)
-                                    .content(|| {
-                                        Text(name)
-                                            .type_role(TypeRole::BodyStrong)
-                                            .color(Paint::Role(ink));
-                                        Text("The ink this fill promises to carry.")
-                                            .type_role(TypeRole::Caption)
-                                            .color(Paint::Role(ink));
-                                    });
-                            });
-                        }
-                    });
-            });
-
-            block("The type ladder", || {
-                Surface()
-                    .modifier(
-                        Modifier
-                            .fill_max_width()
-                            .shape_role(ShapeRole::Large)
-                            .padding_role(SpaceRole::Md),
-                    )
-                    .content(|| {
-                        Column()
-                            .modifier(Modifier.fill_max_width())
-                            .space_role(SpaceRole::Xs)
-                            .content(|| {
-                                for (name, rung) in LADDER {
-                                    key(name, || {
-                                        Text(name)
-                                            .type_role(rung)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
-                                    });
-                                }
-                            });
-                    });
-            });
+                .color(palette::MUTED)
+                .text_align(TextAlign::Center);
         });
 }
 
@@ -506,28 +590,16 @@ pub fn app() {
         Some(PAGE_MEASURE)
     };
 
-    let group = remember(|| mutable_state_of(Group::Controls));
-    let controls = remember(|| Controls {
+    let sheet = remember(|| Sheet {
         amount: mutable_state_of(2),
+        segment: mutable_state_of(0_usize),
         reading: mutable_state_of(0.55_f32),
-        notify: mutable_state_of(true),
-        remember: mutable_state_of(false),
-        digest: mutable_state_of(true),
+        first_switch: mutable_state_of(true),
+        second_switch: mutable_state_of(false),
     });
-    let selected = group.get();
 
     Scaffold()
-        .modifier(Modifier.background(Paint::Role(ColorRole::Background)))
-        .top_bar(|| {
-            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
-                Text("Minimal")
-                    .type_role(TypeRole::Title)
-                    .modifier(Modifier.weight(1.0));
-                Text("one design, every platform")
-                    .type_role(TypeRole::Label)
-                    .color(Paint::Role(ColorRole::OnSurfaceVariant));
-            });
-        })
+        .modifier(Modifier.background(palette::PAGE))
         .content(|| {
             Box()
                 .modifier(Modifier.fill_max_width().weight(1.0))
@@ -545,57 +617,30 @@ pub fn app() {
                                 .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
                                 .space_role(SpaceRole::Lg)
                                 .content(|| {
-                                    Column()
-                                        .modifier(Modifier.fill_max_width())
-                                        .alignment(Alignment::Center)
-                                        .space_role(SpaceRole::Sm)
-                                        .content(|| {
-                                            Canvas(hero_marks(HERO_SIDE))
-                                                .modifier(Modifier.size(HERO_SIDE, HERO_SIDE));
-                                            Text("Every component")
-                                                .type_role(TypeRole::Display)
-                                                .text_align(TextAlign::Center);
-                                            Text("Including dark theme")
-                                                .type_role(TypeRole::Body)
-                                                .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                                                .text_align(TextAlign::Center);
-                                        });
-
-                                    Column()
+                                    hero();
+                                    segmented(sheet.segment);
+                                    Row()
                                         .modifier(Modifier.fill_max_width())
                                         .space_role(SpaceRole::Sm)
                                         .content(|| {
-                                            // Each child of the strip is one segment, and a
-                                            // tap is that child's own click.
-                                            Tabs(selected.index())
-                                                .modifier(Modifier.fill_max_width())
-                                                .content(|| {
-                                                    for choice in Group::STRIP {
-                                                        let pick = group;
-                                                        key(choice.label(), || {
-                                                            Button(choice.label())
-                                                                .variant(ButtonVariant::Text)
-                                                                .color(Paint::Role(
-                                                                    if choice == selected {
-                                                                        ColorRole::OnSurface
-                                                                    } else {
-                                                                        ColorRole::OnSurfaceVariant
-                                                                    },
-                                                                ))
-                                                                .on_click(move || pick.set(choice));
-                                                        });
-                                                    }
-                                                });
-                                            Text(selected.caption())
-                                                .type_role(TypeRole::Caption)
-                                                .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                                            upright_stepper(
+                                                sheet.amount,
+                                                palette::TILE,
+                                                palette::INK,
+                                            );
+                                            upright_stepper(
+                                                sheet.amount,
+                                                palette::DARK,
+                                                palette::PAGE,
+                                            );
                                         });
-
-                                    match selected {
-                                        Group::Controls => controls_group(&controls),
-                                        Group::Surfaces => surfaces_group(),
-                                        Group::Colour => colour_group(),
-                                    }
+                                    wide_stepper(sheet.amount);
+                                    panel_and_delete();
+                                    chips();
+                                    slider_card(sheet.reading);
+                                    tile_card();
+                                    inverted_bar();
+                                    switches_and_tiles(sheet);
                                 });
                         });
                 });
@@ -637,8 +682,223 @@ mod tests {
     use super::*;
 
     use compose_rust::ComposeHost;
-    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::{PropertyKind, WidgetKind};
+    use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, Modifier as Wire, PropertyKind, WidgetKind};
+
+    /// The screen, driven the way a Renderer drives it.
+    ///
+    /// Every batch is kept, because a batch is the change since the frame before it rather
+    /// than what is on screen.
+    struct Screen {
+        host: ComposeHost,
+        frames: Vec<Vec<u8>>,
+    }
+
+    impl Screen {
+        fn new() -> Self {
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::new(app);
+            let first = host.rebuild().expect("the first frame failed").to_vec();
+            Self {
+                host,
+                frames: vec![first],
+            }
+        }
+
+        fn mutations(&self) -> Vec<Mutation<'_>> {
+            self.frames
+                .iter()
+                .flat_map(|frame| decode_batch(frame).expect("a batch did not decode"))
+                .collect()
+        }
+
+        fn live(&self) -> Vec<Mutation<'_>> {
+            sample_frames::live(self.mutations())
+        }
+
+        /// The text every live node shows now: the last one each was given.
+        fn texts(&self) -> Vec<String> {
+            let mut shown: Vec<(u32, String)> = Vec::new();
+            for mutation in self.live() {
+                if let Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String(text),
+                } = mutation
+                {
+                    shown.retain(|(node, _)| *node != node_id);
+                    shown.push((node_id, text.to_owned()));
+                }
+            }
+            shown.into_iter().map(|(_, text)| text).collect()
+        }
+
+        /// The live node whose accessible name is `name`.
+        fn named(&self, name: &str) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::AccessibleName,
+                        value: PropertyValue::String(text),
+                    } if *text == name => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        /// Presses the first live control named `name`.
+        fn press(&mut self, name: &str) -> bool {
+            let Some(node_id) = self.named(name) else {
+                return false;
+            };
+            let Some(handler_id) = self
+                .live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id: owner,
+                        property: PropertyKind::OnClick,
+                        value: PropertyValue::Integer(handler),
+                    } if *owner == node_id => Some(*handler as u64),
+                    _ => None,
+                })
+            else {
+                return false;
+            };
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                },
+                &mut bytes,
+            )
+            .expect("the click did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+            true
+        }
+
+        /// Where a live node was last placed: its parent and its place among the
+        /// parent's children.
+        fn placement(&self, node: u32) -> Option<(u32, u32)> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::Insert {
+                        parent_id,
+                        node_id,
+                        index,
+                    }
+                    | Mutation::Move {
+                        parent_id,
+                        node_id,
+                        index,
+                    } if *node_id == node => Some((*parent_id, *index)),
+                    _ => None,
+                })
+        }
+
+        /// What a live node was last placed in.
+        fn parent_of(&self, node: u32) -> Option<u32> {
+            self.placement(node).map(|(parent, _)| parent)
+        }
+
+        /// The fill a live node carries now, if it has one.
+        ///
+        /// A node's modifiers sit in numbered slots, and a fill that goes away is its slot
+        /// set to nothing rather than a record of its own, so only the last value of each
+        /// slot counts.
+        fn fill_of(&self, node: u32) -> Option<Paint> {
+            let mut slots: Vec<(u16, Wire)> = Vec::new();
+            for mutation in self.live() {
+                if let Mutation::SetModifier {
+                    node_id,
+                    index,
+                    modifier,
+                } = mutation
+                {
+                    if node_id == node {
+                        slots.retain(|(slot, _)| *slot != index);
+                        slots.push((index, modifier));
+                    }
+                }
+            }
+            slots.into_iter().find_map(|(_, modifier)| match modifier {
+                Wire::Background(paint) => Some(paint),
+                _ => None,
+            })
+        }
+
+        /// The fill behind the control named `name`: the card it was placed on.
+        fn fill_behind(&self, name: &str) -> Option<Paint> {
+            let control = self.named(name)?;
+            self.fill_of(self.parent_of(control)?)
+        }
+
+        /// Every paint the screen has sent: fills, borders, shadows, the colours of text
+        /// and buttons, and the colours of the switches and the slider.
+        fn every_paint(&self) -> Vec<(u32, Paint)> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier:
+                            Wire::Background(paint)
+                            | Wire::Border { paint, .. }
+                            | Wire::Shadow { paint, .. },
+                        ..
+                    } => Some((*node_id, *paint)),
+                    Mutation::SetProp {
+                        node_id,
+                        property:
+                            PropertyKind::Color
+                            | PropertyKind::TrackColor
+                            | PropertyKind::ThumbColor
+                            | PropertyKind::ActiveTrackColor,
+                        value: PropertyValue::Integer(bits),
+                    } => Paint::from_bits(*bits as u64).map(|paint| (*node_id, paint)),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The track colours the switches were last given, in the order they are drawn.
+        fn switch_tracks(&self) -> Vec<Paint> {
+            let live = self.live();
+            let switches: Vec<u32> = live
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::Create {
+                        node_id,
+                        widget: WidgetKind::Switch,
+                    } => Some(*node_id),
+                    _ => None,
+                })
+                .collect();
+            switches
+                .into_iter()
+                .filter_map(|switch| {
+                    live.iter().rev().find_map(|mutation| match mutation {
+                        Mutation::SetProp {
+                            node_id,
+                            property: PropertyKind::TrackColor,
+                            value: PropertyValue::Integer(bits),
+                        } if *node_id == switch => Paint::from_bits(*bits as u64),
+                        _ => None,
+                    })
+                })
+                .collect()
+        }
+    }
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -662,43 +922,6 @@ mod tests {
         assert!(!theme.adaptive, "the design is the product here");
     }
 
-    /// Every piece of text the screen is carrying after a batch.
-    fn texts(batch: &[u8]) -> Vec<String> {
-        decode_batch(batch)
-            .expect("the batch did not decode")
-            .iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String(text),
-                    ..
-                } => Some((*text).to_owned()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// The handler a button carrying this label declared, if the batch holds one.
-    fn click_handler(batch: &[u8], label: &str) -> Option<(u32, u64)> {
-        let mutations = decode_batch(batch).expect("the batch did not decode");
-        let node = mutations.iter().find_map(|mutation| match mutation {
-            Mutation::SetProp {
-                node_id,
-                property: PropertyKind::Text,
-                value: PropertyValue::String(text),
-            } if *text == label => Some(*node_id),
-            _ => None,
-        })?;
-        mutations.iter().find_map(|mutation| match mutation {
-            Mutation::SetProp {
-                node_id,
-                property: PropertyKind::OnClick,
-                value: PropertyValue::Integer(handler),
-            } if *node_id == node => Some((node, *handler as u64)),
-            _ => None,
-        })
-    }
-
     /// A property the schema does not have fails the whole batch rather than just itself,
     /// so a screen that builds in Rust can still be blank on screen.
     #[test]
@@ -706,93 +929,199 @@ mod tests {
         assert!(ComposeHost::new(app).rebuild().is_ok());
     }
 
-    /// Every group has to encode, not just the one the screen opens on. A widget only the
-    /// third tab reaches would otherwise fail for the first person to press it.
+    /// Nothing on the sheet is painted by the design system.
+    ///
+    /// Named for what it defends: the sheet was drawn with roles once, so its segmented
+    /// control, buttons, toggles and progress came out in the running system's blue and
+    /// its page in that system's grey. The reference is black, white and grey, with one
+    /// red and one green.
     #[test]
-    fn fr15_every_group_encodes() {
-        let mut host = ComposeHost::new(app);
-        let first = host.rebuild().expect("the first frame failed").to_vec();
-        for group in Group::STRIP {
-            let (node_id, handler_id) = click_handler(&first, group.label())
-                .unwrap_or_else(|| panic!("the strip has no segment called {}", group.label()));
-            let mut bytes = Vec::new();
-            compose_rust::protocol::encode_event(
-                &compose_rust::protocol::HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: compose_rust::schema::EventPayload::Clicked,
-                },
-                &mut bytes,
-            )
-            .expect("the click did not encode");
-            let (batch, _) = host
-                .dispatch_event(&bytes)
-                .unwrap_or_else(|error| panic!("{} failed to encode: {error:?}", group.label()));
+    fn fr22_nothing_on_the_sheet_is_painted_by_a_role() {
+        let screen = Screen::new();
+        let paints = screen.every_paint();
+        assert!(!paints.is_empty(), "the sheet sent no paint at all");
+        for (node, paint) in paints {
             assert!(
-                !batch.is_empty(),
-                "selecting {} changed nothing on screen",
-                group.label()
+                !matches!(paint, Paint::Role(_)),
+                "node {node} is painted {paint:?}, which the design system picks"
             );
         }
+        compose_rust::window::reset_window_size();
     }
 
-    /// The colour group is the screen this sample exists for: it is the only place the
-    /// three accents and their containers are all visible at once, and a swatch that
-    /// quietly went missing would leave a role nobody ever looks at.
+    /// No card or panel on the sheet is one of the accent containers, and the group of
+    /// design-system swatches that used to show them is gone. The reference has neither.
     #[test]
-    fn fr13_the_colour_group_shows_every_accent_and_container() {
-        let mut host = ComposeHost::new(app);
-        let first = host.rebuild().expect("the first frame failed").to_vec();
-        let (node_id, handler_id) =
-            click_handler(&first, Group::Colour.label()).expect("no colour segment");
-        let mut bytes = Vec::new();
-        compose_rust::protocol::encode_event(
-            &compose_rust::protocol::HostEvent {
-                node_id,
-                handler_id,
-                payload: compose_rust::schema::EventPayload::Clicked,
-            },
-            &mut bytes,
-        )
-        .expect("the click did not encode");
-        let (batch, _) = host
-            .dispatch_event(&bytes)
-            .expect("the colour group failed");
-        let showing = texts(batch);
-        for (name, _, _) in SWATCHES {
+    fn fr22_no_panel_is_an_accent_container_and_there_are_no_swatches() {
+        let screen = Screen::new();
+        for (node, paint) in screen.every_paint() {
             assert!(
-                showing.iter().any(|text| text == name),
-                "the colour group does not show {name}, so that role is never looked at"
+                !matches!(
+                    paint,
+                    Paint::Role(
+                        ColorRole::PrimaryContainer
+                            | ColorRole::SecondaryContainer
+                            | ColorRole::TertiaryContainer
+                    )
+                ),
+                "node {node} is painted {paint:?}"
             );
         }
+        let texts = screen.texts();
+        for swatch in [
+            "Primary container",
+            "Secondary container",
+            "Tertiary container",
+            "Colour",
+        ] {
+            assert!(
+                !texts.iter().any(|text| text == swatch),
+                "the sheet still shows {swatch}, which is the design system's rather than the \
+                 reference's"
+            );
+        }
+        compose_rust::window::reset_window_size();
     }
 
-    /// The hero is a drawing, and a drawing that does not reach the Renderer is a blank
-    /// square nobody notices until the picture comes back.
+    /// The chosen segment is the black pill, and choosing another moves the pill there.
     #[test]
-    fn fr16_the_hero_mark_is_a_canvas_with_commands_on_it() {
-        let mut host = ComposeHost::new(app);
-        let batch = host.rebuild().expect("the first frame failed");
-        let mutations = decode_batch(batch).expect("the batch did not decode");
-        let canvas = mutations.iter().find_map(|mutation| match mutation {
-            Mutation::Create {
-                node_id,
-                widget: WidgetKind::Canvas,
-            } => Some(*node_id),
-            _ => None,
-        });
-        let canvas = canvas.expect("the screen has no canvas, so the hero is not drawn");
+    fn fr22_the_chosen_segment_is_a_black_pill() {
+        let mut screen = Screen::new();
+        assert_eq!(screen.fill_behind("First"), Some(palette::INK));
+        assert_eq!(screen.fill_behind("Second"), None);
+        assert!(
+            screen.press("Second"),
+            "the segmented control has no Second"
+        );
+        assert_eq!(screen.fill_behind("Second"), Some(palette::INK));
+        assert_eq!(screen.fill_behind("First"), None);
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The steppers count, and every one of them shows the same amount.
+    #[test]
+    fn fr22_the_steppers_count() {
+        let mut screen = Screen::new();
+        assert!(screen.texts().iter().any(|text| text == "2"));
+        assert!(screen.press("More"), "the stepper has no plus");
+        let texts = screen.texts();
+        assert_eq!(
+            texts.iter().filter(|text| *text == "3").count(),
+            3,
+            "the three steppers do not all show the new amount: {texts:?}"
+        );
+        assert!(screen.press("Less"), "the stepper has no minus");
+        assert!(screen.texts().iter().any(|text| text == "2"));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The switch that is on is the reference's green and the one that is off is its
+    /// light grey. A switch left to the design system is that system's accent.
+    #[test]
+    fn fr22_the_switch_pair_is_green_and_grey() {
+        let screen = Screen::new();
+        assert_eq!(
+            screen.switch_tracks(),
+            vec![palette::SWITCH, palette::TRACK],
+            "the switches are not drawn on and off in the reference's colours"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The delete action is a red square of its own, not red words on the page.
+    #[test]
+    fn fr22_the_delete_action_is_the_reference_red() {
+        let screen = Screen::new();
+        assert_eq!(screen.fill_behind("Delete"), Some(palette::DELETE));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The hero's second disc is the shaded one, lies over the solid disc, and casts the
+    /// shadow. It used to be a flat grey disc under a black one, with no shadow at all.
+    #[test]
+    fn fr22_the_shaded_disc_lies_over_the_solid_one() {
+        let screen = Screen::new();
+        let mutations = screen.mutations();
+        let filled_with = |paint: Paint| -> Vec<u32> {
+            mutations
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier: Wire::Background(found),
+                        ..
+                    } if *found == paint => Some(*node_id),
+                    _ => None,
+                })
+                .collect()
+        };
+        let shaded = *filled_with(marks::hero_fade())
+            .first()
+            .expect("no disc is filled with the shading");
+        let (hero, shaded_at) = screen
+            .placement(shaded)
+            .expect("the shaded disc is not placed anywhere");
+        let solid_at = filled_with(palette::INK)
+            .into_iter()
+            .find_map(|node| match screen.placement(node) {
+                Some((parent, index)) if parent == hero => Some(index),
+                _ => None,
+            })
+            .expect("no solid black disc stands beside the shaded one");
+        assert!(
+            solid_at < shaded_at,
+            "the solid disc comes after the shaded one, so it is drawn over it"
+        );
         assert!(
             mutations.iter().any(|mutation| matches!(
                 mutation,
-                Mutation::SetProp {
+                Mutation::SetModifier {
                     node_id,
-                    property: PropertyKind::Commands,
+                    modifier: Wire::Shadow { .. },
                     ..
-                } if *node_id == canvas
+                } if *node_id == shaded
             )),
-            "the canvas carries no draw list, so it is an empty square"
+            "the shaded disc casts no shadow"
         );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The coin and the tile glyphs are drawings, and a drawing that does not reach the
+    /// Renderer is a blank square nobody notices until the picture comes back.
+    #[test]
+    fn fr16_every_drawing_is_a_canvas_with_commands_on_it() {
+        let screen = Screen::new();
+        let mutations = screen.mutations();
+        let canvases: Vec<u32> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Canvas,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        // Two coins, two tiles on the card and three beside the switches.
+        assert_eq!(
+            canvases.len(),
+            7,
+            "the sheet does not draw every coin and glyph"
+        );
+        for canvas in canvases {
+            assert!(
+                mutations.iter().any(|mutation| matches!(
+                    mutation,
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Commands,
+                        ..
+                    } if *node_id == canvas
+                )),
+                "canvas {canvas} carries no draw list, so it is an empty square"
+            );
+        }
+        compose_rust::window::reset_window_size();
     }
 
     /// A phone design does not become a desktop design by being put in a wider window.
@@ -808,11 +1137,11 @@ mod tests {
             let mut host = ComposeHost::new(app);
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
-            compose_rust::protocol::encode_event(
-                &compose_rust::protocol::HostEvent {
+            encode_event(
+                &HostEvent {
                     node_id: 0,
                     handler_id: 0,
-                    payload: compose_rust::schema::EventPayload::WindowSizeChanged {
+                    payload: EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -831,7 +1160,7 @@ mod tests {
                 .iter()
                 .filter_map(|mutation| match mutation {
                     Mutation::SetModifier {
-                        modifier: compose_rust::schema::Modifier::Width(dp),
+                        modifier: Wire::Width(dp),
                         ..
                     } => Some(*dp),
                     _ => None,
@@ -842,11 +1171,6 @@ mod tests {
         }
 
         assert!(
-            !widths_at(1180.0).contains(&HERO_SIDE),
-            "the hero is sized in the list this test reads, so the check below would pass \
-             on the wrong modifier"
-        );
-        assert!(
             widths_at(1180.0).contains(&PAGE_MEASURE),
             "a desktop window does not hold the page to a phone's measure"
         );
@@ -856,10 +1180,10 @@ mod tests {
         );
     }
 
-    /// The screen, in the one design system it ships, in both schemes, at all three
-    /// widths.
+    /// The sheet, in the one design system it ships and the other Apple one, in its own
+    /// scheme, at all three widths.
     #[test]
-    fn fr14_the_playground_is_recorded_in_the_system_it_ships() {
+    fn fr14_the_sheet_is_recorded_in_the_system_it_ships() {
         sample_frames::record_as(
             "Minimal",
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
@@ -868,39 +1192,18 @@ mod tests {
         );
     }
 
-    /// The surfaces group: the inverted bar, the layer trio, the corner ladder and the
-    /// elevation steps.
-    ///
-    /// A third picture, because this is where a container the application filled itself has
-    /// to come out in that colour rather than in the design system's. It did not, for a
-    /// while, and no assertion here could have said so.
+    /// The sheet with the second segment chosen, so the picture shows the pill somewhere
+    /// other than where it starts.
     #[test]
-    fn fr14_the_surfaces_group_is_recorded() {
+    fn fr14_the_sheet_is_recorded_after_it_is_operated() {
         sample_frames::record_as(
-            "MinimalPanels",
+            "MinimalOperated",
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
             app,
             |screen| {
                 assert!(
-                    screen.press(Group::Surfaces.label()),
-                    "the screen has no way to reach the surfaces group"
-                );
-            },
-        );
-    }
-
-    /// The colour group, which is a different picture from the one above and the reason
-    /// the accent containers were added at all.
-    #[test]
-    fn fr13_the_colour_group_is_recorded() {
-        sample_frames::record_as(
-            "MinimalColour",
-            &sample_frames::as_designed(THEME, &sample_frames::APPLE),
-            app,
-            |screen| {
-                assert!(
-                    screen.press(Group::Colour.label()),
-                    "the screen has no way to reach the colour group"
+                    screen.press_beside("Second"),
+                    "the segmented control has no Second"
                 );
             },
         );

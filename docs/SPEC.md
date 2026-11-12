@@ -1743,6 +1743,32 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 3. 막대로 그려진 같은 선언에는 슬롯도 머리글도 나타나지 않고, 목적지들만 나란히 섭니다.
 4. 속성을 보내지 않은 목적지의 그림은 이 변경 전과 같습니다.
 
+#### 21.2.3 애플리케이션이 고르는 Compact 표현 (`Agreed`, 이슈 #526)
+
+[leader, provisional, 2026-11-13] 소유자의 위임을 받은 리더의 결정입니다.
+
+**21.2의 대응은 그대로 툴킷의 기본입니다.** 아무것도 고르지 않은 애플리케이션의 Compact 창은 디자인 시스템이 막대를 두는 곳에서 하단 막대를 받고, Cupertino와 Liquid Glass의 데스크톱에서는 21.2.1의 치워둠을 받습니다.
+
+그런데 같은 좁은 창이라도 애플리케이션마다 참조가 다릅니다. 세로 Gemini 참조는 Android에서도 하단 막대가 없고, 왼쪽 위의 토글이 사이드바를 엽니다. 할 일 참조에는 목적지를 부르는 막대도 토글도 없습니다(FR-22.1). 디자인 시스템의 규칙은 플랫폼을 따르고 애플리케이션을 모르므로 이 차이에 답할 수 없습니다. 그래서 Compact의 표현 하나만은 애플리케이션이 명시적으로 고를 수 있습니다.
+
+- **Rust API**: `Navigation(selected).compact(CompactNavigation::Sidebar)`. 값은 셋입니다.
+  - `CompactNavigation::Default`(와이어 0): 디자인 시스템의 답입니다(21.2, 21.2.1). 고르지 않은 것과 같고 속성을 보내지 않습니다.
+  - `CompactNavigation::Sidebar`(1): 토글 뒤로 치워진 사이드바입니다(21.2.1의 치워둠). 일곱 디자인 시스템 전부에서 같은 뜻이고, 나와 있을 때의 모양(폭, 색, 선택 표시)은 그 디자인 시스템의 서랍과 같습니다.
+  - `CompactNavigation::None`(2): Compact에서 목적지가 화면에 없고 부르는 버튼도 없습니다. 목적지로 가는 길은 애플리케이션이 직접 그립니다(FR-22.3의 6번). 이름은 Compose의 `NavigationSuiteType.None`을 따릅니다.
+- **고르는 것은 Compact 하나입니다.** Medium과 Expanded의 레일과 서랍은 21.2 그대로 디자인 시스템이 답합니다. 앱은 크기 클래스를 읽지 않고(FR-22) 값을 한 번 보내며, 그 값이 어느 폭에서 쓰이는지는 Renderer가 정합니다.
+- **와이어**: 새 속성 `CompactNavigation`(추가 전용 태그 **185**, u32)을 `Navigation`에만 싣습니다. 값은 새 역할 열거형 `CompactNavigation`(`Sidebar = 1`, `None = 2`)의 태그이고, 0은 보내지 않은 것과 같습니다. 스키마 해시가 움직입니다. 21.2.1의 "와이어에 새로 실리는 것이 없습니다"는 기본에 대해 여전히 참입니다.
+- **사이드바가 나와 있는지는 여전히 Renderer의 상태입니다(D5).** 21.2.1과 같이, 사용자가 토글을 여닫는 동안 경계를 넘는 것은 없습니다.
+- **토글은 페이지 내용 위에 그려지지 않습니다.** 치워둠의 토글은 자기 자리를 가집니다. 창 캡션이 있고 페이지가 막대로 시작하면 그 막대의 내용이 창 버튼과 토글 뒤에서 시작하고(FR-19.2의 같은 줄), 그렇지 않으면 페이지가 토글의 줄 아래에서 시작합니다. 앱이 고른 치워둠과 디자인 시스템이 고른 치워둠에 똑같이 적용됩니다. 이슈 #526에서 macOS와 웹의 420폭 academic, social, todo, selfcare가 토글을 페이지 제목 위에 그렸습니다.
+
+수용 기준:
+
+1. `Sidebar`를 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 하단 막대 없이 토글 하나를 그리고, 토글을 누르면 목적지들이 페이지 위로 나옵니다(`fr21_2_3_a_chosen_sidebar_is_put_away_on_every_design_system`).
+2. `None`을 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 목적지도 토글도 그리지 않고, 페이지가 창 전체를 씁니다(`fr21_2_3_a_chosen_none_draws_no_destinations_on_every_design_system`).
+3. 고른 값은 Medium과 Expanded의 표현을 바꾸지 않습니다(`fr21_2_3_the_choice_leaves_medium_and_expanded_to_the_design_system`).
+4. 치워둠의 토글은 페이지 내용과 겹치지 않습니다. `Navigation`이 페이지를 직접 들 때와 `Scaffold`의 하단 슬롯에 있을 때, 페이지가 막대로 시작할 때와 그렇지 않을 때, 그 넷 모두에서 일곱 디자인 시스템 전부의 토글 경계가 페이지 첫 내용의 경계와 겹치지 않습니다(`fr21_2_3_the_toggle_never_overlaps_the_page`). 창 캡션이 있을 때 막대의 내용이 토글 뒤에서 시작하는 것도 확인합니다(`fr21_2_3_a_bar_on_the_caption_starts_after_the_toggle`).
+5. 값을 고르지 않은 `Navigation`은 이 변경 전과 같은 표현으로 그려집니다(`fr21_2_3_without_a_choice_the_design_system_answers_as_before`).
+6. Rust API가 `Sidebar`와 `None`을 태그 185의 1과 2로 쓰고, 고르지 않으면 이 속성을 보내지 않습니다(`fr21_2_3_compact_navigation_writes_its_tag`).
+
 #### 21.5.1 참조 화면이 요구하는 의미들 (`Agreed`)
 
 클론 코딩한 샘플들을 참조와 나란히 놓자 어휘에 없어서 그릴 수 없는 것이 여덟 개 나왔습니다. `Menu=12`, `History=13` 뒤에 이어 붙입니다.
@@ -1925,9 +1951,9 @@ Gemini 참조의 배경과 검색도 샘플이 색과 크기를 정해서는 만
 1. 계산기 화면이 식 줄, 결과 줄, 키패드 순서로 나옵니다. 참조에 메모리 줄이 있는 Fluent 2와 Deepin에서는 결과 줄과 키패드 사이에 메모리 줄이 서고, 메모리 키가 실제로 값을 저장하고 되불러옵니다. Liquid Glass와 Cupertino(macOS 참조에 메모리 줄이 없습니다)와 참조가 없는 Material 3, GNOME, Breeze에는 메모리 줄이 없습니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 문구는 세 참조 모두에 메모리 줄을 요구해 macOS 참조와 맞지 않았습니다.
 2. 계산기의 키패드가 창 아래쪽에 붙고, 읽는 자리가 남는 높이를 가져갑니다. 참조 셋의 비율(읽는 자리 하나에 키패드 둘에서 셋)을 따릅니다.
 3. 메모장이 문서를 여러 개 들고, 문서 이름이 페이지 맨 위 제목으로 섭니다. Expanded에서 목록이 문서 옆에 서고, 그보다 좁으면 시트로 물러납니다. 서식 제어는 별도 시트에서 문서의 글자 역할을 바꿉니다.
-4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다. Compact에서 목적지 집합은 하단 막대가 아니라 세로 Gemini 참조처럼 토글 뒤의 사이드바입니다. 샘플은 크기 클래스로 분기하지 않습니다. 이것은 툴킷의 Compact `Navigation` 표현(FR-21.2.1의 치워둠)이고, 토글은 페이지 내용과 겹치지 않습니다(이슈 #526). Medium과 Expanded는 22.1 표 그대로입니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 22.1 표는 Compact를 하단 막대로 적어 참조와 맞지 않았습니다.
+4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다. Compact에서 목적지 집합은 하단 막대가 아니라 세로 Gemini 참조처럼 토글 뒤의 사이드바입니다. 샘플은 크기 클래스로 분기하지 않고, `Navigation`에 `CompactNavigation::Sidebar`를 고릅니다(FR-21.2.3). 그래서 이 기준은 일곱 디자인 시스템 전부에서 성립하고, 토글은 페이지 내용과 겹치지 않습니다(이슈 #526). Medium과 Expanded는 22.1 표 그대로입니다. [leader, provisional, 2026-11-13] 이전 문구는 이것을 툴킷의 Compact 표현이라고 적었습니다. 툴킷의 기본은 FR-21.2 그대로이고, 이 표현은 샘플이 명시적으로 고른 것입니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 22.1 표는 Compact를 하단 막대로 적어 참조와 맞지 않았습니다.
 5. 채팅의 작성란이 `ShapeRole::Full`의 떠 있는 막대이며, 보내기는 그 안에 있습니다.
-6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다. Compact에는 하단 막대가 없습니다. 목적지 목록은 따로 선 화면이고, 페이지 왼쪽 아래의 떠 있는 뒤로 버튼이 그 화면으로 가며, 오른쪽 아래의 떠 있는 추가 버튼이 작성을 엽니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 할 일 참조 네 장에는 하단 막대가 없습니다.
+6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다. Compact에는 하단 막대가 없습니다. 샘플이 `Navigation`에 `CompactNavigation::None`을 고르므로(FR-21.2.3) 이 기준은 일곱 디자인 시스템 전부에서 성립합니다([leader, provisional, 2026-11-13]). 목적지 목록은 따로 선 화면이고, 페이지 왼쪽 아래의 떠 있는 뒤로 버튼이 그 화면으로 가며, 오른쪽 아래의 떠 있는 추가 버튼이 작성을 엽니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 할 일 참조 네 장에는 하단 막대가 없습니다.
 7. 네 샘플이 일곱 디자인 시스템 × 두 색 구성 × 세 폭 전부에서 기록되고 그려집니다(`scripts/sample-shots.sh`).
 8. 적응형 샘플 네 개(22.1)의 소스 어디에도 16진수 색 리터럴이 없습니다. `scripts/tests/samples-speak-in-roles.test.sh`가 그 넷을 검사합니다. 통합 샘플은 22.5를 따릅니다.
 9. 계산기의 `Operator` 키가 Cupertino, Fluent 2, Deepin에서 22.2 표의 서로 다른 표현으로 나옵니다. Fluent 2에서 강조색 바탕은 등호 하나뿐입니다.
@@ -4519,6 +4545,48 @@ pub mod storage {
 16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
 17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
 18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
+
+### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
+
+요청한 쪽: dioxus-compose의 HTML 경로(dioxus-compose#200: `element.scrollIntoView()`, `scrollTop`/`scrollLeft`의 읽기와 쓰기, `scrollTo`, dioxus-compose#179: `onscroll`). HTML 경로는 `overflow: auto`와 `overflow: scroll` 상자를 `ScrollColumn`과 `ScrollRow`로 그립니다. FR-62의 `ui::ScrollState`는 `ui` 위젯 전용의 속성 묶음(`Value`, `Determinate`, `Count`)과 dp 단위 `RangeRequested`로 한 축만 다루고, FR-38(#544)의 `SetScrollOffset`(명령 태그 30)과 `CodeScrolled`(이벤트 태그 55)는 `CodeEditor` 한 위젯의 세로축만 다룹니다. 이 항목은 **두 번째 어휘를 만들지 않고** #544의 레코드 모양(노드 id 뒤에 물리 픽셀 `f64`)을 그대로 넓혀, 어느 스크롤 컨테이너에나 쓰는 명령 둘과 이벤트 하나를 둡니다. 모든 변경은 **추가 전용**이고 기존 태그와 레코드는 바뀌지 않습니다.
+
+**D5를 따릅니다.** 스크롤 위치는 Renderer의 것입니다. 명령은 요청이고(Renderer가 범위 안으로 자르고, 애니메이션으로 옮기거나, 사용자의 끌기나 플링 중이면 무시할 수 있습니다), 이벤트는 Renderer가 실제로 한 일의 보고입니다. Host는 위치의 주인이 되지 않습니다. 같은 프레임 안의 왕복은 없습니다. Renderer는 명령을 적용하려고 Host를 기다리지 않고, 보고는 그 명령이 들어온 프레임의 배치가 끝난 뒤에 나옵니다. 보고를 받아 다른 컨테이너를 맞추는 Host(#544의 나란한 두 편집기)는 한 프레임 늦게 따라가며, 그것이 정해진 비용입니다. 스크롤을 프레임마다 Host가 몰고 가는 길은 없습니다.
+
+- **단위는 물리 픽셀(`f64`)입니다.** #544와 같습니다. Compose의 `ScrollState.value`와 `LazyListState`의 오프셋은 정수 물리 픽셀이 원래 단위이므로, dp로 바꿔 보내면 Renderer가 나누고 Host가 다시 곱하면서 값이 어긋나 `scrollTop = 120` 뒤에 읽은 값이 120이 아닌 일이 생깁니다. 물리 픽셀이면 Renderer가 보고한 값을 그대로 다시 보내도 같은 자리입니다. Host의 변환: CSS px(= dp)에서 물리 픽셀로는 `px = css_px × k × scale`이고, 보고를 읽을 때는 그 역입니다. `k`는 `ZoomChanged`(FR-43, 이벤트 태그 33)의 배율, `scale`은 `DensityChanged`(FR-43.1, 이벤트 태그 53)의 값이며 둘 다 그 컨테이너가 있는 창의 것입니다. 밀도나 배율이 바뀌면 Renderer는 내용의 같은 자리를 유지하고, 새 픽셀 값으로 보고를 한 번 보냅니다. FR-62의 dp 단위 와이어는 이 항목으로 바뀌지 않습니다.
+- **적용되는 위젯.** `ScrollColumn`, `ScrollRow`, `LazyColumn`, `LazyRow`, `LazyGrid`, `CodeEditor`입니다. 주축은 `ScrollColumn`, `LazyColumn`, `LazyGrid`, `CodeEditor`가 y, `ScrollRow`, `LazyRow`가 x입니다. `CodeEditor`는 줄바꿈을 끈 경우(`SoftWrap`이 거짓) x로도 스크롤하고, 그 밖의 위젯의 교차축은 언제나 0입니다. 두 축으로 넘치는 HTML 상자는 HTML 경로가 이미 컨테이너 둘로 겹쳐 그리므로, Host는 축마다 그 축의 노드에 명령을 보냅니다.
+- **명령 `ScrollTo`(명령 태그 35): 오프셋으로 스크롤.** 32바이트 고정 레코드(`tag=35, len=32`) 뒤에 `node_id: u32`, `item: u32`, `flags: u32`, `x_px: f64`, `y_px: f64`가 옵니다. `flags`의 비트 0은 `animate`, 비트 1은 `x_px`를 적용, 비트 2는 `y_px`를 적용입니다. 비트가 꺼진 축은 건드리지 않습니다(`scrollTop`만 쓰는 setter가 Host의 낡은 `scrollLeft`를 되돌려 보내지 않게). `item`은 Lazy 목록에서 오프셋을 재기 시작하는 항목 번호이며(Compose의 `scrollToItem(item, offset)`, 오프셋이 그 항목보다 길면 그만큼 더 나아갑니다), 다른 위젯에서는 0이어야 합니다. 축의 값은 그 축의 범위 `[0, max]`로 잘립니다. 음수나 범위 밖은 오류가 아닙니다(브라우저의 `scrollTop`과 같습니다).
+- **명령 `ScrollIntoView`(명령 태그 36): 사각형을 보이게.** 52바이트 고정 레코드(`tag=36, len=52`) 뒤에 `node_id: u32`(움직일 컨테이너), `target: u32`, `target_kind: u16`, `align_x: u16`, `align_y: u16`, `flags: u16`, `rect_x_px: f64`, `rect_y_px: f64`, `rect_w_px: f64`, `rect_h_px: f64`가 옵니다.
+  - `target_kind`: `Content=0`이면 사각형은 컨테이너 내용 좌표(오프셋 0일 때 내용의 왼쪽 위가 원점)이고 `target`은 0입니다. `Node=1`이면 `target`은 그 컨테이너의 자손 노드 id이고 사각형은 그 노드의 왼쪽 위 기준이며, 폭과 높이가 둘 다 0이면 그 노드 전체입니다. `Item=2`이면 `target`은 Lazy 목록의 항목 번호이고 사각형은 그 항목 기준이며, 폭과 높이가 0이면 항목 전체입니다. Lazy 목록은 내용 좌표가 없으므로 `Content`를 받지 않고, 다른 위젯은 `Item`을 받지 않습니다.
+  - `align_x`, `align_y`: `Keep=0`(그 축은 움직이지 않음), `Start=1`, `Center=2`, `End=3`, `Nearest=4`입니다. `Nearest`는 사각형이 이미 다 보이면 움직이지 않고, 아니면 보이게 하는 가장 작은 이동을 하며, 사각형이 뷰포트보다 크면 `Start`와 같습니다. CSS의 `block`/`inline`과 같은 네 값이고, `scrollIntoView()`의 기본(`block: start`, `inline: nearest`)은 Host가 고릅니다. 교차축의 정렬은 그 축으로 스크롤하지 않는 위젯에서 아무 일도 하지 않습니다.
+  - `flags`의 비트 0은 `animate`입니다.
+  - 명령 하나는 컨테이너 하나를 움직입니다. 겹친 스크롤 컨테이너 안의 요소를 보이게 하는 Host(`scrollIntoView`가 모든 조상을 움직이는 것처럼)는 같은 배치에 안쪽 컨테이너부터 조상마다 하나씩 보내고, 각 사각형은 Host가 자기 레이아웃으로 그 컨테이너의 내용 좌표에서 계산합니다. `Node`나 `Item`의 대상이 지금 구성되어 있지 않으면(Lazy 목록의 화면 밖 자손 노드) 아무 일도 하지 않으며 오류가 아닙니다. 화면 밖의 Lazy 항목은 `Item`으로 가리킵니다.
+- **요청의 규칙.** 같은 배치에서 만든 컨테이너에 보낸 요청은 처음 배치(측정)가 끝난 뒤 그 범위로 잘려 적용됩니다(HTML 경로가 상자를 만들면서 스크롤 위치를 되살리는 경우). 한 배치에 같은 노드로 여러 요청이 오면 순서대로 적용하며 결과는 마지막 요청과 같습니다. 진행 중인 애니메이션은 다음 요청이 대신합니다. 사용자가 끌거나 플링하는 동안의 요청은 무시합니다(Compose의 `MutatePriority.UserInput`이 이깁니다). 무시된 요청에도 보고는 실제 위치를 그대로 알립니다.
+- **이벤트 `ScrollChanged`(이벤트 태그 60): 위치의 보고.** 72바이트 레코드(머리 16바이트, `item: u32@16`, `flags: u32@20`, `x_px: f64@24`, `y_px: f64@32`, `max_x_px: f64@40`, `max_y_px: f64@48`, `viewport_width_px: f64@56`, `viewport_height_px: f64@64`)입니다. `flags`의 비트 0은 `settled`(움직임이 끝남), 비트 1은 주축으로 뒤로 더 갈 수 있음, 비트 2는 앞으로 더 갈 수 있음이며, 모르는 비트는 Host에서 `ProtocolError`입니다. `max`와 뷰포트를 함께 실어 Host가 `scrollHeight`(= `max + viewport`)와 `clientHeight`를 따로 묻지 않게 합니다. Lazy 목록에서는 `item`이 처음 보이는 항목이고 주축 값은 그 항목 안의 오프셋이며, 전체 길이를 모르므로 주축 `max`는 `-1.0`입니다. 다른 위젯의 `item`은 0입니다.
+- **옵트인은 노드마다입니다.** 핸들러 속성 `OnScrollChanged`(속성 태그 186)가 붙은 노드만 보고하고, `ObserveSize`처럼 구독 하나가 핸들러 하나입니다. 붙지 않은 노드는 아무것도 보내지 않고 비용도 없으며, 아무도 붙이지 않은 트리의 와이어는 지금과 한 바이트도 다르지 않습니다. 핸들러를 떼거나 노드가 없어지면 보고가 멈춥니다. 명령은 핸들러 없이도 쓸 수 있습니다.
+- **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
+- **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
+- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(17)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(18)입니다: NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
+- **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
+- **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
+- **구현 범위.** 스키마와 codegen, Rust 인코더와 디코더, 데스크톱 Kotlin 렌더러(macOS, Windows, Linux가 같은 코드)와 `android-kotlin/shared`의 `NodeTable`, 프로토콜 벡터입니다. dioxus-compose의 HTML 연결(`scrollIntoView`, `scrollTop`/`scrollLeft`, `onscroll`)은 dioxus-compose#200과 #179가 이 와이어 위에 만듭니다.
+
+수용 기준.
+1. `ScrollTo`와 `ScrollIntoView`가 `mutations.bin`에, `ScrollChanged`가 `events.bin`에 레코드로 더해지고(`vectors.json`의 `recordCount`와 이벤트 목록이 늘어남), Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr80_scroll_records_round_trip_through_the_protocol_vectors).
+2. 내용 1000px, 뷰포트 300px인 `ScrollColumn`에 `ScrollTo(y = 5000)`을 보내면 `ScrollChanged`의 `y_px`가 700이고, `ScrollTo(y = -10)`이면 0입니다. `max_y_px`는 700, `viewport_height_px`는 300입니다(시험 이름 fr80_scroll_to_clamps_to_the_range_and_reports_it).
+3. 두 축으로 스크롤하는 `CodeEditor`에서 y 비트만 켠 `ScrollTo`는 x를 그대로 둡니다(시험 이름 fr80_scroll_to_moves_only_the_axes_it_names).
+4. 컨테이너를 만든 배치에 함께 온 `ScrollTo(y = 400)`은 처음 측정 뒤에 적용되고, 처음 보고의 `y_px`가 400입니다(시험 이름 fr80_scroll_to_in_the_creating_batch_applies_after_first_layout).
+5. `animate`인 `ScrollTo`는 움직이는 동안 프레임마다 많아야 한 번 보고하고, 마지막 보고 하나만 `settled`이며 그 값이 목표입니다(시험 이름 fr80_animated_scroll_reports_once_per_frame_then_settles).
+6. 뷰포트 300px인 `ScrollColumn`에서 `Content` 사각형 y=600, h=40에 `Start`는 600, `Center`는 470, `End`는 340, 오프셋 0에서 `Nearest`는 340으로 옮깁니다. 이미 다 보이는 사각형의 `Nearest`는 움직이지 않고 보고도 없습니다(시험 이름 fr80_scroll_into_view_aligns_start_center_end_and_nearest).
+7. `Node` 대상은 그 자손 노드 전체를 보이게 합니다(시험 이름 fr80_scroll_into_view_brings_a_descendant_node_into_view).
+8. 항목 1000개인 `LazyColumn`에서 `Item(500)`의 `Start`는 보고의 `item`을 500, 주축 오프셋을 0으로 만들고 주축 `max`는 -1.0입니다(시험 이름 fr80_lazy_list_scroll_into_view_reaches_an_unseen_item).
+9. `OnScrollChanged`가 없는 노드는 스크롤해도 아무 이벤트도 보내지 않고, 아무도 붙이지 않은 트리의 배치 바이트는 이 항목 전과 같습니다(시험 이름 fr80_only_nodes_with_a_handler_report).
+10. 한 프레임에 세 번 움직이는 끌기를 열 프레임 이어 가면 보고는 많아야 열 개이고 각 보고는 그 프레임의 마지막 값입니다(시험 이름 fr80_report_is_at_most_once_per_frame).
+11. 사용자가 끄는 동안 온 `ScrollTo`는 무시되고, 보고는 끌기가 만든 위치를 알립니다(시험 이름 fr80_request_during_a_drag_is_ignored).
+12. 밀도가 2.0에서 1.0으로 바뀌면 내용의 같은 자리를 유지한 채 픽셀 값이 반인 보고가 한 번 옵니다(시험 이름 fr80_density_change_keeps_the_position_and_reports_new_pixels).
+13. `CodeEditor`에서 `SetScrollOffset(o)`와 `ScrollTo(y = o)`는 같은 자리로 옮기고, 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다(시험 이름 fr80_code_editor_set_scroll_offset_and_scroll_to_agree).
+14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
+15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 

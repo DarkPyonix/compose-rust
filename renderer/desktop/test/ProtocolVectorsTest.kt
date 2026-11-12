@@ -343,6 +343,8 @@ class ProtocolVectorsTest {
                 ProtocolModifier.ShapeRole(ShapeRole.Large),
                 ProtocolModifier.Border(2f, Paint.Role(ColorRole.Outline)),
                 ProtocolModifier.Elevation(6f),
+                ProtocolModifier.ObserveSize(9, false),
+                ProtocolModifier.ObserveSize(9, true),
                 ProtocolModifier.Offset(12.5f, -4f),
                 ProtocolModifier.RequiredSize(320f, 180f),
                 ProtocolModifier.BorderEach(
