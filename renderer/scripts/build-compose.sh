@@ -42,8 +42,13 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
 # older base; multi-window work builds on `extended` itself. It also holds the macOS file open
 # and save sheets (fork #183, `MacosFileDialogs`), which the macOS renderer shows when the Host
-# asks for a file dialog.
-WINDOW_REVISION="e3088cc0b01cb1d83d904dfa040a2e61d251d8e6"
+# asks for a file dialog, the operating system's text size (fork #156, `WindowPlatform.textScale`
+# and `WindowEvent.TextScaleChanged`), which every desktop window hands its scene as
+# `Density.fontScale`, and the Windows window's file drop through IDropTarget (fork #157), which
+# the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
+# are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
+# compiles beside the window.
+WINDOW_REVISION="fa4781bafd8cc29f05f530ac52499dc2a2cea7ac"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles

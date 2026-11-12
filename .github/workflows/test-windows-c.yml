@@ -51,7 +51,8 @@ jobs:
           $sources = @(
             (Join-Path "renderer/desktop/c" "renderer_entry.c"),
             (Join-Path $env:WINDOW_C "win32_window.c"),
-            (Join-Path $env:WINDOW_C "win32_notifications.c")
+            (Join-Path $env:WINDOW_C "win32_notifications.c"),
+            (Join-Path $env:WINDOW_C "win32_file_dialog.c")
           )
           New-Item -ItemType Directory -Force -Path obj | Out-Null
           $failed = @()
