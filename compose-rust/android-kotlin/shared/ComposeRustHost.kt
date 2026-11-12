@@ -530,6 +530,16 @@ private fun ComposeRustTree(
             }
         }
     }
+    // Moves and wheel travel are held between frames and sent once at the start of the next
+    // one, so a pointer that reports faster than the screen draws runs the Host once a frame.
+    // The loop waits for frames only while something is held.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.pointers.pendingGeneration.intValue }.collect {
+            while (host.table.pointers.hasPending) {
+                withFrameNanos { host.table.pointers.flush() }
+            }
+        }
+    }
     // Whether the platform asks for reduced motion, told to the Host once and again when it
     // changes. Asked again when the window comes back into use, which is when a setting
     // changed in the system's preferences can have changed. The Host decides what to do

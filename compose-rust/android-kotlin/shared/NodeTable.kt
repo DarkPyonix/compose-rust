@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
 
 /**
  * Text the Host pushed into a TextField with `SetText`.
@@ -96,6 +97,8 @@ data class TableError(val code: Int, val message: String) {
         const val MOVE_BETWEEN_WINDOWS = 14
         /** A file dialog request whose number is still waiting for its answer. The command is dropped. */
         const val DUPLICATE_FILE_DIALOG = 15
+        /** A modifier whose value could not be honoured. The modifier is dropped. */
+        const val INVALID_MODIFIER = 16
     }
 }
 
@@ -165,6 +168,13 @@ class NodeTable {
      * them. The Host is not called while they play unless an animation asked for events.
      */
     val animations: AnimationTable = AnimationTable(this)
+
+    /**
+     * Pointer input for the nodes that subscribed to it: who holds a press, and the moves
+     * and wheel travel waiting for the next frame.
+     */
+    internal val pointers: dev.darkpyonix.composerust.foundation.PointerRouter =
+        dev.darkpyonix.composerust.foundation.PointerRouter { id -> nodes.containsKey(id) }
 
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
@@ -471,12 +481,24 @@ class NodeTable {
             focusClearRevision = revision
             return
         }
-        val node = nodes[mutation.nodeId] ?: return fail(
-            TableError.UNKNOWN_NODE,
-            "RequestFocus for unknown node ${mutation.nodeId}",
-        )
+        if (!requestNodeFocus(mutation.nodeId)) {
+            fail(TableError.UNKNOWN_NODE, "RequestFocus for unknown node ${mutation.nodeId}")
+        }
+    }
+
+    /**
+     * Asks for keyboard focus to move to the node [nodeId] names, and says whether there is
+     * such a node.
+     *
+     * A `RequestFocus` from the Host and the focus action of the accessibility tree both end
+     * here, so a screen reader moves focus the way the application does: the node's own
+     * composable sees the new revision and calls its focus requester.
+     */
+    internal fun requestNodeFocus(nodeId: Int): Boolean {
+        val node = nodes[nodeId] ?: return false
         revision += 1
         node.focusRequestRevision = revision
+        return true
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -604,6 +626,19 @@ class NodeTable {
         )
         if (mutation.index < 0 || mutation.index > MAX_MODIFIERS) {
             fail(TableError.INVALID_INDEX, "modifier index ${mutation.index} out of range")
+            return
+        }
+        val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
+            // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
+            // would announce a control as something it is not, so the modifier is refused
+            // and the slot keeps what it held.
+            val unknown = modifier.state and SEMANTICS_STATE_MASK.inv()
+            fail(
+                TableError.INVALID_MODIFIER,
+                "Semantics modifier on node ${mutation.nodeId} sets state or action bits this renderer " +
+                    "does not know: 0x${unknown.toString(16)}",
+            )
             return
         }
         while (node.modifiers.size <= mutation.index) {
@@ -828,8 +863,7 @@ class NodeTable {
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML
-                // region root. A picker takes only its value, range and events. The interpreter
-                // does not act on them yet.
+                // region root. A picker takes only its value, range and events.
                 PropertyKind.OnPointer,
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,

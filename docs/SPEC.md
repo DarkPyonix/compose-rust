@@ -4108,6 +4108,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
   - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
 - **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
 - **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- **Web에서는 `paths`의 각 항목이 경로가 아니라 72.9의 파일 참조입니다.** 브라우저는 경로를 주지 않기 때문입니다. 아래의 절대 경로 규칙은 네이티브의 것입니다. 앱은 어느 플랫폼에서든 고른 것을 `FileDialogResult::files()`(72.9)로 읽고 씁니다.
 - **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 고른 경로 중 하나라도 UTF-8로 나타낼 수 없으면(Linux에서만 가능하고, macOS에서 경로를 문자열로 읽지 못하는 경우도 같습니다) **결과 전체가 `Unavailable`**이고 나머지 경로도 보내지 않습니다. 고른 개수와 돌려준 개수가 다른 `Chosen`을 앱이 알아챌 길이 없고, 취소로 보내면 사용자가 고른 것이 있었는데 거짓이기 때문입니다. 파일을 떨어뜨리는 FR-27은 건너뛰고 나머지를 전달하지만, 대화상자에서 고른 것은 사용자가 이름을 짚어 고른 것이라 규칙이 다릅니다. 사용자는 나머지 파일도 받지 못하는 대신 앱이 무엇이 잘못되었는지 말할 수 있습니다. 앱은 이 `Unavailable`을 "선택한 파일 중 이름을 읽을 수 없는 것이 있습니다. 파일 이름을 확인한 뒤 다시 선택해 주세요"처럼 파일 이름을 확인하라는 안내로 보여 주는 것이 좋습니다(대화상자를 띄울 수 없는 환경과 같은 상태값이므로 문구는 앱이 상황에 맞게 정합니다).
 - **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
 - `Chosen`인데 경로가 하나도 없으면 Renderer는 `Cancelled`를 보내고, Host는 경로 없는 `Chosen`을 받으면 `Unavailable`로 다룹니다. 앱이 빈 목록을 선택으로 처리하지 않게 하려는 것입니다.
@@ -4143,11 +4144,11 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 | Windows | `IFileOpenDialog`, `IFileSaveDialog`(COM) | 소유한 창의 `HWND`가 소유자입니다 |
 | Linux | `xdg-desktop-portal`의 `org.freedesktop.portal.FileChooser` | 포털이 없으면 GTK 파일 선택기로 되돌아갑니다. 둘 다 없으면 `Unavailable` |
 | iOS, Android | 이 항목의 범위 밖 | 요청하면 `Unavailable`. `UIDocumentPicker`와 Storage Access Framework는 이슈 #483에 이어 적습니다 |
-| Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
+| Web | File System Access API(`showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`). 없으면 `<input type=file>`과 내려받기 | 72.9 |
 
 - **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
-- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀝니다.
-- 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
+- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀌고, Web은 72.9가 들어오면 바뀝니다.
+- 처음 이 표의 대상은 **데스크톱 셋**이었고, 모바일과 Web은 이슈 #483이 뺐습니다. **Web은 72.9로 더합니다**(소유자 지시 2026-11-13, [leader, provisional, 2026-11-13]). 모바일은 그대로 빠져 있습니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
 - **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
 - Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
 
@@ -4163,7 +4164,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
 9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
 10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
-11. iOS, Android, Web 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
+11. iOS, Android 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
 12. **수동 확인, macOS·Windows·Linux(포털과 GTK 폴백 각각)의 배포 빌드에서 기록합니다.**
     - `OpenFile`, `OpenFiles`, `OpenFolder`, `OpenFolders`, `Save`가 플랫폼 대화상자로 뜨고 `title`, `directory`, `name`이 반영됩니다.
     - 필터가 고를 수 있는 파일을 제한하고 `default_filter`가 처음 선택된 필터입니다.
@@ -4173,12 +4174,116 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
     - 취소하고 선택한 뒤 포커스가 열기 전의 노드로 돌아옵니다.
     - 공백, 한글, 이모지, 260자를 넘는 경로가 그대로 도착합니다.
 
+72.9(Web과 `PickedFile`)의 기준([leader, provisional, 2026-11-13]):
+
+13. `FileHandles`, `FileCall`, `ReleaseFileHandle`이 PR-4 프로토콜 벡터에서 Rust와 Kotlin이 같은 바이트로 왕복하고, 모르는 `delivery`, `op`, `kinds` 글자가 `ProtocolError`입니다(시험 이름 fr72_web_file_records_round_trip, 미구현). 경계 진입점이 그대로입니다(시험 이름 pr2_boundary_surface_unchanged_by_web_files, 미구현).
+14. Fake Renderer로, Web의 요청마다 `FileHandles` 또는 `FileDialogResult` 중 하나가 정확히 하나 옵니다(시험 이름 fr72_web_every_request_gets_exactly_one_answer, 미구현).
+15. `Chosen { paths, filter }`로 쓴 코드가 그대로 컴파일되고, 네이티브에서 `files()`가 `paths`와 같은 순서, 같은 수이며, `PickedFile::read`와 `write`가 그 경로의 파일을 워커에서 읽고 원자적으로 씁니다(시험 이름 fr72_native_picked_files_read_and_write_their_paths, 미구현).
+16. Web에서 `FileHandles`가 만든 `Chosen`의 `paths`가 `webfile:<핸들>/<이름>` 참조이고, `files()`의 `name()`과 `delivery()`가 이벤트의 값과 같습니다. 한 핸들의 마지막 `PickedFile`이 버려지면 `ReleaseFileHandle`이 한 번 갑니다(시험 이름 fr72_web_files_come_from_references_and_release_their_handles, 미구현).
+17. Web, File System Access가 있을 때: 연 파일에 쓰고 다시 쓰면 같은 파일이 바뀌고 `delivery`가 `Handle`입니다. Playwright의 Chromium에서 고르기 창을 시험 핸들로 바꿔 CI로 돌립니다(시험 이름 fr72_web_a_resave_writes_the_same_file, 미구현).
+18. Web, 그 API가 없을 때(시험에서 `showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`를 지운 페이지): 열기가 `Upload`이고 `write`가 `ReadOnly`이며, 저장이 `Download`이고 `write`가 내려받기 하나를 만들고 `can_write_again()`이 false입니다(시험 이름 fr72_web_fallback_reports_upload_and_download, 미구현).
+19. Web: `<input>`을 닫으면 `Cancelled`, `AbortError`는 `Cancelled`, 활성화 없는 요청의 `SecurityError`는 `Unavailable`입니다(시험 이름 fr72_web_cancel_and_refusal_map_to_their_status, 미구현).
+20. Web: 놓은 핸들(`ReleaseFileHandle` 뒤)이나 모르는 핸들에 대한 연산이 `NotFound`이고 `ProtocolError`가 아닙니다(시험 이름 fr72_web_an_unknown_handle_is_not_found, 미구현).
+21. Web: 4 KiB를 넘는 이름 목록(파일 500개)이 `Chosen`으로 모두 도착하고(시험 이름 fr72_web_a_long_name_list_arrives_whole, 미구현), 1 MiB 파일이 `read`로 읽힙니다(시험 이름 fr72_web_reads_a_file_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 72.9가 `Done`이 되지 않습니다.** #583 전에는 같은 요청이 `Unavailable`, 같은 읽기가 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr72_web_an_answer_over_the_event_buffer_fails_whole, 미구현).
+22. 수동, Chrome, Firefox, Safari 각각에서 notepad로 열기, 고치기, 저장, 다시 저장을 하고, Chrome은 같은 파일이 바뀌는 것, 나머지는 내려받기가 되고 앱이 그렇다고 알리는 것을 기록합니다.
+
 #### 72.8 열린 질문
 
 1. **필터에 플랫폼 형식(UTI, MIME)을 더할지.** 확장자만으로는 확장자 없는 형식(macOS의 번들, Linux의 MIME)을 못 거릅니다. 첫 단계는 확장자와 레이블만 받습니다. 요청하는 앱(Ember)이 확장자로 충분한지 확인이 필요합니다.
 2. **폴더 선택에서 폴더 만들기 단추.** 플랫폼 기본이 다릅니다(macOS는 켜짐, Windows는 항상). 지금은 플랫폼 기본을 그대로 씁니다.
 3. **마지막으로 쓴 폴더의 기억.** `directory`가 비었을 때 플랫폼이 기억하는 폴더를 쓰는데, 플랫폼마다 앱 단위인지 대화상자 단위인지 다릅니다. 앱이 기억을 정하고 싶다면 `directory`를 직접 넘깁니다.
-4. **모바일과 Web.** `UIDocumentPicker`, Storage Access Framework, 브라우저의 File System Access API는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)이라서 이 항목의 `paths`로는 표현할 수 없습니다. 별도 항목에서 정합니다.
+4. **모바일.** `UIDocumentPicker`와 Storage Access Framework는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)입니다. Web의 같은 문제는 72.9의 `PickedFile`과 파일 참조로 답했습니다(2026-11-13). 모바일의 URI도 같은 자리에 들어갈 수 있지만, 그 구현은 아직 정하지 않았습니다.
+
+#### 72.9 Web과 `PickedFile` ([leader, provisional, 2026-11-13], 이슈 #529, #483)
+
+소유자 지시(2026-11-13): 브라우저에서 사용자의 로컬 파일에 접근하는 API도 쓸 수 있게 합니다. 새 Web 전용 API가 아니라 이 항목의 대화상자를 Web에서 구현합니다. **앱은 모든 플랫폼에서 같은 API를 씁니다.** 고르는 것은 `ctx.show_file_dialog(...)` 그대로이고, 고른 것을 읽고 쓰는 것은 결과의 `files()`가 주는 `PickedFile`입니다.
+
+```rust
+pub enum FileDialogResult {
+    Chosen { paths: Vec<String>, filter: Option<usize> },   // 그대로입니다
+    Cancelled,
+    Unavailable,
+}
+
+impl FileDialogResult {
+    /// 고른 것을 읽고 쓸 수 있는 손잡이로 줍니다. `paths`와 같은 순서, 같은 수이고,
+    /// `Chosen`이 아니면 비어 있습니다.
+    pub fn files(&self) -> Vec<PickedFile>;
+}
+
+#[derive(Clone)]
+pub struct PickedFile { /* 네이티브: 경로, Web: Renderer가 가진 핸들 번호 */ }
+
+pub enum Delivery {
+    /// 파일 시스템의 그 파일입니다. 다시 쓰면 같은 파일이 바뀝니다.
+    Handle,
+    /// 브라우저가 내용을 건네준 사본입니다(`<input type=file>`). 읽기만 됩니다.
+    Upload,
+    /// 저장이 내려받기가 되었습니다. 쓸 때마다 새 내려받기이고, 같은 파일을 다시 바꿀 수 없습니다.
+    Download,
+}
+
+impl PickedFile {
+    pub const MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_path(path: impl Into<String>) -> PickedFile;   // 네이티브만
+    pub fn name(&self) -> &str;                 // 파일 이름(경로 아님)
+    pub fn path(&self) -> Option<&str>;         // 네이티브만 Some
+    pub fn is_folder(&self) -> bool;
+    pub fn delivery(&self) -> Delivery;         // 네이티브는 언제나 Handle
+    pub fn can_write_again(&self) -> bool;      // Handle이고 폴더가 아니면 true
+    pub async fn read(&self) -> Result<Vec<u8>, FileError>;
+    pub async fn write(&self, bytes: impl Into<Vec<u8>>) -> Result<(), FileError>;
+    pub async fn entries(&self) -> Result<Vec<PickedFile>, FileError>;   // 폴더의 바로 아래
+    pub async fn child(&self, name: &str, create: bool) -> Result<PickedFile, FileError>;
+}
+
+#[non_exhaustive]
+pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder,
+                     TooLarge { len: u64, limit: u64 }, Unavailable(String), Io(String) }
+```
+
+- **`Chosen { paths, filter }`는 바뀌지 않습니다.** 칸을 더하면 그 모양으로 쓴 코드가 컴파일되지 않습니다. 열거형 변형의 칸은 모두 공개라서 숨긴 칸도 같습니다. 그래서 고른 것을 읽고 쓰는 길은 메서드 `files()`로 둡니다.
+- **Web의 `paths`는 파일 참조입니다.** 항목마다 `webfile:<핸들 번호>/<이름>` 꼴의 문자열이고, `files()`가 그것을 `PickedFile`로 바꿉니다. 핸들을 나를 칸이 `paths`밖에 없기 때문입니다. 경로가 아니므로 앱은 이 문자열을 풀어 쓰지 않고 `files()`, `name()`을 씁니다. 브라우저의 파일 이름에는 `/`가 들어갈 수 없으므로 이 꼴은 모호하지 않습니다. 네이티브의 `paths`는 지금과 같은 절대 경로이고, `files()`는 그 경로들의 `PickedFile`입니다.
+- `PickedFile`은 `Clone`입니다. Web에서 한 핸들로 만든 마지막 `PickedFile`이 버려지면 Host가 명령 `ReleaseFileHandle { handle: u32 }`(명령 태그 34)로 Renderer의 핸들을 놓습니다. 아직 `PickedFile`로 바꾸지 않은 참조의 핸들은 페이지가 닫힐 때까지 남습니다. 놓인 핸들의 참조로 다시 `files()`를 부르면 그 `PickedFile`의 연산은 `NotFound`입니다.
+- `read`는 파일 전체를 한 번에 읽고, 크기가 `MAX_READ_BYTES`(256 MiB)를 넘으면 읽기 전에 `TooLarge`입니다. 나눠 읽는 길은 두지 않습니다.
+- **네이티브의 `PickedFile`은 경로입니다.** `read`, `write`, `entries`, `child`는 Host 워커에서 `std::fs`로 하고(PR-3), 쓰기는 FR-79와 같이 임시 파일과 `rename`으로 원자적입니다. 대화상자가 돌려준 경로를 그대로 쓰므로 72.2의 규칙(절대 경로, UTF-8)이 그대로입니다. 대화상자 없이 경로로 `PickedFile`을 만드는 길(`PickedFile::from_path`)은 네이티브에만 있고, notepad가 되살린 세션의 경로에 씁니다(FR-79.7).
+- **Web의 핸들은 다시 불러온 페이지에서 쓸 수 없습니다.** `FileSystemFileHandle`은 IndexedDB에 담을 수 있지만, 담지 않습니다. 쓸 때 브라우저가 권한을 다시 묻고, "최근 파일"은 이 항목이 약속하는 것이 아니기 때문입니다. 새로 고침 뒤의 저장은 "다른 이름으로 저장"입니다.
+
+**Web: File System Access API가 있을 때(Chromium 계열).**
+
+| `kind` | 부르는 것 | `Delivery` |
+|---|---|---|
+| `OpenFile`, `OpenFiles` | `showOpenFilePicker({ multiple })` | `Handle` |
+| `OpenFolder` | `showDirectoryPicker({ mode: "readwrite" })` | `Handle`(폴더) |
+| `OpenFolders` | `showDirectoryPicker` 한 번, 결과 하나 | `Handle`(폴더) |
+| `Save` | `showSaveFilePicker({ suggestedName: name, types })` | `Handle` |
+
+- `OpenFolders`는 Web에서 폴더 하나만 고릅니다. 브라우저에 폴더 여럿을 고르는 길이 없기 때문입니다. `Chosen`의 경로 수 "1 이상"(72.1)에 맞습니다.
+- `filters`는 `types`의 `{ description: label, accept: { <형식>: [".png", ...] } }`가 됩니다. `default_filter`는 그 필터를 목록 맨 앞에 둡니다. 브라우저에 "처음 고른 필터" 칸이 없기 때문입니다. `title`과 `directory`는 쓰지 않습니다. 브라우저에 제목 칸이 없고, 절대 경로로 시작 폴더를 줄 수 없기 때문입니다. 대신 `id`에 앱 식별자(FR-79.2)를 줘 브라우저가 이 앱의 마지막 폴더를 기억하게 합니다. 식별자가 없으면 `id`를 주지 않습니다.
+- 덮어쓰기 확인은 `showSaveFilePicker`가 합니다(72.1의 "플랫폼 대화상자가 확인" 그대로).
+- **다시 저장**: `Handle`인 파일의 `write`는 `createWritable()`, `write`, `close()`이고, 브라우저가 임시 파일에 쓴 뒤 `close`에서 바꾸므로 원자적입니다. 쓰는 바이트는 배치를 적용하는 호출 안에서 공유 메모리의 뷰를 `slice()`해 브라우저의 버퍼로 한 번 복사합니다. 스트림의 `write`는 나중에 처리되고 그 사이 `memory.grow`가 뷰를 무효로 만들 수 있으므로, 이 복사 한 번은 줄일 수 없습니다. Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- **쓰기 권한**: `showOpenFilePicker`로 연 파일에 처음 쓸 때 Renderer는 `requestPermission({ mode: "readwrite" })`를 부르고, 브라우저가 한 번 묻습니다. 거절하면 `PermissionDenied`입니다. `showSaveFilePicker`의 핸들은 이미 쓰기 권한이 있습니다.
+- **사용자 활성화**: 브라우저는 사용자의 클릭이나 키 직후에만 고르기 창을 엽니다. 클릭 핸들러에서 요청하면 그 `dispatch_event`의 배치를 같은 호출 스택에서 적용하므로(PR-1, PR-2) 활성화 안에서 열립니다. 타이머나 워커 결과에서 요청해 브라우저가 거절하면(`SecurityError`, `NotAllowedError`) 결과는 `Unavailable`입니다. 사용자가 닫으면(`AbortError`) `Cancelled`입니다.
+
+**Web: 그 API가 없을 때(Firefox, Safari).**
+
+- `OpenFile`, `OpenFiles`: 화면 밖의 `<input type=file accept=".png,.jpg" [multiple]>`을 누릅니다. 결과는 `Upload`이고, `read`는 되며 `write`와 `child`는 `ReadOnly`입니다. 닫으면 `<input>`의 `cancel` 이벤트로 `Cancelled`가 됩니다(요청마다 답 하나).
+- `OpenFolder`, `OpenFolders`: `<input type=file webkitdirectory>`입니다. 결과는 `Upload` 폴더 하나이고, `entries`는 브라우저가 준 파일들을 `webkitRelativePath`로 다시 세운 나무입니다. 읽기만 됩니다.
+- `Save`: 고르기 창이 없습니다. 결과는 바로 `Chosen`이고 `Delivery::Download`, `name()`은 요청의 `name`입니다. `write`를 부를 때마다 그 이름으로 내려받기가 하나 일어납니다(`Blob`과 `<a download>`). 브라우저가 이름을 바꿀 수 있고(`name (1).txt`), 덮어쓰기 확인은 없으며, `can_write_again()`은 false입니다. 앱은 다음 저장을 "다른 이름으로 저장"으로 다룹니다. 이 브라우저들에서는 저장할 때마다 내려받기가 하나 생깁니다. 저장을 `Unavailable`로 두는 것보다 낫다고 판단했습니다(2026-11-13).
+- 결과가 어느 길이었는지는 언제나 `delivery()`로 압니다. 앱은 브라우저 이름을 보고 갈라지지 않습니다.
+
+**와이어(새 진입점 없음, PR-2 그대로).**
+
+- 대화상자 요청은 기존 `ShowFileDialog`(26)입니다. 바뀌지 않습니다.
+- Web의 `Chosen`은 새 이벤트 `FileHandles`(이벤트 태그 58)로 옵니다. 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `delivery: u32`(`Handle=1`, `Upload=2`, `Download=3`), `first_handle: u32`, 문자열 `names`(NUL로 이음), 문자열 `kinds`(파일은 `f`, 폴더는 `d`를 이름마다 한 글자)입니다. 핸들 번호는 Renderer가 정하고 `first_handle`부터 차례입니다. Host는 이것을 72.2의 `Chosen`으로 바꿔 `paths`에 파일 참조를 담습니다. `Cancelled`와 `Unavailable`은 기존 `FileDialogResult`(50)로 옵니다. **요청마다 둘 중 하나가 정확히 하나** 옵니다(72.2의 규칙). `entries`와 `child`의 답도 `FileHandles`입니다.
+- 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
+- `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
+- 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
+
 
 ### FR-73 프로그램에서 클립보드에 글자 쓰기 (`Draft`, 이슈 #471)
 
@@ -4297,6 +4402,191 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 1. 가짜 클립보드에 "한글\n줄 🙂"을 넣고 읽으면 같은 글자가 같은 request 번호로 옵니다(fr78_read_clipboard_round_trips).
 2. 클립보드가 비었거나 글자가 아니면 "없음"이 옵니다(fr78_empty_clipboard_reads_none).
 3. 클립보드가 없는 환경에서도 이벤트가 한 번 오고("없음") 프로세스가 계속 돕니다(fr78_unavailable_clipboard_reads_none).
+
+### FR-79 앱 저장소: 앱만 쓰는 이름 붙은 값 (`Agreed`, 이슈 #529, [leader, provisional, 2026-11-13])
+
+소유자 결정(2026-11-13): Web의 저장은 (b)안입니다. compose-rust가 저장 API를 주고, Web에서는 브라우저 저장소, 네이티브에서는 파일을 씁니다. notepad와 todo는 모든 대상에서 이 API를 씁니다(INTENT D26).
+
+앱이 다음 실행까지 남겨야 하는 상태(할 일 목록, 쓰다 만 글, 설정)를 둘 곳이 필요합니다. 지금 샘플은 `std::fs`와 `HOME`, `temp_dir()`로 스스로 경로를 만들고, 그 길은 `wasm32-unknown-unknown`에서 오류를 내거나 패닉합니다(#529). 이 항목은 모든 플랫폼에서 같은 코드로 쓸 수 있는 저장 API 하나를 정합니다.
+
+**사용자의 파일은 이 항목의 것이 아닙니다.** 사용자가 고른 파일을 읽고 쓰는 길은 FR-72(파일 대화상자와 72.9의 `PickedFile`)입니다. 이 저장소는 앱만 보는 자리이고, 사용자가 파일 관리자에서 찾을 것을 기대하지 않는 데이터를 둡니다.
+
+#### 79.1 Host API
+
+```rust
+pub mod storage {
+    pub const MAX_KEY_BYTES: usize = 128;
+    pub const MAX_VALUE_BYTES: usize = 16 * 1024 * 1024;
+
+    pub async fn read(key: impl Into<String>) -> Result<Option<Vec<u8>>, StorageError>;
+    pub async fn read_string(key: impl Into<String>) -> Result<Option<String>, StorageError>;
+    pub async fn write(key: impl Into<String>, value: impl Into<Vec<u8>>) -> Result<(), StorageError>;
+    pub async fn remove(key: impl Into<String>) -> Result<(), StorageError>;
+    pub async fn keys() -> Result<Vec<String>, StorageError>;
+
+    #[non_exhaustive]
+    pub enum StorageError {
+        /// 키가 79.3의 규칙에 맞지 않습니다. 아무것도 읽거나 쓰지 않았습니다.
+        InvalidKey,
+        /// 값이 `limit`를 넘습니다. 쓰지 않았고, 잘라서 쓰지도 않았습니다.
+        TooLarge { len: usize, limit: usize },
+        /// 플랫폼의 할당량이나 디스크가 찼습니다. 앞의 값은 그대로입니다.
+        QuotaExceeded,
+        /// 이 실행에는 저장소가 없습니다(앱 식별자가 없음, 데이터 폴더를 알 수 없음,
+        /// 브라우저가 저장소를 막음). 원인을 사람이 읽을 문장으로 담습니다.
+        Unavailable(String),
+        /// `read_string`이 읽은 값이 UTF-8이 아닙니다.
+        NotUtf8,
+        /// 그 밖의 입출력 실패. 플랫폼이 준 설명을 담습니다.
+        Io(String),
+    }
+}
+```
+
+- **모든 플랫폼에서 async입니다.** Web에서 `with_worker`는 일을 그 자리에서 돌리는 동기 클로저이고(PR-3의 Web 절), IndexedDB는 메인 스레드에서 동기로 쓸 수 없습니다. 그래서 저장 연산은 `with_worker` 안에서 부르는 동기 함수가 될 수 없고, 결과는 future로 옵니다. 같은 이유로 `with_worker`의 클로저 안에서는 이 API를 쓰지 않습니다.
+- **UI 스레드에서 부릅니다.** composition, 이펙트(`launched_effect`, 코루틴 스코프의 `launch`), 이벤트 핸들러에서 부르고 await합니다. future는 `Send`가 아니고, 완료는 UI 스레드에서 일어납니다. 워커 스레드에서 직접 부르는 길은 두지 않습니다. Web에는 워커가 없으므로, 같은 코드가 모든 플랫폼에서 돌게 하려는 것입니다.
+- 없는 키를 읽으면 `Ok(None)`입니다. 오류가 아닙니다. 첫 실행에는 값이 없기 때문입니다.
+- `keys()`는 이 앱의 키를 사전순으로 돌려줍니다.
+- **같은 키에 대한 연산은 부른 순서대로 적용됩니다.** `write(k, a)` 뒤에 부른 `read(k)`는, 앞의 future를 기다리지 않았더라도 `a`를 봅니다. 서로 다른 키 사이의 순서는 약속하지 않습니다.
+- **쓰기는 원자적입니다.** 쓰기 도중 프로세스가 죽거나 전원이 나가도, 다음 실행에서 읽는 값은 앞의 값 전부이거나 새 값 전부입니다. 반쯤 쓴 값은 없습니다.
+- 한 앱의 프로세스나 탭이 둘이면 같은 키에 대해 나중에 끝난 쓰기가 남습니다. 서로에게 바뀌었다고 알리지 않습니다.
+
+#### 79.2 앱 식별자
+
+- 저장소는 **앱 식별자**마다 하나입니다. 식별자는 `LaunchBuilder::new().identifier("dev.darkpyonix.composerust.samples.todo")`로 앱이 명시합니다. 값은 그 앱의 `Dioxus.toml`에 있는 `[bundle] identifier`와 같아야 하고, 샘플마다 시험이 그것을 확인합니다(79.8 기준 11).
+- **식별자를 다른 곳에서 짐작하지 않습니다.** 번들 식별자, 패키지 이름, 실행 파일 이름으로 대신하지 않습니다. 같은 앱이 번들로 실행했는지 개발용 실행 파일로 실행했는지에 따라 다른 저장소를 보게 되고, Web에는 번들이 없기 때문입니다. compose-rust의 빌드 스크립트가 앱의 `Dioxus.toml`을 읽는 길도 버렸습니다. 의존 크레이트의 빌드 스크립트는 앱의 매니페스트 폴더를 확실히 알 수 없습니다.
+- **식별자가 없으면 저장소가 없습니다.** 모든 연산이 `Unavailable`을 돌려주고, 그 문장은 `LaunchBuilder::identifier`로 식별자를 정하라고 알려 줍니다. 패닉하지 않고, 저장소를 쓰지 않는 앱은 아무것도 정하지 않아도 됩니다.
+- **Web에서 식별자가 반드시 필요한 이유**: 가이드 사이트의 샘플 페이지들(FR-22.7)은 한 출처(origin)에 있습니다. 브라우저 저장소는 출처마다 하나라서, 식별자로 나누지 않으면 todo와 notepad가 서로의 키를 봅니다.
+- 식별자는 `[A-Za-z0-9.-]`로만 이루어진 1-255바이트여야 합니다. 폴더 이름과 데이터베이스 이름에 그대로 쓰기 때문입니다. 어기면 `launch`가 시작하기 전에, 패닉이 아니라 무엇이 틀렸는지 말하는 오류 문장을 내고 0이 아닌 종료 코드로 끝납니다.
+
+#### 79.3 키와 크기
+
+- 키는 1-128바이트이고, 소문자 `a-z`, 숫자, `-`, `_`, `.`만 씁니다. `.`으로 시작할 수 없습니다. 대소문자를 가리지 않는 파일 시스템(macOS, Windows의 기본)에서 두 키가 한 파일이 되지 않게 하고, 키를 바꾸지 않고 그대로 파일 이름으로 쓰기 위해서입니다. 어기면 `InvalidKey`이고 입출력은 일어나지 않습니다.
+- 값 하나는 `MAX_VALUE_BYTES`(16 MiB)까지입니다. 넘으면 `TooLarge`이고 쓰지 않습니다. 이 저장소는 앱 상태를 위한 것이고, 값을 메모리에 한 번에 올려 경계를 넘기는 모양이라 상한을 둡니다. 더 큰 것은 FR-72의 파일로 둡니다. 값을 나눠 읽고 쓰는 길은 두지 않습니다.
+- 전체 크기에는 compose-rust가 상한을 두지 않습니다. 플랫폼의 한도(디스크, 브라우저 할당량)에 닿으면 `QuotaExceeded`입니다.
+
+#### 79.4 데이터가 사는 곳
+
+| 플랫폼 | 위치 | 누가 씁니까 |
+|---|---|---|
+| macOS | `~/Library/Application Support/<식별자>/storage/<키>` (샌드박스 앱은 `HOME`이 컨테이너라 같은 식이 컨테이너 안을 가리킵니다) | Host 워커, `std::fs` |
+| Linux | `$XDG_DATA_HOME/<식별자>/storage/<키>`, 없으면 `~/.local/share/<식별자>/storage/<키>` | Host 워커 |
+| Windows | `%APPDATA%\<식별자>\storage\<키>` (FR-43의 확대 수준과 같은 루트) | Host 워커 |
+| iOS | `$HOME/Library/Application Support/<식별자>/storage/<키>` (iOS의 `HOME`은 앱 컨테이너입니다) | Host 워커 |
+| Android | `Context.getFilesDir()/compose-rust/storage/<키>` | Host 워커. 경로는 Renderer가 알려 줍니다(아래) |
+| Web | IndexedDB 데이터베이스 `compose-rust/<식별자>`, 객체 저장소 `values`, 키는 그대로 | Renderer(Kotlin/Wasm) |
+
+- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
+- **개발과 시험용 덮어쓰기**: 환경 변수 `COMPOSE_RUST_STORAGE_DIR`가 있으면 네이티브에서는 그 폴더가 `<...>/storage`를 대신합니다. 시험이 사용자의 실제 데이터를 건드리지 않게 하려는 것입니다.
+- **확대 수준(FR-43)과는 다른 자리입니다.** FR-43의 값은 Renderer가 가진 UI 로컬 상태(D5)이고 Renderer가 저장합니다. 이 항목의 값은 앱의 도메인 상태이고 Host가 저장합니다(PR-3). 둘은 섞이지 않습니다.
+
+**Web에서 IndexedDB를 고른 이유.**
+- `localStorage`는 동기라 `with_worker`의 그 자리 실행과 맞아 보이지만, 출처마다 약 5 MB이고 글자만 담으며(바이트는 base64로 33% 커집니다), 읽고 쓰는 동안 페이지를 멈춥니다. 같은 출처의 모든 샘플이 그 5 MB를 나눠 씁니다. FR-43의 확대 수준처럼 작은 값에는 맞지만 앱 데이터에는 작습니다.
+- OPFS(Origin Private File System)는 키를 파일로 두는 모양이 네이티브와 같아 끌립니다. 그러나 빠른 동기 접근(`createSyncAccessHandle`)은 Web Worker 안에서만 되고, PR-6의 메모리 모델에는 Worker가 없습니다. 메인 스레드에서 쓰려면 `createWritable()`이 필요한데, 엔진마다 들어온 시기가 늦고 다릅니다.
+- IndexedDB는 세 엔진 모두 메인 스레드에서 오래전부터 되고, `ArrayBuffer`를 그대로 담으며, `put` 한 번이 트랜잭션 하나라 원자적이고, 할당량이 출처 저장소(디스크의 일정 비율)입니다. 그리고 `put`은 값을 **호출하는 그 자리에서** 복제(structured clone)하므로, Renderer가 배치 버퍼를 놓기 전에 바이트를 넘길 수 있습니다(79.5).
+- **`navigator.storage.persist()`는 부르지 않습니다.** Chromium은 대개 묻지 않고 허락하지만 Firefox는 사용자에게 묻고, 샘플이 저장을 위해 권한 창을 띄우는 것은 맞지 않기 때문입니다. 그래서 브라우저는 이 저장소를 "best-effort"로 다루고, 공간이 모자라면 지울 수 있습니다. 사생활 보호 창에서는 창이 닫힐 때 사라집니다. 둘 다 앱이 바꿀 수 없는 브라우저의 규칙이고, 가이드가 그렇게 적습니다.
+
+#### 79.5 경계를 넘는 방법
+
+**네이티브에서는 경계를 넘지 않습니다.** 저장 연산은 Host 안의 일입니다. compose-rust가 Host 워커에서 파일을 읽고 쓰고, 결과를 UI 스레드의 future로 돌려줍니다(PR-3). 같은 키의 순서(79.1)를 지키기 위해 compose-rust는 저장소 전용 워커 하나와 그 앞의 순서 목록을 둡니다. 이 목록은 Host 안의 것이고 경계 위의 큐가 아닙니다(PR-1, FR-36의 알림 대기열과 같습니다). 쓰기는 같은 폴더의 임시 파일에 쓰고 `sync_all` 뒤 `rename`으로 바꿉니다(Windows의 `std::fs::rename`도 기존 파일을 바꿉니다). 시작할 때 남은 임시 파일은 지웁니다.
+
+**Web에서는 FR-72, FR-78과 같은 요청과 결과의 모양입니다.** 새 경계 함수는 없습니다(PR-2). Rust는 브라우저 함수를 import하지 않습니다. `wasm_bindgen`도, 손으로 쓴 JS도 없고, IndexedDB를 부르는 것은 Renderer의 Kotlin(`renderer/web/src/WebStorage.kt`, `WebClipboard.kt`와 같은 자리)입니다. Renderer가 플랫폼 API를 부르는 것은 macOS Renderer가 `NSSavePanel`을 부르는 것과 같은 일이고, FR-7이 막는 것은 Rust와 Kotlin 사이의 손으로 쓴 접착입니다.
+
+- 명령 `StorageCall`(명령 태그 32): 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Remove=3`, `Keys=4`), 예약 `u16`, 문자열 `store`(앱 식별자), 문자열 `key`(`Keys`에서는 길이 0), 바이트 `data`(`Write`에서만, 나머지는 길이 0). 바이트는 `RegisterAsset`(FR-16.2)처럼 레코드 뒤 문자열 영역에 놓입니다.
+- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
+- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`. Android Renderer만 보냅니다(79.4).
+- `status`는 닫힌 열거형입니다. `Ok=1`, `NotFound=2`, `QuotaExceeded=3`, `Unavailable=4`, `PermissionDenied=5`, `Failed=6`, `ReadOnly=7`, `TooLarge=8`. 모르는 값은 `ProtocolError`입니다. `op`도 같습니다.
+- **요청마다 `IoAnswer`는 정확히 하나입니다.** FR-72.2와 같은 규칙이고 같은 이유입니다. 기다리는 future를 풀 수 있어야 합니다. 이미 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청은 영향을 받지 않습니다. 답을 받기 전에 그 future를 기다리던 composition이 떠나도 답은 하나 오고, Host는 그것을 버립니다.
+- **쓰는 바이트는 한 번만 복사됩니다.** Renderer는 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 가리키는 `Uint8Array` 뷰를 만들어 `put`에 넘깁니다. `put`의 structured clone이 브라우저의 저장 버퍼로 가는 복사 한 번이고, 이것이 쓰기 자체입니다(네이티브의 `write`가 커널 버퍼로 복사하는 것과 같습니다). Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- **읽은 바이트는 이벤트 버퍼에 한 번 써서 옵니다.** IndexedDB가 준 `ArrayBuffer`를 Renderer가 이벤트 버퍼에 복사하고 `dispatch_event`를 부릅니다. 이 복사는 브라우저가 가진 메모리에서 wasm 메모리로 오는 것이라 피할 수 없고, 그 뒤로 Host는 제자리에서 읽습니다.
+- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값을 싣지 않은 `TooLarge` 답 하나를 보내고(요청마다 답 하나), Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
+- 연산이 끝나면(성공이든 실패든) Renderer는 Promise가 풀린 그 작업 안에서 `IoAnswer`를 보냅니다. future는 그 `dispatch_event` 안에서 깨어나고, 그것을 기다리던 코드는 그 호출이 만드는 배치에 반영됩니다.
+- 네이티브 Renderer는 `StorageCall`을 받을 일이 없습니다. 받으면 `Unavailable`로 답합니다(요청마다 답 하나라는 규칙).
+- 이 항목이 더하는 것은 명령 하나, 이벤트 둘, 열거 둘입니다. 속성 태그는 쓰지 않습니다. 새 `EventPayloadType`이 생기고 스키마 해시가 바뀝니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
+
+#### 79.6 스레드(PR-3)
+
+- 네이티브: 파일 입출력은 언제나 Host 워커에서 돕니다. UI 스레드는 future를 만들고 완료를 받을 뿐 디스크를 기다리지 않습니다.
+- Web: 입출력은 브라우저가 비동기로 합니다. UI 스레드를 멈추지 않으며, `with_worker`의 그 자리 실행(PR-3의 Web 절)에 기대지 않습니다. 그래서 Web에서도 저장은 페이지를 멈추지 않습니다.
+
+#### 79.7 샘플
+
+**todo**
+- 지금은 `~/.sample-todo.tsv`(또는 `SAMPLE_TODO_FILE`이 가리키는 파일)를 `remember` 안에서 UI 스레드가 동기로 읽습니다. PR-3을 어기는 상태이고, Web에서는 목록이 새로 고침까지만 남습니다.
+- 바뀐 뒤에는 `LaunchBuilder::identifier("dev.darkpyonix.composerust.samples.todo")`를 정하고, 키 `tasks.tsv`에 같은 TSV를 씁니다. 읽기는 `launched_effect`의 `storage::read_string("tasks.tsv").await`이고, 끝날 때까지 목록 자리에 불러오는 중임을 보여 빈 목록이 깜빡이지 않게 합니다. 쓰기는 `storage::write`이고, 새 스냅샷에 추월된 저장은 쓰지 않는 지금의 규칙을 그대로 둡니다. `SAMPLE_TODO_FILE`은 `COMPOSE_RUST_STORAGE_DIR`가 대신합니다. 이것으로 UI 스레드의 동기 읽기도 사라집니다.
+- **예전 `~/.sample-todo.tsv`를 옮겨 오지 않습니다.** 샘플이고, 사용자 홈에 남은 점 파일을 읽는 코드를 샘플에 남기지 않으려는 것입니다.
+
+**notepad**
+- 지금은 시작 문서가 `temp_dir()/compose-rust-notepad.txt`이고, 경로를 한 줄 `TextField`에 손으로 적어 `with_worker` 안의 `std::fs`로 열고 저장합니다. 열린 여러 문서(선반)는 메모리에만 있습니다.
+- 바뀐 뒤에는 `LaunchBuilder::identifier("dev.darkpyonix.composerust.samples.notepad")`를 정합니다.
+  - "열기"는 `show_file_dialog(FileDialog::open_file().filter("Text", &["txt", "md"]))`와 결과의 `files()`(FR-72.9)이고, 받은 `PickedFile`의 `read()`로 읽습니다. "저장"은 지금 문서의 `PickedFile`이 `can_write_again()`이면 그 `write()`, 아니면 "다른 이름으로 저장"(`FileDialog::save().name(...)`)입니다. 경로를 적는 칸은 없애고 문서 이름(`name()`)을 제목에 보입니다. 네이티브에서는 `path()`를 도움말로 보입니다.
+  - Web에서 저장이 `Download`가 되면 상태 줄에 이 브라우저는 파일에 바로 저장할 수 없어 내려받았다고 알립니다.
+  - **세션은 저장소에 둡니다.** 키 `session`에 열린 문서들의 이름, 글, 저장되지 않았는지, 네이티브라면 경로를 담아, 글이 바뀐 뒤 잠깐 쉬면 씁니다. 다음 실행에서 되살립니다. 네이티브에서는 되살린 문서가 그 경로의 `PickedFile`을 다시 가집니다. Web의 핸들은 다시 불러온 페이지에서 사라지므로(FR-72.9), 되살린 문서는 글과 이름은 있고 다음 저장이 "다른 이름으로 저장"입니다.
+  - `temp_dir()`로 시작 파일을 만드는 코드와 Web을 가르는 `cfg` 갈래는 없어집니다. 첫 실행은 빈 문서 하나입니다.
+- 두 샘플 모두 모든 플랫폼에서 같은 코드입니다.
+
+#### 79.8 수용 기준
+
+1. `StorageCall`, `IoAnswer`, `StorageLocation`이 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin에서 같은 바이트로 왕복하고, 모르는 `op`와 `status`가 `ProtocolError`가 되며 프로세스가 죽지 않습니다(시험 이름 fr79_storage_records_round_trip_and_unknown_enums_are_errors, 미구현).
+2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 pr2_boundary_surface_unchanged_by_storage, 미구현).
+3. 쓴 값을 읽으면 같은 바이트이고, 없는 키는 `Ok(None)`이며, 지운 키는 다시 `Ok(None)`입니다. 한글과 NUL이 든 값도 그대로이고, `keys()`가 사전순입니다(시험 이름 fr79_write_then_read_returns_the_same_bytes, 미구현).
+4. 같은 키에 `write(a)`, `write(b)`, `read`를 기다리지 않고 잇달아 부르면 `read`가 `b`를 봅니다(시험 이름 fr79_operations_on_one_key_apply_in_call_order, 미구현).
+5. 규칙에 맞지 않는 키(대문자, `/`, `..`, `.`으로 시작, 빈 키, 129바이트)는 `InvalidKey`이고 파일이 생기지 않습니다(시험 이름 fr79_invalid_keys_are_refused_before_any_io, 미구현).
+6. 16 MiB + 1바이트 값은 `TooLarge`이고 앞의 값이 그대로 남습니다(시험 이름 fr79_an_oversized_value_is_refused_and_the_old_value_stays, 미구현).
+7. 쓰기 도중 프로세스가 죽은 뒤 다시 읽으면 앞의 값 전부이거나 새 값 전부입니다. 시험은 임시 파일만 쓴 상태와 `rename` 직후 상태를 각각 만들어 확인하고, 남은 임시 파일이 다음 시작에 지워지는 것도 봅니다(시험 이름 fr79_a_write_is_atomic_across_a_crash, 미구현).
+8. 네이티브의 저장 연산이 UI 스레드에서 파일을 열지 않습니다. 시험은 입출력을 하는 스레드가 UI 스레드가 아님을 기록합니다(시험 이름 fr79_native_storage_io_runs_off_the_ui_thread, 미구현).
+9. `COMPOSE_RUST_STORAGE_DIR`를 주면 그 아래에만 파일이 생기고, 각 플랫폼의 기본 위치 계산이 79.4의 표와 같습니다(시험 이름 fr79_storage_lives_in_the_platform_data_directory, 미구현).
+10. 앱 식별자가 없는 실행에서 모든 연산이 `Unavailable`이고 패닉하지 않습니다. 규칙에 맞지 않는 식별자는 `launch`가 오류 문장과 함께 0이 아닌 코드로 끝냅니다(시험 이름 fr79_without_an_identifier_storage_is_unavailable, 미구현).
+11. 저장소를 쓰는 샘플(todo, notepad)의 `LaunchBuilder::identifier` 값이 그 샘플 `Dioxus.toml`의 `[bundle] identifier`와 같습니다(시험 이름 fr79_sample_identifiers_match_their_bundle_identifier, 미구현).
+12. Fake Renderer로, 요청마다 `IoAnswer`가 하나 오고, 기다리는 `request`를 다시 보내면 `ProtocolError`이며, 답을 받기 전에 composition이 떠나도 답은 하나이고 아무 일도 하지 않습니다(시험 이름 fr79_every_storage_request_gets_exactly_one_answer, 미구현).
+13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
+14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
+15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
+
+### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
+
+요청한 쪽: dioxus-compose의 HTML 경로(dioxus-compose#200: `element.scrollIntoView()`, `scrollTop`/`scrollLeft`의 읽기와 쓰기, `scrollTo`, dioxus-compose#179: `onscroll`). HTML 경로는 `overflow: auto`와 `overflow: scroll` 상자를 `ScrollColumn`과 `ScrollRow`로 그립니다. FR-62의 `ui::ScrollState`는 `ui` 위젯 전용의 속성 묶음(`Value`, `Determinate`, `Count`)과 dp 단위 `RangeRequested`로 한 축만 다루고, FR-38(#544)의 `SetScrollOffset`(명령 태그 30)과 `CodeScrolled`(이벤트 태그 55)는 `CodeEditor` 한 위젯의 세로축만 다룹니다. 이 항목은 **두 번째 어휘를 만들지 않고** #544의 레코드 모양(노드 id 뒤에 물리 픽셀 `f64`)을 그대로 넓혀, 어느 스크롤 컨테이너에나 쓰는 명령 둘과 이벤트 하나를 둡니다. 모든 변경은 **추가 전용**이고 기존 태그와 레코드는 바뀌지 않습니다.
+
+**D5를 따릅니다.** 스크롤 위치는 Renderer의 것입니다. 명령은 요청이고(Renderer가 범위 안으로 자르고, 애니메이션으로 옮기거나, 사용자의 끌기나 플링 중이면 무시할 수 있습니다), 이벤트는 Renderer가 실제로 한 일의 보고입니다. Host는 위치의 주인이 되지 않습니다. 같은 프레임 안의 왕복은 없습니다. Renderer는 명령을 적용하려고 Host를 기다리지 않고, 보고는 그 명령이 들어온 프레임의 배치가 끝난 뒤에 나옵니다. 보고를 받아 다른 컨테이너를 맞추는 Host(#544의 나란한 두 편집기)는 한 프레임 늦게 따라가며, 그것이 정해진 비용입니다. 스크롤을 프레임마다 Host가 몰고 가는 길은 없습니다.
+
+- **단위는 물리 픽셀(`f64`)입니다.** #544와 같습니다. Compose의 `ScrollState.value`와 `LazyListState`의 오프셋은 정수 물리 픽셀이 원래 단위이므로, dp로 바꿔 보내면 Renderer가 나누고 Host가 다시 곱하면서 값이 어긋나 `scrollTop = 120` 뒤에 읽은 값이 120이 아닌 일이 생깁니다. 물리 픽셀이면 Renderer가 보고한 값을 그대로 다시 보내도 같은 자리입니다. Host의 변환: CSS px(= dp)에서 물리 픽셀로는 `px = css_px × k × scale`이고, 보고를 읽을 때는 그 역입니다. `k`는 `ZoomChanged`(FR-43, 이벤트 태그 33)의 배율, `scale`은 `DensityChanged`(FR-43.1, 이벤트 태그 53)의 값이며 둘 다 그 컨테이너가 있는 창의 것입니다. 밀도나 배율이 바뀌면 Renderer는 내용의 같은 자리를 유지하고, 새 픽셀 값으로 보고를 한 번 보냅니다. FR-62의 dp 단위 와이어는 이 항목으로 바뀌지 않습니다.
+- **적용되는 위젯.** `ScrollColumn`, `ScrollRow`, `LazyColumn`, `LazyRow`, `LazyGrid`, `CodeEditor`입니다. 주축은 `ScrollColumn`, `LazyColumn`, `LazyGrid`, `CodeEditor`가 y, `ScrollRow`, `LazyRow`가 x입니다. `CodeEditor`는 줄바꿈을 끈 경우(`SoftWrap`이 거짓) x로도 스크롤하고, 그 밖의 위젯의 교차축은 언제나 0입니다. 두 축으로 넘치는 HTML 상자는 HTML 경로가 이미 컨테이너 둘로 겹쳐 그리므로, Host는 축마다 그 축의 노드에 명령을 보냅니다.
+- **명령 `ScrollTo`(명령 태그 35): 오프셋으로 스크롤.** 32바이트 고정 레코드(`tag=35, len=32`) 뒤에 `node_id: u32`, `item: u32`, `flags: u32`, `x_px: f64`, `y_px: f64`가 옵니다. `flags`의 비트 0은 `animate`, 비트 1은 `x_px`를 적용, 비트 2는 `y_px`를 적용입니다. 비트가 꺼진 축은 건드리지 않습니다(`scrollTop`만 쓰는 setter가 Host의 낡은 `scrollLeft`를 되돌려 보내지 않게). `item`은 Lazy 목록에서 오프셋을 재기 시작하는 항목 번호이며(Compose의 `scrollToItem(item, offset)`, 오프셋이 그 항목보다 길면 그만큼 더 나아갑니다), 다른 위젯에서는 0이어야 합니다. 축의 값은 그 축의 범위 `[0, max]`로 잘립니다. 음수나 범위 밖은 오류가 아닙니다(브라우저의 `scrollTop`과 같습니다).
+- **명령 `ScrollIntoView`(명령 태그 36): 사각형을 보이게.** 52바이트 고정 레코드(`tag=36, len=52`) 뒤에 `node_id: u32`(움직일 컨테이너), `target: u32`, `target_kind: u16`, `align_x: u16`, `align_y: u16`, `flags: u16`, `rect_x_px: f64`, `rect_y_px: f64`, `rect_w_px: f64`, `rect_h_px: f64`가 옵니다.
+  - `target_kind`: `Content=0`이면 사각형은 컨테이너 내용 좌표(오프셋 0일 때 내용의 왼쪽 위가 원점)이고 `target`은 0입니다. `Node=1`이면 `target`은 그 컨테이너의 자손 노드 id이고 사각형은 그 노드의 왼쪽 위 기준이며, 폭과 높이가 둘 다 0이면 그 노드 전체입니다. `Item=2`이면 `target`은 Lazy 목록의 항목 번호이고 사각형은 그 항목 기준이며, 폭과 높이가 0이면 항목 전체입니다. Lazy 목록은 내용 좌표가 없으므로 `Content`를 받지 않고, 다른 위젯은 `Item`을 받지 않습니다.
+  - `align_x`, `align_y`: `Keep=0`(그 축은 움직이지 않음), `Start=1`, `Center=2`, `End=3`, `Nearest=4`입니다. `Nearest`는 사각형이 이미 다 보이면 움직이지 않고, 아니면 보이게 하는 가장 작은 이동을 하며, 사각형이 뷰포트보다 크면 `Start`와 같습니다. CSS의 `block`/`inline`과 같은 네 값이고, `scrollIntoView()`의 기본(`block: start`, `inline: nearest`)은 Host가 고릅니다. 교차축의 정렬은 그 축으로 스크롤하지 않는 위젯에서 아무 일도 하지 않습니다.
+  - `flags`의 비트 0은 `animate`입니다.
+  - 명령 하나는 컨테이너 하나를 움직입니다. 겹친 스크롤 컨테이너 안의 요소를 보이게 하는 Host(`scrollIntoView`가 모든 조상을 움직이는 것처럼)는 같은 배치에 안쪽 컨테이너부터 조상마다 하나씩 보내고, 각 사각형은 Host가 자기 레이아웃으로 그 컨테이너의 내용 좌표에서 계산합니다. `Node`나 `Item`의 대상이 지금 구성되어 있지 않으면(Lazy 목록의 화면 밖 자손 노드) 아무 일도 하지 않으며 오류가 아닙니다. 화면 밖의 Lazy 항목은 `Item`으로 가리킵니다.
+- **요청의 규칙.** 같은 배치에서 만든 컨테이너에 보낸 요청은 처음 배치(측정)가 끝난 뒤 그 범위로 잘려 적용됩니다(HTML 경로가 상자를 만들면서 스크롤 위치를 되살리는 경우). 한 배치에 같은 노드로 여러 요청이 오면 순서대로 적용하며 결과는 마지막 요청과 같습니다. 진행 중인 애니메이션은 다음 요청이 대신합니다. 사용자가 끌거나 플링하는 동안의 요청은 무시합니다(Compose의 `MutatePriority.UserInput`이 이깁니다). 무시된 요청에도 보고는 실제 위치를 그대로 알립니다.
+- **이벤트 `ScrollChanged`(이벤트 태그 60): 위치의 보고.** 72바이트 레코드(머리 16바이트, `item: u32@16`, `flags: u32@20`, `x_px: f64@24`, `y_px: f64@32`, `max_x_px: f64@40`, `max_y_px: f64@48`, `viewport_width_px: f64@56`, `viewport_height_px: f64@64`)입니다. `flags`의 비트 0은 `settled`(움직임이 끝남), 비트 1은 주축으로 뒤로 더 갈 수 있음, 비트 2는 앞으로 더 갈 수 있음이며, 모르는 비트는 Host에서 `ProtocolError`입니다. `max`와 뷰포트를 함께 실어 Host가 `scrollHeight`(= `max + viewport`)와 `clientHeight`를 따로 묻지 않게 합니다. Lazy 목록에서는 `item`이 처음 보이는 항목이고 주축 값은 그 항목 안의 오프셋이며, 전체 길이를 모르므로 주축 `max`는 `-1.0`입니다. 다른 위젯의 `item`은 0입니다.
+- **옵트인은 노드마다입니다.** 핸들러 속성 `OnScrollChanged`(속성 태그 186)가 붙은 노드만 보고하고, `ObserveSize`처럼 구독 하나가 핸들러 하나입니다. 붙지 않은 노드는 아무것도 보내지 않고 비용도 없으며, 아무도 붙이지 않은 트리의 와이어는 지금과 한 바이트도 다르지 않습니다. 핸들러를 떼거나 노드가 없어지면 보고가 멈춥니다. 명령은 핸들러 없이도 쓸 수 있습니다.
+- **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
+- **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
+- **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(17)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(18)입니다: NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
+- **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
+- **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
+- **구현 범위.** 스키마와 codegen, Rust 인코더와 디코더, 데스크톱 Kotlin 렌더러(macOS, Windows, Linux가 같은 코드)와 `android-kotlin/shared`의 `NodeTable`, 프로토콜 벡터입니다. dioxus-compose의 HTML 연결(`scrollIntoView`, `scrollTop`/`scrollLeft`, `onscroll`)은 dioxus-compose#200과 #179가 이 와이어 위에 만듭니다.
+
+수용 기준.
+1. `ScrollTo`와 `ScrollIntoView`가 `mutations.bin`에, `ScrollChanged`가 `events.bin`에 레코드로 더해지고(`vectors.json`의 `recordCount`와 이벤트 목록이 늘어남), Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr80_scroll_records_round_trip_through_the_protocol_vectors).
+2. 내용 1000px, 뷰포트 300px인 `ScrollColumn`에 `ScrollTo(y = 5000)`을 보내면 `ScrollChanged`의 `y_px`가 700이고, `ScrollTo(y = -10)`이면 0입니다. `max_y_px`는 700, `viewport_height_px`는 300입니다(시험 이름 fr80_scroll_to_clamps_to_the_range_and_reports_it).
+3. 두 축으로 스크롤하는 `CodeEditor`에서 y 비트만 켠 `ScrollTo`는 x를 그대로 둡니다(시험 이름 fr80_scroll_to_moves_only_the_axes_it_names).
+4. 컨테이너를 만든 배치에 함께 온 `ScrollTo(y = 400)`은 처음 측정 뒤에 적용되고, 처음 보고의 `y_px`가 400입니다(시험 이름 fr80_scroll_to_in_the_creating_batch_applies_after_first_layout).
+5. `animate`인 `ScrollTo`는 움직이는 동안 프레임마다 많아야 한 번 보고하고, 마지막 보고 하나만 `settled`이며 그 값이 목표입니다(시험 이름 fr80_animated_scroll_reports_once_per_frame_then_settles).
+6. 뷰포트 300px인 `ScrollColumn`에서 `Content` 사각형 y=600, h=40에 `Start`는 600, `Center`는 470, `End`는 340, 오프셋 0에서 `Nearest`는 340으로 옮깁니다. 이미 다 보이는 사각형의 `Nearest`는 움직이지 않고 보고도 없습니다(시험 이름 fr80_scroll_into_view_aligns_start_center_end_and_nearest).
+7. `Node` 대상은 그 자손 노드 전체를 보이게 합니다(시험 이름 fr80_scroll_into_view_brings_a_descendant_node_into_view).
+8. 항목 1000개인 `LazyColumn`에서 `Item(500)`의 `Start`는 보고의 `item`을 500, 주축 오프셋을 0으로 만들고 주축 `max`는 -1.0입니다(시험 이름 fr80_lazy_list_scroll_into_view_reaches_an_unseen_item).
+9. `OnScrollChanged`가 없는 노드는 스크롤해도 아무 이벤트도 보내지 않고, 아무도 붙이지 않은 트리의 배치 바이트는 이 항목 전과 같습니다(시험 이름 fr80_only_nodes_with_a_handler_report).
+10. 한 프레임에 세 번 움직이는 끌기를 열 프레임 이어 가면 보고는 많아야 열 개이고 각 보고는 그 프레임의 마지막 값입니다(시험 이름 fr80_report_is_at_most_once_per_frame).
+11. 사용자가 끄는 동안 온 `ScrollTo`는 무시되고, 보고는 끌기가 만든 위치를 알립니다(시험 이름 fr80_request_during_a_drag_is_ignored).
+12. 밀도가 2.0에서 1.0으로 바뀌면 내용의 같은 자리를 유지한 채 픽셀 값이 반인 보고가 한 번 옵니다(시험 이름 fr80_density_change_keeps_the_position_and_reports_new_pixels).
+13. `CodeEditor`에서 `SetScrollOffset(o)`와 `ScrollTo(y = o)`는 같은 자리로 옮기고, 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다(시험 이름 fr80_code_editor_set_scroll_offset_and_scroll_to_agree).
+14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
+15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
