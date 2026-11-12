@@ -73,12 +73,6 @@ private fun ComposeUiTest.show(mutations: List<Mutation>) {
     waitForIdle()
 }
 
-/**
- * Widgets the every-operable-node-has-a-name check does not cover.
- * Sliders are left out until the design system's Slider exposes a range semantics node: thisisthepy/compose-multiplatform-core-extended#180.
- */
-private val LEFT_OUT_OF_THE_CHECK = setOf(WidgetKind.Slider)
-
 /** A column holding one of every kind of control, each given a name unless it names itself. */
 private fun everyOperable(named: Boolean) = buildList {
     add(Mutation.Create(TREE_ROOT, WidgetKind.Column))
@@ -121,7 +115,7 @@ private fun everyOperable(named: Boolean) = buildList {
             ) + label(it, "$kind option")
         }
     }
-    if (WidgetKind.Slider !in LEFT_OUT_OF_THE_CHECK) child(WidgetKind.Slider) {
+    child(WidgetKind.Slider) {
         listOf(
             Mutation.SetProp(it, PropertyKind.Value, PropertyValue.Float(0.5f)),
             Mutation.SetProp(it, PropertyKind.Min, PropertyValue.Float(0f)),
@@ -143,7 +137,7 @@ class AccessibilityModifierTest {
         runComposeUiTest {
             show(everyOperable(named = true))
             val operableCount = onAllNodes(operable).fetchSemanticsNodes().size
-            assertTrue(operableCount >= 6, "only $operableCount operable nodes were found, so the check proves nothing")
+            assertTrue(operableCount >= 7, "only $operableCount operable nodes were found, so the check proves nothing")
             val missing = unnamed()
             assertTrue(missing.isEmpty(), "these nodes can be operated and have no name: $missing")
         }
@@ -154,9 +148,9 @@ class AccessibilityModifierTest {
         runComposeUiTest {
             show(everyOperable(named = false))
             val missing = unnamed()
-            // The pressable container and the three toggles say nothing by themselves. Sliders
-            // are in LEFT_OUT_OF_THE_CHECK.
-            assertTrue(missing.size >= 4, "an unnamed control went unnoticed: $missing")
+            // The pressable container, the three toggles and the slider say nothing by
+            // themselves.
+            assertTrue(missing.size >= 5, "an unnamed control went unnoticed: $missing")
             assertTrue(missing.all { it.startsWith(TAG_PREFIX) }, "$missing")
         }
     }
@@ -303,6 +297,52 @@ class AccessibilityModifierTest {
             waitForIdle()
             assertEquals(defaultName, description(), "the name after the removal is not the default one")
             assertTrue(description() != listOf("가져오기"), "the removed name is still spoken")
+        }
+    }
+
+    @Test
+    fun fr68_a_slider_says_its_name_and_range_and_takes_a_new_value() {
+        val slider = 1
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(slider, WidgetKind.Slider),
+                    Mutation.SetProp(slider, PropertyKind.Value, PropertyValue.Float(4f)),
+                    Mutation.SetProp(slider, PropertyKind.Min, PropertyValue.Float(0f)),
+                    Mutation.SetProp(slider, PropertyKind.Max, PropertyValue.Float(10f)),
+                    Mutation.SetProp(slider, PropertyKind.AccessibleName, name("Volume")),
+                    Mutation.SetProp(slider, PropertyKind.OnValueChange, PropertyValue.Integer(SOME_HANDLER)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val config = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertEquals(listOf("Volume"), config.getOrNull(SemanticsProperties.ContentDescription))
+            val range = config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)
+            assertEquals(4f, range?.current)
+            assertEquals(0f..10f, range?.range)
+            assertTrue(config.contains(SemanticsActions.SetProgress), "a reader must be able to set the value")
+
+            onNodeWithTag(nodeTestTag(slider)).performSemanticsAction(SemanticsActions.SetProgress) { it(7f) }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.ValueChanged(slider, SOME_HANDLER, 7.0)),
+                connection.events.filterIsInstance<HostEvent.ValueChanged>(),
+            )
+            val moved = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertEquals(7f, moved.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.current)
+        }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(slider, WidgetKind.Slider),
+                    Mutation.SetProp(slider, PropertyKind.Enabled, PropertyValue.Bool(false)),
+                    Mutation.SetProp(slider, PropertyKind.AccessibleName, name("Volume")),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertTrue(config.contains(SemanticsProperties.ProgressBarRangeInfo))
+            assertTrue(config.contains(SemanticsProperties.Disabled), "a slider that cannot move must say so")
         }
     }
 
