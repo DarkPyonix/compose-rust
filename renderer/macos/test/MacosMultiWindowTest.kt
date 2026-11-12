@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.ui.platform.MacosApplicationDelegate
 import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
+import dev.darkpyonix.composerust.ui.platform.IdleSoakSetting
 import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
 import dev.darkpyonix.composerust.ui.platform.RestoreKeyStore
 import dev.darkpyonix.composerust.ui.platform.WindowRestore
@@ -598,5 +599,27 @@ class MacosMultiWindowTest {
         restore.remember(emptyList())
         keeps = true
         assertEquals(emptyList(), restore.keysToRequest(emptyList()))
+    }
+
+    @Test
+    fun fr53_macos_idle_soak_runs_once_for_the_selected_window() {
+        // Only the chosen window carries the soak, however many open.
+        val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom("2"))
+        assertEquals(listOf(false, true, false), List(3) { starts.next().parityRun })
+
+        // The setting is read once and taken out of the environment, so the window library
+        // finds nothing to start a soak of its own with in any window.
+        IdleSoakSetting.resetForTest()
+        platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "30", 1)
+        assertEquals(30, IdleSoakSetting.seconds())
+        assertEquals(null, platform.posix.getenv("DXC_IDLE_SOAK_SECONDS"))
+        assertEquals(30, IdleSoakSetting.seconds())
+        assertTrue(IdleSoakSetting.requested())
+        IdleSoakSetting.resetForTest()
+        assertEquals(null, IdleSoakSetting.seconds())
+        assertEquals(null, IdleSoakSetting.parse("0"))
+        assertEquals(null, IdleSoakSetting.parse("soon"))
+        assertEquals(12, IdleSoakSetting.parse(" 12 "))
+        IdleSoakSetting.resetForTest()
     }
 }

@@ -77,7 +77,7 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
-        ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
+        ?: !IdleSoakSetting.requested()
 
     // A `Window` node's own `Icon` is not drawn on macOS. AppKit gives a window no icon of its
     // own: the title bar of a window that is not a document's shows none, and the Dock and the

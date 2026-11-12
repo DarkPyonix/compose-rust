@@ -58,6 +58,11 @@ now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
 # Plain variables rather than an array: the bash macOS ships is 3.2, which has no associative ones.
 footprint_1="" footprint_2=""
 
+# Only the renderer's own soak lines count. They carry `owner=renderer`; a soak some library
+# in the process runs for itself prints lines of the same shape without it.
+start_line='idle-soak phase start .*owner=renderer'
+end_line='idle-soak phase end .*owner=renderer'
+
 for windows in 1 2 3; do
     err="$out/windows-$windows.err"
     : > "$err"
@@ -71,11 +76,11 @@ for windows in 1 2 3; do
     limit=$(( (seconds + 70) * 10 ))
     for _ in $(seq 1 "$limit"); do
         kill -0 "$app" 2>/dev/null || break
-        if [[ -z "$start_cpu" ]] && grep -q 'idle-soak phase start' "$err"; then
+        if [[ -z "$start_cpu" ]] && grep -q "$start_line" "$err"; then
             start_cpu="$(cpu_seconds "$app")"
             start_wall="$(now)"
         fi
-        if [[ -n "$start_cpu" && -z "$end_cpu" ]] && grep -q 'idle-soak phase end' "$err"; then
+        if [[ -n "$start_cpu" && -z "$end_cpu" ]] && grep -q "$end_line" "$err"; then
             end_cpu="$(cpu_seconds "$app")"
             end_wall="$(now)"
         fi
@@ -94,7 +99,7 @@ for windows in 1 2 3; do
     else
         row "idle_cpu_percent_$windows" "FAIL the idle soak's start and end lines were not both seen"
     fi
-    phase_field() { sed -nE "s/.*idle-soak phase $1 .*$2=([0-9-]+).*/\1/p" "$err" | tail -1; }
+    phase_field() { grep "idle-soak phase $1 .*owner=renderer" "$err" | sed -nE "s/.* $2=([0-9-]+).*/\1/p" | head -1; }
     frames_start="$(phase_field start frames)"
     frames_end="$(phase_field end frames)"
     if [[ -n "$frames_start" && -n "$frames_end" ]]; then
