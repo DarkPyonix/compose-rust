@@ -104,6 +104,18 @@ class ByteBuffer private constructor(
     fun get(index: Int): Byte = byteAt(index)
 
     /**
+     * Where byte [index] of this buffer lies in linear memory, or -1 for a buffer over a
+     * Kotlin array, which has no address. Not part of `java.nio`: the web hands a range of
+     * the Host's batch to the browser by address, so the browser copies it straight out of
+     * the shared memory and this side copies nothing.
+     */
+    fun linearAddress(index: Int): Int {
+        require(index in 0..capacity) { "index $index out of bounds [0, $capacity]" }
+        val pointer = base ?: return -1
+        return (pointer.address + (offset + index).toUInt()).toInt()
+    }
+
+    /**
      * Bulk read from an absolute index, leaving the position alone. Every copy the codec
      * makes out of the arena goes through this: the buffer a string's `String` is built
      * from, and an asset's bytes. Absolute because the position belongs to the record

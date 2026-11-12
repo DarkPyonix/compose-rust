@@ -180,6 +180,17 @@ impl Batch {
         self.write(Mutation::ReadClipboard { request });
     }
 
+    /// Writes one storage operation for the Renderer to carry out. It names no node either.
+    pub(crate) fn storage_call(&mut self, call: &crate::storage::RendererCall) {
+        self.write(Mutation::StorageCall {
+            request: call.request,
+            op: call.op,
+            store: &call.store,
+            key: &call.key,
+            data: &call.data,
+        });
+    }
+
     /// Writes one file dialog request. Like a notification it names no node: the dialog is
     /// not in the tree, and `window` only says which window it is modal for.
     pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {

@@ -782,6 +782,8 @@ fn with_the_references_typeface(theme: Theme) -> Theme {
 /// How this sample is configured, in one place because three entry points need it.
 fn launch_builder() -> LaunchBuilder {
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.chat")
         .with_theme(with_the_references_typeface(compose_rust::demo_theme()))
         .with_window(
             compose_rust::schema::Window::new()

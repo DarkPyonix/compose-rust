@@ -943,6 +943,8 @@ fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called.
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.selfcare")
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
             compose_rust::schema::Window::new()

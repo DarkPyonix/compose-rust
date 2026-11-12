@@ -4418,11 +4418,15 @@ pub mod storage {
     pub const MAX_KEY_BYTES: usize = 128;
     pub const MAX_VALUE_BYTES: usize = 16 * 1024 * 1024;
 
-    pub async fn read(key: impl Into<String>) -> Result<Option<Vec<u8>>, StorageError>;
-    pub async fn read_string(key: impl Into<String>) -> Result<Option<String>, StorageError>;
-    pub async fn write(key: impl Into<String>, value: impl Into<Vec<u8>>) -> Result<(), StorageError>;
-    pub async fn remove(key: impl Into<String>) -> Result<(), StorageError>;
-    pub async fn keys() -> Result<Vec<String>, StorageError>;
+    pub fn read(key: impl Into<String>)
+        -> impl Future<Output = Result<Option<Vec<u8>>, StorageError>> + 'static;
+    pub fn read_string(key: impl Into<String>)
+        -> impl Future<Output = Result<Option<String>, StorageError>> + 'static;
+    pub fn write(key: impl Into<String>, value: impl Into<Vec<u8>>)
+        -> impl Future<Output = Result<(), StorageError>> + 'static;
+    pub fn remove(key: impl Into<String>)
+        -> impl Future<Output = Result<(), StorageError>> + 'static;
+    pub fn keys() -> impl Future<Output = Result<Vec<String>, StorageError>> + 'static;
 
     #[non_exhaustive]
     pub enum StorageError {
@@ -4444,6 +4448,7 @@ pub mod storage {
 ```
 
 - **모든 플랫폼에서 async입니다.** Web에서 `with_worker`는 일을 그 자리에서 돌리는 동기 클로저이고(PR-3의 Web 절), IndexedDB는 메인 스레드에서 동기로 쓸 수 없습니다. 그래서 저장 연산은 `with_worker` 안에서 부르는 동기 함수가 될 수 없고, 결과는 future로 옵니다. 같은 이유로 `with_worker`의 클로저 안에서는 이 API를 쓰지 않습니다.
+- **연산은 future를 돌려주는 함수이고, `async fn`이 아닙니다.** [leader, provisional, 2026-11-13] `async fn`은 처음 await될 때까지 아무것도 하지 않습니다. 그러면 기다리지 않고 잇달아 부른 연산이 부른 순서대로 놓이지 않고, 아래의 같은 키 순서(79.8 기준 4)를 지킬 수 없습니다. 그래서 연산은 함수를 부르는 그 자리에서 순서 목록에 들어가고, 돌려받은 future는 그 결과를 기다릴 뿐입니다.
 - **UI 스레드에서 부릅니다.** composition, 이펙트(`launched_effect`, 코루틴 스코프의 `launch`), 이벤트 핸들러에서 부르고 await합니다. future는 `Send`가 아니고, 완료는 UI 스레드에서 일어납니다. 워커 스레드에서 직접 부르는 길은 두지 않습니다. Web에는 워커가 없으므로, 같은 코드가 모든 플랫폼에서 돌게 하려는 것입니다.
 - 없는 키를 읽으면 `Ok(None)`입니다. 오류가 아닙니다. 첫 실행에는 값이 없기 때문입니다.
 - `keys()`는 이 앱의 키를 사전순으로 돌려줍니다.
@@ -4476,7 +4481,7 @@ pub mod storage {
 | Android | `Context.getFilesDir()/compose-rust/storage/<키>` | Host 워커. 경로는 Renderer가 알려 줍니다(아래) |
 | Web | IndexedDB 데이터베이스 `compose-rust/<식별자>`, 객체 저장소 `values`, 키는 그대로 | Renderer(Kotlin/Wasm) |
 
-- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
+- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. `path`는 앱 파일 폴더(`Context.getFilesDir()`) 그 자체이고, Host가 그 뒤에 `compose-rust/storage`를 붙여 위 표의 자리를 만듭니다 [leader, provisional, 2026-11-13]. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
 - **개발과 시험용 덮어쓰기**: 환경 변수 `COMPOSE_RUST_STORAGE_DIR`가 있으면 네이티브에서는 그 폴더가 `<...>/storage`를 대신합니다. 시험이 사용자의 실제 데이터를 건드리지 않게 하려는 것입니다.
 - **확대 수준(FR-43)과는 다른 자리입니다.** FR-43의 값은 Renderer가 가진 UI 로컬 상태(D5)이고 Renderer가 저장합니다. 이 항목의 값은 앱의 도메인 상태이고 Host가 저장합니다(PR-3). 둘은 섞이지 않습니다.
 
@@ -4493,13 +4498,14 @@ pub mod storage {
 **Web에서는 FR-72, FR-78과 같은 요청과 결과의 모양입니다.** 새 경계 함수는 없습니다(PR-2). Rust는 브라우저 함수를 import하지 않습니다. `wasm_bindgen`도, 손으로 쓴 JS도 없고, IndexedDB를 부르는 것은 Renderer의 Kotlin(`renderer/web/src/WebStorage.kt`, `WebClipboard.kt`와 같은 자리)입니다. Renderer가 플랫폼 API를 부르는 것은 macOS Renderer가 `NSSavePanel`을 부르는 것과 같은 일이고, FR-7이 막는 것은 Rust와 Kotlin 사이의 손으로 쓴 접착입니다.
 
 - 명령 `StorageCall`(명령 태그 32): 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Remove=3`, `Keys=4`), 예약 `u16`, 문자열 `store`(앱 식별자), 문자열 `key`(`Keys`에서는 길이 0), 바이트 `data`(`Write`에서만, 나머지는 길이 0). 바이트는 `RegisterAsset`(FR-16.2)처럼 레코드 뒤 문자열 영역에 놓입니다.
-- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
-- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`. Android Renderer만 보냅니다(79.4).
+- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. `TooLarge` 답은 값 대신 그 값의 길이를 4바이트 little-endian으로 `data`에 싣습니다 [leader, provisional, 2026-11-13]. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
+- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`(앱 파일 폴더. Host가 `compose-rust/storage`를 붙입니다) [leader, provisional, 2026-11-13]. Android Renderer만 보냅니다(79.4).
 - `status`는 닫힌 열거형입니다. `Ok=1`, `NotFound=2`, `QuotaExceeded=3`, `Unavailable=4`, `PermissionDenied=5`, `Failed=6`, `ReadOnly=7`, `TooLarge=8`. 모르는 값은 `ProtocolError`입니다. `op`도 같습니다.
 - **요청마다 `IoAnswer`는 정확히 하나입니다.** FR-72.2와 같은 규칙이고 같은 이유입니다. 기다리는 future를 풀 수 있어야 합니다. 이미 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청은 영향을 받지 않습니다. 답을 받기 전에 그 future를 기다리던 composition이 떠나도 답은 하나 오고, Host는 그것을 버립니다.
-- **쓰는 바이트는 한 번만 복사됩니다.** Renderer는 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 가리키는 `Uint8Array` 뷰를 만들어 `put`에 넘깁니다. `put`의 structured clone이 브라우저의 저장 버퍼로 가는 복사 한 번이고, 이것이 쓰기 자체입니다(네이티브의 `write`가 커널 버퍼로 복사하는 것과 같습니다). Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
-- **읽은 바이트는 이벤트 버퍼에 한 번 써서 옵니다.** IndexedDB가 준 `ArrayBuffer`를 Renderer가 이벤트 버퍼에 복사하고 `dispatch_event`를 부릅니다. 이 복사는 브라우저가 가진 메모리에서 wasm 메모리로 오는 것이라 피할 수 없고, 그 뒤로 Host는 제자리에서 읽습니다.
-- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값을 싣지 않은 `TooLarge` 답 하나를 보내고(요청마다 답 하나), Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
+- **Web에서 쓰기와 읽기는 각각 값을 두 번 복사합니다.** [leader, provisional, 2026-11-13] 쓰기에서는 Renderer가 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 `slice()`로 떼어 내는 것이 한 번, `put`의 structured clone이 그것을 브라우저의 저장 버퍼로 가져가는 것이 한 번입니다. 공유 메모리를 가리키는 `Uint8Array` 뷰를 그대로 `put`에 넘기지 않는 이유는, structured clone이 뷰가 보는 부분이 아니라 뒤의 버퍼 전체, 곧 wasm 메모리 전부를 복사하기 때문입니다. `slice()`는 Host가 호출이 끝난 뒤 그 메모리에 다시 쓸 수 있으므로 어차피 그 호출 안에서 해야 합니다.
+- 읽기에서는 IndexedDB가 준 값을 Renderer가 Kotlin 쪽으로 옮기는 것이 한 번, 그것을 이벤트 버퍼에 써서 `dispatch_event`를 부르는 것이 한 번입니다. 그 뒤로 Host는 제자리에서 읽습니다. 두 방향 모두 Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- 측정: 미측정. develop의 웹 빌드에서 notepad/todo가 저장소를 쓰게 된 뒤 값 크기별 시간을 여기에 적습니다.
+- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값 대신 값의 길이(4바이트 little-endian)를 실은 `TooLarge` 답 하나를 보내고(요청마다 답 하나) [leader, provisional, 2026-11-13], Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
 - 연산이 끝나면(성공이든 실패든) Renderer는 Promise가 풀린 그 작업 안에서 `IoAnswer`를 보냅니다. future는 그 `dispatch_event` 안에서 깨어나고, 그것을 기다리던 코드는 그 호출이 만드는 배치에 반영됩니다.
 - 네이티브 Renderer는 `StorageCall`을 받을 일이 없습니다. 받으면 `Unavailable`로 답합니다(요청마다 답 하나라는 규칙).
 - 이 항목이 더하는 것은 명령 하나, 이벤트 둘, 열거 둘입니다. 속성 태그는 쓰지 않습니다. 새 `EventPayloadType`이 생기고 스키마 해시가 바뀝니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
