@@ -347,6 +347,8 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // A clipboard write is the same: it belongs to the Host that asked for it.
+        crate::clipboard::reset_clipboard();
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
@@ -588,6 +590,30 @@ impl Host {
         self.render_and_finish(0)
     }
 
+    /// Hands what a clipboard read found to the callback that asked for it.
+    ///
+    /// No node and no handler, like a file dialog's end: the request number names the
+    /// callback, and an answer nobody is waiting for is dropped.
+    fn clipboard_text(
+        &mut self,
+        request: u32,
+        status: u32,
+        len: u32,
+        text: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::clipboard::deliver_read(request, status, len, text)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     /// Tells the components that listen that the application was opened with no window.
     fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
         let mut delivered = false;
@@ -713,6 +739,18 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.file_dialog_result(request, status, filter, paths);
+            }
+            // What a clipboard read found: the Host's own business, found by request number.
+            EventPayload::ClipboardText {
+                request,
+                status,
+                len,
+                text,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.clipboard_text(request, status, len, text);
             }
             _ => {}
         }
@@ -882,6 +920,12 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Text the application asked to put on the clipboard, in the order it asked.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain(|text| batch.set_clipboard_text(text));
+        // Clipboard reads, each answered later by one event with its number.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain_reads(|request| batch.read_clipboard(request));
         // File dialogs an application asked for, from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::file_dialog::drain(|request| batch.file_dialog(request));
