@@ -41,7 +41,6 @@ import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
-import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.FrameRequests
@@ -448,9 +447,10 @@ private fun ComposeRustTree(
     val observedDark = LocalSystemDarkObserver.current?.invoke() ?: isSystemInDarkTheme()
     val systemDark = systemDarkOverride ?: observedDark
     // The window's size is measured here, where the root content is, and reported to
-    // the Host only when it crosses a size class boundary. onSizeChanged already fires
-    // only when the measured size differs, and the reporter drops everything that does
-    // not change the class, so a drag across one class costs no boundary calls.
+    // the Host when either class changes, or for a window that asked for it, when the
+    // size changes by a whole dp. onSizeChanged already fires only when the measured size
+    // differs, and the reporter drops everything else, so a drag across one class costs
+    // a window that did not ask no boundary calls.
     val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
     val zoom = LocalZoom.current
@@ -468,17 +468,11 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
-    // The height class is state too, so that a window which only crosses a height boundary
-    // (a phone-width window that is tall) recomposes and reaches the reporter below. Read
-    // only through the effect, the size is not observed, and a window whose width class did
-    // not change would never be reported.
-    var heightClass by remember(host) { mutableStateOf(WindowHeightClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
-            heightClass = windowHeightClassOf(size.height.toDp().value)
             measuredSize = size
         }
     }
@@ -598,17 +592,24 @@ private fun ComposeRustTree(
     val reportEveryDp = remember(host, windowNodeId) {
         derivedStateOf { host.table.reportSizeFor(windowNodeId) }
     }.value
-    // A window that asked for every whole-dp change reads the size here, in the composition,
-    // so a new size recomposes this and reaches the effect. Any other window keeps reading it
-    // only inside the effect, as before, so a resize inside a size class costs it no
-    // recomposition.
-    val observedSize = if (reportEveryDp) measuredSize else null
-    // Subscribes this scope to the height class: reading the class here is what makes a
-    // height-only class change recompose, and so run the effect below with the new size.
+    // What decides whether the Host is told: both classes, and for a window that asked for
+    // every whole-dp change, the size rounded to whole dp as well. It is read here, in the
+    // composition, through a derived state, so a layout pass that changes it recomposes
+    // this scope once and reaches the effect below, and a layout pass that does not change
+    // it (a drag inside one class for a window that did not opt in) recomposes nothing.
+    // Reading the size only inside the effect would subscribe to nothing, and a window
+    // whose report depends on anything but the width class would never be told.
+    // Recomposition runs at most once a frame, so several layout passes in one frame are
+    // one report.
     @Suppress("UNUSED_VARIABLE")
-    val observedHeightClass = heightClass
+    val reportKey = remember(host, windowNodeId, density, reportEveryDp) {
+        derivedStateOf {
+            val size = measuredSize ?: return@derivedStateOf -1L
+            with(density) { windowReportKey(size.width.toDp().value, size.height.toDp().value, reportEveryDp) }
+        }
+    }.value
     SideEffect {
-        (observedSize ?: measuredSize)?.let { size ->
+        measuredSize?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
