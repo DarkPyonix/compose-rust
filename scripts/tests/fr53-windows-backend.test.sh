@@ -30,7 +30,9 @@ for required in \
     fr53_windows_two_window_nodes_open_two_hwnds_and_close_one \
     fr53_windows_closing_one_window_does_not_quit \
     fr53_windows_close_request_reaches_the_app_and_window_stays \
-    fr53_windows_position_round_trips; do
+    fr53_windows_position_round_trips \
+    fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node \
+    fr53_windows_tear_off_ends_the_source_pointer_capture; do
     grep -qx "$required" <<< "$names" || fail "Fr53WindowsCheck.kt has no check named $required"
 done
 grep -Fq 'compose-rust: $name: ok' "$src/Fr53WindowsCheck.kt" ||
@@ -66,6 +68,17 @@ grep -Fq 'LocalServesFrames provides false' "$src/WindowsMultiWindow.kt" ||
     fail "a window's content serves the Host's frame requests itself, so one frame asks the Host once per window"
 grep -Fq 'serveWindowFrames(' "$src/WindowsMultiWindow.kt" ||
     fail "the multi-window loop does not serve frame requests through serveWindowFrames"
+
+# A dragged window finds the subscribed nodes of the others from where their scenes laid them
+# out, and a window torn off under a held pointer takes it from the node that held it.
+grep -Fq 'dropTargets = dropTargets' "$src/WindowsMultiWindow.kt" ||
+    fail "the multi-window loop builds its window manager without drop targets, so a dragged window finds no node"
+grep -Fq 'DropTargets.Registered.targetAt(' "$src/WindowsWindowBackend.kt" ||
+    fail "the Windows backend does not answer drop targets from the nodes the scenes registered"
+grep -Fq 'cancelCapture = { backend.cancelPointerCapture() }' "$src/WindowsMultiWindow.kt" ||
+    fail "a tear-off does not end the pointer capture of the window the pointer went down in"
+grep -Fq 'scene.cancelPointerInput()' "$src/Win32Window.kt" ||
+    fail "a window never tells its scene that the held pointer's gesture was cancelled"
 
 # Windows report real activation in a multi-window process, not the constant a single window has.
 grep -Fq 'isWindowFocused: Boolean get() = focused.value' "$src/Win32Window.kt" ||

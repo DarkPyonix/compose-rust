@@ -66,12 +66,28 @@ internal fun runMultiWindow(host: ComposeRustHost): Int {
 internal class MultiWindowLoop(
     private val host: ComposeRustHost,
     private val requests: FrameRequestSource = FrameRequests.global,
+    /**
+     * What the manager opens its windows through, given the real window system. Itself in an
+     * application; a check puts a scripted pointer in front of it, because the real one is
+     * wherever the person at the machine left it.
+     */
+    windowSystem: (WindowBackend) -> WindowBackend = { it },
     onExit: () -> Unit,
 ) {
     private val driver = FrameDispatcher()
     private val frames = CoroutineScope(driver + SupervisorJob())
     val backend = WindowsWindowBackend { config, window -> windowContent(host, config, window) }
-    val manager = WindowManager(host, backend, onExit = onExit)
+
+    /** Which node of a window is under a point of its content, answered from where the scenes laid the nodes out. */
+    val dropTargets = DropTargets { windowId, x, y -> backend.dropTargetAt(windowId, x, y) }
+    val manager = WindowManager(
+        host,
+        windowSystem(backend),
+        onExit = onExit,
+        dropTargets = dropTargets,
+        // A window torn off under a held pointer takes it over: the node that held it lets go.
+        cancelCapture = { backend.cancelPointerCapture() },
+    )
 
     /** Hooks the manager to the Host's batches and opens the windows the tree already has. */
     fun attach() {

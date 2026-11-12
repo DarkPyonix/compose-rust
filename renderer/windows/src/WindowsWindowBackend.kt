@@ -71,6 +71,28 @@ internal class WindowsWindowBackend(
         return platform
     }
 
+    /**
+     * The node of window [nodeId] that asked to hear a dragged window pass over it and is under
+     * the point ([x], [y]) of the window's content, in dp, with the point in the node's own dp.
+     *
+     * The nodes report where they were laid out in the pixels of their scene, so the point is
+     * taken to the pixels of the monitor the window is on before it is looked up.
+     */
+    fun dropTargetAt(nodeId: Int, x: Float, y: Float): DropTarget? {
+        val scale = find(nodeId)?.pixelsPerPoint ?: return null
+        if (scale <= 0f) return null
+        return DropTargets.Registered.targetAt(nodeId, x * scale, y * scale)
+    }
+
+    /**
+     * Ends the gesture of the pointer that is held down, in whichever window it went down in.
+     * The mouse is the one pointer a window reports here, so no pointer has to be told from
+     * another: at most one window holds it.
+     */
+    fun cancelPointerCapture() {
+        for (platform in windows) platform.cancelPointerInput()
+    }
+
     override fun setApplicationListener(listener: ApplicationListener?) {
         // Windows has no application-level event of its own (no Dock to reopen from), and the
         // system never makes a window the application has no node for.
@@ -241,6 +263,9 @@ internal class WindowsPlatformWindow(
             if (readPointerOnScreen(x.ptr, y.ptr, down.ptr)) ScreenPointer(x.value, y.value, down.value != 0) else null
         }
     }
+
+    /** Takes the held pointer from this window's content. True when one was held. */
+    fun cancelPointerInput(): Boolean = !closed && window.cancelPointerInput()
 
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean {
         if (closed) return false

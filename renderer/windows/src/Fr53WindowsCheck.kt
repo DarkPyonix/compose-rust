@@ -46,6 +46,8 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr53_windows_position_round_trips",
     "fr53_windows_one_render_frame_serves_every_window",
     "fr53_windows_focus_follows_the_real_activation",
+    "fr53_windows_dragged_window_enters_moves_and_drops_on_a_subscribed_node",
+    "fr53_windows_tear_off_ends_the_source_pointer_capture",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -57,15 +59,22 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
  */
 internal fun runFr53WindowsChecksIfAsked(): Boolean? {
     if (System.getenv(FR53_WINDOWS_CHECK_ENV) == null) return null
-    val checks: List<Pair<String, () -> Unit>> = listOf(
-        FR53_WINDOWS_CHECK_NAMES[0] to ::twoWindowNodesOpenTwoHwndsAndCloseOne,
-        FR53_WINDOWS_CHECK_NAMES[1] to ::closingOneWindowDoesNotQuit,
-        FR53_WINDOWS_CHECK_NAMES[2] to ::closeRequestReachesTheAppAndWindowStays,
-        FR53_WINDOWS_CHECK_NAMES[3] to ::positionRoundTrips,
-        FR53_WINDOWS_CHECK_NAMES[4] to ::oneRenderFrameServesEveryWindow,
-        FR53_WINDOWS_CHECK_NAMES[5] to ::focusFollowsTheRealActivation,
-        FR53_WINDOWS_CHECK_NAMES[6] to ::lastWindowRemovedExitsTheLoop,
+    // In the order of the names above, one body for each.
+    val bodies: List<() -> Unit> = listOf(
+        ::twoWindowNodesOpenTwoHwndsAndCloseOne,
+        ::closingOneWindowDoesNotQuit,
+        ::closeRequestReachesTheAppAndWindowStays,
+        ::positionRoundTrips,
+        ::oneRenderFrameServesEveryWindow,
+        ::focusFollowsTheRealActivation,
+        ::draggedWindowEntersMovesAndDropsOnASubscribedNode,
+        ::tearOffEndsTheSourcePointerCapture,
+        ::lastWindowRemovedExitsTheLoop,
     )
+    check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
+        "${FR53_WINDOWS_CHECK_NAMES.size} checks are named and ${bodies.size} are written"
+    }
+    val checks = FR53_WINDOWS_CHECK_NAMES.zip(bodies)
     var passed = true
     for ((name, body) in checks) {
         try {
@@ -264,6 +273,152 @@ private fun focusFollowsTheRealActivation() {
     }
 }
 
+private fun draggedWindowEntersMovesAndDropsOnASubscribedNode() {
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(
+                2,
+                PropertyKind.WindowChrome to SYSTEM_CHROME,
+                PropertyKind.WindowPosition to PropertyValue.Bytes(floats(600f, 120f)),
+                PropertyKind.WindowSize to PropertyValue.Bytes(floats(400f, 300f)),
+            ) + strip(2, 20, PropertyKind.OnWindowDragOver to handler(33)),
+        scriptPointer = true,
+    )
+    try {
+        val pointer = checkNotNull(h.scripted) { "the harness has no scripted pointer" }
+        val over = checkNotNull(h.backend.find(2)) { "no window for node 2" }
+        // Where the strip was laid out, found by asking rather than assumed.
+        var inside: ScreenPoint? = null
+        h.until("the subscribed node to report where it was laid out") {
+            inside = pointInsideTarget(h, 2)
+            inside != null
+        }
+        val at = checkNotNull(inside)
+        val first = checkNotNull(h.loop.dropTargets.targetAt(2, at.x, at.y))
+        val second = checkNotNull(h.loop.dropTargets.targetAt(2, at.x + 3f, at.y + 1f)) {
+            "the subscribed node is smaller than a few dp"
+        }
+        check(first.nodeId == 20 && second.nodeId == 20) { "the node under the point is ${first.nodeId}, not 20" }
+        check(near(second.x - first.x, 3f) && near(second.y - first.y, 1f)) {
+            "3 by 1 dp on the screen is ${second.x - first.x} by ${second.y - first.y} in the node"
+        }
+        val origin = checkNotNull(over.contentOrigin()) { "window 2 has no content origin" }
+
+        // A window is torn off with the pointer held, away from window 2. It has a strip of
+        // its own in the same place, which a dragged window must not hit.
+        pointer.at = ScreenPointer(origin.x - 300f, origin.y - 60f, true)
+        h.batch(
+            windowNode(
+                1,
+                PropertyKind.WindowChrome to SYSTEM_CHROME,
+                PropertyKind.DragFromPointer to PropertyValue.Bytes(dragFrom(1, 0f, 0f)),
+                PropertyKind.OnWindowDrag to handler(11),
+            ) + strip(1, 10, PropertyKind.OnWindowDragOver to handler(44)),
+        )
+        check(1 in pointer.following) { "the window opened with DragFromPointer was not asked to follow the pointer" }
+        fun overs() = h.connection.events.filterIsInstance<HostEvent.WindowDragOver>()
+        fun kinds() = overs().map { it.kind }
+        h.loop.manager.flushFrame()
+        check(overs().isEmpty()) { "a drag away from every other window reported ${kinds()}" }
+
+        // Over the strip of window 2: Enter, in the node's own coordinates.
+        pointer.at = ScreenPointer(origin.x + at.x, origin.y + at.y, true)
+        h.loop.manager.flushFrame()
+        check(kinds() == listOf(OVER_ENTER)) { "entering the node reported ${kinds()}, not Enter" }
+        val enter = overs()[0]
+        check(enter.nodeId == 20 && enter.handlerId == 33L) {
+            "Enter went to node ${enter.nodeId} handler ${enter.handlerId}, not node 20 handler 33"
+        }
+        check(enter.window == 1) { "Enter names window ${enter.window} as the dragged one, not 1" }
+        check(near(enter.x, first.x) && near(enter.y, first.y)) {
+            "Enter is at (${enter.x}, ${enter.y}) of the node, not (${first.x}, ${first.y})"
+        }
+        val drag = h.connection.events.filterIsInstance<HostEvent.WindowDrag>().lastOrNull()
+        check(drag != null && drag.nodeId == 1 && drag.handlerId == 11L && drag.overWindow == 2) {
+            "the dragged window was not told it is over window 2: $drag"
+        }
+
+        // Further inside: Move.
+        pointer.at = ScreenPointer(origin.x + at.x + 3f, origin.y + at.y + 1f, true)
+        h.loop.manager.flushFrame()
+        check(kinds() == listOf(OVER_ENTER, OVER_MOVE)) { "moving inside the node reported ${kinds()}" }
+        val move = overs()[1]
+        check(near(move.x, second.x) && near(move.y, second.y)) {
+            "Move is at (${move.x}, ${move.y}) of the node, not (${second.x}, ${second.y})"
+        }
+
+        // The button is released there: Drop, and the drag ends.
+        checkNotNull(pointer.listeners[1]) { "window 1 was opened with no listener" }.onFollowEnded(false)
+        check(kinds() == listOf(OVER_ENTER, OVER_MOVE, OVER_DROP)) { "releasing over the node reported ${kinds()}" }
+        val drop = overs()[2]
+        check(drop.nodeId == 20 && drop.window == 1 && near(drop.x, second.x) && near(drop.y, second.y)) {
+            "Drop is $drop, not on node 20 at (${second.x}, ${second.y}) from window 1"
+        }
+        check(overs().none { it.nodeId == 10 }) { "the dragged window's own node was hit" }
+        val end = h.connection.events.filterIsInstance<HostEvent.WindowDrag>().last()
+        check(end.phase == DRAG_END && end.overWindow == 2) { "the drag ended with $end" }
+    } finally {
+        h.close()
+    }
+}
+
+private fun tearOffEndsTheSourcePointerCapture() {
+    // The node is a control, and it asks for drag-over only so that it says where it is.
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(
+                1,
+                PropertyKind.WindowChrome to SYSTEM_CHROME,
+                PropertyKind.WindowSize to PropertyValue.Bytes(floats(400f, 300f)),
+            ) + strip(1, 10, PropertyKind.OnClick to handler(77), PropertyKind.OnWindowDragOver to handler(78)),
+        scriptPointer = true,
+    )
+    try {
+        val pointer = checkNotNull(h.scripted) { "the harness has no scripted pointer" }
+        val source = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        var inside: ScreenPoint? = null
+        h.until("the node to report where it was laid out") {
+            inside = pointInsideTarget(h, 1)
+            inside != null
+        }
+        val at = checkNotNull(inside)
+        val scale = source.pixelsPerPoint
+        val x = ((at.x + 3f) * scale).toInt()
+        val y = ((at.y + 3f) * scale).toInt()
+        fun clicks() = h.connection.events.count { it is HostEvent.Clicked && it.nodeId == 10 && it.handlerId == 77L }
+
+        // A press and a release on the node is a click, so the messages below reach it at all.
+        postButton(source.handle, down = true, x, y)
+        postButton(source.handle, down = false, x, y)
+        h.until("the click of a press and a release on the node") { clicks() == 1 }
+
+        // Pressed again, and a window is torn off under the pointer while it is held.
+        postButton(source.handle, down = true, x, y)
+        h.forMillis(150)
+        pointer.at = ScreenPointer(0f, 0f, true)
+        h.batch(
+            windowNode(
+                2,
+                PropertyKind.WindowChrome to SYSTEM_CHROME,
+                PropertyKind.DragFromPointer to PropertyValue.Bytes(dragFrom(1, 0f, 0f)),
+            ),
+        )
+        check(2 in pointer.following) { "the window opened with DragFromPointer was not asked to follow the pointer" }
+        // The release still arrives at the window the button went down in, which holds the
+        // mouse. It is no longer the node's: the gesture ended when the window was torn off.
+        postButton(source.handle, down = false, x, y)
+        h.forMillis(300)
+        check(clicks() == 1) { "the node the pointer was torn off from still took the release as a click" }
+
+        // The next press is a gesture of its own.
+        postButton(source.handle, down = true, x, y)
+        postButton(source.handle, down = false, x, y)
+        h.until("a click after the torn-off gesture") { clicks() == 2 }
+    } finally {
+        h.close()
+    }
+}
+
 private fun lastWindowRemovedExitsTheLoop() {
     val h = Fr53Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
     try {
@@ -311,13 +466,55 @@ private class Fr53Connection(private val initial: List<Mutation>) : HostConnecti
     override fun shutdown() {}
 }
 
+/**
+ * The real window system with the pointer of a script in front of it.
+ *
+ * The windows are the real ones in every other way. Where the pointer is, and whether its
+ * button is held, is what the check says, because the real pointer is wherever the person at
+ * the machine left it; a window asked to follow it is written down instead of moved, and the
+ * check ends the follow through the listener the window was opened with.
+ */
+private class ScriptedPointerBackend(private val real: WindowBackend) : WindowBackend {
+    var at = ScreenPointer(0f, 0f, true)
+    val following = HashSet<Int>()
+    val listeners = HashMap<Int, PlatformWindowListener>()
+
+    override val supportsMultipleWindows: Boolean get() = real.supportsMultipleWindows
+
+    override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
+        val window = real.open(config, listener) ?: return null
+        val nodeId = config.nodeId
+        listeners[nodeId] = listener
+        return object : PlatformWindow by window {
+            override fun pointerOnScreen(): ScreenPointer? = at
+
+            override fun followPointer(anchorX: Float, anchorY: Float): Boolean {
+                following += nodeId
+                return true
+            }
+        }
+    }
+
+    override fun setApplicationListener(listener: ApplicationListener?) = real.setApplicationListener(listener)
+}
+
 /** A Host that is a script, the real window manager and loop, real windows. */
-private class Fr53Harness(initial: List<Mutation>) {
+private class Fr53Harness(initial: List<Mutation>, scriptPointer: Boolean = false) {
     val requests = FrameRequestSource()
     val connection = Fr53Connection(initial)
     val host = ComposeRustHost(connection)
     var exits = 0
-    val loop = MultiWindowLoop(host, requests) {
+
+    /** The pointer the manager sees, for a check that asked to script it. */
+    var scripted: ScriptedPointerBackend? = null
+        private set
+    val loop = MultiWindowLoop(
+        host,
+        requests,
+        windowSystem = { real ->
+            if (scriptPointer) ScriptedPointerBackend(real).also { scripted = it } else real
+        },
+    ) {
         exits++
         Win32System.windows.postQuit(0)
     }
@@ -371,6 +568,70 @@ private class Fr53Harness(initial: List<Mutation>) {
     fun close() {
         loop.stop()
     }
+}
+
+/**
+ * A point of window [windowId]'s content, in dp, a little inside the first node that asked to
+ * hear a dragged window pass over it, or null while no such node has been laid out. Looked for
+ * on a grid, so a check does not have to know where a design system puts a window's content.
+ */
+private fun pointInsideTarget(h: Fr53Harness, windowId: Int): ScreenPoint? {
+    var y = 0f
+    while (y < 300f) {
+        var x = 0f
+        while (x < 400f) {
+            if (h.loop.dropTargets.targetAt(windowId, x, y) != null) return ScreenPoint(x + 1f, y + 1f)
+            x += 4f
+        }
+        y += 4f
+    }
+    return null
+}
+
+/**
+ * Posts what the system posts when the left button goes down or comes up at ([x], [y]) of the
+ * window's client area, in pixels. The window's own procedure hears it like any other.
+ */
+private fun postButton(handle: COpaquePointer, down: Boolean, x: Int, y: Int) {
+    val where = ((y and 0xFFFF) shl 16) or (x and 0xFFFF)
+    val posted = platform.windows.PostMessageW(
+        handle.reinterpret(),
+        if (down) WM_LBUTTONDOWN else WM_LBUTTONUP,
+        if (down) MK_LBUTTON else 0uL,
+        where.toLong(),
+    )
+    check(posted != 0) { "the button message could not be posted to the window" }
+}
+
+private const val WM_LBUTTONDOWN = 0x0201u
+private const val WM_LBUTTONUP = 0x0202u
+private const val MK_LBUTTON = 1uL
+
+/** `WindowDragOver` kinds and the `WindowDrag` phase a release ends with, as the protocol numbers them. */
+private const val OVER_ENTER = 1
+private const val OVER_MOVE = 2
+private const val OVER_DROP = 4
+private const val DRAG_END = 2
+
+/** `Chrome::System`: the content starts at the client area's corner, under the system's caption. */
+private val SYSTEM_CHROME = PropertyValue.Integer(2)
+
+/** `DragFromPointer`: the pointer's id, then the anchor in the new window's content. */
+private fun dragFrom(pointerId: Int, anchorX: Float, anchorY: Float): ByteArray {
+    val out = ByteArray(12)
+    for (byte in 0 until 4) out[byte] = (pointerId shr (8 * byte)).toByte()
+    floats(anchorX, anchorY).copyInto(out, 4)
+    return out
+}
+
+/** A container with a line of text in window or node [parent], with [props] on the container. */
+private fun strip(parent: Int, id: Int, vararg props: Pair<PropertyKind, PropertyValue>): List<Mutation> = buildList {
+    add(Mutation.Create(id, WidgetKind.Box))
+    for ((kind, value) in props) add(Mutation.SetProp(id, kind, value))
+    add(Mutation.Create(id + 1000, WidgetKind.Text))
+    add(Mutation.SetProp(id + 1000, PropertyKind.Text, PropertyValue.Text("a strip of tabs")))
+    add(Mutation.Insert(id, id + 1000, APPEND))
+    add(Mutation.Insert(parent, id, APPEND))
 }
 
 private fun isWindow(handle: COpaquePointer): Boolean = platform.windows.IsWindow(handle.reinterpret()) != 0
