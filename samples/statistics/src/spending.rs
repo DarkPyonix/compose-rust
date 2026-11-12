@@ -72,6 +72,16 @@ pub fn cost(cents: u32) -> String {
     format!("-{}", amount(cents))
 }
 
+/// A cost on a tile, where the reference writes whole dollars large ("-$12") and leaves
+/// the cents off. Cents that are there are kept, so the figure is never rounded.
+pub fn whole_cost(cents: u32) -> String {
+    let full = cost(cents);
+    match full.strip_suffix(".00") {
+        Some(whole) => whole.to_owned(),
+        None => full,
+    }
+}
+
 /// An amount in dollars and cents, with a separator every three digits.
 pub fn amount(cents: u32) -> String {
     let dollars = cents / 100;
@@ -104,6 +114,13 @@ mod tests {
     #[test]
     fn a_cost_is_written_with_a_minus_in_front_of_it() {
         assert_eq!(cost(1200), "-$12.00");
+    }
+
+    #[test]
+    fn fr22_a_tile_writes_whole_dollars_without_cents() {
+        assert_eq!(whole_cost(1200), "-$12");
+        assert_eq!(whole_cost(240_000), "-$2,400");
+        assert_eq!(whole_cost(1250), "-$12.50");
     }
 
     /// The chart marks the day worth looking at, so "the day worth looking at" has to be

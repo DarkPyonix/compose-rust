@@ -7,7 +7,9 @@
 # forwarder between them. The renderer half is the same bytes for every sample, so it is
 # built once and copied; only the Host half is rebuilt per sample.
 #
-# A sample that does not build is skipped and named at the end.
+# A sample that does not build fails the run, after the others have been tried, and is
+# named at the end. The guide site publishes a page for every sample from what this builds,
+# so a sample left out quietly would be a broken build nobody hears about.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -50,7 +52,7 @@ grep -q '{{kotlin.scripts}}' "$bundle_dir/index.html" &&
 
 mkdir -p "$output"
 built=()
-skipped=()
+skipped=()  # samples whose page did not build
 
 for manifest in samples/*/Cargo.toml; do
     sample="$(basename "$(dirname "$manifest")")"
@@ -92,5 +94,9 @@ done
 
 echo
 echo "built ${#built[@]} pages into $output: ${built[*]:-none}"
-[[ ${#skipped[@]} -eq 0 ]] || echo "skipped ${#skipped[@]}: ${skipped[*]}"
 [[ ${#built[@]} -gt 0 ]] || { echo "no page was built at all" >&2; exit 1; }
+if [[ ${#skipped[@]} -gt 0 ]]; then
+    echo "error: ${#skipped[@]} samples did not build for the web: ${skipped[*]}" >&2
+    echo "       Every sample has a page; the build above says why each one failed." >&2
+    exit 1
+fi

@@ -1,0 +1,17 @@
+# Two windows of one application, through `LaunchBuilder::windows()`: for the Windows
+# consumer check, which runs it with `--check`, and for a person checking an input method and
+# a screen reader in the second window (README.md).
+#
+# Its own workspace root, like the consumer fixture beside it, so cargo builds it from this
+# directory whatever the enclosing workspace says, and with no build script, so it builds the
+# way an application that only names compose-rust does.
+[workspace]
+
+[package]
+name = "multi-window"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+compose-rust = { path = "../../.." }

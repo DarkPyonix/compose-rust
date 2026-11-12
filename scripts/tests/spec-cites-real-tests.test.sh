@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Usage: ./scripts/tests/spec-cites-real-tests.test.sh
 #
-# Every test name the SPEC names in backticks is a test that exists.
+# Every test name the SPEC names in backticks is a test that exists: a Rust or Kotlin
+# test function, or a function of that name in one of the shell tests here.
 #
 # Acceptance criteria increasingly say which test stands behind them, which is what lets
 # a reader check a claim instead of trusting it. A name that no longer matches anything
@@ -50,6 +51,11 @@ while read -r name; do
     if grep -rq "fn $name\b\|fun $name\b" \
         --include='*.rs' --include='*.kt' \
         compose-rust renderer samples 2>/dev/null; then
+        continue
+    fi
+    # A check with no cargo or Gradle build behind it (the workflows, the guide) is a
+    # function of that name in a shell test.
+    if grep -qE "^$name\(\) *\{" scripts/tests/*.test.sh 2>/dev/null; then
         continue
     fi
     if file="$(moved_file "$name")"; then
