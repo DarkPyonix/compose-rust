@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### The Windows release renderer is the Kotlin/Native static kit
+
+A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as the Kotlin/Native static kit, the one the crate's build script links on Windows, and checks it as one executable like the other desktop targets. Up to v0.0.7 that asset was the GraalVM native image, which the build script no longer links. The sample build takes this kit from the release for its crate version, checked against its `.sha256`, and builds the kit itself only when the release does not carry it ([#322](https://github.com/DarkPyonix/compose-rust/issues/322)).
+
 ## v0.0.7
 
 ### Native file open and save dialogs
