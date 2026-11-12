@@ -32,6 +32,13 @@ import dev.darkpyonix.composerust.ui.platform.primaryButtonDown
 import dev.darkpyonix.composerust.ui.platform.toScreenBounds
 import dev.darkpyonix.composerust.ui.platform.wholePoints
 import org.thisisthepy.compose.window.WindowApplication
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import dev.darkpyonix.composerust.ui.platform.iconPixels
+import kotlinx.cinterop.useContents
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.ImageInfo
 import platform.AppKit.NSApplication
 import platform.Foundation.NSDate
 import platform.Foundation.NSDefaultRunLoopMode
@@ -43,6 +50,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // Multi-window tests on the Kotlin/Native macOS renderer: the Host's `Window` nodes as NSWindows, through the
@@ -94,7 +102,12 @@ private fun config(
     y: Float? = null,
     width: Float = 320f,
     height: Float = 200f,
-) = PlatformWindowConfig(nodeId = nodeId, title = title, width = width, height = height, x = x, y = y)
+    minWidth: Float = 0f,
+    minHeight: Float = 0f,
+) = PlatformWindowConfig(
+    nodeId = nodeId, title = title, width = width, height = height, x = x, y = y,
+    minWidth = minWidth, minHeight = minHeight,
+)
 
 private fun PlatformWindow.native() = (this as MacosPlatformWindow).nativeWindow
 
@@ -435,5 +448,61 @@ class MacosMultiWindowTest {
             h.close()
             assertEquals(null, WindowApplication.onReopen, "shutting the manager down removes the listener")
         }
+    }
+
+    @Test
+    fun fr33_macos_right_click_puts_up_one_menu_and_it_is_compose_s() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend { _, _, _ -> {} }
+        val window = assertNotNull(backend.open(config(1), Recorder())) as MacosPlatformWindow
+        try {
+            // The text field's NSMenu comes from Compose; the window adding its own would be two.
+            assertFalse(window.macosWindow.editMenuOnRightClick)
+            assertNull(window.macosWindow.onContextMenu, "the window puts up no menu of its own on a right click")
+        } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr19_macos_window_minimum_size_reaches_content_min_size() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend { _, _, _ -> {} }
+        val window = assertNotNull(backend.open(config(1, minWidth = 240f, minHeight = 150f), Recorder()))
+        try {
+            window.native().contentMinSize.useContents {
+                assertEquals(240.0, width)
+                assertEquals(150.0, height)
+            }
+            window.setMinimumSize(300f, 180f)
+            window.native().contentMinSize.useContents {
+                assertEquals(300.0, width)
+                assertEquals(180.0, height)
+            }
+        } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr19_macos_dock_icon_pixels_are_premultiplied_rgba() {
+        val bitmap = Bitmap()
+        val info = ImageInfo(2, 1, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
+        bitmap.allocPixels(info)
+        // An opaque blue pixel, then red at half opacity.
+        val source = byteArrayOf(0, 0, 255.toByte(), 255.toByte(), 255.toByte(), 0, 0, 128.toByte())
+        assertTrue(bitmap.installPixels(info, source, info.minRowBytes))
+        val pixels = assertNotNull(iconPixels(bitmap.asComposeImageBitmap()))
+        assertEquals(2, pixels.width)
+        assertEquals(1, pixels.height)
+        assertEquals(8, pixels.rgba.size, "four bytes a pixel, rows unpadded")
+        val bytes = pixels.rgba.map { it.toInt() and 0xff }
+        assertEquals(listOf(0, 0, 255, 255), bytes.subList(0, 4))
+        assertTrue(bytes[4] in 127..129, "red is multiplied by the alpha, was ${bytes[4]}")
+        assertEquals(0, bytes[5])
+        assertEquals(0, bytes[6])
+        assertEquals(128, bytes[7])
     }
 }

@@ -15,8 +15,6 @@ import dev.darkpyonix.composerust.runtime.WindowCaption
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.ui.node.Asset
@@ -24,8 +22,6 @@ import kotlinx.coroutines.delay
 import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.SystemDarkMonitor
 import org.thisisthepy.compose.window.contentMinimum
-import org.thisisthepy.compose.window.macos.MacosClipboard
-import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
@@ -145,9 +141,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         onChange = { dark.value = it },
     )
     observeSystemAppearance(appearance::refresh)
-    val clipboard = MacosClipboard()
-    @Suppress("DEPRECATION")
-    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
@@ -175,11 +168,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     }
     val dockIcon = DockIcon(
         lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
-        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+        apply = { picture -> applyDockIcon(picture) },
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
         ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
+    window.leaveRightClickMenuToCompose()
     @Suppress("DEPRECATION")
     window.setContent {
         CompositionLocalProvider(
@@ -188,8 +182,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
             beginMacosWindowDrag(window.window)
         },
-        LocalClipboard provides clipboard,
-            LocalClipboardManager provides clipboardManager,
         ) {
             // The asset arrives a little after the first batch names it, so it is looked for
             // until it is there.

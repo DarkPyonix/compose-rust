@@ -131,6 +131,7 @@ class MacosWindowBackend(
         val frames = MacosSceneFrames()
         val content = scene?.invoke(config, created, frames)
         if (content != null) {
+            created.leaveRightClickMenuToCompose()
             @Suppress("DEPRECATION")
             created.setContent(content)
             created.listenForReader()
@@ -205,6 +206,9 @@ internal class MacosPlatformWindow(
 
     /** The AppKit window, for a test that acts on it as a user would. */
     val nativeWindow: NSWindow get() = native
+
+    /** The window module's window, for a test that asks what it was set up to do. */
+    val macosWindow: MacosWindow get() = window
 
     /** Whether the window's accessibility tree is active for external readers. */
     val accessibilityActive: Boolean get() = window.accessibilityActive
@@ -496,4 +500,15 @@ internal fun beginMacosWindowDrag(window: NSWindow) {
         pressure = 1.0f,
     ) ?: return
     window.performWindowDragWithEvent(event)
+}
+
+/**
+ * Leaves the right-click menu to Compose. The text field's menu is already an `NSMenu` here,
+ * the system's own, and an application that sets `LocalTextContextMenu` or
+ * `LocalContextMenuRepresentation` shows its menu instead. A second menu from the window
+ * would come up beside either of them, so the window puts up none. Called before
+ * `setContent`, which is where the window hands the choice to its platform.
+ */
+internal fun MacosWindow.leaveRightClickMenuToCompose() {
+    editMenuOnRightClick = false
 }
