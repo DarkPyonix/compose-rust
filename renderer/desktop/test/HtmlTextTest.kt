@@ -105,6 +105,14 @@ class HtmlTextTest {
                 text(text, role = 0, width = width, fonts = sans, fontSize = 15f)
             },
             Case(
+                "css line height",
+                "Each line is its line height, the first and the last as well",
+                100f,
+                listOf(noRole, fonts(sans), PropertyKind.FontSize to PropertyValue.Float(16f), PropertyKind.LineHeight to PropertyValue.Float(24f)),
+            ) { text, width ->
+                text(text, role = 0, width = width, fonts = sans, fontSize = 16f, lineHeight = 24f)
+            },
+            Case(
                 "anywhere",
                 "Supercalifragilisticexpialidocious word",
                 60f,
@@ -129,6 +137,42 @@ class HtmlTextTest {
                 assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, case.name)
             }
         }
+    }
+
+    /**
+     * A CSS line box is exactly its line height, a single line included, with the room the
+     * glyphs leave split evenly above and below them. The pairs are ones whose ratio a float
+     * holds exactly, so the height can be compared without a tolerance.
+     */
+    @Test
+    fun fr40_a_line_is_exactly_its_css_line_height() = runComposeUiTest {
+        startHost(FakeHostConnection(htmlText(200f, "x")), Density(1f))
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val pairs = listOf(16f to 24f, 32f to 40f, 12f to 18f)
+        var requests = MeasureRequests()
+        for ((size, lineHeight) in pairs) {
+            requests = requests.text("Hello, Dioxus", role = 0, fonts = sans, fontSize = size, lineHeight = lineHeight, width = 400f)
+        }
+        requests = requests
+            .text("Hello, Dioxus", role = 0, fonts = sans, fontSize = 16f, width = 400f)
+            .text("first line\nsecond line", role = 0, fonts = sans, fontSize = 16f, lineHeight = 24f, width = 400f)
+        val (status, results) = measure(requests)
+        assertEquals(MeasureRecords.CALL_OK, status)
+        pairs.forEachIndexed { index, (size, lineHeight) ->
+            val line = results[index]
+            assertEquals(1, line.lineCount, "font size $size: one line")
+            assertEquals(lineHeight, line.height, "font size $size with line height $lineHeight: a single line is its line height")
+        }
+        val natural = results[pairs.size]
+        val twoLines = results[pairs.size + 1]
+        assertEquals(2, twoLines.lineCount, "two lines")
+        assertEquals(48f, twoLines.height, "two lines of line height 24 are 48 tall")
+        // Half-leading: the baseline moves down by half of what the line height adds to the
+        // font's own height, as in a browser, not by none of it (the first line's top trimmed)
+        // and not by all of it.
+        val shift = results[0].firstBaseline - natural.firstBaseline
+        val half = (24f - natural.height) / 2f
+        assertTrue(abs(shift - half) <= 0.75f, "the extra room is split evenly: baseline moved $shift, half the room is $half")
     }
 
     /** CSS keep-all breaks Korean only at spaces, so its narrowest is a whole word. */
