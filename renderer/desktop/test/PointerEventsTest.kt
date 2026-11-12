@@ -464,7 +464,10 @@ class PointerEventsTest {
         onNodeWithTag(nodeTestTag(OUTER)).performTouchInput {
             down(at(50f, 50f))
             // On the desktop this only ends the gesture for the injector: its cancel sends
-            // the scene nothing. The scene is told below, the way a window tells it.
+            // the scene nothing, because the fork's skiko InputDispatcher.enqueueCancel() is
+            // empty ("desktop don't have cancel events"). The scene is told below, the way a
+            // window tells it. Once the fork's injector sends a real cancel, drop the
+            // cancelPointerInput() call below and let this cancel() drive the test again.
             cancel()
         }
         cancelPointerInput()
