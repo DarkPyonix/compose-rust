@@ -668,6 +668,15 @@ int32_t dxc_native_raster_begin(void **pixels, int32_t *row_bytes, int32_t *widt
 
 void dxc_native_raster_end(void) {
 }
+
+/*
+ * The Windows Text size slider, which win32_window.c reads from the registry. The Win32
+ * window's Kotlin names it on every desktop; elsewhere there is no slider, so the answer is
+ * 0, the value that means it was never moved.
+ */
+int32_t dxc_native_text_scale_percent(void) {
+    return 0;
+}
 #else
 /*
  * Answered here and says no soak is running. The resize soak (DXC_RESIZE_SOAK) is the macOS

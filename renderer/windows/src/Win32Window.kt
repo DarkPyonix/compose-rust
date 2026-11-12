@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
@@ -145,8 +144,11 @@ internal class Win32Window private constructor(
             }
         }
 
+    /** The system's text size, which the scene gets as its font scale and follows when it changes. */
+    private val textScale = WindowTextScale(Win32Loop.textScale())
+
     private val scene: ComposeScene = CanvasLayersComposeScene(
-        density = Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = platformContext,
@@ -197,6 +199,9 @@ internal class Win32Window private constructor(
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                textScale.receive(event)
+                // Files let go over the window go to the node under them.
+                routeFileDrop(event)
                 // Told which desktop it is, because the key numbers are Windows' own.
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
@@ -234,6 +239,8 @@ internal class Win32Window private constructor(
             if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                 System.err.println("compose-rust: window heard $event")
             }
+            textScale.receive(event)
+            routeFileDrop(event)
             scene.receive(event, win32 = true)
             textInput.receive(event)
             heard = true
@@ -326,7 +333,7 @@ internal class Win32Window private constructor(
         // is refitted, and what is measured here is the buffer that came back.
         val measured = native.measure()
         val fitted = IntSize(measured.width, measured.height)
-        val density = Density(measured.scale)
+        val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
             scene.density = density
             scene.size = fitted
@@ -379,7 +386,7 @@ internal class Win32Window private constructor(
         val target = Win32Loop.beginRasterFrame() ?: return false
         val measured = native.measure()
         val fitted = IntSize(target.width, target.height)
-        val density = Density(measured.scale)
+        val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
             scene.density = density
             scene.size = fitted
