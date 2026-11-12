@@ -4095,8 +4095,9 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        let trace: Arc<Mutex<Vec<(&'static str, Key, bool, bool, bool, bool)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        // What each key event carried: which handler, the key, then the four modifiers.
+        type KeyTrace = Vec<(&'static str, Key, bool, bool, bool, bool)>;
+        let trace: Arc<Mutex<KeyTrace>> = Arc::new(Mutex::new(Vec::new()));
         let trace_for_root = Arc::clone(&trace);
         let mut host = crate::ComposeHost::with_content(move || {
             let down_trace = Arc::clone(&trace_for_root);
