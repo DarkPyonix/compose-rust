@@ -466,7 +466,8 @@ class PointerEventsTest {
             // On the desktop this only ends the gesture for the injector: its cancel sends
             // the scene nothing, because the fork's skiko InputDispatcher.enqueueCancel() is
             // empty ("desktop don't have cancel events"). The scene is told below, the way a
-            // window tells it. Once the fork's injector sends a real cancel, drop the
+            // window tells it. Once the fork's injector sends a real cancel
+            // (thisisthepy/compose-multiplatform-core-extended#196), drop the
             // cancelPointerInput() call below and let this cancel() drive the test again.
             cancel()
         }
