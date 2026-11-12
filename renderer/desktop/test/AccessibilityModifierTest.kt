@@ -9,6 +9,8 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
@@ -24,6 +26,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
@@ -34,6 +37,14 @@ import kotlin.test.assertTrue
 private const val TREE_ROOT = 1
 private const val TAG_PREFIX = "compose-node-"
 private const val SOME_HANDLER = 77L
+private const val FOCUS_ACTION = 1 shl 12
+private const val FOCUS_COLUMN = 10
+private const val FIRST_BOX = 11
+private const val SECOND_BOX = 12
+private const val GAINED_FIRST = 31L
+private const val LOST_FIRST = 32L
+private const val GAINED_SECOND = 33L
+private const val LOST_SECOND = 34L
 
 private fun name(text: String) = PropertyValue.Text(text)
 
@@ -61,12 +72,6 @@ private fun ComposeUiTest.show(mutations: List<Mutation>) {
     setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
     waitForIdle()
 }
-
-/**
- * Widgets the every-operable-node-has-a-name check does not cover.
- * Sliders are left out until the design system's Slider exposes a range semantics node: thisisthepy/compose-multiplatform-core-extended#180.
- */
-private val LEFT_OUT_OF_THE_CHECK = setOf(WidgetKind.Slider)
 
 /** A column holding one of every kind of control, each given a name unless it names itself. */
 private fun everyOperable(named: Boolean) = buildList {
@@ -110,7 +115,7 @@ private fun everyOperable(named: Boolean) = buildList {
             ) + label(it, "$kind option")
         }
     }
-    if (WidgetKind.Slider !in LEFT_OUT_OF_THE_CHECK) child(WidgetKind.Slider) {
+    child(WidgetKind.Slider) {
         listOf(
             Mutation.SetProp(it, PropertyKind.Value, PropertyValue.Float(0.5f)),
             Mutation.SetProp(it, PropertyKind.Min, PropertyValue.Float(0f)),
@@ -132,7 +137,7 @@ class AccessibilityModifierTest {
         runComposeUiTest {
             show(everyOperable(named = true))
             val operableCount = onAllNodes(operable).fetchSemanticsNodes().size
-            assertTrue(operableCount >= 6, "only $operableCount operable nodes were found, so the check proves nothing")
+            assertTrue(operableCount >= 7, "only $operableCount operable nodes were found, so the check proves nothing")
             val missing = unnamed()
             assertTrue(missing.isEmpty(), "these nodes can be operated and have no name: $missing")
         }
@@ -143,9 +148,9 @@ class AccessibilityModifierTest {
         runComposeUiTest {
             show(everyOperable(named = false))
             val missing = unnamed()
-            // The pressable container and the three toggles say nothing by themselves. Sliders
-            // are in LEFT_OUT_OF_THE_CHECK.
-            assertTrue(missing.size >= 4, "an unnamed control went unnoticed: $missing")
+            // The pressable container, the three toggles and the slider say nothing by
+            // themselves.
+            assertTrue(missing.size >= 5, "an unnamed control went unnoticed: $missing")
             assertTrue(missing.all { it.startsWith(TAG_PREFIX) }, "$missing")
         }
     }
@@ -295,6 +300,52 @@ class AccessibilityModifierTest {
         }
     }
 
+    @Test
+    fun fr68_a_slider_says_its_name_and_range_and_takes_a_new_value() {
+        val slider = 1
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(slider, WidgetKind.Slider),
+                    Mutation.SetProp(slider, PropertyKind.Value, PropertyValue.Float(4f)),
+                    Mutation.SetProp(slider, PropertyKind.Min, PropertyValue.Float(0f)),
+                    Mutation.SetProp(slider, PropertyKind.Max, PropertyValue.Float(10f)),
+                    Mutation.SetProp(slider, PropertyKind.AccessibleName, name("Volume")),
+                    Mutation.SetProp(slider, PropertyKind.OnValueChange, PropertyValue.Integer(SOME_HANDLER)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val config = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertEquals(listOf("Volume"), config.getOrNull(SemanticsProperties.ContentDescription))
+            val range = config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)
+            assertEquals(4f, range?.current)
+            assertEquals(0f..10f, range?.range)
+            assertTrue(config.contains(SemanticsActions.SetProgress), "a reader must be able to set the value")
+
+            onNodeWithTag(nodeTestTag(slider)).performSemanticsAction(SemanticsActions.SetProgress) { it(7f) }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.ValueChanged(slider, SOME_HANDLER, 7.0)),
+                connection.events.filterIsInstance<HostEvent.ValueChanged>(),
+            )
+            val moved = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertEquals(7f, moved.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.current)
+        }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(slider, WidgetKind.Slider),
+                    Mutation.SetProp(slider, PropertyKind.Enabled, PropertyValue.Bool(false)),
+                    Mutation.SetProp(slider, PropertyKind.AccessibleName, name("Volume")),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(slider)).fetchSemanticsNode().config
+            assertTrue(config.contains(SemanticsProperties.ProgressBarRangeInfo))
+            assertTrue(config.contains(SemanticsProperties.Disabled), "a slider that cannot move must say so")
+        }
+    }
+
     private val newRoles = mapOf(
         SemanticsRole.TabList to "tablist",
         SemanticsRole.Tree to "tree",
@@ -332,6 +383,16 @@ class AccessibilityModifierTest {
             )
             val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
             assertTrue(config.contains(SemanticsProperties.Heading), "a heading must be marked as one")
+        }
+        runComposeUiTest {
+            show(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.TextBox, 0)),
+                ),
+            )
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertEquals(true, config.getOrNull(SemanticsProperties.IsEditable), "a text box must be marked as editable")
         }
     }
 
@@ -447,5 +508,219 @@ class AccessibilityModifierTest {
             clickAction,
         )
         assertEquals(emptyList(), clicks, "a node whose enabled property is false is not clicked")
+    }
+
+    /** A column of two plain boxes that report focus, the second with whatever [state] says. */
+    private fun twoBoxes(state: Int) = listOf(
+        Mutation.Create(FOCUS_COLUMN, WidgetKind.Column),
+        Mutation.Create(FIRST_BOX, WidgetKind.Box),
+        Mutation.SetProp(FIRST_BOX, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_FIRST)),
+        Mutation.SetProp(FIRST_BOX, PropertyKind.OnFocusLost, PropertyValue.Integer(LOST_FIRST)),
+        Mutation.SetModifier(FIRST_BOX, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, FOCUS_ACTION)),
+        Mutation.Insert(FOCUS_COLUMN, FIRST_BOX, 0),
+        Mutation.Create(SECOND_BOX, WidgetKind.Box),
+        Mutation.SetProp(SECOND_BOX, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_SECOND)),
+        Mutation.SetProp(SECOND_BOX, PropertyKind.OnFocusLost, PropertyValue.Integer(LOST_SECOND)),
+        Mutation.SetModifier(SECOND_BOX, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, state)),
+        Mutation.Insert(FOCUS_COLUMN, SECOND_BOX, 1),
+    )
+
+    private fun FakeHostConnection.focusEvents(): List<HostEvent> =
+        events.filter { it is HostEvent.FocusGained || it is HostEvent.FocusLost }
+
+    @Test
+    fun fr71_focus_action_moves_focus_to_the_node() {
+        runComposeUiTest {
+            val connection = FakeHostConnection(twoBoxes(FOCUS_ACTION))
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val config = onNodeWithTag(nodeTestTag(FIRST_BOX)).fetchSemanticsNode().config
+            assertTrue(config.contains(SemanticsActions.RequestFocus), "the focus action must be offered")
+            assertEquals(false, config.getOrNull(SemanticsProperties.Focused), "nothing has focus before anyone asks")
+
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).assertIsFocused()
+            assertEquals(listOf<HostEvent>(HostEvent.FocusGained(FIRST_BOX, GAINED_FIRST)), connection.focusEvents())
+
+            onNodeWithTag(nodeTestTag(SECOND_BOX)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(SECOND_BOX)).assertIsFocused()
+            onNodeWithTag(nodeTestTag(FIRST_BOX)).assertIsNotFocused()
+            assertEquals(
+                setOf<HostEvent>(
+                    HostEvent.FocusGained(FIRST_BOX, GAINED_FIRST),
+                    HostEvent.FocusLost(FIRST_BOX, LOST_FIRST),
+                    HostEvent.FocusGained(SECOND_BOX, GAINED_SECOND),
+                ),
+                connection.focusEvents().toSet(),
+            )
+            assertEquals(3, connection.focusEvents().size, "each move is reported once: ${connection.focusEvents()}")
+        }
+    }
+
+    @Test
+    fun fr71_focus_action_is_not_offered_unless_the_host_asked() {
+        runComposeUiTest {
+            // The second box declares a role and no action.
+            show(twoBoxes(state = 0))
+            val config = onNodeWithTag(nodeTestTag(SECOND_BOX)).fetchSemanticsNode().config
+            assertTrue(!config.contains(SemanticsActions.RequestFocus), "no focus action was asked for")
+            assertTrue(!config.contains(SemanticsProperties.Focused), "a node that cannot take focus says nothing about it")
+        }
+    }
+
+    /** What the Host hears when focus goes to the first box and then to the second, by [move]. */
+    private fun focusEventsWhenMovedBy(
+        move: ComposeUiTest.(FakeHostConnection, FrameRequestSource, Int) -> Unit,
+    ): List<HostEvent> {
+        var heard = emptyList<HostEvent>()
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val connection = FakeHostConnection(twoBoxes(FOCUS_ACTION))
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            for (target in listOf(FIRST_BOX, SECOND_BOX)) {
+                move(connection, frames, target)
+                waitForIdle()
+                onNodeWithTag(nodeTestTag(target)).assertIsFocused()
+            }
+            heard = connection.focusEvents()
+        }
+        return heard
+    }
+
+    @Test
+    fun fr71_focus_action_moves_focus_like_a_host_focus_request() {
+        val byHost = focusEventsWhenMovedBy { connection, frames, target ->
+            connection.scheduleFrame(listOf(Mutation.RequestFocus(target)))
+            frames.request()
+        }
+        val byReader = focusEventsWhenMovedBy { _, _, target ->
+            onNodeWithTag(nodeTestTag(target)).performSemanticsAction(SemanticsActions.RequestFocus)
+        }
+        assertEquals(3, byHost.size, "control: the host request moves focus twice: $byHost")
+        assertEquals(byHost, byReader, "the focus action must do what a focus request from the Host does")
+    }
+
+    @Test
+    fun fr71_focus_action_reaches_a_pressable_container_and_a_text_field() {
+        val box = 2
+        val field = 3
+        runComposeUiTest {
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(FOCUS_COLUMN, WidgetKind.Column),
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, FOCUS_ACTION)),
+                    Mutation.Insert(FOCUS_COLUMN, box, 0),
+                    Mutation.Create(field, WidgetKind.TextField),
+                    Mutation.SetProp(field, PropertyKind.OnFocusGained, PropertyValue.Integer(GAINED_SECOND)),
+                    Mutation.SetModifier(field, 0, ProtocolModifier.Semantics(SemanticsRole.None, FOCUS_ACTION)),
+                    Mutation.Insert(FOCUS_COLUMN, field, 1),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+
+            onNodeWithTag(nodeTestTag(box)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            // The box is pressable, so the focus it takes is the one a Tab key would give it.
+            onNodeWithTag(nodeTestTag(box)).assertIsFocused()
+
+            onNodeWithTag(nodeTestTag(field)).performSemanticsAction(SemanticsActions.RequestFocus)
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(box)).assertIsNotFocused()
+            assertEquals(
+                listOf(HostEvent.FocusGained(field, GAINED_SECOND)),
+                connection.events.filterIsInstance<HostEvent.FocusGained>(),
+            )
+            // Focus moved and nothing was pressed on the way.
+            assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.Clicked>())
+        }
+    }
+
+    @Test
+    fun fr71_removing_semantics_restores_the_defaults() {
+        val text = 1
+        // Expanded on, disabled off, focused off, with both actions.
+        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION
+        runComposeUiTest {
+            val frames = FrameRequestSource()
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(text, WidgetKind.Text),
+                    Mutation.SetProp(text, PropertyKind.Text, name("src")),
+                    Mutation.SetProp(text, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+                    Mutation.SetModifier(text, 0, ProtocolModifier.Semantics(SemanticsRole.TreeItem, state)),
+                ),
+            )
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            fun config() = onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().config
+            assertEquals("treeitem, expanded", config().getOrNull(SemanticsProperties.StateDescription))
+            assertEquals(false, config().getOrNull(SemanticsProperties.Focused))
+            assertTrue(config().contains(SemanticsActions.OnClick))
+            assertTrue(config().contains(SemanticsActions.RequestFocus))
+
+            connection.scheduleFrame(listOf(Mutation.SetModifier(text, 0, ProtocolModifier.Empty)))
+            frames.request()
+            waitForIdle()
+            val after = config()
+            assertTrue(!after.contains(SemanticsProperties.StateDescription), "the role word and the expanded state must go")
+            assertTrue(!after.contains(SemanticsProperties.Focused), "the focused state must go")
+            assertTrue(!after.contains(SemanticsProperties.Disabled))
+            assertTrue(!after.contains(SemanticsProperties.Role))
+            assertTrue(!after.contains(SemanticsActions.OnClick), "the click action must go")
+            assertTrue(!after.contains(SemanticsActions.RequestFocus), "the focus action must go")
+            // What the widget says by itself is still there.
+            assertEquals("src", onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().spoken())
+        }
+    }
+
+    @Test
+    fun nfr7_unknown_semantics_bit_is_a_protocol_error() {
+        val box = 1
+        runComposeUiTest {
+            // Bit 13 is the first one above the two action bits.
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 13)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+            assertEquals(listOf(TableError.INVALID_MODIFIER), errors.map { it.code }, "events were ${connection.events}")
+            // The renderer is still running and the node is still drawn, without the role
+            // the refused modifier carried.
+            val config = onNodeWithTag(nodeTestTag(box)).fetchSemanticsNode().config
+            assertEquals(listOf("Files"), config.getOrNull(SemanticsProperties.ContentDescription))
+            assertEquals(null, config.getOrNull(SemanticsProperties.Role))
+        }
+        runComposeUiTest {
+            // Every bit that has a meaning is accepted.
+            val connection = FakeHostConnection(
+                listOf(
+                    Mutation.Create(box, WidgetKind.Box),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 13) - 1)),
+                ),
+            )
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.ProtocolError>())
+        }
     }
 }

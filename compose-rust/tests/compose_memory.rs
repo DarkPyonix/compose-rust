@@ -76,8 +76,8 @@ fn Busy(count: MutableState<i32>) {
 #[test]
 fn nfr_17_live_memory_does_not_grow_with_the_frames_drawn() {
     let count = mutable_state_of(0);
-    let state = count.clone();
-    let mut host = ComposeHost::with_content(move || Busy(state.clone()));
+    let state = count;
+    let mut host = ComposeHost::with_content(move || Busy(state));
     host.rebuild().unwrap();
     TRACKING.with(|tracking| tracking.set(true));
     // Warm: pools and scratch buffers reach the size this screen needs.
@@ -115,8 +115,8 @@ fn Toggled(shown: MutableState<bool>) {
 #[test]
 fn nfr_17_the_writer_keeps_nothing_for_nodes_that_were_removed() {
     let shown = mutable_state_of(true);
-    let state = shown.clone();
-    let mut host = ComposeHost::with_content(move || Toggled(state.clone()));
+    let state = shown;
+    let mut host = ComposeHost::with_content(move || Toggled(state));
     host.rebuild().unwrap();
     TRACKING.with(|tracking| tracking.set(true));
     let mut frame = 0u64;
@@ -167,8 +167,8 @@ fn Chat(count: MutableState<usize>, tail: MutableState<usize>) {
 fn nfr_17_a_list_that_grows_and_a_text_that_streams_do_not_leave_memory_behind() {
     let count = mutable_state_of(1usize);
     let tail = mutable_state_of(0usize);
-    let (c, t) = (count.clone(), tail.clone());
-    let mut host = ComposeHost::with_content(move || Chat(c.clone(), t.clone()));
+    let (c, t) = (count, tail);
+    let mut host = ComposeHost::with_content(move || Chat(c, t));
     let mut tree = Tree::default();
     tree.apply(host.rebuild().unwrap());
     let (node, handler) = tree.find("LazyColumn", None, 0, PropertyKind::OnRangeRequested);

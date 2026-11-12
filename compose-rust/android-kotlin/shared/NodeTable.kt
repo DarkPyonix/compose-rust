@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
 
 /**
  * Text the Host pushed into a TextField with `SetText`.
@@ -96,6 +97,12 @@ data class TableError(val code: Int, val message: String) {
         const val MOVE_BETWEEN_WINDOWS = 14
         /** A file dialog request whose number is still waiting for its answer. The command is dropped. */
         const val DUPLICATE_FILE_DIALOG = 15
+        /** A modifier whose value could not be honoured. The modifier is dropped. */
+        const val INVALID_MODIFIER = 16
+        /** An input or output request whose number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_IO_REQUEST = 17
+        /** A file operation whose request number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_FILE_CALL = 18
     }
 }
 
@@ -166,6 +173,13 @@ class NodeTable {
      */
     val animations: AnimationTable = AnimationTable(this)
 
+    /**
+     * Pointer input for the nodes that subscribed to it: who holds a press, and the moves
+     * and wheel travel waiting for the next frame.
+     */
+    internal val pointers: dev.darkpyonix.composerust.foundation.PointerRouter =
+        dev.darkpyonix.composerust.foundation.PointerRouter { id -> nodes.containsKey(id) }
+
     val notifications: dev.darkpyonix.composerust.ui.platform.NotificationCenter =
         dev.darkpyonix.composerust.ui.platform.NotificationCenter()
 
@@ -177,6 +191,14 @@ class NodeTable {
      */
     val fileDialogs: dev.darkpyonix.composerust.ui.platform.FileDialogCenter =
         dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
+
+    /**
+     * The operations the Host asked of files this side holds handles for, and their answers.
+     * Not cleared with the tree, for the reason the dialogs are not: every request is owed its
+     * one answer after a resync too.
+     */
+    val fileCalls: dev.darkpyonix.composerust.ui.platform.FileCallCenter =
+        dev.darkpyonix.composerust.ui.platform.FileCallCenter()
 
     /**
      * Where the text the Host asks to copy goes. Not part of the tree and not cleared with
@@ -191,6 +213,14 @@ class NodeTable {
      */
     val clipboardReads: dev.darkpyonix.composerust.ui.platform.ClipboardReader =
         dev.darkpyonix.composerust.ui.platform.ClipboardReader()
+
+    /**
+     * The storage operations the Host asked this side to carry out, each answered once.
+     * Not cleared with the tree: a request the Host waits on is owed its answer after a
+     * resync too.
+     */
+    val storage: dev.darkpyonix.composerust.ui.platform.StorageCenter =
+        dev.darkpyonix.composerust.ui.platform.StorageCenter()
 
     private var revision = 0L
 
@@ -387,6 +417,16 @@ class NodeTable {
             // A read is answered later, outside the batch, by one event with its number.
             is Mutation.ReadClipboard -> clipboardReads.request(mutation.request)
 
+            // An operation on a file this side holds a handle for, answered later, outside the
+            // batch, by one event with its number. Where nothing holds handles it is answered
+            // as unavailable, which is still its one answer.
+            is Mutation.FileCall -> fileCall(mutation)
+            // Nothing answers a release, and a handle nobody holds is no error.
+            is Mutation.ReleaseFileHandle -> fileCalls.release(mutation.handle)
+            // Started now, while the value to write can still be read where the Host put it,
+            // and answered later, outside the batch, by one event with its number.
+            is Mutation.StorageCall -> storageCall(mutation)
+
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
@@ -465,18 +505,49 @@ class NodeTable {
         }
     }
 
+    private fun fileCall(mutation: Mutation.FileCall) {
+        if (fileCalls.request(mutation) == dev.darkpyonix.composerust.ui.platform.FileCallCenter.Accepted.Duplicate) {
+            fail(
+                TableError.DUPLICATE_FILE_CALL,
+                "FileCall request ${mutation.request} is already waiting for its answer",
+            )
+        }
+    }
+
+    private fun storageCall(mutation: Mutation.StorageCall) {
+        when (storage.request(mutation)) {
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Accepted -> Unit
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Duplicate -> fail(
+                TableError.DUPLICATE_IO_REQUEST,
+                "StorageCall request ${mutation.request} is already waiting for its answer",
+            )
+        }
+    }
+
     private fun requestFocus(mutation: Mutation.RequestFocus) {
         if (mutation.nodeId == ROOT_ID) {
             revision += 1
             focusClearRevision = revision
             return
         }
-        val node = nodes[mutation.nodeId] ?: return fail(
-            TableError.UNKNOWN_NODE,
-            "RequestFocus for unknown node ${mutation.nodeId}",
-        )
+        if (!requestNodeFocus(mutation.nodeId)) {
+            fail(TableError.UNKNOWN_NODE, "RequestFocus for unknown node ${mutation.nodeId}")
+        }
+    }
+
+    /**
+     * Asks for keyboard focus to move to the node [nodeId] names, and says whether there is
+     * such a node.
+     *
+     * A `RequestFocus` from the Host and the focus action of the accessibility tree both end
+     * here, so a screen reader moves focus the way the application does: the node's own
+     * composable sees the new revision and calls its focus requester.
+     */
+    internal fun requestNodeFocus(nodeId: Int): Boolean {
+        val node = nodes[nodeId] ?: return false
         revision += 1
         node.focusRequestRevision = revision
+        return true
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -604,6 +675,19 @@ class NodeTable {
         )
         if (mutation.index < 0 || mutation.index > MAX_MODIFIERS) {
             fail(TableError.INVALID_INDEX, "modifier index ${mutation.index} out of range")
+            return
+        }
+        val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
+            // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
+            // would announce a control as something it is not, so the modifier is refused
+            // and the slot keeps what it held.
+            val unknown = modifier.state and SEMANTICS_STATE_MASK.inv()
+            fail(
+                TableError.INVALID_MODIFIER,
+                "Semantics modifier on node ${mutation.nodeId} sets state or action bits this renderer " +
+                    "does not know: 0x${unknown.toString(16)}",
+            )
             return
         }
         while (node.modifiers.size <= mutation.index) {
@@ -828,8 +912,7 @@ class NodeTable {
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML
-                // region root. A picker takes only its value, range and events. The interpreter
-                // does not act on them yet.
+                // region root. A picker takes only its value, range and events.
                 PropertyKind.OnPointer,
                 PropertyKind.PointerKinds,
                 PropertyKind.Cursor,
@@ -1143,6 +1226,10 @@ class NodeTable {
                 PropertyKind.OnWindowUnavailable,
                 PropertyKind.OnWindowClosed,
                 -> widget == WidgetKind.Window
+
+                // What a set of destinations becomes in a compact window, where the
+                // application chose. Only a navigation has destinations to place.
+                PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

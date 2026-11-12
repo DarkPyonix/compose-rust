@@ -14,6 +14,33 @@ A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as 
 
 `compose_rust::clipboard::read_text(callback)` reads the plain text on the platform clipboard, for a paste shortcut, and `use_clipboard().read_text()` is the same read as a future. It is one new `ReadClipboard` command (tag 31) and one `ClipboardText` event (tag 56). Every read gets exactly one answer: the text, `None` when the clipboard is empty, holds no text, is missing, or the browser refused permission, or an error when the text is over 64 KiB, which is never cut short. The Renderer never logs the text, only its length ([#546](https://github.com/DarkPyonix/compose-rust/issues/546)).
 
+### Application storage
+
+`compose_rust::storage` keeps named values only the application reads and writes, the same code on every platform: `read`, `read_string`, `write`, `remove` and `keys`, each a future. An application names its storage with `LaunchBuilder::new().identifier(..)`, the same value as `[bundle] identifier` in its `Dioxus.toml`; without one every operation answers `StorageError::Unavailable`, and an identifier that cannot name a directory stops the launch with a sentence and a failing status. Keys are 1 to 128 bytes of `a-z`, `0-9`, `-`, `_` and `.`; a value is at most 16 MiB. Operations on one key apply in the order they are called, and a write is atomic.
+
+On macOS, iOS, Linux and Windows the values are files under the platform's data directory (`~/Library/Application Support`, `$XDG_DATA_HOME` or `~/.local/share`, `%APPDATA%`), read and written by a storage thread of the Host's; `COMPOSE_RUST_STORAGE_DIR` replaces the directory. Android keeps them in the application's files directory, which the Renderer reports at start with a new `StorageLocation` event (tag 59). In a browser the Renderer keeps them in IndexedDB, one database per identifier, through a new `StorageCall` command (tag 32) answered by one `IoAnswer` event (tag 57). A read there larger than the web's 4 KiB event buffer is reported as too large until #583 lets larger events through. Every sample now gives its identifier ([#611](https://github.com/DarkPyonix/compose-rust/issues/611), [#529](https://github.com/DarkPyonix/compose-rust/issues/529)).
+
+### Reading and writing the files a dialog chose, in a browser too
+
+`FileDialogResult::files()` turns a choice into `PickedFile`s, with `read`, `write`, `entries` and `child` as futures. The code is the same on every platform ([#609](https://github.com/DarkPyonix/compose-rust/issues/609)).
+
+- On a desktop a `PickedFile` is the path. A Host worker reads and writes it with `std::fs`, and a write goes to a temporary file beside it that is then renamed over it. `PickedFile::from_path` makes one from a path without a dialog.
+- In a browser the file dialog now works. Chromium uses the File System Access API pickers, and a write changes the same file again (`Delivery::Handle`). Firefox and Safari use a file input to open, which gives a copy that can only be read (`Delivery::Upload`), and a save becomes a download on every write (`Delivery::Download`). `can_write_again()` says which case it is.
+- In a browser `Chosen.paths` holds `webfile:<handle>/<name>` references, because a page gets no paths. `files()` reads them, so an application does not take them apart.
+- On the wire: the `FileCall` command (tag 33), the `ReleaseFileHandle` command (tag 34), the `FileHandles` event (tag 58), and the `IoAnswer` event (tag 57), which the application storage uses too. When the last `PickedFile` for a handle is dropped, the Host lets the Renderer release the handle.
+- Until events over the web's 4096 byte event buffer can reach the Host ([#583](https://github.com/DarkPyonix/compose-rust/issues/583)), a choice whose names do not fit answers `Unavailable` and a read that does not fit answers `FileError::TooLarge`. Neither is cut short.
+
+### Pointer events reach the nodes that subscribed
+
+`on_pointer(PointerKinds::..., handler)` now runs its handler. The renderer sends `Down`, `Up`, `Move`, `Enter`, `Leave`, `Cancel`, `Wheel` and `ContextMenu` to a subscribed node, with the position in dp from the node's top left corner ([#417](https://github.com/DarkPyonix/compose-rust/issues/417)). Before this the subscription was written and accepted, and nothing was ever sent.
+
+- A double click is a `Down` and an `Up` whose `click_count()` is 2. The secondary button, and Control with the primary button on macOS, arrive as `ContextMenu` with no `Down` beside it.
+- The deepest subscribed node hears an event first. `consume()` keeps it from the nearest subscribed ancestor and from Compose, so a consumed press is not also a click.
+- A node that took a `Down` keeps the pointer until it is released, and gets its `Move` and `Up` wherever the pointer goes.
+- `Move` is sent once a frame for each node with the latest position, and `Wheel` once a frame with its travel added up. A wheel's travel is in lines.
+
+A node that does not call `on_pointer` carries no pointer input, as before.
+
 ## v0.0.7
 
 ### Native file open and save dialogs

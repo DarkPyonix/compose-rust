@@ -81,7 +81,14 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     (FileDialogs.platform as? MacosFileDialogPlatform)?.rootWindow = {
         keyOrFirstWindow(windows.windows.mapNotNull { (it as? MacosPlatformWindow)?.nativeWindow })
     }
-    val manager = WindowManager(host, windows, onExit = { stopApplicationLoop() })
+    // A dragged window finds the nodes of the other windows that asked to hear it from where
+    // each scene laid them out. The screen is measured in points and a scene in pixels.
+    val manager = WindowManager(
+        host,
+        windows,
+        onExit = { stopApplicationLoop() },
+        dropTargets = DropTargets.registered(windows::contentScale),
+    )
     manager.attach()
     // A batch is one snapshot for every window: each is drawn again after it is applied, not
     // only the one whose frame carried it.

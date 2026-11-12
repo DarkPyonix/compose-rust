@@ -6,7 +6,6 @@ import androidx.compose.runtime.Composable
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
-import kotlin.time.TimeSource
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.FloatVar
@@ -49,8 +48,7 @@ internal class WindowsWindowBackend(
 ) : WindowBackend {
     private val windows = ArrayList<WindowsPlatformWindow>()
     private val retired = ArrayList<Win32Window>()
-    private val started = TimeSource.Monotonic.markNow()
-    private var lastNanos = 0L
+    private val frameTime = WindowFrameTime()
     private var applicationListener: ApplicationListener? = null
 
     override val supportsMultipleWindows: Boolean get() = true
@@ -108,11 +106,7 @@ internal class WindowsWindowBackend(
      * drawing from its own counter would let the Host's time go back whenever a different
      * window answered first.
      */
-    private fun frameNanos(): Long {
-        val now = started.elapsedNow().inWholeNanoseconds + FIRST_FRAME_NANOS
-        lastNanos = if (now > lastNanos) now else lastNanos + 1
-        return lastNanos
-    }
+    private fun frameNanos(): Long = frameTime.next()
 
     /**
      * One turn for every window, after the process's queue was served: what each heard and a
@@ -152,10 +146,6 @@ internal class WindowsWindowBackend(
         flushRetired()
     }
 
-    private companion object {
-        /** The first frame is not at time zero, as a window on its own draws its first at one step. */
-        const val FIRST_FRAME_NANOS = 16_000_000L
-    }
 }
 
 /**

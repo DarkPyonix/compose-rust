@@ -71,6 +71,9 @@ internal class LinuxWindow private constructor(
     internal val zoom: Zoom,
 ) : WindowListener {
 
+    /** Whether to paint the mark that says where the drawing reaches; see [EdgeMark]. */
+    private val edgeMark = EdgeMark.enabled()
+
     private val reportFrames = System.getenv("DXC_REPORT_FRAMES") != null
     private val reportInput = System.getenv("DXC_REPORT_INPUT") != null
 
@@ -237,7 +240,11 @@ internal class LinuxWindow private constructor(
         val nanos = frameClock.frameNanos()
         val begun = System.nanoTime()
         val drew = x11.draw(width, height) { canvas ->
-            scene.render(canvas.asComposeCanvas(), nanos)
+            if (edgeMark) {
+                EdgeMark.around(canvas, width, height) { scene.render(canvas.asComposeCanvas(), nanos) }
+            } else {
+                scene.render(canvas.asComposeCanvas(), nanos)
+            }
         }
         if (drew) {
             painted = true

@@ -69,7 +69,7 @@ fn fr_42_an_offset_is_one_offset_modifier() {
 #[test]
 fn fr_42_removing_a_shadow_layer_clears_its_slot() {
     let layers = remember_layers();
-    let state = layers.clone();
+    let state = layers;
     let (mut host, mut tree) = start(move || {
         let count = state.get();
         let modifier = (0..count).fold(Modifier, |modifier, n| {
