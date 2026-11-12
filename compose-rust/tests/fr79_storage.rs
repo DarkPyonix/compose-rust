@@ -635,7 +635,7 @@ fn Savers() {
         })
     });
     let shown = remember(|| mutable_state_of(true));
-    let hide = shown.clone();
+    let hide = shown;
     Button("hide").on_click(move || hide.set(false));
     if shown.get() {
         Loader();
