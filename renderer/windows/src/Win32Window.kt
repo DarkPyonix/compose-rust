@@ -200,6 +200,8 @@ internal class Win32Window private constructor(
                     System.err.println("compose-rust: window heard $event")
                 }
                 textScale.receive(event)
+                // Files let go over the window go to the node under them.
+                routeFileDrop(event)
                 // Told which desktop it is, because the key numbers are Windows' own.
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
@@ -238,6 +240,7 @@ internal class Win32Window private constructor(
                 System.err.println("compose-rust: window heard $event")
             }
             textScale.receive(event)
+            routeFileDrop(event)
             scene.receive(event, win32 = true)
             textInput.receive(event)
             heard = true
