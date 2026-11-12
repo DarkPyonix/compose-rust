@@ -293,10 +293,14 @@ jobs:
 
       - name: Keep the application
         if: always()
+        # multi-window.exe is the two-window application for the hand check of an input
+        # method and a screen reader in a second window (its README.md says what to check).
         uses: actions/upload-artifact@v4
         with:
           name: windows-static-consumer
-          path: ${{ runner.temp }}/consumer-windows/consumer.exe
+          path: |
+            ${{ runner.temp }}/consumer-windows/alone/consumer.exe
+            ${{ runner.temp }}/consumer-windows/multi-window/multi-window.exe
           if-no-files-found: ignore
           retention-days: 7
 
