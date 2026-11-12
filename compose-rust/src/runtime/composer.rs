@@ -486,8 +486,7 @@ impl Composer {
                 self.scope_stack.pop();
             }
         }
-        for index in 0..frame.old.len() {
-            let child = frame.old[index];
+        for &child in &frame.old {
             if child != TAKEN {
                 self.dispose_group(child, true);
             }
