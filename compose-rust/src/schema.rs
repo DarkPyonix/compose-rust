@@ -205,8 +205,8 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,Popover;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,placement,align,offset_dp;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult;",
@@ -574,6 +574,13 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // one window into another, is a protocol error: Compose keeps one composition per
     // window and has no way to hand a node from one to the next.
     Window = 45,
+    // A floating box of any content attached to an anchor. The first child is the anchor
+    // and is always drawn; the rest is the content, drawn only while the Host says it is
+    // open. A `Menu` is the same shape with entries in it and a place the design system
+    // fixes; here the Host names the side and the edge, and the Renderer keeps the box
+    // inside the window by flipping it to the other side or sliding it along the edge.
+    // 46 is held for a widget on another branch.
+    Popover = 47,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1127,6 +1134,23 @@ define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
     Glyph = 3,
 });
 
+// The side of its anchor a `Popover` opens on. `Start` and `End` follow the layout
+// direction. It is the side asked for: the Renderer opens on the opposite one when the
+// content does not fit between the anchor and the window's edge.
+define_wire_enum!(POPOVER_PLACEMENT_SCHEMA, PopoverPlacement {
+    Top = 1,
+    Bottom = 2,
+    Start = 3,
+    End = 4,
+});
+
+// Which edge of its anchor a `Popover` lines up with, along the side it opened on.
+define_wire_enum!(POPOVER_ALIGN_SCHEMA, PopoverAlign {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
 // Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
 // the middle of the view, or the top.
 define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
@@ -1502,6 +1526,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "FileDialogStatus",
         variants: FILE_DIALOG_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverPlacement",
+        variants: POPOVER_PLACEMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverAlign",
+        variants: POPOVER_ALIGN_SCHEMA,
     },
 ];
 
@@ -3257,7 +3289,21 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // absent is false.
     ReportSize = 127,
     // Scrim colour for modal overlays (Dialog, Sheet, Menu), as a `Paint` bit value.
+    // A `Popover` draws no scrim unless it is asked to, so there it is also a boolean:
+    // true draws the design system's scrim, and a `Paint` draws that colour.
     Scrim = 128,
+    // The popover block. All three belong to a `Popover`. 169 to 174 are held for
+    // properties on other branches.
+    //
+    // The side of the anchor the content opens on, a `PopoverPlacement` tag. Absent is
+    // `Bottom`.
+    Placement = 175,
+    // The edge of the anchor the content lines up with, a `PopoverAlign` tag. Absent is
+    // `Start`.
+    Align = 176,
+    // The gap between the anchor and the content, an `f32` in dp. Absent leaves the gap
+    // to the design system.
+    OffsetDp = 177,
 });
 
 #[derive(Clone, Debug, PartialEq)]
