@@ -109,6 +109,12 @@ class MacosWindowBackend(
     /** The windows that are open now, in the order they were opened. */
     val windows: List<PlatformWindow> get() = live.toList()
 
+    /**
+     * Told of every window this opens, once its scene is set and before the loop draws it:
+     * where the multi-window run prints the start report and starts a parity run.
+     */
+    var onOpened: ((MacosWindow) -> Unit)? = null
+
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
         NSApplication.sharedApplication()
         installMacosApplicationDelegate()
@@ -149,6 +155,7 @@ class MacosWindowBackend(
         if (!config.resizable) window.setResizable(false)
         if (config.colorScheme != ColorScheme.FollowSystem) window.setColorScheme(config.colorScheme)
         startTurns()
+        onOpened?.invoke(created)
         return window
     }
 

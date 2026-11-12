@@ -76,6 +76,15 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     }
     val windows = MacosWindowBackend(scene)
     backend = windows
+    // The start report and the parity run the single window has, here for the windows the
+    // nodes open: the report for the first one, the made-up input and the idle soak for the one
+    // `DXC_SYNTH_WINDOW` names (the first when unset).
+    val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom(System.getenv("DXC_SYNTH_WINDOW")))
+    windows.onOpened = { window ->
+        val duties = starts.next()
+        if (duties.startReport) reportWindowStart(window)
+        if (duties.parityRun) startParityRun(window)
+    }
     // A dialog on node 0 has no `Window` node of its own here, so it goes to the window in
     // use, or the first one open.
     (FileDialogs.platform as? MacosFileDialogPlatform)?.rootWindow = {
@@ -106,6 +115,44 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     application.run()
     host.table.notifications.shutdown()
     return 0
+}
+
+/**
+ * Which of the windows a multi-window run opens carry the start report and the parity run.
+ *
+ * The report goes with the first window, as the single window prints it for its one. The parity
+ * run goes with the [parityWindow]th window opened, counted from 1 in opening order, because a
+ * script driving the run knows how many windows the application opens and in what order, and
+ * not the ids of their nodes. A window past the ones the run opens is never chosen, and then
+ * no parity run starts.
+ */
+internal class MultiWindowStarts(private val parityWindow: Int) {
+    data class Duties(val startReport: Boolean, val parityRun: Boolean)
+
+    private var opened = 0
+
+    /** What the window opened now carries. */
+    fun next(): Duties {
+        opened++
+        return Duties(startReport = opened == 1, parityRun = opened == parityWindow)
+    }
+
+    companion object {
+        /** The window `DXC_SYNTH_WINDOW` names, or the first for a value that is unset or not a positive number. */
+        fun parityWindowFrom(value: String?): Int = value?.trim()?.toIntOrNull()?.takeIf { it >= 1 } ?: 1
+    }
+}
+
+/** The lines the smoke runs read, for one window, in the words the single window uses. */
+internal fun reportWindowStart(window: MacosWindow) {
+    val opened = window.measure()
+    WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
+    WindowStartReport.sceneCreated(opened.width, opened.height, opened.scale)
+    val previous = window.onFrameDrawn
+    window.onFrameDrawn = { width, height ->
+        previous?.invoke(width, height)
+        WindowStartReport.frameDrawn(width, height)
+    }
 }
 
 /** What one window's scene draws: its `Window` node, and the clock it answers [PlatformWindow.awaitFrame] with. */

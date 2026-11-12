@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.ui.platform.MacosApplicationDelegate
 import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
+import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
 import dev.darkpyonix.composerust.ui.platform.PlatformWindow
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
@@ -434,6 +435,44 @@ class MacosMultiWindowTest {
         } finally {
             h.close()
             assertEquals(null, WindowApplication.onReopen, "shutting the manager down removes the listener")
+        }
+    }
+
+    @Test
+    fun fr53_macos_multi_window_start_report_goes_with_the_first_window() {
+        val starts = MultiWindowStarts(parityWindow = 1)
+        assertEquals(MultiWindowStarts.Duties(startReport = true, parityRun = true), starts.next())
+        assertEquals(MultiWindowStarts.Duties(startReport = false, parityRun = false), starts.next())
+        assertEquals(MultiWindowStarts.Duties(startReport = false, parityRun = false), starts.next())
+    }
+
+    @Test
+    fun fr53_macos_parity_run_goes_with_the_chosen_window() {
+        assertEquals(1, MultiWindowStarts.parityWindowFrom(null))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom(""))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom("0"))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom("first"))
+        assertEquals(3, MultiWindowStarts.parityWindowFrom(" 3 "))
+        val starts = MultiWindowStarts(parityWindow = 2)
+        val duties = List(3) { starts.next() }
+        assertEquals(listOf(true, false, false), duties.map { it.startReport })
+        assertEquals(listOf(false, true, false), duties.map { it.parityRun })
+    }
+
+    @Test
+    fun fr53_macos_backend_tells_of_every_window_it_opens() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend()
+        val opened = mutableListOf<platform.AppKit.NSWindow>()
+        backend.onOpened = { opened += it.window }
+        val a = assertNotNull(backend.open(config(1, "fr53 a"), Recorder()))
+        val b = assertNotNull(backend.open(config(2, "fr53 b"), Recorder()))
+        try {
+            assertEquals(listOf(a.native(), b.native()), opened)
+        } finally {
+            a.close()
+            b.close()
+            spin()
         }
     }
 }
