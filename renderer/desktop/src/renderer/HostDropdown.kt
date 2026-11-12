@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.foundation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -82,7 +83,10 @@ internal fun HostDropdown(
         }
     }
     val shown = selected.coerceIn(0, maxOf(0, options.lastIndex))
-    val closedField = node.flag(PropertyKind.Collapsible, default = false)
+    // A bare select is a closed field by definition: it sits inside a box that already
+    // drew the frame, so it has no wheel band of its own to draw either.
+    val bare = node.flag(PropertyKind.Bare, default = false)
+    val closedField = bare || node.flag(PropertyKind.Collapsible, default = false)
 
     when {
         closedField || theme.rules.pickers.choice == ChoicePresentation.ExposedMenu -> OpeningList(
@@ -153,6 +157,8 @@ private fun OpeningList(
 ) {
     var open by remember(node.id) { mutableStateOf(false) }
     val style = theme.rules.container(role, theme)
+    val bare = node.flag(PropertyKind.Bare, default = false)
+    val bareInteractions = remember(node.id) { MutableInteractionSource() }
     val ownFill = node.setsOwnBackground()
     val ownLine = node.modifiers.any {
         it is ProtocolModifier.Border || it is ProtocolModifier.BorderEach
@@ -171,12 +177,33 @@ private fun OpeningList(
     Box(modifier) {
         Box(
             Modifier
-                .clip(fieldShape)
-                .let { if (ownFill) it else it.background(theme.color(ColorRole.Surface), fieldShape) }
-                .let { if (ownLine || ownFill) it else it.border(1.dp, theme.color(ColorRole.Outline), fieldShape) }
-                .clickable(enabled = enabled) { open = true }
+                // A bare field clips only to a corner the node named itself.
+                .let { if (bare && !ownShape) it else it.clip(fieldShape) }
                 .let {
-                    if (ownRoom) {
+                    if (ownFill || bare) it else it.background(theme.color(ColorRole.Surface), fieldShape)
+                }
+                .let {
+                    if (ownLine || ownFill || bare) {
+                        it
+                    } else {
+                        it.border(1.dp, theme.color(ColorRole.Outline), fieldShape)
+                    }
+                }
+                .let {
+                    // A bare field draws no focus or press layer: the box around it owns
+                    // the field's look in every state.
+                    if (bare) {
+                        it.clickable(
+                            interactionSource = bareInteractions,
+                            indication = null,
+                            enabled = enabled,
+                        ) { open = true }
+                    } else {
+                        it.clickable(enabled = enabled) { open = true }
+                    }
+                }
+                .let {
+                    if (ownRoom || bare) {
                         it
                     } else {
                         it.padding(horizontal = theme.space(SpaceRole.Sm), vertical = 6.dp)
@@ -189,7 +216,16 @@ private fun OpeningList(
                 key(childId) { RenderNode(childId, table, dispatcher) }
             }
         }
-        Box(Modifier.align(Alignment.CenterEnd).padding(end = theme.space(SpaceRole.Xs))) {
+        // On a bare field the marker takes no room of its own, so the field is as tall as
+        // the option it shows and not as tall as the marker.
+        Box(
+            if (bare) {
+                Modifier.matchParentSize().padding(end = theme.space(SpaceRole.Xs))
+            } else {
+                Modifier.align(Alignment.CenterEnd).padding(end = theme.space(SpaceRole.Xs))
+            },
+            contentAlignment = Alignment.CenterEnd,
+        ) {
             ThemedText(
                 text = marker,
                 style = theme.pickerTextStyle(color = theme.color(ColorRole.OnSurfaceVariant)),

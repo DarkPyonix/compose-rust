@@ -985,6 +985,9 @@ class NodeTable {
                 PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
                     widget == WidgetKind.Sheet
+                // A field drawn without the design system's frame.
+                PropertyKind.Bare -> widget == WidgetKind.TextField ||
+                    widget == WidgetKind.Dropdown
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->
