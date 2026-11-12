@@ -295,6 +295,40 @@
       and <code>todo</code> samples read and save files off the UI thread.
     </p>
 
+    <h2 id="storage">Keeping state between runs</h2>
+    <p>
+      <code>compose_rust::storage</code> keeps named values that only your application reads and
+      writes: a task list, a draft, a setting. The same code runs on every platform. Each
+      operation is a future, because a browser has no storage a page can wait on:
+    </p>
+    <pre><code>scope.launch(async move {
+    let saved = storage::read_string("tasks.tsv").await;
+    // ...
+    let _ = storage::write("tasks.tsv", text).await;
+});</code></pre>
+    <ul>
+      <li>Name the application with <code>LaunchBuilder::new().identifier("com.example.app")</code>,
+        the bundle identifier the application is packaged under. Without
+        one every operation answers <code>StorageError::Unavailable</code> and says so.</li>
+      <li>A key is 1 to 128 bytes of <code>a-z</code>, <code>0-9</code>, <code>-</code>,
+        <code>_</code> and <code>.</code>, and does not start with <code>.</code>. A value is at
+        most 16 MiB. Reading a key that holds nothing is <code>Ok(None)</code>.</li>
+      <li>Operations on one key apply in the order you call them, and a write is atomic: a crash
+        leaves the old value or the new one.</li>
+      <li>On macOS and iOS the values are files under
+        <code>~/Library/Application Support/&lt;identifier&gt;/storage</code>, on Linux under
+        <code>$XDG_DATA_HOME/&lt;identifier&gt;/storage</code>, on Windows under
+        <code>%APPDATA%\&lt;identifier&gt;\storage</code>, and on Android in the application's files
+        directory. The Host reads and writes them on a thread of its own, never on the UI thread.
+        <code>COMPOSE_RUST_STORAGE_DIR</code> points a test run somewhere else.</li>
+      <li>In a browser the values are in IndexedDB, one database per identifier. The browser
+        treats that storage as best effort: it may clear it when the disk runs short, and a private
+        window forgets it when it closes. Neither is something an application can change.</li>
+    </ul>
+    <p>
+      Files the user picked are not storage. They go through the file dialog.
+    </p>
+
     <h2 id="events">Event handlers</h2>
     <p>
       Handlers are ordinary Rust closures, given with methods such as <code>on_click</code>,

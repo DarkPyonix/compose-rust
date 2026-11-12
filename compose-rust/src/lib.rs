@@ -46,6 +46,7 @@ pub mod protocol;
 pub mod runtime;
 pub mod schema;
 pub mod spans;
+pub mod storage;
 pub mod theme;
 pub mod tokens;
 pub mod ui;

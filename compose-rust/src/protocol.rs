@@ -52,6 +52,12 @@ const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
 // answered by one `ClipboardText` event carrying the same request number.
 const TAG_READ_CLIPBOARD: u16 = 31;
+// 32 asks the Renderer to carry out one storage operation, answered by one `IoAnswer`
+// event carrying the same request number.
+const TAG_STORAGE_CALL: u16 = 32;
+/// `StorageCall` after its header: the request, the operation, a reserved half word, then
+/// the store, the key and the bytes as three references. 32 bytes, so the record is 36.
+const STORAGE_CALL_PAYLOAD_LEN: usize = 4 + 2 + 2 + 3 * 8;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -291,6 +297,19 @@ pub enum Mutation<'a> {
     ReadClipboard {
         request: u32,
     },
+    /// Asks the Renderer to carry out one operation on the application's storage, where the
+    /// Renderer is the side that can reach it (a browser's IndexedDB). Answered exactly
+    /// once, later, by an `IoAnswer` event that carries `request`.
+    ///
+    /// `store` is the application identifier, `key` the value's name (empty for `Keys`),
+    /// and `data` the value to write (empty for every operation but `Write`).
+    StorageCall {
+        request: u32,
+        op: crate::schema::StorageOp,
+        store: &'a str,
+        key: &'a str,
+        data: &'a [u8],
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -388,6 +407,11 @@ const FILE_DIALOG_RESULT_LEN: usize = 36;
 const EVENT_CLIPBOARD_TEXT: u16 = 56;
 /// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
 const CLIPBOARD_TEXT_LEN: usize = 36;
+const EVENT_IO_ANSWER: u16 = 57;
+/// `IoAnswer` in full: the 16 byte header, two words and the data's reference.
+const IO_ANSWER_LEN: usize = 32;
+// 58 is held for the web's file handles.
+const EVENT_STORAGE_LOCATION: u16 = 59;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -750,6 +774,25 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_IO_ANSWER if record_len == IO_ANSWER_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| crate::schema::IoStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::IoAnswer {
+                request: read_u32(bytes, 16)?,
+                status,
+                data: read_bytes(bytes, 24, record_len)?,
+            }
+        }
+        EVENT_IO_ANSWER => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_STORAGE_LOCATION if record_len == 24 => {
+            crate::schema::EventPayload::StorageLocation(read_string(bytes, 16, record_len)?)
+        }
+        EVENT_STORAGE_LOCATION => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1170,6 +1213,21 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(text.as_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::IoAnswer {
+        request,
+        status,
+        data,
+    } = event.payload
+    {
+        put_event_header(output, EVENT_IO_ANSWER, IO_ANSWER_LEN as u16, event);
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(status)).to_le_bytes());
+        let data_len = u32::try_from(data.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(IO_ANSWER_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&data_len.to_le_bytes());
+        output.extend_from_slice(data);
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1202,6 +1260,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         crate::schema::EventPayload::FilesEntered => (EVENT_FILES_ENTERED, 16, None, None),
         crate::schema::EventPayload::FilesDropped(paths) => {
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
+        }
+        crate::schema::EventPayload::StorageLocation(path) => {
+            (EVENT_STORAGE_LOCATION, 24, Some(*path), None)
         }
         crate::schema::EventPayload::Resync => (EVENT_RESYNC, 16, None, None),
         crate::schema::EventPayload::WindowCloseRequested => {
@@ -1249,7 +1310,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
         | crate::schema::EventPayload::FileDialogResult { .. }
-        | crate::schema::EventPayload::ClipboardText { .. } => unreachable!(),
+        | crate::schema::EventPayload::ClipboardText { .. }
+        | crate::schema::EventPayload::IoAnswer { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1587,6 +1649,21 @@ impl BatchEncoder {
             Mutation::ReadClipboard { request } => {
                 self.begin_record(TAG_READ_CLIPBOARD, 4);
                 self.put_u32(*request);
+            }
+            Mutation::StorageCall {
+                request,
+                op,
+                store,
+                key,
+                data,
+            } => {
+                self.begin_record(TAG_STORAGE_CALL, STORAGE_CALL_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u16(u16::from(*op));
+                self.put_u16(0);
+                self.put_string_ref(store)?;
+                self.put_string_ref(key)?;
+                self.put_bytes_ref(data)?;
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2079,6 +2156,17 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
                 request: read_u32(bytes, payload)?,
             },
+            TAG_STORAGE_CALL if len == 4 + STORAGE_CALL_PAYLOAD_LEN => {
+                let raw_op = read_u16(bytes, payload + 4)?;
+                Mutation::StorageCall {
+                    request: read_u32(bytes, payload)?,
+                    op: crate::schema::StorageOp::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_op))?,
+                    store: read_string(bytes, payload + 8, records_len)?,
+                    key: read_string(bytes, payload + 16, records_len)?,
+                    data: read_bytes(bytes, payload + 24, records_len)?,
+                }
+            }
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2250,7 +2338,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
             | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
-            | TAG_READ_CLIPBOARD => {
+            | TAG_READ_CLIPBOARD
+            | TAG_STORAGE_CALL => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
