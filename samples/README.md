@@ -34,7 +34,7 @@ them name Cupertino.
 | `minimal` | A monochrome component sheet in the reference's own black, white and greys: steppers, a segmented control, a panel with a red delete action, chips, a slider card, a card of button tiles, an inverted bar with a search field, a green and grey switch pair, and two overlapping discs with a gradient and a shadow |
 | `store` | A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
 | `statistics` | Charts: a dial and a week of hatched columns drawn with `Canvas` in the reference's own palette, and a costs page that is sage to the window's edges |
-| `selfcare` | A mood picker whose answers are colours, a drawn face per feeling, a chip grid, a windowing row of session cards and a week as a line |
+| `selfcare` | A check-in whose answers are colours: a drawn face per feeling on a pale panel, a carousel of feelings centred on the chosen one, three progress segments and a chip grid, then a windowing row of session cards, a week as a line in the reference's cyan, and its own bar with the destination you are on named in a pill |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
 | `academic` | A grid of subject tiles, a stage strip, open and locked lessons, in the reference picture's own colours |
 | `social` | A meditation app: an edge-to-edge course of the day, shelves of illustrated cards, sleep stories on a navy page, its own icon bar, and a course page that covers it |
@@ -52,7 +52,9 @@ blue. So a unified sample holds a `palette` module of the literals its picture i
 with a test that pins each value and asserts each one is a literal. For the same reason it
 draws its own bar along the bottom: the references have icons alone, with the one you are
 on in the accent, and a labelled bar with a selection pill is what `Navigation` is right to
-give an application that has not been drawn one.
+give an application that has not been drawn one. `selfcare` draws its own bar too, with
+one difference its reference makes: the destination you are on is its icon with its name
+under it inside a pale pill, and the others are icons alone.
 
 ## The pictures
 

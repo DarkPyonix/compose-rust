@@ -11,8 +11,8 @@
 //! list then lasts until the page is reloaded, and the first failure says so.
 
 use compose_rust::IconRole;
-use compose_rust::ui::{Message, MessageDuration};
 use compose_rust::runtime::{CoroutineScope, with_worker};
+use compose_rust::ui::{Message, MessageDuration};
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

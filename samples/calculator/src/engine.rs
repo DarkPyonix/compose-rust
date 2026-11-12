@@ -113,10 +113,6 @@ pub struct Completed {
     pub failed: bool,
 }
 
-/// The calculator's whole state.
-///
-/// `entry` is what the user is typing right now. When it is empty the display shows
-/// `value`, which is the running result.
 /// The memory keys, in the order the reference prints them.
 ///
 /// Every desk calculator has had these, and both the Windows and the Deepin reference
@@ -124,6 +120,24 @@ pub struct Completed {
 /// running value: somewhere to put a number while working out the next one.
 pub const MEMORY_KEYS: [&str; 6] = ["MC", "MR", "M+", "M\u{2212}", "MS", "M\u{25be}"];
 
+/// Clears the entry and leaves the calculation waiting for it: Windows' `CE`.
+pub const CLEAR_ENTRY: &str = "CE";
+/// Clears everything but the memory: Apple's name for `C`.
+pub const ALL_CLEAR: &str = "AC";
+/// One over the entry.
+pub const RECIPROCAL: &str = "1/x";
+/// The entry squared.
+pub const SQUARE: &str = "x\u{00b2}";
+/// The entry's square root, printed the way Windows prints it.
+pub const SQUARE_ROOT: &str = "\u{00b2}\u{221a}x";
+/// Deepin's one bracket key: it opens a bracket where an operand is expected and closes
+/// the innermost open one where an operand has just been given.
+pub const BRACKET: &str = "( )";
+
+/// The calculator's whole state.
+///
+/// `entry` is what the user is typing right now. When it is empty the display shows
+/// `value`, which is the running result.
 #[derive(Clone, Debug)]
 pub struct Calculator {
     entry: String,
@@ -143,6 +157,9 @@ pub struct Calculator {
     /// disagrees with what you just did.
     memory: f64,
     memory_set: bool,
+    /// One entry per open bracket: the running value and the operation the bracket
+    /// interrupted, which closing it hands its result back to.
+    brackets: Vec<(f64, Option<Operation>)>,
 }
 
 impl Default for Calculator {
@@ -163,6 +180,7 @@ impl Calculator {
             completed: None,
             memory: 0.0,
             memory_set: false,
+            brackets: Vec::new(),
         }
     }
 
@@ -188,12 +206,26 @@ impl Calculator {
     }
 
     /// The small line above the display: the running value and the operation waiting for
-    /// its right-hand side.
+    /// its right-hand side, behind every bracket still open.
     pub fn status(&self) -> String {
-        match self.pending {
-            Some(operation) => format!("{} {}", format_number(self.value), operation.symbol()),
-            None => String::new(),
+        let mut parts: Vec<String> = self
+            .brackets
+            .iter()
+            .map(|(value, pending)| match pending {
+                Some(operation) => {
+                    format!("{} {} (", format_number(*value), operation.symbol())
+                }
+                None => "(".to_owned(),
+            })
+            .collect();
+        if let Some(operation) = self.pending {
+            parts.push(format!(
+                "{} {}",
+                format_number(self.value),
+                operation.symbol()
+            ));
         }
+        parts.join(" ")
     }
 
     /// Hands over the last finished calculation and forgets it, so a caller that asks
@@ -247,15 +279,12 @@ impl Calculator {
             "MS" => self.store(self.shown_value()),
             "M+" => self.store(self.memory + self.shown_value()),
             "M\u{2212}" | "M-" => self.store(self.memory - self.shown_value()),
-            "C" => {
-                // Clearing clears the calculation, not the memory. Every one of the
-                // three references keeps the two apart, and a C that emptied the memory
-                // would throw away the number that was put somewhere safe.
-                let (memory, memory_set) = (self.memory, self.memory_set);
-                *self = Self::new();
-                self.memory = memory;
-                self.memory_set = memory_set;
-            }
+            "C" | ALL_CLEAR => self.clear(),
+            CLEAR_ENTRY => self.clear_entry(),
+            RECIPROCAL => self.unary(|value| 1.0 / value),
+            SQUARE => self.unary(|value| value * value),
+            SQUARE_ROOT => self.unary(f64::sqrt),
+            BRACKET => self.bracket(),
             "\u{232b}" => self.backspace(),
             "%" => self.percent(),
             "\u{00b1}" => self.flip_sign(),
@@ -275,6 +304,88 @@ impl Calculator {
     /// The number the big line is reading, which is what a memory key acts on.
     fn shown_value(&self) -> f64 {
         if self.error { 0.0 } else { self.operand() }
+    }
+
+    /// Clears the calculation, not the memory. Every one of the three references keeps the
+    /// two apart, and a clear that emptied the memory would throw away the number that was
+    /// put somewhere safe.
+    fn clear(&mut self) {
+        let (memory, memory_set) = (self.memory, self.memory_set);
+        *self = Self::new();
+        self.memory = memory;
+        self.memory_set = memory_set;
+    }
+
+    /// Throws away what is being typed and nothing else, so a mistyped right-hand side
+    /// can be typed again without starting the sum over.
+    fn clear_entry(&mut self) {
+        if self.error {
+            self.clear();
+            return;
+        }
+        self.entry.clear();
+        self.typing = true;
+    }
+
+    /// Replaces the operand with a function of it, as if the answer had been typed. The
+    /// waiting operation stays waiting, so `5 + 9 ²√x =` is eight.
+    fn unary(&mut self, function: impl Fn(f64) -> f64) {
+        if self.error {
+            return;
+        }
+        let result = function(self.operand());
+        if !result.is_finite() {
+            // A root of a negative number and one over zero have no answer to show.
+            self.settle(result);
+            return;
+        }
+        self.entry = format_number(result);
+        self.typing = true;
+    }
+
+    /// The bracket key: closes the innermost bracket when an operand has just been
+    /// given, and opens one otherwise.
+    fn bracket(&mut self) {
+        if self.error {
+            return;
+        }
+        if self.typing {
+            if !self.brackets.is_empty() {
+                self.close_bracket();
+                return;
+            }
+            // A number followed by a bracket multiplies, the way it does on paper.
+            if self.pending.is_none() {
+                self.operation(Operation::Multiply);
+            }
+        }
+        self.brackets.push((self.value, self.pending));
+        self.value = 0.0;
+        self.pending = None;
+        self.entry.clear();
+        self.typing = false;
+        self.repeat = None;
+    }
+
+    /// Works out the innermost bracket and hands its answer to the calculation it
+    /// interrupted, as the operand that calculation is waiting for.
+    fn close_bracket(&mut self) {
+        let Some((value, pending)) = self.brackets.pop() else {
+            return;
+        };
+        let operand = self.operand();
+        let inner = match self.pending {
+            Some(operation) => operation.apply(self.value, operand),
+            None => operand,
+        };
+        self.value = value;
+        self.pending = pending;
+        if !inner.is_finite() {
+            self.settle(inner);
+            return;
+        }
+        self.entry = format_number(inner);
+        self.typing = true;
     }
 
     fn store(&mut self, value: f64) {
@@ -385,6 +496,13 @@ impl Calculator {
     fn equals(&mut self) {
         if self.error {
             return;
+        }
+        // Equals closes whatever is still open, the way the end of a line does on paper.
+        while !self.brackets.is_empty() {
+            self.close_bracket();
+            if self.error {
+                return;
+            }
         }
         if let Some(pending) = self.pending {
             let left = self.value;
@@ -525,6 +643,105 @@ mod tests {
         assert!(calculator.memory_set());
         calculator.press("MR");
         assert_eq!(calculator.display(), "8");
+    }
+
+    /// Windows' second row works on the entry and leaves the waiting operation alone, and
+    /// its `CE` throws away only what is being typed.
+    #[test]
+    fn fr22_the_windows_function_keys_work_on_the_entry() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "9");
+        calculator.press(SQUARE_ROOT);
+        assert_eq!(calculator.display(), "3");
+
+        press_all(&mut calculator, "c4");
+        calculator.press(RECIPROCAL);
+        assert_eq!(calculator.display(), "0.25");
+
+        press_all(&mut calculator, "c3");
+        calculator.press(SQUARE);
+        assert_eq!(calculator.display(), "9");
+
+        // The operand is replaced, the sum it belongs to is not.
+        press_all(&mut calculator, "c5+9");
+        calculator.press(SQUARE_ROOT);
+        press_all(&mut calculator, "=");
+        assert_eq!(calculator.display(), "8");
+
+        press_all(&mut calculator, "c5+3");
+        calculator.press(CLEAR_ENTRY);
+        assert_eq!(calculator.display(), "0");
+        assert_eq!(calculator.status(), "5 +", "CE should keep the waiting sum");
+        press_all(&mut calculator, "2=");
+        assert_eq!(calculator.display(), "7");
+    }
+
+    /// A root of a negative number and one over zero have no answer, which the display
+    /// says rather than printing `NaN` or `inf`.
+    #[test]
+    fn fr22_a_function_with_no_answer_is_an_error() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "4~");
+        calculator.press(SQUARE_ROOT);
+        assert_eq!(calculator.display(), "Error");
+
+        press_all(&mut calculator, "c0");
+        calculator.press(RECIPROCAL);
+        assert_eq!(calculator.display(), "Error");
+    }
+
+    /// Apple's clear key is `AC`, and it has to be a clear key rather than a label the
+    /// engine does not know.
+    #[test]
+    fn fr22_all_clear_clears_the_calculation_and_keeps_the_memory() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "8");
+        calculator.press("MS");
+        press_all(&mut calculator, "+2");
+        calculator.press(ALL_CLEAR);
+        assert_eq!(calculator.display(), "0");
+        assert_eq!(calculator.status(), "");
+        assert!(calculator.memory_set(), "AC should leave the memory alone");
+    }
+
+    /// Deepin's one bracket key opens where an operand is expected and closes where one
+    /// has just been given, and equals closes whatever is left open.
+    #[test]
+    fn fr22_the_bracket_key_opens_and_closes() {
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "2*");
+        calculator.press(BRACKET);
+        assert_eq!(calculator.status(), "2 \u{00d7} (");
+        press_all(&mut calculator, "3+4");
+        assert_eq!(calculator.status(), "2 \u{00d7} ( 3 +");
+        calculator.press(BRACKET);
+        assert_eq!(calculator.display(), "7");
+        press_all(&mut calculator, "=");
+        assert_eq!(calculator.display(), "14");
+
+        // Left open, equals closes it.
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "2*");
+        calculator.press(BRACKET);
+        press_all(&mut calculator, "3+4=");
+        assert_eq!(calculator.display(), "14");
+
+        // A bracket at the start, then an operation on what it came to.
+        let mut calculator = Calculator::new();
+        calculator.press(BRACKET);
+        press_all(&mut calculator, "1+2");
+        calculator.press(BRACKET);
+        press_all(&mut calculator, "*3=");
+        assert_eq!(calculator.display(), "9");
+
+        // A number straight before a bracket multiplies it.
+        let mut calculator = Calculator::new();
+        press_all(&mut calculator, "5");
+        calculator.press(BRACKET);
+        press_all(&mut calculator, "2");
+        calculator.press(BRACKET);
+        press_all(&mut calculator, "=");
+        assert_eq!(calculator.display(), "10");
     }
 
     #[test]

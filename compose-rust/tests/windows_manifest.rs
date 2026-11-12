@@ -39,7 +39,7 @@ fn fr22_6_13_the_resource_file_starts_with_the_empty_entry() {
     let res = manifest_resource(b"<x/>");
     // DataSize 0, HeaderSize 32, type ordinal 0, name ordinal 0, and zeros after. The
     // linker recognises a resource file by exactly these 32 bytes.
-    let mut expected = vec![0u8; 32];
+    let mut expected = [0u8; 32];
     expected[4] = 0x20;
     expected[8..12].copy_from_slice(&[0xFF, 0xFF, 0, 0]);
     expected[12..16].copy_from_slice(&[0xFF, 0xFF, 0, 0]);

@@ -22,6 +22,10 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.LocalStripTakesTheTop
+import dev.darkpyonix.composerust.runtime.LocalWindowCaption
+import dev.darkpyonix.composerust.runtime.WindowCaption
+import dev.darkpyonix.composerust.runtime.opensWithABar
+import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
@@ -76,6 +80,9 @@ internal fun scaffoldFrame(
         // the width the destinations would have had as an empty band, and the page came
         // out pushed off centre by a strip that was not on the screen.
         presentation == NavigationPresentation.PutAway -> ScaffoldFrame.Overlaid
+        // Nothing in the frame and nothing over it. The page takes the whole window, which
+        // is the overlaid frame with no button drawn on top.
+        presentation == NavigationPresentation.Hidden -> ScaffoldFrame.Overlaid
         else -> ScaffoldFrame.SideBySide
     }
 
@@ -120,7 +127,12 @@ internal fun HostScaffold(
 
     val topBar = slots[SlotRole.TopBar]
     val bottomBar = slots[SlotRole.BottomBar]
-    val navigation = theme.rules.navigation(sizeClass, theme)
+    // Asked of the navigation in the bottom slot, so a compact window gets what that
+    // navigation chose, the same answer the navigation itself draws.
+    val navigationNode = bottomBar?.children?.firstNotNullOfOrNull { id ->
+        table.node(id)?.takeIf { it.widget == WidgetKind.Navigation }
+    }
+    val navigation = theme.navigationFor(navigationNode, sizeClass)
     val holdsNavigation = bottomBar?.let { holdsANavigation(it, table) } == true
     val frame = scaffoldFrame(navigation.presentation, destinationsCanTurn = holdsNavigation)
     val floatingAction = slots[SlotRole.FloatingAction]
@@ -208,18 +220,44 @@ internal fun HostScaffold(
         return@CompositionLocalProvider
     }
 
+    // The button that brings a put-away navigation out is drawn over the frame from the
+    // window's leading top corner, so the frame keeps clear of it: the top bar starts after
+    // it on the caption's line, or everything starts below it.
+    val caption = LocalWindowCaption.current
+    val clearance = if (frame == ScaffoldFrame.Overlaid &&
+        navigation.presentation == NavigationPresentation.PutAway
+    ) {
+        toggleClearance(
+            caption,
+            theme.space(SpaceRole.Sm),
+            opensWithABar = topBar != null && table.opensWithABar(topBar.children),
+        )
+    } else {
+        null
+    }
+    val topBarCaption = when (clearance) {
+        is ToggleClearance.Beside -> clearance.caption
+        is ToggleClearance.Below -> WindowCaption.None
+        null -> caption
+    }
+    val pageCaption = if (clearance is ToggleClearance.Below) WindowCaption.None else caption
+
     Box(modifier.fillMaxSize()) {
     Column(
-        Modifier.fillMaxSize().then(
-            if (holdsNavigation) Modifier.pageBackdrop(navigation) else Modifier,
-        ),
+        Modifier
+            .fillMaxSize()
+            .then(if (holdsNavigation) Modifier.pageBackdrop(navigation) else Modifier)
+            .then(if (clearance is ToggleClearance.Below) Modifier.padding(top = clearance.top) else Modifier),
     ) {
         // The top bar spans the window at every width, above the destinations as well as
         // above the page. A bar that stopped at the rail would read as a panel heading
         // rather than as the window's own bar, and on the one platform that hands its
         // caption to the application it is the window's caption.
-        Row(Modifier.fillMaxWidth()) { slot(topBar) }
+        CompositionLocalProvider(LocalWindowCaption provides topBarCaption) {
+            Row(Modifier.fillMaxWidth()) { slot(topBar) }
+        }
 
+        CompositionLocalProvider(LocalWindowCaption provides pageCaption) {
         Row(Modifier.fillMaxWidth().weight(1f)) {
             if (frame == ScaffoldFrame.SideBySide) {
                 slot(bottomBar)
@@ -241,6 +279,7 @@ internal fun HostScaffold(
                     slot(floatingAction)
                 }
             }
+        }
         }
 
         if (frame == ScaffoldFrame.Stacked) {
