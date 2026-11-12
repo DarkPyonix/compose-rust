@@ -46,6 +46,12 @@ const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+// 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
+// code editor's grouped edit.
+const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
+// 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
+// answered by one `ClipboardText` event carrying the same request number.
+const TAG_READ_CLIPBOARD: u16 = 31;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -274,6 +280,17 @@ pub enum Mutation<'a> {
     },
     /// Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
     SetOverlayTokens(crate::schema::OverlayTokens),
+    /// Puts `text` on the platform clipboard as plain text.
+    ///
+    /// Not a node and not answered: a Renderer with no clipboard drops it.
+    SetClipboardText {
+        text: &'a str,
+    },
+    /// Asks for the plain text on the platform clipboard. Answered exactly once, later, by a
+    /// `ClipboardText` event that carries `request`.
+    ReadClipboard {
+        request: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -367,6 +384,10 @@ const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
 const FILE_DIALOG_RESULT_LEN: usize = 36;
+// 51 to 55 are held by events other requirements have numbered.
+const EVENT_CLIPBOARD_TEXT: u16 = 56;
+/// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
+const CLIPBOARD_TEXT_LEN: usize = 36;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -720,6 +741,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CLIPBOARD_TEXT if record_len == CLIPBOARD_TEXT_LEN => {
+            crate::schema::EventPayload::ClipboardText {
+                request: read_u32(bytes, 16)?,
+                status: read_u32(bytes, 20)?,
+                len: read_u32(bytes, 24)?,
+                text: read_string(bytes, 28, record_len)?,
+            }
+        }
+        EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1118,6 +1148,28 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(paths.as_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ClipboardText {
+        request,
+        status,
+        len,
+        text,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_CLIPBOARD_TEXT,
+            CLIPBOARD_TEXT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&status.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        let text_len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(CLIPBOARD_TEXT_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&text_len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1196,7 +1248,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
-        | crate::schema::EventPayload::FileDialogResult { .. } => unreachable!(),
+        | crate::schema::EventPayload::FileDialogResult { .. }
+        | crate::schema::EventPayload::ClipboardText { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1526,6 +1579,14 @@ impl BatchEncoder {
                 self.put_u16(overlay.popup_padding);
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
+            }
+            Mutation::SetClipboardText { text } => {
+                self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
+                self.put_string_ref(text)?;
+            }
+            Mutation::ReadClipboard { request } => {
+                self.begin_record(TAG_READ_CLIPBOARD, 4);
+                self.put_u32(*request);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2012,6 +2073,12 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_CLIPBOARD_TEXT if len == 12 => Mutation::SetClipboardText {
+                text: read_string(bytes, payload, records_len)?,
+            },
+            TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
+                request: read_u32(bytes, payload)?,
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2182,7 +2249,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_SET_OVERLAY_TOKENS => {
+            | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
+            | TAG_READ_CLIPBOARD => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -4160,5 +4228,140 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The keys menus, lists and overlays act on have their own name, appended after
+    /// `Other` so no earlier tag moves, and each one survives the wire.
+    #[test]
+    fn fr12_named_keys_are_appended_and_round_trip() {
+        let named = [
+            (Key::Enter, 1u16, 0x28u32, "Enter"),
+            (Key::Other, 2, 0x04, "a"),
+            (Key::Escape, 3, 0x29, "Escape"),
+            (Key::Tab, 4, 0x2B, "Tab"),
+            (Key::Backspace, 5, 0x2A, "Backspace"),
+            (Key::Delete, 6, 0x4C, "Delete"),
+            (Key::ArrowUp, 7, 0x52, "ArrowUp"),
+            (Key::ArrowDown, 8, 0x51, "ArrowDown"),
+            (Key::ArrowLeft, 9, 0x50, "ArrowLeft"),
+            (Key::ArrowRight, 10, 0x4F, "ArrowRight"),
+            (Key::Home, 11, 0x4A, "Home"),
+            (Key::End, 12, 0x4D, "End"),
+            (Key::PageUp, 13, 0x4B, "PageUp"),
+            (Key::PageDown, 14, 0x4E, "PageDown"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, code, text) in named {
+            assert_eq!(Key::try_from(tag), Ok(key), "tag {tag} names {text}");
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key: false,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag);
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
+        assert_eq!(Key::try_from(15), Err(()));
+    }
+
+    /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the
+    /// Renderer does not dismiss it. Its own `on_key_down` sees Escape by its DOM key
+    /// string and HID usage, and consuming it is the call's result.
+    #[test]
+    fn fr45_container_key_down_sees_escape_and_consumes_it() {
+        use std::sync::{Arc, Mutex};
+
+        let seen: Arc<Mutex<Vec<(String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen_for_root = Arc::clone(&seen);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let seen = Arc::clone(&seen_for_root);
+            crate::ui::Column()
+                .on_key_down(move |event| {
+                    seen.lock()
+                        .unwrap()
+                        .push((event.text().to_owned(), event.code()));
+                    if event.text() == "Escape" {
+                        event.consume();
+                    }
+                })
+                .content(|| {
+                    crate::ui::Text("session list");
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let (node_id, handler_id) = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyDown,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("a Column with on_key_down must emit OnKeyDown");
+        let created_column = mutations.iter().any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::Create { node_id: id, widget: crate::WidgetKind::Column, .. } if *id == node_id
+            )
+        });
+        assert!(
+            created_column,
+            "the key handler belongs to the Column itself"
+        );
+
+        let mut wire = Vec::new();
+        let mut press = |code: u32, text: &'static str| {
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: crate::EventPayload::KeyDown {
+                        key: if code == 0x29 {
+                            Key::Escape
+                        } else {
+                            Key::ArrowDown
+                        },
+                        shift_key: false,
+                        ctrl_key: false,
+                        alt_key: false,
+                        meta_key: false,
+                        repeat: false,
+                        code,
+                        text,
+                    },
+                },
+                &mut wire,
+            )
+            .unwrap();
+            host.dispatch_event(&wire).unwrap().1
+        };
+        assert_ne!(
+            press(0x29, "Escape"),
+            0,
+            "Escape was consumed by the container"
+        );
+        assert_eq!(
+            press(0x51, "ArrowDown"),
+            0,
+            "an unhandled key is left to the Renderer"
+        );
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![("Escape".to_owned(), 0x29), ("ArrowDown".to_owned(), 0x51)]
+        );
     }
 }

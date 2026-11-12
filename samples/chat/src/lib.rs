@@ -1,9 +1,9 @@
 //! An LLM chat interface with no network, clone coded from Google Gemini.
 //!
 //! Conversations down the side, a scrollback of messages, a composer where Enter sends and
-//! Shift+Enter starts a new line, and an assistant whose reply arrives a few characters at
-//! a time from a worker thread while the user keeps scrolling and typing. The worker
-//! writes a `MutableState`, which is `Send`, and the Host asks for the frame.
+//! Shift+Enter starts a new line, and an assistant whose reply is worked out on a worker
+//! and arrives a few characters at a time while the user keeps scrolling and typing. Each
+//! chunk is a write to a `MutableState`, and the Host asks for the frame.
 //!
 //! The conversations are a destination set rather than a list this code lays out, so the
 //! Renderer draws them as a bar along the bottom of a phone, a rail beside a tablet and the
@@ -192,7 +192,7 @@ fn settings_panel(settings: Settings, change: Rc<dyn Fn(Settings)>, close: Rc<dy
 pub fn app() {
     let window = current_window_size();
     let measure = thread_width(&window);
-    // Shared with the assistant thread, which is why it is a state that can cross threads.
+    // Shared with the assistant's reply, which is written a few characters at a time.
     let messages =
         remember(|| mutable_state_of_with_policy(opening_messages(), never_equal_policy()));
     let next_id = remember(|| mutable_state_of(2_u64));
@@ -215,9 +215,12 @@ pub fn app() {
     });
     let current = remember(|| mutable_state_of(1_u64));
     let next_conversation = remember(|| mutable_state_of(2_u64));
+    // Where a reply runs while it arrives. A reply still arriving when the chat leaves the
+    // composition stops with it.
+    let replies = remember_coroutine_scope();
 
     let send: Rc<dyn Fn(String)> = {
-        let (messages, next_id, draft, turns, settings, conversations, current) = (
+        let (messages, next_id, draft, turns, settings, conversations, current, replies) = (
             messages,
             next_id,
             draft,
@@ -225,6 +228,7 @@ pub fn app() {
             settings,
             conversations,
             current,
+            replies,
         );
         Rc::new(move |text: String| {
             let text = text.trim().to_owned();
@@ -263,13 +267,13 @@ pub fn app() {
                 }
             });
             draft.set(String::new());
-            assistant::stream_reply(
+            replies.launch(assistant::stream_reply(
                 text,
                 token,
                 turns.clone(),
                 settings.get_untracked(),
                 messages,
-            );
+            ));
         })
     };
 
@@ -1308,8 +1312,8 @@ mod tests {
     }
 
     /// The reply has to arrive from the worker without anyone on the UI thread asking for
-    /// it. Sending marks the scope that reads the message list dirty from another thread,
-    /// and the next frame carries whatever has landed so far.
+    /// it. The worker's answer and each pause between chunks end off the UI thread and ask
+    /// for a frame themselves, and the next frame carries whatever has landed so far.
     #[test]
     fn pr3_a_reply_arrives_from_the_worker_thread() {
         let mut screen = Screen::new();

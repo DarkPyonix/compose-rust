@@ -35,6 +35,7 @@ import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
+import dev.darkpyonix.composerust.runtime.windowReportKey
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
@@ -667,5 +668,94 @@ class WindowSizeTest {
         assertEquals(2, sizes().size)
         assertEquals(800f, sizes()[1].widthDp)
         assertEquals(WindowSizeClass.Medium, sizes()[1].sizeClass)
+    }
+
+    private fun rootSizesWhile(report: Boolean, first: Pair<Float, Float>, vararg then: List<Pair<Float, Float>>): List<HostEvent.WindowSizeChanged> {
+        var sizes: List<HostEvent.WindowSizeChanged> = emptyList()
+        runComposeUiTest {
+            val connection = FakeHostConnection(rootWindowBatch(report))
+            var size by mutableStateOf(first.first.dp to first.second.dp)
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(connection),
+                        Modifier.requiredSize(size.first, size.second),
+                    )
+                }
+            }
+            waitForIdle()
+            // Each list is one frame: every size in it is set before the frame runs.
+            for (frame in then) {
+                for ((w, h) in frame) size = w.dp to h.dp
+                waitForIdle()
+            }
+            sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>()
+        }
+        return sizes
+    }
+
+    /**
+     * 520 by 640 is Compact wide, the class both sides start in, and Medium high. Nothing
+     * about the width changes, so the report has to come from the height class alone.
+     */
+    @Test
+    fun fr20_4_a_window_that_stays_compact_wide_reports_at_first_layout() {
+        val sizes = rootSizesWhile(false, 520f to 640f)
+        assertEquals(1, sizes.size, "the first layout of a 520x640 window reaches the Host")
+        assertEquals(520f, sizes[0].widthDp)
+        assertEquals(640f, sizes[0].heightDp)
+        assertEquals(WindowSizeClass.Compact, sizes[0].sizeClass)
+        assertEquals(WindowHeightClass.Medium, sizes[0].heightClass)
+    }
+
+    @Test
+    fun fr20_4_a_default_window_resized_inside_one_class_sends_nothing_more() {
+        val sizes = rootSizesWhile(false, 520f to 640f, listOf(580f to 640f))
+        assertEquals(1, sizes.size)
+        assertEquals(520f, sizes[0].widthDp)
+    }
+
+    /** Compact in both axes and opted in: only the opt-in can make the first layout report. */
+    @Test
+    fun fr20_8_an_opted_in_compact_window_reports_at_first_layout() {
+        val sizes = rootSizesWhile(true, 520f to 400f)
+        assertEquals(1, sizes.size, "an opted-in window that never changes class still reports its size")
+        assertEquals(520f, sizes[0].widthDp)
+        assertEquals(400f, sizes[0].heightDp)
+    }
+
+    @Test
+    fun fr20_8_an_opted_in_window_reports_a_resize_inside_compact() {
+        val sizes = rootSizesWhile(true, 520f to 640f, listOf(580f to 640f), listOf(580f to 700f))
+        assertEquals(3, sizes.size)
+        assertEquals(580f, sizes[1].widthDp)
+        assertEquals(640f, sizes[1].heightDp)
+        assertEquals(700f, sizes[2].heightDp)
+        assertTrue(sizes.all { it.sizeClass == WindowSizeClass.Compact && it.heightClass == WindowHeightClass.Medium })
+    }
+
+    @Test
+    fun fr20_8_resizes_within_one_frame_are_one_report_with_the_last_size() {
+        val sizes = rootSizesWhile(true, 520f to 640f, listOf(540f to 640f, 560f to 650f, 580f to 660f))
+        assertEquals(2, sizes.size)
+        assertEquals(580f, sizes[1].widthDp)
+        assertEquals(660f, sizes[1].heightDp)
+    }
+
+    /** The key the composition subscribes to moves exactly when the reporter would send. */
+    @Test
+    fun fr20_8_report_key_changes_exactly_when_the_reporter_sends() {
+        val cases = listOf(520f to 640f, 520.3f to 640f, 580f to 640f, 580f to 700f, 700f to 700f, 700f to 400f, 700.6f to 400.2f)
+        for (everyDp in listOf(false, true)) {
+            val reporter = WindowSizeReporter()
+            val dispatcher = RecordingDispatcher()
+            var last = windowReportKey(0f, 0f, everyDp)
+            // The reporter starts at Compact and Compact; with the opt-in, at (0, 0) dp.
+            for ((w, h) in cases) {
+                val key = windowReportKey(w, h, everyDp)
+                assertEquals(key != last, reporter.report(w, h, dispatcher, everyDpChange = everyDp), "$w x $h, every dp $everyDp")
+                last = key
+            }
+        }
     }
 }

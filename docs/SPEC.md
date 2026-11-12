@@ -152,6 +152,14 @@ Host 측 규칙:
 4. 핸들러가 소비한 키는 이전처럼 Renderer가 처리하지 않습니다(fr12_consumed_key_is_not_handled_by_the_renderer).
 5. `KeyDown`의 `text`가 레코드 밖을 가리키면 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_malformed_key_down_text_is_a_protocol_error).
 
+#### 12.2 메뉴와 목록이 쓰는 키에 이름을 줍니다 (이슈 #476, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember. 서랍과 팝업 메뉴를 Esc로 닫고 화살표로 목록을 움직이려면 `text` 문자열을 비교해야 했습니다. `Key` 열거형에 `Escape=3, Tab=4, Backspace=5, Delete=6, ArrowUp=7, ArrowDown=8, ArrowLeft=9, ArrowRight=10, Home=11, End=12, PageUp=13, PageDown=14`를 `Other=2` 뒤에 덧붙입니다. 12.1의 "기존 `key: Key` 열거형도 유지합니다"는 이렇게 덧붙이는 것을 막지 않습니다. 기존 태그는 움직이지 않으며, 이 값들을 모르는 이전 Renderer는 계속 `Other`를 보냅니다. `code`와 `text`는 그대로 실립니다. 스키마 해시가 바뀝니다.
+
+수용 기준:
+1. 새 키마다 태그가 위 값이고 인코딩 후 디코딩해도 같습니다(fr12_named_keys_are_appended_and_round_trip).
+2. Renderer가 Compose의 해당 키를 각 이름으로 보냅니다(fr12_named_keys_map_to_their_protocol_key).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -1830,6 +1838,23 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_13_the_manifest_declares_per_monitor_v2_awareness, fr22_6_13_the_resource_file_starts_with_the_empty_entry, fr22_6_13_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_13_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
 14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_14_every_piece_of_code_is_signed_ad_hoc, fr22_6_14_the_signed_application_runs).
 
+#### 22.7 가이드에서 샘플을 브라우저로 실행합니다 (`Draft`)
+
+가이드 사이트는 완성된 샘플을 웹으로 빌드해 함께 게시합니다. 읽는 사람이 아무것도 설치하지 않고 브라우저에서 샘플을 바로 실행할 수 있게 하려는 것입니다(소유자, 2026-09-20: "guide 문서에 샘플 앱들 제작 완료된거 web으로 내보내서 예제들 바로 볼 수 있도록 해줘", 이슈 #20). 페이지는 `build-sample-pages.sh`가 만드는 것과 같습니다.
+
+결정:
+
+- (a) Pages는 wasm을 직접 빌드하지 않고 태그의 릴리스(`samples-latest` 또는 해당 릴리스)에서 웹 샘플 아카이브를 가져옵니다. 이유: 배포가 수십 분 걸리는 빌드를 반복하지 않고, 게시되는 샘플이 main에서 온 태그의 것입니다. [leader, provisional, 2026-11-13]
+- (b) 배포는 지금처럼 main에서만 합니다. [leader, provisional, 2026-11-13]
+- (c) 빌드되지 않은 샘플이 있으면 배포가 실패합니다. 조용히 건너뛰면 고장이 가려지고, 샘플은 웹에서 빌드되어야 합니다(#2). [leader, provisional, 2026-11-13]
+
+수용 기준:
+
+1. Pages 배포는 `samples/` 아래 `src/main.rs`가 있는 샘플마다 `/samples/<name>/`에 실행 가능한 페이지를 싣습니다. 하나라도 빠지면 배포가 실패합니다(`fr22_7_1_pages_publishes_every_sample`).
+2. 가이드에 영어와 한국어 샘플 페이지가 있고, 샘플마다 실행 링크와 한 줄 설명을 두며 기존 탐색과 스타일을 따릅니다. 목록은 1번의 샘플 집합과 같습니다(`fr22_7_2_guide_lists_every_published_sample`).
+3. 배포는 main에서만 일어나고, 다른 브랜치의 실행은 산출물만 만듭니다.
+4. 각 샘플 페이지가 Chromium에서 뜨고 첫 화면을 그리는지는 수동으로 확인합니다. CI는 페이지의 파일 구성을 검사합니다.
+
 **2026-09-22: 샘플이 일곱 플랫폼 전부에서 돕니다.** 데스크톱 넷(macOS arm64, Linux x64, Linux arm64, Windows x64)과 Android, iOS 시뮬레이터, 브라우저입니다. statistics 샘플을 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 각각 띄워 같은 세이지와 주황과 파우더 블루가 나오는 것을 확인했습니다. 통합 샘플이 플랫폼과 무관하게 같은 디자인을 그린다는 것이 이것으로 처음 실증됐습니다.
 
 **2026-09-23: 그러나 일곱 플랫폼 중 여섯이 사용자가 겪을 경로로 만들어진 것이 아니었습니다.** Android 하나를 지적받고 나머지를 전부 확인한 결과입니다. 샘플은 "사용자가 쓰는 방식으로 쓴 것"이어야 하는데, 릴리스 아티팩트는 저장소 안에만 있는 스크립트로 만들었습니다. 그래서 배포한 것이 사용자가 만들 것과 다르고, 사용자 경로가 깨져 있어도 아무도 모릅니다. 실제로 셋이 깨져 있었습니다.
@@ -1860,17 +1885,19 @@ iOS는 시뮬레이터용만 냅니다. 기기용 번들은 Apple이 발급한 �
 
 | 샘플 | 참조 | Compact | Medium | Expanded |
 |---|---|---|---|---|
-| `todo` | jordansinger/todo-macos-swiftui-sample, Dribbble ToDo Scheduler | 한 열, 목적지는 하단 막대, 작성은 시트 | 한 열, 목적지는 레일 | 측정폭으로 좁힌 한 열, 목적지는 서랍 |
+| `todo` | jordansinger/todo-macos-swiftui-sample, Dribbble ToDo Scheduler | 한 열, 하단 막대 없음. 목적지 목록은 왼쪽 아래 뒤로 버튼으로 여는 별도 화면, 추가는 오른쪽 아래의 떠 있는 버튼, 작성은 시트 | 한 열, 목적지는 레일 | 측정폭으로 좁힌 한 열, 목적지는 서랍 |
 | `notepad` | iOS 26 메모, Fluent 2 Loop | 문서 하나, 문서 목록은 시트 | 문서 하나, 목록은 시트 | 목록과 문서가 나란히 |
 | `calculator` | Windows 11 계산기, macOS 계산기, Deepin 계산기 | 한 열 키패드, 기록은 시트 | 함수열이 그리드에서 빠진 넓은 키패드 | 키패드 옆에 기록 |
-| `chat` | Google Gemini 데스크톱/세로 | 한 열, 목적지는 하단 막대 | 목적지는 레일 | 목적지는 서랍(사이드바) |
+| `chat` | Google Gemini 데스크톱/세로 | 한 열, 목적지는 토글 뒤의 사이드바(치워둠, FR-21.2.1) | 목적지는 레일 | 목적지는 서랍(사이드바) |
 
 세 참조가 모두 공유하는 것이 화면의 뼈대입니다.
 
-- **계산기**: 읽는 자리(식 한 줄과 결과 한 줄, 둘 다 오른쪽 정렬)가 위, 메모리 줄이 그 아래, 키패드가 창 아래쪽에 붙습니다. 키는 창이 커져도 손가락보다 크게 자라지 않습니다. 세 참조가 전부 그 모양이고, 다른 것은 디자인 시스템이 정하는 색과 모서리뿐입니다.
+**2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자).** 표의 `todo`와 `chat` Compact 칸과 아래 계산기, 채팅, 할 일 항목은 원래 Compact의 목적지를 하단 막대로, 계산기의 메모리 줄을 세 참조 공통으로 적었습니다. 그 문구는 소유자의 지시가 아니었고 참조와 맞지 않았습니다. 세로 Gemini 참조에는 하단 막대가 없고 왼쪽 위의 토글이 사이드바를 엽니다. 할 일 참조 네 장에도 하단 막대가 없습니다. macOS 계산기 참조에는 메모리 줄이 없습니다.
+
+- **계산기**: 읽는 자리(식 한 줄과 결과 한 줄, 둘 다 오른쪽 정렬)가 위, 키패드가 창 아래쪽에 붙습니다. 키는 창이 커져도 손가락보다 크게 자라지 않습니다. 세 참조가 전부 그 모양입니다. 메모리 줄은 참조에 있는 곳에만 섭니다. Windows와 Deepin 참조에는 읽는 자리 아래에 메모리 줄이 있고 macOS 참조에는 없으므로, 메모리 줄은 Fluent 2와 Deepin에서 서고 Liquid Glass와 Cupertino에서는 서지 않습니다. 참조가 없는 Material 3, GNOME, Breeze도 메모리 줄을 세우지 않습니다. 나머지 차이는 디자인 시스템이 정하는 색과 모서리입니다.
 - **메모장**: 문서에 이름이 있고 그 이름이 문서 맨 위에 제목으로 섭니다. 문서는 여러 개이며 목록에서 고릅니다. 서식은 시트로 열립니다.
-- **채팅**: 목적지 집합이 사이드바가 되고, 대화가 비어 있으면 가운데에 이 화면이 무엇인지 적힌 자리가 서며, 작성란은 페이지 아래에 떠 있는 둥근 막대입니다.
-- **할 일**: 화면 제목이 두 줄(무엇을 보고 있는지와 그 상태)이고, 작성은 좁은 창에서 시트로 물러납니다.
+- **채팅**: 목적지 집합이 사이드바가 되고(Compact에서는 세로 Gemini 참조처럼 토글 뒤로 치워진 사이드바이며 하단 막대가 아닙니다), 대화가 비어 있으면 가운데에 이 화면이 무엇인지 적힌 자리가 서며, 작성란은 페이지 아래에 떠 있는 둥근 막대입니다.
+- **할 일**: 화면 제목이 두 줄(무엇을 보고 있는지와 그 상태)이고, 작성은 좁은 창에서 시트로 물러납니다. 좁은 창에는 하단 막대가 없습니다. 참조처럼 목적지 목록(검색, 목적지, 새 목록)은 따로 선 화면이고, 페이지 왼쪽 아래에 떠 있는 뒤로 버튼이 그 화면으로 돌아가며, 오른쪽 아래에 떠 있는 추가 버튼이 작성을 엽니다.
 
 #### 22.2 값은 역할로만 말합니다
 
@@ -1895,20 +1922,20 @@ Gemini 참조의 배경과 검색도 샘플이 색과 크기를 정해서는 만
 
 #### 22.3 수용 기준
 
-1. 계산기 화면이 식 줄, 결과 줄, 메모리 줄, 키패드 순서로 나오고, 메모리 키가 실제로 값을 저장하고 되불러옵니다.
+1. 계산기 화면이 식 줄, 결과 줄, 키패드 순서로 나옵니다. 참조에 메모리 줄이 있는 Fluent 2와 Deepin에서는 결과 줄과 키패드 사이에 메모리 줄이 서고, 메모리 키가 실제로 값을 저장하고 되불러옵니다. Liquid Glass와 Cupertino(macOS 참조에 메모리 줄이 없습니다)와 참조가 없는 Material 3, GNOME, Breeze에는 메모리 줄이 없습니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 문구는 세 참조 모두에 메모리 줄을 요구해 macOS 참조와 맞지 않았습니다.
 2. 계산기의 키패드가 창 아래쪽에 붙고, 읽는 자리가 남는 높이를 가져갑니다. 참조 셋의 비율(읽는 자리 하나에 키패드 둘에서 셋)을 따릅니다.
 3. 메모장이 문서를 여러 개 들고, 문서 이름이 페이지 맨 위 제목으로 섭니다. Expanded에서 목록이 문서 옆에 서고, 그보다 좁으면 시트로 물러납니다. 서식 제어는 별도 시트에서 문서의 글자 역할을 바꿉니다.
-4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다.
+4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다. Compact에서 목적지 집합은 하단 막대가 아니라 세로 Gemini 참조처럼 토글 뒤의 사이드바입니다. 샘플은 크기 클래스로 분기하지 않습니다. 이것은 툴킷의 Compact `Navigation` 표현(FR-21.2.1의 치워둠)이고, 토글은 페이지 내용과 겹치지 않습니다(이슈 #526). Medium과 Expanded는 22.1 표 그대로입니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 22.1 표는 Compact를 하단 막대로 적어 참조와 맞지 않았습니다.
 5. 채팅의 작성란이 `ShapeRole::Full`의 떠 있는 막대이며, 보내기는 그 안에 있습니다.
-6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다.
+6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다. Compact에는 하단 막대가 없습니다. 목적지 목록은 따로 선 화면이고, 페이지 왼쪽 아래의 떠 있는 뒤로 버튼이 그 화면으로 가며, 오른쪽 아래의 떠 있는 추가 버튼이 작성을 엽니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 할 일 참조 네 장에는 하단 막대가 없습니다.
 7. 네 샘플이 일곱 디자인 시스템 × 두 색 구성 × 세 폭 전부에서 기록되고 그려집니다(`scripts/sample-shots.sh`).
 8. 적응형 샘플 네 개(22.1)의 소스 어디에도 16진수 색 리터럴이 없습니다. `scripts/tests/samples-speak-in-roles.test.sh`가 그 넷을 검사합니다. 통합 샘플은 22.5를 따릅니다.
 9. 계산기의 `Operator` 키가 Cupertino, Fluent 2, Deepin에서 22.2 표의 서로 다른 표현으로 나옵니다. Fluent 2에서 강조색 바탕은 등호 하나뿐입니다.
 10. Liquid Glass 채팅은 역할에서 온 그라데이션 위에 반투명 탐색 컨테이너를 그립니다. `Search` 목적지는 다른 목적지와 같은 행으로 그려지며, 어느 크기에서도 자기만의 막대나 테두리를 갖지 않습니다.
 11. 채팅의 검색 목적지를 누르면 검색 필드가 있는 시트가 열리고, 입력한 문자열로 대화 목적지가 걸러집니다.
 12. 통합 샘플은 참조 그림의 강조색과 면 색을 자기 `palette` 모듈에서 리터럴로 이름 짓고, 그 값을 고정하는 테스트를 가집니다.
-13. 통합 샘플의 하단 막대는 아이콘만 있고, 선택된 목적지는 그 참조의 강조색으로 그려집니다.
-14. 통합 샘플에는 `PrimaryContainer`, `SecondaryContainer`, `TertiaryContainer`로 칠한 카드나 패널이 없습니다.
+13. 통합 샘플의 하단 막대는 아이콘만 있고, 선택된 목적지는 그 참조의 강조색으로 그려집니다. `selfcare`는 예외입니다. 그 막대의 선택된 목적지는 참조처럼 아이콘 아래에 라벨을 단 채 알약 안에 서고, 선택되지 않은 목적지는 아이콘만 있습니다(22.5). 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자).
+14. 통합 샘플에는 `PrimaryContainer`, `SecondaryContainer`, `TertiaryContainer`로 칠한 카드나 패널이 없습니다. `minimal`도 다른 통합 샘플과 똑같이 이 기준을 따릅니다(22.5).
 
 #### 22.5 통합 샘플은 참조 그림의 색을 자기 이름으로 말합니다
 
@@ -1920,6 +1947,8 @@ Gemini 참조의 배경과 검색도 샘플이 색과 크기를 정해서는 만
 - **한 샘플이 공유하는 색은 그 샘플의 `palette` 모듈 하나에 모읍니다.** 트리 곳곳에 흩어진 16진수는 고칠 때 한 군데가 남습니다.
 - **그 값은 테스트가 고정합니다.** 리터럴인지와 ARGB 값 둘 다를 단언하므로, 누군가 역할로 되돌리면 테스트가 먼저 말합니다.
 - **하단 막대도 참조가 정합니다.** 참조의 막대는 아이콘만 있고 라벨도 선택 알약도 위쪽 구분선도 없습니다. `Navigation`은 활성 디자인 시스템의 막대를 그리므로(FR-21), 그 막대를 요구하는 참조는 `Navigation`으로 말할 수 없습니다. 통합 샘플은 자기 막대를 아이콘과 누를 수 있는 것으로 직접 그립니다.
+- **`selfcare`의 막대는 이 규칙의 예외입니다.** 그 참조의 막대는 선택된 목적지를 아이콘과 그 아래 라벨("Home", "Profile")로 알약 안에 그리고, 선택되지 않은 목적지는 아이콘만 둡니다. 샘플은 그 막대를 그대로 직접 그립니다. 알약과 선택된 아이콘과 라벨의 색은 참조의 색이며 `palette` 모듈이 이름 짓습니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 문구는 일곱 통합 샘플 모두에 아이콘만 있는 막대를 요구해 이 참조와 맞지 않았습니다.
+- **`minimal`은 자기 참조 시트를 따릅니다.** 참조는 검정, 흰색, 회색만 쓰는 단색 구성 요소 모음(Adobe XD Minimal iOS Design System)입니다. 활성 디자인 시스템의 역할 색을 늘어놓는 견본 묶음(디자인 시스템 스와치)은 참조에 없으므로 두지 않습니다. 그래서 22.3의 14번이 다른 통합 샘플과 똑같이 `minimal`에도 적용됩니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 견본 묶음은 소유자의 지시가 아니었고 참조와 맞지 않았습니다.
 - **적응형 샘플 네 개는 22.2 그대로입니다.** 리터럴은 통합 샘플의 예외이지 새 기본값이 아닙니다.
 
 #### 22.4 지금까지 확인된 것
@@ -2036,8 +2065,9 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - 이벤트는 FR-20이 만든 것을 그대로 씁니다. `node_id`가 0이면 창이고, 아니면 그 노드입니다. 두 번째 전달 수단을 만들지 않습니다.
 - 크기 클래스도 같은 규칙으로 계산해 실어 보냅니다. 노드에게도 "좁다"와 "넓다"는 창에서와 같은 뜻이고, 폭 클래스와 높이 클래스가 FR-20.3의 한 레코드에 같이 실립니다.
 - `Modifier::ObserveSize { handler_id }`가 모디파이어 목록의 태그 16으로 들어갑니다. Host가 구독 id를 발급해 이 모디파이어에 싣고, Renderer는 그 노드가 클래스를 넘을 때 그 노드의 `node_id`와 그 id를 `handler_id`로 실어 보냅니다. 구독 하나가 곧 핸들러 하나이므로, 노드가 트리에서 사라질 때 그 노드의 핸들러가 사라지는 기존 규칙이 구독도 함께 없앱니다. 구독을 따로 지우는 절차는 없습니다.
-- 보내는 시점의 규칙은 FR-20.4와 같습니다. 노드마다 마지막으로 보낸 폭 클래스와 높이 클래스를 하나씩 들고 비교하며, 시작값은 창과 같이 `Compact`입니다. 그래서 `Compact`로 태어난 노드는 첫 측정에서 아무것도 보내지 않습니다.
+- 보내는 시점의 규칙은 FR-20.4와 같습니다. 노드마다 마지막으로 보낸 폭 클래스와 높이 클래스를 하나씩 들고 비교하며, 시작값은 창과 같이 `Compact`입니다. 처음 측정은 클래스와 관계없이 늘 한 번 보냅니다(이슈 #538, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 노드가 놓인 자리의 크기를 처음부터 알아야 하는 앱(dioxus-compose의 HTML 페이지)이 그 보고로 첫 배치를 정합니다. 그 뒤로는 마지막으로 보낸 클래스와 비교합니다.
 - 구독하지 않은 노드는 모디파이어 목록에 이 항목이 없으므로, 측정 콜백도 마지막 클래스를 담을 자리도 생기지 않습니다.
+- **크기 변화도 받는 노드**(이슈 #538, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)): `Modifier::ObserveSize { handler_id, every_dp: bool }`로 옵트인하면 같은 클래스 안에서도 폭이나 높이를 정수 dp로 반올림한 값이 바뀔 때마다 이벤트를 보냅니다(FR-20.8과 같은 반올림 규칙입니다). 한 프레임에 여러 번 바뀌어도 마지막 크기로 한 번만 보냅니다. 기본값은 `false`이고, 끈 노드의 동작은 지금과 같습니다. 수정자 와이어가 바뀌므로 스키마 해시가 움직입니다. 수용 기준: `every_dp` 노드를 520dp에서 580dp로 넓히면 같은 클래스 안에서도 마지막 크기로 한 번 보고합니다(fr28_every_dp_node_reports_a_resize_inside_one_class). 처음 측정은 어느 노드든 한 번 보고합니다(fr28_first_measurement_always_reports).
 - 수용 기준: 구독이 하나도 없는 트리의 프레임당 경계 호출 수가 FR-20만 있을 때와 같습니다. 구독한 노드의 폭이 클래스 경계를 넘으면 이벤트가 한 번 오고, 같은 클래스 안에서 바뀌는 동안에는 오지 않습니다. 노드가 트리에서 사라지면 구독도 사라집니다.
 
 ### FR-29 창 뒤를 비추는 재질 (`Draft`)
@@ -2477,6 +2507,17 @@ Notification::new("세션이 끝났습니다")
     10. Rust의 `Batch::edit_group`은 편집이 없으면 아무것도 쓰지 않습니다(fr38_an_empty_edit_group_writes_nothing).
     11. 편집이 하나도 없는 `EditCodeGroup`이 Renderer에 닿으면 문서가 바뀌지 않고, 변경 이벤트가 0개이고, 실행 취소 단계가 늘지 않고, 버전이 그대로이며, `Applied` 결과의 `base_version`과 `current_version`이 같고 지금 문서의 버전입니다(fr38_an_empty_group_changes_nothing_and_replies_applied).
     12. 레코드 길이가 맞지 않는 묶음은 문서를 바꾸지 않고 `ProtocolError` 하나를 보내며, 머리를 읽을 수 있으면 같은 `request_id`로 `Invalid` 결과가 뒤따릅니다. 의미가 틀린 묶음(기준 4, 5)에는 `ProtocolError`가 없습니다(fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not).
+18. 글자, 줄 높이, 거터, 색과 픽셀 스크롤(이슈 #544, Ember 디자인 검토 C2). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC). Ember 편집기는 목업 `editor.css`의 13/20, 거터 폭, 테마 색을 써야 하는데, 지금 편집기는 디자인 시스템의 `Mono` 역할(15/20)과 고정 거터로만 그립니다. Code-OSS식 diff는 두 편집기를 픽셀 스크롤로 맞춥니다.
+    - 편집기가 `FontSize`, `LineHeight`, `FontFamily`(FR-52 글꼴 스택), `TypeRole` 속성을 받습니다. 받지 않으면 지금처럼 `Mono` 역할입니다. 줄 번호도 같은 크기입니다.
+    - 거터 속성: `LineNumbers`(bool, 기본 true), `GutterMinWidthDp`(줄 번호 열 최소 폭), `GutterPaddingDp`, `TextInsetDp`. 받지 않으면 디자인 시스템의 `CodeEditorLook` 값입니다.
+    - 색: 컨테이너, 거터, 줄 번호, 현재 줄 번호, 현재 줄 색을 `ColorRole`로 바꿀 수 있습니다(`CodeEditorColors` 레코드 하나). 보내지 않은 칸은 디자인 시스템의 색입니다.
+    - 편집기가 실제 줄 높이(px)를 이벤트 `CodeMetrics { line_height_px }`로 처음 그릴 때와 바뀔 때 보고합니다. 스크롤할 때 `CodeScrolled { offset_px }`를 프레임당 최대 한 번 보내고, Host는 편집기 핸들의 `SetScrollOffset { offset_px }` 명령으로 스크롤합니다. 명령과 이벤트 태그는 추가 전용이고 스키마 해시가 움직입니다.
+    1. `font_size(13).line_height(20)`인 편집기의 한 줄 높이가 20dp이고 줄 번호도 13sp입니다(fr38_editor_type_and_line_height).
+    2. `line_numbers(false)`이면 줄 번호 열이 없고 코드가 `TextInsetDp`에서 시작합니다(fr38_editor_without_line_numbers).
+    3. 색 레코드로 준 컨테이너와 거터 색이 픽셀에 나오고, 보내지 않은 칸은 디자인 시스템의 색입니다(fr38_editor_colors_override_the_design_system).
+    4. 줄 높이 보고가 실제 그린 줄 높이와 같습니다(fr38_editor_reports_line_height).
+    5. 두 편집기 중 하나를 스크롤하면 `CodeScrolled`가 오고, 그 값으로 다른 편집기에 `SetScrollOffset`을 주면 같은 픽셀 위치에 섭니다(fr38_editor_scroll_offset_round_trips).
+    6. 와이어([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `LineNumbers` 178(bool, 없으면 true), `GutterMinWidthDp` 179(여백을 포함한 줄 번호 열의 최소 폭), `GutterPaddingDp` 180, `TextInsetDp` 181(각 f32, dp), `CodeEditorColors` 182(색 레코드의 블롭), `OnCodeMetrics` 183, `OnCodeScrolled` 184(핸들러 id). 색 레코드는 12바이트입니다: `container`, `gutter`, `lineNumber`, `currentLineNumber`, `currentLine`(각 `u16` `ColorRole`, 0이면 디자인 시스템의 색), 예약 `u16`. 모르는 역할이나 길이가 맞지 않는 레코드는 `ProtocolError`를 보내고 디자인 시스템의 색으로 그립니다. 이벤트 `CodeMetrics`(54)와 `CodeScrolled`(55)는 24바이트로, 공통 머리 16바이트 뒤에 `f64` 하나(물리 픽셀)가 오며 `ValueChanged`의 페이로드 모양을 씁니다. 듣는 핸들러가 없으면 보내지 않고, 나중에 붙으면 그때의 값을 한 번 보냅니다. 스크롤 위치가 0인 편집기는 `CodeScrolled`를 보내지 않습니다. 명령 `SetScrollOffset`(30)은 16바이트입니다: 머리 4, `node_id: u32`, `offset_px: f64`(물리 픽셀). 0보다 작으면 맨 위, 문서 끝을 넘으면 끝에 맞추고, 숫자가 아닌 값은 그 명령만 버리고 `ProtocolError`를 보냅니다. 편집기가 아직 크기를 받지 못했으면 첫 배치 뒤에 적용합니다. 편집기는 글자 속성 중 `TypeRole`, `FontSize`, `LineHeight`, `Font`만 받습니다. `Font` 목록을 보내면 역할과 관계없이 그 목록으로 그립니다. `LineNumbers`가 false이면 줄 번호 열과 구분선이 없고, 거터 장식, 접기 표시, 변경 표시 막대의 열은 있을 때만 남습니다.
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -3251,11 +3292,11 @@ dioxus-compose의 결정(HTML 경로의 원소 조건) 가운데 하나가 "기�
 
 Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 위의 `ZoomChanged`는 밀도만 바뀌는 이동에는 오지 않습니다. 측정 호출은 Renderer가 `Density(density × k)`로 재므로 측정값은 밀도를 이미 따르지만, HTML 레이아웃은 CSS의 `window.devicePixelRatio`와 `@media (resolution)`, `image-set()`과 `srcset`으로 고를 이미지의 해상도, 1 CSS px 헤어라인 테두리를 장치 픽셀에 맞추는 일에 밀도 값이 필요합니다. CSS px에서 dp로의 배치 자체는 1 CSS px = 1 dp에 `k`를 곱하는 것이라 밀도가 필요 없습니다.
 
-- 새 이벤트 `DensityChanged`, 이벤트 태그 42. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
+- 새 이벤트 `DensityChanged`, 이벤트 태그 53. 노드가 아니라 Host에게 오며 `node_id = 0`, `handler_id = 0`입니다(`ColorSchemeChanged`, `ReducedMotionChanged`와 같은 종류).
 - 페이로드는 `scale: f32`(장치 픽셀 ÷ dp, 예: 2.0)이고, 레코드는 20바이트(머리 16, `scale@16`)입니다. 0 이하나 NaN은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 값이 바뀔 때(모니터 이동, OS 배율 변경)마다 옵니다. 같은 값이 연달아 오지 않습니다. 오기 전에 Host가 읽는 값은 1.0입니다.
 - `ZoomChanged`와 독립입니다. `WindowSizeChanged`나 `ZoomChanged`에 칸을 더하지 않습니다. 속성 블록도 쓰지 않습니다(Host에서 Renderer로 가는 값이 아닙니다).
-- 번호는 FR-38.9(34-38), FR-45(39, 40), FR-44(41) 다음입니다. `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
+- 번호는 FR-53의 창 이벤트(39-47), FR-45(48, 49), `FileDialogResult`(50), FR-38의 `CodeEditGroupResult`(51), FR-44(52) 다음입니다. 처음에는 42였으나 FR-53의 `WindowDrag`와 겹쳐 53으로 옮겼습니다(2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `EventPayloadType`이 하나 늘고 스키마 해시가 바뀌며 `events.bin` 프로토콜 벡터에 항목이 하나 더해집니다. 창 코드는 포크 소관이므로(FR-19.8) 이 저장소는 값을 읽어 내보내는 호출만 가집니다.
 
 수용 기준:
 1. 레코드가 20바이트이고 프로토콜 벡터와 일치합니다(fr43_density_event_round_trips).
@@ -3269,7 +3310,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 `Theme`의 `color_scheme`이 `FollowSystem`이어도 Host는 시스템의 밝음과 어두움이 바뀐 것을 알 수 없습니다. HTML 경로는 `prefers-color-scheme` 미디어 쿼리를 다시 풀고 다시 배치해야 하므로 이 사실이 필요합니다. dioxus-compose의 HTML 다리(`feat/html-compose-bridge`)를 쓰다가 드러났습니다.
 
-- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 41. `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
+- 새 이벤트 `ColorSchemeChanged`, 이벤트 태그 52(처음에는 41이었으나 FR-53의 `WindowMoved`와 겹쳐 옮겼습니다. 2026-11-13, 리더 잠정 승인, 이 번호로 보낸 적은 없습니다). `ReducedMotionChanged`(FR-41.2)와 `DesignSystemResolved`(FR-32)처럼 노드가 아니라 Host에게 오며, `node_id = 0`, `handler_id = 0`입니다.
 - 페이로드는 `scheme: u32`(0 밝음, 1 어두움)이고, 레코드는 20바이트(머리 16, `scheme@16`)입니다. 모르는 값은 `ProtocolError`입니다.
 - 시작할 때 첫 프레임 전에 한 번, 그 뒤 시스템 값이 바뀔 때마다 옵니다. 같은 값이 연달아 오지 않습니다.
 - 스키마 해시가 바뀌고 `EventPayloadType`이 하나 늘며 프로토콜 벡터에 항목이 하나 더해집니다.
@@ -3325,7 +3366,7 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 | 48 | `click_count: u32` | `Down`과 `Up`에서 연속 누름 횟수(1, 2, ...). 그 밖의 종류는 0 |
 | 52 | `delta_x: f32` | `Wheel`만. 양수가 오른쪽 |
 | 56 | `delta_y: f32` | `Wheel`만. 양수가 아래쪽 |
-| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자) |
+| 60 | `delta_mode: u32` | `Wheel`만. `Pixel=0`(dp), `Line=1`, `Page=2`(DOM과 같은 숫자). Compose가 주는 휠 이동량은 스크롤 단위(휠 한 칸이 1)이므로 Renderer는 `Line`으로 보냅니다. 창이 픽셀 이동량을 주는 플랫폼만 `Pixel`로 보내고, 그때는 좌표와 같이 dp(HTML 영역 안에서는 CSS px)로 나눕니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). |
 | 64 | `timestamp_nanos: u64` | 입력이 OS에서 발생한 시각. 단조 시계이고 `render_frame`의 `frame_time_nanos`와 같은 시계 |
 
 - **버튼 비트.** `Primary=1, Secondary=2, Tertiary=4(가운데), Back=8, Forward=16`. Compose의 `PointerButtons`와 이름과 순서가 같고, DOM의 `buttons`와 숫자도 같습니다. Renderer는 `Back`과 `Forward`를 보조 버튼 하나로 합치거나 `Tertiary`로 바꾸지 않습니다. 포크 쪽 입력 수정(포크 PR #165, 진행 중)이 들어가기 전에는 플랫폼에 따라 뒤의 둘이 오지 않을 수 있고, 그 경우에도 오는 버튼의 비트는 위 표대로입니다.
@@ -3350,6 +3391,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 #### 46.5 소비
 
 핸들러의 동기 반환값을 `Clicked`와 같이 읽습니다(FR-12). 0이 아니면 소비로 보아 그 이벤트는 위로 올라가지 않고, Compose의 클릭, 스크롤, 선택 같은 기본 동작도 하지 않습니다. 0이면 가장 가까운 구독한 조상으로, 그다음에는 평소 처리로 넘어갑니다. `Wheel`을 소비하지 않으면 감싸는 `ScrollColumn`이 스크롤합니다. IME 조합 중에도 포인터 이벤트는 막지 않습니다(키 이벤트와 다릅니다). 조합 자체를 바꾸지 않기 때문입니다.
+
+`Wheel`과 `Move`는 프레임 시작에 합쳐 보내므로(46.4) 핸들러의 답이 Compose가 그 입력을 처리한 뒤에 옵니다. 그래서 Renderer는 그 노드의 직전 `Wheel` 답을 다음 휠에 적용합니다. 소비하는 핸들러가 있어도 제스처의 첫 프레임 휠은 감싸는 스크롤로 넘어갈 수 있습니다. `Move`의 소비는 조상 구독 노드로 올라가는 것만 막고 Compose의 기본 동작은 막지 않습니다. 이동을 소비하면 주변의 클릭이 취소되기 때문입니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 
 #### 46.6 수용 기준
 
@@ -3527,6 +3570,13 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 #### 50.4 모든 렌더러가 구현합니다
 
 지원하지 않는 렌더러라는 경우는 **없습니다**. Android, 데스크톱 JVM과 GraalVM, 데스크톱 Kotlin/Native, iOS, 웹의 렌더러가 모두 구현합니다. 모양은 공통 Kotlin 코드(`ContinuousCornerShape`가 있는 파일)에 한 벌만 두고 렌더러마다 따로 쓰지 않습니다. 구현하지 않은 렌더러는 스키마 해시가 같아도 이 수정자를 받으면 `ProtocolError`가 아니라 빌드가 깨지도록 인터프리터의 수정자 분기에 빠짐 없이 넣습니다.
+
+구현에서 정한 것([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)):
+
+- 번호는 수정자 태그 **35**입니다. 30에서 34까지는 다른 항목이 먼저 가졌습니다(31 `MatchParentSize`, 32 `WindowDrag`, 33 `PressFeedback`, 34 `Semantics`).
+- 모양은 모든 렌더러가 함께 쓰는 공통 Kotlin 파일(`CornerCurveShape.kt`) 한 곳에만 둡니다. `ContinuousCornerShape`가 있는 파일은 Compose 포크에서 한쪽으로 복사해 오는 파일이라 이 저장소에서 고치지 않습니다.
+- 50.3의 원호는 세제곱 베지어 하나로 그립니다(반지름의 0.03% 안). 그래서 모서리 하나는 세제곱 베지어 셋입니다.
+- 디자인 시스템의 기본 모서리는 옵트인입니다. `CornerCurve`를 가진 노드만 자기 모양이 없을 때 디자인 시스템의 기본 모서리를 곡선으로 그립니다. `CornerCurve`가 없는 노드는 지금과 같습니다.
 
 #### 50.5 수용 기준
 
@@ -3904,11 +3954,13 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `ui::Button`에 `text_align(TextAlign)`와 `font_size(Fs)`가 있습니다. 부르면 `TextAlign`과 `FontSize` 속성을 보내고, 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. FR-64의 `MenuItem`이 이미 쓰는 `TextAlign=Start` 경로를 Button 일반으로 넓힌 것입니다.
 - `Button`은 자식을 받을 수 있습니다(`Button { ... }` 형태). 자식이 있으면 Renderer는 라벨 대신 그 자식을 Compose `Button`의 content 슬롯에 그리고, 눌림 표시, 포커스, 비활성, 접근성 동작은 Button의 것을 그대로 씁니다. 자식과 `Text`가 함께 오면 자식이 이깁니다.
 - 라벨 정렬이 `Start`이면 라벨은 Button 안쪽 여백에서 시작하고, 자식 슬롯은 `Row` 배치(세로 가운데)로 놓입니다.
+- `ui::Button`에 `font_weight(u16)`과 `type_role(TypeRole)`이 있습니다(이슈 #500, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). FR-75의 `TextField`와 같은 규칙입니다. 부르면 `FontWeight`, `TypeRole` 속성을 보내고, 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. `type_role`은 그 역할의 크기, 굵기, 줄 높이를 라벨에 쓰고, `font_size`와 `font_weight`가 함께 오면 그 둘이 역할의 값을 이깁니다. Ember 목업의 `.btn`(14/500)과 `.btn.sm`(13/500)이 이 두 값을 씁니다.
 
 수용 기준.
 1. `Button("변경 사항").variant(Text).text_align(Start).font_size(Sm).modifier(fill_max_width().height(40.0))`에서 라벨의 왼쪽 가장자리가 Button의 왼쪽 안쪽 여백에 있고, 글자 크기가 `Sm`입니다.
 2. `text_align`, `font_size`를 부르지 않으면 두 속성이 나가지 않고 렌더러 결과가 바뀌지 않습니다.
 3. 자식으로 `Icon`, `Text`, `Spacer.weight(1.0)`, 개수 `Text`를 가진 Button에서 개수가 Button의 오른쪽 안쪽 가장자리에 붙고, Button 전체를 누르면 `on_click`이 한 번 옵니다.
+4. `Button("커밋").type_role(TypeRole::Caption)`의 라벨이 `Caption`의 크기와 굵기로 그려지고, `font_weight(500)`을 더하면 굵기만 500이 됩니다. 둘 다 부르지 않으면 두 속성이 나가지 않습니다(fr66_button_type_role_and_weight).
 
 ### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Done`, 이슈 #426, #428)
 
@@ -3986,9 +4038,10 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
 2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
 3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
-4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error).
+4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error). Renderer도 모르는 비트를 가진 `Semantics` 수정자를 적용하지 않고 `TableError.INVALID_MODIFIER`(16)로 보고합니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
+7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
 
 ### FR-72 파일 열기와 저장 대화상자 (`Draft`, 이슈 #483)
 
@@ -4029,6 +4082,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
   - `Unavailable`: 이 환경에서 대화상자를 띄울 수 없습니다(72.6). `paths`는 비어 있습니다. 오류가 아니므로 `ProtocolError`가 아니고, 프로세스는 죽지 않습니다.
 - **요청마다 이벤트는 정확히 하나입니다.** 선택하든 취소하든 못 띄우든, 같은 `request`로 하나가 오고 둘은 오지 않습니다. 이 규칙이 있어야 Host가 대기 상태를 풀 수 있습니다. 예외는 프로세스가 끝나는 경우뿐이고, 그때는 받을 Host도 없습니다.
 - **`paths`는 한 문자열입니다.** 경로가 여럿이면 `FilesDropped`(FR-27)와 같이 경로 사이를 NUL(U+0000) 한 바이트로 가르며, 이 바이트는 어느 데스크톱의 경로에도 들어갈 수 없습니다. 목록을 나르는 두 번째 방법을 만들지 않습니다.
+- **Web에서는 `paths`의 각 항목이 경로가 아니라 72.9의 파일 참조입니다.** 브라우저는 경로를 주지 않기 때문입니다. 아래의 절대 경로 규칙은 네이티브의 것입니다. 앱은 어느 플랫폼에서든 고른 것을 `FileDialogResult::files()`(72.9)로 읽고 씁니다.
 - **경로는 절대 경로이고 UTF-8입니다.** 상대 경로와 심볼릭 링크를 따라간 경로가 아니라 대화상자가 돌려준 그대로입니다. 고른 경로 중 하나라도 UTF-8로 나타낼 수 없으면(Linux에서만 가능하고, macOS에서 경로를 문자열로 읽지 못하는 경우도 같습니다) **결과 전체가 `Unavailable`**이고 나머지 경로도 보내지 않습니다. 고른 개수와 돌려준 개수가 다른 `Chosen`을 앱이 알아챌 길이 없고, 취소로 보내면 사용자가 고른 것이 있었는데 거짓이기 때문입니다. 파일을 떨어뜨리는 FR-27은 건너뛰고 나머지를 전달하지만, 대화상자에서 고른 것은 사용자가 이름을 짚어 고른 것이라 규칙이 다릅니다. 사용자는 나머지 파일도 받지 못하는 대신 앱이 무엇이 잘못되었는지 말할 수 있습니다. 앱은 이 `Unavailable`을 "선택한 파일 중 이름을 읽을 수 없는 것이 있습니다. 파일 이름을 확인한 뒤 다시 선택해 주세요"처럼 파일 이름을 확인하라는 안내로 보여 주는 것이 좋습니다(대화상자를 띄울 수 없는 환경과 같은 상태값이므로 문구는 앱이 상황에 맞게 정합니다).
 - **긴 경로를 자르지 않습니다.** Windows의 `MAX_PATH`(260)를 넘는 경로도 `IShellItem`이 돌려주는 전체를 그대로 전달하고, 접두사(`\\?\`)는 붙이지 않습니다. 경로 한 개의 길이에 Renderer가 두는 상한은 없습니다. **한 번에 돌려주는 경로는 10000개까지입니다.** 사용자가 그보다 많이 골랐거나 이벤트의 문자열이 배치 버퍼가 감당하는 크기를 넘으면 `ProtocolError`가 아니라 **`Unavailable`**이고, 앞의 경로만 잘라 `Chosen`으로 보내지 않습니다. 사용자가 고른 것이 일부만 전달되면 앱이 그 사실을 모르기 때문입니다.
 - `Chosen`인데 경로가 하나도 없으면 Renderer는 `Cancelled`를 보내고, Host는 경로 없는 `Chosen`을 받으면 `Unavailable`로 다룹니다. 앱이 빈 목록을 선택으로 처리하지 않게 하려는 것입니다.
@@ -4064,11 +4118,11 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 | Windows | `IFileOpenDialog`, `IFileSaveDialog`(COM) | 소유한 창의 `HWND`가 소유자입니다 |
 | Linux | `xdg-desktop-portal`의 `org.freedesktop.portal.FileChooser` | 포털이 없으면 GTK 파일 선택기로 되돌아갑니다. 둘 다 없으면 `Unavailable` |
 | iOS, Android | 이 항목의 범위 밖 | 요청하면 `Unavailable`. `UIDocumentPicker`와 Storage Access Framework는 이슈 #483에 이어 적습니다 |
-| Web | 이 항목의 범위 밖 | 요청하면 `Unavailable` |
+| Web | File System Access API(`showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`). 없으면 `<input type=file>`과 내려받기 | 72.9 |
 
 - **구현은 단계로 나눕니다.** 1단계는 공통(스키마, codegen, Fake 시험, Kotlin 해석기)과 macOS, 2단계는 Windows, 3단계는 Linux 포털(X11 한정, GTK 폴백)입니다. 아직 구현되지 않은 플랫폼의 Renderer는 요청마다 즉시 `Unavailable`을 돌려줍니다. 지원하지 않는 플랫폼은 `Unavailable`이라는 규칙의 같은 경로입니다.
-- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀝니다.
-- 이 표의 대상은 **데스크톱 셋**입니다. 모바일과 Web은 이슈 #483이 처음부터 뺐고, 뺀 것이 명시된 범위입니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
+- **1단계가 들어간 지금의 상태(이슈 #483)**: macOS의 Kotlin/Native Renderer가 소유한 창에 시트를 띄웁니다(포크 `MacosFileDialogs`, `WINDOW_REVISION` e3088cc). Windows, Linux, iOS, Android, Web의 Renderer와 GraalVM 네이티브 이미지 Renderer는 모든 요청에 `Unavailable` 하나를 돌려줍니다. Windows는 2단계, Linux는 3단계에서 바뀌고, Web은 72.9가 들어오면 바뀝니다.
+- 처음 이 표의 대상은 **데스크톱 셋**이었고, 모바일과 Web은 이슈 #483이 뺐습니다. **Web은 72.9로 더합니다**(소유자 지시 2026-11-13, [leader, provisional, 2026-11-13]). 모바일은 그대로 빠져 있습니다. 그 플랫폼에서도 Host 코드는 갈라지지 않습니다. 같은 요청이 `Unavailable`을 받습니다(FR-27, FR-36의 `Unsupported`와 같은 규칙).
 - **플랫폼 대화상자 코드는 Compose 포크(`thisisthepy/compose-multiplatform-core-extended`)에 있고, 이 저장소는 Renderer가 그 호출을 부르는 접착과 명령·이벤트 해석만 가집니다**(19.8, INTENT D19). 포크가 하는 일은 창 핸들을 받아 대화상자를 띄우고 결과를 콜백으로 돌려주는 것까지입니다.
 - Linux의 포털은 샌드박스(Flatpak, Snap)에서 앱이 접근할 수 있는 경로를 돌려줍니다. 포털이 문서 포털의 경로(`/run/user/<uid>/doc/...`)를 돌려주면 그것이 `paths`에 그대로 담깁니다.
 
@@ -4084,7 +4138,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
 9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
 10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
-11. iOS, Android, Web 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
+11. iOS, Android 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
 12. **수동 확인, macOS·Windows·Linux(포털과 GTK 폴백 각각)의 배포 빌드에서 기록합니다.**
     - `OpenFile`, `OpenFiles`, `OpenFolder`, `OpenFolders`, `Save`가 플랫폼 대화상자로 뜨고 `title`, `directory`, `name`이 반영됩니다.
     - 필터가 고를 수 있는 파일을 제한하고 `default_filter`가 처음 선택된 필터입니다.
@@ -4094,12 +4148,116 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
     - 취소하고 선택한 뒤 포커스가 열기 전의 노드로 돌아옵니다.
     - 공백, 한글, 이모지, 260자를 넘는 경로가 그대로 도착합니다.
 
+72.9(Web과 `PickedFile`)의 기준([leader, provisional, 2026-11-13]):
+
+13. `FileHandles`, `FileCall`, `ReleaseFileHandle`이 PR-4 프로토콜 벡터에서 Rust와 Kotlin이 같은 바이트로 왕복하고, 모르는 `delivery`, `op`, `kinds` 글자가 `ProtocolError`입니다(시험 이름 fr72_web_file_records_round_trip, 미구현). 경계 진입점이 그대로입니다(시험 이름 pr2_boundary_surface_unchanged_by_web_files, 미구현).
+14. Fake Renderer로, Web의 요청마다 `FileHandles` 또는 `FileDialogResult` 중 하나가 정확히 하나 옵니다(시험 이름 fr72_web_every_request_gets_exactly_one_answer, 미구현).
+15. `Chosen { paths, filter }`로 쓴 코드가 그대로 컴파일되고, 네이티브에서 `files()`가 `paths`와 같은 순서, 같은 수이며, `PickedFile::read`와 `write`가 그 경로의 파일을 워커에서 읽고 원자적으로 씁니다(시험 이름 fr72_native_picked_files_read_and_write_their_paths, 미구현).
+16. Web에서 `FileHandles`가 만든 `Chosen`의 `paths`가 `webfile:<핸들>/<이름>` 참조이고, `files()`의 `name()`과 `delivery()`가 이벤트의 값과 같습니다. 한 핸들의 마지막 `PickedFile`이 버려지면 `ReleaseFileHandle`이 한 번 갑니다(시험 이름 fr72_web_files_come_from_references_and_release_their_handles, 미구현).
+17. Web, File System Access가 있을 때: 연 파일에 쓰고 다시 쓰면 같은 파일이 바뀌고 `delivery`가 `Handle`입니다. Playwright의 Chromium에서 고르기 창을 시험 핸들로 바꿔 CI로 돌립니다(시험 이름 fr72_web_a_resave_writes_the_same_file, 미구현).
+18. Web, 그 API가 없을 때(시험에서 `showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`를 지운 페이지): 열기가 `Upload`이고 `write`가 `ReadOnly`이며, 저장이 `Download`이고 `write`가 내려받기 하나를 만들고 `can_write_again()`이 false입니다(시험 이름 fr72_web_fallback_reports_upload_and_download, 미구현).
+19. Web: `<input>`을 닫으면 `Cancelled`, `AbortError`는 `Cancelled`, 활성화 없는 요청의 `SecurityError`는 `Unavailable`입니다(시험 이름 fr72_web_cancel_and_refusal_map_to_their_status, 미구현).
+20. Web: 놓은 핸들(`ReleaseFileHandle` 뒤)이나 모르는 핸들에 대한 연산이 `NotFound`이고 `ProtocolError`가 아닙니다(시험 이름 fr72_web_an_unknown_handle_is_not_found, 미구현).
+21. Web: 4 KiB를 넘는 이름 목록(파일 500개)이 `Chosen`으로 모두 도착하고(시험 이름 fr72_web_a_long_name_list_arrives_whole, 미구현), 1 MiB 파일이 `read`로 읽힙니다(시험 이름 fr72_web_reads_a_file_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 72.9가 `Done`이 되지 않습니다.** #583 전에는 같은 요청이 `Unavailable`, 같은 읽기가 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr72_web_an_answer_over_the_event_buffer_fails_whole, 미구현).
+22. 수동, Chrome, Firefox, Safari 각각에서 notepad로 열기, 고치기, 저장, 다시 저장을 하고, Chrome은 같은 파일이 바뀌는 것, 나머지는 내려받기가 되고 앱이 그렇다고 알리는 것을 기록합니다.
+
 #### 72.8 열린 질문
 
 1. **필터에 플랫폼 형식(UTI, MIME)을 더할지.** 확장자만으로는 확장자 없는 형식(macOS의 번들, Linux의 MIME)을 못 거릅니다. 첫 단계는 확장자와 레이블만 받습니다. 요청하는 앱(Ember)이 확장자로 충분한지 확인이 필요합니다.
 2. **폴더 선택에서 폴더 만들기 단추.** 플랫폼 기본이 다릅니다(macOS는 켜짐, Windows는 항상). 지금은 플랫폼 기본을 그대로 씁니다.
 3. **마지막으로 쓴 폴더의 기억.** `directory`가 비었을 때 플랫폼이 기억하는 폴더를 쓰는데, 플랫폼마다 앱 단위인지 대화상자 단위인지 다릅니다. 앱이 기억을 정하고 싶다면 `directory`를 직접 넘깁니다.
-4. **모바일과 Web.** `UIDocumentPicker`, Storage Access Framework, 브라우저의 File System Access API는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)이라서 이 항목의 `paths`로는 표현할 수 없습니다. 별도 항목에서 정합니다.
+4. **모바일.** `UIDocumentPicker`와 Storage Access Framework는 반환값이 경로가 아니라 접근 권한을 가진 핸들(URI)입니다. Web의 같은 문제는 72.9의 `PickedFile`과 파일 참조로 답했습니다(2026-11-13). 모바일의 URI도 같은 자리에 들어갈 수 있지만, 그 구현은 아직 정하지 않았습니다.
+
+#### 72.9 Web과 `PickedFile` ([leader, provisional, 2026-11-13], 이슈 #529, #483)
+
+소유자 지시(2026-11-13): 브라우저에서 사용자의 로컬 파일에 접근하는 API도 쓸 수 있게 합니다. 새 Web 전용 API가 아니라 이 항목의 대화상자를 Web에서 구현합니다. **앱은 모든 플랫폼에서 같은 API를 씁니다.** 고르는 것은 `ctx.show_file_dialog(...)` 그대로이고, 고른 것을 읽고 쓰는 것은 결과의 `files()`가 주는 `PickedFile`입니다.
+
+```rust
+pub enum FileDialogResult {
+    Chosen { paths: Vec<String>, filter: Option<usize> },   // 그대로입니다
+    Cancelled,
+    Unavailable,
+}
+
+impl FileDialogResult {
+    /// 고른 것을 읽고 쓸 수 있는 손잡이로 줍니다. `paths`와 같은 순서, 같은 수이고,
+    /// `Chosen`이 아니면 비어 있습니다.
+    pub fn files(&self) -> Vec<PickedFile>;
+}
+
+#[derive(Clone)]
+pub struct PickedFile { /* 네이티브: 경로, Web: Renderer가 가진 핸들 번호 */ }
+
+pub enum Delivery {
+    /// 파일 시스템의 그 파일입니다. 다시 쓰면 같은 파일이 바뀝니다.
+    Handle,
+    /// 브라우저가 내용을 건네준 사본입니다(`<input type=file>`). 읽기만 됩니다.
+    Upload,
+    /// 저장이 내려받기가 되었습니다. 쓸 때마다 새 내려받기이고, 같은 파일을 다시 바꿀 수 없습니다.
+    Download,
+}
+
+impl PickedFile {
+    pub const MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_path(path: impl Into<String>) -> PickedFile;   // 네이티브만
+    pub fn name(&self) -> &str;                 // 파일 이름(경로 아님)
+    pub fn path(&self) -> Option<&str>;         // 네이티브만 Some
+    pub fn is_folder(&self) -> bool;
+    pub fn delivery(&self) -> Delivery;         // 네이티브는 언제나 Handle
+    pub fn can_write_again(&self) -> bool;      // Handle이고 폴더가 아니면 true
+    pub async fn read(&self) -> Result<Vec<u8>, FileError>;
+    pub async fn write(&self, bytes: impl Into<Vec<u8>>) -> Result<(), FileError>;
+    pub async fn entries(&self) -> Result<Vec<PickedFile>, FileError>;   // 폴더의 바로 아래
+    pub async fn child(&self, name: &str, create: bool) -> Result<PickedFile, FileError>;
+}
+
+#[non_exhaustive]
+pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder,
+                     TooLarge { len: u64, limit: u64 }, Unavailable(String), Io(String) }
+```
+
+- **`Chosen { paths, filter }`는 바뀌지 않습니다.** 칸을 더하면 그 모양으로 쓴 코드가 컴파일되지 않습니다. 열거형 변형의 칸은 모두 공개라서 숨긴 칸도 같습니다. 그래서 고른 것을 읽고 쓰는 길은 메서드 `files()`로 둡니다.
+- **Web의 `paths`는 파일 참조입니다.** 항목마다 `webfile:<핸들 번호>/<이름>` 꼴의 문자열이고, `files()`가 그것을 `PickedFile`로 바꿉니다. 핸들을 나를 칸이 `paths`밖에 없기 때문입니다. 경로가 아니므로 앱은 이 문자열을 풀어 쓰지 않고 `files()`, `name()`을 씁니다. 브라우저의 파일 이름에는 `/`가 들어갈 수 없으므로 이 꼴은 모호하지 않습니다. 네이티브의 `paths`는 지금과 같은 절대 경로이고, `files()`는 그 경로들의 `PickedFile`입니다.
+- `PickedFile`은 `Clone`입니다. Web에서 한 핸들로 만든 마지막 `PickedFile`이 버려지면 Host가 명령 `ReleaseFileHandle { handle: u32 }`(명령 태그 34)로 Renderer의 핸들을 놓습니다. 아직 `PickedFile`로 바꾸지 않은 참조의 핸들은 페이지가 닫힐 때까지 남습니다. 놓인 핸들의 참조로 다시 `files()`를 부르면 그 `PickedFile`의 연산은 `NotFound`입니다.
+- `read`는 파일 전체를 한 번에 읽고, 크기가 `MAX_READ_BYTES`(256 MiB)를 넘으면 읽기 전에 `TooLarge`입니다. 나눠 읽는 길은 두지 않습니다.
+- **네이티브의 `PickedFile`은 경로입니다.** `read`, `write`, `entries`, `child`는 Host 워커에서 `std::fs`로 하고(PR-3), 쓰기는 FR-79와 같이 임시 파일과 `rename`으로 원자적입니다. 대화상자가 돌려준 경로를 그대로 쓰므로 72.2의 규칙(절대 경로, UTF-8)이 그대로입니다. 대화상자 없이 경로로 `PickedFile`을 만드는 길(`PickedFile::from_path`)은 네이티브에만 있고, notepad가 되살린 세션의 경로에 씁니다(FR-79.7).
+- **Web의 핸들은 다시 불러온 페이지에서 쓸 수 없습니다.** `FileSystemFileHandle`은 IndexedDB에 담을 수 있지만, 담지 않습니다. 쓸 때 브라우저가 권한을 다시 묻고, "최근 파일"은 이 항목이 약속하는 것이 아니기 때문입니다. 새로 고침 뒤의 저장은 "다른 이름으로 저장"입니다.
+
+**Web: File System Access API가 있을 때(Chromium 계열).**
+
+| `kind` | 부르는 것 | `Delivery` |
+|---|---|---|
+| `OpenFile`, `OpenFiles` | `showOpenFilePicker({ multiple })` | `Handle` |
+| `OpenFolder` | `showDirectoryPicker({ mode: "readwrite" })` | `Handle`(폴더) |
+| `OpenFolders` | `showDirectoryPicker` 한 번, 결과 하나 | `Handle`(폴더) |
+| `Save` | `showSaveFilePicker({ suggestedName: name, types })` | `Handle` |
+
+- `OpenFolders`는 Web에서 폴더 하나만 고릅니다. 브라우저에 폴더 여럿을 고르는 길이 없기 때문입니다. `Chosen`의 경로 수 "1 이상"(72.1)에 맞습니다.
+- `filters`는 `types`의 `{ description: label, accept: { <형식>: [".png", ...] } }`가 됩니다. `default_filter`는 그 필터를 목록 맨 앞에 둡니다. 브라우저에 "처음 고른 필터" 칸이 없기 때문입니다. `title`과 `directory`는 쓰지 않습니다. 브라우저에 제목 칸이 없고, 절대 경로로 시작 폴더를 줄 수 없기 때문입니다. 대신 `id`에 앱 식별자(FR-79.2)를 줘 브라우저가 이 앱의 마지막 폴더를 기억하게 합니다. 식별자가 없으면 `id`를 주지 않습니다.
+- 덮어쓰기 확인은 `showSaveFilePicker`가 합니다(72.1의 "플랫폼 대화상자가 확인" 그대로).
+- **다시 저장**: `Handle`인 파일의 `write`는 `createWritable()`, `write`, `close()`이고, 브라우저가 임시 파일에 쓴 뒤 `close`에서 바꾸므로 원자적입니다. 쓰는 바이트는 배치를 적용하는 호출 안에서 공유 메모리의 뷰를 `slice()`해 브라우저의 버퍼로 한 번 복사합니다. 스트림의 `write`는 나중에 처리되고 그 사이 `memory.grow`가 뷰를 무효로 만들 수 있으므로, 이 복사 한 번은 줄일 수 없습니다. Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- **쓰기 권한**: `showOpenFilePicker`로 연 파일에 처음 쓸 때 Renderer는 `requestPermission({ mode: "readwrite" })`를 부르고, 브라우저가 한 번 묻습니다. 거절하면 `PermissionDenied`입니다. `showSaveFilePicker`의 핸들은 이미 쓰기 권한이 있습니다.
+- **사용자 활성화**: 브라우저는 사용자의 클릭이나 키 직후에만 고르기 창을 엽니다. 클릭 핸들러에서 요청하면 그 `dispatch_event`의 배치를 같은 호출 스택에서 적용하므로(PR-1, PR-2) 활성화 안에서 열립니다. 타이머나 워커 결과에서 요청해 브라우저가 거절하면(`SecurityError`, `NotAllowedError`) 결과는 `Unavailable`입니다. 사용자가 닫으면(`AbortError`) `Cancelled`입니다.
+
+**Web: 그 API가 없을 때(Firefox, Safari).**
+
+- `OpenFile`, `OpenFiles`: 화면 밖의 `<input type=file accept=".png,.jpg" [multiple]>`을 누릅니다. 결과는 `Upload`이고, `read`는 되며 `write`와 `child`는 `ReadOnly`입니다. 닫으면 `<input>`의 `cancel` 이벤트로 `Cancelled`가 됩니다(요청마다 답 하나).
+- `OpenFolder`, `OpenFolders`: `<input type=file webkitdirectory>`입니다. 결과는 `Upload` 폴더 하나이고, `entries`는 브라우저가 준 파일들을 `webkitRelativePath`로 다시 세운 나무입니다. 읽기만 됩니다.
+- `Save`: 고르기 창이 없습니다. 결과는 바로 `Chosen`이고 `Delivery::Download`, `name()`은 요청의 `name`입니다. `write`를 부를 때마다 그 이름으로 내려받기가 하나 일어납니다(`Blob`과 `<a download>`). 브라우저가 이름을 바꿀 수 있고(`name (1).txt`), 덮어쓰기 확인은 없으며, `can_write_again()`은 false입니다. 앱은 다음 저장을 "다른 이름으로 저장"으로 다룹니다. 이 브라우저들에서는 저장할 때마다 내려받기가 하나 생깁니다. 저장을 `Unavailable`로 두는 것보다 낫다고 판단했습니다(2026-11-13).
+- 결과가 어느 길이었는지는 언제나 `delivery()`로 압니다. 앱은 브라우저 이름을 보고 갈라지지 않습니다.
+
+**와이어(새 진입점 없음, PR-2 그대로).**
+
+- 대화상자 요청은 기존 `ShowFileDialog`(26)입니다. 바뀌지 않습니다.
+- Web의 `Chosen`은 새 이벤트 `FileHandles`(이벤트 태그 58)로 옵니다. 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`) 뒤에 `request: u32`, `status: u32`, `filter: u32`, `delivery: u32`(`Handle=1`, `Upload=2`, `Download=3`), `first_handle: u32`, 문자열 `names`(NUL로 이음), 문자열 `kinds`(파일은 `f`, 폴더는 `d`를 이름마다 한 글자)입니다. 핸들 번호는 Renderer가 정하고 `first_handle`부터 차례입니다. Host는 이것을 72.2의 `Chosen`으로 바꿔 `paths`에 파일 참조를 담습니다. `Cancelled`와 `Unavailable`은 기존 `FileDialogResult`(50)로 옵니다. **요청마다 둘 중 하나가 정확히 하나** 옵니다(72.2의 규칙). `entries`와 `child`의 답도 `FileHandles`입니다.
+- 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
+- `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
+- 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
+
 
 ### FR-73 프로그램에서 클립보드에 글자 쓰기 (`Draft`, 이슈 #471)
 
@@ -4107,7 +4265,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 **FR-36, FR-72와 같은 모양입니다.** Host가 명령 레코드 하나로 요청하고, 플랫폼 클립보드를 부르는 것은 Renderer입니다. 경계에 함수가 늘지 않고(PR-2) 스키마의 명령 하나가 늘며, 스키마 해시가 움직입니다(추가 전용).
 
-- **명령 `SetClipboardText`(명령 태그 27)**: 페이로드는 문자열 하나(`text`)이고 `TextChanged`와 같은 길이 붙은 문자열 꼬리 규약을 씁니다(PR-4). 26은 FR-72의 `ShowFileDialog`입니다.
+- **명령 `SetClipboardText`(명령 태그 29)**: 페이로드는 문자열 참조 하나(`text`)이며, 다른 명령(`ShowMessage` 등)과 같은 문자열 영역 참조 규약을 씁니다(PR-4). 26은 FR-72의 `ShowFileDialog`, 27은 FR-74의 `SetOverlayTokens`, 28은 FR-38 기준 17의 `EditCodeGroup`입니다(태그와 문자열 규약 정정, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 - **Renderer**: Compose의 플랫폼 클립보드(Compose 기본 클립보드 API)에 `text`를 일반 글자로 넣습니다. 새 플랫폼 코드는 없습니다. 빈 문자열은 클립보드를 빈 글자로 바꿉니다.
 - **이벤트는 없습니다.** 요청 하나에 결과 이벤트를 만들지 않습니다. 클립보드를 쓸 수 없는 환경(헤드리스 등)에서는 조용히 아무 일도 하지 않으며 `ProtocolError`가 아닙니다. 쓰기가 성공했는지 알아야 하는 앱은 지금 없습니다. 필요해지면 FR-72처럼 요청 번호와 결과 이벤트를 더하는 일이 추가 전용으로 가능합니다.
 - **Host API**: `compose_rust::clipboard::set_text(&str)`. 이벤트 핸들러나 효과 안에서 부릅니다(다른 Host 호출과 같은 규칙입니다. 작업자 스레드에서 직접 부르지 않고, 신호를 통해 UI 쪽에서 부릅니다, PR-3). 호출한 프레임의 배치에 명령으로 실려 나갑니다.
@@ -4115,7 +4273,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 - **민감한 글자**: 클립보드는 다른 앱과 클립보드 기록 도구가 읽을 수 있습니다. 비밀번호, 토큰, 개인 키처럼 남에게 보이면 안 되는 값을 이 호출로 복사하지 않습니다. Renderer는 `text`를 로그에 남기지 않습니다(길이만 남길 수 있습니다). 비밀번호 칸의 값을 복사하게 만드는 길은 이 항목에 없습니다.
 
 수용 기준.
-1. `set_text("초대 링크")`가 명령 레코드 하나(태그 27)로 인코딩되고 Rust와 Kotlin이 같은 바이트로 왕복합니다(프로토콜 벡터)(시험 이름 fr73_set_clipboard_text_round_trips).
+1. `set_text("초대 링크")`가 명령 레코드 하나(태그 29)로 인코딩되고 Rust와 Kotlin이 같은 바이트로 왕복합니다(프로토콜 벡터)(시험 이름 fr73_set_clipboard_text_round_trips).
 2. Renderer가 명령을 받으면 플랫폼 클립보드 대역(가짜 클립보드)에 그 글자가 들어갑니다. 한글과 줄바꿈과 이모지가 그대로입니다(시험 이름 fr73_renderer_writes_the_text_to_the_clipboard).
 3. 빈 문자열은 클립보드를 빈 글자로 바꿉니다(시험 이름 fr73_empty_text_clears_the_clipboard).
 4. 64 KiB를 넘는 글자는 `Err`이고 배치에 아무것도 실리지 않습니다(시험 이름 fr73_oversized_text_is_refused_by_the_host).
@@ -4161,6 +4319,206 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 1. `TextField`가 명시적 타이포그래피 속성을 인코딩하여 렌더러로 전달합니다(시험 이름 fr75_text_field_typography_round_trips).
 2. `TextField`에 명시적 여백이나 높이가 지정되면 렌더러가 지정된 여백과 높이를 적용합니다(시험 이름 fr75_text_field_honors_content_padding_and_height).
 3. 명시적 크기를 가진 아이콘 버튼이 테마의 최소 높이에 의해 확장되지 않고 지정된 크기로 렌더링됩니다(시험 이름 fr75_icon_button_honors_explicit_size).
+
+### FR-76 `FlowRow`: 줄이 넘치면 다음 줄로 흐르는 행 (`Agreed`, 이슈 #521, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(목업 `.seg`, `flex-wrap: wrap`, 간격 8px). 지금은 줄을 바꾸는 행이 없어서, 390dp에서 행이 옆으로 스크롤되거나(고른 항목이 화면 밖으로 나갑니다) 앱이 글자 폭을 어림해 줄을 직접 나눕니다. 어림이 실제 폭과 다르면 줄 나눔이 틀립니다.
+
+- 새 위젯 `FlowRow`(위젯 종류는 추가 전용으로 맨 끝에 더합니다). Compose의 `FlowRow`입니다. 자식을 실제로 잰 폭으로 한 줄에 놓고, 다음 자식이 남은 폭에 들어가지 않으면 다음 줄에 놓습니다.
+- 속성: `horizontal_spacing(dp)`(한 줄 안의 자식 사이), `vertical_spacing(dp)`(줄 사이), `horizontal_alignment`(`Start`/`Center`/`End`, 기본 `Start`), `vertical_alignment`(한 줄 안의 세로 정렬, 기본 `Top`), `max_items_in_each_row`(선택).
+- 한 자식이 혼자 한 줄 폭보다 넓으면 그 줄을 혼자 차지하고 줄 폭에 맞게 잽니다(넘치지 않습니다).
+- 고정된 Compose가 `FlowRow`를 아직 실험 API로 표시하면, 그 호출은 어댑터 파일 하나에만 둡니다(NFR-6).
+- 스키마 해시가 움직입니다. 경계 함수는 늘지 않습니다(PR-2).
+
+수용 기준.
+1. 폭 390dp에서 너비가 다른 칩 8개가 간격 8dp로 줄을 바꿔 놓이고, 어느 칩도 행 밖으로 나가지 않습니다(fr76_flow_row_wraps_by_measured_width).
+2. 줄 사이 간격이 `vertical_spacing`과 같습니다(fr76_flow_row_spacing).
+3. 같은 트리가 macOS, Windows, Linux, iOS, Android, 웹에서 같은 줄 나눔을 냅니다(글자 폭이 같은 글꼴일 때)(fr76_flow_row_same_on_every_target).
+
+### FR-77 `Popover`: 노드에 붙어 열리는 떠 있는 상자 (`Agreed`, 이슈 #313, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(작성창의 모델 고르기, 필터, 편집기의 ... 메뉴). `Menu`(FR-64)는 항목 의미를 가지므로 임의 내용을 담는 새 위젯이 필요합니다. dioxus-compose FR-21.9가 이 위젯 위에 섭니다.
+
+- 새 위젯 `Popover`(위젯 종류는 추가 전용). 자식 0은 기준점(anchor)이고 늘 그려집니다. 자식 1 이후가 떠 있는 내용입니다.
+- 속성: `Open`(bool, Host가 소유합니다), `Placement`(`Top`/`Bottom`/`Start`/`End`, 기본 `Bottom`), `Align`(`Start`/`Center`/`End`, 기본 `Start`), `OffsetDp`(기준점과의 간격, 기본은 디자인 시스템 토큰), `Scrim`(bool, 기본 false).
+- 배치 규칙은 Renderer의 것입니다. 창 안에 들어가지 않으면 반대쪽으로 뒤집고(flip), 그래도 넘치면 창 가장자리 안으로 밀어 넣습니다(shift). 내용 크기는 내용이 정하고, 창보다 크면 창 크기에서 여백을 뺀 만큼으로 줄어듭니다.
+- 바깥을 누르거나 Escape를 누르면 `OnDismiss`가 한 번 갑니다(21.3.2와 같은 규칙, 맨 위 오버레이 하나만). `Open`은 Host가 바꿉니다.
+- 열리면 포커스가 내용 안으로 가고, 닫히면 연 노드로 돌아갑니다(21.3.2).
+- 표면은 디자인 시스템의 오버레이 토큰(FR-74)을 씁니다. `Modifier::Material`이 붙으면 그 재질을 씁니다. 그림자, 모양, 테두리는 내용 노드의 수정자로 바꿀 수 있습니다.
+- 접근성: 내용은 대화상자가 아닌 팝업 그룹으로 노출됩니다.
+- Compose `Popup`과 `PopupPositionProvider`(안정 API)로 그립니다.
+
+구현에서 정한 것([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)):
+
+- `Scrim`은 Popover에서 bool 또는 `Paint`입니다. true이면 디자인 시스템(또는 오버레이 토큰)의 스크림을, `Paint`이면 그 색을 씁니다. 스크림을 누르는 것은 바깥을 누르는 것과 같습니다.
+- 노드의 수정자는 떠 있는 상자에 적용됩니다(Dialog와 같습니다). 부모가 주는 것(행의 `Weight`)은 기준점에 적용됩니다.
+- 창 가장자리와의 여백은 `SpaceRole.Sm`, `OffsetDp`의 기본값은 `SpaceRole.Xs`입니다.
+- 닫히면 포커스는 열기 전에 포커스를 가졌던 컨트롤로 돌아가고, 그런 컨트롤이 없으면 기준점으로 갑니다.
+- 표면은 `ContainerRole.Menu`와 오버레이 토큰의 `popup_*` 값을 씁니다. 새 컨테이너 역할은 없습니다.
+
+수용 기준.
+1. 기준점 바로 아래 `OffsetDp`만큼 떨어져 내용이 열리고, 기준점의 시작 가장자리에 맞춥니다(fr77_popover_opens_below_anchor).
+2. 창 아래쪽 끝의 기준점에서 열면 위로 뒤집힙니다. 오른쪽 끝에서 열면 창 안으로 밀려 들어옵니다(fr77_popover_flips_and_shifts).
+3. 바깥 누름과 Escape가 각각 `OnDismiss`를 한 번 보냅니다(fr77_popover_dismisses_once).
+4. 닫히면 포커스가 기준점으로 돌아갑니다(fr77_popover_restores_focus).
+5. 창 크기가 바뀌면 다시 배치합니다(fr77_popover_follows_resize).
+
+### FR-78 프로그램에서 클립보드 글자 읽기 (`Agreed`, 이슈 #546, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember(편집기 터미널의 붙여넣기: Command V, Control Shift V, bracketed paste, 여러 줄 경고). FR-73은 쓰기만 하므로 붙여넣기 단축키가 글자를 얻을 수 없습니다. FR-73과 같은 모양입니다.
+
+- **Host API**: `compose_rust::clipboard::read_text(callback)`와 `use_clipboard().read_text()`(future)는 `Result<Option<String>, ClipboardError>`를 줍니다. 글자가 없으면 `Ok(None)`, 64 KiB를 넘으면 `Err(TooLong)`입니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 명령 레코드 하나(`ReadClipboard { request: u32 }`, 명령 태그 31)와 이벤트 하나(`ClipboardText { request: u32, text }`, 이벤트 태그 56)입니다. 경계 함수는 늘지 않고(PR-2) 스키마 해시가 움직입니다.
+- 데스크톱에서는 권한을 묻지 않습니다. 웹에서는 브라우저가 묻는 권한을 따르고, 거부되면 "없음"이 옵니다.
+- 크기 한도는 FR-73과 같은 64 KiB입니다. 넘는 글자는 잘라서 보내지 않고 오류로 알립니다(앱이 붙여넣기를 거절할 수 있게).
+- Renderer는 글자를 로그에 남기지 않습니다(길이만).
+
+수용 기준.
+1. 가짜 클립보드에 "한글\n줄 🙂"을 넣고 읽으면 같은 글자가 같은 request 번호로 옵니다(fr78_read_clipboard_round_trips).
+2. 클립보드가 비었거나 글자가 아니면 "없음"이 옵니다(fr78_empty_clipboard_reads_none).
+3. 클립보드가 없는 환경에서도 이벤트가 한 번 오고("없음") 프로세스가 계속 돕니다(fr78_unavailable_clipboard_reads_none).
+
+### FR-79 앱 저장소: 앱만 쓰는 이름 붙은 값 (`Agreed`, 이슈 #529, [leader, provisional, 2026-11-13])
+
+소유자 결정(2026-11-13): Web의 저장은 (b)안입니다. compose-rust가 저장 API를 주고, Web에서는 브라우저 저장소, 네이티브에서는 파일을 씁니다. notepad와 todo는 모든 대상에서 이 API를 씁니다(INTENT D26).
+
+앱이 다음 실행까지 남겨야 하는 상태(할 일 목록, 쓰다 만 글, 설정)를 둘 곳이 필요합니다. 지금 샘플은 `std::fs`와 `HOME`, `temp_dir()`로 스스로 경로를 만들고, 그 길은 `wasm32-unknown-unknown`에서 오류를 내거나 패닉합니다(#529). 이 항목은 모든 플랫폼에서 같은 코드로 쓸 수 있는 저장 API 하나를 정합니다.
+
+**사용자의 파일은 이 항목의 것이 아닙니다.** 사용자가 고른 파일을 읽고 쓰는 길은 FR-72(파일 대화상자와 72.9의 `PickedFile`)입니다. 이 저장소는 앱만 보는 자리이고, 사용자가 파일 관리자에서 찾을 것을 기대하지 않는 데이터를 둡니다.
+
+#### 79.1 Host API
+
+```rust
+pub mod storage {
+    pub const MAX_KEY_BYTES: usize = 128;
+    pub const MAX_VALUE_BYTES: usize = 16 * 1024 * 1024;
+
+    pub async fn read(key: impl Into<String>) -> Result<Option<Vec<u8>>, StorageError>;
+    pub async fn read_string(key: impl Into<String>) -> Result<Option<String>, StorageError>;
+    pub async fn write(key: impl Into<String>, value: impl Into<Vec<u8>>) -> Result<(), StorageError>;
+    pub async fn remove(key: impl Into<String>) -> Result<(), StorageError>;
+    pub async fn keys() -> Result<Vec<String>, StorageError>;
+
+    #[non_exhaustive]
+    pub enum StorageError {
+        /// 키가 79.3의 규칙에 맞지 않습니다. 아무것도 읽거나 쓰지 않았습니다.
+        InvalidKey,
+        /// 값이 `limit`를 넘습니다. 쓰지 않았고, 잘라서 쓰지도 않았습니다.
+        TooLarge { len: usize, limit: usize },
+        /// 플랫폼의 할당량이나 디스크가 찼습니다. 앞의 값은 그대로입니다.
+        QuotaExceeded,
+        /// 이 실행에는 저장소가 없습니다(앱 식별자가 없음, 데이터 폴더를 알 수 없음,
+        /// 브라우저가 저장소를 막음). 원인을 사람이 읽을 문장으로 담습니다.
+        Unavailable(String),
+        /// `read_string`이 읽은 값이 UTF-8이 아닙니다.
+        NotUtf8,
+        /// 그 밖의 입출력 실패. 플랫폼이 준 설명을 담습니다.
+        Io(String),
+    }
+}
+```
+
+- **모든 플랫폼에서 async입니다.** Web에서 `with_worker`는 일을 그 자리에서 돌리는 동기 클로저이고(PR-3의 Web 절), IndexedDB는 메인 스레드에서 동기로 쓸 수 없습니다. 그래서 저장 연산은 `with_worker` 안에서 부르는 동기 함수가 될 수 없고, 결과는 future로 옵니다. 같은 이유로 `with_worker`의 클로저 안에서는 이 API를 쓰지 않습니다.
+- **UI 스레드에서 부릅니다.** composition, 이펙트(`launched_effect`, 코루틴 스코프의 `launch`), 이벤트 핸들러에서 부르고 await합니다. future는 `Send`가 아니고, 완료는 UI 스레드에서 일어납니다. 워커 스레드에서 직접 부르는 길은 두지 않습니다. Web에는 워커가 없으므로, 같은 코드가 모든 플랫폼에서 돌게 하려는 것입니다.
+- 없는 키를 읽으면 `Ok(None)`입니다. 오류가 아닙니다. 첫 실행에는 값이 없기 때문입니다.
+- `keys()`는 이 앱의 키를 사전순으로 돌려줍니다.
+- **같은 키에 대한 연산은 부른 순서대로 적용됩니다.** `write(k, a)` 뒤에 부른 `read(k)`는, 앞의 future를 기다리지 않았더라도 `a`를 봅니다. 서로 다른 키 사이의 순서는 약속하지 않습니다.
+- **쓰기는 원자적입니다.** 쓰기 도중 프로세스가 죽거나 전원이 나가도, 다음 실행에서 읽는 값은 앞의 값 전부이거나 새 값 전부입니다. 반쯤 쓴 값은 없습니다.
+- 한 앱의 프로세스나 탭이 둘이면 같은 키에 대해 나중에 끝난 쓰기가 남습니다. 서로에게 바뀌었다고 알리지 않습니다.
+
+#### 79.2 앱 식별자
+
+- 저장소는 **앱 식별자**마다 하나입니다. 식별자는 `LaunchBuilder::new().identifier("dev.darkpyonix.composerust.samples.todo")`로 앱이 명시합니다. 값은 그 앱의 `Dioxus.toml`에 있는 `[bundle] identifier`와 같아야 하고, 샘플마다 시험이 그것을 확인합니다(79.8 기준 11).
+- **식별자를 다른 곳에서 짐작하지 않습니다.** 번들 식별자, 패키지 이름, 실행 파일 이름으로 대신하지 않습니다. 같은 앱이 번들로 실행했는지 개발용 실행 파일로 실행했는지에 따라 다른 저장소를 보게 되고, Web에는 번들이 없기 때문입니다. compose-rust의 빌드 스크립트가 앱의 `Dioxus.toml`을 읽는 길도 버렸습니다. 의존 크레이트의 빌드 스크립트는 앱의 매니페스트 폴더를 확실히 알 수 없습니다.
+- **식별자가 없으면 저장소가 없습니다.** 모든 연산이 `Unavailable`을 돌려주고, 그 문장은 `LaunchBuilder::identifier`로 식별자를 정하라고 알려 줍니다. 패닉하지 않고, 저장소를 쓰지 않는 앱은 아무것도 정하지 않아도 됩니다.
+- **Web에서 식별자가 반드시 필요한 이유**: 가이드 사이트의 샘플 페이지들(FR-22.7)은 한 출처(origin)에 있습니다. 브라우저 저장소는 출처마다 하나라서, 식별자로 나누지 않으면 todo와 notepad가 서로의 키를 봅니다.
+- 식별자는 `[A-Za-z0-9.-]`로만 이루어진 1-255바이트여야 합니다. 폴더 이름과 데이터베이스 이름에 그대로 쓰기 때문입니다. 어기면 `launch`가 시작하기 전에, 패닉이 아니라 무엇이 틀렸는지 말하는 오류 문장을 내고 0이 아닌 종료 코드로 끝납니다.
+
+#### 79.3 키와 크기
+
+- 키는 1-128바이트이고, 소문자 `a-z`, 숫자, `-`, `_`, `.`만 씁니다. `.`으로 시작할 수 없습니다. 대소문자를 가리지 않는 파일 시스템(macOS, Windows의 기본)에서 두 키가 한 파일이 되지 않게 하고, 키를 바꾸지 않고 그대로 파일 이름으로 쓰기 위해서입니다. 어기면 `InvalidKey`이고 입출력은 일어나지 않습니다.
+- 값 하나는 `MAX_VALUE_BYTES`(16 MiB)까지입니다. 넘으면 `TooLarge`이고 쓰지 않습니다. 이 저장소는 앱 상태를 위한 것이고, 값을 메모리에 한 번에 올려 경계를 넘기는 모양이라 상한을 둡니다. 더 큰 것은 FR-72의 파일로 둡니다. 값을 나눠 읽고 쓰는 길은 두지 않습니다.
+- 전체 크기에는 compose-rust가 상한을 두지 않습니다. 플랫폼의 한도(디스크, 브라우저 할당량)에 닿으면 `QuotaExceeded`입니다.
+
+#### 79.4 데이터가 사는 곳
+
+| 플랫폼 | 위치 | 누가 씁니까 |
+|---|---|---|
+| macOS | `~/Library/Application Support/<식별자>/storage/<키>` (샌드박스 앱은 `HOME`이 컨테이너라 같은 식이 컨테이너 안을 가리킵니다) | Host 워커, `std::fs` |
+| Linux | `$XDG_DATA_HOME/<식별자>/storage/<키>`, 없으면 `~/.local/share/<식별자>/storage/<키>` | Host 워커 |
+| Windows | `%APPDATA%\<식별자>\storage\<키>` (FR-43의 확대 수준과 같은 루트) | Host 워커 |
+| iOS | `$HOME/Library/Application Support/<식별자>/storage/<키>` (iOS의 `HOME`은 앱 컨테이너입니다) | Host 워커 |
+| Android | `Context.getFilesDir()/compose-rust/storage/<키>` | Host 워커. 경로는 Renderer가 알려 줍니다(아래) |
+| Web | IndexedDB 데이터베이스 `compose-rust/<식별자>`, 객체 저장소 `values`, 키는 그대로 | Renderer(Kotlin/Wasm) |
+
+- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
+- **개발과 시험용 덮어쓰기**: 환경 변수 `COMPOSE_RUST_STORAGE_DIR`가 있으면 네이티브에서는 그 폴더가 `<...>/storage`를 대신합니다. 시험이 사용자의 실제 데이터를 건드리지 않게 하려는 것입니다.
+- **확대 수준(FR-43)과는 다른 자리입니다.** FR-43의 값은 Renderer가 가진 UI 로컬 상태(D5)이고 Renderer가 저장합니다. 이 항목의 값은 앱의 도메인 상태이고 Host가 저장합니다(PR-3). 둘은 섞이지 않습니다.
+
+**Web에서 IndexedDB를 고른 이유.**
+- `localStorage`는 동기라 `with_worker`의 그 자리 실행과 맞아 보이지만, 출처마다 약 5 MB이고 글자만 담으며(바이트는 base64로 33% 커집니다), 읽고 쓰는 동안 페이지를 멈춥니다. 같은 출처의 모든 샘플이 그 5 MB를 나눠 씁니다. FR-43의 확대 수준처럼 작은 값에는 맞지만 앱 데이터에는 작습니다.
+- OPFS(Origin Private File System)는 키를 파일로 두는 모양이 네이티브와 같아 끌립니다. 그러나 빠른 동기 접근(`createSyncAccessHandle`)은 Web Worker 안에서만 되고, PR-6의 메모리 모델에는 Worker가 없습니다. 메인 스레드에서 쓰려면 `createWritable()`이 필요한데, 엔진마다 들어온 시기가 늦고 다릅니다.
+- IndexedDB는 세 엔진 모두 메인 스레드에서 오래전부터 되고, `ArrayBuffer`를 그대로 담으며, `put` 한 번이 트랜잭션 하나라 원자적이고, 할당량이 출처 저장소(디스크의 일정 비율)입니다. 그리고 `put`은 값을 **호출하는 그 자리에서** 복제(structured clone)하므로, Renderer가 배치 버퍼를 놓기 전에 바이트를 넘길 수 있습니다(79.5).
+- **`navigator.storage.persist()`는 부르지 않습니다.** Chromium은 대개 묻지 않고 허락하지만 Firefox는 사용자에게 묻고, 샘플이 저장을 위해 권한 창을 띄우는 것은 맞지 않기 때문입니다. 그래서 브라우저는 이 저장소를 "best-effort"로 다루고, 공간이 모자라면 지울 수 있습니다. 사생활 보호 창에서는 창이 닫힐 때 사라집니다. 둘 다 앱이 바꿀 수 없는 브라우저의 규칙이고, 가이드가 그렇게 적습니다.
+
+#### 79.5 경계를 넘는 방법
+
+**네이티브에서는 경계를 넘지 않습니다.** 저장 연산은 Host 안의 일입니다. compose-rust가 Host 워커에서 파일을 읽고 쓰고, 결과를 UI 스레드의 future로 돌려줍니다(PR-3). 같은 키의 순서(79.1)를 지키기 위해 compose-rust는 저장소 전용 워커 하나와 그 앞의 순서 목록을 둡니다. 이 목록은 Host 안의 것이고 경계 위의 큐가 아닙니다(PR-1, FR-36의 알림 대기열과 같습니다). 쓰기는 같은 폴더의 임시 파일에 쓰고 `sync_all` 뒤 `rename`으로 바꿉니다(Windows의 `std::fs::rename`도 기존 파일을 바꿉니다). 시작할 때 남은 임시 파일은 지웁니다.
+
+**Web에서는 FR-72, FR-78과 같은 요청과 결과의 모양입니다.** 새 경계 함수는 없습니다(PR-2). Rust는 브라우저 함수를 import하지 않습니다. `wasm_bindgen`도, 손으로 쓴 JS도 없고, IndexedDB를 부르는 것은 Renderer의 Kotlin(`renderer/web/src/WebStorage.kt`, `WebClipboard.kt`와 같은 자리)입니다. Renderer가 플랫폼 API를 부르는 것은 macOS Renderer가 `NSSavePanel`을 부르는 것과 같은 일이고, FR-7이 막는 것은 Rust와 Kotlin 사이의 손으로 쓴 접착입니다.
+
+- 명령 `StorageCall`(명령 태그 32): 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Remove=3`, `Keys=4`), 예약 `u16`, 문자열 `store`(앱 식별자), 문자열 `key`(`Keys`에서는 길이 0), 바이트 `data`(`Write`에서만, 나머지는 길이 0). 바이트는 `RegisterAsset`(FR-16.2)처럼 레코드 뒤 문자열 영역에 놓입니다.
+- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
+- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`. Android Renderer만 보냅니다(79.4).
+- `status`는 닫힌 열거형입니다. `Ok=1`, `NotFound=2`, `QuotaExceeded=3`, `Unavailable=4`, `PermissionDenied=5`, `Failed=6`, `ReadOnly=7`, `TooLarge=8`. 모르는 값은 `ProtocolError`입니다. `op`도 같습니다.
+- **요청마다 `IoAnswer`는 정확히 하나입니다.** FR-72.2와 같은 규칙이고 같은 이유입니다. 기다리는 future를 풀 수 있어야 합니다. 이미 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청은 영향을 받지 않습니다. 답을 받기 전에 그 future를 기다리던 composition이 떠나도 답은 하나 오고, Host는 그것을 버립니다.
+- **쓰는 바이트는 한 번만 복사됩니다.** Renderer는 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 가리키는 `Uint8Array` 뷰를 만들어 `put`에 넘깁니다. `put`의 structured clone이 브라우저의 저장 버퍼로 가는 복사 한 번이고, 이것이 쓰기 자체입니다(네이티브의 `write`가 커널 버퍼로 복사하는 것과 같습니다). Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- **읽은 바이트는 이벤트 버퍼에 한 번 써서 옵니다.** IndexedDB가 준 `ArrayBuffer`를 Renderer가 이벤트 버퍼에 복사하고 `dispatch_event`를 부릅니다. 이 복사는 브라우저가 가진 메모리에서 wasm 메모리로 오는 것이라 피할 수 없고, 그 뒤로 Host는 제자리에서 읽습니다.
+- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값을 싣지 않은 `TooLarge` 답 하나를 보내고(요청마다 답 하나), Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
+- 연산이 끝나면(성공이든 실패든) Renderer는 Promise가 풀린 그 작업 안에서 `IoAnswer`를 보냅니다. future는 그 `dispatch_event` 안에서 깨어나고, 그것을 기다리던 코드는 그 호출이 만드는 배치에 반영됩니다.
+- 네이티브 Renderer는 `StorageCall`을 받을 일이 없습니다. 받으면 `Unavailable`로 답합니다(요청마다 답 하나라는 규칙).
+- 이 항목이 더하는 것은 명령 하나, 이벤트 둘, 열거 둘입니다. 속성 태그는 쓰지 않습니다. 새 `EventPayloadType`이 생기고 스키마 해시가 바뀝니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
+
+#### 79.6 스레드(PR-3)
+
+- 네이티브: 파일 입출력은 언제나 Host 워커에서 돕니다. UI 스레드는 future를 만들고 완료를 받을 뿐 디스크를 기다리지 않습니다.
+- Web: 입출력은 브라우저가 비동기로 합니다. UI 스레드를 멈추지 않으며, `with_worker`의 그 자리 실행(PR-3의 Web 절)에 기대지 않습니다. 그래서 Web에서도 저장은 페이지를 멈추지 않습니다.
+
+#### 79.7 샘플
+
+**todo**
+- 지금은 `~/.sample-todo.tsv`(또는 `SAMPLE_TODO_FILE`이 가리키는 파일)를 `remember` 안에서 UI 스레드가 동기로 읽습니다. PR-3을 어기는 상태이고, Web에서는 목록이 새로 고침까지만 남습니다.
+- 바뀐 뒤에는 `LaunchBuilder::identifier("dev.darkpyonix.composerust.samples.todo")`를 정하고, 키 `tasks.tsv`에 같은 TSV를 씁니다. 읽기는 `launched_effect`의 `storage::read_string("tasks.tsv").await`이고, 끝날 때까지 목록 자리에 불러오는 중임을 보여 빈 목록이 깜빡이지 않게 합니다. 쓰기는 `storage::write`이고, 새 스냅샷에 추월된 저장은 쓰지 않는 지금의 규칙을 그대로 둡니다. `SAMPLE_TODO_FILE`은 `COMPOSE_RUST_STORAGE_DIR`가 대신합니다. 이것으로 UI 스레드의 동기 읽기도 사라집니다.
+- **예전 `~/.sample-todo.tsv`를 옮겨 오지 않습니다.** 샘플이고, 사용자 홈에 남은 점 파일을 읽는 코드를 샘플에 남기지 않으려는 것입니다.
+
+**notepad**
+- 지금은 시작 문서가 `temp_dir()/compose-rust-notepad.txt`이고, 경로를 한 줄 `TextField`에 손으로 적어 `with_worker` 안의 `std::fs`로 열고 저장합니다. 열린 여러 문서(선반)는 메모리에만 있습니다.
+- 바뀐 뒤에는 `LaunchBuilder::identifier("dev.darkpyonix.composerust.samples.notepad")`를 정합니다.
+  - "열기"는 `show_file_dialog(FileDialog::open_file().filter("Text", &["txt", "md"]))`와 결과의 `files()`(FR-72.9)이고, 받은 `PickedFile`의 `read()`로 읽습니다. "저장"은 지금 문서의 `PickedFile`이 `can_write_again()`이면 그 `write()`, 아니면 "다른 이름으로 저장"(`FileDialog::save().name(...)`)입니다. 경로를 적는 칸은 없애고 문서 이름(`name()`)을 제목에 보입니다. 네이티브에서는 `path()`를 도움말로 보입니다.
+  - Web에서 저장이 `Download`가 되면 상태 줄에 이 브라우저는 파일에 바로 저장할 수 없어 내려받았다고 알립니다.
+  - **세션은 저장소에 둡니다.** 키 `session`에 열린 문서들의 이름, 글, 저장되지 않았는지, 네이티브라면 경로를 담아, 글이 바뀐 뒤 잠깐 쉬면 씁니다. 다음 실행에서 되살립니다. 네이티브에서는 되살린 문서가 그 경로의 `PickedFile`을 다시 가집니다. Web의 핸들은 다시 불러온 페이지에서 사라지므로(FR-72.9), 되살린 문서는 글과 이름은 있고 다음 저장이 "다른 이름으로 저장"입니다.
+  - `temp_dir()`로 시작 파일을 만드는 코드와 Web을 가르는 `cfg` 갈래는 없어집니다. 첫 실행은 빈 문서 하나입니다.
+- 두 샘플 모두 모든 플랫폼에서 같은 코드입니다.
+
+#### 79.8 수용 기준
+
+1. `StorageCall`, `IoAnswer`, `StorageLocation`이 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin에서 같은 바이트로 왕복하고, 모르는 `op`와 `status`가 `ProtocolError`가 되며 프로세스가 죽지 않습니다(시험 이름 fr79_storage_records_round_trip_and_unknown_enums_are_errors, 미구현).
+2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 pr2_boundary_surface_unchanged_by_storage, 미구현).
+3. 쓴 값을 읽으면 같은 바이트이고, 없는 키는 `Ok(None)`이며, 지운 키는 다시 `Ok(None)`입니다. 한글과 NUL이 든 값도 그대로이고, `keys()`가 사전순입니다(시험 이름 fr79_write_then_read_returns_the_same_bytes, 미구현).
+4. 같은 키에 `write(a)`, `write(b)`, `read`를 기다리지 않고 잇달아 부르면 `read`가 `b`를 봅니다(시험 이름 fr79_operations_on_one_key_apply_in_call_order, 미구현).
+5. 규칙에 맞지 않는 키(대문자, `/`, `..`, `.`으로 시작, 빈 키, 129바이트)는 `InvalidKey`이고 파일이 생기지 않습니다(시험 이름 fr79_invalid_keys_are_refused_before_any_io, 미구현).
+6. 16 MiB + 1바이트 값은 `TooLarge`이고 앞의 값이 그대로 남습니다(시험 이름 fr79_an_oversized_value_is_refused_and_the_old_value_stays, 미구현).
+7. 쓰기 도중 프로세스가 죽은 뒤 다시 읽으면 앞의 값 전부이거나 새 값 전부입니다. 시험은 임시 파일만 쓴 상태와 `rename` 직후 상태를 각각 만들어 확인하고, 남은 임시 파일이 다음 시작에 지워지는 것도 봅니다(시험 이름 fr79_a_write_is_atomic_across_a_crash, 미구현).
+8. 네이티브의 저장 연산이 UI 스레드에서 파일을 열지 않습니다. 시험은 입출력을 하는 스레드가 UI 스레드가 아님을 기록합니다(시험 이름 fr79_native_storage_io_runs_off_the_ui_thread, 미구현).
+9. `COMPOSE_RUST_STORAGE_DIR`를 주면 그 아래에만 파일이 생기고, 각 플랫폼의 기본 위치 계산이 79.4의 표와 같습니다(시험 이름 fr79_storage_lives_in_the_platform_data_directory, 미구현).
+10. 앱 식별자가 없는 실행에서 모든 연산이 `Unavailable`이고 패닉하지 않습니다. 규칙에 맞지 않는 식별자는 `launch`가 오류 문장과 함께 0이 아닌 코드로 끝냅니다(시험 이름 fr79_without_an_identifier_storage_is_unavailable, 미구현).
+11. 저장소를 쓰는 샘플(todo, notepad)의 `LaunchBuilder::identifier` 값이 그 샘플 `Dioxus.toml`의 `[bundle] identifier`와 같습니다(시험 이름 fr79_sample_identifiers_match_their_bundle_identifier, 미구현).
+12. Fake Renderer로, 요청마다 `IoAnswer`가 하나 오고, 기다리는 `request`를 다시 보내면 `ProtocolError`이며, 답을 받기 전에 composition이 떠나도 답은 하나이고 아무 일도 하지 않습니다(시험 이름 fr79_every_storage_request_gets_exactly_one_answer, 미구현).
+13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
+14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
+15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
@@ -4212,6 +4570,7 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 2. `Border`와 `Background`를 준 필드의 가장자리 픽셀이 테두리 색이고 그 안쪽이 채움 색입니다.
 3. 아무것도 주지 않은 필드는 채움이 시스템 색입니다.
 4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
+5. **틀 없는 필드 `bare()`**(이슈 #519, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 위 규칙은 노드가 무엇을 줄 때만 시스템의 틀을 끄므로, 바깥 상자(CSS 상자, Ember의 알약이나 카드)가 이미 틀을 그린 필드는 틀이 두 겹이 됩니다. `TextField`와 `Dropdown`(닫힌 선택 필드, FR-64)에 `bare()`가 있고, 속성 `Bare`(bool) 하나를 보냅니다. `bare`인 필드는 시스템의 채움, 선, 밑줄, 모서리 자르기, 안쪽 여백, 포커스 선을 그리지 않고 투명합니다. 글자, 자리표시 글자, 캐럿, 선택, IME는 그대로 Compose의 것입니다. 자리표시 글자는 첫 줄 기준선에 놓이고 가운데로 밀리거나 잘리지 않습니다. `bare`이면서 `Background`나 `Border`를 준 필드는 위 규칙대로 그 값을 그립니다. `bare()` 필드의 모든 픽셀이 글자를 빼면 부모의 색이고 높이가 글자 한 줄 높이와 같습니다(fr56_bare_field_draws_no_frame). `bare()` `Dropdown`도 같습니다(fr56_bare_dropdown_draws_no_frame).
 
 ### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
 
@@ -4296,6 +4655,8 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 1. `Mutation::RequestFocus { node_id }`가 배치로 인코딩·디코딩되고, Renderer에 두 개의 `TextField`(또는 포커스 가능 노드)가 있을 때 `RequestFocus(b)`를 적용하면 포커스가 `b`로 옮겨가며 `RequestFocus(0)`을 적용하면 포커스가 해제됩니다(`fr65_request_focus_moves_and_clears_focus`).
 2. 존재하지 않는 노드에 대한 `RequestFocus`는 `UNKNOWN_NODE` 오류로 보고되고 죽지 않습니다(`fr65_request_focus_unknown_node_reports_error`).
 3. `OnCompositionChange` 핸들러가 붙은 `TextField`에서 조합 범위가 생기면 `CompositionChanged(true)`가, 조합이 끝나면 `CompositionChanged(false)`가 그 핸들러 id로 전달됩니다(`fr65_text_field_reports_composition_changes`).
+4. **`ui`에서의 포커스 요청**(이슈 #476, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui` 위젯 스코프에 `.focus_handle(&FocusHandle)`이 있고, `FocusHandle::request()`가 다음 배치에 그 노드의 `RequestFocus`를 한 번 기록합니다. Dialog나 Sheet가 아닌 오버레이(서랍, 팝업 메뉴)를 연 앱이, 열 때 오버레이 컨테이너에 포커스를 주고 Esc로 닫을 때 연 컨트롤로 되돌리는 데 씁니다. 와이어 변경은 없습니다(`fr65_ui_focus_handle_requests_focus_for_its_node`).
+5. **누를 수 있는 컨테이너의 포커스**(이슈 #473, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `OnClick`이나 `Clickable`을 가진 컨테이너에 대한 `RequestFocus`는 자식이 아니라 그 컨테이너 자신에게 포커스를 줍니다. 눈에 보이는 동작 변경입니다. 전에는 요청이 컨테이너의 클릭 대상 뒤에 붙어 자식 쪽으로 포커스를 옮겼습니다(fr71_focus_action_reaches_a_pressable_container_and_a_text_field).
 
 ## 4. 경계 프로토콜
 
@@ -4467,6 +4828,9 @@ compose_rust_host_dispatch_event: click 1
 ### PR-3 스레드 규칙 (`Done`)
 - VirtualDom, 사용자 컴포넌트, 모든 `compose_rust_host_*` 호출은 Renderer UI 스레드에서만 실행합니다. 그래서 락이 필요 없습니다.
 - **UI 스레드에서 도메인 작업을 금지합니다.** 네트워크, 파일 I/O, 프로세스 관리 같은 작업은 Host 워커 스레드(tokio 등)에서 돌립니다. 워커는 Dioxus signal로 상태를 갱신하고, Host가 내부에서 `request_frame`을 호출합니다. 사용자 코드는 경계 함수를 직접 부르지 않습니다.
+  - **웹에서는 `with_worker`가 일을 UI 스레드에서 그 자리에서 돌립니다** [leader, provisional, 2026-11-13]. 바로 위의 금지에 대한 명시적인 예외입니다. PR-6의 메모리 모델에서 공유되지 않는 `WebAssembly.Memory` 하나를 Kotlin/Wasm이 소유하므로, Rust가 그 메모리 위에서 일을 맡길 다른 스레드가 없습니다. `with_worker`가 돌려준 future는 처음 poll될 때 일을 실행하고 그 결과로 끝납니다. 그동안 페이지는 멈추므로, 웹에서 이 예외가 감당할 수 있는 것은 짧은 일뿐입니다.
+  - **애플리케이션과 샘플은 스레드를 직접 시작하지 않습니다.** 워커의 일은 언제나 `with_worker`를 거칩니다. 그래야 같은 코드가 데스크톱과 모바일에서는 워커 스레드에서, 웹에서는 UI 스레드에서 돌고, 스레드를 만들 수 없는 웹에서 스레드 생성이 실패해 패닉하는 경로가 없습니다.
+  - 수용 기준: 웹 빌드의 모든 샘플 페이지가 페이지 오류 없이 첫 화면을 그립니다. CI가 `samples-web` 페이지를 Chromium으로 열어 확인합니다(`fr22_web_every_sample_draws_without_a_page_error`). **(미구현)**
 - `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`)이 돌고 있으면 그 안에서 실행됩니다.
 - **프레임 클록이 멈춰 있으면 Renderer가 `render_frame`을 직접 한 번 부릅니다** (2026-10-03 개정, `Draft`). 창이 최소화되거나 가려지거나 앱이 백그라운드로 가면 Compose의 프레임 클록이 멈출 수 있고, 그때 온 요청을 다음 그리기까지 미루면 워커가 낸 결과(FR-36의 알림이 대표적입니다)가 사용자가 창을 보지 않는 동안 나가지 않습니다. 그래서 그 동안 온 `request_frame`에 대해 Renderer는 UI 스레드에 작업 하나를 올리고, 그 안에서 `render_frame`을 한 번 부른 뒤 돌아온 배치를 같은 호출 스택 안에서 적용합니다. 여러 요청이 한 번으로 합쳐지는 것은 같고, `frame_time_nanos`는 프레임 클록과 같은 단조 시계의 현재 값입니다.
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.

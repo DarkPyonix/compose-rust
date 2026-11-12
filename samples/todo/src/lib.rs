@@ -130,6 +130,9 @@ pub fn app() {
         None
     };
     let stacked = window.is_compact();
+    // Saves run in this list's scope, on a worker, and stop with it.
+    let saves = remember_coroutine_scope();
+    store::attach(saves);
     let tasks = remember(|| mutable_state_of_with_policy(store::load(), never_equal_policy()));
     let next_id = remember(|| {
         mutable_state_of(

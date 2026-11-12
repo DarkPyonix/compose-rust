@@ -244,6 +244,160 @@ class FontChain(val members: List<Member>) {
         AnnotatedString.Range(SpanStyle(fontFamily = members[member].family), start, end)
 }
 
+/**
+ * The normal track of a font's `trak` table: how far Apple's text system moves every
+ * letter of the font apart, or together, at each size.
+ *
+ * Apple's own faces (SF, SF Mono, New York) carry this table, and CoreText applies it to
+ * every advance it hands out, so every AppKit line and every browser on a Mac sets them
+ * tracked. Skia's shaper takes its advances from the font's horizontal metrics and leaves
+ * the table alone, so text set here in the same face came out wider than the same text
+ * anywhere else on the machine: at 16px, SF is set 0.31px tighter per letter by the
+ * table, which is 15px over a 48 letter line.
+ *
+ * The table gives a value in font units at a list of sizes. Between two sizes the value is
+ * interpolated in a straight line, and outside the list the nearest size's value holds,
+ * which is what CoreText does (measured at 4, 5, 7.5, 16.5, 150 and 200 points on macOS 26).
+ */
+internal class TrackTable private constructor(
+    private val sizes: FloatArray,
+    private val values: FloatArray,
+    private val unitsPerEm: Int,
+) {
+    /**
+     * What the table adds after every letter at [size] points, as a fraction of the size:
+     * the letter spacing in em.
+     */
+    fun em(size: Float): Float {
+        val last = sizes.size - 1
+        val units = when {
+            last == 0 || size <= sizes[0] -> values[0]
+            size >= sizes[last] -> values[last]
+            else -> {
+                var upper = 1
+                while (sizes[upper] < size) upper++
+                val from = sizes[upper - 1]
+                val to = sizes[upper]
+                values[upper - 1] + (size - from) / (to - from) * (values[upper] - values[upper - 1])
+            }
+        }
+        return units / unitsPerEm
+    }
+
+    companion object {
+        private const val VERSION_1 = 0x00010000
+        private const val HEADER_LENGTH = 12
+        private const val TRACK_DATA_LENGTH = 8
+        private const val TRACK_ENTRY_LENGTH = 8
+
+        /**
+         * Reads the normal track (track value 0) of a `trak` table, or null where the bytes
+         * are not a table this reads, the table has no horizontal track data, there is no
+         * normal track, or the normal track is zero at every size and so changes nothing.
+         *
+         * The layout is Apple's: a 12 byte header (version 1.0, format 0, the offset of the
+         * horizontal track data, the offset of the vertical, a reserved word), then at that
+         * offset the count of tracks, the count of sizes and the offset of the size table,
+         * then one 8 byte entry per track (its value as 16.16 fixed point, a name index, and
+         * the offset of its per-size values). The sizes are 16.16 fixed point and the values
+         * signed 16 bit font units. Every offset counts from the start of the table.
+         */
+        fun parse(table: ByteArray, unitsPerEm: Int): TrackTable? {
+            if (unitsPerEm <= 0 || table.size < HEADER_LENGTH) return null
+            fun u16(at: Int): Int = ((table[at].toInt() and 0xFF) shl 8) or (table[at + 1].toInt() and 0xFF)
+            fun i32(at: Int): Int = (u16(at) shl 16) or u16(at + 2)
+            fun fits(at: Int, length: Int): Boolean = at >= 0 && length >= 0 && at.toLong() + length <= table.size
+            if (i32(0) != VERSION_1 || u16(4) != 0) return null
+            val horizontal = u16(6)
+            if (horizontal == 0 || !fits(horizontal, TRACK_DATA_LENGTH)) return null
+            val tracks = u16(horizontal)
+            val count = u16(horizontal + 2)
+            val sizeTable = i32(horizontal + 4)
+            if (count == 0 || !fits(horizontal + TRACK_DATA_LENGTH, tracks * TRACK_ENTRY_LENGTH)) return null
+            if (!fits(sizeTable, count * 4)) return null
+            var normal = -1
+            for (track in 0 until tracks) {
+                val entry = horizontal + TRACK_DATA_LENGTH + track * TRACK_ENTRY_LENGTH
+                if (i32(entry) == 0) {
+                    normal = u16(entry + 6)
+                    break
+                }
+            }
+            if (normal < 0 || !fits(normal, count * 2)) return null
+            val sizes = FloatArray(count) { i32(sizeTable + it * 4) / 65536f }
+            for (at in 1 until count) if (sizes[at] <= sizes[at - 1]) return null
+            val values = FloatArray(count) { u16(normal + it * 2).toShort().toFloat() }
+            if (values.all { it == 0f }) return null
+            return TrackTable(sizes, values, unitsPerEm)
+        }
+    }
+}
+
+/**
+ * The tracking of the face text is set in, and which letters that face has.
+ *
+ * A letter the face has no glyph for is drawn from a fallback face, which is not tracked by
+ * this face's table: CoreText tracks each face by its own table, and the faces it falls back
+ * to for Hangul, kana or ideographs have none. [untracked] finds those letters so they can
+ * be set without this face's tracking.
+ */
+internal class FontTracking(val table: TrackTable, private val hasGlyph: (Int) -> Boolean) {
+    /** 0 for unknown, 1 for has a glyph, 2 for has none, for the first 256 code points. */
+    private val latin = ByteArray(256)
+    private val known = HashMap<Int, Boolean>()
+
+    fun has(codePoint: Int): Boolean {
+        if (codePoint < 0x20) return true
+        if (codePoint < latin.size) {
+            if (latin[codePoint] == 0.toByte()) latin[codePoint] = if (hasGlyph(codePoint)) 1 else 2
+            return latin[codePoint] == 1.toByte()
+        }
+        return known.getOrPut(codePoint) { hasGlyph(codePoint) }
+    }
+
+    /**
+     * The stretches of [text] whose letters this face has no glyph for, as start and end
+     * pairs, flattened. Empty where the face has every letter, which is the usual case.
+     * A letter that is drawn as part of the one before it stays with that letter.
+     */
+    fun untracked(text: String): IntArray {
+        var out: IntArray? = null
+        var count = 0
+        var start = -1
+        var index = 0
+        var previousMissing = false
+        while (index < text.length) {
+            val codePoint = codePointAt(text, index)
+            val width = if (codePoint > 0xFFFF) 2 else 1
+            val missing = if (index > 0 && attaches(codePoint)) previousMissing else !has(codePoint)
+            if (missing && start < 0) start = index
+            if (!missing && start >= 0) {
+                out = append(out, count, start, index)
+                count += 2
+                start = -1
+            }
+            previousMissing = missing
+            index += width
+        }
+        if (start >= 0) {
+            out = append(out, count, start, text.length)
+            count += 2
+        }
+        return if (out == null) NONE else out.copyOf(count)
+    }
+
+    private fun append(out: IntArray?, count: Int, start: Int, end: Int): IntArray {
+        val grown = if (out == null) IntArray(8) else if (count + 2 > out.size) out.copyOf(out.size * 2) else out
+        grown[count] = start
+        grown[count + 1] = end
+        return grown
+    }
+
+    private companion object {
+        val NONE = IntArray(0)
+    }
+}
+
 /** The code point at [index], joining a surrogate pair. */
 private fun codePointAt(text: String, index: Int): Int {
     val high = text[index]

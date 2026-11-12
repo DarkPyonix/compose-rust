@@ -7,7 +7,9 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.focused
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.isEditable
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.requestFocus
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -30,6 +32,21 @@ private const val DISABLED_SHIFT = 6
 private const val FOCUSED_SHIFT = 8
 private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
+private const val FOCUS_ACTION_BIT = 1 shl 12
+
+/** Every bit the state word of a `Semantics` modifier may set. */
+internal const val SEMANTICS_STATE_MASK = (1 shl 13) - 1
+
+/**
+ * Whether the Host asked for this node to offer a focus action to assistive technology.
+ *
+ * Asked before the node's modifier chain is built, because a node that offers the action
+ * has to be able to take focus before anyone uses it.
+ */
+internal fun Node.offersFocusAction(): Boolean {
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+    return declared != null && declared.state and FOCUS_ACTION_BIT != 0
+}
 
 /** A field of the state word: unset, off or on. */
 private fun Int.field(shift: Int): Boolean? = when ((this shr shift) and FIELD_MASK) {
@@ -72,11 +89,16 @@ private fun SemanticsRole.word(): String? = when (this) {
  * It is applied here, outside the widget, because every widget receives this modifier as its
  * own, so the one place covers a container, a control and a node the Host only labelled. A
  * node that said nothing gets the same modifier back, so nothing changes for it.
+ *
+ * [onFocusAction] is what the focus action does. The caller passes the same request a focus
+ * command from the Host makes, so the two cannot drift apart. It returns whether the request
+ * was taken.
  */
 internal fun Modifier.accessibility(
     node: Node,
     dispatcher: EventDispatcher? = null,
     clickHandlerId: Long? = null,
+    onFocusAction: (() -> Boolean)? = null,
 ): Modifier {
     val name = node.text(PropertyKind.AccessibleName).takeIf { it.isNotEmpty() }
     val declared = node.modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
@@ -91,6 +113,8 @@ internal fun Modifier.accessibility(
     val focused = state.field(FOCUSED_SHIFT)
     val hidden = state and HIDDEN_BIT != 0
     val isHeading = declaredRole == SemanticsRole.Heading
+    val isTextBox = declaredRole == SemanticsRole.TextBox
+    val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
     val description = listOfNotNull(
         declaredRole?.word(),
         expanded?.let { if (it) "expanded" else "collapsed" },
@@ -103,6 +127,7 @@ internal fun Modifier.accessibility(
         if (name != null) contentDescription = name
         if (role != null) this.role = role
         if (isHeading) heading()
+        if (isTextBox) isEditable = true
         if (description != null) stateDescription = description
         if (checked != null) toggleableState = ToggleableState(checked)
         if (selected != null) this.selected = selected
@@ -115,5 +140,6 @@ internal fun Modifier.accessibility(
                 true
             }
         }
+        if (focusAction != null) requestFocus(label = null) { focusAction() }
     }
 }
