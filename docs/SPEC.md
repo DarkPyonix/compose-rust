@@ -4662,6 +4662,63 @@ pub mod storage {
 14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
+### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #680)
+
+요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
+
+**이 항목은 웹뷰가 아닙니다.** compose-rust는 여기서 뷰를 만들지 않고 새로 링크하는 것도 없습니다. Host나 Host가 쓰는 크레이트가 만든 뷰(NSView, HWND, X11 창, Android `View`)를 받아 놓기만 합니다. 그래서 INTENT C1과 NFR-2는 이 항목으로 바뀌지 않습니다. 웹뷰를 만드는 opt-in 크레이트는 별도 항목이고, C1 개정에 대한 소유자의 결정을 기다립니다.
+
+창 쪽의 일은 포크의 `WindowPlatform.nativeViews`가 합니다(포크 PR #207, INTENT D19). 그 인터페이스는 `parentHandle`, `attach(id, handle)`, `setFrame`(픽셀), `setVisibleRegion(clip, holes)`(구멍은 둥근 사각형), `setVisible`, `focus(id)`, `focusScene()`, `detach`, 그리고 창 이벤트 `NATIVE_VIEW_FOCUS_IN`/`OUT`, `POINTER_ENTER`/`EXIT`, `onScaleChanged`입니다. 이 저장소는 그 호출을 부르는 Renderer 쪽 연결과 와이어만 둡니다.
+
+- **새 위젯 `NativeView`(`WidgetKind` 48).** 자식을 받지 않습니다. 자식을 넣으면 `ProtocolError`입니다. 내재 크기는 0이고, 크기는 수정자(`Size`, `FillMax*`, `Weight`)와 부모의 제약으로 정합니다. 배경, 테두리, 모양 수정자는 뷰 밑의 Compose 면에 그려지며, 뷰가 덮지 않은 곳(뷰가 아직 붙지 않았거나 숨었을 때)에서만 보입니다.
+- **부모 핸들의 보고: 이벤트 `NativeViewParent`(이벤트 태그 61).** Host는 뷰를 그 창의 부모 핸들에 대고 만듭니다. Renderer는 `NativeView` 노드가 처음 들어온 창에 대해 이 이벤트를 한 번 보냅니다. 핸들이 바뀌거나 창이 닫히면 다시 보내고, 닫힐 때의 핸들은 0입니다. 레코드는 머리 16바이트(노드 id는 그 `Window` 노드, 루트 창이면 루트) 뒤에 `handle: u64@16`, `kind: u16@24`, `reserved: u16@26`, `scale: f32@28`가 오는 32바이트입니다. `kind`는 `AppKit=1`, `Win32=2`, `X11=3`, `Android=4`, `UIKit=5`이고, `scale`은 그 창의 backing scale입니다. scale이 바뀌면 같은 이벤트가 새 값으로 다시 옵니다. `NativeView`가 하나도 없는 트리에서는 이 이벤트가 나오지 않습니다.
+- **뷰 붙이기: 명령 `AttachNativeView`(명령 태그 37).** 24바이트 고정 레코드(`tag=37, len=24`) 뒤에 `node_id: u32`, `reserved: u32`, `handle: u64`가 옵니다. Renderer는 그 노드의 창에 `attach(node_id, handle)`를 부르고, 처음에는 숨긴 채 다음 배치 뒤에 자리와 보이는 영역을 정한 다음 보입니다. `handle = 0`은 떼기입니다. 노드를 지워도 떼어집니다. 뷰의 주인은 언제나 Host입니다. Renderer는 뷰를 놓고 뗄 뿐 파괴하지 않습니다. Host는 떼기가 적용된 배치 뒤에 뷰를 파괴합니다. 한 노드에 이미 뷰가 붙어 있으면 새 핸들이 옛 핸들을 대신합니다(옛 것은 떼어짐).
+- **자리(Renderer의 것, D5).** Renderer는 노드의 `boundsInWindow`를 물리 픽셀로 `setFrame`에 넘깁니다. 배치, 스크롤, 창 크기, 확대 배율(FR-43)이 바뀔 때마다 보내되, Host와의 왕복은 없습니다. 뷰의 새 자리는 그 자리를 만든 프레임과 같은 프레임에 보여야 합니다. 스크롤하는 동안 뷰가 Compose 내용보다 한 프레임 늦게 따라오지 않아야 합니다(NFR-9의 "입력 지연 프레임 없음"). Host는 노드의 위치를 받지 않습니다.
+- **보이는 영역.** `clip`은 조상들의 자르기(스크롤 컨테이너, `Clip` 수정자, 창 가장자리)를 합친 사각형입니다. 노드가 완전히 밖으로 나가면 뷰를 숨깁니다(영역이 비면 `setVisible(false)`와 같습니다). `holes`는 그 노드보다 위에 그려지는 Compose 층이 뷰와 겹치는 곳입니다. 그런 층은 `Popover`(FR-77), 메뉴, 닫힌 선택 필드의 목록(FR-64), 대화상자와 시트, 서랍(FR-21), 툴팁, 일시 메시지입니다. 구멍은 그 층의 모양을 따른 둥근 사각형이고 그림자 범위를 포함합니다. 구멍에서는 뷰가 가려지고 그 밑의 Compose 면이 그린 층이 보이므로, 겹친 층이 뷰 위에 있는 것처럼 보입니다. 층이 열리거나 닫히거나 움직이면 같은 프레임에 영역을 다시 보냅니다. 대화상자의 어두운 막처럼 창 전체를 덮는 막은 구멍 대신 뷰 전체를 가립니다.
+- **숨기기: 속성 `NativeVisible`(속성 태그 187, bool, 기본 true).** 거짓이면 뷰를 숨기되 떼지 않으므로, 뷰의 상태(웹 페이지와 그 스크립트 상태)가 남습니다. 참이면 같은 뷰를 다시 보입니다. 노드를 지우는 것은 떼기이고 숨기기가 아닙니다.
+- **포커스: 이벤트 `NativeViewFocus`(이벤트 태그 62)와 명령 `FocusNativeView`(명령 태그 38).** 이벤트는 머리 16바이트 뒤에 `focused: u32@16`가 오는 24바이트입니다(나머지는 0). 핸들러 속성 `OnNativeViewFocus`(속성 태그 188)가 붙은 노드만 보냅니다. 뷰 안을 누르면 플랫폼이 그 뷰에 키보드 포커스를 줍니다. 그러면 Renderer는 Compose의 포커스를 거두어(어느 필드에도 캐럿이 남지 않게) `focused=1`을 보냅니다. 명령 `FocusNativeView`는 16바이트(`tag=38, len=16`) 뒤에 `node_id: u32`, `focus: u32`가 오며, `focus=1`이면 `focus(id)`, `0`이면 `focusScene()`입니다. 포커스를 가진 뷰가 숨거나 떼어지거나 노드가 지워지면 포커스는 Compose로 돌아가고 `focused=0`이 옵니다. 창이 비활성화되면 `focused=0`, 다시 활성화되어 그 뷰가 다시 포커스를 받으면 `focused=1`입니다. FR-65의 `RequestFocus`가 Compose 노드에 포커스를 주면 뷰는 포커스를 잃고 `focused=0`이 옵니다.
+- **입력.** 보이는 영역 안의 포인터, 스크롤, 끌어 놓기, 커서 모양은 뷰의 것입니다. Compose 장면은 거기서 아무것도 받지 않고, FR-27의 파일 놓기도 영역 밖에서만 받습니다. 포인터가 장면에서 뷰로 들어가면 장면이 hover하던 노드는 포인터가 나간 것으로 처리됩니다(FR-46의 `Exit`). 돌아오면 다시 들어온 것으로 처리됩니다. 구멍 안의 입력은 장면의 것입니다. 키와 IME는 키보드 포커스를 가진 쪽이 받습니다. macOS 메뉴 막대의 키(`performKeyEquivalent`)는 뷰가 포커스를 가져도 지금처럼 앱 메뉴에 갑니다. 그 밖에 앱 단축키를 뷰에서 앱으로 넘기는 일은 뷰를 만든 쪽이 합니다(웹뷰 크레이트는 페이지가 처리하지 않은 keydown을 넘깁니다). 이 위젯은 키를 가로채지 않습니다.
+- **여러 개.** 한 창에 `NativeView`를 몇 개든 둘 수 있습니다. 서로 겹치면 나중에 붙인 뷰가 위입니다. 나중에 순서를 바꾸는 명령은 없습니다. 플랫폼 뷰를 다시 넣으면 키 포커스를 잃기 때문입니다.
+- **플랫폼.** macOS Kotlin/Native가 먼저입니다(포크 #207). GraalVM macOS 경로에는 슬롯이 없으므로(`nativeViews == null`, 소유자 결정 2026-11-13, 포크 #208), 거기서 `AttachNativeView`는 `TableError.NATIVE_VIEW_UNSUPPORTED`이고 `NativeViewParent`는 나오지 않습니다. Windows(최상위 HWND의 자식, `dxc_surface`의 형제), Linux X11(최상위 창의 자식 X 창), Android(Compose `AndroidView`), iOS(`UIKitView`)는 같은 와이어로 뒤따르고, 플랫폼마다 이슈를 둡니다. Web에서는 핸들이 DOM 요소여야 하므로, 와이어 모양을 따로 정해야 하고, 이것도 이슈를 따로 둡니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다.
+  - 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다.
+  - `NativeView`가 아닌 노드에 온 명령은 새 코드 `TableError.NOT_NATIVE_VIEW`(21)입니다.
+  - 창이 받지 않은 핸들(`attach`가 거짓: 종류가 틀렸거나 이미 다른 노드에 붙음)은 새 코드 `TableError.NATIVE_VIEW_REJECTED`(22)입니다.
+  - 슬롯이 없는 플랫폼은 새 코드 `TableError.NATIVE_VIEW_UNSUPPORTED`(23)입니다.
+  - `NativeView` 아닌 노드에 붙은 `NativeVisible`이나 `OnNativeViewFocus`는 기존 `TableError.UNSUPPORTED_PROPERTY`입니다.
+  - 길이가 맞지 않는 레코드는 `InvalidRecordLength`입니다.
+- **Host API.**
+  - `ui::NativeView { handle: NativeHandle, visible: bool, on_focus_change }` 위젯;
+  - `runtime::Batch::attach_native_view(node_id, NativeHandle)`, `runtime::Batch::focus_native_view(node_id, bool)`;
+  - `EventPayload::NativeViewParent { handle, kind, scale }`, `EventPayload::NativeViewFocus { focused }`;
+  - `NativeHandle(u64)`와 `NativeParentKind`.
+  - 경계 함수는 늘지 않습니다(PR-2).
+- **번호.** 앞선 사용분은 이렇습니다.
+  - 명령: 35와 36이 FR-80, 이벤트: 60이 FR-80, 속성: 186이 FR-80, 위젯: 47이 `Popover`, `TableError`: 20이 FR-80입니다.
+  - 그래서 이 항목은 명령 37과 38, 이벤트 61과 62, 속성 187과 188, 위젯 48, `TableError` 21~23을 씁니다.
+  - 스키마 서술 문자열 끝에 더하므로 **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 FR-80과 같은 규칙으로 서술 문자열의 순서만 태그 순서에 맞춥니다.
+- **구현 범위.**
+  - 스키마와 codegen, Rust 인코더와 디코더, `ui` 위젯, 프로토콜 벡터;
+  - 데스크톱 Kotlin 렌더러의 `HostNativeView`: `onGloballyPositioned`로 자리를 정하고, 조상의 자르기와 위에 그려지는 층의 구멍을 계산하고, 포커스와 hover를 연결합니다;
+  - `android-kotlin/shared`의 `NodeTable`. Android 구현은 뒤따르지만, 표는 같은 레코드를 받아 `NATIVE_VIEW_UNSUPPORTED`로 답합니다.
+
+수용 기준. 시험은 웹뷰 없이 평범한 플랫폼 뷰(macOS에서는 단색 `NSView`와 `NSTextField`)로 합니다.
+1. `AttachNativeView`, `FocusNativeView`가 `mutations.bin`에, `NativeViewParent`, `NativeViewFocus`가 `events.bin`에 레코드로 더해지고, Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr81_native_view_records_round_trip_through_the_protocol_vectors).
+2. `NativeView`가 없는 트리의 배치 바이트와 이벤트는 이 항목 전과 같습니다(시험 이름 fr81_tree_without_native_view_is_unchanged).
+3. macOS Kotlin/Native에서 `NativeView`가 처음 들어온 창은 `NativeViewParent`를 한 번 보내고, 핸들은 0이 아니며 `kind`는 `AppKit`, `scale`은 창의 backing scale입니다(시험 이름 fr81_parent_handle_is_reported_once_per_window).
+4. 붙인 `NSView`의 frame은 노드의 `boundsInWindow`와 같습니다. 부모 `ScrollColumn`을 100px 스크롤한 프레임에 frame의 y도 100px 움직입니다(시험 이름 fr81_view_follows_layout_and_scroll_in_the_same_frame).
+5. 절반이 스크롤 밖으로 나간 노드의 뷰는 보이는 절반만 그려지고, 완전히 나가면 숨습니다(창 이미지 읽기, 시험 이름 fr81_view_is_clipped_by_its_ancestors).
+6. 뷰 위로 연 둥근 `Popover`는 구멍을 만들고, 창 이미지에서 그 자리(모서리 포함)에 `Popover`가 보입니다. 닫으면 구멍이 사라집니다(시험 이름 fr81_overlay_above_the_view_shows_through_a_rounded_hole).
+7. `NativeVisible=false`는 뷰를 숨기고 떼지 않습니다. `NSTextField`에 친 글자가 참으로 돌린 뒤에도 남아 있습니다(시험 이름 fr81_hidden_view_keeps_its_state).
+8. 뷰를 누르면 `NativeViewFocus(1)`이 오고 포커스를 가졌던 Compose `TextField`는 포커스를 잃습니다. `FocusNativeView(0)`은 포커스를 장면에 돌려주고 `NativeViewFocus(0)`이 옵니다(시험 이름 fr81_focus_moves_between_the_view_and_the_scene).
+9. 포커스를 가진 뷰의 노드를 지우거나 숨기면 `NativeViewFocus(0)`이 오고 장면이 포커스를 받습니다. 창의 비활성화와 재활성화는 0과 1을 보냅니다(시험 이름 fr81_focus_returns_to_the_scene_on_remove_hide_and_deactivate).
+10. 포인터가 hover 중인 Compose 노드에서 뷰로 들어가면 그 노드에 `Exit`가 오고, 뷰 안에서는 장면이 포인터 이벤트를 받지 않으며, 장면의 커서 갱신이 뷰의 커서를 덮지 않습니다(시험 이름 fr81_pointer_inside_the_view_belongs_to_the_view).
+11. 겹친 두 `NativeView`는 나중에 붙인 쪽이 위에 그려집니다(시험 이름 fr81_later_attached_view_is_above).
+12. `handle=0`이나 노드 삭제 뒤에 뷰는 창에서 빠지고 파괴되지 않습니다(Host가 쥔 `NSView`가 살아 있음, 시험 이름 fr81_detach_removes_without_destroying).
+13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
+14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
+15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
