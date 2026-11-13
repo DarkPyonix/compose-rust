@@ -47,7 +47,7 @@ const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 // 28 and 29 are numbered for commands that are not here yet.
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
 // 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
 // code editor's grouped edit.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
@@ -1886,6 +1886,8 @@ impl BatchEncoder {
                 self.put_u16(overlay.popup_padding);
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
+                self.put_u16(overlay.toast_elevation);
+                self.put_u16(overlay.toast_corner_radius);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2436,6 +2438,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let dialog_padding = read_u16(bytes, payload + 14)?;
                 let popup_padding = read_u16(bytes, payload + 16)?;
                 let scrim = read_u32(bytes, payload + 20)?;
+                let toast_elevation = read_u16(bytes, payload + 24)?;
+                let toast_corner_radius = read_u16(bytes, payload + 26)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2447,6 +2451,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     dialog_padding,
                     popup_padding,
                     scrim,
+                    toast_elevation,
+                    toast_corner_radius,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
