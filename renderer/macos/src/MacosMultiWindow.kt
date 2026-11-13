@@ -263,8 +263,11 @@ private fun MacosWindowScene(
 ) {
     // A window the system made waits for the application's node and draws nothing until then.
     if (slot.nodeId == 0) return
+    // The window's place for the Host's platform views, one for the window's life.
+    val nativeViews = androidx.compose.runtime.remember(window) { MacosNativeViewWindow(window) }
     CompositionLocalProvider(
         LocalWindowNodeId provides slot.nodeId,
+        dev.darkpyonix.composerust.foundation.LocalNativeViewWindow provides nativeViews,
         LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { dark.value },
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {

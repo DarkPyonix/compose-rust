@@ -75,6 +75,15 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var placementWanted by mutableStateOf(false)
     internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
 
+    /**
+     * A `NativeView`'s platform view: the handle the Host attached, 0 for none. The view is
+     * put into the window, and taken out, where the node is drawn.
+     */
+    internal var nativeHandle by androidx.compose.runtime.mutableLongStateOf(0L)
+
+    /** The last `FocusNativeView` for this node, or null before one came. */
+    internal var nativeFocusRequest by mutableStateOf<NativeFocusRequest?>(null)
+
     fun property(kind: PropertyKind): PropertyValue? = props[kind]
 
     fun text(kind: PropertyKind, default: String = ""): String =
@@ -91,6 +100,12 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     /** The raw bytes of a byte-valued property, such as a Canvas command list. */
     fun bytes(kind: PropertyKind): ByteArray? = (props[kind] as? PropertyValue.Bytes)?.value
 }
+
+/**
+ * A request to move keyboard focus into a platform view ([focus] true) or out of it. The
+ * revision makes a second request of the same kind a new one.
+ */
+data class NativeFocusRequest(val focus: Boolean, val revision: Long)
 
 /** A protocol violation that must become a `ProtocolError` event, never a crash. */
 data class TableError(val code: Int, val message: String) {
@@ -124,6 +139,15 @@ data class TableError(val code: Int, val message: String) {
         const val NOT_SCROLLABLE = 19
         /** A scroll request whose values make no sense for the container. The request is dropped. */
         const val INVALID_SCROLL = 20
+        /** A platform view command for a node that is not a `NativeView`. The command is dropped. */
+        const val NOT_NATIVE_VIEW = 21
+        /**
+         * A platform view the window would not take: not a view of this platform, or one
+         * already attached to another node. The command is dropped.
+         */
+        const val NATIVE_VIEW_REJECTED = 22
+        /** A platform view command where the window has no place for platform views. The command is dropped. */
+        const val NATIVE_VIEW_UNSUPPORTED = 23
     }
 }
 
@@ -254,6 +278,19 @@ class NodeTable {
 
     private var revision = 0L
 
+    /**
+     * The `NativeView` node each attached platform view handle belongs to. A handle is in one
+     * place at a time, so a second node asking for it is refused.
+     */
+    private val nativeHandles = HashMap<Long, Int>()
+
+    /**
+     * Increments on each `RequestFocus` for a node that is not a platform view, so a
+     * platform view holding keyboard focus gives it back to the scene first.
+     */
+    var sceneFocusRevision by mutableStateOf(0L)
+        private set
+
     /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
     var focusClearRevision by mutableStateOf(0L)
         private set
@@ -371,6 +408,7 @@ class NodeTable {
         outbox.clear()
         windowThemes.clear()
         focusRequests.clear()
+        nativeHandles.clear()
         assets.clear()
         messages.clear()
         theme = null
@@ -505,7 +543,64 @@ class NodeTable {
             // and drops it while the user is scrolling.
             is Mutation.ScrollTo -> scrollTo(mutation)
             is Mutation.ScrollIntoView -> scrollIntoView(mutation)
+
+            // A platform view the Host made, and focus moving into it or out. Checked here;
+            // the view itself is put into the window where the node is drawn.
+            is Mutation.AttachNativeView -> attachNativeView(mutation)
+            is Mutation.FocusNativeView -> focusNativeView(mutation)
         }
+    }
+
+    /** The `NativeView` a command names, or null after reporting that it names none. */
+    private fun nativeViewNode(nodeId: Int, command: String): Node? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        if (node.widget != WidgetKind.NativeView) {
+            fail(TableError.NOT_NATIVE_VIEW, "$command on ${node.widget}, which holds no platform view")
+            return null
+        }
+        if (!dev.darkpyonix.composerust.foundation.NativeViewPlatform.available) {
+            fail(
+                TableError.NATIVE_VIEW_UNSUPPORTED,
+                "$command on node $nodeId: this renderer's windows have no place for a platform view",
+            )
+            return null
+        }
+        return node
+    }
+
+    private fun attachNativeView(mutation: Mutation.AttachNativeView) {
+        val node = nativeViewNode(mutation.nodeId, "AttachNativeView") ?: return
+        val handle = mutation.handle
+        if (handle != 0L) {
+            val holder = nativeHandles[handle]
+            if (holder != null && holder != node.id) {
+                fail(
+                    TableError.NATIVE_VIEW_REJECTED,
+                    "AttachNativeView on node ${node.id}: handle 0x${handle.toULong().toString(16)} is already " +
+                        "attached to node $holder",
+                )
+                return
+            }
+        }
+        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
+        node.nativeHandle = handle
+        if (handle != 0L) nativeHandles[handle] = node.id
+    }
+
+    private fun focusNativeView(mutation: Mutation.FocusNativeView) {
+        val node = nativeViewNode(mutation.nodeId, "FocusNativeView") ?: return
+        revision += 1
+        node.nativeFocusRequest = NativeFocusRequest(mutation.focus, revision)
+    }
+
+    /** The window would not take the node's view: the node holds none. */
+    internal fun forgetNativeHandle(nodeId: Int) {
+        val node = nodes[nodeId] ?: return
+        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
+        node.nativeHandle = 0L
     }
 
     private fun windowNode(nodeId: Int, command: String): Node? {
@@ -591,6 +686,7 @@ class NodeTable {
         val node = nodes[nodeId] ?: return false
         revision += 1
         node.focusRequestRevision = revision
+        if (node.widget != WidgetKind.NativeView) sceneFocusRevision = revision
         return true
     }
 
@@ -899,6 +995,11 @@ class NodeTable {
             fail(TableError.UNKNOWN_NODE, "Insert into unknown parent $parentId")
             return
         }
+        // A platform view covers its node, so nothing drawn under it would be seen.
+        if (nodes[parentId]?.widget == WidgetKind.NativeView) {
+            fail(TableError.INVALID_CHILDREN, "Insert of node $nodeId into NativeView $parentId, which takes no children")
+            return
+        }
         // A window is a child of the root and nothing else, and what is drawn in one
         // window cannot be moved into another: a composition is per window and Compose has
         // no way to hand a node from one scene to the next. Both are the Host's
@@ -953,6 +1054,7 @@ class NodeTable {
         val node = nodes.remove(nodeId) ?: return
         codeNodes.remove(nodeId)
         node.scroll?.let(scrolls::forget)
+        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
             fileDialogs.windowRemoved(nodeId)
@@ -1089,6 +1191,11 @@ class NodeTable {
 
                 // The scroll report belongs to the widgets that scroll.
                 PropertyKind.OnScrollChanged -> widget in SCROLL_CONTAINERS
+
+                // Whether a platform view shows, and who hears its focus move.
+                PropertyKind.NativeVisible,
+                PropertyKind.OnNativeViewFocus,
+                -> widget == WidgetKind.NativeView
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML

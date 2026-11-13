@@ -114,6 +114,7 @@ import dev.darkpyonix.composerust.foundation.HostLazyColumn
 import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
 import dev.darkpyonix.composerust.foundation.HostPopover
+import dev.darkpyonix.composerust.foundation.HostNativeView
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -476,6 +477,9 @@ fun RenderNode(
             // node; the node's own modifiers are the floating box's.
             WidgetKind.Popover ->
                 HostPopover(node, parentModifier, modifier, table, dispatcher, theme)
+            // A place for a platform view the Host made. The window puts the view over the
+            // node; the node itself is only the box it is placed by.
+            WidgetKind.NativeView -> HostNativeView(node, modifier)
             WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
             WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
             WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)

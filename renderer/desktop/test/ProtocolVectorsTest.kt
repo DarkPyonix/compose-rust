@@ -136,6 +136,10 @@ class ProtocolVectorsTest {
                 // A scroll request names the container it asks.
                 is Mutation.ScrollTo -> mutation.nodeId !in created
                 is Mutation.ScrollIntoView -> mutation.nodeId !in created
+                // The vector's platform view node exists, but no window on this renderer has
+                // a place for a platform view, so both are refused as unsupported.
+                is Mutation.AttachNativeView -> true
+                is Mutation.FocusNativeView -> true
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -404,6 +408,77 @@ class ProtocolVectorsTest {
         )
         assertEquals(72, length)
         assertEquals(bytes.copyOfRange(1319, 1319 + 72).toList(), out.array().copyOf(length).toList())
+    }
+
+    /**
+     * The platform view commands and events, read from and encoded to the bytes the Host
+     * wrote: a node, a reserved word, a `u64` handle and a reserved word; a node, a focus word
+     * and a reserved word; a `u64` handle, a kind, a reserved half word and a scale; and a
+     * focus word and its padding.
+     */
+    @Test
+    fun fr81_native_view_records_round_trip_through_the_protocol_vectors() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.AttachNativeView(nodeId = 22, handle = 0x0000_7f8a_1234_5670L)),
+            mutations.filterIsInstance<Mutation.AttachNativeView>(),
+        )
+        assertEquals(
+            listOf(Mutation.FocusNativeView(nodeId = 22, focus = true)),
+            mutations.filterIsInstance<Mutation.FocusNativeView>(),
+        )
+        assertTrue(Mutation.Create(22, WidgetKind.NativeView) in mutations)
+        assertTrue(Mutation.SetProp(22, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
+        assertTrue(Mutation.SetProp(22, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
+
+        val bytes = vectorFile("events.bin").readBytes()
+        assertEquals(1471 + 24, bytes.size, "the two events are the last in the vector")
+        val out = ByteBuffer.allocate(64)
+        val parentLength = Protocol.encodeEvent(
+            HostEvent.NativeViewParent(
+                nodeId = 20,
+                handlerId = 0L,
+                handle = 0x0000_6000_0abc_def0L,
+                kind = dev.darkpyonix.composerust.protocol.NativeViewWire.PARENT_APPKIT,
+                scale = 2.0f,
+            ),
+            out,
+        )
+        assertEquals(32, parentLength)
+        assertEquals(bytes.copyOfRange(1439, 1439 + 32).toList(), out.array().copyOf(parentLength).toList())
+        out.clear()
+        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 22, handlerId = 301L, focused = true), out)
+        assertEquals(24, focusLength)
+        assertEquals(bytes.copyOfRange(1471, 1471 + 24).toList(), out.array().copyOf(focusLength).toList())
+    }
+
+    /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
+    @Test
+    fun fr81_native_view_records_that_cannot_be_read_are_protocol_errors() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        // The envelope's length word counts the envelope too.
+        val recordsLength = view.getInt(4)
+        fun recordAt(tag: Int): Int {
+            var offset = 12
+            while (offset < recordsLength) {
+                if (view.getShort(offset).toInt() == tag) return offset
+                offset += view.getShort(offset + 2).toInt()
+            }
+            error("no record with tag $tag in the vector")
+        }
+        val attach = recordAt(37)
+        val focus = recordAt(38)
+        assertEquals(24, view.getShort(attach + 2).toInt())
+        assertEquals(16, view.getShort(focus + 2).toInt())
+        for ((offset, value) in listOf(attach + 8 to 1, attach + 20 to 1, focus + 8 to 2, focus + 12 to 1)) {
+            val bad = batch.copyOf()
+            ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN).putInt(offset, value)
+            val failure = runCatching {
+                Protocol.decode(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN)) { }
+            }.exceptionOrNull()
+            assertTrue(failure is ProtocolException, "a word of $value at $offset was read, got $failure")
+        }
     }
 
     /**

@@ -311,6 +311,7 @@ private fun CalendarFlyout(
                 Box(
                     Modifier
                         .testTag(datePopupTestTag(nodeId))
+                        .nativeViewOverlay(style.shape)
                         .clip(style.shape)
                         .background(style.container, style.shape)
                         .border(style.borderWidth, style.borderColor, style.shape)

@@ -59,6 +59,9 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Asked for by a build that proves the executable shapes and wraps Korean with no ICU data
     // file beside it. A failure stops here, before a window, so the build sees it.
     if (runTextSelfCheckIfAsked() == false) return RendererApi.RUN_FAILED
+    // This renderer's windows have a place for the Host's platform views, so a batch that
+    // attaches one is not refused.
+    dev.darkpyonix.composerust.foundation.NativeViewPlatform.available = true
     val application = NSApplication.sharedApplication()
     // An executable that is not inside a bundle is not, by default, something the system
     // will put in front of anything else: it has no place in the dock and cannot take the
@@ -180,9 +183,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
         ?: !IdleSoakSetting.requested()
     window.leaveRightClickMenuToCompose()
+    val nativeViews = MacosNativeViewWindow(window)
     @Suppress("DEPRECATION")
     window.setContent {
         CompositionLocalProvider(
+            dev.darkpyonix.composerust.foundation.LocalNativeViewWindow provides nativeViews,
             LocalCursorBlinkEnabled provides cursorBlink,
             LocalSystemDarkObserver provides { dark.value },
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {

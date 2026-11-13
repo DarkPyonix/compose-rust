@@ -152,6 +152,7 @@ internal fun HostMessages(
     ) {
         Row(
             Modifier
+                .nativeViewOverlay(style.shape)
                 .clip(style.shape)
                 .background(style.container)
                 .then(outline)
