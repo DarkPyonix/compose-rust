@@ -19,7 +19,7 @@ one declaration is a phone screen, a tablet screen and a desktop window.
 |---|---|---|
 | `calculator` | The Windows, macOS and Deepin calculators | Dense button grids, `Row` and `Column` nesting, a memory register, numeric formatting, a tape that stands beside the keys or arrives in a sheet |
 | `notepad` | The iOS and Windows memo applications | Multiline text editing, IME, opening and saving through the file dialog on every platform (a download where a browser cannot write a file), several open documents with the list beside the page or in a sheet, the open documents kept in the application storage and restored on the next run or page load |
-| `todo` | A macOS task list and a mobile task scheduler | Lists with stable keys, checkboxes, filtering as a destination set, `LazyColumn` windowing over thousands of rows, the list kept in the application storage (`tasks.tsv`) so it survives a restart or a page reload |
+| `todo` | A macOS task list and a mobile task scheduler | Lists with stable keys, checkboxes, tasks as cards under a heading for each kind, search, filters and user lists as one destination set, a narrow window with no bar (its list of lists is a screen reached from a floating back button, and a floating add button opens the Add Task sheet), `LazyColumn` windowing over thousands of rows, the tasks and lists kept in the application storage (`tasks.tsv`) so they survive a restart or a page reload |
 | `chat` | Google Gemini | Conversations as a destination set, scrollback, a composer where Enter sends and Shift+Enter starts a new line, and a reply streamed in from a worker thread |
 
 The four above are **adaptive**: they take whichever design system the platform picks, so
