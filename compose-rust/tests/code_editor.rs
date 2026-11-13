@@ -1376,7 +1376,7 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
         &mut expected,
     )
     .unwrap();
-    assert_eq!(&events[1519..1599], expected.as_slice());
+    assert_eq!(&events[1543..1623], expected.as_slice());
 }
 
 /// The two backgrounds are decoration kinds 5 and 6, after the four there were, in the

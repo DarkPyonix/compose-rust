@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Snap, MaxHeightFraction, OnCaretRect, OnKeyPreview, OnCodePointer, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnCaretRect, OnKeyPreview, OnCodePointer, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -1600,6 +1600,7 @@ sealed interface HostEvent {
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
     data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
@@ -1609,7 +1610,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -713190573993818651L
+    const val SCHEMA_HASH: Long = -7435359340104126028L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2197,6 +2198,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
+                is HostEvent.MotionFinished -> null
                 is HostEvent.CaretRect -> null
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
@@ -2252,6 +2254,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 72
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
+                is HostEvent.MotionFinished -> 24
                 is HostEvent.CaretRect -> 40
                 is HostEvent.PositionRect -> 40
                 is HostEvent.CodePointer -> 80
@@ -2311,6 +2314,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 60
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
+                is HostEvent.MotionFinished -> 63
                 is HostEvent.CaretRect -> 64
                 is HostEvent.PositionRect -> 65
                 is HostEvent.CodePointer -> 66
@@ -2538,6 +2542,10 @@ object Protocol {
                 }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
+                is HostEvent.MotionFinished -> {
+                    out.putFloat(event.widthDp)
+                    out.putFloat(event.heightDp)
+                }
                 is HostEvent.CaretRect -> {
                     out.putInt(event.line)
                     out.putInt(event.column)
@@ -2785,8 +2793,11 @@ object Protocol {
         184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
+        91 -> PropertyKind.CollapseBelow
         188 -> PropertyKind.Snap
         189 -> PropertyKind.MaxHeightFraction
+        192 -> PropertyKind.FontFeatureSettings
+        193 -> PropertyKind.OnMotionFinished
         195 -> PropertyKind.OnCaretRect
         196 -> PropertyKind.OnKeyPreview
         197 -> PropertyKind.OnCodePointer

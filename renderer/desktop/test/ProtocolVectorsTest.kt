@@ -288,6 +288,19 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The width a split pane stacks below decodes to the float the Host wrote, under the tag
+     * after the split pane's `Collapsible`.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_round_trips() {
+        assertEquals(
+            listOf(Mutation.SetProp(2, PropertyKind.CollapseBelow, PropertyValue.Float(720.5f))),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+                .filter { it.property == PropertyKind.CollapseBelow },
+        )
+    }
+
+    /**
      * The storage request and both events, read from and encoded to the bytes the Host
      * wrote: a request, an operation and three references; two words and a reference to the
      * bytes; and one string reference.
@@ -502,6 +515,29 @@ class ProtocolVectorsTest {
             ),
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetOverlayTokens>(),
         )
+    }
+
+    /**
+     * The text node's three font features, read from the bytes the Host wrote: tabular
+     * figures on, ligatures off, and a character variant whose value is wider than a byte.
+     */
+    @Test
+    fun fr83_font_feature_settings_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(22, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 22 }
+        assertEquals(listOf(PropertyKind.FontFeatureSettings), props.map { it.property })
+        val bytes = (props.single().value as PropertyValue.Bytes).value
+        val expected = "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "cv01".encodeToByteArray() + byteArrayOf(2, 1, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        assertEquals(
+            "tnum 1, liga 0, cv01 258",
+            dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
     }
 
     /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
@@ -951,10 +987,10 @@ class ProtocolVectorsTest {
             1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
             1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
             // Where the caret is drawn and the answer to the position query, after them.
-            1439 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
-            1479 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
+            1463 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
+            1503 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
             // A Cmd-click over the second line, with the place in the text under it.
-            1519 to HostEvent.CodePointer(
+            1543 to HostEvent.CodePointer(
                 12, 31L, dev.darkpyonix.composerust.protocol.PointerKind.Down, 1,
                 dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
                 dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
@@ -967,7 +1003,45 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1599, bytes.size)
+        assertEquals(1623, bytes.size)
+    }
+
+    /**
+     * A node's size motion settling encodes here to the bytes the Rust Host decodes: the
+     * header, then the settled width and height as `f32` in dp. The handler property it
+     * is sent for reads back from its tag.
+     */
+    @Test
+    fun fr24_motion_finished_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val buffer = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
+        assertEquals(24, length)
+        assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
+        assertEquals(1623, bytes.size)
+
+        // A SetProp of the handler, written by hand: the record header, the node, the
+        // property tag 193 and an integer value holding the handler id.
+        val record = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+        record.putShort(2) // SetProp, 24 bytes with its header
+        record.putShort(24)
+        record.putInt(14)
+        record.putShort(193)
+        record.putShort(3) // an integer value
+        record.putLong(30L)
+        record.putInt(0)
+        val envelope = ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN)
+        envelope.putShort(0)
+        envelope.putShort(12)
+        envelope.putInt(36) // the records end 36 bytes in, the envelope included
+        envelope.putInt(1)
+        envelope.put(record.array())
+        val decoded = mutableListOf<Mutation>()
+        Protocol.decode(ByteBuffer.wrap(envelope.array()).order(ByteOrder.LITTLE_ENDIAN), decoded::add)
+        assertEquals(
+            listOf<Mutation>(Mutation.SetProp(14, PropertyKind.OnMotionFinished, PropertyValue.Integer(30L))),
+            decoded,
+        )
     }
 
     /**

@@ -60,7 +60,12 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # appearance setter `dxc_native_set_appearance` (fork #203) and the Windows caption buttons with
 # Snap Layouts (fork #202, a header `win32_caption.h` beside `win32_window.c`). The Kotlin/Native
 # Windows window configures its system chrome itself, so its windows keep their caption.
-WINDOW_REVISION="b88429d011d24d45f95cac2125fd662b87a97534"
+# It also holds the macOS window typing a key once instead of twice (fork #209), the X11
+# windows reporting Xft.dpi as their scale and following its changes (fork #205), and the
+# Windows window skipping a stretched present when ResizeBuffers fails (fork #206, a header
+# `win32_resize.h` beside `win32_window.c`), the native view slot and both macOS windows following
+# a backing-scale change (fork #207), and the GNOME text scale applied once on Linux (fork #210).
+WINDOW_REVISION="7c7a907631c630cd71ff3ffeb81d360f13a28bc8"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles

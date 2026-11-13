@@ -207,6 +207,9 @@ pub enum EventPayloadType {
     /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
     /// record.
     ScrollChanged,
+    /// The size a node's size motion settled at: `width_dp` and `height_dp`, two `f32` in
+    /// dp. A fixed 24-byte record.
+    MotionFinished,
     /// Where a code editor's caret is drawn: the line and the column it stands at, then
     /// `x`, `y`, `width` and `height` as `f32` in the window's dp. A fixed 40-byte record.
     CodeCaretRect,
@@ -231,10 +234,10 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,snap,max_height_fraction,on_caret_rect,on_key_preview,on_code_pointer;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_caret_rect,on_key_preview,on_code_pointer;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,CaretRect,PositionRect,CodePointer;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect;",
@@ -409,9 +412,10 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::IoAnswer => 31,
                 EventPayloadType::FileHandles => 32,
                 EventPayloadType::ScrollChanged => 33,
-                EventPayloadType::CodeCaretRect => 34,
-                EventPayloadType::CodePositionRect => 35,
-                EventPayloadType::CodePointer => 36,
+                EventPayloadType::MotionFinished => 34,
+                EventPayloadType::CodeCaretRect => 35,
+                EventPayloadType::CodePositionRect => 36,
+                EventPayloadType::CodePointer => 37,
             }],
         );
         index += 1;
@@ -3593,6 +3597,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // block, so it takes the number after the last one in use: 169 to 184 are held by
     // properties other requirements have numbered.
     OnScrollChanged = 186,
+    // The width in dp, an f32, below which a split pane shows one pane at a time instead of
+    // its size class deciding. At or above it the split pane never stacks, and the design
+    // system still chooses between two columns and a side pane laid over the body. Absent
+    // or 0 keeps the size class's own line. The next place in the split pane's block after
+    // `Collapsible`.
+    CollapseBelow = 91,
     // Where a `ScrollRow` or `ScrollColumn` comes to rest, as a `Snap` tag. Absent or 0 is
     // free scrolling. 187 is held by a property on another branch.
     Snap = 188,
@@ -3601,6 +3611,16 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // Absent leaves the height to the design system. 187 is held by a property on another
     // branch.
     MaxHeightFraction = 189,
+    // OpenType features for a `Text` or a `TextField`, such as tabular figures. A blob of
+    // 8-byte records, at most 16: the four tag bytes, then the value as a little-endian
+    // u32. A tag that comes twice takes the later value. Absent, or empty, is no features.
+    // 187 to 191 are held by properties other requirements have numbered.
+    FontFeatureSettings = 192,
+    // The handler a node's size motion reports to once it settles, the handler id as an
+    // integer. Any node may take it, so it is numbered after the last one in use rather
+    // than inside a widget's block: 187 to 192 are held by properties other requirements
+    // have numbered.
+    OnMotionFinished = 193,
     // The handler a code editor tells where its caret is drawn. 190 to 194 are held by
     // properties on other branches.
     OnCaretRect = 195,
@@ -3950,6 +3970,18 @@ pub enum EventPayload<'a> {
         max_y_px: f64,
         viewport_width_px: f64,
         viewport_height_px: f64,
+    },
+    /// A node's size motion came to rest, reported to the node's `OnMotionFinished`
+    /// handler with the size it settled at, in dp.
+    ///
+    /// Sent once for each run that reaches its target: a run that is interrupted by a new
+    /// target sends nothing, and only the one that settles does. The first layout and a
+    /// layout that leaves the size as it was send nothing, and neither does a node removed
+    /// while its size is moving. Under reduced motion the size changes in one frame and
+    /// this arrives in that frame.
+    MotionFinished {
+        width_dp: f32,
+        height_dp: f32,
     },
     /// Where a code editor draws its caret, in the window's dp with the scroll and the zoom
     /// already in it. At most once a frame, when the caret or the view moves.
@@ -4363,7 +4395,14 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 55,
         payload: EventPayloadType::Double,
     },
-    // 61 to 63 are held by events on other branches. Where a code editor's caret is drawn,
+    // A node's size motion settled, reported to the node's own handler. 61 and 62 are
+    // numbered for events that are not here yet.
+    EventSchema {
+        name: "MotionFinished",
+        tag: 63,
+        payload: EventPayloadType::MotionFinished,
+    },
+    // Where a code editor's caret is drawn,
     // and the answer to a question about where a position is.
     EventSchema {
         name: "CaretRect",

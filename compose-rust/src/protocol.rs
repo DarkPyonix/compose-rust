@@ -503,8 +503,12 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
-// 61 to 63 are held by events on other branches. 64 is where a code editor's caret is
-// drawn and 65 the answer to a position query, both with a rectangle of four `f32`.
+// 61 and 62 are numbered for events that are not here yet.
+const EVENT_MOTION_FINISHED: u16 = 63;
+/// `MotionFinished` in full: the 16 byte header and two `f32` in dp.
+const MOTION_FINISHED_LEN: usize = 24;
+// 64 is where a code editor's caret is drawn and 65 the answer to a position query, both
+// with a rectangle of four `f32`.
 const EVENT_CARET_RECT: u16 = 64;
 const EVENT_POSITION_RECT: u16 = 65;
 /// `CaretRect` and `PositionRect` in full: the 16 byte header, two words and four `f32`.
@@ -969,6 +973,13 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_MOTION_FINISHED if record_len == MOTION_FINISHED_LEN => {
+            crate::schema::EventPayload::MotionFinished {
+                width_dp: f32::from_bits(read_u32(bytes, 16)?),
+                height_dp: f32::from_bits(read_u32(bytes, 20)?),
+            }
+        }
+        EVENT_MOTION_FINISHED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_CARET_RECT if record_len == CODE_RECT_EVENT_LEN => {
             crate::schema::EventPayload::CaretRect {
                 line: read_u32(bytes, 16)?,
@@ -1628,6 +1639,21 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::MotionFinished {
+        width_dp,
+        height_dp,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_MOTION_FINISHED,
+            MOTION_FINISHED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
+        output.extend_from_slice(&height_dp.to_bits().to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::CaretRect { line, column, rect } = event.payload {
         put_event_header(output, EVENT_CARET_RECT, CODE_RECT_EVENT_LEN as u16, event);
         output.extend_from_slice(&line.to_le_bytes());
@@ -1735,6 +1761,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
         | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
         | crate::schema::EventPayload::CodePointer { .. } => unreachable!(),
