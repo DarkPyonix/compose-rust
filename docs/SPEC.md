@@ -1838,7 +1838,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 4. `Sheet`를 끌어 닫으면 `OnDismiss`가 한 번 가고, 끄는 동안에는 아무 이벤트도 가지 않습니다.
 5. `ShowMessage` 두 개가 한 배치에 오면 첫 번째만 보이고, 그 수명이 끝난 뒤에 두 번째가 보입니다.
 6. 메시지의 동작 라벨을 누르면 `node_id = 0`으로 `Clicked`가 갑니다.
-7. 32바이트 `ShowMessage` 레코드가 Rust와 Kotlin 양쪽에서 같은 바이트로 인코딩되고 디코딩됩니다(PR-4 벡터).
+7. 40바이트 `ShowMessage` 레코드(#577의 자리와 거리 칸을 포함, [leader, provisional] (darkpyonix leader, 2026-11-13))가 Rust와 Kotlin 양쪽에서 같은 바이트로 인코딩되고 디코딩됩니다(PR-4 벡터).
 8. 세 위젯이 여섯 디자인 시스템 전부에서 렌더링되고, 새 디자인 시스템은 `ComponentRules` 구현 하나로 끝납니다.
 
 #### 21.8 지금까지 확인된 것
