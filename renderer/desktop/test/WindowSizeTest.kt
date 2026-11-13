@@ -28,6 +28,7 @@ import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.runtime.WindowSafeArea
 import dev.darkpyonix.composerust.runtime.WindowCaption
@@ -409,6 +410,33 @@ class WindowSizeTest {
         height = 700.dp
         waitForIdle()
         assertEquals(before + 1, sizes().size)
+    }
+
+    @Test
+    fun fr20_window_size_is_the_window_not_the_content() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("one line")),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                // The window, and what every platform window draws inside it, with no modifier.
+                androidx.compose.foundation.layout.Box(Modifier.requiredSize(900.dp, 1000.dp)) {
+                    WindowContent(rememberComposeRustHost(connection))
+                }
+            }
+        }
+        waitForIdle()
+        val event = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().last()
+        assertEquals(900f, event.widthDp)
+        assertEquals(1000f, event.heightDp)
+        assertEquals(WindowSizeClass.Expanded, event.sizeClass)
+        assertEquals(WindowHeightClass.Expanded, event.heightClass)
     }
 
     @Test

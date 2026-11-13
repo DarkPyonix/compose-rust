@@ -6,7 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Chrome
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalServesFrames
 import dev.darkpyonix.composerust.runtime.LocalWindowActions
@@ -144,7 +144,7 @@ private fun windowContent(
     val nodeId = config.nodeId
     if (config.chrome == Chrome.System) {
         return {
-            ForWindow(nodeId) { ComposeRustContent(host) }
+            ForWindow(nodeId) { WindowContent(host) }
         }
     }
     val actions = WindowActions(
@@ -156,7 +156,7 @@ private fun windowContent(
     return {
         ForWindow(nodeId) {
             CompositionLocalProvider(LocalWindowActions provides actions) {
-                ComposeRustContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
+                WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
             }
         }
     }
