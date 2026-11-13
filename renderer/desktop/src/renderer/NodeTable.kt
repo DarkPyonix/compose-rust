@@ -1457,6 +1457,10 @@ class NodeTable {
                 // application chose. Only a navigation has destinations to place.
                 PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
 
+                // Where a plain scroll container comes to rest. The lazy containers scroll
+                // by item through their own state and do not take it.
+                PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
+
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
                 PropertyKind.Progress -> widget == WidgetKind.LinearProgressIndicator

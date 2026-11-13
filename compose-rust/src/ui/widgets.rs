@@ -19,8 +19,8 @@ use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
-    HorizontalAlignment, IconRole, Paint, PopoverAlign, PopoverPlacement, SlotRole, SpaceRole,
-    TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+    HorizontalAlignment, IconRole, Paint, PopoverAlign, PopoverPlacement, SlotRole, Snap,
+    SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
@@ -758,6 +758,7 @@ macro_rules! scroll_container {
         pub struct $name {
             modifier: Modifier,
             scroll_state: Option<ScrollState>,
+            snap: Snap,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
             focus_and_keys: FocusAndKeyHandlers,
@@ -769,6 +770,7 @@ macro_rules! scroll_container {
             $name {
                 modifier: Modifier::new(),
                 scroll_state: None,
+                snap: Snap::None,
                 pointer: None,
                 on_click: None,
                 focus_and_keys: FocusAndKeyHandlers::default(),
@@ -784,8 +786,20 @@ macro_rules! scroll_container {
                 self
             }
 
+            /// Where the content comes to rest once a drag or a fling ends.
+            ///
+            /// `Snap::None`, the default, stops wherever the user left it.
+            /// `Snap::ItemStart` stops with the start edge of the nearest direct child on
+            /// the start of the visible area, like CSS `scroll-snap-align: start`. The
+            /// Renderer runs the snap, so it follows the platform's fling physics.
+            pub fn snap(mut self, snap: Snap) -> Self {
+                self.snap = snap;
+                self
+            }
+
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
+                let snap = self.snap;
                 let scroll_state = self.scroll_state.take();
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
@@ -799,6 +813,11 @@ macro_rules! scroll_container {
                     WidgetKind::$widget,
                     |attrs| {
                         push_modifiers(&modifier, Mods::Standard, attrs);
+                        // Free scrolling is the default, and the default is not sent: a
+                        // container that says nothing travels as it did before snapping.
+                        if snap != Snap::None {
+                            attrs.push(("snap", OwnedAttr::Int(i64::from(u16::from(snap)))));
+                        }
                         attrs.append(&mut subscription);
                     },
                     listeners,
