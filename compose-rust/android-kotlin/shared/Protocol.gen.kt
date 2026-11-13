@@ -32,7 +32,7 @@ enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Ima
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
-enum class TextAlign { Start, Center, End, Justify }
+enum class TextAlign { Start, Center, End, Justify, Left, Right }
 
 enum class TextOverflow { Clip, Ellipsis, Visible }
 
@@ -906,7 +906,7 @@ object CodeEditorRecords {
 
     private fun readViewZoneRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): ViewZoneRecord? {
         val afterLine = buffer.getInt(offset + 0)
-        val heightLines = buffer.getFloat(offset + 4)
+        val heightLines = kotlin.Float.fromBits(buffer.getInt(offset + 4))
         val text = textOf(bytes, buffer.getInt(offset + 8), buffer.getInt(offset + 12)) ?: run { onError("record $index names text outside the list"); return null }
         return ViewZoneRecord(afterLine, heightLines, text)
     }
@@ -1822,7 +1822,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8073607369522948473L
+    const val SCHEMA_HASH: Long = 3742296632135944513L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2521,7 +2521,7 @@ object Protocol {
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
-                is HostEvent.SelectionsChanged -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also { buffer -> for (value in event.selections) buffer.putInt(value) }.array()
+                is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -3481,6 +3481,8 @@ object Protocol {
         2 -> TextAlign.Center
         3 -> TextAlign.End
         4 -> TextAlign.Justify
+        5 -> TextAlign.Left
+        6 -> TextAlign.Right
         else -> throw ProtocolException("unknown TextAlign tag $tag", offset)
     }
 
