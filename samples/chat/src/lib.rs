@@ -6,8 +6,8 @@
 //! chunk is a write to a `MutableState`, and the Host asks for the frame.
 //!
 //! The conversations are a destination set rather than a list this code lays out, so the
-//! Renderer draws them as a bar along the bottom of a phone, a rail beside a tablet and the
-//! reference's sidebar on a desktop, from one declaration.
+//! Renderer draws them as the reference's sidebar behind a toggle on a phone, a rail beside
+//! a tablet and the sidebar itself on a desktop, from one declaration.
 //!
 //! The scrollback is a `LazyColumn` so a long conversation costs widgets in proportion to
 //! what is on screen. Each message carries an id that never changes and that id is its key,
@@ -63,58 +63,66 @@ fn title_from(text: &str) -> String {
 
 const RECENT_CONVERSATIONS: usize = 5;
 
-const DESTINATIONS_ABOVE_THE_CHATS: usize = 4;
+/// New chat, Search, Images, Videos, Library and New notebook.
+const DESTINATIONS_ABOVE_THE_CHATS: usize = 6;
 
 fn opening_messages() -> Vec<Message> {
     Vec::new()
 }
 
-const SPARK_ON_THE_EMPTY_SCREEN: f32 = 39.0;
-const SPARK_TO_GREETING: f32 = 6.0;
-const SPARK_IN_THE_STRIP: f32 = 22.0;
-const ROOM_INSIDE_THE_COMPOSER: f32 = 8.0;
-const THE_SEND_KEY: f32 = 36.0;
-const BESIDE_A_COMPOSER_KEY: f32 = 4.0;
-const THE_ACCOUNT_PICTURE: f32 = 20.0;
-const PAGE_INSET: f32 = 8.0;
-
-/// The mark, at a size.
-fn spark(size: f32) {
-    Image(compose_rust::asset::asset(
+/// The mark, drawn in an icon's place so the design system says how big it is.
+fn spark() {
+    Icon(compose_rust::asset::asset(
         compose_rust::schema::AssetKind::Svg,
         include_bytes!("../assets/spark.svg"),
-    ))
-    .modifier(Modifier.width(size).height(size));
+    ));
 }
 
-/// What an empty conversation shows.
+/// The account's picture, at an icon's size for the same reason.
+fn account_picture() {
+    Icon(compose_rust::asset::asset(
+        compose_rust::schema::AssetKind::Svg,
+        include_bytes!("../assets/avatar.svg"),
+    ));
+}
+
+/// What an empty conversation is called, centred over what it is.
+const EMPTY_TITLE: &str = "Local chat";
+const EMPTY_GUIDANCE: &str = "Nothing written here leaves this device. The assistant has no \
+     network: it works its reply out on a worker thread and types it out a few characters \
+     at a time, so you can keep scrolling and typing while it arrives.";
+
+/// What an empty conversation shows: the reference's title over a quieter paragraph, and
+/// no mark, because the reference has none there.
 fn opening_greeting() {
     Column()
         .modifier(Modifier.padding_role(SpaceRole::Lg))
-        .space_role(SpaceRole::Xs)
+        .space_role(SpaceRole::Sm)
         .alignment(Alignment::Center)
         .content(|| {
-            spark(SPARK_ON_THE_EMPTY_SCREEN);
-            Spacer().modifier(Modifier.height(SPARK_TO_GREETING));
-            Text("Hello.")
-                .type_role(TypeRole::Display)
+            Text(EMPTY_TITLE)
+                .type_role(TypeRole::Headline)
                 .text_align(TextAlign::Center);
-            Text("What are you thinking about?")
-                .type_role(TypeRole::Display)
+            Text(EMPTY_GUIDANCE)
+                .type_role(TypeRole::Body)
+                .color(Paint::Role(ColorRole::OnSurfaceVariant))
                 .text_align(TextAlign::Center);
         });
 }
 
 /// The widest the thread may be, per class.
+///
+/// A compact window keeps its whole width. Anything wider stops the thread where a single
+/// column stops being compact, because a line of text stops being readable long before a
+/// window stops being wide, and the page shows either side of it as in the reference.
 fn thread_width(window: &WindowSize) -> Option<f32> {
     match window.class {
         WindowSizeClass::Compact => None,
-        WindowSizeClass::Medium => Some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP),
-        WindowSizeClass::Expanded => Some(THREAD_COLUMN),
+        WindowSizeClass::Medium | WindowSizeClass::Expanded => {
+            Some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP)
+        }
     }
 }
-
-const THREAD_COLUMN: f32 = 787.0;
 
 /// The assistant's settings, in a sheet.
 #[Composable]
@@ -368,13 +376,10 @@ pub fn app() {
             .cloned()
             .collect()
     });
-    let show_search = window.is_expanded();
     let selected = recent
         .iter()
         .position(|entry| entry.id == current_id)
-        .map_or(0, |index| {
-            index + DESTINATIONS_ABOVE_THE_CHATS + usize::from(show_search)
-        });
+        .map_or(0, |index| index + DESTINATIONS_ABOVE_THE_CHATS);
     let current_settings = settings.get();
     let conversation_count = conversations.with(Vec::len);
 
@@ -427,13 +432,27 @@ pub fn app() {
             Navigation(selected)
                 .compact(CompactNavigation::Sidebar)
                 .head(|| {
-                    Row()
+                    Column()
                         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
                         .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
                         .content(|| {
-                            spark(SPARK_IN_THE_STRIP);
-                            Text("Chat").type_role(TypeRole::Subtitle);
+                            Row()
+                                .modifier(Modifier.fill_max_width())
+                                .space_role(SpaceRole::Sm)
+                                .alignment(Alignment::CenterStart)
+                                .content(|| {
+                                    spark();
+                                    Text("Chat").type_role(TypeRole::Subtitle);
+                                });
+                            // The reference's two modes under its name. The second is an
+                            // agent that works on the network, which this sample does not
+                            // have, so choosing it says so and the chat stays chosen.
+                            Tabs(0).modifier(Modifier.fill_max_width()).content(|| {
+                                Text("Chat").type_role(TypeRole::Label);
+                                Box().on_click(agent_unavailable).content(|| {
+                                    Text("Agent").type_role(TypeRole::Label);
+                                });
+                            });
                         });
                 })
                 .foot(|| {
@@ -442,20 +461,7 @@ pub fn app() {
                         .space_role(SpaceRole::Sm)
                         .alignment(Alignment::CenterStart)
                         .content(|| {
-                            Box()
-                                .modifier(
-                                    Modifier
-                                        .width(THE_ACCOUNT_PICTURE)
-                                        .height(THE_ACCOUNT_PICTURE)
-                                        .shape_role(ShapeRole::Full)
-                                        .background(Paint::Role(ColorRole::SecondaryContainer)),
-                                )
-                                .alignment(Alignment::Center)
-                                .content(|| {
-                                    Text("L")
-                                        .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ColorRole::OnSecondaryContainer));
-                                });
+                            account_picture();
                             Column().content(|| {
                                 Text("Signed in").type_role(TypeRole::Label);
                                 Text("Local")
@@ -469,15 +475,18 @@ pub fn app() {
                     NavigationItem("New chat")
                         .icon(IconRole::Compose)
                         .on_click(move || start());
-                    if show_search {
-                        let open = search_open;
-                        NavigationItem("Search")
-                            .icon(IconRole::Search)
-                            .on_click(move || open.set(true));
-                    }
+                    // A row like the others at every width: the sidebar is the same set of
+                    // rows whether it is pinned beside the page or brought out over it.
+                    let open = search_open;
+                    NavigationItem("Search")
+                        .icon(IconRole::Search)
+                        .on_click(move || open.set(true));
                     NavigationItem("Images").icon(IconRole::Image);
                     NavigationItem("Videos").icon(IconRole::Video);
                     NavigationItem("Library").icon(IconRole::Library);
+                    NavigationItem("New notebook")
+                        .icon(IconRole::Add)
+                        .section("Notebooks");
                     for conversation in recent.iter().cloned() {
                         let pick = current;
                         let id = conversation.id;
@@ -500,7 +509,7 @@ pub fn app() {
                                 .fill_max_width_if(measure.is_none())
                                 .width_if(measure)
                                 .fill_max_height()
-                                .padding(PAGE_INSET),
+                                .padding_role(SpaceRole::Sm),
                         )
                         .space_role(SpaceRole::Md)
                         .content(|| {
@@ -671,9 +680,9 @@ fn composer_row(
                 .fill_max_width()
                 .material(MaterialRole::Regular)
                 .shape_role(ShapeRole::Full)
-                .padding(ROOM_INSIDE_THE_COMPOSER),
+                .padding_role(SpaceRole::Sm),
         )
-        .spacing(BESIDE_A_COMPOSER_KEY)
+        .space_role(SpaceRole::Xs)
         .alignment(Alignment::CenterStart)
         .content(|| {
             let (dismiss, open) = (*more_open, *more_open);
@@ -738,19 +747,34 @@ fn composer_row(
                         });
                     }
                 });
+            // The reference's mic sits between the model and the send. Speech is not
+            // something this sample listens to, so pressing it says so rather than doing
+            // nothing.
+            Button("")
+                .icon(IconRole::Mic)
+                .variant(ButtonVariant::Text)
+                .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                .on_click(voice_unavailable);
+            // The variant's own fill and ink, which is the reference's tinted disc with
+            // the arrow in the accent. Its size is the design system's for a key that
+            // holds a glyph and no word.
             let (pressed, current) = (Rc::clone(send), *draft);
             Button("")
                 .icon(IconRole::Send)
                 .variant(ButtonVariant::Tonal)
-                .modifier(
-                    Modifier
-                        .shape_role(ShapeRole::Full)
-                        .width(THE_SEND_KEY)
-                        .height(THE_SEND_KEY),
-                )
-                .color(Paint::Role(ColorRole::OnSurface))
+                .modifier(Modifier.shape_role(ShapeRole::Full))
                 .on_click(move || pressed(current.get_untracked()));
         });
+}
+
+/// The reference's second mode, which needs a network.
+fn agent_unavailable() {
+    compose_rust::Message::new("The agent works over a network, and this sample has none.").show();
+}
+
+/// The reference's mic, which needs speech input.
+fn voice_unavailable() {
+    compose_rust::Message::new("Voice input is not part of this sample.").show();
 }
 
 /// Runs the sample as a program of its own.
@@ -1479,9 +1503,9 @@ mod tests {
         widths
     }
 
-    /// A wide window does not get a wide thread. The column stops at the reading measure
-    /// for its class and the page shows either side of it, and a narrow window keeps the
-    /// full width because there is nothing to give back.
+    /// A wide window does not get a wide thread. The column stops where a single column
+    /// stops being compact and the page shows either side of it, and a narrow window keeps
+    /// the full width because there is nothing to give back.
     #[test]
     fn fr20_the_thread_stops_growing_once_the_window_is_wide() {
         assert!(
@@ -1489,10 +1513,9 @@ mod tests {
             "a compact window should not size the thread"
         );
         assert!(widths_at(700.0).contains(&WindowSizeClass::MEDIUM_MIN_WIDTH_DP));
-        // Not the class's own boundary on a wide window. The column is the reference's,
-        // which is narrower than the width at which its class begins, because a line of
-        // text stops being readable long before a window stops being wide.
-        assert!(widths_at(1200.0).contains(&THREAD_COLUMN));
+        // Not the wide class's own boundary. A line of text stops being readable long
+        // before a window stops being wide, so the wide window keeps the same measure.
+        assert!(widths_at(1200.0).contains(&WindowSizeClass::MEDIUM_MIN_WIDTH_DP));
         assert!(
             !widths_at(1200.0).contains(&WindowSizeClass::EXPANDED_MIN_WIDTH_DP),
             "the thread grew to the width the class starts at, which is a window \
@@ -1610,67 +1633,36 @@ mod tests {
         );
     }
 
-    /// On a desktop the sidebar opens with search, and pressing it opens the filter.
+    /// Search is a row of the sidebar at every width, a compact window's included, and
+    /// pressing it opens the filter.
+    ///
+    /// It used to be declared on an Expanded window only, from when a compact window drew
+    /// the destinations as a bar with no room for it. A compact window now brings out the
+    /// same sidebar, so the same row belongs in it.
     #[test]
-    fn fr22_the_desktop_search_destination_opens_the_filter_sheet() {
+    fn fr22_3_11_the_search_destination_opens_the_filter_sheet_at_every_width() {
         compose_rust::window::reset_window_size();
-        let mut host = ComposeHost::new(app);
-        host.rebuild().expect("the first frame failed to encode");
-
-        let resize = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
-                width_dp: 1_000.0,
-                height_dp: 700.0,
-                class: WindowSizeClass::Expanded,
-                height_class: WindowHeightClass::Medium,
-                safe_area_top: 0.0,
-                safe_area_leading: 0.0,
-                safe_area_trailing: 0.0,
-            },
-        };
-        let mut event = Vec::new();
-        encode_event(&resize, &mut event).expect("the resize did not encode");
-        let (batch, _) = host.dispatch_event(&event).expect("the resize failed");
-        let mutations = decode_batch(batch).expect("the resize batch did not decode");
-        let search = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String("Search"),
-                } => Some(*node_id),
-                _ => None,
-            })
-            .expect("the expanded destination set has no search action");
-        let handler = mutations
-            .iter()
-            .find_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::OnClick,
-                    value: PropertyValue::Integer(handler),
-                } if *node_id == search => Some(*handler as u64),
-                _ => None,
-            })
-            .expect("the search action cannot be pressed");
-
-        encode_event(
-            &HostEvent {
-                node_id: search,
-                handler_id: handler,
-                payload: EventPayload::Clicked,
-            },
-            &mut event,
-        )
-        .expect("the search click did not encode");
-        let (batch, _) = host
-            .dispatch_event(&event)
-            .expect("the search click failed");
+        let mut screen = Screen::new();
         assert!(
-            decode_batch(batch)
+            screen.destinations().contains(&"Search".to_owned()),
+            "a compact window's sidebar has no search: {:?}",
+            screen.destinations()
+        );
+        let search = *screen
+            .destinations
+            .iter()
+            .find(|node| screen.texts.get(node).map(String::as_str) == Some("Search"))
+            .expect("the search destination has no node");
+        let handler = screen.handler_of(search, PropertyKind::OnClick);
+        screen.encode(search, handler, EventPayload::Clicked);
+        let batch = screen
+            .host
+            .dispatch_event(&screen.event)
+            .expect("the search click failed")
+            .0
+            .to_vec();
+        assert!(
+            decode_batch(&batch)
                 .expect("the search frame did not decode")
                 .iter()
                 .any(|mutation| matches!(
@@ -1693,8 +1685,11 @@ mod tests {
     /// And the bar floats: it is made of a material rather than being a panel, because it
     /// is chrome over the conversation at every width, and a card is the document in a
     /// desktop window.
+    ///
+    /// The reference's bar also holds a mic beside the send, and the send is a tinted disc
+    /// whose arrow is the accent: the variant's own ink, not one this screen names.
     #[test]
-    fn fr22_the_composer_is_one_rounded_bar_holding_the_send() {
+    fn fr22_3_5_the_composer_is_one_rounded_bar_holding_the_send() {
         let screen = Screen::new();
         let batch = decode_batch(&screen.first).expect("the first frame did not decode");
 
@@ -1711,21 +1706,57 @@ mod tests {
 
         // Found by its icon rather than by a label. The reference's send is a filled
         // circle with an arrow in it, and a word in a pill is a form's submit button.
-        let send = batch
-            .iter()
-            .find_map(|mutation| match mutation {
+        let button_with = |icon: IconRole| {
+            batch.iter().find_map(|mutation| match mutation {
                 Mutation::SetProp {
                     node_id,
                     property: PropertyKind::Icon,
                     value: PropertyValue::Integer(role),
-                } if *role == i64::from(IconRole::Send as u8) => Some(*node_id),
+                } if *role == i64::from(icon as u8) => Some(*node_id),
                 _ => None,
             })
-            .expect("the composer holds no send");
+        };
+        let send = button_with(IconRole::Send).expect("the composer holds no send");
         assert_eq!(
             parents[&send], bar,
             "the send button is outside the bar the field is in, so the composer is not \
              one control"
+        );
+        let mic = button_with(IconRole::Mic).expect("the composer holds no mic");
+        assert_eq!(parents[&mic], bar, "the mic is outside the composer's bar");
+
+        let named_ink = batch.iter().find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Color,
+                value: PropertyValue::Integer(bits),
+            } if *node_id == send => Paint::from_bits(*bits as u64),
+            _ => None,
+        });
+        assert_eq!(
+            named_ink, None,
+            "the send names its own ink, which covers the variant's accent arrow"
+        );
+        let send_sizes: Vec<&compose_rust::schema::Modifier> = batch
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetModifier {
+                    node_id, modifier, ..
+                } if *node_id == send => Some(modifier),
+                _ => None,
+            })
+            .filter(|modifier| {
+                matches!(
+                    modifier,
+                    compose_rust::schema::Modifier::Width(_)
+                        | compose_rust::schema::Modifier::Height(_)
+                        | compose_rust::schema::Modifier::Size { .. }
+                )
+            })
+            .collect();
+        assert!(
+            send_sizes.is_empty(),
+            "the send is sized in dp rather than by the design system: {send_sizes:?}"
         );
 
         let modifiers: Vec<&compose_rust::schema::Modifier> = batch
@@ -1750,6 +1781,155 @@ mod tests {
                 compose_rust::schema::Modifier::Material(MaterialRole::Regular)
             )),
             "the composer is not made of a material, so it cannot float as chrome: {modifiers:?}"
+        );
+        assert!(
+            modifiers
+                .iter()
+                .any(|modifier| matches!(modifier, compose_rust::schema::Modifier::PaddingRole(_))),
+            "the room inside the composer is not a spacing role: {modifiers:?}"
+        );
+    }
+
+    /// Every size this screen gives is a role, at every width. The one dp number on the
+    /// wire is the thread's measure, which is the size class's own boundary rather than a
+    /// number of the sample's.
+    #[test]
+    fn fr22_2_the_chat_gives_no_size_in_dp() {
+        use compose_rust::schema::Modifier as Wire;
+        for width_dp in [420.0, 700.0, 1200.0] {
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::new(app);
+            let first = host
+                .rebuild()
+                .expect("the first frame failed to encode")
+                .to_vec();
+            let event = HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: EventPayload::WindowSizeChanged {
+                    width_dp,
+                    height_dp: 900.0,
+                    class: WindowSizeClass::from_width_dp(width_dp),
+                    height_class: WindowHeightClass::from_height_dp(900.0),
+                    safe_area_top: 0.0,
+                    safe_area_leading: 0.0,
+                    safe_area_trailing: 0.0,
+                },
+            };
+            let mut bytes = Vec::new();
+            encode_event(&event, &mut bytes).expect("the resize did not encode");
+            let resized = host
+                .dispatch_event(&bytes)
+                .expect("the resize failed")
+                .0
+                .to_vec();
+            for batch in [&first, &resized] {
+                for mutation in decode_batch(batch).expect("a frame did not decode") {
+                    let offending = match &mutation {
+                        Mutation::SetModifier {
+                            modifier: Wire::Width(width),
+                            ..
+                        } => *width != WindowSizeClass::MEDIUM_MIN_WIDTH_DP,
+                        Mutation::SetModifier {
+                            modifier:
+                                Wire::Height(_)
+                                | Wire::Size { .. }
+                                | Wire::RequiredSize { .. }
+                                | Wire::Padding(_)
+                                | Wire::PaddingEach { .. },
+                            ..
+                        } => true,
+                        Mutation::SetProp {
+                            property: PropertyKind::Spacing,
+                            value: PropertyValue::Float(gap),
+                            ..
+                        } => *gap != 0.0,
+                        _ => false,
+                    };
+                    assert!(
+                        !offending,
+                        "at {width_dp} dp the chat sent a size in dp rather than a role: \
+                         {mutation:?}"
+                    );
+                }
+            }
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The reference's sidebar, top to bottom: the mark and the name, a two way tab
+    /// control under them, the places, and a notebooks section with a row that starts one,
+    /// above the conversations.
+    #[test]
+    fn fr22_3_4_the_sidebar_holds_the_references_tabs_and_notebooks() {
+        let mut screen = Screen::new();
+        screen.open_window();
+        let first = decode_batch(&screen.first).expect("the first frame did not decode");
+
+        let tabs = screen.nodes_of(WidgetKind::Tabs);
+        assert_eq!(
+            tabs.len(),
+            1,
+            "the sidebar has no tab control under its name"
+        );
+        let mut parents = HashMap::new();
+        for mutation in &first {
+            if let Mutation::Insert {
+                parent_id, node_id, ..
+            } = mutation
+            {
+                parents.insert(*node_id, *parent_id);
+            }
+        }
+        let under_tabs = |node: u32| {
+            let mut at = node;
+            while let Some(parent) = parents.get(&at) {
+                if *parent == tabs[0] {
+                    return true;
+                }
+                at = *parent;
+            }
+            false
+        };
+        let mut labels: Vec<String> = screen
+            .texts
+            .iter()
+            .filter(|(node, _)| under_tabs(**node))
+            .map(|(_, text)| text.clone())
+            .collect();
+        labels.sort();
+        assert_eq!(
+            labels,
+            vec!["Agent".to_owned(), "Chat".to_owned()],
+            "the tab control is not the reference's two modes"
+        );
+        let navigation = screen.nodes_of(WidgetKind::Navigation)[0];
+        let mut at = tabs[0];
+        while let Some(parent) = parents.get(&at) {
+            at = *parent;
+            if at == navigation {
+                break;
+            }
+        }
+        assert_eq!(at, navigation, "the tab control is not in the sidebar");
+
+        assert_eq!(
+            screen.destinations(),
+            vec![
+                "New chat".to_owned(),
+                "Search".to_owned(),
+                "Images".to_owned(),
+                "Videos".to_owned(),
+                "Library".to_owned(),
+                "New notebook".to_owned(),
+            ],
+            "the sidebar's rows are not the reference's, in its order"
+        );
+        let notebook = screen.destinations[DESTINATIONS_ABOVE_THE_CHATS - 1];
+        assert_eq!(
+            screen.sections.get(&notebook).map(String::as_str),
+            Some("Notebooks"),
+            "the row that starts a notebook is not under a notebooks section"
         );
     }
 
@@ -1800,21 +1980,82 @@ mod tests {
     /// Nothing has been said yet, so the middle of the screen says what the screen is.
     /// It is not a message: an introduction under the assistant's name is something the
     /// assistant never said, sitting in the transcript for good.
+    ///
+    /// The reference's shape: one centred title over a centred paragraph in the quieter
+    /// ink, and no mark above them. It used to be the mark over two lines in the display
+    /// face, which is a greeting the reference does not have.
     #[test]
-    fn fr22_an_empty_conversation_says_what_it_is_in_the_middle() {
+    fn fr22_3_4_an_empty_conversation_is_a_title_over_guidance_in_the_middle() {
         let mut screen = Screen::new();
         screen.open_window();
-        // Two lines, and a question rather than an instruction. The reference greets you
-        // and asks what you are thinking about; it does not tell you which key sends.
-        let greeting = "What are you thinking about?";
-        assert!(
-            screen.texts.values().any(|text| text == "Hello."),
-            "an empty conversation does not greet"
+        let bytes = screen.first.clone();
+        let first = decode_batch(&bytes).expect("the first frame did not decode");
+        let node_saying = |words: &str| {
+            *screen
+                .texts
+                .iter()
+                .find(|(_, text)| *text == words)
+                .map(|(node_id, _)| node_id)
+                .unwrap_or_else(|| panic!("the empty conversation does not say {words:?}"))
+        };
+        let property = |node: u32, kind: PropertyKind| {
+            first.iter().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: found,
+                    value: PropertyValue::Integer(value),
+                } if *node_id == node && *found == kind => Some(*value),
+                _ => None,
+            })
+        };
+        let title = node_saying(EMPTY_TITLE);
+        let guidance = node_saying(EMPTY_GUIDANCE);
+
+        assert_eq!(
+            property(title, PropertyKind::TypeRole),
+            Some(i64::from(u16::from(TypeRole::Headline))),
+            "the title is not a heading"
         );
-        assert!(
-            screen.texts.values().any(|text| text == greeting),
-            "an empty conversation does not say what the screen is"
+        assert_eq!(
+            property(guidance, PropertyKind::TypeRole),
+            Some(i64::from(u16::from(TypeRole::Body))),
+            "the guidance is not body text"
         );
+        assert_eq!(
+            property(guidance, PropertyKind::Color).and_then(|bits| Paint::from_bits(bits as u64)),
+            Some(Paint::Role(ColorRole::OnSurfaceVariant)),
+            "the guidance is not in the quieter ink the reference's paragraph is"
+        );
+        for node in [title, guidance] {
+            assert_eq!(
+                property(node, PropertyKind::TextAlign),
+                Some(i64::from(u16::from(TextAlign::Center))),
+                "{:?} is not centred",
+                screen.texts[&node]
+            );
+        }
+        // The thread's own column holds them, centred in the space above the composer.
+        let parent_of = |node: u32| {
+            first.iter().find_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *node_id == node => Some(*parent_id),
+                _ => None,
+            })
+        };
+        let column = parent_of(title).expect("the title hangs from nothing");
+        assert_eq!(
+            parent_of(guidance),
+            Some(column),
+            "the title and the guidance are apart"
+        );
+        let holder = parent_of(column).expect("the guidance's column hangs from nothing");
+        assert_eq!(
+            property(holder, PropertyKind::Alignment),
+            Some(i64::from(u16::from(Alignment::Center))),
+            "the empty state is not in the middle of the thread"
+        );
+
         assert!(
             screen
                 .texts
@@ -1829,15 +2070,13 @@ mod tests {
                 .all(|text| !text.starts_with("You said:")),
             "an empty conversation already holds a reply"
         );
+        assert!(
+            screen.nodes_of(WidgetKind::Image).is_empty(),
+            "the empty conversation draws a picture, and the reference's has none"
+        );
 
         // And it leaves as soon as there is something to read, which is what lets it say
         // the thing that is only true before then.
-        let node = *screen
-            .texts
-            .iter()
-            .find(|(_, text)| *text == greeting)
-            .map(|(node_id, _)| node_id)
-            .expect("the greeting has no node");
         let (composer, handler) = (screen.composer, screen.submit_handler);
         screen.encode(composer, handler, EventPayload::TextSubmitted("hello"));
         let batch = screen
@@ -1846,20 +2085,11 @@ mod tests {
             .expect("the send failed")
             .0
             .to_vec();
-        // A removal takes the subtree with it, so what has to be gone is the greeting or
+        // A removal takes the subtree with it, so what has to be gone is the title or
         // something it hangs from.
-        let mut parents = HashMap::new();
-        for mutation in decode_batch(&screen.first).expect("the first frame did not decode") {
-            if let Mutation::Insert {
-                parent_id, node_id, ..
-            } = mutation
-            {
-                parents.insert(node_id, parent_id);
-            }
-        }
-        let mut chain = vec![node];
-        while let Some(parent) = parents.get(chain.last().expect("the chain is never empty")) {
-            chain.push(*parent);
+        let mut chain = vec![title];
+        while let Some(parent) = parent_of(*chain.last().expect("the chain is never empty")) {
+            chain.push(parent);
         }
         let removed = decode_batch(&batch)
             .expect("the send did not decode")
@@ -1869,7 +2099,7 @@ mod tests {
             });
         assert!(
             removed,
-            "the greeting stayed on screen once the conversation had started"
+            "the empty state stayed on screen once the conversation had started"
         );
     }
 
