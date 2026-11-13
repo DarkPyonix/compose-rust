@@ -49,8 +49,10 @@ import platform.darwin.NSObject
 //
 // Each window is its own MacosWindow with its own Compose scene. NSApplication.run() owns the
 // loop; this file adds the two things the loop does not do for a window: it turns the main
-// run loop into the scene's turns (events a window heard are read in a turn) and it follows the
-// pointer while a torn-off window is being dragged.
+// run loop into the scene's turns (the scene's held coroutine work and its animations run, and
+// a frame is drawn for them, only in a turn or a draw) and it follows the pointer while a
+// torn-off window is being dragged. The events a window hears no longer wait for a turn: the
+// window hands them to its scene from its event handlers.
 
 private const val DEFAULT_TITLE = "compose-rust"
 private const val DEFAULT_WIDTH = 520
@@ -177,6 +179,7 @@ class MacosWindowBackend(
         config.zoomLevel?.let { slot.zoom.setLevel(it) }
         val content = scene?.invoke(config, created, frames, slot)
         if (content != null) {
+            created.leaveRightClickMenuToCompose()
             @Suppress("DEPRECATION")
             created.setContent(content)
             created.listenForReader()
@@ -240,9 +243,12 @@ class MacosWindowBackend(
         for (window in live.toList()) window.requestFrame()
     }
 
-    // The fork's window reads what it heard in a turn of its scene. NSApplication.run() never
-    // takes one, so a timer on the main run loop (in the common modes, so it also runs while a
-    // window is being resized or dragged) takes one for every window.
+    // The window hands its scene what it heard as it hears it, but the scene's own work (the
+    // coroutines its dispatcher holds, an animation's next frame, a state change nothing drew)
+    // runs only in a turn or a draw, and nothing asks for a draw when that work is waiting.
+    // NSApplication.run() never takes a turn, so a timer on the main run loop (in the common
+    // modes, so it also runs while a window is being resized or dragged) takes one for every
+    // window.
     private fun startTurns() {
         if (turns != null) return
         val timer = NSTimer.timerWithTimeInterval(interval = TURN_SECONDS, repeats = true) { _: NSTimer? ->
@@ -289,6 +295,9 @@ internal class MacosPlatformWindow(
 
     /** The AppKit window, for a test that acts on it as a user would. */
     val nativeWindow: NSWindow get() = native
+
+    /** The window module's window, for a test that asks what it was set up to do. */
+    val macosWindow: MacosWindow get() = window
 
     /** How many pixels the window's scene draws for one screen point. */
     val backingScale: Float get() = if (closed) 1f else native.backingScaleFactor.toFloat()
@@ -621,4 +630,15 @@ internal fun beginMacosWindowDrag(window: NSWindow) {
         pressure = 1.0f,
     ) ?: return
     window.performWindowDragWithEvent(event)
+}
+
+/**
+ * Leaves the right-click menu to Compose. The text field's menu is already an `NSMenu` here,
+ * the system's own, and an application that sets `LocalTextContextMenu` or
+ * `LocalContextMenuRepresentation` shows its menu instead. A second menu from the window
+ * would come up beside either of them, so the window puts up none. Called before
+ * `setContent`, which is where the window hands the choice to its platform.
+ */
+internal fun MacosWindow.leaveRightClickMenuToCompose() {
+    editMenuOnRightClick = false
 }

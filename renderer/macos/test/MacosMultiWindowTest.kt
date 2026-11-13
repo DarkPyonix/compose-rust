@@ -47,6 +47,14 @@ import dev.darkpyonix.composerust.ui.platform.primaryButtonDown
 import dev.darkpyonix.composerust.ui.platform.toScreenBounds
 import dev.darkpyonix.composerust.ui.platform.wholePoints
 import org.thisisthepy.compose.window.WindowApplication
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import dev.darkpyonix.composerust.ui.platform.iconPixels
+import kotlinx.cinterop.toKString
+import kotlinx.cinterop.useContents
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorType
+import org.jetbrains.skia.ImageInfo
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.macos.MacosWindow
 import platform.AppKit.NSApplication
@@ -60,6 +68,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // Multi-window tests on the Kotlin/Native macOS renderer: the Host's `Window` nodes as NSWindows, through the
@@ -111,7 +120,12 @@ private fun config(
     y: Float? = null,
     width: Float = 320f,
     height: Float = 200f,
-) = PlatformWindowConfig(nodeId = nodeId, title = title, width = width, height = height, x = x, y = y)
+    minWidth: Float = 0f,
+    minHeight: Float = 0f,
+) = PlatformWindowConfig(
+    nodeId = nodeId, title = title, width = width, height = height, x = x, y = y,
+    minWidth = minWidth, minHeight = minHeight,
+)
 
 private fun PlatformWindow.native() = (this as MacosPlatformWindow).nativeWindow
 
@@ -574,6 +588,62 @@ class MacosMultiWindowTest {
     }
 
     @Test
+    fun fr33_macos_right_click_puts_up_one_menu_and_it_is_compose_s() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend(scene = { _, _, _, _ -> {} })
+        val window = assertNotNull(backend.open(config(1), Recorder())) as MacosPlatformWindow
+        try {
+            // The text field's NSMenu comes from Compose; the window adding its own would be two.
+            assertFalse(window.macosWindow.editMenuOnRightClick)
+            assertNull(window.macosWindow.onContextMenu, "the window puts up no menu of its own on a right click")
+        } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr19_macos_window_minimum_size_reaches_content_min_size() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend(scene = { _, _, _, _ -> {} })
+        val window = assertNotNull(backend.open(config(1, minWidth = 240f, minHeight = 150f), Recorder()))
+        try {
+            window.native().contentMinSize.useContents {
+                assertEquals(240.0, width)
+                assertEquals(150.0, height)
+            }
+            window.setMinimumSize(300f, 180f)
+            window.native().contentMinSize.useContents {
+                assertEquals(300.0, width)
+                assertEquals(180.0, height)
+            }
+        } finally {
+            window.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr19_macos_dock_icon_pixels_are_premultiplied_rgba() {
+        val bitmap = Bitmap()
+        val info = ImageInfo(2, 1, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
+        bitmap.allocPixels(info)
+        // An opaque blue pixel, then red at half opacity.
+        val source = byteArrayOf(0, 0, 255.toByte(), 255.toByte(), 255.toByte(), 0, 0, 128.toByte())
+        assertTrue(bitmap.installPixels(info, source, info.minRowBytes))
+        val pixels = assertNotNull(iconPixels(bitmap.asComposeImageBitmap()))
+        assertEquals(2, pixels.width)
+        assertEquals(1, pixels.height)
+        assertEquals(8, pixels.rgba.size, "four bytes a pixel, rows unpadded")
+        val bytes = pixels.rgba.map { it.toInt() and 0xff }
+        assertEquals(listOf(0, 0, 255, 255), bytes.subList(0, 4))
+        assertTrue(bytes[4] in 127..129, "red is multiplied by the alpha, was ${bytes[4]}")
+        assertEquals(0, bytes[5])
+        assertEquals(0, bytes[6])
+        assertEquals(128, bytes[7])
+    }
+
+    @Test
     fun fr53_macos_window_requested_matches_restore_key() {
         NSApplication.sharedApplication()
         val h = Harness(listOf(setWindow(LastWindowClosed.KeepRunning)) + windowNode(1))
@@ -654,14 +724,17 @@ class MacosMultiWindowTest {
         val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom("2"))
         assertEquals(listOf(false, true, false), List(3) { starts.next().parityRun })
 
-        // The setting is read once and taken out of the environment, so the window library
-        // finds nothing to start a soak of its own with in any window.
+        // The setting is read once: every window asks the same reading, and a later change
+        // to the environment does not start or stretch a second soak. The variable stays
+        // set; the window library's own soak reads a different one.
         IdleSoakSetting.resetForTest()
         platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "30", 1)
         assertEquals(30, IdleSoakSetting.seconds())
-        assertEquals(null, platform.posix.getenv("DXC_IDLE_SOAK_SECONDS"))
+        assertEquals("30", platform.posix.getenv("DXC_IDLE_SOAK_SECONDS")?.toKString())
+        platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "5", 1)
         assertEquals(30, IdleSoakSetting.seconds())
         assertTrue(IdleSoakSetting.requested())
+        platform.posix.unsetenv("DXC_IDLE_SOAK_SECONDS")
         IdleSoakSetting.resetForTest()
         assertEquals(null, IdleSoakSetting.seconds())
         assertEquals(null, IdleSoakSetting.parse("0"))

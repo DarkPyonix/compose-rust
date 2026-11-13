@@ -226,7 +226,7 @@ class MacosAccessibilityTest {
             }
             assertTrue(
                 connection.events.filterIsInstance<HostEvent.Clicked>().any { it.nodeId == 2 && it.handlerId == 10L },
-                "Pointer click in single-window mode must be drained by pumpHost and reach Host, events: ${connection.events}",
+                "Pointer click in single-window mode must reach the Host, events: ${connection.events}",
             )
             spinLoopUntil {
                 accessibilitySnapshot().nodes.any { it.role == MacosAx.STATIC_TEXT && it.label == "화면: 메뉴" }
@@ -236,6 +236,68 @@ class MacosAccessibilityTest {
             )
         } finally {
             turns.invalidate()
+            window.host?.close()
+            window.window.close()
+            spinLoop()
+        }
+    }
+
+    /**
+     * The window hands its scene the input it hears from its own event handlers, so a click
+     * reaches the Host with no timer taking turns of the scene: only AppKit's run loop runs
+     * here, as under `NSApplication.run()`.
+     */
+    @Test
+    fun fr53_macos_click_reaches_host_without_a_turn_timer() {
+        NSApplication.sharedApplication()
+        val initial = listOf(
+            Mutation.Create(1, WidgetKind.Column),
+            Mutation.Insert(0, 1, APPEND_CHILD),
+            Mutation.Create(2, WidgetKind.Button),
+            Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("press")),
+            Mutation.SetProp(2, PropertyKind.OnClick, PropertyValue.Integer(40L)),
+            Mutation.Insert(1, 2, APPEND_CHILD),
+        )
+        val connection = AccessibilityScriptedHost(initial)
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+        val window = MacosWindow(name = "click without turns", width = 420, height = 300)
+        @Suppress("DEPRECATION")
+        window.setContent {
+            ComposeRustContent(host)
+        }
+        var drawn = false
+        window.onFrameDrawn = { _, _ -> drawn = true }
+        window.requestFrame()
+        try {
+            spinLoopUntil { drawn }
+            assertTrue(drawn, "the window draws its first frame from AppKit's run loop alone")
+            // The button is the column's first child, so it starts at the content's top left.
+            val scale = window.window.backingScaleFactor.toFloat()
+            val x = 16f * scale
+            val y = 16f * scale
+            for ((kind, buttons) in listOf(WindowEvent.POINTER_DOWN to 1, WindowEvent.POINTER_UP to 0)) {
+                window.onEvent?.invoke(
+                    WindowEvent(
+                        kind = kind,
+                        x = x,
+                        y = y,
+                        buttons = buttons,
+                        modifiers = 0,
+                        keyCode = 0,
+                        codePoint = 0,
+                        text = "",
+                    ),
+                )
+            }
+            spinLoopUntil {
+                connection.events.filterIsInstance<HostEvent.Clicked>().any { it.handlerId == 40L }
+            }
+            assertTrue(
+                connection.events.filterIsInstance<HostEvent.Clicked>().any { it.nodeId == 2 && it.handlerId == 40L },
+                "a click reaches the Host with no timer turning the scene, events: ${connection.events}",
+            )
+        } finally {
             window.host?.close()
             window.window.close()
             spinLoop()

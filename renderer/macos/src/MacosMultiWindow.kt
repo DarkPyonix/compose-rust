@@ -16,8 +16,6 @@ import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.composeZoomShortcut
 import dev.darkpyonix.composerust.runtime.zoomedDensity
-import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -34,8 +32,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.SystemDarkMonitor
-import org.thisisthepy.compose.window.macos.MacosClipboard
-import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
@@ -69,11 +65,9 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
         onChange = { dark.value = it },
     )
     observeSystemAppearance(appearance::refresh)
-    val clipboard = MacosClipboard()
-    val clipboardManager = MacosClipboardManager()
     val dockIcon = DockIcon(
         lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
-        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+        apply = { picture -> applyDockIcon(picture) },
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
@@ -86,7 +80,7 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     val scene: MacosSceneContent = { config, window, frames, slot ->
         val body: @Composable () -> Unit = {
             MacosWindowScene(
-                host, slot, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
+                host, slot, window, frames, dark, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
             )
         }
         body
@@ -262,8 +256,6 @@ private fun MacosWindowScene(
     window: MacosWindow,
     frames: MacosSceneFrames,
     dark: MutableState<Boolean>,
-    clipboard: MacosClipboard,
-    clipboardManager: MacosClipboardManager,
     cursorBlink: Boolean,
     dockIcon: DockIcon<*>,
     iconAsset: Int,
@@ -278,8 +270,6 @@ private fun MacosWindowScene(
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
             beginMacosWindowDrag(window.window)
         },
-        LocalClipboard provides clipboard,
-        LocalClipboardManager provides clipboardManager,
     ) {
         // The window's frame clock, awake only while something waits on it: an idle window asks
         // for no frames.
