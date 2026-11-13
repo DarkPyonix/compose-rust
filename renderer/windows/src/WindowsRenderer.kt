@@ -35,6 +35,10 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
     // application start when it passed.
     if (runFr53WindowsChecksIfAsked() == false) return RendererApi.RUN_FAILED
+    // Asked for by the build that proves the window draws in device pixels at every display
+    // scale (`HiDpiCheck.kt`). It is the whole run: its window is the check's, not the
+    // application's, so the application does not start after it.
+    runFr82WindowsChecksIfAsked()?.let { passed -> return if (passed) RendererApi.RUN_OK else RendererApi.RUN_FAILED }
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.
