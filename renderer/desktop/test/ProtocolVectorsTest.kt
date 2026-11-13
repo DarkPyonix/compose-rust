@@ -412,7 +412,7 @@ class ProtocolVectorsTest {
 
     /**
      * The platform view commands and events, read from and encoded to the bytes the Host
-     * wrote: a node, a reserved word, a `u64` handle and a reserved word; a node, a focus word
+     * wrote: a node, two reserved words and a `u64` handle at offset 16; a node, a focus word
      * and a reserved word; a `u64` handle, a kind, a reserved half word and a scale; and a
      * focus word and its padding.
      */
@@ -471,7 +471,7 @@ class ProtocolVectorsTest {
         val focus = recordAt(38)
         assertEquals(24, view.getShort(attach + 2).toInt())
         assertEquals(16, view.getShort(focus + 2).toInt())
-        for ((offset, value) in listOf(attach + 8 to 1, attach + 20 to 1, focus + 8 to 2, focus + 12 to 1)) {
+        for ((offset, value) in listOf(attach + 8 to 1, attach + 12 to 1, focus + 8 to 2, focus + 12 to 1)) {
             val bad = batch.copyOf()
             ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN).putInt(offset, value)
             val failure = runCatching {

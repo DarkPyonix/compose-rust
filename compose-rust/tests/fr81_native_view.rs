@@ -170,17 +170,17 @@ fn fr81_native_view_record_layout_is_fixed() {
     batch.attach_native_view(5, NativeHandle(0x0102_0304_0506_0708));
     batch.focus_native_view(5, false);
     let written = batch.finish().expect("the batch encodes").to_vec();
-    // After the 12 byte envelope: tag 37, length 24, the node, a reserved word, the handle
-    // and a reserved word; then tag 38, length 16, the node, the focus word and a reserved
-    // word.
+    // After the 12 byte envelope: tag 37, length 24, the node, two reserved words and the
+    // handle at record offset 16; then tag 38, length 16, the node, the focus word and a
+    // reserved word.
     let records = &written[12..12 + 40];
     let mut expected = Vec::new();
     expected.extend_from_slice(&37_u16.to_le_bytes());
     expected.extend_from_slice(&24_u16.to_le_bytes());
     expected.extend_from_slice(&5_u32.to_le_bytes());
     expected.extend_from_slice(&0_u32.to_le_bytes());
-    expected.extend_from_slice(&0x0102_0304_0506_0708_u64.to_le_bytes());
     expected.extend_from_slice(&0_u32.to_le_bytes());
+    expected.extend_from_slice(&0x0102_0304_0506_0708_u64.to_le_bytes());
     expected.extend_from_slice(&38_u16.to_le_bytes());
     expected.extend_from_slice(&16_u16.to_le_bytes());
     expected.extend_from_slice(&5_u32.to_le_bytes());
@@ -452,8 +452,8 @@ fn fr81_native_view_records_refuse_what_they_cannot_read() {
     let attach_at = 12;
     let focus_at = 12 + 24;
     for (offset, what) in [
-        (attach_at + 8, "the reserved word after the node"),
-        (attach_at + 20, "the trailing reserved word"),
+        (attach_at + 8, "the first reserved word after the node"),
+        (attach_at + 12, "the second reserved word, before the handle"),
         (focus_at + 12, "the focus record's reserved word"),
     ] {
         let mut bad = written.clone();

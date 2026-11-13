@@ -82,8 +82,8 @@ const SCROLL_INTO_VIEW_LEN: usize = 52;
 // answered; focus moving is reported in `NativeViewFocus`.
 const TAG_ATTACH_NATIVE_VIEW: u16 = 37;
 const TAG_FOCUS_NATIVE_VIEW: u16 = 38;
-/// `AttachNativeView` in full: the 4 byte head, the node, a reserved word, the handle as a
-/// `u64`, and a trailing reserved word.
+/// `AttachNativeView` in full: the 4 byte head, the node, two reserved words, and the handle
+/// as a `u64` on an eight byte boundary.
 const ATTACH_NATIVE_VIEW_LEN: usize = 24;
 /// `FocusNativeView` in full: the 4 byte head, the node, the focus word, and a trailing
 /// reserved word.
@@ -2059,8 +2059,8 @@ impl BatchEncoder {
                 self.begin_record(TAG_ATTACH_NATIVE_VIEW, (ATTACH_NATIVE_VIEW_LEN - 4) as u16);
                 self.put_u32(*node_id);
                 self.put_u32(0);
-                self.put_u64(handle.0);
                 self.put_u32(0);
+                self.put_u64(handle.0);
             }
             Mutation::FocusNativeView { node_id, focus } => {
                 self.begin_record(TAG_FOCUS_NATIVE_VIEW, (FOCUS_NATIVE_VIEW_LEN - 4) as u16);
@@ -2612,10 +2612,10 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             },
             TAG_ATTACH_NATIVE_VIEW if len == ATTACH_NATIVE_VIEW_LEN => {
                 require_zero_word(bytes, payload + 4)?;
-                require_zero_word(bytes, payload + 16)?;
+                require_zero_word(bytes, payload + 8)?;
                 Mutation::AttachNativeView {
                     node_id: read_u32(bytes, payload)?,
-                    handle: crate::schema::NativeHandle(read_u64(bytes, payload + 8)?),
+                    handle: crate::schema::NativeHandle(read_u64(bytes, payload + 12)?),
                 }
             }
             TAG_FOCUS_NATIVE_VIEW if len == FOCUS_NATIVE_VIEW_LEN => {

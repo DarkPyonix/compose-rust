@@ -1113,16 +1113,17 @@ object Protocol {
                     }
                     TAG_ATTACH_NATIVE_VIEW -> {
                         requireRecordLength(length, 24, offset)
-                        // A word between the node and the handle and one after it, both
-                        // reserved: a record that sets either is one the sides disagree on.
-                        for (reserved in intArrayOf(offset + 8, offset + 20)) {
+                        // Two reserved words between the node and the handle, which keep the
+                        // handle on an eight byte boundary. A record that sets either is one
+                        // the sides disagree on.
+                        for (reserved in intArrayOf(offset + 8, offset + 12)) {
                             if (readU32(batch, base, available, reserved) != 0L) {
                                 throw ProtocolException("reserved word is not zero", reserved)
                             }
                         }
                         Mutation.AttachNativeView(
                             nodeId = readU32(batch, base, available, offset + 4).toInt(),
-                            handle = readU64(batch, base, available, offset + 12),
+                            handle = readU64(batch, base, available, offset + 16),
                         )
                     }
                     TAG_FOCUS_NATIVE_VIEW -> {
