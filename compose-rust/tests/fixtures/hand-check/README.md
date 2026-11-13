@@ -33,3 +33,13 @@ On Linux the X11 window is the default; nothing needs to be set.
 | Focus | Click each field, press Tab | Only one field has the caret, and typing goes to it |
 | Click | Press the button | The counter counts and `event: click N` prints |
 | Scrolling | Scroll the list with the wheel and the scrollbar | 60 rows move smoothly |
+
+## The marker scene
+
+With `DXC_RESIZE_MARKER=1` the window shows a scene made for the Windows resize probe
+(`.github/scripts/resize-probe.c`) instead of the controls above: a light field with a 2 dp
+green column down its left and right edges, a 2 dp green row along its bottom edge, and a
+dark 2 dp ruler line every 24 dp between the two columns. The probe reads it from a screen
+capture. A marker that does not touch the window's border shows an area the application did
+not draw, and a marker of the wrong width or a ruler line off its grid shows a stretched
+picture. `run-probe-v2.ps1` sets the variable for every drag.
