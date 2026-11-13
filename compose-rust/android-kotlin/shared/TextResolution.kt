@@ -766,7 +766,12 @@ internal const val MAX_FONT_FEATURES = 16
 
 /**
  * A `FontFeatureSettings` blob as Compose's `fontFeatureSettings` string, such as
- * `"tnum" 1, "liga" 0`, or null where the list is empty or cannot be read.
+ * `tnum 1, liga 0`, or null where the list is empty or cannot be read.
+ *
+ * The tags are not quoted. Skia's reader on the desktop, iOS and the web
+ * (`FontFeature.parseW3`) takes the first word of each entry as the tag and drops any that
+ * is not four characters long, so `"tnum" 1` would be read as no feature at all. HarfBuzz,
+ * which Minikin uses on Android, reads a tag with or without quotes.
  *
  * The records keep their order, and a tag that comes twice is written twice: the shapers
  * under Compose (HarfBuzz under Skia, Minikin on Android) let the later value win, as CSS
@@ -802,9 +807,8 @@ internal fun fontFeatureSettings(bytes: ByteArray, onError: (String) -> Unit): S
             ((bytes[at + 6].toLong() and 0xFF) shl 16) or
             ((bytes[at + 7].toLong() and 0xFF) shl 24)
         if (index > 0) out.append(", ")
-        out.append('"')
         for (offset in 0 until 4) out.append((bytes[at + offset].toInt() and 0xFF).toChar())
-        out.append("\" ").append(value)
+        out.append(' ').append(value)
     }
     return out.toString()
 }

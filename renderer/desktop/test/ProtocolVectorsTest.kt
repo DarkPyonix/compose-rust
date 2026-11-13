@@ -533,7 +533,7 @@ class ProtocolVectorsTest {
         assertEquals(expected.toList(), bytes.toList())
         val errors = mutableListOf<String>()
         assertEquals(
-            "\"tnum\" 1, \"liga\" 0, \"cv01\" 258",
+            "tnum 1, liga 0, cv01 258",
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)

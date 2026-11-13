@@ -139,7 +139,7 @@ class FontFeatureTest {
         assertEquals(plainStyle.fontSize, withStyle.fontSize, "the role's size")
         assertEquals(plainStyle.fontWeight, withStyle.fontWeight, "the role's weight")
         assertEquals(plainStyle.lineHeight, withStyle.lineHeight, "the role's line height")
-        assertEquals("\"tnum\" 1", withStyle.fontFeatureSettings)
+        assertEquals("tnum 1", withStyle.fontFeatureSettings)
         assertNull(plainStyle.fontFeatureSettings)
 
         // Only the digits' widths change.
@@ -170,7 +170,7 @@ class FontFeatureTest {
         val plainOnes = width(drawnLayout(FIRST + 2))
         val plainZeros = width(drawnLayout(FIRST + 3))
         assertTrue(plainZeros - plainOnes > 10f, "typed digits without features keep their widths: $plainOnes against $plainZeros")
-        assertEquals("\"tnum\" 1", drawnLayout(FIRST).layoutInput.style.fontFeatureSettings)
+        assertEquals("tnum 1", drawnLayout(FIRST).layoutInput.style.fontFeatureSettings)
     }
 
     /** The placeholder is set in the field's style, features included. */
@@ -185,11 +185,11 @@ class FontFeatureTest {
         ) + listOf(noRole, ownFont, size, tnum).map { (kind, value) -> Mutation.SetProp(FIRST, kind, value) } +
             Mutation.Insert(COLUMN, FIRST, 0)
         val host = startHost(FakeHostConnection(mutations), Density(1f))
-        assertEquals("\"tnum\" 1", host.table.node(FIRST)?.fontFeatures)
+        assertEquals("tnum 1", host.table.node(FIRST)?.fontFeatures)
         val layouts = mutableListOf<TextLayoutResult>()
         collectLayouts(FIRST, layouts)
         assertTrue(
-            layouts.any { it.layoutInput.text.text == "0000" && it.layoutInput.style.fontFeatureSettings == "\"tnum\" 1" },
+            layouts.any { it.layoutInput.text.text == "0000" && it.layoutInput.style.fontFeatureSettings == "tnum 1" },
             "the placeholder was set with the features: ${layouts.map { it.layoutInput.text.text to it.layoutInput.style.fontFeatureSettings }}",
         )
     }
@@ -232,12 +232,12 @@ class FontFeatureTest {
     fun fr83_feature_records_become_the_compose_string() {
         val errors = mutableListOf<String>()
         val bytes = record("tnum", 1) + record("liga", 0) + record("cv01", 0x0102) + record("tnum", 0)
-        assertEquals("\"tnum\" 1, \"liga\" 0, \"cv01\" 258, \"tnum\" 0", fontFeatureSettings(bytes, errors::add))
+        assertEquals("tnum 1, liga 0, cv01 258, tnum 0", fontFeatureSettings(bytes, errors::add))
         assertNull(fontFeatureSettings(ByteArray(0), errors::add), "an empty list is no features")
         assertEquals(emptyList(), errors)
-        assertEquals("\"liga\" 0, \"tnum\" 1", appendFontFeatures("\"liga\" 0", "\"tnum\" 1"))
-        assertEquals("\"tnum\" 1", appendFontFeatures(null, "\"tnum\" 1"))
-        assertEquals("\"liga\" 0", appendFontFeatures("\"liga\" 0", null))
+        assertEquals("liga 0, tnum 1", appendFontFeatures("liga 0", "tnum 1"))
+        assertEquals("tnum 1", appendFontFeatures(null, "tnum 1"))
+        assertEquals("liga 0", appendFontFeatures("liga 0", null))
     }
 
     @Test
@@ -250,7 +250,7 @@ class FontFeatureTest {
         val featured = table.node(FIRST)!!
         val plain = table.node(FIRST + 1)!!
         val made = featured.fontFeatures
-        assertEquals("\"tnum\" 1", made)
+        assertEquals("tnum 1", made)
 
         // A frame that only changes the text keeps the string made when the list arrived.
         repeat(1_000) { frame ->
