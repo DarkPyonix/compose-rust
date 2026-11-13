@@ -1,6 +1,8 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -174,11 +176,23 @@ internal fun HostRichText(
         else -> null
     }
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
+    // A node selected whole shows it the way a selection does: every letter on the
+    // selection colour.
+    val text = if (LocalSelectedWhole.current) {
+        val background = LocalTextSelectionColors.current.backgroundColor
+        remember(resolved.text, background) {
+            AnnotatedString.Builder(resolved.text).apply {
+                addStyle(SpanStyle(background = background), 0, resolved.text.length)
+            }.toAnnotatedString()
+        }
+    } else {
+        resolved.text
+    }
     // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
     // text size does not reach it. Everything else is laid out where it stands.
     CompositionLocalProvider(LocalDensity provides density) {
         BasicText(
-            text = resolved.text,
+            text = text,
             modifier = modifier.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
             style = resolved.style,
             overflow = resolved.overflow,
