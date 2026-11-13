@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Word wrap in the code editor
+
+The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
+
 ### Multiple cursors in the code editor
 
 The code editor holds several selections at once. Alt and a press adds a caret, Cmd or Ctrl and D adds the next place the selected text is (selecting the word at the caret first), and Alt with Cmd or Ctrl and Up or Down adds a caret on the line above or below. Typing, deleting and pasting happen at every selection as one undo step, the arrows move them all, and Escape goes back to the primary one. `Batch::set_selections(node_id, base_version, &[(anchor, active)])` sends a `SetSelections` command (tag 41, 20 bytes and 16 bytes per selection), and the editor's selection listener hears a `SelectionsChanged` event (tag 67, 28 bytes and 16 bytes per selection, read by `code::SelectionsChange::from_payload`) while there is more than one selection and once more when it comes back to one. `SelectionChanged` goes on reporting the primary selection alone.

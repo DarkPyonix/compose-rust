@@ -1151,6 +1151,11 @@ class ProtocolVectorsTest {
             listOf(Mutation.InsertSnippet(12, 3, 2, 0, 2, 1, "} // \${1:name} = \${1:name}, \${2|\uD55C,\uD83D\uDE00|} \\\$5\$0")),
             mutations.filterIsInstance<Mutation.InsertSnippet>(),
         )
+        // Word wrap at forty columns or the edge of the view, whichever comes first.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.WordWrapMode.Bounded.ordinal + 1).toLong() or (40L shl 16)),
+            props.single { it.property == PropertyKind.WordWrap }.value,
+        )
         // The minimap on the right, and two view zones: the first with text that is not
         // ASCII, the second half a row high.
         assertEquals(

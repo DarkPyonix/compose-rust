@@ -74,7 +74,7 @@ pub use code::{
     CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
     CodeRect, CodeScroll, Decoration, Decorations, EditGroupResult, EditRejected, Fold, FoldChange,
     Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange,
-    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange,
+    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange, WordWrap,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -94,7 +94,6 @@ pub use notification::{
 pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
-pub use schema::MinimapSide;
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
     ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EditGroupStatus, EventPayload,
@@ -112,6 +111,7 @@ pub use schema::{
     TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
+pub use schema::{MinimapSide, WordWrapMode};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
 };

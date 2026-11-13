@@ -4089,6 +4089,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             end_column: 1,
             snippet: CODE_SNIPPET_VECTOR,
         },
+        // Its word wrap: at forty columns or the edge of the view, whichever comes first, so a
+        // reader that reads the mode and the columns from the wrong bits reads another rule.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::WordWrap,
+            value: PropertyValue::Integer(crate::code::WordWrap::Bounded(40).to_value()),
+        },
         // Its view zones: two rows after the first line with text in them, and a half-row
         // after the second with none, so a reader that takes the height for a whole number
         // or reads the text from the wrong place reads different zones.
@@ -4585,7 +4592,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 128,
+    "recordCount": 129,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

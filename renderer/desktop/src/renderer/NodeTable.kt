@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.wordWrapRule
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -853,6 +854,15 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            // Read where the editor is drawn, which knows how wide it is. Here a rule that is
+            // not one is said once, when it arrives.
+            PropertyKind.WordWrap -> {
+                val raw = (value as? PropertyValue.Integer)?.value
+                if (raw != null && raw != 0L && wordWrapRule(raw) == null) {
+                    fail(TableError.INVALID_CODE_EDIT, "word wrap on node ${node.id}: $raw is not a rule")
+                }
+                return
+            }
             PropertyKind.ViewZones -> code.setViewZones(
                 (value as? PropertyValue.Bytes)?.value?.let { bytes ->
                     CodeEditorRecords.decodeViewZones(bytes) { message ->
@@ -1582,6 +1592,7 @@ class NodeTable {
                 // Whether it draws a minimap, and on which side, and its view zones.
                 PropertyKind.Minimap,
                 PropertyKind.ViewZones,
+                PropertyKind.WordWrap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

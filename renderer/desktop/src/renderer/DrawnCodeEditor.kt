@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -88,7 +89,34 @@ private class LineView(
     val caretAt: IntArray,
     /** Where source character `c` itself starts, after anything shown in front of it. */
     val charAt: IntArray,
+    /** The columns the rows after the first start at, where the line breaks onto more than one. */
+    val breaks: IntArray = IntArray(0),
 ) {
+    /** How many rows the line is drawn on. */
+    val rows: Int get() = breaks.size + 1
+
+    /** The column row [row] starts at. */
+    fun rowStart(row: Int): Int = if (row <= 0) 0 else breaks[row - 1]
+
+    /** The column row [row] ends at: where the next row starts, or the end of the line. */
+    fun rowEnd(row: Int): Int = if (row < breaks.size) breaks[row] else caretAt.size - 1
+
+    /** How far into the laid-out line row [row] starts: drawing it shifts the line left by this. */
+    fun rowX(row: Int): Float = if (row <= 0) 0f else caretX(breaks[row - 1])
+
+    /**
+     * The row a caret at [column] is on: the row that starts there, or, with [atRowEnd], the
+     * row that ends there.
+     */
+    fun rowOf(column: Int, atRowEnd: Boolean = false): Int {
+        var row = 0
+        while (row < breaks.size && (breaks[row] < column || (breaks[row] == column && !atRowEnd))) row += 1
+        return row
+    }
+
+    /** The column on row [row] nearest to [x], measured from the row's own left edge. */
+    fun columnOnRow(row: Int, x: Float): Int = column(x + rowX(row)).coerceIn(rowStart(row), rowEnd(row))
+
     fun caretX(column: Int): Float =
         layout.getHorizontalPosition(caretAt[column.coerceIn(0, caretAt.size - 1)], true)
 
@@ -125,6 +153,12 @@ private class DrawnState(
 
     /** Changes when the caret or the selection moves, for what draws them. */
     var moves by mutableIntStateOf(0)
+
+    /**
+     * Whether the caret, where it stands on a column a long line breaks at, is drawn at the
+     * end of the row before rather than at the start of the next: where End put it.
+     */
+    var caretAtRowEnd = false
 
     var measurer: TextMeasurer? = null
     var style: TextStyle = TextStyle.Default
@@ -203,10 +237,11 @@ private class DrawnState(
             for (piece in fallback(builder.toAnnotatedString().text)) builder.addStyle(piece.item, piece.start, piece.end)
         }
         val layout = measurer!!.measure(builder.toAnnotatedString(), style, softWrap = false)
-        return LineView(layout, caretAt, charAt)
+        return LineView(layout, caretAt, charAt, model.wrapBreaksOf(line))
     }
 
     fun moved() {
+        caretAtRowEnd = false
         moves += 1
         // The selection moved, which the Host listens to.
         callbacks.onOutput()
@@ -269,8 +304,10 @@ private class DrawnState(
 
     override fun caretRectInRoot(): Rect {
         val caret = model.selection.caret
-        val x = textLeft + view(caret.line).caretX(caret.column)
-        val y = rows.textTopPx(caret.line, rowPx).toFloat() - (scroll?.offset ?: 0)
+        val view = view(caret.line)
+        val row = view.rowOf(caret.column, caretAtRowEnd)
+        val x = textLeft + view.caretX(caret.column) - view.rowX(row)
+        val y = rows.textTopPx(caret.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
         val origin = coordinates?.localToRoot(Offset(x, y)) ?: Offset(x, y)
         return Rect(origin, Size(1f, rowPx.toFloat()))
     }
@@ -311,8 +348,9 @@ private class DrawnState(
         val view = view(position.line)
         val column = position.column.coerceIn(0, view.caretAt.size - 1)
         val shown = view.caretAt[column] + if (composed) composing.length else 0
-        val x = textLeft + view.layout.getHorizontalPosition(shown, true)
-        val y = rows.textTopPx(position.line, rowPx).toFloat() - (scroll?.offset ?: 0)
+        val row = view.rowOf(column, composed && caretAtRowEnd && position == model.selection.caret)
+        val x = textLeft + view.layout.getHorizontalPosition(shown, true) - view.rowX(row)
+        val y = rows.textTopPx(position.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
         return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
     }
 
@@ -351,28 +389,31 @@ private class DrawnState(
         return answered || model.caretUntold
     }
 
-    override fun positionAt(viewX: Float, y: Float): CodePosition? {
+    override fun positionAt(x: Float, y: Float): CodePosition? {
         // Asked in the editor's own coordinates, which a minimap on the left moves this part of.
-        val x = viewX - originX
-        if (x < textLeft) return null
+        val inside = x - originX
+        if (inside < textLeft) return null
         val at = (y + (scroll?.offset ?: 0)).toInt()
         if (y + (scroll?.offset ?: 0) < 0f || at >= rows.totalPx(rowPx)) return null
         val line = rows.lineAtPx(at, rowPx)
         // A lens above the line, the rows a suggestion of several lines adds below it and a
         // view zone after it are not the document's text.
-        if (rows.textRowAtPx(line, at, rowPx) < 0) return null
+        val row = rows.textRowAtPx(line, at, rowPx)
+        if (row < 0) return null
         val view = view(line)
-        val local = x - textLeft
-        // Past the end of the line, the pointer is over no character.
-        if (local > view.layout.size.width) return null
-        return CodePosition(line, view.column(local))
+        val local = inside - textLeft
+        // Past the end of the row, the pointer is over no character.
+        if (local > view.layout.size.width - view.rowX(row) || (row < view.rows - 1 && local > view.caretX(view.rowEnd(row)) - view.rowX(row))) return null
+        return CodePosition(line, view.columnOnRow(row, local))
     }
 
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
         val at = (point.y + (scroll?.offset ?: 0)).toInt().coerceAtLeast(0)
         val line = rows.lineAtPx(at, rowPx).coerceIn(0, model.document.lineCount - 1)
         val onLens = rows.hasLens(line) && at < rows.textTopPx(line, rowPx)
-        return CodePosition(line, view(line).column(point.x - textLeft)) to onLens
+        val view = view(line)
+        val row = ((at - rows.textTopPx(line, rowPx)) / rowPx).coerceIn(0, view.rows - 1)
+        return CodePosition(line, view.columnOnRow(row, point.x - textLeft)) to onLens
     }
 
     companion object {
@@ -403,6 +444,7 @@ private fun DrawnSurface(
     val vertical = remember { EditorScroll() }
     state.scroll = vertical
     var viewportHeight by remember { mutableIntStateOf(0) }
+    var viewportWidth by remember { mutableIntStateOf(0) }
     // This path does not scroll along its lines, so there is one axis to hand over.
     scrolling(remember(vertical) { EditorScrolling(vertical, null) { viewportHeight } })
     var focused by remember { mutableStateOf(false) }
@@ -429,6 +471,14 @@ private fun DrawnSurface(
     state.caretWidthPx = with(density) { 1.5.dp.toPx() }
     val (minimapLeft, minimapRight) = density.minimapInsetsPx(look)
     state.originX = minimapLeft.toFloat()
+    // Where long lines break, from the width the text has: the model is told after the frame,
+    // and the frame after it draws the rows.
+    val wrapColumns = wrapColumnsFor(
+        look.wordWrap,
+        viewportWidth - minimapLeft - minimapRight - state.textLeft.toInt(),
+        digitWidth,
+    )
+    SideEffect { model.setWrap(wrapColumns, look.tabWidth) }
     // What the caret report and the waiting queries found is sent from a coroutine rather
     // than from inside the draw pass that found it.
     val scope = rememberCoroutineScope()
@@ -483,7 +533,10 @@ private fun DrawnSurface(
             .changeSemantics(model, look)
             .background(look.container)
             .clipToBounds()
-            .onSizeChanged { viewportHeight = it.height },
+            .onSizeChanged {
+                viewportHeight = it.height
+                viewportWidth = it.width
+            },
     ) {
         Box(
             Modifier
@@ -631,15 +684,27 @@ private fun DrawScope.drawLines(
         if (rows.isHidden(line)) continue
         val view = state.view(line)
         val top = rows.textTopPx(line, state.rowPx).toFloat()
+        val lineRows = view.rows
+        // A stretch of the laid-out line, from [from] to [to], on each row it falls on, as the
+        // row's top and the stretch's left and right edges measured from the row's own start.
+        fun eachRow(from: Float, to: Float, block: (Float, Float, Float) -> Unit) {
+            for (row in 0 until lineRows) {
+                val start = view.rowX(row)
+                val end = if (row < lineRows - 1) view.rowX(row + 1) else Float.MAX_VALUE
+                val left = max(from, start)
+                val right = min(to, end)
+                if (right > left) block(top + row * rowPx, left - start, right - start)
+            }
+        }
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
-            drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx))
+            drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx * lineRows))
         }
         // A line background across the text's whole width, then the stronger tint of a range
         // background over its characters, both behind the selection and the text.
         if (model.backgroundsPresent) {
             model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
                 ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
-                ?.let { drawRect(it, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx)) }
+                ?.let { drawRect(it, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx * lineRows)) }
             for (decoration in model.decorations) {
                 if (decoration.kind != DecorationKind.RangeBackground) continue
                 if (line < decoration.start.line || line > decoration.end.line) continue
@@ -647,7 +712,7 @@ private fun DrawScope.drawLines(
                 if (color == Color.Unspecified || color.alpha == 0f) continue
                 val from = if (line == decoration.start.line) view.charX(decoration.start.column) else 0f
                 val to = if (line == decoration.end.line) view.caretX(decoration.end.column) else view.layout.size.width.toFloat()
-                if (to > from) drawRect(color, Offset(state.textLeft + from, top), Size(to - from, rowPx))
+                eachRow(from, to) { y, left, right -> drawRect(color, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
             }
         }
         lenses[line]?.let { row ->
@@ -658,21 +723,33 @@ private fun DrawScope.drawLines(
             if (line < other.start.line || line > other.end.line) continue
             if (other.collapsed) {
                 if (focused) {
-                    val x = state.textLeft + view.caretX(other.caret.column)
-                    drawRect(look.cursor, Offset(x, top), Size(1.5.dp.toPx(), rowPx))
+                    val row = view.rowOf(other.caret.column)
+                    val x = state.textLeft + view.caretX(other.caret.column) - view.rowX(row)
+                    drawRect(look.cursor, Offset(x, top + row * rowPx), Size(1.5.dp.toPx(), rowPx))
                 }
                 continue
             }
             val from = if (line == other.start.line) view.charX(other.start.column) else 0f
             val to = if (line == other.end.line) view.caretX(other.end.column) else view.layout.size.width.toFloat() + rowPx / 3
-            drawRect(look.selection, Offset(state.textLeft + from, top), Size(max(0f, to - from), rowPx))
+            eachRow(from, to) { y, left, right -> drawRect(look.selection, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
         }
         if (!selection.collapsed && line >= selection.start.line && line <= selection.end.line) {
             val from = if (line == selection.start.line) view.charX(selection.start.column) else 0f
             val to = if (line == selection.end.line) view.caretX(selection.end.column) else view.layout.size.width.toFloat() + rowPx / 3
-            drawRect(look.selection, Offset(state.textLeft + from, top), Size(max(0f, to - from), rowPx))
+            eachRow(from, to) { y, left, right -> drawRect(look.selection, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
         }
-        drawText(view.layout, topLeft = Offset(state.textLeft, top + (rowPx - view.layout.size.height) / 2))
+        if (lineRows == 1) {
+            drawText(view.layout, topLeft = Offset(state.textLeft, top + (rowPx - view.layout.size.height) / 2))
+        } else {
+            // The line laid out once and drawn on each of its rows, moved left by where the row
+            // starts and cut to the row.
+            for (row in 0 until lineRows) {
+                val y = top + row * rowPx
+                clipRect(state.textLeft, y, size.width, y + rowPx) {
+                    drawText(view.layout, topLeft = Offset(state.textLeft - view.rowX(row), y + (rowPx - view.layout.size.height) / 2))
+                }
+            }
+        }
         for (decoration in model.decorations) {
             if (decoration.kind != DecorationKind.Underline) continue
             if (line < decoration.start.line || line > decoration.end.line) continue
@@ -681,13 +758,17 @@ private fun DrawScope.drawLines(
             if (to - from < rowPx / 2) to = from + rowPx / 2
             val (color, shape) = look.underline(decoration)
             val stroke = look.underlineWidth.toPx()
-            drawUnderline(shape, color, state.textLeft + from, state.textLeft + to, top + rowPx - stroke * 1.5f, stroke)
+            eachRow(from, to) { y, left, right ->
+                drawUnderline(shape, color, state.textLeft + left, state.textLeft + right, y + rowPx - stroke * 1.5f, stroke)
+            }
         }
         if (focused && line == selection.caret.line) {
             // After whatever is being composed, which is drawn in front of the caret column.
-            val shown = view.caretAt[selection.caret.column.coerceIn(0, view.caretAt.size - 1)] + state.composing.length
-            val x = state.textLeft + view.layout.getHorizontalPosition(shown, true)
-            drawRect(look.cursor, Offset(x, top), Size(1.5.dp.toPx(), rowPx))
+            val column = selection.caret.column.coerceIn(0, view.caretAt.size - 1)
+            val shown = view.caretAt[column] + state.composing.length
+            val row = view.rowOf(column, state.caretAtRowEnd)
+            val x = state.textLeft + view.layout.getHorizontalPosition(shown, true) - view.rowX(row)
+            drawRect(look.cursor, Offset(x, top + row * rowPx), Size(1.5.dp.toPx(), rowPx))
         }
         val divider = gutterDividerPx(look)
         if (look.lineNumbers) {
@@ -834,8 +915,32 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
                 else -> caret
             },
         )
-        event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
-            event.key == Key.PageUp || event.key == Key.PageDown -> {
+        // Up and Down follow the rows a long line is drawn on, keeping the caret's distance
+        // from the row's left edge.
+        event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
+            val down = event.key == Key.DirectionDown
+            val view = state.view(caret.line)
+            val row = view.rowOf(caret.column, state.caretAtRowEnd)
+            val x = view.caretX(caret.column) - view.rowX(row)
+            var targetLine = caret.line
+            var targetRow = row + if (down) 1 else -1
+            if (targetRow < 0 || targetRow >= view.rows) {
+                val line = model.nearestVisible((caret.line + if (down) 1 else -1).coerceIn(0, document.lineCount - 1), down)
+                if (line == caret.line) {
+                    targetRow = row
+                } else {
+                    targetLine = line
+                    targetRow = if (down) 0 else state.view(line).rows - 1
+                }
+            }
+            val targetView = state.view(targetLine)
+            var target = CodePosition(targetLine, targetView.columnOnRow(targetRow, x))
+            if (!document.isValid(target)) target = CodePosition(targetLine, target.column - 1)
+            move(target)
+            // Past the end of a row that is not the last, the caret stays at the end of it.
+            state.caretAtRowEnd = targetRow < targetView.rows - 1 && target.column == targetView.rowEnd(targetRow)
+        }
+        event.key == Key.PageUp || event.key == Key.PageDown -> {
             val step = when (event.key) {
                 Key.DirectionUp -> -1
                 Key.DirectionDown -> 1
@@ -848,8 +953,17 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
             if (!document.isValid(target)) target = CodePosition(line, target.column - 1)
             move(target)
         }
-        event.key == Key.MoveHome -> move(CodePosition(caret.line, 0))
-        event.key == Key.MoveEnd -> move(CodePosition(caret.line, document.line(caret.line).length))
+        // Home and End go to the ends of the row the caret is on.
+        event.key == Key.MoveHome -> {
+            val view = state.view(caret.line)
+            move(CodePosition(caret.line, view.rowStart(view.rowOf(caret.column, state.caretAtRowEnd))))
+        }
+        event.key == Key.MoveEnd -> {
+            val view = state.view(caret.line)
+            val row = view.rowOf(caret.column, state.caretAtRowEnd)
+            move(CodePosition(caret.line, view.rowEnd(row)))
+            state.caretAtRowEnd = row < view.rows - 1
+        }
         (event.key == Key.Backspace || event.key == Key.Delete) && model.secondary.isNotEmpty() -> {
             // At every selection: a selection goes, and at a caret the character on that side.
             val backspace = event.key == Key.Backspace

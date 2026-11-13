@@ -1866,3 +1866,50 @@ fn fr38_selections_round_trip_on_the_wire() {
         })
     );
 }
+
+/// Word wrap travels on property 200 as one integer: the `WordWrapMode` tag in the low 16
+/// bits and the columns above them. A rule that is not one reads back as none.
+#[test]
+fn fr38_word_wrap_travels_as_an_integer() {
+    use compose_rust::{WordWrap, WordWrapMode};
+    assert_eq!(PropertyKind::WordWrap as u16, 200);
+    assert_eq!(
+        PropertyKind::from_name("word_wrap"),
+        Ok(PropertyKind::WordWrap)
+    );
+    assert_eq!(u16::from(WordWrapMode::Off), 0);
+    assert_eq!(u16::from(WordWrapMode::Viewport), 1);
+    assert_eq!(u16::from(WordWrapMode::Column), 2);
+    assert_eq!(u16::from(WordWrapMode::Bounded), 3);
+    for rule in [
+        WordWrap::Off,
+        WordWrap::Viewport,
+        WordWrap::Column(40),
+        WordWrap::Bounded(120),
+    ] {
+        assert_eq!(WordWrap::from_value(rule.to_value()), Some(rule));
+    }
+    assert_eq!(WordWrap::Column(40).to_value(), 2 | (40 << 16));
+    assert_eq!(WordWrap::Off.to_value(), 0);
+    assert_eq!(WordWrap::from_value(2), None, "a column count of none");
+    assert_eq!(WordWrap::from_value(9), None, "a mode that is not one");
+    assert_eq!(WordWrap::from_value(-1), None);
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::WordWrap,
+            value: PropertyValue::Integer(WordWrap::Bounded(80).to_value()),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::WordWrap,
+            Value::Integer(3 | (80 << 16))
+        )]
+    );
+}

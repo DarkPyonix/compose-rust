@@ -99,6 +99,7 @@ import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.MinimapSide
+import dev.darkpyonix.composerust.protocol.WordWrapMode
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import kotlinx.coroutines.delay
@@ -216,7 +217,26 @@ class CodeEditorLook(
     val minimapWidth: Dp = 72.dp,
     /** The mark over the part of the document that is on screen, in the minimap. */
     val minimapSlider: Color = lineNumber.copy(alpha = lineNumber.alpha * 0.22f),
+    /** Where long lines break onto the rows below, or null where they run past the edge. */
+    val wordWrap: WordWrapRule? = null,
 )
+
+/** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
+data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
+
+/**
+ * The columns lines break at under [rule], in a text area [widthPx] wide where a column is
+ * [columnPx] wide, or 0 where none break. The view's own width is at least one column.
+ */
+internal fun wrapColumnsFor(rule: WordWrapRule?, widthPx: Int, columnPx: Int): Int {
+    rule ?: return 0
+    val fit = if (columnPx > 0 && widthPx > 0) max(1, widthPx / columnPx) else 0
+    return when (rule.mode) {
+        WordWrapMode.Viewport -> fit
+        WordWrapMode.Column -> rule.columns
+        WordWrapMode.Bounded -> if (fit == 0) rule.columns else min(rule.columns, fit)
+    }
+}
 
 /** The room the minimap takes on the left of the text and on its right, in pixels. */
 internal fun Density.minimapInsetsPx(look: CodeEditorLook): Pair<Int, Int> {
@@ -600,6 +620,8 @@ internal class Insertion(
      * end of that line stays in front of.
      */
     val zone: Boolean = false,
+    /** Whether this is where a long line breaks onto the next row: a break that is not text. */
+    val soft: Boolean = false,
 )
 
 /**
@@ -828,7 +850,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             if (shown < shownStart) break
             val shownEnd = shownStart + insertion.text.length
             if (shown < shownEnd) {
-                return insertion.offset to insertion.takeIf { it.covers == 0 || it.lenses != null || it.zone }
+                return insertion.offset to insertion.takeIf { (it.covers == 0 && !it.soft) || it.lenses != null || it.zone }
             }
             // A stretch a fold hides shows as nothing, so the place where it was is one place:
             // the end of the line that stays.
@@ -957,6 +979,15 @@ internal class EditorDisplay(
             if (at != null) {
                 val ink = look.textStyle.color.takeOrElse(look.lens)
                 insertions += Insertion(at, 0, ghost.text, SpanStyle(color = ink.copy(alpha = look.ghostTextAlpha)))
+            }
+        }
+        // A long line breaks onto the rows below where the model says, with a line break that
+        // is only shown, so the field's rows are the rows the gutter counts.
+        if (model.wrapColumns > 0) {
+            for (line in start until end) {
+                if (model.isHidden(line)) continue
+                val lineStart = starts[line - start]
+                for (column in model.wrapBreaksOf(line)) insertions += Insertion(lineStart + column, 0, "\n", null, soft = true)
             }
         }
         // A view zone is rows after the end of its line, shown and never part of the text: as
@@ -1329,6 +1360,14 @@ private fun FieldSurface(
 
     val textInsetPx = with(density) { look.textInset.roundToPx() }
     val (minimapLeft, minimapRight) = density.minimapInsetsPx(look)
+    // Where long lines break, from the width the text has: the model is told after the frame,
+    // and the frame after it draws the rows.
+    val wrapColumns = wrapColumnsFor(
+        look.wordWrap,
+        viewportWidth - gutterWidthPx - textInsetPx - minimapLeft - minimapRight,
+        digitWidth,
+    )
+    SideEffect { model.setWrap(wrapColumns, look.tabWidth) }
 
     // Where the caret is drawn and where a position is, read after layout. What they find
     // is sent from a coroutine rather than from inside the pass that found it.

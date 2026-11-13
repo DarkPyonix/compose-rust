@@ -245,7 +245,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
@@ -1671,6 +1671,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: MINIMAP_SIDE_SCHEMA,
     },
     RoleEnumSchema {
+        name: "WordWrapMode",
+        variants: WORD_WRAP_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "StorageOp",
         variants: STORAGE_OP_SCHEMA,
     },
@@ -1803,6 +1807,17 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
 // `ItemStart` stops with the start edge of the nearest direct child on the start of the
 // visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
 // does.
+// Where a code editor breaks a long line, the mode part of the `WordWrap` property: at the
+// edge of the view, at a number of columns, or at whichever of the two comes first. `Off`
+// breaks no line, which is what an editor that never sets it does.
+define_wire_enum!(WORD_WRAP_MODE_SCHEMA, WordWrapMode {
+    Viewport = 1,
+    Column = 2,
+    Bounded = 3,
+} unlisted {
+    Off = 0,
+});
+
 // Which side of a code editor its minimap is drawn on: the whole document shrunk, with the
 // part on screen marked, which a press or a drag scrolls to. `Off` draws none, which is what
 // an editor that never sets it does.
@@ -3741,6 +3756,10 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // A code editor's view zones, rows after a line that are not text, as a blob of
     // fixed-length records sent whole, with the text they show behind them.
     ViewZones = 199,
+    // Where a code editor breaks a line too long for it onto the rows below, as an integer:
+    // the `WordWrapMode` tag in the low 16 bits and the column count above them. Absent or
+    // 0 breaks no line.
+    WordWrap = 200,
 });
 
 #[derive(Clone, Debug, PartialEq)]

@@ -396,6 +396,7 @@ class CodeEditorModel(
     fun setHostText(text: String): Boolean {
         if (document.contentEquals(text)) return false
         document.reset(text)
+        if (wrapColumns > 0) rewrapAll()
         decorationList.clear()
         backgroundsPresent = false
         spanList.clear()
@@ -1038,11 +1039,83 @@ class CodeEditorModel(
         overlayRevision += 1
     }
 
+    // Long lines broken onto the rows below.
+
+    /** The columns a long line is broken at, or 0 where none is. The surface that draws the editor sets it. */
+    var wrapColumns = 0
+        private set
+    private var wrapTabWidth = 4
+
+    /** How many rows past its first each line takes, while lines are broken. */
+    private var wrapExtra: IntArray? = null
+
+    /** Changes whenever [wrapExtra] does, for the running totals below. */
+    private var wrapStamp = 0
+    private var wrapPrefixStamp = -1
+    private var wrapPrefixFolds = -1
+    private var wrapPrefixCache: IntArray? = null
+
+    /**
+     * Breaks every line longer than [columns] onto the rows below it, a tab advancing to the
+     * next of the stops [tabWidth] apart; 0 breaks none. Setting what is already set does
+     * nothing, so a surface can say it on every frame.
+     */
+    fun setWrap(columns: Int, tabWidth: Int) {
+        val wanted = maxOf(0, columns)
+        if (wanted == wrapColumns && (wanted == 0 || tabWidth == wrapTabWidth)) return
+        wrapColumns = wanted
+        wrapTabWidth = tabWidth
+        rewrapAll()
+        overlayRevision += 1
+    }
+
+    private fun rewrapAll() {
+        wrapExtra = if (wrapColumns == 0) {
+            null
+        } else {
+            IntArray(document.lineCount) { wrapBreaks(document.line(it), wrapColumns, wrapTabWidth).size }
+        }
+        wrapStamp += 1
+    }
+
+    /** Where [line] breaks onto a new row, as the columns each row after the first starts at. */
+    fun wrapBreaksOf(line: Int): IntArray =
+        if (wrapColumns == 0 || line < 0 || line >= document.lineCount) NO_BREAKS
+        else wrapBreaks(document.line(line), wrapColumns, wrapTabWidth)
+
     /**
      * The rows long lines wrap onto, as running totals for a row map, or null where nothing
-     * wraps.
+     * wraps. Entry `i` counts the rows past their first of the lines before line `i`; a line
+     * a fold hides counts none.
      */
-    fun wrapPrefix(): IntArray? = null
+    fun wrapPrefix(): IntArray? {
+        val extra = wrapExtra ?: return null
+        val cached = wrapPrefixCache
+        if (cached != null && wrapPrefixStamp == wrapStamp && wrapPrefixFolds == foldStamp) return cached
+        val prefix = IntArray(extra.size + 1)
+        val folded = hiddenLines().isNotEmpty()
+        for (line in extra.indices) {
+            prefix[line + 1] = prefix[line] + if (folded && isHidden(line)) 0 else extra[line]
+        }
+        wrapPrefixCache = prefix
+        wrapPrefixStamp = wrapStamp
+        wrapPrefixFolds = foldStamp
+        return prefix
+    }
+
+    /** Keeps the rows each line takes in step with a change: only the lines it touched are measured again. */
+    private fun rewrap(change: AppliedChange) {
+        val extra = wrapExtra ?: return
+        val first = change.start.line
+        val oldLast = change.end.line
+        val newLast = change.newEnd.line
+        val next = IntArray(document.lineCount)
+        extra.copyInto(next, 0, 0, first)
+        for (line in first..newLast) next[line] = wrapBreaks(document.line(line), wrapColumns, wrapTabWidth).size
+        extra.copyInto(next, newLast + 1, oldLast + 1, extra.size)
+        wrapExtra = next
+        wrapStamp += 1
+    }
 
     /** Replaces every mark beside the line numbers with the Host's new list. */
     fun setGutterDecorations(records: List<GutterDecorationRecord>) {
@@ -1911,6 +1984,7 @@ class CodeEditorModel(
     /** Changes the document, moves everything over it, and queues the report. */
     private fun applyRaw(start: CodePosition, end: CodePosition, text: String): AppliedChange {
         val change = document.replace(start, end, text)
+        rewrap(change)
         moveOverlays(change)
         selection = CodeSelection(
             CodeDocument.map(selection.anchor, change, Bias.After),
@@ -2291,4 +2365,59 @@ private fun plain(list: List<SnippetSegment>, depth: Int = 0): String {
         }
     }
     return builder.toString()
+}
+
+private val NO_BREAKS = IntArray(0)
+
+/** Whether a character takes two columns of a monospaced face: East Asian wide letters and pictures. */
+internal fun isWideCharacter(codePoint: Int): Boolean =
+    codePoint in 0x1100..0x115F || codePoint in 0x2E80..0xA4CF || codePoint in 0xAC00..0xD7A3 ||
+        codePoint in 0xF900..0xFAFF || codePoint in 0xFE30..0xFE4F || codePoint in 0xFF00..0xFF60 ||
+        codePoint in 0xFFE0..0xFFE6 || codePoint in 0x1F300..0x1FAFF || codePoint in 0x20000..0x3FFFD
+
+/**
+ * Where a line breaks onto new rows [columns] columns wide: the column, in UTF-16 units, each
+ * row after the first starts at. A row breaks after the last space or tab that fits in it,
+ * and where a word is longer than the row, at the column itself; never between the halves
+ * of a pair. A tab advances to the next of the stops [tabWidth] apart, counted from the start
+ * of its row, and an East Asian wide letter takes two columns. Empty where the line fits.
+ */
+fun wrapBreaks(text: String, columns: Int, tabWidth: Int): IntArray {
+    if (columns <= 0 || text.length <= columns / 2 && '\t' !in text) return NO_BREAKS
+    var breaks: ArrayList<Int>? = null
+    var rowStart = 0
+    var column = 0
+    var afterSpace = -1
+    var index = 0
+    val tab = maxOf(1, tabWidth)
+    fun widthAt(at: Int, shown: Int): Int {
+        val character = text[at]
+        if (character == '\t') return tab - shown % tab
+        val pair = character.isHighSurrogate() && at + 1 < text.length && text[at + 1].isLowSurrogate()
+        val code = if (pair) 0x10000 + ((character.code - 0xD800) shl 10) + (text[at + 1].code - 0xDC00) else character.code
+        return if (isWideCharacter(code)) 2 else 1
+    }
+    fun sizeAt(at: Int): Int =
+        if (text[at].isHighSurrogate() && at + 1 < text.length && text[at + 1].isLowSurrogate()) 2 else 1
+    while (index < text.length) {
+        val width = widthAt(index, column)
+        if (column + width > columns && index > rowStart) {
+            val at = if (afterSpace > rowStart && afterSpace <= index) afterSpace else index
+            (breaks ?: ArrayList<Int>().also { breaks = it }) += at
+            rowStart = at
+            afterSpace = -1
+            column = 0
+            var walk = at
+            while (walk < index) {
+                column += widthAt(walk, column)
+                walk += sizeAt(walk)
+            }
+            continue
+        }
+        column += width
+        val size = sizeAt(index)
+        if (text[index] == ' ' || text[index] == '\t') afterSpace = index + size
+        index += size
+    }
+    return breaks?.toIntArray() ?: NO_BREAKS
 }

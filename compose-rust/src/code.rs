@@ -1150,6 +1150,59 @@ pub fn escape_snippet_text(text: &str) -> String {
     escaped
 }
 
+/// Where a code editor breaks a line too long for it onto the rows below.
+///
+/// A broken line is still one line of the document: its number is drawn on its first row
+/// only, Up, Down, Home and End follow the rows, and the lines on screen are reported as
+/// the document's own. A line breaks after the last space that fits, or where a word is
+/// longer than the row, at the column itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WordWrap {
+    /// No line breaks; a long line runs past the edge.
+    #[default]
+    Off,
+    /// At the edge of the view.
+    Viewport,
+    /// At this many columns, whatever the width of the view.
+    Column(u32),
+    /// At this many columns, or at the edge of the view where that comes first.
+    Bounded(u32),
+}
+
+impl WordWrap {
+    /// The integer the `WordWrap` property carries: the `WordWrapMode` tag in the low 16
+    /// bits and the column count above them.
+    pub fn to_value(self) -> i64 {
+        let (mode, columns) = match self {
+            Self::Off => (crate::schema::WordWrapMode::Off, 0),
+            Self::Viewport => (crate::schema::WordWrapMode::Viewport, 0),
+            Self::Column(columns) => (crate::schema::WordWrapMode::Column, columns),
+            Self::Bounded(columns) => (crate::schema::WordWrapMode::Bounded, columns),
+        };
+        i64::from(u16::from(mode)) | (i64::from(columns) << 16)
+    }
+
+    /// Reads back what [`WordWrap::to_value`] wrote, or None where the mode is not one, the
+    /// value is below zero, or a mode that counts columns counts none.
+    pub fn from_value(value: i64) -> Option<Self> {
+        let columns = u32::try_from(value >> 16).ok()?;
+        let mode = u16::try_from(value & 0xffff).ok()?;
+        match mode {
+            0 if columns == 0 => Some(Self::Off),
+            _ if mode == u16::from(crate::schema::WordWrapMode::Viewport) && columns == 0 => {
+                Some(Self::Viewport)
+            }
+            _ if mode == u16::from(crate::schema::WordWrapMode::Column) && columns > 0 => {
+                Some(Self::Column(columns))
+            }
+            _ if mode == u16::from(crate::schema::WordWrapMode::Bounded) && columns > 0 => {
+                Some(Self::Bounded(columns))
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Bytes of one selection in a list of them: the anchor's line and column, then the active
 /// end's.
 pub const SELECTION_LEN: usize = 16;
