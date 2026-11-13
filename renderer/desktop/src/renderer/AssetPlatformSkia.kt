@@ -7,6 +7,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RadialGradientShader
 import androidx.compose.ui.graphics.Shader
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asComposeShader
+import androidx.compose.ui.graphics.skiaShader
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -188,9 +190,9 @@ internal fun ellipticalRadialShader(
 ): Shader {
     val circle = RadialGradientShader(center, radiusX, colors, colorStops, tileMode)
     val squash = radiusY / radiusX
-    return circle.makeWithLocalMatrix(
+    return circle.skiaShader.makeWithLocalMatrix(
         Matrix33(1f, 0f, 0f, 0f, squash, center.y * (1f - squash), 0f, 0f, 1f),
-    )
+    ).asComposeShader()
 }
 
 /**
