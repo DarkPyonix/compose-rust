@@ -2104,7 +2104,7 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
   - `Modifier::Motion`이 있는 노드의 크기 애니메이션이 목표 크기에 **닿아 멈추면** 한 번 보냅니다. 끝난 크기를 싣습니다.
   - 도중에 목표가 바뀌어 다시 시작하면 중간 것은 보내지 않고, 마지막에 멈춘 것 하나만 보냅니다.
   - 처음 배치(애니메이션 없이 정해지는 첫 크기)와 크기가 바뀌지 않은 배치에는 보내지 않습니다.
-  - **모션 감소에서도 보냅니다.** FR-24대로 역할이 `Instant`로 해석되면 크기는 한 프레임 안에 바뀌고, 이벤트도 그 프레임 안에 한 번 갑니다. 그래야 Host가 이 이벤트를 기다려 자식을 빼는 흐름이 모션 감소에서 멈추지 않습니다.
+  - **모션 감소에서도 보냅니다.** FR-24대로 역할이 `Instant`로 해석되면 크기는 한 프레임 안에 바뀌고, 이벤트도 새 크기를 처음 그리는 프레임 안에 한 번 갑니다 [leader, provisional, 2026-11-13]. 그래야 Host가 이 이벤트를 기다려 자식을 빼는 흐름이 모션 감소에서 멈추지 않습니다.
   - 노드가 도중에 지워지면 보내지 않습니다. 핸들러가 노드와 함께 사라지는 기존 규칙 그대로입니다.
   - `Motion` 수정자가 없는 노드의 핸들러는 아무것도 받지 않으며 오류가 아닙니다. 수정자는 조건에 따라 붙었다 떨어질 수 있기 때문입니다.
 - **Renderer.** 공유 인터프리터의 `ModifierChain.kt` 한 곳입니다(데스크톱 세 OS, iOS, Android, Web 공통).
@@ -2116,7 +2116,7 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 수용 기준.
 1. `motion(Standard)`와 `on_motion_finished`를 단 노드의 높이를 120dp에서 0으로 바꾸면, 애니메이션이 끝난 뒤 `MotionFinished`가 **정확히 한 번** `height_dp = 0.0`을 싣고 오며 애니메이션 도중에는 오지 않습니다(`fr24_motion_finished_reports_once_with_the_final_size`).
 2. 도중에 목표를 120dp로 되돌리면 이벤트는 한 번, `height_dp = 120.0`으로만 옵니다(`fr24_interrupted_motion_reports_only_where_it_settles`).
-3. 모션 감소가 켜진 상태에서 같은 변경의 이벤트가 그 프레임 안에 한 번 옵니다(`fr24_motion_finished_arrives_under_reduced_motion`).
+3. 모션 감소가 켜진 상태에서 같은 변경의 이벤트가 새 크기를 처음 그리는 프레임 안에 한 번 옵니다 [leader, provisional, 2026-11-13](`fr24_motion_finished_arrives_under_reduced_motion`).
 4. 처음 배치와 크기가 그대로인 배치에는 이벤트가 없습니다(`fr24_first_layout_sends_no_motion_finished`).
 5. 핸들러가 없는 노드는 아무것도 보내지 않고, 그런 트리의 와이어와 수정자 사슬이 이 항목 전과 같습니다(`fr24_no_handler_means_no_listener`).
 6. 애니메이션 도중 노드를 지우면 이벤트가 오지 않고 `ProtocolError`도 없습니다(`fr24_removed_node_sends_no_motion_finished`).
@@ -4976,7 +4976,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 - **역할이 있는 글에도 적용합니다.** 23.2가 막는 것은 역할을 가진 글의 **글꼴 선택**을 노드마다 바꾸는 것입니다. 탭 숫자는 글꼴을 바꾸지 않고, 그 글꼴이 가진 숫자 모양 중 하나를 고르는 것입니다. 숫자가 흔들리지 않아야 한다는 것은 디자인 시스템이 아니라 그 화면(타이머, 표)의 의미이므로 앱이 정합니다.
 - **Renderer.** 공유 인터프리터(`renderer/desktop/src/renderer/`, iOS와 Android가 같은 파일을 씁니다) 한 곳에서 처리하므로 데스크톱 세 OS, iOS, Android, Web이 같은 코드입니다.
   - `NodeTable`의 허용 목록에 `FontFeatureSettings`를 `Text`와 `TextField`로 더합니다.
-  - `TextResolution.kt`의 `textInput()`이 blob을 읽어 Compose 문법 문자열(`"tnum" 1, "liga" 0`)로 바꿉니다. 문자열은 속성이 바뀔 때 한 번 만들고 노드에 둡니다. 프레임마다 만들지 않으므로 정상 상태 할당이 없습니다.
+  - `TextResolution.kt`의 `textInput()`이 blob을 읽어 Compose 문법 문자열(`tnum 1, liga 0`)로 바꿉니다. 태그에 따옴표를 붙이지 않습니다. Skia의 기능 해석기는 정확히 네 글자가 아닌 태그를 버리므로 따옴표를 붙인 형식은 아무 기능도 켜지 않습니다 [leader, provisional, 2026-11-13]. 문자열은 속성이 바뀔 때 한 번 만들고 노드에 둡니다. 프레임마다 만들지 않으므로 정상 상태 할당이 없습니다.
   - 해석된 `TextStyle`에 `fontFeatureSettings`로 넣습니다. 역할의 스타일이 이미 기능 문자열을 가지고 있으면 그 뒤에 이어 붙이므로, 같은 태그는 노드의 값이 이깁니다(HarfBuzz와 Minikin 모두 뒤의 기능이 앞의 것을 덮습니다). `TextField`는 입력한 글과 자리표시 글자 모두에 적용합니다(`HostTextField.kt`).
   - Compose API는 안정 API인 `TextStyle(fontFeatureSettings = …)`뿐입니다. Android는 `Paint.setFontFeatureSettings`로, skiko 플랫폼(데스크톱, iOS, Web)은 Skia 문단의 기능 목록으로 내려갑니다. 렌더러별 분기가 없습니다.
   - 글꼴에 그 기능이 없으면 아무 일도 일어나지 않고 오류도 아닙니다(브라우저와 같습니다). 일곱 디자인 시스템의 기본 글꼴(SF Pro, Segoe UI, Roboto, Cantarell, Noto Sans 등)이 `tnum`을 갖는지는 수용 기준 7에서 기록합니다.
