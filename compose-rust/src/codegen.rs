@@ -38,6 +38,7 @@ pub const SCHEMA_HASH_RELATIVE_PATH: &str = "schema-hash.txt";
 pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
 pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
+pub const BACKGROUND_BRUSH_VECTOR_RELATIVE_PATH: &str = "tests/vectors/background_brush.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -4153,6 +4154,29 @@ pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
     Ok(encoder.finish()?.to_vec())
 }
 
+/// One batch holding one `BackgroundBrush` on node 4, the only record 52 bytes long. It is a
+/// file of its own, as the 3D transform is, so that every byte of the main mutation vector
+/// stays where it was. Every field is a different value, so a field read from the wrong
+/// half of the wrong word cannot pass.
+pub fn generate_background_brush_vector() -> Result<Vec<u8>, ProtocolError> {
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 4,
+        index: 2,
+        modifier: Modifier::BackgroundBrush {
+            x: 12.5,
+            y: -4.0,
+            width: 48.0,
+            height: 24.0,
+            paint: Paint::Asset(9),
+            repeat: crate::schema::BackgroundRepeat::RepeatX,
+            tile_width: 56.0,
+            tile_height: 30.0,
+        },
+    })?;
+    Ok(encoder.finish()?.to_vec())
+}
+
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
     let selections = code_selections_vector();
     let events = [
@@ -4623,6 +4647,19 @@ pub fn generate_vector_description() -> String {
     "originX": 0.5,
     "originY": 0.25,
     "backfaceHidden": true
+  }},
+  "backgroundBrush": {{
+    "file": "background_brush.bin",
+    "description": "One batch with one 52 byte BackgroundBrush modifier on node 4 at chain position 2: the rectangle (12.5, -4, 48, 24), the brush asset 9, RepeatX and the step (56, 30)",
+    "recordCount": 1,
+    "x": 12.5,
+    "y": -4.0,
+    "width": 48.0,
+    "height": 24.0,
+    "paintAsset": 9,
+    "repeat": "RepeatX",
+    "tileWidth": 56.0,
+    "tileHeight": 30.0
   }},
   "events": {{
     "file": "events.bin",
