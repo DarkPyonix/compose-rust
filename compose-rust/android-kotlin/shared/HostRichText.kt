@@ -1,6 +1,8 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -157,6 +159,14 @@ internal fun HostRichText(
         val words = resolveText(input, theme, assets, density, fontResolver, intrinsicWordBreak = WordBreak.KeepAll)
         kotlin.math.ceil(MultiParagraphIntrinsics(words.text, words.style, words.placeholders, density, fontResolver).minIntrinsicWidth).toInt()
     } else 0
+    // A text that may break a token too long for its line anywhere is as narrow as its
+    // widest letter, whatever its tokens are, so a parent that sizes it by the narrowest
+    // width it can take gives it a width it then wraps in. Asked at its own breaks, a
+    // `KeepAll` text would say the width of its longest token, and a 40 letter path in a
+    // narrow column would be laid out wider than the column and cut off.
+    val minContent = resolved.minContentText?.takeIf { input.softWrap }?.let { text ->
+        kotlin.math.ceil(MultiParagraphIntrinsics(text, resolved.style, resolved.minContentPlaceholders, density, fontResolver).minIntrinsicWidth).toInt()
+    }
     val runs = node.runsDecodeProblem() ?: resolved.runsProblem
     val fonts = node.fontListProblem() ?: resolved.problems.firstOrNull()
     val problem = when {
@@ -166,12 +176,24 @@ internal fun HostRichText(
         else -> null
     }
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
+    // A node selected whole shows it the way a selection does: every letter on the
+    // selection colour.
+    val text = if (LocalSelectedWhole.current) {
+        val background = LocalTextSelectionColors.current.backgroundColor
+        remember(resolved.text, background) {
+            AnnotatedString.Builder(resolved.text).apply {
+                addStyle(SpanStyle(background = background), 0, resolved.text.length)
+            }.toAnnotatedString()
+        }
+    } else {
+        resolved.text
+    }
     // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
     // text size does not reach it. Everything else is laid out where it stands.
     CompositionLocalProvider(LocalDensity provides density) {
         BasicText(
-            text = resolved.text,
-            modifier = modifier.then(WordFloor(wordFloor)),
+            text = text,
+            modifier = modifier.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
             style = resolved.style,
             overflow = resolved.overflow,
             softWrap = resolved.softWrap,
@@ -190,6 +212,16 @@ private class WordFloor(private val width: Int) : LayoutModifier {
 
     override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int =
         maxOf(width, measurable.minIntrinsicWidth(height))
+}
+
+/** The narrowest width of a text that may break anywhere: [width], not its longest token. */
+private class MinContentWidth(private val width: Int) : LayoutModifier {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints) =
+        measurable.measure(constraints).let { placeable ->
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int = width
 }
 
 /**

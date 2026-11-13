@@ -24,9 +24,9 @@ const MUTATIONS: &[u8] = include_bytes!("vectors/mutations.bin");
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the two events sit in the event vector.
-const PARENT_AT: usize = 1439;
+const PARENT_AT: usize = 1755;
 const PARENT_LEN: usize = 32;
-const FOCUS_AT: usize = 1471;
+const FOCUS_AT: usize = 1787;
 const FOCUS_LEN: usize = 24;
 
 fn vector_parent() -> HostEvent<'static> {
@@ -43,7 +43,7 @@ fn vector_parent() -> HostEvent<'static> {
 
 fn vector_focus() -> HostEvent<'static> {
     HostEvent {
-        node_id: 22,
+        node_id: 23,
         handler_id: 301,
         payload: EventPayload::NativeViewFocus { focused: true },
     }
@@ -115,11 +115,11 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     let handle = NativeHandle(codegen::NATIVE_VIEW_VECTOR_HANDLE);
     let expected = vec![
         Mutation::AttachNativeView {
-            node_id: 22,
+            node_id: 23,
             handle,
         },
         Mutation::FocusNativeView {
-            node_id: 22,
+            node_id: 23,
             focus: true,
         },
     ];
@@ -127,16 +127,16 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The node they name is a NativeView, hidden, with a focus handler.
     let all = decode_batch(MUTATIONS).unwrap();
     assert!(all.contains(&Mutation::Create {
-        node_id: 22,
+        node_id: 23,
         widget: WidgetKind::NativeView
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 22,
+        node_id: 23,
         property: PropertyKind::NativeVisible,
         value: PropertyValue::Bool(false),
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 22,
+        node_id: 23,
         property: PropertyKind::OnNativeViewFocus,
         value: PropertyValue::Integer(301),
     }));
@@ -144,8 +144,8 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The Batch methods write the same two records, byte for byte.
     let mut batch = Batch::new();
     batch.begin();
-    batch.attach_native_view(22, handle);
-    batch.focus_native_view(22, true);
+    batch.attach_native_view(23, handle);
+    batch.focus_native_view(23, true);
     let written = batch.finish().expect("the batch encodes").to_vec();
     assert_eq!(native_records(&written), expected);
 
@@ -217,11 +217,16 @@ fn fr81_tree_without_native_view_is_unchanged() {
             }
         }
     }
-    // Every event before the two new ones is where it was: they were appended.
+    // The events before the two new ones are where they were: they were appended after
+    // the last of them, which ends at the parent report.
     assert_eq!(
         decode_event(&EVENTS[1415..1439]).unwrap().payload,
         EventPayload::CodeScrolled { offset_px: 1234.5 }
     );
+    assert!(matches!(
+        decode_event(&EVENTS[PARENT_AT - 76..PARENT_AT]).unwrap().payload,
+        EventPayload::SelectionsChanged { .. }
+    ));
 }
 
 #[test]

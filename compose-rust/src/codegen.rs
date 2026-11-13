@@ -11,9 +11,9 @@ use crate::schema::{
     NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
     ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
     WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
-    WEB_HOST_GLOBAL, WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
-    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
-    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WEB_TABLE_GLOBAL, WIDGET_SCHEMA,
+    WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -149,7 +149,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -161,6 +164,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -403,12 +408,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -638,6 +649,78 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
+     * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
+     * Answered once by a `PositionRect` event carrying [request].
+     */
+    data class QueryPositionRect(
+        val nodeId: Int,
+        val request: Int,
+        val line: Int,
+        val column: Int,
+    ) : Mutation
+
+    /**
+     * Several edits the application asks of a code editor as one: replace every range in
+     * [edits] with its text, all of them or none, and answer with one
+     * `CodeEditGroupResult` carrying [requestId].
+     *
+     * [edits] is the blob as it came, read by `CodeEditorRecords.decodeEditGroup`. Every
+     * range in it is in the document as it stood at [baseVersion]. [malformed] is set, and
+     * [edits] empty, where the record itself could not be read but its head could: the
+     * decoder reports the protocol error, and the editor still owes the group its answer.
+     */
+    data class EditCodeGroup(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val edits: ByteArray,
+        val malformed: String? = null,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is EditCodeGroup && nodeId == other.nodeId && requestId == other.requestId &&
+                    baseVersion == other.baseVersion && edits.contentEquals(other.edits) &&
+                    malformed == other.malformed)
+
+        override fun hashCode(): Int =
+            ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
+    }
+
+    /**
      * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
      * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
      * takes the node's view out. The view is the Host's: it is never destroyed here.
@@ -732,6 +815,7 @@ object ScrollWire {
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -788,8 +872,43 @@ object ScrollWire {
             EventPayloadType::NativeViewParent => output.push_str(
                 ", val handle: Long, val kind: Int, val scale: kotlin.Float",
             ),
+            // The size a node's size motion settled at, in dp.
+            EventPayloadType::MotionFinished => {
+                output.push_str(", val widthDp: kotlin.Float, val heightDp: kotlin.Float")
+            }
+            // In the window's dp, the scroll and the zoom already in them.
+            EventPayloadType::CodeCaretRect => output.push_str(
+                ", val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            // `found` is false where the position is not on screen, and the rectangle is then
+            // all zero.
+            EventPayloadType::CodePositionRect => output.push_str(
+                ", val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            // The pointer's fields, then the character under it: -1 and -1 where it is over
+            // none.
+            // `currentVersion` is after the group's last change where it went in, and the
+            // document's version where it did not.
+            EventPayloadType::CodeEditGroupResult => output.push_str(
+                ", val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int",
+            ),
+            // Four numbers per selection: anchor line, anchor column, active line, active
+            // column, the primary selection first.
+            EventPayloadType::CodeSelections => {
+                output.push_str(", val version: Int, val selections: IntArray")
+            }
+            EventPayloadType::CodePointer => output.push_str(
+                ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
+            ),
         }
-        if event.payload == EventPayloadType::IoAnswer {
+        if event.payload == EventPayloadType::CodeSelections {
+            writeln!(
+                output,
+                ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    version == other.version && selections.contentEquals(other.selections))\n\n        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${{selections.toList()}})\"\n    }}",
+                name = event.name
+            )
+            .unwrap();
+        } else if event.payload == EventPayloadType::IoAnswer {
             writeln!(
                 output,
                 ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    request == other.request && status == other.status && data.contentEquals(other.data))\n\n        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(request=$request, status=$status, length=${{data.size}})\"\n    }}",
@@ -856,6 +975,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_EDIT_CODE_GROUP = 28
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
     private const val TAG_SET_SCROLL_OFFSET = 30
@@ -866,6 +986,9 @@ object Protocol {
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_ATTACH_NATIVE_VIEW = 37
     private const val TAG_FOCUS_NATIVE_VIEW = 38
+    private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1033,7 +1156,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1046,6 +1169,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -1140,6 +1265,73 @@ object Protocol {
                             focus = focus == 1L,
                         )
                     }
+                    TAG_EDIT_CODE_GROUP -> {
+                        // A group that cannot be read is still answered. Where its head
+                        // can be, the node, the request and as much of the rest as is
+                        // there go to the editor first, so the result it owes follows the
+                        // protocol error this record raises.
+                        if (length != 24) {
+                            if (length >= 12) {
+                                onMutation(
+                                    Mutation.EditCodeGroup(
+                                        readU32(batch, base, available, offset + 4).toInt(),
+                                        readU32(batch, base, available, offset + 8).toInt(),
+                                        if (length >= 16) readU32(batch, base, available, offset + 12).toInt() else 0,
+                                        ByteArray(0),
+                                        malformed = "an EditCodeGroup record is $length bytes, not 24",
+                                    ),
+                                )
+                            }
+                            requireRecordLength(length, 24, offset)
+                        }
+                        val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                        val requestId = readU32(batch, base, available, offset + 8).toInt()
+                        val baseVersion = readU32(batch, base, available, offset + 12).toInt()
+                        val edits = try {
+                            readBytes(batch, base, available, offset + 16)
+                        } catch (error: ProtocolException) {
+                            onMutation(
+                                Mutation.EditCodeGroup(
+                                    nodeId,
+                                    requestId,
+                                    baseVersion,
+                                    ByteArray(0),
+                                    malformed = "an EditCodeGroup record names edits outside the batch",
+                                ),
+                            )
+                            throw error
+                        }
+                        Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
+                        )
+                    }
+                    TAG_QUERY_POSITION_RECT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.QueryPositionRect(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            request = readU32(batch, base, available, offset + 8).toInt(),
+                            line = readU32(batch, base, available, offset + 12).toInt(),
+                            column = readU32(batch, base, available, offset + 16).toInt(),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
@@ -1194,12 +1386,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -1445,10 +1648,23 @@ object Protocol {
             }
             EventPayloadType::None
             | EventPayloadType::ScrollChanged
-            | EventPayloadType::NativeViewParent => {
+            | EventPayloadType::NativeViewParent
+            | EventPayloadType::CodeCaretRect
+            | EventPayloadType::CodePositionRect
+            | EventPayloadType::CodePointer
+            | EventPayloadType::CodeEditGroupResult => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
+                    event.name
+                )
+                .unwrap();
+            }
+            // The selections as little-endian words behind the record.
+            EventPayloadType::CodeSelections => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also {{ buffer -> for (value in event.selections) buffer.putInt(value) }}.array()",
                     event.name
                 )
                 .unwrap();
@@ -1472,6 +1688,7 @@ object Protocol {
             | EventPayloadType::Decoration
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
+            | EventPayloadType::ColorScheme
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1482,6 +1699,7 @@ object Protocol {
             | EventPayloadType::WindowMove
             | EventPayloadType::WindowDrag
             | EventPayloadType::WindowDragOver
+            | EventPayloadType::MotionFinished
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1519,6 +1737,7 @@ object Protocol {
             EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            EventPayloadType::ColorScheme => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1547,6 +1766,16 @@ object Protocol {
             EventPayloadType::ScrollChanged => 72,
             // The handle, the kind and a reserved half word, then the scale.
             EventPayloadType::NativeViewParent => 32,
+            // Two floats after the header.
+            EventPayloadType::MotionFinished => 24,
+            // Two words and four floats.
+            EventPayloadType::CodeCaretRect | EventPayloadType::CodePositionRect => 40,
+            // The pointer record and two words.
+            EventPayloadType::CodePointer => 80,
+            // Five words.
+            EventPayloadType::CodeEditGroupResult => 36,
+            // The version, then the selections' reference.
+            EventPayloadType::CodeSelections => 28,
         };
         writeln!(
             output,
@@ -1733,7 +1962,14 @@ object Protocol {
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
-            EventPayloadType::Pointer => {
+            EventPayloadType::ColorScheme => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str(
+                    "                    out.putInt(systemColorSchemeTag(event.scheme))\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
                 output.push_str("                    out.putInt(event.pointerId)\n");
@@ -1752,6 +1988,28 @@ object Protocol {
                     "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
                 );
                 output.push_str("                    out.putLong(event.timestampNanos)\n");
+                if event.payload == EventPayloadType::CodePointer {
+                    output.push_str("                    out.putInt(event.line)\n");
+                    output.push_str("                    out.putInt(event.column)\n");
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSelections => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.version)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeEditGroupResult => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.requestId)\n");
+                output
+                    .push_str("                    out.putInt(editGroupStatusTag(event.status))\n");
+                for field in ["baseVersion", "currentVersion", "index"] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeSelection => {
@@ -1866,6 +2124,12 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
+            EventPayloadType::MotionFinished => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.widthDp)\n");
+                output.push_str("                    out.putFloat(event.heightDp)\n");
+                output.push_str("                }\n");
+            }
             EventPayloadType::ScrollChanged => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.item)\n");
@@ -1884,6 +2148,28 @@ object Protocol {
                 output.push_str("                    out.putShort(event.kind.toShort())\n");
                 output.push_str("                    out.putShort(0)\n");
                 output.push_str("                    out.putFloat(event.scale)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeCaretRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.line)\n");
+                output.push_str("                    out.putInt(event.column)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(output, "                    out.putFloat(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodePositionRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(if (event.found) 1 else 0)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(
+                        output,
+                        "                    out.putFloat(if (event.found) event.{field} else 0f)"
+                    )
+                    .unwrap();
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::FileHandles => {
@@ -2089,6 +2375,12 @@ object Protocol {
             crate::schema::FILE_DELIVERY_SCHEMA,
         ),
         ("ioStatusTag", "IoStatus", crate::schema::IO_STATUS_SCHEMA),
+        // What became of a grouped edit, which only the Renderer can know.
+        (
+            "editGroupStatusTag",
+            "EditGroupStatus",
+            crate::schema::EDIT_GROUP_STATUS_SCHEMA,
+        ),
     ] {
         writeln!(
             output,
@@ -2116,6 +2408,11 @@ object Protocol {
             "reducedMotionTag",
             "ReducedMotion",
             crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+        (
+            "systemColorSchemeTag",
+            "SystemColorScheme",
+            crate::schema::SYSTEM_COLOR_SCHEME_SCHEMA,
         ),
         (
             "pointerKindTag",
@@ -2794,7 +3091,33 @@ pub fn spans_vector() -> crate::spans::TextSpans {
 /// is one a byte count or a character count would get wrong.
 pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
 
-/// One decoration of each kind, with a colour role on one of them and text on two.
+/// The snippet in the mutation vector.
+pub const CODE_SNIPPET_VECTOR: &str = "} // ${1:name} = ${1:name}, ${2|한,😀|} \\$5$0";
+
+/// The grouped edit in the mutation vector, against [`CODE_VECTOR_TEXT`] after the vector's
+/// single edit put `mut ` in front of the name: the first word becomes `pub fn` and the
+/// emoji, a surrogate pair, becomes another one. Listed back to front, which a group may be.
+pub const CODE_EDIT_GROUP_VECTOR: &[(u32, u32, u32, u32, &str)] =
+    &[(1, 17, 1, 19, "🎉"), (0, 0, 0, 2, "pub fn")];
+
+fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
+    use crate::code::CodeRange;
+    let edits: Vec<(CodeRange, &str)> = CODE_EDIT_GROUP_VECTOR
+        .iter()
+        .map(|&(start_line, start_column, end_line, end_column, text)| {
+            (
+                CodeRange::of(start_line, start_column, end_line, end_column),
+                text,
+            )
+        })
+        .collect();
+    let mut bytes = Vec::new();
+    crate::code::encode_edit_group(&edits, &mut bytes)?;
+    Ok(bytes)
+}
+
+/// One decoration of each kind, with a colour role on one of them and text on two, and the
+/// two backgrounds after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -2804,6 +3127,8 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::code_lens(0, 0, "Run", 41),
         Decoration::hover_anchor(0, CodeRange::of(0, 3, 0, 7), 42),
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
+        Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
+        Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
     ])
 }
 
@@ -2821,6 +3146,36 @@ fn code_span_vector() -> crate::code::SyntaxSpans {
 fn code_fold_vector() -> crate::code::Folds {
     use crate::code::Fold;
     crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
+}
+
+/// The selections of the mutation vector's `SetSelections`.
+pub const CODE_SELECTIONS_VECTOR: &[(u32, u32, u32, u32)] =
+    &[(0, 3, 0, 7), (1, 12, 1, 8), (2, 0, 2, 0)];
+
+fn code_selections_vector() -> Vec<u8> {
+    let selections: Vec<_> = CODE_SELECTIONS_VECTOR
+        .iter()
+        .map(
+            |&(anchor_line, anchor_column, active_line, active_column)| {
+                (
+                    crate::code::Position::new(anchor_line, anchor_column),
+                    crate::code::Position::new(active_line, active_column),
+                )
+            },
+        )
+        .collect();
+    let mut bytes = Vec::new();
+    crate::code::encode_selections(&selections, &mut bytes);
+    bytes
+}
+
+/// Two view zones, one of them with text that is not ASCII and one half a row high.
+fn code_view_zone_vector() -> crate::code::ViewZones {
+    use crate::code::ViewZone;
+    crate::code::ViewZones::new([
+        ViewZone::new(0, 2.0).with_text("− 2줄"),
+        ViewZone::new(1, 0.5),
+    ])
 }
 
 fn code_gutter_vector() -> crate::code::GutterDecorations {
@@ -2961,6 +3316,14 @@ fn floats_le(values: &[f32]) -> Vec<u8> {
         .collect()
 }
 
+/// The three font features the mutation vector's text carries: tabular figures on,
+/// ligatures off, and a character variant whose value needs more than one byte.
+pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
+    crate::font_features::FontFeature::TABULAR_NUMS,
+    crate::font_features::FontFeature::NO_LIGATURES,
+    crate::font_features::FontFeature::new(b"cv01", 0x0102),
+];
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -2971,6 +3334,10 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_size = floats_le(&[800.0, 600.0]);
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
+    let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let edit_group = code_edit_group_vector()?;
+    let view_zones = code_view_zone_vector();
+    let code_selections = code_selections_vector();
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3211,6 +3578,21 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             text: "삭제했습니다",
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
+            placement: None,
+            offset_dp: None,
+        },
+        // And one that names where it goes: two placement tags and an offset after the
+        // fields every message has.
+        Mutation::ShowMessage {
+            handler_id: 0,
+            text: "복사했습니다",
+            action: "",
+            duration: crate::schema::MessageDuration::Short,
+            placement: Some(crate::schema::MessagePlacement {
+                vertical: crate::schema::MessageVertical::Bottom,
+                horizontal: crate::schema::MessageHorizontal::Center,
+            }),
+            offset_dp: Some(96.0),
         },
         // The three notification commands: six string references and two closed enums, one
         // string reference, and a bare header that is the shortest record on the wire.
@@ -3689,6 +4071,105 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // The width a split pane stacks below, with a fraction so that a value read from
+        // the wrong half of the record cannot pass.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::CollapseBelow,
+            value: PropertyValue::Float(720.5),
+        },
+        // A question about where a place on the editor's second line is, after its scroll
+        // command.
+        Mutation::QueryPositionRect {
+            node_id: 12,
+            request: 17,
+            line: 1,
+            column: 8,
+        },
+        // The overlay tokens with every field set to its own value, the transient
+        // message's two at the end of the record, before the record that stays last.
+        Mutation::SetOverlayTokens(
+            crate::schema::OverlayTokens::new()
+                .sheet_corner_radius(24)
+                .dialog_corner_radius(16)
+                .popup_corner_radius(12)
+                .sheet_elevation(8)
+                .popup_elevation(4)
+                .dialog_elevation(6)
+                .sheet_padding(20)
+                .dialog_padding(18)
+                .popup_padding(10)
+                .scrim_argb(0x8000_0000)
+                .toast_elevation(7)
+                .toast_corner_radius(14),
+        ),
+        // A text with three font features, one of them a value above one byte, after
+        // every older record but the last.
+        Mutation::Create {
+            node_id: 22,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::FontFeatureSettings,
+            value: PropertyValue::Bytes(&font_features),
+        },
+        // The code editor's grouped edit and the handler it answers, before the record
+        // that stays last: the first word of the document and the emoji, written against
+        // the version the single edit above produced, so a reader that takes a pair of
+        // UTF-16 units for one character, or counts text offsets from the wrong place,
+        // reads a different group.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::OnEditGroupResult,
+            value: PropertyValue::Integer(32),
+        },
+        Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 8,
+            base_version: 1,
+            edits: &edit_group,
+        },
+        // The editor's minimap, on the right.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Minimap,
+            value: PropertyValue::Integer(i64::from(u16::from(crate::schema::MinimapSide::Right))),
+        },
+        // Three selections of the editor, the second made backwards, so a reader that takes
+        // the anchor for the active end or reads a record of the wrong length sees others.
+        Mutation::SetSelections {
+            node_id: 12,
+            base_version: 1,
+            selections: &code_selections,
+        },
+        // A snippet over the editor's closing brace, with a placeholder, a mirror of it, a
+        // choice, an escaped dollar sign and a final stop, so a reader that drops a byte of
+        // the text or reads the range from the wrong place reads another snippet.
+        Mutation::InsertSnippet {
+            node_id: 12,
+            base_version: 3,
+            start_line: 2,
+            start_column: 0,
+            end_line: 2,
+            end_column: 1,
+            snippet: CODE_SNIPPET_VECTOR,
+        },
+        // Its word wrap: at forty columns or the edge of the view, whichever comes first, so a
+        // reader that reads the mode and the columns from the wrong bits reads another rule.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::WordWrap,
+            value: PropertyValue::Integer(crate::code::WordWrap::Bounded(40).to_value()),
+        },
+        // Its view zones: two rows after the first line with text in them, and a half-row
+        // after the second with none, so a reader that takes the height for a whole number
+        // or reads the text from the wrong place reads different zones.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::ViewZones,
+            value: PropertyValue::Bytes(view_zones.as_bytes()),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -3699,25 +4180,25 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
         // focus given to it. After every older record, so none of them moves. The handle
         // fills both halves of its `u64`, so a reader that takes a word cannot pass.
         Mutation::Create {
-            node_id: 22,
+            node_id: 23,
             widget: WidgetKind::NativeView,
         },
         Mutation::SetProp {
-            node_id: 22,
+            node_id: 23,
             property: PropertyKind::NativeVisible,
             value: PropertyValue::Bool(false),
         },
         Mutation::SetProp {
-            node_id: 22,
+            node_id: 23,
             property: PropertyKind::OnNativeViewFocus,
             value: PropertyValue::Integer(301),
         },
         Mutation::AttachNativeView {
-            node_id: 22,
+            node_id: 23,
             handle: crate::schema::NativeHandle(NATIVE_VIEW_VECTOR_HANDLE),
         },
         Mutation::FocusNativeView {
-            node_id: 22,
+            node_id: 23,
             focus: true,
         },
     ];
@@ -3757,6 +4238,7 @@ pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
+    let selections = code_selections_vector();
     let events = [
         HostEvent {
             node_id: 7,
@@ -4109,6 +4591,84 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // A node's size motion settled, after everything that was here before.
+        HostEvent {
+            node_id: 14,
+            handler_id: 30,
+            payload: EventPayload::MotionFinished {
+                width_dp: 240.5,
+                height_dp: 0.0,
+            },
+        },
+        // The caret's rectangle and the answer to the position query in the mutation
+        // vector, each with fractions a reader of the wrong width cannot pass.
+        HostEvent {
+            node_id: 12,
+            handler_id: 30,
+            payload: EventPayload::CaretRect {
+                line: 1,
+                column: 8,
+                rect: crate::code::CodeRect::new(120.5, 64.25, 2.0, 20.0),
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 0,
+            payload: EventPayload::PositionRect {
+                request: 17,
+                rect: Some(crate::code::CodeRect::new(88.75, 64.25, 2.0, 20.0)),
+            },
+        },
+        // A Cmd-click over the emoji's column on the editor's second line.
+        HostEvent {
+            node_id: 12,
+            handler_id: 31,
+            payload: EventPayload::CodePointer {
+                kind: crate::schema::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: crate::schema::PointerType::Mouse,
+                x: 96.5,
+                y: 30.25,
+                buttons: 1,
+                button: 1,
+                modifiers: 8,
+                click_count: 1,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: crate::schema::WheelDeltaMode::Pixel,
+                timestamp_nanos: 123_456_789_000,
+                position: Some(crate::code::Position::new(1, 13)),
+            },
+        },
+        // What became of the grouped edit in the mutation vector: both of its edits went
+        // in, so the version moved two past the one it was written against.
+        HostEvent {
+            node_id: 12,
+            handler_id: 32,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: crate::schema::EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 3,
+                index: 2,
+            },
+        },
+        // The system appearance turning dark, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ColorSchemeChanged(crate::schema::SystemColorScheme::Dark),
+        },
+        // Every selection of the editor the mutation vector set, a caret and a selection made
+        // backwards, to its selection listener.
+        HostEvent {
+            node_id: 12,
+            handler_id: 33,
+            payload: EventPayload::SelectionsChanged {
+                version: 4,
+                selections: &selections,
+            },
+        },
         // The window a platform view is made in, and that view taking focus.
         HostEvent {
             node_id: 20,
@@ -4120,7 +4680,7 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             },
         },
         HostEvent {
-            node_id: 22,
+            node_id: 23,
             handler_id: 301,
             payload: EventPayload::NativeViewFocus { focused: true },
         },
@@ -4143,7 +4703,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 125,
+    "recordCount": 134,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4165,7 +4725,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-four independently decodable event records concatenated in schema order",
+    "description": "Fifty-one independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4209,8 +4769,15 @@ pub fn generate_vector_description() -> String {
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
       {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
-      {{ "type": "NativeViewParent", "offset": 1439, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1471, "length": 24, "nodeId": 22, "handlerId": 301, "focused": true }}
+      {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
+      {{ "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
+      {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
+      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
+      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
+      {{ "type": "NativeViewParent", "offset": 1755, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1787, "length": 24, "nodeId": 23, "handlerId": 301, "focused": true }}
     ]
   }}
 }}
@@ -4560,10 +5127,10 @@ object SpanRecords {
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
         CODE_EDITOR_COLORS_RECORD, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
-        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD,
+        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD, VIEW_ZONE_RECORD,
     };
 
-    let records: [(RecordSchema, &str, &str); 5] = [
+    let records: [(RecordSchema, &str, &str); 6] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -4597,6 +5164,13 @@ fn write_code_editor_records(output: &mut String) {
             "decodeCodeEditorColors",
             "The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour.",
         ),
+        (
+            VIEW_ZONE_RECORD,
+            "decodeViewZones",
+            "Room after a line of a code editor that is not text, `heightLines` rows high, \
+             with `text` drawn dimmed in it. `afterLine` is in the document as it is when the \
+             list arrives.",
+        ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
         match ty {
@@ -4607,6 +5181,7 @@ fn write_code_editor_records(output: &mut String) {
             }
             RecordFieldType::Paint => "Paint".to_owned(),
             RecordFieldType::Flag => "Boolean".to_owned(),
+            RecordFieldType::F32 => "kotlin.Float".to_owned(),
             RecordFieldType::Text => "String".to_owned(),
         }
     };
@@ -4627,13 +5202,79 @@ fn write_code_editor_records(output: &mut String) {
 
     output.push_str(
         r#"/**
+ * One edit of a grouped edit: a range of the document as it stood at the group's base
+ * version, and the text that replaces it.
+ */
+data class CodeEditRecord(
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val text: String,
+)
+
+/**
  * Reads the blobs a code editor carries.
  *
  * A record that cannot be read, a kind or a role this side does not know or a text that
  * points outside the blob, is reported through `onError` and left out. The rest of the list
- * is read regardless.
+ * is read regardless. A grouped edit is the exception: it goes in whole or not at all, so a
+ * blob with anything wrong in it is not read at all.
  */
 object CodeEditorRecords {
+    const val CODE_EDIT_LENGTH = 24
+
+    /**
+     * The edits of an `EditCodeGroup`, in the order they were sent, or null, with the
+     * reason given to [onError], where the blob is not one.
+     *
+     * The blob is a count, then one 24-byte record per edit (the range, then the text's
+     * offset and length), then the texts. A text's offset counts from the start of the
+     * texts. A count the blob is too short for, a text outside it or not UTF-8, or bytes
+     * after the last text make the blob unreadable.
+     */
+    fun decodeEditGroup(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditRecord>? {
+        if (bytes.size < 4) {
+            onError("a grouped edit is ${bytes.size} bytes, too short for its count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0).toLong() and 0xffff_ffffL
+        val textsStart = 4L + count * CODE_EDIT_LENGTH
+        if (textsStart > bytes.size) {
+            onError("a grouped edit says it has $count edits and is ${bytes.size} bytes")
+            return null
+        }
+        val edits = ArrayList<CodeEditRecord>(count.toInt())
+        var textsEnd = textsStart
+        for (index in 0 until count.toInt()) {
+            val at = 4 + index * CODE_EDIT_LENGTH
+            val start = textsStart + (buffer.getInt(at + 16).toLong() and 0xffff_ffffL)
+            val length = buffer.getInt(at + 20).toLong() and 0xffff_ffffL
+            if (start + length > bytes.size) {
+                onError("edit $index of a grouped edit names text outside it")
+                return null
+            }
+            val text = textOf(bytes, start.toInt(), length.toInt()) ?: run {
+                onError("edit $index of a grouped edit has text that is not UTF-8")
+                return null
+            }
+            textsEnd = maxOf(textsEnd, start + length)
+            edits += CodeEditRecord(
+                buffer.getInt(at),
+                buffer.getInt(at + 4),
+                buffer.getInt(at + 8),
+                buffer.getInt(at + 12),
+                text,
+            )
+        }
+        if (textsEnd != bytes.size.toLong()) {
+            onError("a grouped edit has ${bytes.size - textsEnd} bytes after its last text")
+            return null
+        }
+        return edits
+    }
+
 "#,
     );
     for (schema, function, _) in records {
@@ -4642,6 +5283,7 @@ object CodeEditorRecords {
             "FoldRecord" => "FOLD_LENGTH",
             "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
             "CodeEditorColorsRecord" => "CODE_EDITOR_COLORS_LENGTH",
+            "ViewZoneRecord" => "VIEW_ZONE_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -4768,6 +5410,14 @@ object CodeEditorRecords {
                         output,
                         "        val {} = when (buffer.getInt(offset + {at})) {{ 0 -> false; 1 -> true; else -> run {{ onError(\"record $index has a {} that is neither 0 nor 1\"); return null }} }}",
                         field.name, field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::F32 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getFloat(offset + {at})",
+                        field.name
                     )
                     .unwrap();
                 }
@@ -5735,11 +6385,13 @@ fn screaming_snake_case(name: &str) -> String {
 // ---------------------------------------------------------------------------------------
 // Web bindings.
 //
-// Three files, one table. The Kotlin forwarder declarations, the page's loader module and
-// the Rust wasm shims are renderings of `BOUNDARY_SCHEMA` and of the memory constants
-// beside it, so the argument order, the symbol names and the record layout cannot drift
-// apart. A browser would not report the drift: an import that nobody satisfies stops the
-// module from being instantiated, and an offset read four bytes off draws a wrong screen.
+// Four renderings of one table. The Kotlin import declarations, the trampoline module, the
+// page's loader module and the Rust wasm shims all come from `BOUNDARY_SCHEMA` and the
+// memory constants beside it, so the argument order, the symbol names, the table slots and
+// the record layout cannot drift apart. A browser would not report the drift: an import
+// that nobody satisfies stops the module from being instantiated, a slot holding the wrong
+// function traps on a signature mismatch at the first frame, and an offset read four bytes
+// off draws a wrong screen.
 // ---------------------------------------------------------------------------------------
 
 /// Generated Rust, compiled into the cdylib only when the target is wasm.
@@ -5748,6 +6400,21 @@ pub const WASM_RUST_RELATIVE_PATH: &str = "src/boundary_wasm.gen.rs";
 pub const WEB_BRIDGE_RELATIVE_PATH: &str = "../renderer/web/src/bridge/HostBridge.gen.kt";
 /// Generated JavaScript, in the module's resource tree, which is copied next to `web.mjs`.
 pub const WEB_LOADER_RELATIVE_PATH: &str = "../renderer/web/resources/compose-rust-host.gen.mjs";
+/// The same loader beside the test page.
+///
+/// The Kotlin module imports the loader by a relative module name, so a page that has the
+/// Kotlin module and not the loader does not load at all. The page a Kotlin/Wasm test runs
+/// on is generated by the toolchain from `testResources`, so the loader has to be there as
+/// well, or every test in the module stops before it starts.
+pub const WEB_TEST_LOADER_RELATIVE_PATH: &str =
+    "../renderer/web/testResources/compose-rust-host.gen.mjs";
+
+/// The loader's file name, which is also the module name the Kotlin imports name.
+///
+/// Kotlin/Wasm turns `@WasmImport("<module>", ...)` into `import * as ... from '<module>'`
+/// in the JavaScript it generates beside its own module, so a relative name resolves to the
+/// file next to that one, which is where the loader is copied.
+pub const WEB_LOADER_FILE_NAME: &str = "compose-rust-host.gen.mjs";
 
 const WEB_KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.ui.platform";
 
@@ -5764,8 +6431,8 @@ pub const WEB_MEMORY_MIN_PAGES: u32 = 128;
 
 /// The wasm symbol for one logical operation on the web.
 ///
-/// Every argument is an `i32`, because that is what crosses a JavaScript forwarder without
-/// anything being built to carry it.
+/// The Host exports it, the trampoline exports a function of the same name and type that
+/// calls it through the table, and the Kotlin import names it.
 fn web_symbol(op_name: &str) -> String {
     format!("compose_rust_host_web_{}", snake_case(op_name))
 }
@@ -5775,29 +6442,230 @@ fn web_kotlin_name(op_name: &str) -> String {
     format!("host{op_name}")
 }
 
-/// The arguments one operation takes on the web, in order, as (name, Kotlin type).
+/// The width of one value that crosses the web boundary.
 ///
-/// A byte range is an address and a length. A frame timestamp is split into its low and
-/// high halves rather than passed as a `Long`, because a `Long` reaches JavaScript as a
-/// `BigInt`, and that is a heap allocation on the one call that happens every frame.
-fn web_parameters(op: &BoundaryOp) -> Vec<String> {
+/// Every call is wasm to wasm, so a value crosses as the wasm type it already is. A 64-bit
+/// frame timestamp is one `i64` rather than two halves: nothing on the path is JavaScript,
+/// so nothing turns it into a `BigInt`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WebValue {
+    I32,
+    I64,
+}
+
+impl WebValue {
+    fn kotlin(self) -> &'static str {
+        match self {
+            Self::I32 => "Int",
+            Self::I64 => "Long",
+        }
+    }
+
+    fn rust(self) -> &'static str {
+        match self {
+            Self::I32 => "u32",
+            Self::I64 => "u64",
+        }
+    }
+
+    fn wasm(self) -> u8 {
+        match self {
+            Self::I32 => WASM_I32,
+            Self::I64 => WASM_I64,
+        }
+    }
+}
+
+/// The arguments one operation takes on the web, in order, as (name, width).
+///
+/// A byte range is an address and a length, both in the one shared memory. A call that
+/// answers with a batch, and the one that releases it, also name the record to write it
+/// into. Every operation answers with an `i32` status.
+fn web_parameters(op: &BoundaryOp) -> Vec<(String, WebValue)> {
     let mut parameters = Vec::new();
     for param in op.params {
         match param {
             BoundaryParam::Bytes { name } => {
-                parameters.push((*name).to_owned());
-                parameters.push(format!("{name}Length"));
+                parameters.push(((*name).to_owned(), WebValue::I32));
+                parameters.push((format!("{name}Length"), WebValue::I32));
             }
             BoundaryParam::Nanos { name } => {
-                parameters.push(format!("{name}Low"));
-                parameters.push(format!("{name}High"));
+                parameters.push(((*name).to_owned(), WebValue::I64));
             }
         }
     }
     if op.returns_batch || op.name == "ReleaseBatch" {
-        parameters.push("out".to_owned());
+        parameters.push(("out".to_owned(), WebValue::I32));
     }
     parameters
+}
+
+/// One function the trampoline carries: the Host export its slot holds, and what it takes.
+struct WebCall {
+    symbol: String,
+    parameters: Vec<(String, WebValue)>,
+}
+
+/// Every Renderer to Host call, in the order of the trampoline's slots.
+///
+/// The boundary operations come first, in the order of `BOUNDARY_SCHEMA`, so an operation's
+/// slot is its place in that table. After them comes the one setup call the Renderer makes
+/// once the Host is running: borrowing a larger event buffer. It is not a boundary
+/// operation, but it is still a call from the Renderer into the Host, and it goes through
+/// the same table so that no call from this side has JavaScript on it.
+fn web_calls() -> Vec<WebCall> {
+    let mut calls: Vec<WebCall> = BOUNDARY_SCHEMA
+        .iter()
+        .map(|op| WebCall {
+            symbol: web_symbol(op.name),
+            parameters: web_parameters(op),
+        })
+        .collect();
+    calls.push(WebCall {
+        symbol: WEB_LEND_EVENT_BUFFER_SYMBOL.to_owned(),
+        parameters: vec![("minLength".to_owned(), WebValue::I32)],
+    });
+    calls
+}
+
+const WASM_I32: u8 = 0x7F;
+const WASM_I64: u8 = 0x7E;
+const WASM_FUNCREF: u8 = 0x70;
+
+fn wasm_uleb(mut value: u32, output: &mut Vec<u8>) {
+    loop {
+        let byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value == 0 {
+            output.push(byte);
+            return;
+        }
+        output.push(byte | 0x80);
+    }
+}
+
+fn wasm_sleb(mut value: i32, output: &mut Vec<u8>) {
+    loop {
+        let byte = (value & 0x7F) as u8;
+        value >>= 7;
+        let done = (value == 0 && byte & 0x40 == 0) || (value == -1 && byte & 0x40 != 0);
+        if done {
+            output.push(byte);
+            return;
+        }
+        output.push(byte | 0x80);
+    }
+}
+
+fn wasm_name(name: &str, output: &mut Vec<u8>) {
+    wasm_uleb(name.len() as u32, output);
+    output.extend_from_slice(name.as_bytes());
+}
+
+fn wasm_section(id: u8, payload: &[u8], output: &mut Vec<u8>) {
+    output.push(id);
+    wasm_uleb(payload.len() as u32, output);
+    output.extend_from_slice(payload);
+}
+
+/// The trampoline every Renderer to Host call goes through, as a wasm module.
+///
+/// It is what lets a Kotlin import reach a Rust export with no JavaScript on the call. The
+/// Rust module imports the memory the Kotlin module defines, so Kotlin is instantiated
+/// first, and at that moment there is no Rust export to hand its imports. Kotlin/Wasm
+/// cannot declare an imported table, so it cannot call through one itself. This module
+/// can: it imports `env.table`, and for every call exports a function of the call's own
+/// type that passes its arguments on with `call_indirect` through the call's slot, which is
+/// its place in [`web_calls`]. Kotlin imports these, and the Renderer's `main` fills the
+/// slots with the Host's exports once the Host exists. A call is then one wasm `call` and
+/// one `call_indirect`.
+///
+/// It is assembled here byte by byte rather than by a tool, because it is a few hundred
+/// bytes and has to follow the schema exactly, and the generator already has the schema.
+pub fn generate_web_trampoline_wasm() -> Vec<u8> {
+    // One type per distinct signature, and every operation's index into that list.
+    let calls = web_calls();
+    let mut signatures: Vec<Vec<u8>> = Vec::new();
+    let mut type_of: Vec<u32> = Vec::new();
+    for call in &calls {
+        let params: Vec<u8> = call
+            .parameters
+            .iter()
+            .map(|(_, value)| value.wasm())
+            .collect();
+        let index = match signatures.iter().position(|known| *known == params) {
+            Some(index) => index,
+            None => {
+                signatures.push(params);
+                signatures.len() - 1
+            }
+        };
+        type_of.push(index as u32);
+    }
+    let count = calls.len() as u32;
+
+    let mut types = Vec::new();
+    wasm_uleb(signatures.len() as u32, &mut types);
+    for params in &signatures {
+        types.push(0x60);
+        wasm_uleb(params.len() as u32, &mut types);
+        types.extend_from_slice(params);
+        // Every call answers with one i32: a status, or the address a lend hands back.
+        wasm_uleb(1, &mut types);
+        types.push(WASM_I32);
+    }
+
+    // (import "env" "table" (table <count> funcref))
+    let mut imports = Vec::new();
+    wasm_uleb(1, &mut imports);
+    wasm_name("env", &mut imports);
+    wasm_name("table", &mut imports);
+    imports.push(0x01);
+    imports.push(WASM_FUNCREF);
+    imports.push(0x00);
+    wasm_uleb(count, &mut imports);
+
+    let mut functions = Vec::new();
+    wasm_uleb(count, &mut functions);
+    for index in &type_of {
+        wasm_uleb(*index, &mut functions);
+    }
+
+    let mut exports = Vec::new();
+    wasm_uleb(count, &mut exports);
+    for (slot, call) in calls.iter().enumerate() {
+        wasm_name(&call.symbol, &mut exports);
+        exports.push(0x00);
+        wasm_uleb(slot as u32, &mut exports);
+    }
+
+    let mut code = Vec::new();
+    wasm_uleb(count, &mut code);
+    for (slot, call) in calls.iter().enumerate() {
+        let mut body = Vec::new();
+        // No locals beyond the parameters.
+        wasm_uleb(0, &mut body);
+        for parameter in 0..call.parameters.len() {
+            body.push(0x20); // local.get
+            wasm_uleb(parameter as u32, &mut body);
+        }
+        body.push(0x41); // i32.const
+        wasm_sleb(slot as i32, &mut body);
+        body.push(0x11); // call_indirect
+        wasm_uleb(type_of[slot], &mut body);
+        body.push(0x00); // table 0
+        body.push(0x0B); // end
+        wasm_uleb(body.len() as u32, &mut code);
+        code.extend_from_slice(&body);
+    }
+
+    let mut module = vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00];
+    wasm_section(1, &types, &mut module);
+    wasm_section(2, &imports, &mut module);
+    wasm_section(3, &functions, &mut module);
+    wasm_section(7, &exports, &mut module);
+    wasm_section(10, &code, &mut module);
+    module
 }
 
 /// The one call that is not a boundary operation: bringing the Host into being.
@@ -5809,6 +6677,10 @@ fn web_parameters(op: &BoundaryOp) -> Vec<String> {
 /// filled in before `main` runs. The page's part is the one thing this side cannot do,
 /// which is to finish an asynchronous fetch first.
 ///
+/// It is also where the trampoline's table is filled, and only once the Host has reported
+/// its block inside its own region. Until then every slot is empty, and a boundary call
+/// traps inside wasm rather than reaching a Host that could not start.
+///
 /// Keeping it in one place also means a test can drive it. The page a Kotlin/Wasm test runs
 /// on is generated by the toolchain and cannot load a module of its own, so a test puts a
 /// compiled module on the same global the loader would have used, and everything after
@@ -5818,9 +6690,9 @@ fn web_parameters(op: &BoundaryOp) -> Vec<String> {
 /// string, and a `${...}` in it would be read as Kotlin interpolation before JavaScript
 /// ever saw it.
 const INSTALL_HOST_KOTLIN: &str = r##"/**
- * Instantiates the Host on this module's memory and answers with the address of the block
- * it lends back: the record a call reports into, and the buffer an event is encoded in.
- * Zero means there is no Host on this page.
+ * Instantiates the Host on this module's memory, points the trampoline at it, and answers
+ * with the address of the block it lends back: the record a call reports into, and the
+ * buffer an event is encoded in. Zero means there is no Host on this page.
  *
  * Called once, from `main`. That is the first moment at which both halves exist: this
  * module's own instantiation created the memory the Host imports, and the page compiled the
@@ -5830,6 +6702,12 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
     """() => {
   const compiled = globalThis.MODULE_GLOBAL;
   if (!compiled) return 0;
+  const table = globalThis.TABLE_GLOBAL;
+  if (!table) {
+    throw new Error('compose-rust: the trampoline table is missing. The loader module ' +
+      'creates it, and this module imports the loader, so a page without it was not ' +
+      'built from the generated files.');
+  }
   const memory = wasmExports.memory;
   const pages = memory.buffer.byteLength / 65536;
   // This module's memory starts at zero pages and the Host's import declares a minimum,
@@ -5860,27 +6738,36 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
   }).exports;
-  globalThis.HOST_GLOBAL = host;
   const block = host.START_SYMBOL();
   if (block < REGION_BASE) {
     // Either the Host could not start, or its data landed in the half of the memory this
     // module's allocator uses. The second draws a wrong screen instead of failing, so
-    // neither is allowed to become the first boundary call.
-    globalThis.HOST_GLOBAL = undefined;
+    // neither is allowed to become the first boundary call: the table stays empty.
     throw new Error('compose-rust: the Host reported its boundary block at ' + block +
       ', which is not inside the region above REGION_BASE that it was linked into. ' +
       'Check that it was linked with --import-memory and --global-base.');
   }
-  return block;
+  // The trampoline's slots, in the order its functions call them. The exported function
+  // objects themselves, so a call through a slot is wasm to wasm.
+TABLE_SLOTS  return block;
 }""",
 )
 external fun installHost(): Int
 
 "##;
 
-/// Emits the Kotlin half of the web boundary: one forwarder per operation, the shared
-/// memory constants both sides read the batch record with, and the export a Host worker
-/// calls to ask for a frame.
+/// The lines that put the Host's exports into the trampoline's table, one per slot.
+fn web_table_slots() -> String {
+    let mut output = String::new();
+    for (slot, call) in web_calls().iter().enumerate() {
+        writeln!(output, "  table.set({slot}, host.{});", call.symbol).unwrap();
+    }
+    output
+}
+
+/// Emits the Kotlin half of the web boundary: one import per operation, bound to the
+/// trampoline, the shared memory constants both sides read the batch record with, and the
+/// export a Host worker calls to ask for a frame.
 pub fn generate_web_bridge_kotlin() -> String {
     let mut output = String::new();
     output.push_str("// Generated by `cargo run -p compose-rust --bin codegen`. DO NOT EDIT.\n");
@@ -5890,7 +6777,7 @@ pub fn generate_web_bridge_kotlin() -> String {
          kotlin.wasm.ExperimentalWasmInterop::class,\n)\n\n",
     );
     writeln!(output, "package {WEB_KOTLIN_PACKAGE}\n").unwrap();
-    output.push_str("import kotlin.wasm.WasmExport\n\n");
+    output.push_str("import kotlin.wasm.WasmExport\nimport kotlin.wasm.WasmImport\n\n");
     output.push_str(
         r#"// The web boundary.
 //
@@ -5898,15 +6785,17 @@ pub fn generate_web_bridge_kotlin() -> String {
 // because a Kotlin/Wasm module cannot import one, and the Host's module is linked against
 // it, so a batch is read where the Host wrote it and no byte of it is copied.
 //
-// Every call below goes through a JavaScript arrow function of a fixed shape, measured at
-// about 12ns. It is there because the two halves of the wiring cannot both be had: a wasm
-// import bound straight to a wasm export costs 1.5ns but has to be supplied before the
-// Kotlin module is instantiated, and the memory it would need to share does not exist
-// until that instantiation. The forwarder passes its arguments on and does nothing else:
-// no encoding, no copy, no queue.
+// Every call below is a wasm import, and no call has JavaScript on it. Each one is bound to
+// a function of the generated trampoline module, which passes its arguments on with
+// `call_indirect` through a table whose slots hold the Host's exports. The table is what
+// lets this module be instantiated before the Host exists, which it has to be, because the
+// Host imports this module's memory. The loader creates the table and the trampoline before
+// this module is instantiated; `installHost` fills the slots once the Host is running.
+// A call is one wasm `call` and one `call_indirect`: no encoding, no copy, no queue.
 //
-// The other direction has no JavaScript on it. The page hands the Host's instantiation the
-// function object Kotlin exports below, and the engine binds that edge as a wasm call.
+// The other direction needs no trampoline. The Host is instantiated second, so the page
+// hands it the function object Kotlin exports below, and the engine binds that edge as a
+// wasm call.
 
 "#,
     );
@@ -5983,20 +6872,23 @@ pub fn generate_web_bridge_kotlin() -> String {
     )
     .unwrap();
 
-    for op in BOUNDARY_SCHEMA {
-        let parameters = web_parameters(op);
-        let arguments = parameters.join(", ");
-        writeln!(output, "/** `{}`, which calls `{}`. */", op.name, op.symbol).unwrap();
+    for (slot, op) in BOUNDARY_SCHEMA.iter().enumerate() {
+        let declared: Vec<String> = web_parameters(op)
+            .iter()
+            .map(|(name, value)| format!("{name}: {}", value.kotlin()))
+            .collect();
         writeln!(
             output,
-            "@JsFun(\"({arguments}) => globalThis.{WEB_HOST_GLOBAL}.{}({arguments})\")",
+            "/** `{}`, which calls `{}` through slot {slot} of the trampoline. */",
+            op.name, op.symbol
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "@WasmImport(\"./{WEB_LOADER_FILE_NAME}\", \"{}\")",
             web_symbol(op.name)
         )
         .unwrap();
-        let declared: Vec<String> = parameters
-            .iter()
-            .map(|name| format!("{name}: Int"))
-            .collect();
         writeln!(
             output,
             "external fun {}({}): Int\n",
@@ -6014,17 +6906,20 @@ pub fn generate_web_bridge_kotlin() -> String {
          * this side goes on encoding into it. Zero means the Host refused.\n \
          *\n \
          * Setup, like starting the Host, rather than a boundary operation: it is called only\n \
-         * when an event outgrows the buffer, which steady state never does.\n \
+         * when an event outgrows the buffer, which steady state never does. It still goes\n \
+         * through slot {} of the trampoline, so it has no JavaScript on it either.\n \
          */\n\
-         @JsFun(\"(minLength) => globalThis.{WEB_HOST_GLOBAL}.{WEB_LEND_EVENT_BUFFER_SYMBOL}(minLength)\")\n\
-         external fun hostLendEventBuffer(minLength: Int): Int\n"
+         @WasmImport(\"./{WEB_LOADER_FILE_NAME}\", \"{WEB_LEND_EVENT_BUFFER_SYMBOL}\")\n\
+         external fun hostLendEventBuffer(minLength: Int): Int\n",
+        BOUNDARY_SCHEMA.len()
     )
     .unwrap();
 
     output.push_str(
         INSTALL_HOST_KOTLIN
             .replace("MODULE_GLOBAL", WEB_MODULE_GLOBAL)
-            .replace("HOST_GLOBAL", WEB_HOST_GLOBAL)
+            .replace("TABLE_GLOBAL", WEB_TABLE_GLOBAL)
+            .replace("TABLE_SLOTS", &web_table_slots())
             .replace("RENDERER_IMPORT_MODULE", WEB_RENDERER_IMPORT_MODULE)
             .replace("START_SYMBOL", WEB_START_SYMBOL)
             .replace("MEMORY_MIN_PAGES", &WEB_MEMORY_MIN_PAGES.to_string())
@@ -6060,34 +6955,67 @@ pub fn generate_web_bridge_kotlin() -> String {
     output
 }
 
-/// Emits the page's half, which is the one thing the Renderer's module cannot do for
-/// itself: finish an asynchronous fetch before `main` runs.
+/// Emits the page's half: the trampoline and its table, which have to exist before the
+/// Renderer's module is instantiated, and the Host compiled ahead of the Renderer's `main`.
 pub fn generate_web_loader_js() -> String {
     let mut output = String::new();
     output.push_str("// Generated by `cargo run -p compose-rust --bin codegen`. DO NOT EDIT.\n");
     output.push_str(
         r#"//
-// The page's half of the web boundary: compile the Host, and leave it where the Renderer
-// will look for it.
+// The page's half of the web boundary.
 //
 // `WebAssembly.instantiate` wants every import before it will give you an instance, and
 // the two modules each hold what the other needs. The Renderer's module defines the one
 // linear memory, which the Host imports; the Host exports the functions the Renderer
-// calls. Nothing inside wasm breaks that cycle, so the page breaks it by order:
+// calls. A table breaks that cycle without putting JavaScript on any call:
 //
-//   1. This module is evaluated before the Renderer's, because it comes first on the page,
-//      and compiles the Host. Compiling needs no imports.
-//   2. The Renderer's module is instantiated, which is what creates the memory.
-//   3. The Renderer's `main` instantiates the Host on that memory, and does it
-//      synchronously, because the module was already compiled in step 1.
+//   1. This module creates the table and instantiates the trampoline on it. The trampoline
+//      exports one function per boundary call, each a `call_indirect` through its slot.
+//      The Renderer's module imports this one by name, so it is always evaluated first.
+//   2. It compiles the Host. Compiling needs no imports.
+//   3. The Renderer's module is instantiated with its boundary imports bound to the
+//      trampoline's functions, which is what creates the memory.
+//   4. The Renderer's `main` instantiates the Host on that memory, synchronously, because
+//      the module was already compiled in step 2, and puts the Host's exports in the table.
 //
-// Only step 1 is here. Step 3 needs the memory and the Renderer's own exports, and only
-// the Renderer's module can name either, so it sits in the generated Kotlin beside the
-// forwarders.
+// JavaScript wires the modules together here and is not on any call afterwards. Step 4
+// needs the memory and the Renderer's own exports, and only the Renderer's module can name
+// either, so it sits in the generated Kotlin beside the imports.
 
 "#,
     );
     writeln!(output, "const HOST_WASM = './{WEB_HOST_WASM_NAME}';\n").unwrap();
+    writeln!(
+        output,
+        "// One slot per call into the Host: the boundary calls in the order of the boundary\n\
+         // schema, then the event buffer lend. Empty until the Host is running, so a call made\n\
+         // before then traps inside wasm.\n\
+         const table = new WebAssembly.Table({{ element: 'anyfunc', initial: {} }});\n\
+         globalThis.{WEB_TABLE_GLOBAL} = table;\n",
+        web_calls().len()
+    )
+    .unwrap();
+
+    output.push_str(
+        "// The trampoline module, assembled by the generator from the same schema.\n\
+         const trampoline = (\n  await WebAssembly.instantiate(\n    new Uint8Array([\n",
+    );
+    for chunk in generate_web_trampoline_wasm().chunks(12) {
+        let bytes: Vec<String> = chunk.iter().map(|byte| format!("0x{byte:02x}")).collect();
+        writeln!(output, "      {},", bytes.join(", ")).unwrap();
+    }
+    output.push_str("    ]),\n    { env: { table } },\n  )\n).instance.exports;\n\n");
+
+    output.push_str(
+        "// What the Renderer's module imports. Each is a wasm function, so the engine binds the\n\
+         // Renderer's import to it as a wasm call.\n",
+    );
+    for call in web_calls() {
+        let symbol = call.symbol;
+        writeln!(output, "export const {symbol} = trampoline.{symbol};").unwrap();
+    }
+    output.push('\n');
+
     writeln!(output, "globalThis.{WEB_MODULE_GLOBAL} = null;").unwrap();
     output.push_str("try {\n  globalThis.");
     output.push_str(WEB_MODULE_GLOBAL);
@@ -6118,13 +7046,13 @@ pub fn generate_wasm_rust() -> String {
         r#"//! The wasm shims for the web boundary.
 //!
 //! The Renderer owns the one linear memory and this module imports it, so a batch is read
-//! where it was written. That leaves the addresses: every argument below is an address or a
-//! length in that shared memory, and both buffers a call names belong to this side, because
-//! the Renderer has no allocator that can hold memory from one frame to the next.
+//! where it was written. That leaves the addresses: every address below is in that shared
+//! memory, and both buffers a call names belong to this side, because the Renderer has no
+//! allocator that can hold memory from one frame to the next.
 //!
-//! Every argument is 32 bits wide. A 64 bit one would reach the forwarder as a `BigInt`,
-//! which is a heap allocation on the call that happens every frame, so a frame timestamp
-//! arrives as its two halves and is put back together here.
+//! The Renderer reaches these through the generated trampoline, whose table holds them, so
+//! every call arrives from wasm with no JavaScript in between. A value arrives as the wasm
+//! type it is: an address or a length as an `i32`, a frame timestamp as one `i64`.
 
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
@@ -6344,10 +7272,9 @@ fn wasm_shim(op: &BoundaryOp) -> String {
     writeln!(output, "/// `{}`, which calls `{}`.", op.name, op.symbol).unwrap();
     output.push_str("#[unsafe(no_mangle)]\npub extern \"C\" fn ");
     write!(output, "{}(", web_symbol(op.name)).unwrap();
-    let parameters = web_parameters(op);
-    let declared: Vec<String> = parameters
+    let declared: Vec<String> = web_parameters(op)
         .iter()
-        .map(|name| format!("{}: u32", snake_case(name)))
+        .map(|(name, value)| format!("{}: {}", snake_case(name), value.rust()))
         .collect();
     writeln!(output, "{}) -> i32 {{", declared.join(", ")).unwrap();
 
@@ -6355,7 +7282,6 @@ fn wasm_shim(op: &BoundaryOp) -> String {
     // or written through, and a zero-length range names no address at all.
     let mut guards: Vec<String> = Vec::new();
     let mut arguments: Vec<String> = Vec::new();
-    let mut bindings: Vec<String> = Vec::new();
     for param in op.params {
         match param {
             BoundaryParam::Bytes { name } => {
@@ -6366,12 +7292,6 @@ fn wasm_shim(op: &BoundaryOp) -> String {
                 arguments.push(length);
             }
             BoundaryParam::Nanos { name } => {
-                let low = snake_case(&format!("{name}Low"));
-                let high = snake_case(&format!("{name}High"));
-                bindings.push(format!(
-                    "    let {} = (u64::from({high}) << 32) | u64::from({low});",
-                    snake_case(name)
-                ));
                 arguments.push(snake_case(name));
             }
         }
@@ -6391,9 +7311,6 @@ fn wasm_shim(op: &BoundaryOp) -> String {
         };
         writeln!(output, "    if !({condition}) {{").unwrap();
         output.push_str("        return STATUS_PROTOCOL_ERROR;\n    }\n");
-    }
-    for binding in bindings {
-        writeln!(output, "{binding}").unwrap();
     }
 
     let call = format!("crate::boundary::{}({})", op.symbol, arguments.join(", "));

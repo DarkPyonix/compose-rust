@@ -16,17 +16,17 @@
         </circle>
     </svg>
     <!--
-      The Host, compiled before the renderer's own module is evaluated.
-
-      Module scripts run in the order they appear, and this one has a top level await, so
-      by the time the renderer starts the Host's module is compiled and waiting. It cannot
-      be instantiated yet: it imports the linear memory, and that memory does not exist
-      until the renderer's module is instantiated. The renderer's `main` closes the circle.
+      The Host's loader, `compose-rust-host.gen.mjs`, has no script tag of its own. The
+      renderer's module imports it by name, because its boundary calls are wasm imports bound
+      to the trampoline the loader creates, so the loader is always evaluated first. By the
+      time the renderer starts, the trampoline exists and the Host's module is compiled and
+      waiting. It cannot be instantiated yet: it imports the linear memory, and that memory
+      does not exist until the renderer's module is instantiated. The renderer's `main`
+      closes the circle and puts the Host's exports in the trampoline's table.
 
       A page with no Host beside it still comes up. The loader says so on the console and
       the renderer draws its development host.
     -->
-    <script src="compose-rust-host.gen.mjs" type="module"></script>
     {{kotlin.scripts}}
 </body>
 </html>

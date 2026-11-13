@@ -6,11 +6,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -18,7 +21,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -28,10 +33,12 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -40,6 +47,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -58,7 +66,10 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.MinimapSide
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
@@ -78,7 +89,34 @@ private class LineView(
     val caretAt: IntArray,
     /** Where source character `c` itself starts, after anything shown in front of it. */
     val charAt: IntArray,
+    /** The columns the rows after the first start at, where the line breaks onto more than one. */
+    val breaks: IntArray = IntArray(0),
 ) {
+    /** How many rows the line is drawn on. */
+    val rows: Int get() = breaks.size + 1
+
+    /** The column row [row] starts at. */
+    fun rowStart(row: Int): Int = if (row <= 0) 0 else breaks[row - 1]
+
+    /** The column row [row] ends at: where the next row starts, or the end of the line. */
+    fun rowEnd(row: Int): Int = if (row < breaks.size) breaks[row] else caretAt.size - 1
+
+    /** How far into the laid-out line row [row] starts: drawing it shifts the line left by this. */
+    fun rowX(row: Int): Float = if (row <= 0) 0f else caretX(breaks[row - 1])
+
+    /**
+     * The row a caret at [column] is on: the row that starts there, or, with [atRowEnd], the
+     * row that ends there.
+     */
+    fun rowOf(column: Int, atRowEnd: Boolean = false): Int {
+        var row = 0
+        while (row < breaks.size && (breaks[row] < column || (breaks[row] == column && !atRowEnd))) row += 1
+        return row
+    }
+
+    /** The column on row [row] nearest to [x], measured from the row's own left edge. */
+    fun columnOnRow(row: Int, x: Float): Int = column(x + rowX(row)).coerceIn(rowStart(row), rowEnd(row))
+
     fun caretX(column: Int): Float =
         layout.getHorizontalPosition(caretAt[column.coerceIn(0, caretAt.size - 1)], true)
 
@@ -106,7 +144,7 @@ private class DrawnState(
     val model: CodeEditorModel,
     var look: CodeEditorLook,
     var callbacks: CodeEditorCallbacks,
-) : DrawnInputTarget {
+) : DrawnInputTarget, CodePointerTarget {
     /** The platform clipboard, set on every composition. */
     lateinit var clipboard: ClipboardManager
 
@@ -116,6 +154,12 @@ private class DrawnState(
     /** Changes when the caret or the selection moves, for what draws them. */
     var moves by mutableIntStateOf(0)
 
+    /**
+     * Whether the caret, where it stands on a column a long line breaks at, is drawn at the
+     * end of the row before rather than at the start of the next: where End put it.
+     */
+    var caretAtRowEnd = false
+
     var measurer: TextMeasurer? = null
     var style: TextStyle = TextStyle.Default
     var rowPx = 1
@@ -123,6 +167,14 @@ private class DrawnState(
     var coordinates: LayoutCoordinates? = null
     var rows: RowMap = RowMap.of(model)
     var scroll: EditorScroll? = null
+
+    /** How far right of the editor's own left edge this part of it starts: a minimap on the left. */
+    var originX = 0f
+
+    /** Where the text area starts, after the gutter, and how many pixels make a dp. */
+    var gutterWidth = 0f
+    var density = 1f
+    var caretWidthPx = 1.5f
     private val views = HashMap<Int, LineView>()
     private var viewsRevision = -1
 
@@ -185,10 +237,11 @@ private class DrawnState(
             for (piece in fallback(builder.toAnnotatedString().text)) builder.addStyle(piece.item, piece.start, piece.end)
         }
         val layout = measurer!!.measure(builder.toAnnotatedString(), style, softWrap = false)
-        return LineView(layout, caretAt, charAt)
+        return LineView(layout, caretAt, charAt, model.wrapBreaksOf(line))
     }
 
     fun moved() {
+        caretAtRowEnd = false
         moves += 1
         // The selection moved, which the Host listens to.
         callbacks.onOutput()
@@ -251,8 +304,10 @@ private class DrawnState(
 
     override fun caretRectInRoot(): Rect {
         val caret = model.selection.caret
-        val x = textLeft + view(caret.line).caretX(caret.column)
-        val y = rows.textRow(caret.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
+        val view = view(caret.line)
+        val row = view.rowOf(caret.column, caretAtRowEnd)
+        val x = textLeft + view.caretX(caret.column) - view.rowX(row)
+        val y = rows.textTopPx(caret.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
         val origin = coordinates?.localToRoot(Offset(x, y)) ?: Offset(x, y)
         return Rect(origin, Size(1f, rowPx.toFloat()))
     }
@@ -263,6 +318,14 @@ private class DrawnState(
     }
 
     fun replaceSelection(text: String, origin: EditOrigin) {
+        if (model.secondary.isNotEmpty()) {
+            // Every selection takes what was typed, as one step.
+            if (model.editAtSelections(text, origin = origin)) {
+                moved()
+                callbacks.onOutput()
+            }
+            return
+        }
         val selection = model.selection
         val change = model.edit(selection.start, selection.end, text, origin) ?: return
         model.selection = CodeSelection.at(change.newEnd)
@@ -270,11 +333,87 @@ private class DrawnState(
         callbacks.onOutput()
     }
 
+    /**
+     * Where a caret at [position] is drawn, in this editor's own pixels. [composed] puts it
+     * after what an input method is composing there, which is where the caret is drawn.
+     */
+    /** Where the primary caret is drawn, in the pixels of the box that holds the minimap too. */
+    fun caretInEditor(): Rect? {
+        val caret = model.selection.caret
+        if (!model.document.isValid(caret) || model.isHidden(caret.line)) return null
+        return caretLocal(caret, composed = true).translate(Offset(originX, 0f))
+    }
+
+    private fun caretLocal(position: CodePosition, composed: Boolean): Rect {
+        val view = view(position.line)
+        val column = position.column.coerceIn(0, view.caretAt.size - 1)
+        val shown = view.caretAt[column] + if (composed) composing.length else 0
+        val row = view.rowOf(column, composed && caretAtRowEnd && position == model.selection.caret)
+        val x = textLeft + view.layout.getHorizontalPosition(shown, true) - view.rowX(row)
+        val y = rows.textTopPx(position.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
+        return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
+    }
+
+    private fun Rect.inRoot(): Rect {
+        val coordinates = coordinates?.takeIf { it.isAttached } ?: return this
+        return Rect(coordinates.localToRoot(topLeft), size)
+    }
+
+    /** The function the model finds positions with, the same one for as long as this lives. */
+    val locate: (CodePosition) -> CodeRectDp? = { position ->
+        if (!model.document.isValid(position) || model.isHidden(position.line)) {
+            null
+        } else {
+            val local = caretLocal(position, composed = false)
+            val size = coordinates?.size
+            val onScreen = size != null &&
+                local.bottom > 0f && local.top < size.height &&
+                local.left >= gutterWidth - 0.5f && local.left <= size.width + 0.5f
+            if (onScreen) local.inRoot().toDp(density) else null
+        }
+    }
+
+    /**
+     * Tells the model how to find positions and where the caret is, and answers the queries
+     * that waited for the editor to be drawn. Answers whether the Host has something to hear.
+     */
+    fun report(): Boolean {
+        if (coordinates?.isAttached != true || measurer == null) return false
+        model.locator = locate
+        val caret = model.selection.caret
+        if (model.document.isValid(caret)) {
+            model.reportCaretRect(CaretReport(caret, caretLocal(caret, composed = true).inRoot().toDp(density)))
+        }
+        val answered = model.hasWaitingQueries
+        if (answered) model.answerWaitingQueries()
+        return answered || model.caretUntold
+    }
+
+    override fun positionAt(x: Float, y: Float): CodePosition? {
+        // Asked in the editor's own coordinates, which a minimap on the left moves this part of.
+        val inside = x - originX
+        if (inside < textLeft) return null
+        val at = (y + (scroll?.offset ?: 0)).toInt()
+        if (y + (scroll?.offset ?: 0) < 0f || at >= rows.totalPx(rowPx)) return null
+        val line = rows.lineAtPx(at, rowPx)
+        // A lens above the line, the rows a suggestion of several lines adds below it and a
+        // view zone after it are not the document's text.
+        val row = rows.textRowAtPx(line, at, rowPx)
+        if (row < 0) return null
+        val view = view(line)
+        val local = inside - textLeft
+        // Past the end of the row, the pointer is over no character.
+        if (local > view.layout.size.width - view.rowX(row) || (row < view.rows - 1 && local > view.caretX(view.rowEnd(row)) - view.rowX(row))) return null
+        return CodePosition(line, view.columnOnRow(row, local))
+    }
+
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
-        val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
-        val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
-        val onLens = rows.hasLens(line) && row == rows.rowTop(line)
-        return CodePosition(line, view(line).column(point.x - textLeft)) to onLens
+        val at = (point.y + (scroll?.offset ?: 0)).toInt().coerceAtLeast(0)
+        val line = rows.lineAtPx(at, rowPx).coerceIn(0, model.document.lineCount - 1)
+        val onLens = rows.hasLens(line) && at < rows.textTopPx(line, rowPx)
+        val view = view(line)
+        val row = ((at - rows.textTopPx(line, rowPx)) / rowPx).coerceIn(0, view.rows - 1)
+        return CodePosition(line, view.columnOnRow(row, point.x - textLeft)) to onLens
     }
 
     companion object {
@@ -305,6 +444,7 @@ private fun DrawnSurface(
     val vertical = remember { EditorScroll() }
     state.scroll = vertical
     var viewportHeight by remember { mutableIntStateOf(0) }
+    var viewportWidth by remember { mutableIntStateOf(0) }
     // This path does not scroll along its lines, so there is one axis to hand over.
     scrolling(remember(vertical) { EditorScrolling(vertical, null) { viewportHeight } })
     var focused by remember { mutableStateOf(false) }
@@ -316,7 +456,7 @@ private fun DrawnSurface(
     model.overlayRevision
     val rows = RowMap.of(model)
     state.rows = rows
-    val extent = rows.totalRows * rowPx - viewportHeight
+    val extent = rows.totalPx(rowPx) - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
@@ -326,6 +466,28 @@ private fun DrawnSurface(
             markColumn + foldColumn + density.changeColumnPx(model, look)
         ).toFloat()
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
+    state.gutterWidth = gutterWidth
+    state.density = density.density
+    state.caretWidthPx = with(density) { 1.5.dp.toPx() }
+    val (minimapLeft, minimapRight) = density.minimapInsetsPx(look)
+    state.originX = minimapLeft.toFloat()
+    // Where long lines break, from the width the text has: the model is told after the frame,
+    // and the frame after it draws the rows.
+    val wrapColumns = wrapColumnsFor(
+        look.wordWrap,
+        viewportWidth - minimapLeft - minimapRight - state.textLeft.toInt(),
+        digitWidth,
+    )
+    SideEffect { model.setWrap(wrapColumns, look.tabWidth) }
+    // What the caret report and the waiting queries found is sent from a coroutine rather
+    // than from inside the draw pass that found it.
+    val scope = rememberCoroutineScope()
+    val reportPlaces: () -> Unit = remember(state, scope) {
+        { if (state.report()) scope.launch { state.callbacks.onOutput() } }
+    }
+    DisposableEffect(model, state) {
+        onDispose { if (model.locator === state.locate) model.locator = null }
+    }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
     SideEffect { callbacks.onOutput() }
@@ -359,24 +521,37 @@ private fun DrawnSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
     }
 
     Box(
         modifier
             .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+            // Outside the box that takes presses, so the Host hears a press before the
+            // caret moves for it.
+            .then(callbacks.codePointer(state))
             .changeSemantics(model, look)
             .background(look.container)
             .clipToBounds()
-            .onSizeChanged { viewportHeight = it.height },
+            .onSizeChanged {
+                viewportHeight = it.height
+                viewportWidth = it.width
+            },
     ) {
         Box(
             Modifier
                 // The viewport's size, never the document's: the lines on screen are drawn at
                 // their rows less the offset, and the extent is only a number.
                 .fillMaxSize()
+                .padding(
+                    start = with(density) { minimapLeft.toDp() },
+                    end = with(density) { minimapRight.toDp() },
+                )
                 .scrollable(vertical.scrollable, Orientation.Vertical)
-                .onGloballyPositioned { state.coordinates = it }
+                .onGloballyPositioned {
+                    state.coordinates = it
+                    reportPlaces()
+                }
                 .drawnTextInput(state)
                 .focusRequester(focus)
                 .onFocusChanged {
@@ -395,6 +570,8 @@ private fun DrawnSurface(
                             when (event.type) {
                                 PointerEventType.Press -> {
                                     focus.requestFocus()
+                                    // A press the Host took is not the editor's: the caret stays.
+                                    if (change.isConsumed) continue
                                     val (position, onLens) = state.positionAt(change.position)
                                     if (change.position.x < gutterWidth) {
                                         pressGutter(
@@ -414,10 +591,18 @@ private fun DrawnSurface(
                                             model.activate(lens)
                                             callbacks.onOutput()
                                         }
+                                    } else if (event.keyboardModifiers.isAltPressed) {
+                                        // Alt and a press adds a caret there and leaves the
+                                        // others where they are.
+                                        state.composing = ""
+                                        model.addCaret(position)
+                                        state.moved()
                                     } else {
                                         state.composing = ""
                                         val anchor = if (event.keyboardModifiers.isShiftPressed) model.selection.anchor else position
                                         model.selection = CodeSelection(anchor, position)
+                                        // A press puts the caret in one place: the other selections go.
+                                        model.dropSecondary()
                                         model.dismissGhostText()
                                         state.moved()
                                         dragging = true
@@ -443,12 +628,31 @@ private fun DrawnSurface(
                 .drawBehind {
                     state.moves
                     state.composing
+                    model.secondaryRevision
                     val scroll = vertical.offset
                     translate(top = -scroll.toFloat()) {
                         drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
                     }
+                    reportPlaces()
                 },
         )
+        if (look.minimapSide != null) {
+            Minimap(
+                model,
+                rows,
+                look,
+                vertical,
+                viewportHeight,
+                rowPx,
+                Modifier
+                    .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
+                    .scrollable(vertical.scrollable, Orientation.Vertical),
+            )
+        }
+        SnippetChoices(model, look, { state.caretInEditor() }) {
+            state.moved()
+            callbacks.onOutput()
+        }
     }
 }
 
@@ -466,8 +670,8 @@ private fun DrawScope.drawLines(
     val model = state.model
     val look = state.look
     val rowPx = state.rowPx.toFloat()
-    val first = rows.lineAtRow((scroll / rowPx).toInt())
-    val last = min(rows.lineCount - 1, rows.lineAtRow(((scroll + viewportHeight) / rowPx).toInt() + 1))
+    val first = rows.lineAtPx(scroll, state.rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + state.rowPx, state.rowPx))
     val selection = model.selection
     drawRect(look.gutter, Offset(0f, scroll.toFloat()), Size(gutterWidth, viewportHeight.toFloat()))
     if (look.lineNumbers && look.gutterDivider.alpha > 0f) {
@@ -479,20 +683,73 @@ private fun DrawScope.drawLines(
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val view = state.view(line)
-        val top = rows.textRow(line) * rowPx
+        val top = rows.textTopPx(line, state.rowPx).toFloat()
+        val lineRows = view.rows
+        // A stretch of the laid-out line, from [from] to [to], on each row it falls on, as the
+        // row's top and the stretch's left and right edges measured from the row's own start.
+        fun eachRow(from: Float, to: Float, block: (Float, Float, Float) -> Unit) {
+            for (row in 0 until lineRows) {
+                val start = view.rowX(row)
+                val end = if (row < lineRows - 1) view.rowX(row + 1) else Float.MAX_VALUE
+                val left = max(from, start)
+                val right = min(to, end)
+                if (right > left) block(top + row * rowPx, left - start, right - start)
+            }
+        }
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
-            drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx))
+            drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx * lineRows))
+        }
+        // A line background across the text's whole width, then the stronger tint of a range
+        // background over its characters, both behind the selection and the text.
+        if (model.backgroundsPresent) {
+            model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
+                ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
+                ?.let { drawRect(it, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx * lineRows)) }
+            for (decoration in model.decorations) {
+                if (decoration.kind != DecorationKind.RangeBackground) continue
+                if (line < decoration.start.line || line > decoration.end.line) continue
+                val color = look.rangeBackground(decoration.color ?: continue)
+                if (color == Color.Unspecified || color.alpha == 0f) continue
+                val from = if (line == decoration.start.line) view.charX(decoration.start.column) else 0f
+                val to = if (line == decoration.end.line) view.caretX(decoration.end.column) else view.layout.size.width.toFloat()
+                eachRow(from, to) { y, left, right -> drawRect(color, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
+            }
         }
         lenses[line]?.let { row ->
             val label = state.measurer!!.measure(row.joinToString("  |  ") { it.text }, state.style.copy(color = look.lens))
             drawText(label, topLeft = Offset(state.textLeft, top - rowPx))
         }
+        for (other in model.secondary) {
+            if (line < other.start.line || line > other.end.line) continue
+            if (other.collapsed) {
+                if (focused) {
+                    val row = view.rowOf(other.caret.column)
+                    val x = state.textLeft + view.caretX(other.caret.column) - view.rowX(row)
+                    drawRect(look.cursor, Offset(x, top + row * rowPx), Size(1.5.dp.toPx(), rowPx))
+                }
+                continue
+            }
+            val from = if (line == other.start.line) view.charX(other.start.column) else 0f
+            val to = if (line == other.end.line) view.caretX(other.end.column) else view.layout.size.width.toFloat() + rowPx / 3
+            eachRow(from, to) { y, left, right -> drawRect(look.selection, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
+        }
         if (!selection.collapsed && line >= selection.start.line && line <= selection.end.line) {
             val from = if (line == selection.start.line) view.charX(selection.start.column) else 0f
             val to = if (line == selection.end.line) view.caretX(selection.end.column) else view.layout.size.width.toFloat() + rowPx / 3
-            drawRect(look.selection, Offset(state.textLeft + from, top), Size(max(0f, to - from), rowPx))
+            eachRow(from, to) { y, left, right -> drawRect(look.selection, Offset(state.textLeft + left, y), Size(right - left, rowPx)) }
         }
-        drawText(view.layout, topLeft = Offset(state.textLeft, top + (rowPx - view.layout.size.height) / 2))
+        if (lineRows == 1) {
+            drawText(view.layout, topLeft = Offset(state.textLeft, top + (rowPx - view.layout.size.height) / 2))
+        } else {
+            // The line laid out once and drawn on each of its rows, moved left by where the row
+            // starts and cut to the row.
+            for (row in 0 until lineRows) {
+                val y = top + row * rowPx
+                clipRect(state.textLeft, y, size.width, y + rowPx) {
+                    drawText(view.layout, topLeft = Offset(state.textLeft - view.rowX(row), y + (rowPx - view.layout.size.height) / 2))
+                }
+            }
+        }
         for (decoration in model.decorations) {
             if (decoration.kind != DecorationKind.Underline) continue
             if (line < decoration.start.line || line > decoration.end.line) continue
@@ -501,13 +758,17 @@ private fun DrawScope.drawLines(
             if (to - from < rowPx / 2) to = from + rowPx / 2
             val (color, shape) = look.underline(decoration)
             val stroke = look.underlineWidth.toPx()
-            drawUnderline(shape, color, state.textLeft + from, state.textLeft + to, top + rowPx - stroke * 1.5f, stroke)
+            eachRow(from, to) { y, left, right ->
+                drawUnderline(shape, color, state.textLeft + left, state.textLeft + right, y + rowPx - stroke * 1.5f, stroke)
+            }
         }
         if (focused && line == selection.caret.line) {
             // After whatever is being composed, which is drawn in front of the caret column.
-            val shown = view.caretAt[selection.caret.column.coerceIn(0, view.caretAt.size - 1)] + state.composing.length
-            val x = state.textLeft + view.layout.getHorizontalPosition(shown, true)
-            drawRect(look.cursor, Offset(x, top), Size(1.5.dp.toPx(), rowPx))
+            val column = selection.caret.column.coerceIn(0, view.caretAt.size - 1)
+            val shown = view.caretAt[column] + state.composing.length
+            val row = view.rowOf(column, state.caretAtRowEnd)
+            val x = state.textLeft + view.layout.getHorizontalPosition(shown, true) - view.rowX(row)
+            drawRect(look.cursor, Offset(x, top + row * rowPx), Size(1.5.dp.toPx(), rowPx))
         }
         val divider = gutterDividerPx(look)
         if (look.lineNumbers) {
@@ -532,10 +793,22 @@ private fun DrawScope.drawLines(
             look,
         )
     }
+    // The view zones after the lines on screen: room that is not text, its text dimmed.
+    for (index in 0 until rows.zoneCount) {
+        val line = rows.zoneLine(index)
+        if (line < first || line > last) continue
+        val text = rows.zoneText(index).substringBefore('\n')
+        if (text.isEmpty()) continue
+        val top = rows.zoneTopPx(index, state.rowPx).toFloat()
+        val label = state.measurer!!.measure(text, state.style.copy(color = look.lens), softWrap = false)
+        drawText(label, topLeft = Offset(state.textLeft, top + (rowPx - label.size.height) / 2))
+    }
 }
 
 /** The keys the drawn editor answers. Typed characters arrive here the way they reach a text field on the desktop. */
 private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
+    // The Host hears the key first, and a key it takes is not the editor's.
+    if (state.callbacks.onKeyPreview(event, state.composing.isNotEmpty())) return true
     // While an input method composes, its keys are its own.
     if (state.composing.isNotEmpty()) return false
     val model = state.model
@@ -555,11 +828,32 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
     val shift = event.isShiftPressed
     fun move(to: CodePosition) {
         model.selection = CodeSelection(if (shift) selection.anchor else to, to)
+        // The other carets move the same way.
+        caretMove(event.key)?.let { model.moveSecondary(it, shift) }
         model.dismissGhostText()
         state.moved()
     }
     val caret = selection.caret
     when {
+        // A snippet's list of choices, its stops, and Escape out of each in turn, as in the
+        // field path.
+        model.snippetChoices != null && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.moveChoice(if (event.key == Key.DirectionDown) 1 else -1)
+        }
+        model.snippetChoices != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+            model.pickChoice(model.choiceIndex)
+            state.moved()
+            callbacks.onOutput()
+        }
+        event.key == Key.Tab && !command && model.snippetActive -> {
+            if (shift) model.previousSnippetStop() else model.nextSnippetStop()
+            state.moved()
+            callbacks.onOutput()
+        }
+        event.key == Key.Escape && (model.closeChoices() || model.endSnippet() || model.dropSecondary()) -> {
+            state.moved()
+            callbacks.onOutput()
+        }
         command && event.key == Key.S -> {
             callbacks.onSave()
         }
@@ -575,6 +869,17 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
         }
         command && event.key == Key.A -> {
             model.selection = CodeSelection(CodePosition.Zero, document.end)
+            model.dropSecondary()
+            state.moved()
+        }
+        // The next place the selected text is, as another selection.
+        command && event.key == Key.D && !shift && !event.isAltPressed -> {
+            model.addNextMatch()
+            state.moved()
+        }
+        // A caret on the line above or below the others.
+        command && event.isAltPressed && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.addCaretVertically(down = event.key == Key.DirectionDown)
             state.moved()
         }
         command && (event.key == Key.C || event.key == Key.X) -> {
@@ -610,8 +915,32 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
                 else -> caret
             },
         )
-        event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
-            event.key == Key.PageUp || event.key == Key.PageDown -> {
+        // Up and Down follow the rows a long line is drawn on, keeping the caret's distance
+        // from the row's left edge.
+        event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
+            val down = event.key == Key.DirectionDown
+            val view = state.view(caret.line)
+            val row = view.rowOf(caret.column, state.caretAtRowEnd)
+            val x = view.caretX(caret.column) - view.rowX(row)
+            var targetLine = caret.line
+            var targetRow = row + if (down) 1 else -1
+            if (targetRow < 0 || targetRow >= view.rows) {
+                val line = model.nearestVisible((caret.line + if (down) 1 else -1).coerceIn(0, document.lineCount - 1), down)
+                if (line == caret.line) {
+                    targetRow = row
+                } else {
+                    targetLine = line
+                    targetRow = if (down) 0 else state.view(line).rows - 1
+                }
+            }
+            val targetView = state.view(targetLine)
+            var target = CodePosition(targetLine, targetView.columnOnRow(targetRow, x))
+            if (!document.isValid(target)) target = CodePosition(targetLine, target.column - 1)
+            move(target)
+            // Past the end of a row that is not the last, the caret stays at the end of it.
+            state.caretAtRowEnd = targetRow < targetView.rows - 1 && target.column == targetView.rowEnd(targetRow)
+        }
+        event.key == Key.PageUp || event.key == Key.PageDown -> {
             val step = when (event.key) {
                 Key.DirectionUp -> -1
                 Key.DirectionDown -> 1
@@ -624,8 +953,25 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
             if (!document.isValid(target)) target = CodePosition(line, target.column - 1)
             move(target)
         }
-        event.key == Key.MoveHome -> move(CodePosition(caret.line, 0))
-        event.key == Key.MoveEnd -> move(CodePosition(caret.line, document.line(caret.line).length))
+        // Home and End go to the ends of the row the caret is on.
+        event.key == Key.MoveHome -> {
+            val view = state.view(caret.line)
+            move(CodePosition(caret.line, view.rowStart(view.rowOf(caret.column, state.caretAtRowEnd))))
+        }
+        event.key == Key.MoveEnd -> {
+            val view = state.view(caret.line)
+            val row = view.rowOf(caret.column, state.caretAtRowEnd)
+            move(CodePosition(caret.line, view.rowEnd(row)))
+            state.caretAtRowEnd = row < view.rows - 1
+        }
+        (event.key == Key.Backspace || event.key == Key.Delete) && model.secondary.isNotEmpty() -> {
+            // At every selection: a selection goes, and at a caret the character on that side.
+            val backspace = event.key == Key.Backspace
+            if (model.editAtSelections("", if (backspace) 1 else 0, if (backspace) 0 else 1)) {
+                state.moved()
+                callbacks.onOutput()
+            }
+        }
         event.key == Key.Backspace || event.key == Key.Delete -> {
             if (selection.collapsed) {
                 val target = if (event.key == Key.Backspace) {

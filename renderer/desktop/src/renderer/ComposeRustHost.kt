@@ -17,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -206,6 +207,25 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
      */
     internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
         table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
+    }
+
+    /** The last system appearance told to the Host, or null before the first report. */
+    private var reportedScheme: SystemColorScheme? = null
+
+    /**
+     * Tells the Host whether the system appearance is dark, the first time and then only
+     * when it changes.
+     *
+     * The value is kept here, on the Host, rather than in a window's composition: every
+     * window of an application reads the same system setting, and each one reporting it
+     * would tell the Host the same thing once per window. Kept per window, it would also
+     * be told again whenever a window's content was composed afresh.
+     */
+    internal fun reportSystemScheme(dark: Boolean) {
+        val scheme = if (dark) SystemColorScheme.Dark else SystemColorScheme.Light
+        if (reportedScheme == scheme) return
+        reportedScheme = scheme
+        dispatch(HostEvent.ColorSchemeChanged(nodeId = 0, handlerId = 0, scheme = scheme))
     }
 
     fun shutdown() {
@@ -614,6 +634,12 @@ private fun ComposeRustTree(
             host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
         }
     }
+    // Whether the system is light or dark, told to the Host before the first frame and then
+    // on every change, whatever the theme asks for. The theme's own colours already follow
+    // the system here without the Host; this is for what the Host draws itself, such as an
+    // HTML page answering `prefers-color-scheme`. In a SideEffect, so it is sent on the
+    // thread the Host runs on, after a composition that read the new value.
+    SideEffect { host.reportSystemScheme(systemDark) }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.
@@ -777,7 +803,6 @@ private fun ComposeRustTree(
         LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
-        LocalKeyboardInset provides keyboard,
     ) {
         // The background fills the whole window and the inset is applied inside it. Putting
         // the inset outside instead leaves the window's own background showing through the
@@ -831,7 +856,21 @@ private fun ComposeRustTree(
                 }
                 // Over the content rather than in it: a message is not part of the tree,
                 // and it covers whatever it has to for as long as it is up.
-                HostMessages(host.table.messages, host.table.insets, host, theme)
+                // A message the application placed stays out of the strips nothing should
+                // be drawn under: the caption and a status bar along the top, a gesture
+                // bar or the keyboard along the bottom.
+                HostMessages(
+                    host.table.messages,
+                    host.table.insets,
+                    host,
+                    theme,
+                    dev.darkpyonix.composerust.foundation.MessageSafeArea(
+                        top = (caption.height + bars.top).coerceAtLeast(0.dp),
+                        bottom = maxOf(keyboard, bars.bottom).coerceAtLeast(0.dp),
+                        pageTop = pageTop,
+                        topBar = host.table.openingTopBar(pageRoots) ?: 0,
+                    ),
+                )
             }
         }
     }
@@ -966,6 +1005,28 @@ private fun NodeTable.slotChild(node: Node, slot: SlotRole): Int? =
             (child.property(PropertyKind.Slot) as? PropertyValue.Integer)?.value?.toInt() ==
             slot.ordinal + 1
     }
+
+/**
+ * The top app bar the page opens with, followed the way [opensWithABar] follows it, or null
+ * when the first thing the tree draws is anything else.
+ *
+ * A message the application placed along the top keeps clear of this bar and of no other:
+ * a bar further down the page is part of the page, not chrome across the top of it.
+ */
+internal fun NodeTable.openingTopBar(roots: List<Int>): Int? {
+    var id = roots.firstOrNull() ?: return null
+    repeat(BAR_SEARCH_DEPTH) {
+        val node = node(id) ?: return null
+        when (node.widget) {
+            WidgetKind.TopAppBar -> return id
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.TopBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
+        }
+    }
+    return null
+}
 
 /**
  * True when the first thing the tree draws is a top app bar.
@@ -1253,18 +1314,11 @@ internal fun pageInsets(
  * How much of the window's bottom edge the on-screen keyboard covers, as the platform
  * reports it. Zero where there is no on-screen keyboard.
  *
+ * The window is the one it is read in: the page reads it for the application's window, and
+ * a sheet or a dialog reads it again inside its own (see `overlayKeyboardInset`).
+ *
  * A hook so a test can put a keyboard on a desktop window, which has none.
  */
 var platformKeyboardInset: @Composable () -> Dp = {
     with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
 }
-
-/**
- * The keyboard's height over the window, for what is drawn over the page rather than in it.
- *
- * A sheet or a dialog covers the whole window and so does its scrim; only its own surface
- * moves up, by this much, so the field inside it is above the keyboard. Dynamic rather than
- * static because it changes on every frame the keyboard slides in, and only those readers
- * should hear it.
- */
-val LocalKeyboardInset = androidx.compose.runtime.compositionLocalOf { 0.dp }

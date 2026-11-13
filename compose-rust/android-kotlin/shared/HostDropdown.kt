@@ -24,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -158,6 +160,7 @@ private fun OpeningList(
     onChoose: (Int) -> Unit,
 ) {
     var open by remember(node.id) { mutableStateOf(false) }
+    val fieldRequester = remember(node.id) { FocusRequester() }
     val style = theme.rules.container(role, theme)
     val bare = node.flag(PropertyKind.Bare, default = false)
     val bareInteractions = remember(node.id) { MutableInteractionSource() }
@@ -191,6 +194,7 @@ private fun OpeningList(
                         it.border(1.dp, theme.color(ColorRole.Outline), fieldShape)
                     }
                 }
+                .focusRequester(fieldRequester)
                 .let {
                     // A bare field draws no focus or press layer: the box around it owns
                     // the field's look in every state.
@@ -262,11 +266,17 @@ private fun OpeningList(
                 onDismissRequest = { open = false },
                 properties = PopupProperties(focusable = true),
             ) {
+                // The options answer the keys a menu does, and closing the list from the
+                // keyboard gives focus back to the field.
+                ReturnsFocusOnClose(fieldRequester)
+                val keys = rememberMenuKeyboard(options, table, chosen = options.getOrNull(shown)) {
+                    open = false
+                }
                 CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
                     Column(
                         Modifier
                             .testTag(dropdownPopupTestTag(node.id))
-                            .nativeViewOverlay(popupShape, shadowReach(popupElevation))
+                            .menuKeys(keys)
                             .then(popupRaised)
                             .clip(popupShape)
                             .background(style.container, popupShape)
@@ -277,7 +287,7 @@ private fun OpeningList(
                         options.forEachIndexed { index, childId ->
                             key(childId) {
                                 Box(
-                                    Modifier
+                                    keys.entry(childId)
                                         .fillMaxWidth()
                                         .background(
                                             if (index == shown) {

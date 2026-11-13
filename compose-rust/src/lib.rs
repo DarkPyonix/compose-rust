@@ -35,6 +35,7 @@ pub mod design;
 pub mod drawing;
 mod extensions;
 pub mod file_dialog;
+pub mod font_features;
 pub mod fonts;
 pub mod highlight;
 pub mod input;
@@ -71,17 +72,21 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeScroll, Decoration,
-    Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration, GutterDecorations,
-    Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans, VisibleRange,
+    CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
+    CodeRect, CodeScroll, Decoration, Decorations, EditGroupResult, EditRejected, Fold, FoldChange,
+    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange,
+    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange, WordWrap,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
+pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
-pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
+pub use input::{
+    FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest, pointer_button,
+};
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
@@ -92,21 +97,26 @@ pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
-    GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
-    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EditGroupStatus, EventPayload,
+    GenericFamily, GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole,
+    MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
+    PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH, Selection,
+    SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode,
+    TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
-    ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
+    ReducedMotion, StepPosition, SystemColorScheme, Timing, TransformFunction,
+    TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{NativeHandle, NativeParentKind};
-pub use theme::ThemeHandle;
+pub use schema::{MinimapSide, WordWrapMode};
+pub use theme::{
+    ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
+};
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};
 pub use windows::{

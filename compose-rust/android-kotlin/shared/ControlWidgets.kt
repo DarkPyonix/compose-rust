@@ -172,9 +172,15 @@ internal object DrawnControlWidgets : ControlWidgets {
         // The transition between the two states belongs to the Renderer, so a toggle
         // animates without a frame of it crossing the boundary.
         val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
+        // A radio button's ring colour fills it only where the design system fills a
+        // selected one: there the fill is what reads as the ring. Elsewhere the ring is the
+        // outline and the inside stays the design system's.
+        val radioFills = style.containerChecked != style.container
         val container by animateColorAsState(
             targetValue = when {
                 role == ToggleRole.Switch && look.track != null -> look.track
+                role == ToggleRole.RadioButton && checked ->
+                    if (radioFills) look.container ?: style.containerChecked else style.containerChecked
                 checked -> look.container ?: style.containerChecked
                 else -> style.container
             },
@@ -236,19 +242,25 @@ internal object DrawnControlWidgets : ControlWidgets {
                 )
             }
 
-            ToggleRole.RadioButton -> Box(
-                clickable
-                    .size(style.size)
-                    .clip(style.shape)
-                    .background(container.copy(alpha = container.alpha * alpha), style.shape)
-                    .controlBorder(style.borderWidth, style.border.copy(alpha = alpha), style.shape)
-                    .drawBehind {
-                        val radius = style.thumbSize.toPx() / 2f * progress
-                        if (radius > 0f) {
-                            drawCircle(style.mark.copy(alpha = alpha), radius = radius)
-                        }
-                    },
-            )
+            ToggleRole.RadioButton -> {
+                // A diameter the application named scales the dot with it, in the design
+                // system's own proportion.
+                val side = look.width ?: style.size
+                val dot = style.thumbSize * (side / style.size)
+                Box(
+                    clickable
+                        .size(side)
+                        .clip(style.shape)
+                        .background(container.copy(alpha = container.alpha * alpha), style.shape)
+                        .controlBorder(style.borderWidth, (look.container ?: style.border).copy(alpha = alpha), style.shape)
+                        .drawBehind {
+                            val radius = dot.toPx() / 2f * progress
+                            if (radius > 0f) {
+                                drawCircle((look.check ?: style.mark).copy(alpha = alpha), radius = radius)
+                            }
+                        },
+                )
+            }
 
             ToggleRole.Switch -> {
                 val shape = look.shape ?: style.shape

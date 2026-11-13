@@ -11,7 +11,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -215,6 +221,45 @@ class BarOverflowTest {
         assertEquals(last, clicks.single().nodeId, "the click came from another node")
         assertEquals(handlerOf(last), clicks.single().handlerId, "the click carried another handler")
         assertTrue(!exists(barOverflowMenuTestTag(BAR)), "the menu stayed open after an action was chosen")
+    }
+
+    /**
+     * The overflow menu has a menu's keyboard: opening it focuses the first action in it,
+     * End and Down go to the last and round to the first, and Enter is that action's click.
+     * Escape closes it and focus is back on the overflow button.
+     */
+    @Test
+    fun fr64_overflow_menu_arrow_keys_move_focus() = runDesktopComposeUiTest(WIDE, HEIGHT) {
+        val connection = FakeHostConnection(batch(DesignSystem.Material3))
+        showBar(connection, { NARROW })
+        val overflowed = ACTIONS.drop(actionsInTheBar().size)
+        assertTrue(overflowed.size >= 2, "too few actions overflowed at $NARROW dp to move between: $overflowed")
+        fun press(key: Key) {
+            onAllNodes(isRoot()).onLast().performKeyInput { pressKey(key) }
+            waitForIdle()
+        }
+
+        onNodeWithTag(barOverflowTestTag(BAR)).performClick()
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(overflowed.first())).assertIsFocused()
+        press(Key.MoveEnd)
+        onNodeWithTag(nodeTestTag(overflowed.last())).assertIsFocused()
+        press(Key.DirectionDown)
+        onNodeWithTag(nodeTestTag(overflowed.first())).assertIsFocused()
+        press(Key.Enter)
+        assertEquals(
+            listOf(HostEvent.Clicked(overflowed.first(), handlerOf(overflowed.first()))),
+            connection.events.filterIsInstance<HostEvent.Clicked>(),
+            "Enter is one click of the focused action",
+        )
+        waitForIdle()
+        assertTrue(!exists(barOverflowMenuTestTag(BAR)), "the menu stayed open after Enter chose an action")
+
+        onNodeWithTag(barOverflowTestTag(BAR)).performClick()
+        waitForIdle()
+        press(Key.Escape)
+        assertTrue(!exists(barOverflowMenuTestTag(BAR)), "Escape left the overflow menu open")
+        onNodeWithTag(barOverflowTestTag(BAR)).assertIsFocused()
     }
 
     /** With room for every action, they are all in the bar and there is no overflow button. */

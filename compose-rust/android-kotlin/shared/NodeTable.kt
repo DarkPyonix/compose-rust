@@ -22,6 +22,8 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.wordWrapRule
+import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
@@ -55,6 +57,13 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var focusRequestRevision by mutableStateOf(0L)
 
     /**
+     * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
+     * Made once when the `FontFeatureSettings` property changes and read as it is on every
+     * frame after, so a text whose value changes builds no string for its features.
+     */
+    internal var fontFeatures by mutableStateOf<String?>(null)
+
+    /**
      * A code editor's document and everything over it. Created with the node and kept for
      * its life, because the document is the Renderer's from the moment it opens: the Host
      * feeds it through the node's properties and its edit records, and never replaces it.
@@ -75,15 +84,6 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var placementWanted by mutableStateOf(false)
     internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
 
-    /**
-     * A `NativeView`'s platform view: the handle the Host attached, 0 for none. The view is
-     * put into the window, and taken out, where the node is drawn.
-     */
-    internal var nativeHandle by androidx.compose.runtime.mutableLongStateOf(0L)
-
-    /** The last `FocusNativeView` for this node, or null before one came. */
-    internal var nativeFocusRequest by mutableStateOf<NativeFocusRequest?>(null)
-
     fun property(kind: PropertyKind): PropertyValue? = props[kind]
 
     fun text(kind: PropertyKind, default: String = ""): String =
@@ -100,12 +100,6 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     /** The raw bytes of a byte-valued property, such as a Canvas command list. */
     fun bytes(kind: PropertyKind): ByteArray? = (props[kind] as? PropertyValue.Bytes)?.value
 }
-
-/**
- * A request to move keyboard focus into a platform view ([focus] true) or out of it. The
- * revision makes a second request of the same kind a new one.
- */
-data class NativeFocusRequest(val focus: Boolean, val revision: Long)
 
 /** A protocol violation that must become a `ProtocolError` event, never a crash. */
 data class TableError(val code: Int, val message: String) {
@@ -139,15 +133,11 @@ data class TableError(val code: Int, val message: String) {
         const val NOT_SCROLLABLE = 19
         /** A scroll request whose values make no sense for the container. The request is dropped. */
         const val INVALID_SCROLL = 20
-        /** A platform view command for a node that is not a `NativeView`. The command is dropped. */
-        const val NOT_NATIVE_VIEW = 21
         /**
-         * A platform view the window would not take: not a view of this platform, or one
-         * already attached to another node. The command is dropped.
+         * A font feature list that cannot be read. The text is drawn without features. 21 to 23
+         * are held by the native view errors, which are numbered on another branch.
          */
-        const val NATIVE_VIEW_REJECTED = 22
-        /** A platform view command where the window has no place for platform views. The command is dropped. */
-        const val NATIVE_VIEW_UNSUPPORTED = 23
+        const val INVALID_FONT_FEATURES = 24
     }
 }
 
@@ -278,19 +268,6 @@ class NodeTable {
 
     private var revision = 0L
 
-    /**
-     * The `NativeView` node each attached platform view handle belongs to. A handle is in one
-     * place at a time, so a second node asking for it is refused.
-     */
-    private val nativeHandles = HashMap<Long, Int>()
-
-    /**
-     * Increments on each `RequestFocus` for a node that is not a platform view, so a
-     * platform view holding keyboard focus gives it back to the scene first.
-     */
-    var sceneFocusRevision by mutableStateOf(0L)
-        private set
-
     /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
     var focusClearRevision by mutableStateOf(0L)
         private set
@@ -408,7 +385,6 @@ class NodeTable {
         outbox.clear()
         windowThemes.clear()
         focusRequests.clear()
-        nativeHandles.clear()
         assets.clear()
         messages.clear()
         theme = null
@@ -467,6 +443,9 @@ class NodeTable {
                 mutation.text,
                 mutation.action,
                 mutation.duration,
+                mutation.vertical,
+                mutation.horizontal,
+                mutation.offsetDp,
             )
 
             // Outside the window altogether. The centre decides what the window's own state
@@ -504,6 +483,8 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+            // Several edits as one, all of them or none, answered once whatever became of it.
+            is Mutation.EditCodeGroup -> editCodeGroup(mutation)
 
             // The editor's selection and scroll are this side's, so these are requests
             // too: each is checked against the document and refused, with a protocol
@@ -527,6 +508,40 @@ class NodeTable {
                 )
                 collectCode(node)
             }
+            // Every selection the Host asked for, the first the primary one. A list that is
+            // not whole selections is reported here; the editor refuses one that names a
+            // place the document does not have.
+            is Mutation.SetSelections -> codeNode(mutation.nodeId, "SetSelections")?.let { (node, code) ->
+                val bytes = mutation.selections
+                if (bytes.isEmpty() || bytes.size % 16 != 0) {
+                    fail(
+                        TableError.INVALID_CODE_EDIT,
+                        "SetSelections on node ${node.id}: ${bytes.size} bytes are not whole selections of 16",
+                    )
+                } else {
+                    val values = IntArray(bytes.size / 4) { index ->
+                        (bytes[index * 4].toInt() and 0xff) or
+                            ((bytes[index * 4 + 1].toInt() and 0xff) shl 8) or
+                            ((bytes[index * 4 + 2].toInt() and 0xff) shl 16) or
+                            ((bytes[index * 4 + 3].toInt() and 0xff) shl 24)
+                    }
+                    code.hostSetSelections(mutation.baseVersion, values)
+                    collectCode(node)
+                }
+            }
+            // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
+            // or whose range the reader has typed over, is reported and dropped.
+            is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
+                code.hostInsertSnippet(
+                    mutation.baseVersion,
+                    mutation.startLine,
+                    mutation.startColumn,
+                    mutation.endLine,
+                    mutation.endColumn,
+                    mutation.snippet,
+                )
+                collectCode(node)
+            }
             is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)
@@ -537,70 +552,25 @@ class NodeTable {
                 code.hostScrollTo(mutation.offsetPx)
                 collectCode(node)
             }
+            // A question, answered exactly once: by the editor where it can find the
+            // position, and here, with nothing on screen, where there is no editor to ask.
+            is Mutation.QueryPositionRect -> {
+                val found = codeNode(mutation.nodeId, "QueryPositionRect")
+                if (found == null) {
+                    outbox += HostEvent.PositionRect(mutation.nodeId, 0L, mutation.request, false, 0f, 0f, 0f, 0f)
+                } else {
+                    val (node, code) = found
+                    code.hostQueryPosition(mutation.request, mutation.line, mutation.column)
+                    collectCode(node)
+                }
+            }
 
             // Requests too: the scroll position is this side's. Each is checked here and
             // waits on the node for the container, which keeps it in range, may animate it,
             // and drops it while the user is scrolling.
             is Mutation.ScrollTo -> scrollTo(mutation)
             is Mutation.ScrollIntoView -> scrollIntoView(mutation)
-
-            // A platform view the Host made, and focus moving into it or out. Checked here;
-            // the view itself is put into the window where the node is drawn.
-            is Mutation.AttachNativeView -> attachNativeView(mutation)
-            is Mutation.FocusNativeView -> focusNativeView(mutation)
         }
-    }
-
-    /** The `NativeView` a command names, or null after reporting that it names none. */
-    private fun nativeViewNode(nodeId: Int, command: String): Node? {
-        val node = nodes[nodeId] ?: run {
-            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
-            return null
-        }
-        if (node.widget != WidgetKind.NativeView) {
-            fail(TableError.NOT_NATIVE_VIEW, "$command on ${node.widget}, which holds no platform view")
-            return null
-        }
-        if (!dev.darkpyonix.composerust.foundation.NativeViewPlatform.available) {
-            fail(
-                TableError.NATIVE_VIEW_UNSUPPORTED,
-                "$command on node $nodeId: this renderer's windows have no place for a platform view",
-            )
-            return null
-        }
-        return node
-    }
-
-    private fun attachNativeView(mutation: Mutation.AttachNativeView) {
-        val node = nativeViewNode(mutation.nodeId, "AttachNativeView") ?: return
-        val handle = mutation.handle
-        if (handle != 0L) {
-            val holder = nativeHandles[handle]
-            if (holder != null && holder != node.id) {
-                fail(
-                    TableError.NATIVE_VIEW_REJECTED,
-                    "AttachNativeView on node ${node.id}: handle 0x${handle.toULong().toString(16)} is already " +
-                        "attached to node $holder",
-                )
-                return
-            }
-        }
-        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
-        node.nativeHandle = handle
-        if (handle != 0L) nativeHandles[handle] = node.id
-    }
-
-    private fun focusNativeView(mutation: Mutation.FocusNativeView) {
-        val node = nativeViewNode(mutation.nodeId, "FocusNativeView") ?: return
-        revision += 1
-        node.nativeFocusRequest = NativeFocusRequest(mutation.focus, revision)
-    }
-
-    /** The window would not take the node's view: the node holds none. */
-    internal fun forgetNativeHandle(nodeId: Int) {
-        val node = nodes[nodeId] ?: return
-        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
-        node.nativeHandle = 0L
     }
 
     private fun windowNode(nodeId: Int, command: String): Node? {
@@ -686,7 +656,6 @@ class NodeTable {
         val node = nodes[nodeId] ?: return false
         revision += 1
         node.focusRequestRevision = revision
-        if (node.widget != WidgetKind.NativeView) sceneFocusRevision = revision
         return true
     }
 
@@ -817,6 +786,38 @@ class NodeTable {
     }
 
     /**
+     * Hands a grouped edit to its editor, which answers it exactly once.
+     *
+     * A record the decoder could not read arrives marked as such, ahead of the protocol
+     * error the decoder raises for it, so that the editor still answers it; nothing more is
+     * reported for it here. Edits that cannot be read are reported, and answered the same
+     * way. Edits that can be read but make no sense are the editor's to answer, and are no
+     * protocol error.
+     */
+    private fun editCodeGroup(mutation: Mutation.EditCodeGroup) {
+        if (mutation.malformed != null) {
+            val node = nodes[mutation.nodeId] ?: return
+            val code = node.code ?: return
+            code.hostEditGroupUnreadable(mutation.requestId, mutation.baseVersion, null)
+            collectCode(node)
+            return
+        }
+        val (node, code) = codeNode(mutation.nodeId, "EditCodeGroup") ?: return
+        var unreadable: String? = null
+        val edits = CodeEditorRecords.decodeEditGroup(mutation.edits) { message -> unreadable = message }
+        if (edits == null) {
+            code.hostEditGroupUnreadable(
+                mutation.requestId,
+                mutation.baseVersion,
+                unreadable ?: "a grouped edit could not be read",
+            )
+        } else {
+            code.hostEditGroup(mutation.requestId, mutation.baseVersion, edits)
+        }
+        collectCode(node)
+    }
+
+    /**
      * Hands a code editor what the Host just set on it. The text is compared with the
      * document rather than applied, and the two lists are read record by record, so a bad
      * record costs that record and nothing else.
@@ -853,6 +854,22 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            // Read where the editor is drawn, which knows how wide it is. Here a rule that is
+            // not one is said once, when it arrives.
+            PropertyKind.WordWrap -> {
+                val raw = (value as? PropertyValue.Integer)?.value
+                if (raw != null && raw != 0L && wordWrapRule(raw) == null) {
+                    fail(TableError.INVALID_CODE_EDIT, "word wrap on node ${node.id}: $raw is not a rule")
+                }
+                return
+            }
+            PropertyKind.ViewZones -> code.setViewZones(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeViewZones(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "view zones on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
             // Read where the editor is drawn. Here it is only checked, so that a record
             // that cannot be read is said once, when it arrives.
             PropertyKind.CodeEditorColors -> {
@@ -877,6 +894,10 @@ class NodeTable {
             }
             PropertyKind.OnCodeScrolled -> {
                 code.hearsScroll = value is PropertyValue.Integer
+                return
+            }
+            PropertyKind.OnCaretRect -> {
+                code.hearsCaretRect = value is PropertyValue.Integer
                 return
             }
             else -> return
@@ -918,12 +939,36 @@ class NodeTable {
             )
             return
         }
+        if (mutation.property == PropertyKind.CollapseBelow) {
+            val width = (mutation.value as? PropertyValue.Float)?.value
+            if (width != null && (!width.isFinite() || width < 0f)) {
+                // Not a width at all. The split pane is drawn as if it had none, so a bad
+                // value cannot leave it stacked or unstacked by accident.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "a split pane stacks below a width of zero or more dp, and node " +
+                        "${node.id} was given $width; it keeps its size class's own line",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.FontFeatureSettings) {
+            node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                fontFeatureSettings(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "font features on node ${node.id}: $why; the text is drawn without them",
+                    )
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -995,11 +1040,6 @@ class NodeTable {
             fail(TableError.UNKNOWN_NODE, "Insert into unknown parent $parentId")
             return
         }
-        // A platform view covers its node, so nothing drawn under it would be seen.
-        if (nodes[parentId]?.widget == WidgetKind.NativeView) {
-            fail(TableError.INVALID_CHILDREN, "Insert of node $nodeId into NativeView $parentId, which takes no children")
-            return
-        }
         // A window is a child of the root and nothing else, and what is drawn in one
         // window cannot be moved into another: a composition is per window and Compose has
         // no way to hand a node from one scene to the next. Both are the Host's
@@ -1052,9 +1092,14 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
-        codeNodes.remove(nodeId)
+        if (codeNodes.remove(nodeId) != null) {
+            // A query the editor had not answered yet is answered now, with nothing on
+            // screen: it never will be otherwise.
+            for (request in node.code?.abandonQueries().orEmpty()) {
+                outbox += HostEvent.PositionRect(nodeId, 0L, request, false, 0f, 0f, 0f, 0f)
+            }
+        }
         node.scroll?.let(scrolls::forget)
-        if (node.nativeHandle != 0L) nativeHandles.remove(node.nativeHandle)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
             fileDialogs.windowRemoved(nodeId)
@@ -1171,11 +1216,17 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
 
+                // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
                 PropertyKind.CheckColor,
-                -> widget == WidgetKind.Checkbox
+                -> widget == WidgetKind.Checkbox || widget == WidgetKind.RadioButton
 
-                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
+                    widget == WidgetKind.Checkbox ||
+                    widget == WidgetKind.RadioButton
+
+                // A linear layout gathers the radio buttons inside it into one group.
+                PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
@@ -1187,15 +1238,14 @@ class NodeTable {
                 PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
+                // Any node's size can move under a motion role, so any node may hear it
+                // settle. One without the role hears nothing, which is not an error: the
+                // role can come and go with the screen's state.
+                PropertyKind.OnMotionFinished,
                 -> true
 
                 // The scroll report belongs to the widgets that scroll.
                 PropertyKind.OnScrollChanged -> widget in SCROLL_CONTAINERS
-
-                // Whether a platform view shows, and who hears its focus move.
-                PropertyKind.NativeVisible,
-                PropertyKind.OnNativeViewFocus,
-                -> widget == WidgetKind.NativeView
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML
@@ -1218,7 +1268,9 @@ class NodeTable {
                     widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.SelectionContainer ||
                     widget == WidgetKind.Spacer ||
-                    widget == WidgetKind.AbsoluteBox
+                    widget == WidgetKind.AbsoluteBox ||
+                    // An editor's own pointer events take the same mask of kinds.
+                    (widget == WidgetKind.CodeEditor && property == PropertyKind.PointerKinds)
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -1466,9 +1518,17 @@ class NodeTable {
                         // An editor set in the application's own monospace list.
                         widget == WidgetKind.CodeEditor
 
-                PropertyKind.SpanFonts,
+                // Where lines break, in a Text and in a field's typed text and placeholder.
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
+                -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                // OpenType features, such as digits of one width. They pick a form the font
+                // has rather than another font, so text with a role takes them too.
+                PropertyKind.FontFeatureSettings ->
+                    widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                PropertyKind.SpanFonts,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,
@@ -1520,6 +1580,19 @@ class NodeTable {
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
+                // The handler told where the caret is drawn, and the one offered keys
+                // before the editor handles them.
+                PropertyKind.OnCaretRect,
+                PropertyKind.OnKeyPreview,
+                // The handler told what became of each grouped edit.
+                PropertyKind.OnEditGroupResult,
+                // The handler of its pointer events with the text under them. The kinds it
+                // hears are the node's `PointerKinds`, below.
+                PropertyKind.OnCodePointer,
+                // Whether it draws a minimap, and on which side, and its view zones.
+                PropertyKind.Minimap,
+                PropertyKind.ViewZones,
+                PropertyKind.WordWrap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
@@ -1563,6 +1636,16 @@ class NodeTable {
                 // What a set of destinations becomes in a compact window, where the
                 // application chose. Only a navigation has destinations to place.
                 PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
+
+                // The width below which a split pane shows one pane at a time.
+                PropertyKind.CollapseBelow -> widget == WidgetKind.SplitPane
+
+                // Where a plain scroll container comes to rest. The lazy containers scroll
+                // by item through their own state and do not take it.
+                PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
+
+                // The tallest a sheet grows. A dialog sizes itself to its content.
+                PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

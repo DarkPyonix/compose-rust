@@ -129,7 +129,7 @@ fn fr60_border_side_and_border_take_each_others_place() {
     assert!(tree.dump().contains("BorderEach"), "{}", tree.dump());
 
     one_side.set(false);
-    tree.apply(&host.render_frame(0).expect("the frame encodes").to_vec());
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
     let dump = tree.dump();
     assert!(!dump.contains("BorderEach"), "{dump}");
     assert!(
@@ -138,7 +138,7 @@ fn fr60_border_side_and_border_take_each_others_place() {
     );
 
     one_side.set(true);
-    tree.apply(&host.render_frame(0).expect("the frame encodes").to_vec());
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
     let dump = tree.dump();
     assert!(
         dump.contains(&border_each([0.0, 0.0, 0.0, 1.0], [GUIDE; 4])),
@@ -161,6 +161,6 @@ fn fr60_removing_border_side_clears_the_border() {
     });
     assert!(tree.dump().contains("BorderEach"), "{}", tree.dump());
     bordered.set(false);
-    tree.apply(&host.render_frame(0).expect("the frame encodes").to_vec());
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
     assert!(!tree.dump().contains("Border"), "{}", tree.dump());
 }

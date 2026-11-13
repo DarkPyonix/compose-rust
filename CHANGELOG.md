@@ -10,6 +10,90 @@ The Renderer moves the view with the layout and with every scroll, in the same f
 
 macOS Kotlin/Native places views now. The GraalVM macOS renderer and the other platforms refuse an attach as `NATIVE_VIEW_UNSUPPORTED` (23); a node that is not a `NativeView` is `NOT_NATIVE_VIEW` (21), and a handle the window will not take, or one already attached elsewhere, is `NATIVE_VIEW_REJECTED` (22) ([#680](https://github.com/DarkPyonix/compose-rust/issues/680)).
 
+### Word wrap in the code editor
+
+The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
+
+### Multiple cursors in the code editor
+
+The code editor holds several selections at once. Alt and a press adds a caret, Cmd or Ctrl and D adds the next place the selected text is (selecting the word at the caret first), and Alt with Cmd or Ctrl and Up or Down adds a caret on the line above or below. Typing, deleting and pasting happen at every selection as one undo step, the arrows move them all, and Escape goes back to the primary one. `Batch::set_selections(node_id, base_version, &[(anchor, active)])` sends a `SetSelections` command (tag 41, 20 bytes and 16 bytes per selection), and the editor's selection listener hears a `SelectionsChanged` event (tag 67, 28 bytes and 16 bytes per selection, read by `code::SelectionsChange::from_payload`) while there is more than one selection and once more when it comes back to one. `SelectionChanged` goes on reporting the primary selection alone.
+
+### Snippets in the code editor
+
+`Batch::insert_snippet(node_id, base_version, range, snippet)` sends an `InsertSnippet` command (tag 40, 36 bytes: the node, the base version, the range and the snippet's reference) that replaces the range with a snippet in a subset of VS Code's syntax: `$1`, `${1:placeholder}`, `${1|one,two|}`, `$0` and `\$`. The caret selects the first stop, Tab and Shift+Tab move between the stops, places with the same number change together, and a stop with choices opens a list that the arrows, Enter and a press pick from. The session ends at `$0`, on Escape, or when the caret leaves the snippet. The insertion is one undo step and reaches the Host as ordinary `CodeChanged` events. `code::escape_snippet_text` escapes plain text for a snippet.
+
+### View zones in the code editor
+
+`ViewZones::new([ViewZone::new(after_line, height_lines).with_text(..)])` on the new `ViewZones` property (tag 199) leaves room after a line that is not text, the way a diff lines its two sides up. A zone pushes the lines after it down by its height, which need not be whole, follows its line through edits, and is passed over by the caret, a selection and a copy; the visible range is still reported in the document's lines. Its text is drawn dimmed. The field path shows a zone as whole rows.
+
+### Code editor minimap
+
+The new `Minimap` property (tag 201) takes a `MinimapSide` tag, `Right` (1) or `Left` (2), and draws the whole document shrunk on that side, with the part on screen marked and line backgrounds, range backgrounds and diagnostics shown on it. A press or a drag on it scrolls the editor there. `Off` (0) draws none.
+
+### Grouped edits for the code editor
+
+`Batch::edit_group(node_id, request_id, base_version, &[(CodeRange, &str)])` sends several edits to a code editor as one `EditCodeGroup` command (tag 28). Every range is in the document at `base_version`, in any order, and they must not overlap. The editor applies all of them or none: it moves the ranges past what the reader typed since, applies them from the end of the document backwards with one `CodeChanged` per edit, and makes the group one undo step. It then answers with exactly one `CodeEditGroupResult` (event 51, handler property `OnEditGroupResult` 194): `Applied`, `Rejected` where the reader changed a place the group would write, `TooOld` where the version is older than the editor remembers, or `Invalid` where the group makes no sense. `EditGroupResult::from_payload` reads it. A record that cannot be read is a protocol error, followed by `Invalid` when its request can be read. An empty group writes nothing. The schema hash changes.
+
+### The system's light or dark appearance reaches the Host
+
+The Renderer now tells the Host whether the system appearance is light or dark, in a `ColorSchemeChanged` event (tag 52) addressed to the Host with node 0 and handler 0. The record is 20 bytes: the header and `scheme: u32`, 0 for light and 1 for dark, and any other value is a protocol error. It is sent once before the first frame and again on every change, never the same value twice in a row, whatever the theme's `color_scheme` is. Application code reads it with `system_color_scheme()`, which is `None` until the first report, and `resolved_color_scheme()` gives the scheme the theme is drawn in, the system's while the theme follows it. `subscribe_system_color_scheme` wakes a reader on each change, the way `subscribe_reduced_motion` does. Native widgets already followed the system without the Host; this is for what an application draws itself, such as an HTML page answering `prefers-color-scheme`. The schema hash changes.
+
+### Text with no type role reaches the Renderer
+
+`Text`, `TextField` and `Button` with `.type_role(TypeRole::None)` now send the role tag 0, so text that names its own fonts is set in them. `TypeRole::None` is tag 0, which a design property at its neutral value never sent, so such text arrived with no role at all, was drawn in the default role's font, and the Renderer reported its fonts as ignored. A role that is never set is still not sent, and a role that is cleared now removes the property instead of sending 0, so the text goes back to the default role rather than to no role. The minimal sample's serif letters were drawn in the theme's sans this way, and the report they caused failed the web page check ([#569](https://github.com/DarkPyonix/compose-rust/issues/569)).
+
+## v0.0.9
+
+### `user-select` is honoured
+
+A node with `UserSelect::None` and everything under it now takes no part in text selection, so double-clicking a tab or a button label inside a selection region selects nothing, while its controls still click. `UserSelect::Text` opens a selection region, and `UserSelect::All` selects the whole node with one press and copies it with the copy shortcut. Text inside an HTML region is selectable by default, as in a browser: a page that does not want that sends `user-select: none` ([#724](https://github.com/DarkPyonix/compose-rust/pull/724)).
+
+### Radio button colours and size, and radio groups
+
+`RadioButton` takes `ring_color`, `dot_color` and `size(side)`, sent as the `ContainerColor`, `CheckColor` and `ControlSize` properties a `Checkbox` uses. The ring is drawn in its colour selected or not, and where the design system fills a selected button the fill takes it too; the dot scales with the size. A button that names none of them is drawn by the design system as before, in all seven. `Column::radio_group(true)` and `Row::radio_group(true)` send the new `RadioGroup` property (tag 198): the layout is a radio group to assistive technology, Tab stops at it once (on the selected button, or the first), and the arrow keys move focus along its buttons, wrapping at the ends, reporting each button they land on once as a click would. The selection stays the application's ([#545](https://github.com/DarkPyonix/compose-rust/issues/545)).
+
+### Where a transient message is drawn
+
+`Message::with_placement(MessagePlacement { vertical, horizontal })` puts a message along the top or the bottom edge, at its start, centre or end, and `Message::with_offset(dp)` sets how far it is from that edge. Both are measured from inside the safe area and the application's bars: a message at the bottom sits above a bottom tab bar and the gesture bar, and one at the top below the top bar the page opens with and the window's caption. A message that names neither is where the design system has always put it. The `ShowMessage` record grows from 32 to 40 bytes: the two placement tags take the old padding word and the next, and the offset follows as an `f32` (NaN for none), so the schema hash moves ([#577](https://github.com/DarkPyonix/compose-rust/issues/577)).
+
+### Line and range backgrounds in the code editor
+
+Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).
+
+### Code editor pointer events with the text under them
+
+A `CodeEditor` with the new `OnCodePointer` handler property (tag 197) and a `PointerKinds` mask sends its pointer events in a `CodePointer` event (tag 66): the 72 byte `Pointer` record of a node's pointer event, then the line and the column of the character under the pointer, or none over the gutter, past the end of a line or below the last one. The kinds, the buttons, the modifiers, the click count, the capture, a move a frame and the consumption rules are a node's pointer event's, and a `Down` the handler consumes does not move the caret. Cmd or Ctrl and a click goes to a definition this way, and Cmd or Ctrl and a hover underlines a word ([#555](https://github.com/DarkPyonix/compose-rust/issues/555)).
+
+### The Host hears the code editor's keys first
+
+A `CodeEditor` with the new `OnKeyPreview` handler property (tag 196) offers every key press to the Host before it handles the key itself, as the `KeyDown` record a key handler hears. A press the handler consumes, through the same synchronous result as any key handler, is not the editor's: Down does not move the caret and Enter inserts no line. Nothing is offered while an input method is composing. A suggestion list takes Up, Down, Enter, Tab and Escape this way while it is open, and an application takes its own commands such as F12, F2, Ctrl+Space or Ctrl/Cmd+. ([#554](https://github.com/DarkPyonix/compose-rust/issues/554)).
+
+### Where the code editor's caret is, and where any position is
+
+A `CodeEditor` with the new `OnCaretRect` handler property (tag 195) reports where it draws its caret in a `CaretRect` event (tag 64): the line, the column and a rectangle in the window's dp, with the editor's scroll and the window's zoom already in it. It is sent when the caret moves or the view scrolls, at most once a frame. `Batch::query_position_rect(node, request, position)` asks where a caret at any other position would be drawn, in a `QueryPositionRect` command (tag 39), and `compose_rust::code::position_query(callback)` gives the request its number. Every query gets exactly one `PositionRect` event (tag 65) back: the rectangle, or `None` where the position is not on screen, is not in the document, or the editor is gone. A suggestion list, a parameter hint, a rename box or a hover card is placed with them ([#553](https://github.com/DarkPyonix/compose-rust/issues/553)).
+
+## v0.0.8
+
+### Typing on macOS inserts each character once
+
+On the Kotlin/Native macOS window every typed character was inserted twice ("abc" became "aabbcc", and Korean jamo doubled before composing), because the key event carried the letter while the input method committed it as well. The window pin now includes the Compose fork fix: a key that also goes to the input method reaches Compose without its letter, and Command shortcuts keep theirs ([#563](https://github.com/DarkPyonix/compose-rust/issues/563)).
+
+### A node hears its size motion settle
+
+`on_motion_finished(|finished| ...)` on a container or a `TextField` runs once when the node's size, moving under `Modifier::motion`, reaches its target, with the size it settled at in `MotionFinished { width_dp, height_dp }`. A run that a newer size interrupts is not reported, only the one that settles; the first layout and a layout at the same size report nothing, and neither does a node removed while it moves. Under reduced motion the size changes in one frame and the report comes in that frame, so a screen that waits for a collapse before it takes a child out does not wait forever. In `rsx!` the listener is `onmotionfinished`. It is one new handler property, `OnMotionFinished` (193), and one `MotionFinished` event (tag 63, 24 bytes). A node with no handler sends nothing new and its modifier chain is unchanged ([#315](https://github.com/DarkPyonix/compose-rust/issues/315)).
+
+### Font features: tabular figures for timers and tables
+
+`Text::font_feature_settings(&[FontFeature])` and `TextField::font_feature_settings(&[FontFeature])` ask the font for OpenType features, such as `FontFeature::TABULAR_NUMS` for digits of one width, so a number that changes does not move the digits beside it. They are taken with or without a type role, because a feature picks a form the font already has rather than another font. The list travels as the new property 192 (`FontFeatureSettings`, 8-byte records, at most 16), and a node that does not call it sends exactly what it sent before. The Renderer makes Compose's `fontFeatureSettings` string once when the list arrives; a list it cannot read is protocol error 24 and the text is drawn without features. A font without the feature draws as it would have.
+
+### A split pane chooses the width it stacks below
+
+`SplitPane().collapse_below(dp)` sets the split pane's own width below which it shows one pane at a time, the one `selected_index` names. At or above that width it never stacks: the design system is asked as for a medium width, so two columns or a side pane laid over the body is still its answer. Without it the line stays at 600 dp. The width is measured on the Renderer, so crossing the line sends the Host nothing and the panes keep their state. It is the new `CollapseBelow` property (91, f32). A negative or non-finite width is a protocol error, and the split pane is drawn as if it had none ([#314](https://github.com/DarkPyonix/compose-rust/issues/314)).
+
+### Long tokens break inside under `KeepAll`, and fields take a word break
+
+`Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).
+
 ### SVG pictures draw on Android
 
 Android has no SVG reader of its own, so every `AssetKind::Svg` registration was reported as unreadable (protocol error 7) and drew an empty box. The Android renderer now reads SVG itself, following the rules Skia draws by on the desktop and iOS, so the same file draws the same picture on every platform. It reads shapes, groups, `use`, fills and strokes with their opacities, dashes, caps and joins, transforms, `viewBox` and `preserveAspectRatio`, linear and radial gradients, patterns and clip paths. It does not read `text`, `image`, `mask`, `filter`, `marker` or `<style>` sheets ([#567](https://github.com/DarkPyonix/compose-rust/issues/567)).

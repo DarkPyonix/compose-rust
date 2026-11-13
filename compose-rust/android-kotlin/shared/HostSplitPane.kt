@@ -83,6 +83,7 @@ import dev.darkpyonix.composerust.protocol.MotionRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import dev.darkpyonix.composerust.ui.intProp
@@ -280,10 +281,43 @@ internal fun HostSplitPane(
         // The split pane's own width, not the window's. A split pane in the body of a wide
         // window's navigation can be narrow, and two columns forced into it would be wrong.
         val available = if (constraints.hasBoundedWidth) maxWidth.value else Float.MAX_VALUE
-        val style = theme.rules.splitPane(windowSizeClassOf(available), theme)
+        val style = splitPaneStyle(theme, available, node.number(PropertyKind.CollapseBelow))
         CompositionLocalProvider(LocalSplitDepth provides depth + 1) {
             SplitPaneLayout(node, style, available, sideContent, bodyContent, dispatcher, theme, depth)
         }
+    }
+}
+
+/**
+ * What the design system answers for a split pane [available] dp wide.
+ *
+ * Without [collapseBelow], or with 0, the size class of the split pane's own width is
+ * asked, so it stacks below 600 dp like any other compact place. With a line the
+ * application chose, the split pane stacks below that line, whatever its size class,
+ * and never stacks at or above it: a compact width is asked as medium, so whether the
+ * panes sit side by side or the side pane is laid over the body is still the design
+ * system's answer. The table refuses a negative or non-finite line before it gets here.
+ */
+internal fun splitPaneStyle(theme: ResolvedTheme, available: Float, collapseBelow: Float?): SplitPaneStyle {
+    val sizeClass = windowSizeClassOf(available)
+    val line = collapseBelow?.takeIf { it > 0f && it.isFinite() }
+        ?: return theme.rules.splitPane(sizeClass, theme)
+    if (available < line) {
+        // One pane at a time, drawn the way this system draws a stacked split pane.
+        val stacked = theme.rules.splitPane(WindowSizeClass.Compact, theme)
+        return if (stacked.presentation == SplitPanePresentation.Stacked) {
+            stacked
+        } else {
+            stacked.copy(presentation = SplitPanePresentation.Stacked)
+        }
+    }
+    val asked = if (sizeClass == WindowSizeClass.Compact) WindowSizeClass.Medium else sizeClass
+    val style = theme.rules.splitPane(asked, theme)
+    // A system that answers medium with one pane at a time would stack above the line.
+    return if (style.presentation == SplitPanePresentation.Stacked) {
+        style.copy(presentation = SplitPanePresentation.Overlay)
+    } else {
+        style
     }
 }
 

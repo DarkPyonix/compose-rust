@@ -415,6 +415,16 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (EventCallback::Files(handler), EventPayload::FilesDropped(paths)) => {
             (*handler.borrow_mut())(crate::FileDrop::new(paths))
         }
+        (
+            EventCallback::Motion(handler),
+            EventPayload::MotionFinished {
+                width_dp,
+                height_dp,
+            },
+        ) => (*handler.borrow_mut())(crate::MotionFinished {
+            width_dp: *width_dp,
+            height_dp: *height_dp,
+        }),
         (EventCallback::Window(handler), payload) => {
             let Some(event) = crate::windows::WindowEvent::from_payload(payload) else {
                 return Err(ProtocolError::InvalidValueKind(0));

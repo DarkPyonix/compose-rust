@@ -597,14 +597,17 @@ private fun codeShowcase(): CodeShowcase {
         range.forEach(spanBytes::putInt)
         spanBytes.putLong(roleBits(role))
     }
-    // kind, severity, range, id, text
-    class Spec(val kind: Int, val severity: Int, val range: IntArray, val id: Long, val text: String)
+    // kind, severity, range, id, text, colour role (0 for the design system's)
+    class Spec(val kind: Int, val severity: Int, val range: IntArray, val id: Long, val text: String, val color: Int = 0)
     val specs = listOf(
         Spec(1, 2, runOf(2, "name}"), 0L, "").also { it.range[3] -= 1 },
         Spec(2, 0, intArrayOf(1, 0, 1, 0), 1L, "Run"),
         Spec(2, 0, intArrayOf(1, 0, 1, 0), 2L, "1 reference"),
         Spec(3, 0, runOf(1, "greet"), 3L, ""),
         Spec(4, 0, intArrayOf(3, 1, 3, 1), 4L, "\n\ngreet(\"world\");"),
+        // The line a diff added, and the words in it that changed.
+        Spec(5, 0, intArrayOf(2, 0, 2, 0), 0L, "", ColorRole.DiffAdded.ordinal + 1),
+        Spec(6, 0, runOf(2, "Hello"), 0L, "", ColorRole.DiffAdded.ordinal + 1),
     )
     val texts = specs.map { it.text.toByteArray(Charsets.UTF_8) }
     val recordsLength = specs.size * 44
@@ -615,7 +618,7 @@ private fun codeShowcase(): CodeShowcase {
         decorationBytes.putInt(0)
         decorationBytes.putShort(spec.kind.toShort())
         decorationBytes.putShort(spec.severity.toShort())
-        decorationBytes.putShort(0)
+        decorationBytes.putShort(spec.color.toShort())
         decorationBytes.putShort(0)
         spec.range.forEach(decorationBytes::putInt)
         decorationBytes.putLong(spec.id)
