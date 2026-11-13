@@ -373,6 +373,8 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 - 높이가 넉넉하면 여백은 디자인 시스템이 정한 값 그대로입니다.
 - `Chip`은 세로 여백이 없어(높이는 `defaultMinSize`, 라벨은 가운데 정렬) 같은 규칙을 이미 만족합니다. 같은 테스트가 칩도 확인합니다.
   - 수용 기준: `fr13_small_button_keeps_its_label_whole` (모든 디자인 시스템에서 높이 32dp 버튼의 한글 라벨 경계가 버튼 안에 있고, 그 높이가 높이를 넉넉히 준 버튼의 라벨과 같습니다).
+- **[leader, provisional, 2026-11-13] 컨테이너 자신의 좌우 여백도 라벨을 자르지 않습니다.** 주어진 너비가 좌우 여백과 라벨의 너비를 더한 값보다 작으면, Renderer가 좌우 여백을 양쪽 똑같이 0까지 줄여서 라벨이 자기 너비 전체를 가지게 합니다. 라벨은 그 뒤에야 잘릴 수 있습니다. 36dp, 44dp 원형 버튼의 한 글자 라벨(`−`, `+`, `▶`)이 Material 3의 24dp 좌우 여백에 밀려 말줄임표 하나로 그려지던 것이 이 경우입니다.
+  - 수용 기준: `fr13_short_label_in_a_small_round_button_is_not_ellipsized` (모든 디자인 시스템에서 36dp와 44dp 원형 버튼의 짧은 라벨이 말줄임되지 않고 잘리지 않으며, 버튼 안에 있고, 그 너비가 자기 크기대로 둔 버튼의 라벨과 같습니다).
 
 ### FR-14 디자인 시스템과 테마 모드 (`Agreed`)
 디자인 시스템은 **토큰 집합 + 컴포넌트 스타일 규칙**의 한 쌍입니다. 속성을 모아 놓은 것이 아닙니다.
@@ -1467,7 +1469,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
-4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 크기가 바뀌는 순간 `ResizeBuffers`, Skia 그리기, `Present`, DirectComposition `Commit`을 차례로 마친 뒤에 크기 변경 메시지를 돌려줍니다.
+4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 끌어서 크기를 바꾸는 동안 창이 그 크기로 Skia 래스터 그리기를 DIB에 마치고 `BitBlt`으로 창의 리디렉션 표면에 옮긴 뒤에 크기 변경 메시지(`WM_SIZE`)를 돌려줍니다. 끌기가 끝나면(`WM_EXITSIZEMOVE`) 다시 GPU 스왑체인으로 그립니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -5025,7 +5027,7 @@ compose_rust_host_dispatch_event: click 1
   - `onStop`/`onStart`: `LifecycleStop`과 `LifecycleStart`를 보냅니다. Host는 그 사이에 도착한 워커의 프레임 요청을 기억만 해 두었다가 시작할 때 한 번 내보내고, 그동안 타이머와 애니메이션은 억제됩니다. `Resumed`/`Paused`/`Destroyed`로 나누지 않습니다. 그리는 일이 실제로 멈추는 경계는 `onStop`이고, `Destroyed`는 프로세스가 사라지는 자리라 Host가 들을 수 없습니다.
     - 예외는 알림입니다(FR-36, 2026-10-03, `Draft`). 멈춘 동안 Host의 알림 대기열에 알림이 들어오면 Host는 그 요청을 미루지 않고 내보내고, Renderer는 PR-3의 개정대로 멈춘 클록 밖에서 `render_frame`을 한 번 부릅니다. 알림은 사용자가 화면을 보지 않을 때 나가야 하는 것이기 때문입니다. 타이머와 애니메이션의 억제는 그대로입니다.
   - 프로세스 kill: 메모리 상태는 복원하지 않습니다. 필요하면 `SaveState`로 작은 blob을 `onSaveInstanceState`에 저장합니다.
-- 에셋: Android는 자기 그래픽 스택으로 그리므로 SVG 파서가 없습니다. `Svg` 종류의 등록은 FR-16이 정한 대로 읽을 수 없다고 보고하고, 나머지 배치는 그대로 적용됩니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
+- 에셋: Android은 렌더러 자신의 SVG 읽개로 SVG를 읽고, 데스크톱 Skia와 같은 규칙을 따릅니다(이슈 #567, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 루트의 `width`와 `height`는 SVG의 뜻 그대로 픽셀입니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
 - android-activity, NativeActivity, GameActivity 진입점은 쓰지 않습니다. ComposeView와 공존한 사례가 없고 IME 충돌 위험이 있습니다. JavaVM은 `JNI_OnLoad`에서 얻습니다.
 
 #### 5.1 Kotlin이 앱 빌드에 들어가는 방법 (INTENT D11)

@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.ime
@@ -154,6 +155,15 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     /** Dispatches synchronously and returns the Host's consumption result. */
     override fun dispatch(event: HostEvent): Boolean {
+        // A report goes the way the errors found in a batch go, best effort, so a Host that
+        // refuses it leaves the report itself to be printed. Sent like any other event, a
+        // refused report became a second, empty error: "dispatch_event returned -1", with
+        // the missing picture or the font it was about lost. The Rust Host refuses every
+        // report, so each picture Android could not decode cost its real message.
+        if (event is HostEvent.ProtocolError) {
+            report(event)
+            return false
+        }
         var result = 0L
         applyTransaction { apply -> result = connection.dispatchEvent(event, apply) }
         return result != 0L
@@ -231,25 +241,34 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // report exists to prevent, so the report is best effort and the original error is
         // what gets printed.
         protocolErrors.forEach { error ->
-            try {
-                connection.dispatchEvent(
-                    HostEvent.ProtocolError(
-                        nodeId = NodeTable.ROOT_ID,
-                        handlerId = 0,
-                        code = error.code,
-                        message = error.message,
-                    ),
-                ) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
-            } catch (report: Throwable) {
-                if (report is InterruptedException) throw report
-                onProtocolError(error)
-            }
+            report(
+                HostEvent.ProtocolError(
+                    nodeId = NodeTable.ROOT_ID,
+                    handlerId = 0,
+                    code = error.code,
+                    message = error.message,
+                ),
+            )
         }
         // What a code editor did with an edit the batch asked of it: the change it made, or
         // the refusal. After the batch for the same reason as the errors above, and each in
         // its own call, because the Host answers each one with a batch of its own.
         editorEvents.forEach { event -> dispatch(event) }
         afterBatch?.invoke()
+    }
+
+    /**
+     * Hands one protocol error to the Host, and prints it when the Host will not take it.
+     *
+     * Never inside a batch's transaction, so the Host is never re-entered mid-batch.
+     */
+    private fun report(event: HostEvent.ProtocolError) {
+        try {
+            connection.dispatchEvent(event) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
+        } catch (refused: Throwable) {
+            if (refused is InterruptedException) throw refused
+            onProtocolError(TableError(event.code, event.message))
+        }
     }
 
     private companion object {
@@ -316,6 +335,25 @@ fun rememberComposeRustHost(connection: HostConnection): ComposeRustHost {
 fun rememberStartedComposeRustHost(host: ComposeRustHost): ComposeRustHost {
     DisposableEffect(host) { onDispose { host.shutdown() } }
     return host
+}
+
+/**
+ * The content of one real window: [ComposeRustContent] filling the whole window.
+ *
+ * What [ComposeRustContent] measures is what the Host is told the window's size is, and a
+ * Compose root wraps its content unless asked to fill. A window whose tree is one line of
+ * text would then report one line of text. Every platform window draws through this, so
+ * none of them can forget the fill; a caller embedding the content in a larger Compose
+ * layout calls [ComposeRustContent] and sizes it itself.
+ */
+@Composable
+fun WindowContent(
+    host: ComposeRustHost,
+    modifier: Modifier = Modifier,
+    caption: WindowCaption = WindowCaption.None,
+    windowNodeId: Int = 0,
+) {
+    ComposeRustContent(host, Modifier.fillMaxSize().then(modifier), caption, windowNodeId)
 }
 
 /**

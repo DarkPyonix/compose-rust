@@ -104,9 +104,28 @@ nfr15_samples_dispatch_keeps_the_tag_input() {
     awk '/^  workflow_dispatch:/,/^concurrency:/' "$samples" | grep -qE '^      tag:$' \
         && ok "workflow_dispatch still takes a tag" || fail "workflow_dispatch lost its tag input"
     local refs
-    refs="$(grep -c 'ref: \${{ inputs.tag || github.ref }}' "$samples")"
+    refs="$(grep -c 'ref: \${{ inputs.tag || github.sha }}' "$samples")"
     [[ "$refs" -ge 2 ]] && ok "the resolve and build checkouts follow the tag" \
         || fail "only $refs checkouts follow the tag input"
+}
+
+# The renderer and the samples are built by different jobs half an hour apart. A checkout
+# by branch name reads the branch again in each job, so a merge in between pairs a renderer
+# with a newer crate, and the crate's build script refuses them over the schema hash.
+nfr15_samples_and_renderer_build_from_one_commit() {
+    local branchy
+    branchy="$(grep -nE '^ +ref: .*github\.(ref|ref_name|head_ref)\b' "$samples")"
+    [[ -z "$branchy" ]] && ok "no checkout follows a branch name" \
+        || fail "a checkout follows a branch name, not the run's commit: $branchy"
+    local refs total
+    refs="$(grep -cE '^ +ref: \$\{\{ inputs\.tag \|\| github\.sha \}\}$' "$samples")"
+    total="$(grep -cE '^ +ref: ' "$samples")"
+    [[ "$refs" -eq "$total" && "$total" -ge 3 ]] \
+        && ok "all $total checkouts, the renderer's included, take the tag or the run's commit" \
+        || fail "only $refs of $total checkouts take the tag or the run's commit"
+    job "$samples" static-renderer | grep -qE '^      ref: \$\{\{ inputs\.tag \|\| github\.sha \}\}$' \
+        && ok "the renderer is built from the run's commit" \
+        || fail "the renderer is not built from the run's commit"
 }
 
 nfr15_tag_releases_the_windows_static_kit() {
@@ -129,6 +148,7 @@ nfr15_windows_kit_tarball_is_recognised
 nfr15_samples_skip_the_renderer_builds_when_released
 nfr15_samples_build_windows_against_the_verified_release
 nfr15_samples_dispatch_keeps_the_tag_input
+nfr15_samples_and_renderer_build_from_one_commit
 nfr15_tag_releases_the_windows_static_kit
 
 [[ "$failures" -eq 0 ]] || { echo "$failures failed"; exit 1; }

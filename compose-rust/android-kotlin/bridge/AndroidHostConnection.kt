@@ -45,7 +45,7 @@ class AndroidHostConnection : HostConnection {
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
         val length = events.encode(event)
-        checkStatus(nativeDispatchEvent(events.buffer, length, out), "dispatch_event")
+        checkStatus(nativeDispatchEvent(events.buffer, length, out), "dispatch_event", event)
         readBatch(onMutation)
         return out[OUT_RESULT]
     }
@@ -100,9 +100,12 @@ class AndroidHostConnection : HostConnection {
         return created
     }
 
-    private fun checkStatus(status: Int, operation: String) {
+    private fun checkStatus(status: Int, operation: String, event: HostEvent? = null) {
         if (status != STATUS_OK) {
-            throw HostCallException("compose_rust_host_$operation returned $status")
+            // Which event the Host refused. A bare status says a call failed and leaves the
+            // one question that locates it unanswered; the desktop connection says it too.
+            val about = event?.let { " for $it" } ?: ""
+            throw HostCallException("compose_rust_host_$operation returned $status$about")
         }
     }
 

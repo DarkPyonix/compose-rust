@@ -4,7 +4,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.WindowMode
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 
@@ -77,7 +77,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
-        window.setContent { ComposeRustContent(host) }
+        window.setContent { WindowContent(host) }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -89,7 +89,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             ) {
-                ComposeRustContent(
+                WindowContent(
                     host,
                     caption = dev.darkpyonix.composerust.runtime.WindowCaption(
                         height = WINDOWS_CAPTION_HEIGHT,
