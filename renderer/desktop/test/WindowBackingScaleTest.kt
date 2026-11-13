@@ -15,7 +15,7 @@ import kotlin.test.assertNull
 class WindowBackingScaleTest {
 
     @Test
-    fun fr81_appkit_window_follows_a_backing_scale_change() {
+    fun fr82_appkit_window_follows_a_backing_scale_change() {
         val follower = WindowBackingScale(1f, WindowTextScale(1f))
         // A 400 by 300 point window on a 1x screen.
         assertNull(follower.follow(400, 300, 1f), "the same scale is not a change")
@@ -35,13 +35,13 @@ class WindowBackingScaleTest {
     }
 
     @Test
-    fun fr81_backing_scale_keeps_the_os_text_size_as_font_scale() {
+    fun fr82_backing_scale_keeps_the_os_text_size_as_font_scale() {
         val change = assertNotNull(WindowBackingScale(1f, WindowTextScale(1.5f)).follow(800, 600, 2f))
         assertEquals(1.5f, change.density.fontScale, "the system's text size survives a scale change")
     }
 
     @Test
-    fun fr81_backing_scale_ignores_a_measurement_with_no_scale() {
+    fun fr82_backing_scale_ignores_a_measurement_with_no_scale() {
         assertNull(WindowBackingScale(2f, WindowTextScale(1f)).follow(0, 0, 0f), "a window with no screen has nothing to say")
     }
 }
