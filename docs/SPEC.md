@@ -4407,6 +4407,8 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 2. `Sheet`가 테마의 `sheet_corner_radius`와 `scrim`을 반영하여 렌더링되고, 노드에 직접 지정한 모서리 반지름과 스크림이 테마 토큰보다 우선합니다(시험 이름 fr74_sheet_honors_overlay_tokens_and_own_modifiers).
 3. `Dialog`와 `Menu`가 테마의 스크림과 모서리 설정을 반영하고, 개별 노드의 `scrim` 속성을 존중합니다(시험 이름 fr74_dialog_and_menu_honor_scrim_and_tokens).
 
+**일시 메시지의 그림자**(이슈 #446, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 일시 메시지는 노드가 아니므로(21.4) 수정자를 받지 않습니다. 대신 오버레이 토큰에 `toast_elevation`(dp)과 `toast_corner_radius`(dp)를 더합니다. 0이면 디자인 시스템의 값입니다. 앱은 `SetOverlayTokens`로 한 번 정합니다. 레코드 길이가 늘어 스키마 해시가 움직입니다. 수용 기준: `toast_elevation(8)`을 준 뒤 띄운 메시지 아래에 그림자가 그려지고(픽셀), 0이면 디자인 시스템의 모양입니다(fr74_toast_elevation_token).
+
 ### FR-75 텍스트 필드 타이포그래피와 아이콘 버튼 레이아웃 제어 (`Draft`, 이슈 #507)
 
 요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.1). Ember NFR-L3은 여러 OS에서 동일한 컴포저와 버튼 모양을 필요로 합니다. `HostTextField`는 타이포그래피와 내부 여백을 테마 기본 규칙(`theme.rules.field`)에서 파생하고, `HostButton`은 명시적 크기를 가진 아이콘 버튼에도 테마 버튼의 최소 높이와 여백을 강제 적용하여 전역 테마 변경 시 컴포저 플레이스홀더와 플러스 버튼의 위치와 크기가 달라지는 문제가 있었습니다. 이 항목은 텍스트 필드의 명시적 타이포그래피와 내용 여백 제어, 아이콘 버튼의 크기 존중 레이아웃을 제공합니다.
@@ -4678,11 +4680,11 @@ pub mod storage {
 
 - **새 위젯 `NativeView`(`WidgetKind` 48).** 자식을 받지 않습니다. 자식을 넣으면 `ProtocolError`입니다. 내재 크기는 0이고, 크기는 수정자(`Size`, `FillMax*`, `Weight`)와 부모의 제약으로 정합니다. 배경, 테두리, 모양 수정자는 뷰 밑의 Compose 면에 그려지며, 뷰가 덮지 않은 곳(뷰가 아직 붙지 않았거나 숨었을 때)에서만 보입니다.
 - **부모 핸들의 보고: 이벤트 `NativeViewParent`(이벤트 태그 61).** Host는 뷰를 그 창의 부모 핸들에 대고 만듭니다. Renderer는 `NativeView` 노드가 처음 들어온 창에 대해 이 이벤트를 한 번 보냅니다. 핸들이 바뀌거나 창이 닫히면 다시 보내고, 닫힐 때의 핸들은 0입니다. 레코드는 머리 16바이트(노드 id는 그 `Window` 노드, 루트 창이면 루트) 뒤에 `handle: u64@16`, `kind: u16@24`, `reserved: u16@26`, `scale: f32@28`가 오는 32바이트입니다. `kind`는 `AppKit=1`, `Win32=2`, `X11=3`, `Android=4`, `UIKit=5`이고, `scale`은 그 창의 backing scale입니다. scale이 바뀌면 같은 이벤트가 새 값으로 다시 옵니다. `NativeView`가 하나도 없는 트리에서는 이 이벤트가 나오지 않습니다.
-- **뷰 붙이기: 명령 `AttachNativeView`(명령 태그 37).** 24바이트 고정 레코드(`tag=37, len=24`) 뒤에 `node_id: u32`, `reserved: u32`, `handle: u64`가 옵니다. Renderer는 그 노드의 창에 `attach(node_id, handle)`를 부르고, 처음에는 숨긴 채 다음 배치 뒤에 자리와 보이는 영역을 정한 다음 보입니다. `handle = 0`은 떼기입니다. 노드를 지워도 떼어집니다. 뷰의 주인은 언제나 Host입니다. Renderer는 뷰를 놓고 뗄 뿐 파괴하지 않습니다. Host는 떼기가 적용된 배치 뒤에 뷰를 파괴합니다. 한 노드에 이미 뷰가 붙어 있으면 새 핸들이 옛 핸들을 대신합니다(옛 것은 떼어짐).
+- **뷰 붙이기: 명령 `AttachNativeView`(명령 태그 37).** 24바이트 고정 레코드(`tag=37, len=24`)이며 머리 4바이트 뒤에 `node_id: u32@4`, `reserved: u32@8`, `reserved: u32@12`, `handle: u64@16`이 옵니다(`handle`을 8바이트 경계에 맞춥니다). 예약 칸은 0이어야 합니다. Renderer는 그 노드의 창에 `attach(node_id, handle)`를 부르고, 처음에는 숨긴 채 다음 배치 뒤에 자리와 보이는 영역을 정한 다음 보입니다. `handle = 0`은 떼기입니다. 노드를 지워도 떼어집니다. 뷰의 주인은 언제나 Host입니다. Renderer는 뷰를 놓고 뗄 뿐 파괴하지 않습니다. Host는 떼기가 적용된 배치 뒤에 뷰를 파괴합니다. 한 노드에 이미 뷰가 붙어 있으면 새 핸들이 옛 핸들을 대신합니다(옛 것은 떼어짐).
 - **자리(Renderer의 것, D5).** Renderer는 노드의 `boundsInWindow`를 물리 픽셀로 `setFrame`에 넘깁니다. 배치, 스크롤, 창 크기, 확대 배율(FR-43)이 바뀔 때마다 보내되, Host와의 왕복은 없습니다. 뷰의 새 자리는 그 자리를 만든 프레임과 같은 프레임에 보여야 합니다. 스크롤하는 동안 뷰가 Compose 내용보다 한 프레임 늦게 따라오지 않아야 합니다(NFR-9의 "입력 지연 프레임 없음"). Host는 노드의 위치를 받지 않습니다.
 - **보이는 영역.** `clip`은 조상들의 자르기(스크롤 컨테이너, `Clip` 수정자, 창 가장자리)를 합친 사각형입니다. 노드가 완전히 밖으로 나가면 뷰를 숨깁니다(영역이 비면 `setVisible(false)`와 같습니다). `holes`는 그 노드보다 위에 그려지는 Compose 층이 뷰와 겹치는 곳입니다. 그런 층은 `Popover`(FR-77), 메뉴, 닫힌 선택 필드의 목록(FR-64), 대화상자와 시트, 서랍(FR-21), 툴팁, 일시 메시지입니다. 구멍은 그 층의 모양을 따른 둥근 사각형이고 그림자 범위를 포함합니다. 구멍에서는 뷰가 가려지고 그 밑의 Compose 면이 그린 층이 보이므로, 겹친 층이 뷰 위에 있는 것처럼 보입니다. 층이 열리거나 닫히거나 움직이면 같은 프레임에 영역을 다시 보냅니다. 대화상자의 어두운 막처럼 창 전체를 덮는 막은 구멍 대신 뷰 전체를 가립니다.
-- **숨기기: 속성 `NativeVisible`(속성 태그 187, bool, 기본 true).** 거짓이면 뷰를 숨기되 떼지 않으므로, 뷰의 상태(웹 페이지와 그 스크립트 상태)가 남습니다. 참이면 같은 뷰를 다시 보입니다. 노드를 지우는 것은 떼기이고 숨기기가 아닙니다.
-- **포커스: 이벤트 `NativeViewFocus`(이벤트 태그 62)와 명령 `FocusNativeView`(명령 태그 38).** 이벤트는 머리 16바이트 뒤에 `focused: u32@16`가 오는 24바이트입니다(나머지는 0). 핸들러 속성 `OnNativeViewFocus`(속성 태그 188)가 붙은 노드만 보냅니다. 뷰 안을 누르면 플랫폼이 그 뷰에 키보드 포커스를 줍니다. 그러면 Renderer는 Compose의 포커스를 거두어(어느 필드에도 캐럿이 남지 않게) `focused=1`을 보냅니다. 명령 `FocusNativeView`는 16바이트(`tag=38, len=16`) 뒤에 `node_id: u32`, `focus: u32`가 오며, `focus=1`이면 `focus(id)`, `0`이면 `focusScene()`입니다. 포커스를 가진 뷰가 숨거나 떼어지거나 노드가 지워지면 포커스는 Compose로 돌아가고 `focused=0`이 옵니다. 창이 비활성화되면 `focused=0`, 다시 활성화되어 그 뷰가 다시 포커스를 받으면 `focused=1`입니다. FR-65의 `RequestFocus`가 Compose 노드에 포커스를 주면 뷰는 포커스를 잃고 `focused=0`이 옵니다.
+- **숨기기: 속성 `NativeVisible`(속성 태그 190, bool, 기본 true).** 거짓이면 뷰를 숨기되 떼지 않으므로, 뷰의 상태(웹 페이지와 그 스크립트 상태)가 남습니다. 참이면 같은 뷰를 다시 보입니다. 노드를 지우는 것은 떼기이고 숨기기가 아닙니다.
+- **포커스: 이벤트 `NativeViewFocus`(이벤트 태그 62)와 명령 `FocusNativeView`(명령 태그 38).** 이벤트는 머리 16바이트 뒤에 `focused: u32@16`가 오는 24바이트입니다(나머지는 0). 핸들러 속성 `OnNativeViewFocus`(속성 태그 191)가 붙은 노드만 보냅니다. 뷰 안을 누르면 플랫폼이 그 뷰에 키보드 포커스를 줍니다. 그러면 Renderer는 Compose의 포커스를 거두어(어느 필드에도 캐럿이 남지 않게) `focused=1`을 보냅니다. 명령 `FocusNativeView`는 16바이트 고정 레코드(`tag=38, len=16`)이며 머리 4바이트 뒤에 `node_id: u32@4`, `focus: u32@8`, `reserved: u32@12`(0)가 오고, `focus=1`이면 `focus(id)`, `0`이면 `focusScene()`입니다. 포커스를 가진 뷰가 숨거나 떼어지거나 노드가 지워지면 포커스는 Compose로 돌아가고 `focused=0`이 옵니다. 창이 비활성화되면 `focused=0`, 다시 활성화되어 그 뷰가 다시 포커스를 받으면 `focused=1`입니다. FR-65의 `RequestFocus`가 Compose 노드에 포커스를 주면 뷰는 포커스를 잃고 `focused=0`이 옵니다.
 - **입력.** 보이는 영역 안의 포인터, 스크롤, 끌어 놓기, 커서 모양은 뷰의 것입니다. Compose 장면은 거기서 아무것도 받지 않고, FR-27의 파일 놓기도 영역 밖에서만 받습니다. 포인터가 장면에서 뷰로 들어가면 장면이 hover하던 노드는 포인터가 나간 것으로 처리됩니다(FR-46의 `Exit`). 돌아오면 다시 들어온 것으로 처리됩니다. 구멍 안의 입력은 장면의 것입니다. 키와 IME는 키보드 포커스를 가진 쪽이 받습니다. macOS 메뉴 막대의 키(`performKeyEquivalent`)는 뷰가 포커스를 가져도 지금처럼 앱 메뉴에 갑니다. 그 밖에 앱 단축키를 뷰에서 앱으로 넘기는 일은 뷰를 만든 쪽이 합니다(웹뷰 크레이트는 페이지가 처리하지 않은 keydown을 넘깁니다). 이 위젯은 키를 가로채지 않습니다.
 - **여러 개.** 한 창에 `NativeView`를 몇 개든 둘 수 있습니다. 서로 겹치면 나중에 붙인 뷰가 위입니다. 나중에 순서를 바꾸는 명령은 없습니다. 플랫폼 뷰를 다시 넣으면 키 포커스를 잃기 때문입니다.
 - **플랫폼.** macOS Kotlin/Native가 먼저입니다(포크 #207). GraalVM macOS 경로에는 슬롯이 없으므로(`nativeViews == null`, 소유자 결정 2026-11-13, 포크 #208), 거기서 `AttachNativeView`는 `TableError.NATIVE_VIEW_UNSUPPORTED`이고 `NativeViewParent`는 나오지 않습니다. Windows(최상위 HWND의 자식, `dxc_surface`의 형제), Linux X11(최상위 창의 자식 X 창), Android(Compose `AndroidView`), iOS(`UIKitView`)는 같은 와이어로 뒤따르고, 플랫폼마다 이슈를 둡니다. Web에서는 핸들이 DOM 요소여야 하므로, 와이어 모양을 따로 정해야 하고, 이것도 이슈를 따로 둡니다.
@@ -4700,8 +4702,8 @@ pub mod storage {
   - `NativeHandle(u64)`와 `NativeParentKind`.
   - 경계 함수는 늘지 않습니다(PR-2).
 - **번호.** 앞선 사용분은 이렇습니다.
-  - 명령: 35와 36이 FR-80, 이벤트: 60이 FR-80, 속성: 186이 FR-80, 위젯: 47이 `Popover`, `TableError`: 20이 FR-80입니다.
-  - 그래서 이 항목은 명령 37과 38, 이벤트 61과 62, 속성 187과 188, 위젯 48, `TableError` 21~23을 씁니다.
+  - 명령: 35와 36이 FR-80, 이벤트: 60이 FR-80, 속성: 186이 FR-80이고 187~189는 다른 작업(OverflowWrap, Snap, MaxHeightFraction)이 예약했으며, 위젯: 47이 `Popover`, `TableError`: 20이 FR-80입니다.
+  - 그래서 이 항목은 명령 37과 38, 이벤트 61과 62, 속성 190과 191, 위젯 48, `TableError` 21~23을 씁니다.
   - 스키마 서술 문자열 끝에 더하므로 **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 FR-80과 같은 규칙으로 서술 문자열의 순서만 태그 순서에 맞춥니다.
 - **구현 범위.**
   - 스키마와 codegen, Rust 인코더와 디코더, `ui` 위젯, 프로토콜 벡터;
@@ -4724,6 +4726,42 @@ pub mod storage {
 13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
 14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
 15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+
+### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
+
+소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
+
+- **배율 `s`**는 장치 픽셀 ÷ dp입니다. Windows는 창이 있는 모니터의 DPI ÷ 96(100% = 1.0, 125% = 1.25, 150% = 1.5, 200% = 2.0), macOS는 창의 `backingScaleFactor`, Linux(X11)는 `Xft.dpi` ÷ 96이고 값이 없으면 1.0입니다. 장면의 밀도는 `s × k`이며 `k`는 FR-43의 확대 배율입니다.
+- **적용 범위**는 데스크톱 창 여섯 경로입니다: Windows, macOS, Linux 각각의 Kotlin/Native 창과 GraalVM 창.
+
+**선명하다는 것은 아래 넷이 모두 참이라는 뜻입니다.**
+
+1. **장치 픽셀 표면.** Skia가 그리는 표면은 창 클라이언트 영역의 장치 픽셀 크기(dp 크기 × `s`, 반올림)이고, 그 표면의 한 픽셀이 화면의 한 픽셀입니다. dp 크기로 그린 뒤 OS, DWM, 스왑체인, Core Animation이 늘리는 경로는 없습니다. Windows의 `DXGI_SCALING_STRETCH`는 버퍼와 표면 창의 크기가 같아 1:1인 동안만 허용되고, 크기가 다른 버퍼가 화면에 나오면 실패입니다. macOS는 `contentsScale`이 `backingScaleFactor`와 같고 drawable을 늘리지 않습니다.
+2. **OS의 배율 가상화가 없습니다.** Windows 프로세스는 첫 창을 만들기 전에 per-monitor v2 DPI 인식 상태입니다. 매니페스트(FR-22.6의 13번)가 없는 빌드(`-gnu` 대상, `windows-manifest` 기능을 끈 앱)도 런타임 호출로 같은 상태가 됩니다.
+3. **배율 변경을 따라갑니다.** 창이 다른 배율의 모니터로 가거나 OS 배율이 바뀌면(Windows `WM_DPICHANGED`, macOS 창의 백킹 속성 변경 알림, Linux `Xft.dpi` 변경), 입력이 없어도 프레임이 요청되고, 그 프레임은 새 `s`에 맞는 새 크기의 표면에 새 밀도로 그려집니다. 창의 dp 크기는 그대로입니다(Windows는 `WM_DPICHANGED`가 제안한 사각형을 씁니다). `DensityChanged`(FR-43.1)가 한 번 옵니다. 이전 배율의 프레임을 창 서버가 늘려 보여 주는 상태가 남으면 실패입니다.
+4. **도형과 글자의 앤티앨리어싱.** 렌더러는 Compose의 기본(채움, 획, 클립 모두 앤티앨리어싱)을 끄지 않습니다. 원, 둥근 모서리, 둥근 클립의 가장자리에는 중간 값의 픽셀이 있습니다. 글자는 Compose의 플랫폼 기본 래스터 설정(`FontRasterizationSettings.PlatformDefault`)을 따릅니다. 기준은 같은 배율에서 손으로 쓴 Compose와 같은 그림이라는 것이고(NFR-9), Windows 네이티브 앱의 ClearType과 같은 그림은 기준이 아닙니다. Compose의 Windows 기본은 회색조 앤티앨리어싱이라 ClearType보다 부드러워 보입니다. 이것을 바꿀지는 소유자가 정할 일이고, 이 항목은 정하지 않습니다.
+
+**비율 배율의 한계.** 125%와 150%에서 1dp는 1.25, 1.5 장치 픽셀이고, Compose는 픽셀에 맞추지 않으므로 1dp 선의 가장자리를 앤티앨리어싱으로 그립니다. 이것은 Compose 자체의 그림이고 늘린 그림의 흐림이 아닙니다. 그래서 비율 배율에서는 "화면의 픽셀이 Compose가 그 배율로 화면 밖에서 그린 픽셀과 같다"를 보고, 선이 장치 픽셀에 정확히 맞는지는 정수 배율에서만 봅니다.
+
+**시험 장면.** 흰 바탕에 (가) x = 10dp에서 시작하는 폭 1dp의 검은 세로 막대, (나) y = 10dp에서 시작하는 높이 1dp의 검은 가로 막대, (다) 지름 40dp의 검은 원, (라) 반지름 12dp로 둥글게 자른 검은 사각형, (마) 16sp 검은 글자 "Hg"를 둡니다. 막대는 dp 정수 좌표에 있으므로 정수 배율에서 경계가 장치 픽셀 경계에 떨어집니다. 렌더러의 진단 장면으로 두며, 앱 API는 늘지 않습니다.
+
+**지금 코드와의 차이(2026-11-13 코드 조사, 실행 확인 전).** Windows의 두 창은 1번에서 3번까지를 코드상 갖추고 있습니다. 보고 당시의 Windows 창은 AWT 창이었고(19.6의 2026-09-24 기록), 툴킷 없는 창은 2026-09-25, 매니페스트는 2026-10-03에 들어왔으므로 보고된 흐림은 DPI를 모르는 프로세스를 Windows가 늘려 그린 것으로 보이지만, 실제 화면에서 다시 확인하지 않았습니다. 다음은 아직 없습니다(모두 이슈 #18).
+- macOS의 두 창 모두 백킹 배율이 바뀌었다는 알림을 듣지 않아, 다른 배율의 화면으로 옮긴 뒤 다음 프레임이 요청될 때까지 이전 프레임이 늘려져 보입니다(포크).
+- macOS GraalVM 창은 drawable의 배율을 크기가 바뀔 때만 고치고(포크), 장면의 밀도를 창을 만들 때 한 번만 정합니다(이 저장소 `AppKitWindow.kt`).
+- Linux Kotlin/Native 창은 배율이 언제나 1.0이고, Linux GraalVM 창은 `Xft.dpi`를 시작할 때 한 번만 읽습니다(포크).
+
+수용 기준. 시험 이름 뒤에 그 기준을 어디서 확인하는지 적습니다. CI의 Windows는 `windows-latest`에서 WARP(`DXC_D3D12_WARP=1`)로 그리고, 배율은 `.github/scripts/set-display-scale.c`로 바꿉니다. CI의 Linux는 Xvfb에 `xrdb`로 `Xft.dpi`를 정합니다.
+
+1. **표면 크기와 밀도.** 각 창 경로에서 첫 프레임과 배율이 바뀐 뒤의 첫 프레임의 표면 픽셀 크기가 클라이언트 영역의 장치 픽셀 크기와 같고, 장면의 밀도가 `s`(`k = 1`)와 같습니다. 창 시작 보고에 실린 값으로 확인합니다(fr82_surface_is_device_pixels_at_every_scale). CI: Windows 100/125/150/200%, Linux `Xft.dpi` 96/120/144/192, macOS는 기준 8.
+2. **화면이 그린 것과 같습니다(늘림 없음).** 시험 장면이 자리 잡은 뒤의 화면 캡처(Windows는 DWM이 합성한 데스크톱에서 `DwmFlush` 뒤에 클라이언트 영역을 복사, macOS는 `kCGWindowImageBestResolution`의 `CGWindowListCreateImage`, Linux는 `XGetImage`)가 클라이언트 영역의 장치 픽셀 크기이고, 그 프레임에 그린 픽셀과 채널당 평균 차이 1 이하, 8을 넘게 다른 픽셀 0.1% 이하로 같습니다(fr82_screen_matches_the_drawn_frame). CI: 기준 1과 같은 배율.
+3. **정수 배율의 선.** `s` = 1과 2에서 1dp 막대는 정확히 `s`개 장치 픽셀 폭의 검정(모든 채널 8 이하)이고, 그 양옆 픽셀은 흰색(모든 채널 247 이상)입니다. 회색 번짐이 없습니다(fr82_one_dp_line_is_whole_device_pixels_at_integer_scales). CI: Windows 100%와 200%, Linux 96과 192, macOS는 기준 8.
+4. **비율 배율은 화면 밖 Compose와 같습니다.** `s` = 1.25와 1.5에서 화면 캡처가 같은 장면을 Compose가 밀도 `s`로 화면 밖에서 그린 그림(`ImageComposeScene`, 같은 글꼴과 래스터 설정)과 기준 2의 허용치로 같습니다. 같은 비교를 "밀도 1로 그려 `s`배 늘린 그림"에도 하여 그 차이가 허용치보다 크다는 것을 함께 보입니다. 시험이 늘린 그림을 알아볼 수 있다는 증거입니다(fr82_fractional_scale_matches_offscreen_compose). CI: Windows 125%와 150%, Linux 120과 144.
+5. **앤티앨리어싱.** 원과 둥근 클립의 가장자리를 따라 중간 값(16에서 239)의 픽셀이 있고, 가장자리를 법선 방향으로 가로지르는 전이 폭이 1에서 2 장치 픽셀입니다. 글자 "Hg"의 세로 획 가장자리의 전이 폭은 2 장치 픽셀 이하입니다. 늘린 그림은 이 폭이 `s`배로 넓어집니다(fr82_curved_edges_are_antialiased, fr82_glyph_edges_are_not_blurred). CI: 기준 1과 같은 배율.
+6. **실행 중 배율 변경.** 앱을 200%에서 띄운 채 OS 배율을 125%로 바꾸면(창에 `WM_DPICHANGED`가 옵니다. 모니터를 옮길 때와 같은 메시지입니다) 입력 없이 2초 안에 새 배율의 표면으로 다시 그려지고, 125%에서 기준 1, 2, 4가 통과하며, 창의 dp 크기가 1dp 안에서 그대로이고, `DensityChanged(1.25)`가 한 번 옵니다. 다시 200%로 바꾸면 기준 1, 2, 3이 200%에서 통과합니다(fr82_scale_change_redraws_at_the_new_scale). CI: Windows, 그리고 Linux에서 `Xft.dpi`를 192에서 120으로 실행 중에 바꾸는 것. macOS는 기준 8.
+7. **Windows 프로세스의 DPI 인식.** 매니페스트를 품은 앱과 `windows-manifest` 기능을 끈 앱 모두에서, 첫 창이 만들어질 때 그 창의 DPI 인식 문맥이 per-monitor v2이고(`GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(hwnd))`가 `DPI_AWARENESS_PER_MONITOR_AWARE`이고 `AreDpiAwarenessContextsEqual`로 v2와 같음), 200%에서 `GetDpiForWindow`가 192입니다(fr82_windows_process_is_per_monitor_v2_before_the_first_window). CI: Windows.
+8. **macOS 2배.** macOS 러너의 가상 디스플레이가 HiDPI 모드(`kCGDisplayShowDuplicateLowResolutionModes`로 받은 `CGDisplayCopyAllDisplayModes` 가운데 픽셀 폭이 점 폭의 두 배인 모드)를 주면, 공개 API `CGConfigureDisplayWithDisplayMode`로 1배와 2배를 오가며 기준 1, 2, 3, 5와 기준 6의 macOS판(1배에서 2배로, 2배에서 1배로)을 CI에서 확인합니다(fr82_macos_scales_one_and_two). 러너가 그런 모드를 주지 않으면 이 기준은 손 확인이고, CI 로그가 받은 배율을 적습니다. 어느 쪽인지는 구현의 첫 단계에서 러너로 확인해 보고합니다.
+9. **실제 화면에서의 손 확인.** 자동화할 수 없습니다. CI 러너에는 가상 모니터가 하나뿐이라 모니터 사이를 옮기는 일과 실제 패널에서의 모습은 사람이 봅니다. (가) Windows: 200% 주 모니터와 125% 보조 모니터가 있는 기기에서 창을 끌어 두 모니터를 오가고, 양쪽에서 시험 장면과 샘플이 선명하며, 옮긴 뒤 입력 없이도 새 배율로 다시 그려집니다. (나) macOS: Retina 내장 화면과 1배 외장 모니터를 오가며 같은 것을 봅니다. 둥근 도형의 가장자리가 계단이 아닙니다. (다) 각 배율의 스크린숏을 기록합니다(FR-19.8의 2번과 같은 방식). 사람이 확인한 날짜와 기기를 이 항목에 적습니다(fr82_hand_check_on_real_displays, 수동).
+10. 기준 1에서 7이 여섯 창 경로 모두에서 통과합니다. 경로 하나를 이 기준에서 빼는 것(예: 그 플랫폼에 GraalVM 창을 더는 내놓지 않는 경우)은 소유자가 정하고 이 항목에 적습니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
@@ -4803,6 +4841,8 @@ pub mod storage {
 3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
 4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
 
+**긴 토큰의 줄바꿈과 TextField의 단어 나눔**(이슈 #443, #444, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Text::overflow_wrap(OverflowWrap)`이 있습니다. `Normal`(기본)과 `Anywhere`입니다. `Anywhere`이면 한 줄에 들어가지 않는 긴 토큰(경로, URL, 붙여 쓴 영문)은 `word_break`가 `KeepAll`이어도 그 안에서 줄을 바꿉니다. 들어가는 토큰의 줄바꿈 규칙은 바뀌지 않습니다(CSS `overflow-wrap: anywhere`). `TextField`에도 `word_break(WordBreak)`와 `overflow_wrap(OverflowWrap)`이 있고, 입력한 글과 자리표시 글자 모두에 적용됩니다. 각각 속성 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 120dp에서 `KeepAll`과 `Anywhere`인 글의 공백 없는 40자 토큰이 잘리지 않고 여러 줄로 그려지고, 한글 문장은 여전히 띄어쓰기에서만 줄을 바꿉니다(fr58_overflow_wrap_anywhere_breaks_long_tokens). `KeepAll`인 필드의 한글 자리표시 글자가 낱말 가운데에서 줄을 바꾸지 않습니다(fr58_text_field_word_break_applies_to_the_hint).
+
 ### FR-59 작은 진행 표시 고리의 획 굵기 (`Agreed`, 이슈 #377)
 
 요청한 쪽: darkpyonix-ember#220. 14dp 고리가 디자인 시스템의 4dp 굵기로 그려져 목업의 12px 고리, 2px 획과 맞지 않았습니다.
@@ -4842,6 +4882,8 @@ pub mod storage {
 수용 기준.
 1. `Modifier::corner_radii([8.0, 8.0, 0.0, 0.0])`는 네 모서리 값이 그대로 담긴 `Shape` 수정자 한 건을 보내고, `Modifier::clip(true)`는 `Clip(true)` 수정자 한 건을 보냅니다.
 2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
+
+**한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
 
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 

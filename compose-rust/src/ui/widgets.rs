@@ -19,7 +19,8 @@ use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
-    HorizontalAlignment, IconRole, Paint, PopoverAlign, PopoverPlacement, SlotRole, Snap,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
+    Snap,
     SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
@@ -901,6 +902,7 @@ pub struct TextScope {
     overflow: Option<TextOverflow>,
     font: FontRefs,
     word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
     pointer: Option<PointerSubscription>,
     done: bool,
 }
@@ -925,6 +927,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         overflow: None,
         font: FontRefs::default(),
         word_break: None,
+        overflow_wrap: None,
         pointer: None,
         done: false,
     }
@@ -995,12 +998,20 @@ impl TextScope {
         self
     }
 
+    /// Whether a token too long for its line, such as a path or a URL, may break inside
+    /// itself. CSS `overflow-wrap`. With `Anywhere` such a token breaks between its letters
+    /// even under `WordBreak::KeepAll`; tokens that fit keep the breaking rule they had.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
         let font = std::mem::take(&mut self.font);
-        let word_break = self.word_break;
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let (type_role, font_size, font_weight, line_height, letter_spacing) = (
             self.type_role,
             self.font_size,
@@ -1041,6 +1052,7 @@ impl TextScope {
                 ));
                 attrs.push(("font", font_bytes(&font)));
                 attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
                 attrs.push(("type_role", role_or_zero(type_role)));
                 attrs.push(("font_size", dp_or_zero(font_size)));
@@ -1082,6 +1094,8 @@ pub struct TextFieldScope {
     letter_spacing: Option<f32>,
     color: Option<Paint>,
     font: FontRefs,
+    word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
     on_focus_gained: Option<Box<dyn FnMut()>>,
@@ -1111,6 +1125,8 @@ pub fn TextField() -> TextFieldScope {
         letter_spacing: None,
         color: None,
         font: FontRefs::default(),
+        word_break: None,
+        overflow_wrap: None,
         on_value_change: None,
         on_submit: None,
         on_focus_gained: None,
@@ -1191,6 +1207,20 @@ impl TextFieldScope {
         self
     }
 
+    /// Where a line of the typed text and of the placeholder may break inside a word, as
+    /// `Text::word_break` does. CSS `word-break`.
+    pub fn word_break(mut self, word_break: WordBreak) -> Self {
+        self.word_break = Some(word_break);
+        self
+    }
+
+    /// Whether a token too long for its line may break inside itself, in the typed text
+    /// and the placeholder, as `Text::overflow_wrap` does. CSS `overflow-wrap`.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
+        self
+    }
+
     pub fn on_value_change(mut self, handler: impl FnMut(String) + 'static) -> Self {
         self.on_value_change = Some(std::boxed::Box::new(handler));
         self
@@ -1256,6 +1286,7 @@ impl TextFieldScope {
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
         let font = std::mem::take(&mut self.font);
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
@@ -1314,6 +1345,8 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
+                attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 // Written only for a bare field, so a framed one sends what it always did.
                 if bare {
                     attrs.push(("bare", OwnedAttr::Bool(true)));

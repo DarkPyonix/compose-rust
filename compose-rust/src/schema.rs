@@ -226,7 +226,10 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView;",
+    // The fields of the overlay tokens record in wire order. A field is only appended, and
+    // appending one changes the record's length, so it is part of what the hash covers.
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -1996,7 +1999,8 @@ pub struct Theme {
 /// How many type roles there are, which is how many font slots a theme carries.
 pub const TYPE_ROLE_COUNT: usize = 9;
 
-/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the
+/// transient message. Every measure is in dp, and 0 keeps the design system's own.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct OverlayTokens {
     pub sheet_corner_radius: u16,
@@ -2009,6 +2013,10 @@ pub struct OverlayTokens {
     pub dialog_padding: u16,
     pub popup_padding: u16,
     pub scrim: u32,
+    /// How high the transient message floats, which is how much shadow it casts.
+    pub toast_elevation: u16,
+    /// The corner radius of the transient message.
+    pub toast_corner_radius: u16,
 }
 
 impl OverlayTokens {
@@ -2024,6 +2032,8 @@ impl OverlayTokens {
             dialog_padding: 0,
             popup_padding: 0,
             scrim: 0,
+            toast_elevation: 0,
+            toast_corner_radius: 0,
         }
     }
 
@@ -2079,6 +2089,20 @@ impl OverlayTokens {
 
     pub const fn scrim_argb(mut self, argb: u32) -> Self {
         self.scrim = argb;
+        self
+    }
+
+    /// The transient message's elevation in dp: a shadow under it the height of a surface
+    /// that far up. A message is not a node and takes no Modifier, so this is where its
+    /// shadow is set, once for the application.
+    pub const fn toast_elevation(mut self, elevation: u16) -> Self {
+        self.toast_elevation = elevation;
+        self
+    }
+
+    /// The transient message's corner radius in dp.
+    pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
+        self.toast_corner_radius = radius;
         self
     }
 }

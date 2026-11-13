@@ -1359,9 +1359,12 @@ class NodeTable {
                         // An editor set in the application's own monospace list.
                         widget == WidgetKind.CodeEditor
 
-                PropertyKind.SpanFonts,
+                // Where lines break, in a Text and in a field's typed text and placeholder.
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
+                -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                PropertyKind.SpanFonts,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,

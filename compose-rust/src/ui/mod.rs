@@ -278,6 +278,17 @@ fn keep_label(label: &str) -> Option<&'static str> {
     kept
 }
 
+/// One side of a node, for [`Modifier::border_side`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum Side {
+    Top,
+    /// The side a line of text ends on: the right side.
+    End,
+    Bottom,
+    /// The side a line of text starts on: the left side.
+    Start,
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -308,6 +319,7 @@ pub struct Modifier {
     corner_curve: Option<f32>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
+    border_each: Option<[(f32, Paint); 4]>,
     elevation: Option<f32>,
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
@@ -353,6 +365,7 @@ impl Modifier {
             corner_curve: None,
             border_width: None,
             border_color: None,
+            border_each: None,
             elevation: None,
             alpha: None,
             press_feedback: None,
@@ -490,9 +503,57 @@ impl Modifier {
         self
     }
 
+    /// The same border on every side. It takes the place of `border_each` and
+    /// `border_side`.
     pub const fn border(mut self, width: f32, paint: Paint) -> Self {
         self.border_width = Some(width);
         self.border_color = Some(paint);
+        self.border_each = None;
+        self
+    }
+
+    /// A border whose sides each have their own width and paint, in CSS order: top,
+    /// right, bottom, left. A side of width 0 draws nothing. It takes the place of
+    /// `border`.
+    ///
+    /// The sides are the screen's, not the reading direction's: `right` is the right side
+    /// in a right-to-left window too.
+    pub const fn border_each(
+        mut self,
+        top: (f32, Paint),
+        right: (f32, Paint),
+        bottom: (f32, Paint),
+        left: (f32, Paint),
+    ) -> Self {
+        self.border_each = Some([top, right, bottom, left]);
+        self.border_width = None;
+        self.border_color = None;
+        self
+    }
+
+    /// A border on one side only, such as the guide line beside an indented row. The
+    /// other sides have width 0, unless an earlier `border_side` or `border_each` in the
+    /// same chain gave them one, so `border_side(Side::Top, ..).border_side(Side::Start,
+    /// ..)` draws two sides. It takes the place of `border`.
+    ///
+    /// `Side::Start` is the left side and `Side::End` the right one. The Host lays every
+    /// screen out left to right and the Renderer draws a border on the screen's sides, so
+    /// a right-to-left window does not move a start border to the right.
+    pub const fn border_side(mut self, side: Side, width: f32, paint: Paint) -> Self {
+        let mut sides = match self.border_each {
+            Some(sides) => sides,
+            None => [(0.0, paint); 4],
+        };
+        let index = match side {
+            Side::Top => 0,
+            Side::End => 1,
+            Side::Bottom => 2,
+            Side::Start => 3,
+        };
+        sides[index] = (width, paint);
+        self.border_each = Some(sides);
+        self.border_width = None;
+        self.border_color = None;
         self
     }
 
@@ -846,6 +907,23 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
+    // Four widths and then four paints, written only when set. It shares the border's
+    // slot, after the plain border, so whichever of the two the chain holds is the one
+    // the slot ends up with.
+    push(
+        false,
+        "border_each",
+        modifier.border_each.map_or(OwnedAttr::None, |sides| {
+            let mut bytes = Vec::with_capacity(48);
+            for (width, _) in sides {
+                bytes.extend_from_slice(&width.to_le_bytes());
+            }
+            for (_, paint) in sides {
+                bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
+            }
+            OwnedAttr::Bytes(bytes)
+        }),
+    );
     push(standard, "elevation", float(modifier.elevation));
     push(
         false,
