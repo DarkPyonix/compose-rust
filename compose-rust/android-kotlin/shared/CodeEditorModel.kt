@@ -4,8 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import dev.darkpyonix.composerust.protocol.CodeEditRecord
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.EditGroupStatus
 import dev.darkpyonix.composerust.protocol.DecorationRecord
 import dev.darkpyonix.composerust.protocol.FoldRecord
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
@@ -158,6 +160,19 @@ sealed interface EditorOutput {
 
     /** Something the Host sent that could not be honoured. Only that item was dropped. */
     class Error(val message: String) : EditorOutput
+
+    /**
+     * What became of one grouped Host edit, queued exactly once for each, after the changes
+     * it made. [index] is how many edits went in where it was applied, and otherwise the
+     * position in the group, as sent, of the edit that kept it out.
+     */
+    class GroupResult(
+        val requestId: Int,
+        val status: EditGroupStatus,
+        val baseVersion: Int,
+        val currentVersion: Int,
+        val index: Int,
+    ) : EditorOutput
 }
 
 /** Where a change came from, which decides how it joins the undo history. */
@@ -306,6 +321,9 @@ class CodeEditorModel(
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
+
+    /** How many steps an undo can go back. */
+    val undoDepth: Int get() = undoStack.size
 
     /** The suggestion on show, if there is one. */
     val ghostText: LiveDecoration? get() = decorationList.firstOrNull { it.kind == DecorationKind.GhostText }
@@ -536,6 +554,141 @@ class CodeEditorModel(
             return
         }
         apply(start, end, text, EditOrigin.Host)
+    }
+
+    /**
+     * A group of edits the Host asked for as one, every range written against
+     * [baseVersion]: all of them go in, or none does.
+     *
+     * Everything is checked before the document is touched. The group is [EditGroupStatus.Invalid]
+     * where it makes no sense: a version the document has not reached, a range that starts
+     * after it ends or is not in the document, or two edits that overlap (ranges that only
+     * meet do not, and two insertions at one place go in in the order they were sent).
+     * Where the reader has changed the document since, every range is moved past what they
+     * typed, the way [hostEdit] moves one, and the whole group is
+     * [EditGroupStatus.Rejected] if any of them meets it, or [EditGroupStatus.TooOld] where
+     * the version is older than the document remembers.
+     *
+     * A group that goes in is applied from the end of the document backwards, so each
+     * change is reported against the document as it stood just before it and the version
+     * steps by one for each edit. It is one undo step of its own, never joined to the
+     * typing before it. Exactly one [EditorOutput.GroupResult] follows the changes. An empty
+     * group changes nothing and is answered as applied at the version the document is at.
+     */
+    fun hostEditGroup(requestId: Int, baseVersion: Int, edits: List<CodeEditRecord>) {
+        fun answer(status: EditGroupStatus, index: Int) {
+            output += EditorOutput.GroupResult(requestId, status, baseVersion, document.version, index)
+        }
+        if (edits.isEmpty()) {
+            output += EditorOutput.GroupResult(
+                requestId,
+                EditGroupStatus.Applied,
+                document.version,
+                document.version,
+                0,
+            )
+            return
+        }
+        // Compared as unsigned, which is what the wire carries: a version past 2^31 is
+        // still one the document has not reached.
+        if ((baseVersion.toLong() and 0xffff_ffffL) > document.version.toLong()) {
+            return answer(EditGroupStatus.Invalid, 0)
+        }
+
+        class Planned(val index: Int, var start: CodePosition, var end: CodePosition, val text: String)
+
+        val planned = ArrayList<Planned>(edits.size)
+        for ((index, edit) in edits.withIndex()) {
+            val start = CodePosition(edit.startLine, edit.startColumn)
+            val end = CodePosition(edit.endLine, edit.endColumn)
+            if (edit.startLine < 0 || edit.startColumn < 0 || edit.endLine < 0 || edit.endColumn < 0 ||
+                start > end
+            ) {
+                return answer(EditGroupStatus.Invalid, index)
+            }
+            planned += Planned(index, start, end, edit.text)
+        }
+        overlapIn(planned.map { Triple(it.index, it.start, it.end) })?.let { return answer(EditGroupStatus.Invalid, it) }
+
+        val changes = document.changesSince(baseVersion) ?: return answer(EditGroupStatus.TooOld, 0)
+        for (edit in planned) {
+            for (change in changes) {
+                if (CodeDocument.overlaps(change, edit.start, edit.end)) {
+                    return answer(EditGroupStatus.Rejected, edit.index)
+                }
+                if (edit.start == edit.end) {
+                    edit.start = CodeDocument.map(edit.start, change, Bias.After)
+                    edit.end = edit.start
+                } else {
+                    edit.start = CodeDocument.map(edit.start, change, Bias.After)
+                    edit.end = CodeDocument.map(edit.end, change, Bias.Before)
+                }
+            }
+        }
+        for (edit in planned) {
+            if (!document.isValid(edit.start) || !document.isValid(edit.end) || edit.start > edit.end) {
+                return answer(EditGroupStatus.Invalid, edit.index)
+            }
+        }
+        // Moving every range past the same changes keeps apart what was apart, so this
+        // refuses nothing the check above let through. It checks the ranges as they will
+        // be applied, which is what the document has to be protected from.
+        overlapIn(planned.map { Triple(it.index, it.start, it.end) })?.let { return answer(EditGroupStatus.Invalid, it) }
+
+        // Back to front: an edit further on is applied first, so the ones before it are
+        // still where they were sent. Of two at the same place the one that reaches further
+        // goes first, and of two insertions there the one sent later, so that they read in
+        // the order they were sent.
+        val ordered = planned.sortedWith(
+            compareByDescending<Planned> { it.start }
+                .thenByDescending { it.end }
+                .thenByDescending { it.index },
+        )
+        val before = selection
+        val applied = ArrayList<AppliedChange>(ordered.size)
+        for (edit in ordered) applied += applyRaw(edit.start, edit.end, edit.text)
+        redoStack.clear()
+        undoStack += UndoEntry(applied, before, selection, mergeable = false, at = clock())
+        output += EditorOutput.GroupResult(
+            requestId,
+            EditGroupStatus.Applied,
+            baseVersion,
+            document.version,
+            applied.size,
+        )
+    }
+
+    /**
+     * A grouped Host edit whose record could not be read. The group changed nothing and is
+     * still answered, as [EditGroupStatus.Invalid] at index 0. With [message] the editor
+     * reports why; without it the decoder has already reported the record.
+     */
+    fun hostEditGroupUnreadable(requestId: Int, baseVersion: Int, message: String?) {
+        if (message != null) output += EditorOutput.Error(message)
+        output += EditorOutput.GroupResult(requestId, EditGroupStatus.Invalid, baseVersion, document.version, 0)
+    }
+
+    /**
+     * The edit that overlaps another, given as (index, start, end), or null where none
+     * does. Of an overlapping pair it is the one further on in the document. Ranges that
+     * only meet do not overlap, and neither do two insertions at one place; an insertion
+     * overlaps a range only from strictly inside it.
+     */
+    private fun overlapIn(ranges: List<Triple<Int, CodePosition, CodePosition>>): Int? {
+        // In document order, an edit overlaps one before it exactly when it starts before
+        // the farthest end of the stretches (not insertions) before it. An insertion before
+        // it never overlaps it, and a stretch that starts where an insertion is sorts after
+        // the insertion, so meeting at an edge is never counted.
+        val sorted = ranges.sortedWith(
+            compareBy<Triple<Int, CodePosition, CodePosition>> { it.second }.thenBy { it.third },
+        )
+        var reach: CodePosition? = null
+        for ((index, start, end) in sorted) {
+            val farthest = reach
+            if (farthest != null && start < farthest) return index
+            if (start != end && (farthest == null || end > farthest)) reach = end
+        }
+        return null
     }
 
     /**

@@ -482,6 +482,8 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+            // Several edits as one, all of them or none, answered once whatever became of it.
+            is Mutation.EditCodeGroup -> editCodeGroup(mutation)
 
             // The editor's selection and scroll are this side's, so these are requests
             // too: each is checked against the document and refused, with a protocol
@@ -745,6 +747,38 @@ class NodeTable {
             mutation.endColumn,
             mutation.text,
         )
+        collectCode(node)
+    }
+
+    /**
+     * Hands a grouped edit to its editor, which answers it exactly once.
+     *
+     * A record the decoder could not read arrives marked as such, ahead of the protocol
+     * error the decoder raises for it, so that the editor still answers it; nothing more is
+     * reported for it here. Edits that cannot be read are reported, and answered the same
+     * way. Edits that can be read but make no sense are the editor's to answer, and are no
+     * protocol error.
+     */
+    private fun editCodeGroup(mutation: Mutation.EditCodeGroup) {
+        if (mutation.malformed != null) {
+            val node = nodes[mutation.nodeId] ?: return
+            val code = node.code ?: return
+            code.hostEditGroupUnreadable(mutation.requestId, mutation.baseVersion, null)
+            collectCode(node)
+            return
+        }
+        val (node, code) = codeNode(mutation.nodeId, "EditCodeGroup") ?: return
+        var unreadable: String? = null
+        val edits = CodeEditorRecords.decodeEditGroup(mutation.edits) { message -> unreadable = message }
+        if (edits == null) {
+            code.hostEditGroupUnreadable(
+                mutation.requestId,
+                mutation.baseVersion,
+                unreadable ?: "a grouped edit could not be read",
+            )
+        } else {
+            code.hostEditGroup(mutation.requestId, mutation.baseVersion, edits)
+        }
         collectCode(node)
     }
 
@@ -1499,6 +1533,8 @@ class NodeTable {
                 // before the editor handles them.
                 PropertyKind.OnCaretRect,
                 PropertyKind.OnKeyPreview,
+                // The handler told what became of each grouped edit.
+                PropertyKind.OnEditGroupResult,
                 // The handler of its pointer events with the text under them. The kinds it
                 // hears are the node's `PointerKinds`, below.
                 PropertyKind.OnCodePointer,

@@ -18,7 +18,9 @@
 //! would make every application recount every range on the way through. A line ends at
 //! `\n`, `\r\n` or a lone `\r`, which is also the language server's rule.
 
-use crate::schema::{ColorRole, DecorationKind, GutterDecorationKind, HoverPhase, Paint, Severity};
+use crate::schema::{
+    ColorRole, DecorationKind, EditGroupStatus, GutterDecorationKind, HoverPhase, Paint, Severity,
+};
 use std::rc::Rc;
 
 /// Bytes of one decoration record.
@@ -26,6 +28,10 @@ pub const DECORATION_LEN: usize = 44;
 
 /// Bytes of one syntax colour run record.
 pub const SYNTAX_SPAN_LEN: usize = 28;
+
+/// Bytes of one edit record inside a grouped edit: the range as four `u32`, then the
+/// text's `(offset, length)`.
+pub const CODE_EDIT_LEN: usize = 24;
 
 /// What one field of a code editor record holds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1329,6 +1335,111 @@ impl CodePointer {
                     timestamp_nanos,
                 ),
                 position,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Encodes the edits of one grouped edit the way `EditCodeGroup` carries them, appending to
+/// `out`.
+///
+/// The blob is a `u32` count, then one 24-byte record per edit (the range, then the text's
+/// offset and length) and then the texts one after another. A text's offset counts from
+/// the start of the texts, not from the start of the blob. Fails only where a count, a
+/// length or an offset does not fit a `u32`.
+pub fn encode_edit_group(
+    edits: &[(CodeRange, &str)],
+    out: &mut Vec<u8>,
+) -> Result<(), crate::protocol::ProtocolError> {
+    use crate::protocol::ProtocolError;
+    let count = u32::try_from(edits.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+    let texts: usize = edits.iter().map(|(_, text)| text.len()).sum();
+    out.reserve(4 + edits.len() * CODE_EDIT_LEN + texts);
+    put_u32(out, count);
+    let mut offset = 0_u32;
+    for (range, text) in edits {
+        let len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        put_range(out, *range);
+        put_u32(out, offset);
+        put_u32(out, len);
+        offset = offset
+            .checked_add(len)
+            .ok_or(ProtocolError::LengthOverflow)?;
+    }
+    for (_, text) in edits {
+        out.extend_from_slice(text.as_bytes());
+    }
+    Ok(())
+}
+
+/// Reads back the edits [`encode_edit_group`] wrote, in the order they were sent.
+///
+/// None where the blob is not one: shorter than its count says, a text outside the blob or
+/// not UTF-8, or bytes after the last text. The Renderer reads it under the same rules and
+/// answers a blob it cannot read with a protocol error.
+pub fn decode_edit_group(bytes: &[u8]) -> Option<Vec<(CodeRange, &str)>> {
+    if bytes.len() < 4 {
+        return None;
+    }
+    let count = word(bytes, 0) as usize;
+    let texts_start = count.checked_mul(CODE_EDIT_LEN)?.checked_add(4)?;
+    if texts_start > bytes.len() {
+        return None;
+    }
+    let mut edits = Vec::with_capacity(count);
+    let mut texts_end = texts_start;
+    for index in 0..count {
+        let record = &bytes[4 + index * CODE_EDIT_LEN..4 + (index + 1) * CODE_EDIT_LEN];
+        let start = texts_start.checked_add(word(record, 16) as usize)?;
+        let end = start.checked_add(word(record, 20) as usize)?;
+        let text = std::str::from_utf8(bytes.get(start..end)?).ok()?;
+        texts_end = texts_end.max(end);
+        edits.push((range_at(record, 0), text));
+    }
+    (texts_end == bytes.len()).then_some(edits)
+}
+
+/// What became of one grouped edit, as the Renderer reported it.
+///
+/// Exactly one arrives for every grouped edit that was sent with at least one edit in it,
+/// after the changes it made. The group went in whole or not at all: `status` is
+/// `Applied`, or the reason it stayed out, and each reason asks for something different.
+/// `Rejected`: the reader changed a place the group would have written, so read the
+/// document again and send the group again. `TooOld`: the version it was written against
+/// is older than the editor remembers, so bring the application's copy of the document
+/// back in step first. `Invalid`: the group itself makes no sense.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EditGroupResult {
+    /// The id the application gave the group.
+    pub request_id: u32,
+    pub status: EditGroupStatus,
+    /// The version the group was written against, as it was sent.
+    pub base_version: u32,
+    /// Where it went in, the version after its last change; where it did not, the version
+    /// the document is at.
+    pub current_version: u32,
+    /// Where it went in, how many edits did; where it did not, the position in the group,
+    /// as sent, of the edit that kept it out (0 where no one edit did).
+    pub index: u32,
+}
+
+impl EditGroupResult {
+    /// The result out of a `CodeEditGroupResult` event, or None for any other.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match *payload {
+            crate::schema::EventPayload::CodeEditGroupResult {
+                request_id,
+                status,
+                base_version,
+                current_version,
+                index,
+            } => Some(Self {
+                request_id,
+                status,
+                base_version,
+                current_version,
+                index,
             }),
             _ => None,
         }
