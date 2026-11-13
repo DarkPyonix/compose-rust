@@ -373,6 +373,8 @@ Property 태그(기존 `OnRangeRequested=12` 뒤에 덧붙입니다): `TypeRole=
 - 높이가 넉넉하면 여백은 디자인 시스템이 정한 값 그대로입니다.
 - `Chip`은 세로 여백이 없어(높이는 `defaultMinSize`, 라벨은 가운데 정렬) 같은 규칙을 이미 만족합니다. 같은 테스트가 칩도 확인합니다.
   - 수용 기준: `fr13_small_button_keeps_its_label_whole` (모든 디자인 시스템에서 높이 32dp 버튼의 한글 라벨 경계가 버튼 안에 있고, 그 높이가 높이를 넉넉히 준 버튼의 라벨과 같습니다).
+- **[leader, provisional, 2026-11-13] 컨테이너 자신의 좌우 여백도 라벨을 자르지 않습니다.** 주어진 너비가 좌우 여백과 라벨의 너비를 더한 값보다 작으면, Renderer가 좌우 여백을 양쪽 똑같이 0까지 줄여서 라벨이 자기 너비 전체를 가지게 합니다. 라벨은 그 뒤에야 잘릴 수 있습니다. 36dp, 44dp 원형 버튼의 한 글자 라벨(`−`, `+`, `▶`)이 Material 3의 24dp 좌우 여백에 밀려 말줄임표 하나로 그려지던 것이 이 경우입니다.
+  - 수용 기준: `fr13_short_label_in_a_small_round_button_is_not_ellipsized` (모든 디자인 시스템에서 36dp와 44dp 원형 버튼의 짧은 라벨이 말줄임되지 않고 잘리지 않으며, 버튼 안에 있고, 그 너비가 자기 크기대로 둔 버튼의 라벨과 같습니다).
 
 ### FR-14 디자인 시스템과 테마 모드 (`Agreed`)
 디자인 시스템은 **토큰 집합 + 컴포넌트 스타일 규칙**의 한 쌍입니다. 속성을 모아 놓은 것이 아닙니다.
@@ -1325,6 +1327,10 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 - **드래그 영역**: 캡션 영역의 빈 공간을 잡고 창을 움직일 수 있어야 합니다. 상호작용 위젯(Button, TextField 등) 위에서는 드래그가 일어나지 않습니다.
 - **캡션 띠의 색은 루트가 칠한 색입니다.** 창 전체를 테마의 배경색으로 칠하고 그 안에서 인셋을 주면, 자기 팔레트를 가진 앱은 본문과 맨 위 띠의 색이 어긋납니다. 페이지가 회색인데 띠만 흰색으로 남는 식입니다. 루트 노드가 `Background`를 직접 지정했다면 창의 바탕도 그 색이고, 지정하지 않았을 때만 테마의 배경색입니다. `Container`에서 "애플리케이션이 칠한 색이 이긴다"로 정한 것과 같은 규칙이며(FR-14), 이 규칙이 적용되는 범위가 노드에서 창까지 넓어지는 것뿐입니다.
 - **전면 시각 요소도 캡션을 받습니다.** 트리의 앞쪽 가장자리가 `Image`이면 바와 같은 자격으로 캡션 띠를 가져갑니다. 받는 것은 바와 그림뿐입니다. 자기 배경을 칠했다는 이유만으로 주면, 페이지 전체를 담은 `Navigation` 같은 껍데기가 캡션을 가져가고 그 첫 줄의 글자가 창 버튼 아래로 들어갑니다. 껍데기의 색이 해야 할 일은 창을 채우는 것이고, 그건 바로 위 항목이 답합니다. 창 맨 위를 사진이나 색면이 채우는 화면에서 그 위에 인셋만큼의 빈 띠를 남기면, 바가 캡션을 받지 못했을 때와 똑같이 "아무도 요청하지 않은 타이틀바"로 읽힙니다. 창 버튼은 그 위에 그대로 그려지므로 가려지지 않습니다.
+- **[leader, provisional, 2026-11-13] 화면 키보드가 열려도 창은 밀려 올라가지 않습니다.** 페이지는 키보드의 위쪽 가장자리에서 끝나고, 위쪽 바와 위쪽 인셋은 움직이지 않습니다. 키보드 아래에 제스처 바 자리를 따로 남기지 않습니다. 창 전체를 밀어 올리면 바와 제목이 상태 표시줄 밑으로 들어가고, 키보드가 가린 아래쪽 줄은 여전히 보이지 않기 때문입니다. `Sheet`나 `Dialog`의 스크림은 계속 창 전체를 덮고, 키보드 위로 올라가는 것은 그 표면뿐입니다. Android에서는 Activity가 `adjustResize`로 키보드에 맞춰 크기를 바꾸고, iOS에서는 Compose가 포커스된 필드를 위해 화면을 미는 동작을 끕니다. 그대로 두면 Renderer가 이미 줄인 페이지가 한 번 더 움직입니다.
+  - 수용 기준: `fr19_the_android_activity_resizes_for_the_keyboard`, `fr19_an_existing_pan_becomes_a_resize_and_keeps_its_state`, `fr19_the_build_applies_the_keyboard_resize_to_the_manifest` (생성되는 Android 매니페스트가 `adjustResize`를 쓰고, 이미 있던 `adjustPan`은 상태 플래그를 지킨 채 `adjustResize`로 바뀌며, 빌드가 그것을 매니페스트에 적용합니다).
+  - 수용 기준: `fr19_the_page_ends_above_the_keyboard`, `fr19_the_keyboard_leaves_the_top_of_the_page_alone`, `fr19_a_navigation_along_the_bottom_still_stops_above_the_keyboard`, `fr19_with_no_keyboard_nothing_changes`, `fr19_the_page_shrinks_by_the_keyboard_and_the_bar_keeps_its_place`, `fr19_a_sheet_rises_above_the_keyboard_and_its_scrim_still_covers_the_window`, `fr19_a_dialog_is_centred_above_the_keyboard` (`KeyboardInsetTest`).
+  - 수용 기준(수동 검사): Android 휴대폰에서 chat, notepad, todo의 텍스트 필드를 눌러 키보드를 연 화면을 캡처해, 위쪽 바가 제자리에 있고 페이지가 키보드 위에서 끝나며 시트의 스크림이 창 전체를 덮는지 **손으로 확인합니다.** 실제 기기의 IME 창 동작은 JVM 테스트가 재현하지 못합니다.
 
 #### 19.3 Host가 정할 수 있는 것
 
@@ -1467,7 +1473,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 1. 지금 이 저장소가 창에 대해 돌리는 검사(19.4, 19.7의 수용 기준, 그리고 `scripts/tests/`의 창 검사: 캡션 기하, Win32와 X11 창 배치, 크기 조절 중 그리기)가 포크의 샘플(`compose-multiplatform-extended`의 hello 앱)에 대해 같은 결과로 통과합니다. 캡션의 색과 크기 조절 중 그리기가 그 샘플에 지금 없는 것이 이 이전이 끝나지 않았다는 표시입니다.
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
-4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 크기가 바뀌는 순간 `ResizeBuffers`, Skia 그리기, `Present`, DirectComposition `Commit`을 차례로 마친 뒤에 크기 변경 메시지를 돌려줍니다.
+4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 끌어서 크기를 바꾸는 동안 창이 그 크기로 Skia 래스터 그리기를 DIB에 마치고 `BitBlt`으로 창의 리디렉션 표면에 옮긴 뒤에 크기 변경 메시지(`WM_SIZE`)를 돌려줍니다. 끌기가 끝나면(`WM_EXITSIZEMOVE`) 다시 GPU 스왑체인으로 그립니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -4660,7 +4666,64 @@ pub mod storage {
 14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
-### FR-81 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Draft`, 이슈 #18)
+### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
+
+요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
+
+**이 항목은 웹뷰가 아닙니다.** compose-rust는 여기서 뷰를 만들지 않고 새로 링크하는 것도 없습니다. Host나 Host가 쓰는 크레이트가 만든 뷰(NSView, HWND, X11 창, Android `View`)를 받아 놓기만 합니다. 그래서 INTENT C1과 NFR-2는 이 항목으로 바뀌지 않습니다. 웹뷰를 만드는 opt-in 크레이트는 별도 항목이고, C1 개정에 대한 소유자의 결정을 기다립니다.
+
+창 쪽의 일은 포크의 `WindowPlatform.nativeViews`가 합니다(포크 PR #207, INTENT D19). 그 인터페이스는 `parentHandle`, `attach(id, handle)`, `setFrame`(픽셀), `setVisibleRegion(clip, holes)`(구멍은 둥근 사각형), `setVisible`, `focus(id)`, `focusScene()`, `detach`, 그리고 창 이벤트 `NATIVE_VIEW_FOCUS_IN`/`OUT`, `POINTER_ENTER`/`EXIT`, `onScaleChanged`입니다. 이 저장소는 그 호출을 부르는 Renderer 쪽 연결과 와이어만 둡니다.
+
+- **새 위젯 `NativeView`(`WidgetKind` 48).** 자식을 받지 않습니다. 자식을 넣으면 `ProtocolError`입니다. 내재 크기는 0이고, 크기는 수정자(`Size`, `FillMax*`, `Weight`)와 부모의 제약으로 정합니다. 배경, 테두리, 모양 수정자는 뷰 밑의 Compose 면에 그려지며, 뷰가 덮지 않은 곳(뷰가 아직 붙지 않았거나 숨었을 때)에서만 보입니다.
+- **부모 핸들의 보고: 이벤트 `NativeViewParent`(이벤트 태그 61).** Host는 뷰를 그 창의 부모 핸들에 대고 만듭니다. Renderer는 `NativeView` 노드가 처음 들어온 창에 대해 이 이벤트를 한 번 보냅니다. 핸들이 바뀌거나 창이 닫히면 다시 보내고, 닫힐 때의 핸들은 0입니다. 레코드는 머리 16바이트(노드 id는 그 `Window` 노드, 루트 창이면 루트) 뒤에 `handle: u64@16`, `kind: u16@24`, `reserved: u16@26`, `scale: f32@28`가 오는 32바이트입니다. `kind`는 `AppKit=1`, `Win32=2`, `X11=3`, `Android=4`, `UIKit=5`이고, `scale`은 그 창의 backing scale입니다. scale이 바뀌면 같은 이벤트가 새 값으로 다시 옵니다. `NativeView`가 하나도 없는 트리에서는 이 이벤트가 나오지 않습니다.
+- **뷰 붙이기: 명령 `AttachNativeView`(명령 태그 37).** 24바이트 고정 레코드(`tag=37, len=24`) 뒤에 `node_id: u32`, `reserved: u32`, `handle: u64`가 옵니다. Renderer는 그 노드의 창에 `attach(node_id, handle)`를 부르고, 처음에는 숨긴 채 다음 배치 뒤에 자리와 보이는 영역을 정한 다음 보입니다. `handle = 0`은 떼기입니다. 노드를 지워도 떼어집니다. 뷰의 주인은 언제나 Host입니다. Renderer는 뷰를 놓고 뗄 뿐 파괴하지 않습니다. Host는 떼기가 적용된 배치 뒤에 뷰를 파괴합니다. 한 노드에 이미 뷰가 붙어 있으면 새 핸들이 옛 핸들을 대신합니다(옛 것은 떼어짐).
+- **자리(Renderer의 것, D5).** Renderer는 노드의 `boundsInWindow`를 물리 픽셀로 `setFrame`에 넘깁니다. 배치, 스크롤, 창 크기, 확대 배율(FR-43)이 바뀔 때마다 보내되, Host와의 왕복은 없습니다. 뷰의 새 자리는 그 자리를 만든 프레임과 같은 프레임에 보여야 합니다. 스크롤하는 동안 뷰가 Compose 내용보다 한 프레임 늦게 따라오지 않아야 합니다(NFR-9의 "입력 지연 프레임 없음"). Host는 노드의 위치를 받지 않습니다.
+- **보이는 영역.** `clip`은 조상들의 자르기(스크롤 컨테이너, `Clip` 수정자, 창 가장자리)를 합친 사각형입니다. 노드가 완전히 밖으로 나가면 뷰를 숨깁니다(영역이 비면 `setVisible(false)`와 같습니다). `holes`는 그 노드보다 위에 그려지는 Compose 층이 뷰와 겹치는 곳입니다. 그런 층은 `Popover`(FR-77), 메뉴, 닫힌 선택 필드의 목록(FR-64), 대화상자와 시트, 서랍(FR-21), 툴팁, 일시 메시지입니다. 구멍은 그 층의 모양을 따른 둥근 사각형이고 그림자 범위를 포함합니다. 구멍에서는 뷰가 가려지고 그 밑의 Compose 면이 그린 층이 보이므로, 겹친 층이 뷰 위에 있는 것처럼 보입니다. 층이 열리거나 닫히거나 움직이면 같은 프레임에 영역을 다시 보냅니다. 대화상자의 어두운 막처럼 창 전체를 덮는 막은 구멍 대신 뷰 전체를 가립니다.
+- **숨기기: 속성 `NativeVisible`(속성 태그 190, bool, 기본 true).** 거짓이면 뷰를 숨기되 떼지 않으므로, 뷰의 상태(웹 페이지와 그 스크립트 상태)가 남습니다. 참이면 같은 뷰를 다시 보입니다. 노드를 지우는 것은 떼기이고 숨기기가 아닙니다.
+- **포커스: 이벤트 `NativeViewFocus`(이벤트 태그 62)와 명령 `FocusNativeView`(명령 태그 38).** 이벤트는 머리 16바이트 뒤에 `focused: u32@16`가 오는 24바이트입니다(나머지는 0). 핸들러 속성 `OnNativeViewFocus`(속성 태그 191)가 붙은 노드만 보냅니다. 뷰 안을 누르면 플랫폼이 그 뷰에 키보드 포커스를 줍니다. 그러면 Renderer는 Compose의 포커스를 거두어(어느 필드에도 캐럿이 남지 않게) `focused=1`을 보냅니다. 명령 `FocusNativeView`는 16바이트(`tag=38, len=16`) 뒤에 `node_id: u32`, `focus: u32`가 오며, `focus=1`이면 `focus(id)`, `0`이면 `focusScene()`입니다. 포커스를 가진 뷰가 숨거나 떼어지거나 노드가 지워지면 포커스는 Compose로 돌아가고 `focused=0`이 옵니다. 창이 비활성화되면 `focused=0`, 다시 활성화되어 그 뷰가 다시 포커스를 받으면 `focused=1`입니다. FR-65의 `RequestFocus`가 Compose 노드에 포커스를 주면 뷰는 포커스를 잃고 `focused=0`이 옵니다.
+- **입력.** 보이는 영역 안의 포인터, 스크롤, 끌어 놓기, 커서 모양은 뷰의 것입니다. Compose 장면은 거기서 아무것도 받지 않고, FR-27의 파일 놓기도 영역 밖에서만 받습니다. 포인터가 장면에서 뷰로 들어가면 장면이 hover하던 노드는 포인터가 나간 것으로 처리됩니다(FR-46의 `Exit`). 돌아오면 다시 들어온 것으로 처리됩니다. 구멍 안의 입력은 장면의 것입니다. 키와 IME는 키보드 포커스를 가진 쪽이 받습니다. macOS 메뉴 막대의 키(`performKeyEquivalent`)는 뷰가 포커스를 가져도 지금처럼 앱 메뉴에 갑니다. 그 밖에 앱 단축키를 뷰에서 앱으로 넘기는 일은 뷰를 만든 쪽이 합니다(웹뷰 크레이트는 페이지가 처리하지 않은 keydown을 넘깁니다). 이 위젯은 키를 가로채지 않습니다.
+- **여러 개.** 한 창에 `NativeView`를 몇 개든 둘 수 있습니다. 서로 겹치면 나중에 붙인 뷰가 위입니다. 나중에 순서를 바꾸는 명령은 없습니다. 플랫폼 뷰를 다시 넣으면 키 포커스를 잃기 때문입니다.
+- **플랫폼.** macOS Kotlin/Native가 먼저입니다(포크 #207). GraalVM macOS 경로에는 슬롯이 없으므로(`nativeViews == null`, 소유자 결정 2026-11-13, 포크 #208), 거기서 `AttachNativeView`는 `TableError.NATIVE_VIEW_UNSUPPORTED`이고 `NativeViewParent`는 나오지 않습니다. Windows(최상위 HWND의 자식, `dxc_surface`의 형제), Linux X11(최상위 창의 자식 X 창), Android(Compose `AndroidView`), iOS(`UIKitView`)는 같은 와이어로 뒤따르고, 플랫폼마다 이슈를 둡니다. Web에서는 핸들이 DOM 요소여야 하므로, 와이어 모양을 따로 정해야 하고, 이것도 이슈를 따로 둡니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다.
+  - 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다.
+  - `NativeView`가 아닌 노드에 온 명령은 새 코드 `TableError.NOT_NATIVE_VIEW`(21)입니다.
+  - 창이 받지 않은 핸들(`attach`가 거짓: 종류가 틀렸거나 이미 다른 노드에 붙음)은 새 코드 `TableError.NATIVE_VIEW_REJECTED`(22)입니다.
+  - 슬롯이 없는 플랫폼은 새 코드 `TableError.NATIVE_VIEW_UNSUPPORTED`(23)입니다.
+  - `NativeView` 아닌 노드에 붙은 `NativeVisible`이나 `OnNativeViewFocus`는 기존 `TableError.UNSUPPORTED_PROPERTY`입니다.
+  - 길이가 맞지 않는 레코드는 `InvalidRecordLength`입니다.
+- **Host API.**
+  - `ui::NativeView { handle: NativeHandle, visible: bool, on_focus_change }` 위젯;
+  - `runtime::Batch::attach_native_view(node_id, NativeHandle)`, `runtime::Batch::focus_native_view(node_id, bool)`;
+  - `EventPayload::NativeViewParent { handle, kind, scale }`, `EventPayload::NativeViewFocus { focused }`;
+  - `NativeHandle(u64)`와 `NativeParentKind`.
+  - 경계 함수는 늘지 않습니다(PR-2).
+- **번호.** 앞선 사용분은 이렇습니다.
+  - 명령: 35와 36이 FR-80, 이벤트: 60이 FR-80, 속성: 186이 FR-80이고 187~189는 다른 작업(OverflowWrap, Snap, MaxHeightFraction)이 예약했으며, 위젯: 47이 `Popover`, `TableError`: 20이 FR-80입니다.
+  - 그래서 이 항목은 명령 37과 38, 이벤트 61과 62, 속성 190과 191, 위젯 48, `TableError` 21~23을 씁니다.
+  - 스키마 서술 문자열 끝에 더하므로 **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 FR-80과 같은 규칙으로 서술 문자열의 순서만 태그 순서에 맞춥니다.
+- **구현 범위.**
+  - 스키마와 codegen, Rust 인코더와 디코더, `ui` 위젯, 프로토콜 벡터;
+  - 데스크톱 Kotlin 렌더러의 `HostNativeView`: `onGloballyPositioned`로 자리를 정하고, 조상의 자르기와 위에 그려지는 층의 구멍을 계산하고, 포커스와 hover를 연결합니다;
+  - `android-kotlin/shared`의 `NodeTable`. Android 구현은 뒤따르지만, 표는 같은 레코드를 받아 `NATIVE_VIEW_UNSUPPORTED`로 답합니다.
+
+수용 기준. 시험은 웹뷰 없이 평범한 플랫폼 뷰(macOS에서는 단색 `NSView`와 `NSTextField`)로 합니다.
+1. `AttachNativeView`, `FocusNativeView`가 `mutations.bin`에, `NativeViewParent`, `NativeViewFocus`가 `events.bin`에 레코드로 더해지고, Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr81_native_view_records_round_trip_through_the_protocol_vectors).
+2. `NativeView`가 없는 트리의 배치 바이트와 이벤트는 이 항목 전과 같습니다(시험 이름 fr81_tree_without_native_view_is_unchanged).
+3. macOS Kotlin/Native에서 `NativeView`가 처음 들어온 창은 `NativeViewParent`를 한 번 보내고, 핸들은 0이 아니며 `kind`는 `AppKit`, `scale`은 창의 backing scale입니다(시험 이름 fr81_parent_handle_is_reported_once_per_window).
+4. 붙인 `NSView`의 frame은 노드의 `boundsInWindow`와 같습니다. 부모 `ScrollColumn`을 100px 스크롤한 프레임에 frame의 y도 100px 움직입니다(시험 이름 fr81_view_follows_layout_and_scroll_in_the_same_frame).
+5. 절반이 스크롤 밖으로 나간 노드의 뷰는 보이는 절반만 그려지고, 완전히 나가면 숨습니다(창 이미지 읽기, 시험 이름 fr81_view_is_clipped_by_its_ancestors).
+6. 뷰 위로 연 둥근 `Popover`는 구멍을 만들고, 창 이미지에서 그 자리(모서리 포함)에 `Popover`가 보입니다. 닫으면 구멍이 사라집니다(시험 이름 fr81_overlay_above_the_view_shows_through_a_rounded_hole).
+7. `NativeVisible=false`는 뷰를 숨기고 떼지 않습니다. `NSTextField`에 친 글자가 참으로 돌린 뒤에도 남아 있습니다(시험 이름 fr81_hidden_view_keeps_its_state).
+8. 뷰를 누르면 `NativeViewFocus(1)`이 오고 포커스를 가졌던 Compose `TextField`는 포커스를 잃습니다. `FocusNativeView(0)`은 포커스를 장면에 돌려주고 `NativeViewFocus(0)`이 옵니다(시험 이름 fr81_focus_moves_between_the_view_and_the_scene).
+9. 포커스를 가진 뷰의 노드를 지우거나 숨기면 `NativeViewFocus(0)`이 오고 장면이 포커스를 받습니다. 창의 비활성화와 재활성화는 0과 1을 보냅니다(시험 이름 fr81_focus_returns_to_the_scene_on_remove_hide_and_deactivate).
+10. 포인터가 hover 중인 Compose 노드에서 뷰로 들어가면 그 노드에 `Exit`가 오고, 뷰 안에서는 장면이 포인터 이벤트를 받지 않으며, 장면의 커서 갱신이 뷰의 커서를 덮지 않습니다(시험 이름 fr81_pointer_inside_the_view_belongs_to_the_view).
+11. 겹친 두 `NativeView`는 나중에 붙인 쪽이 위에 그려집니다(시험 이름 fr81_later_attached_view_is_above).
+12. `handle=0`이나 노드 삭제 뒤에 뷰는 창에서 빠지고 파괴되지 않습니다(Host가 쥔 `NSView`가 살아 있음, 시험 이름 fr81_detach_removes_without_destroying).
+13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
+14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
+15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+
+### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Draft`, 이슈 #18)
 
 소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
 
@@ -4685,15 +4748,15 @@ pub mod storage {
 
 수용 기준. 시험 이름 뒤에 그 기준을 어디서 확인하는지 적습니다. CI의 Windows는 `windows-latest`에서 WARP(`DXC_D3D12_WARP=1`)로 그리고, 배율은 `.github/scripts/set-display-scale.c`로 바꿉니다. CI의 Linux는 Xvfb에 `xrdb`로 `Xft.dpi`를 정합니다.
 
-1. **표면 크기와 밀도.** 각 창 경로에서 첫 프레임과 배율이 바뀐 뒤의 첫 프레임의 표면 픽셀 크기가 클라이언트 영역의 장치 픽셀 크기와 같고, 장면의 밀도가 `s`(`k = 1`)와 같습니다. 창 시작 보고에 실린 값으로 확인합니다(fr81_surface_is_device_pixels_at_every_scale). CI: Windows 100/125/150/200%, Linux `Xft.dpi` 96/120/144/192, macOS는 기준 8.
-2. **화면이 그린 것과 같습니다(늘림 없음).** 시험 장면이 자리 잡은 뒤의 화면 캡처(Windows는 DWM이 합성한 데스크톱에서 `DwmFlush` 뒤에 클라이언트 영역을 복사, macOS는 `kCGWindowImageBestResolution`의 `CGWindowListCreateImage`, Linux는 `XGetImage`)가 클라이언트 영역의 장치 픽셀 크기이고, 그 프레임에 그린 픽셀과 채널당 평균 차이 1 이하, 8을 넘게 다른 픽셀 0.1% 이하로 같습니다(fr81_screen_matches_the_drawn_frame). CI: 기준 1과 같은 배율.
-3. **정수 배율의 선.** `s` = 1과 2에서 1dp 막대는 정확히 `s`개 장치 픽셀 폭의 검정(모든 채널 8 이하)이고, 그 양옆 픽셀은 흰색(모든 채널 247 이상)입니다. 회색 번짐이 없습니다(fr81_one_dp_line_is_whole_device_pixels_at_integer_scales). CI: Windows 100%와 200%, Linux 96과 192, macOS는 기준 8.
-4. **비율 배율은 화면 밖 Compose와 같습니다.** `s` = 1.25와 1.5에서 화면 캡처가 같은 장면을 Compose가 밀도 `s`로 화면 밖에서 그린 그림(`ImageComposeScene`, 같은 글꼴과 래스터 설정)과 기준 2의 허용치로 같습니다. 같은 비교를 "밀도 1로 그려 `s`배 늘린 그림"에도 하여 그 차이가 허용치보다 크다는 것을 함께 보입니다. 시험이 늘린 그림을 알아볼 수 있다는 증거입니다(fr81_fractional_scale_matches_offscreen_compose). CI: Windows 125%와 150%, Linux 120과 144.
-5. **앤티앨리어싱.** 원과 둥근 클립의 가장자리를 따라 중간 값(16에서 239)의 픽셀이 있고, 가장자리를 법선 방향으로 가로지르는 전이 폭이 1에서 2 장치 픽셀입니다. 글자 "Hg"의 세로 획 가장자리의 전이 폭은 2 장치 픽셀 이하입니다. 늘린 그림은 이 폭이 `s`배로 넓어집니다(fr81_curved_edges_are_antialiased, fr81_glyph_edges_are_not_blurred). CI: 기준 1과 같은 배율.
-6. **실행 중 배율 변경.** 앱을 200%에서 띄운 채 OS 배율을 125%로 바꾸면(창에 `WM_DPICHANGED`가 옵니다. 모니터를 옮길 때와 같은 메시지입니다) 입력 없이 2초 안에 새 배율의 표면으로 다시 그려지고, 125%에서 기준 1, 2, 4가 통과하며, 창의 dp 크기가 1dp 안에서 그대로이고, `DensityChanged(1.25)`가 한 번 옵니다. 다시 200%로 바꾸면 기준 1, 2, 3이 200%에서 통과합니다(fr81_scale_change_redraws_at_the_new_scale). CI: Windows, 그리고 Linux에서 `Xft.dpi`를 192에서 120으로 실행 중에 바꾸는 것. macOS는 기준 8.
-7. **Windows 프로세스의 DPI 인식.** 매니페스트를 품은 앱과 `windows-manifest` 기능을 끈 앱 모두에서, 첫 창이 만들어질 때 그 창의 DPI 인식 문맥이 per-monitor v2이고(`GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(hwnd))`가 `DPI_AWARENESS_PER_MONITOR_AWARE`이고 `AreDpiAwarenessContextsEqual`로 v2와 같음), 200%에서 `GetDpiForWindow`가 192입니다(fr81_windows_process_is_per_monitor_v2_before_the_first_window). CI: Windows.
-8. **macOS 2배.** macOS 러너의 가상 디스플레이가 HiDPI 모드(`kCGDisplayShowDuplicateLowResolutionModes`로 받은 `CGDisplayCopyAllDisplayModes` 가운데 픽셀 폭이 점 폭의 두 배인 모드)를 주면, 공개 API `CGConfigureDisplayWithDisplayMode`로 1배와 2배를 오가며 기준 1, 2, 3, 5와 기준 6의 macOS판(1배에서 2배로, 2배에서 1배로)을 CI에서 확인합니다(fr81_macos_scales_one_and_two). 러너가 그런 모드를 주지 않으면 이 기준은 손 확인이고, CI 로그가 받은 배율을 적습니다. 어느 쪽인지는 구현의 첫 단계에서 러너로 확인해 보고합니다.
-9. **실제 화면에서의 손 확인.** 자동화할 수 없습니다. CI 러너에는 가상 모니터가 하나뿐이라 모니터 사이를 옮기는 일과 실제 패널에서의 모습은 사람이 봅니다. (가) Windows: 200% 주 모니터와 125% 보조 모니터가 있는 기기에서 창을 끌어 두 모니터를 오가고, 양쪽에서 시험 장면과 샘플이 선명하며, 옮긴 뒤 입력 없이도 새 배율로 다시 그려집니다. (나) macOS: Retina 내장 화면과 1배 외장 모니터를 오가며 같은 것을 봅니다. 둥근 도형의 가장자리가 계단이 아닙니다. (다) 각 배율의 스크린숏을 기록합니다(FR-19.8의 2번과 같은 방식). 사람이 확인한 날짜와 기기를 이 항목에 적습니다(fr81_hand_check_on_real_displays, 수동).
+1. **표면 크기와 밀도.** 각 창 경로에서 첫 프레임과 배율이 바뀐 뒤의 첫 프레임의 표면 픽셀 크기가 클라이언트 영역의 장치 픽셀 크기와 같고, 장면의 밀도가 `s`(`k = 1`)와 같습니다. 창 시작 보고에 실린 값으로 확인합니다(fr82_surface_is_device_pixels_at_every_scale). CI: Windows 100/125/150/200%, Linux `Xft.dpi` 96/120/144/192, macOS는 기준 8.
+2. **화면이 그린 것과 같습니다(늘림 없음).** 시험 장면이 자리 잡은 뒤의 화면 캡처(Windows는 DWM이 합성한 데스크톱에서 `DwmFlush` 뒤에 클라이언트 영역을 복사, macOS는 `kCGWindowImageBestResolution`의 `CGWindowListCreateImage`, Linux는 `XGetImage`)가 클라이언트 영역의 장치 픽셀 크기이고, 그 프레임에 그린 픽셀과 채널당 평균 차이 1 이하, 8을 넘게 다른 픽셀 0.1% 이하로 같습니다(fr82_screen_matches_the_drawn_frame). CI: 기준 1과 같은 배율.
+3. **정수 배율의 선.** `s` = 1과 2에서 1dp 막대는 정확히 `s`개 장치 픽셀 폭의 검정(모든 채널 8 이하)이고, 그 양옆 픽셀은 흰색(모든 채널 247 이상)입니다. 회색 번짐이 없습니다(fr82_one_dp_line_is_whole_device_pixels_at_integer_scales). CI: Windows 100%와 200%, Linux 96과 192, macOS는 기준 8.
+4. **비율 배율은 화면 밖 Compose와 같습니다.** `s` = 1.25와 1.5에서 화면 캡처가 같은 장면을 Compose가 밀도 `s`로 화면 밖에서 그린 그림(`ImageComposeScene`, 같은 글꼴과 래스터 설정)과 기준 2의 허용치로 같습니다. 같은 비교를 "밀도 1로 그려 `s`배 늘린 그림"에도 하여 그 차이가 허용치보다 크다는 것을 함께 보입니다. 시험이 늘린 그림을 알아볼 수 있다는 증거입니다(fr82_fractional_scale_matches_offscreen_compose). CI: Windows 125%와 150%, Linux 120과 144.
+5. **앤티앨리어싱.** 원과 둥근 클립의 가장자리를 따라 중간 값(16에서 239)의 픽셀이 있고, 가장자리를 법선 방향으로 가로지르는 전이 폭이 1에서 2 장치 픽셀입니다. 글자 "Hg"의 세로 획 가장자리의 전이 폭은 2 장치 픽셀 이하입니다. 늘린 그림은 이 폭이 `s`배로 넓어집니다(fr82_curved_edges_are_antialiased, fr82_glyph_edges_are_not_blurred). CI: 기준 1과 같은 배율.
+6. **실행 중 배율 변경.** 앱을 200%에서 띄운 채 OS 배율을 125%로 바꾸면(창에 `WM_DPICHANGED`가 옵니다. 모니터를 옮길 때와 같은 메시지입니다) 입력 없이 2초 안에 새 배율의 표면으로 다시 그려지고, 125%에서 기준 1, 2, 4가 통과하며, 창의 dp 크기가 1dp 안에서 그대로이고, `DensityChanged(1.25)`가 한 번 옵니다. 다시 200%로 바꾸면 기준 1, 2, 3이 200%에서 통과합니다(fr82_scale_change_redraws_at_the_new_scale). CI: Windows, 그리고 Linux에서 `Xft.dpi`를 192에서 120으로 실행 중에 바꾸는 것. macOS는 기준 8.
+7. **Windows 프로세스의 DPI 인식.** 매니페스트를 품은 앱과 `windows-manifest` 기능을 끈 앱 모두에서, 첫 창이 만들어질 때 그 창의 DPI 인식 문맥이 per-monitor v2이고(`GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(hwnd))`가 `DPI_AWARENESS_PER_MONITOR_AWARE`이고 `AreDpiAwarenessContextsEqual`로 v2와 같음), 200%에서 `GetDpiForWindow`가 192입니다(fr82_windows_process_is_per_monitor_v2_before_the_first_window). CI: Windows.
+8. **macOS 2배.** macOS 러너의 가상 디스플레이가 HiDPI 모드(`kCGDisplayShowDuplicateLowResolutionModes`로 받은 `CGDisplayCopyAllDisplayModes` 가운데 픽셀 폭이 점 폭의 두 배인 모드)를 주면, 공개 API `CGConfigureDisplayWithDisplayMode`로 1배와 2배를 오가며 기준 1, 2, 3, 5와 기준 6의 macOS판(1배에서 2배로, 2배에서 1배로)을 CI에서 확인합니다(fr82_macos_scales_one_and_two). 러너가 그런 모드를 주지 않으면 이 기준은 손 확인이고, CI 로그가 받은 배율을 적습니다. 어느 쪽인지는 구현의 첫 단계에서 러너로 확인해 보고합니다.
+9. **실제 화면에서의 손 확인.** 자동화할 수 없습니다. CI 러너에는 가상 모니터가 하나뿐이라 모니터 사이를 옮기는 일과 실제 패널에서의 모습은 사람이 봅니다. (가) Windows: 200% 주 모니터와 125% 보조 모니터가 있는 기기에서 창을 끌어 두 모니터를 오가고, 양쪽에서 시험 장면과 샘플이 선명하며, 옮긴 뒤 입력 없이도 새 배율로 다시 그려집니다. (나) macOS: Retina 내장 화면과 1배 외장 모니터를 오가며 같은 것을 봅니다. 둥근 도형의 가장자리가 계단이 아닙니다. (다) 각 배율의 스크린숏을 기록합니다(FR-19.8의 2번과 같은 방식). 사람이 확인한 날짜와 기기를 이 항목에 적습니다(fr82_hand_check_on_real_displays, 수동).
 10. 기준 1에서 7이 여섯 창 경로 모두에서 통과합니다. 경로 하나를 이 기준에서 빼는 것(예: 그 플랫폼에 GraalVM 창을 더는 내놓지 않는 경우)은 소유자가 정하고 이 항목에 적습니다.
 
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
@@ -5061,7 +5124,7 @@ compose_rust_host_dispatch_event: click 1
   - `onStop`/`onStart`: `LifecycleStop`과 `LifecycleStart`를 보냅니다. Host는 그 사이에 도착한 워커의 프레임 요청을 기억만 해 두었다가 시작할 때 한 번 내보내고, 그동안 타이머와 애니메이션은 억제됩니다. `Resumed`/`Paused`/`Destroyed`로 나누지 않습니다. 그리는 일이 실제로 멈추는 경계는 `onStop`이고, `Destroyed`는 프로세스가 사라지는 자리라 Host가 들을 수 없습니다.
     - 예외는 알림입니다(FR-36, 2026-10-03, `Draft`). 멈춘 동안 Host의 알림 대기열에 알림이 들어오면 Host는 그 요청을 미루지 않고 내보내고, Renderer는 PR-3의 개정대로 멈춘 클록 밖에서 `render_frame`을 한 번 부릅니다. 알림은 사용자가 화면을 보지 않을 때 나가야 하는 것이기 때문입니다. 타이머와 애니메이션의 억제는 그대로입니다.
   - 프로세스 kill: 메모리 상태는 복원하지 않습니다. 필요하면 `SaveState`로 작은 blob을 `onSaveInstanceState`에 저장합니다.
-- 에셋: Android는 자기 그래픽 스택으로 그리므로 SVG 파서가 없습니다. `Svg` 종류의 등록은 FR-16이 정한 대로 읽을 수 없다고 보고하고, 나머지 배치는 그대로 적용됩니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
+- 에셋: Android은 렌더러 자신의 SVG 읽개로 SVG를 읽고, 데스크톱 Skia와 같은 규칙을 따릅니다(이슈 #567, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 루트의 `width`와 `height`는 SVG의 뜻 그대로 픽셀입니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
 - android-activity, NativeActivity, GameActivity 진입점은 쓰지 않습니다. ComposeView와 공존한 사례가 없고 IME 충돌 위험이 있습니다. JavaVM은 `JNI_OnLoad`에서 얻습니다.
 
 #### 5.1 Kotlin이 앱 빌드에 들어가는 방법 (INTENT D11)

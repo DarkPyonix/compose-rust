@@ -157,6 +157,11 @@ internal fun HostButton(
     val labelPadH = if (wordless && hasExplicitSize) 0.dp else if (wordless) style.verticalPadding else style.horizontalPadding
     val labelPadV = if (wordless && hasExplicitSize) 0.dp else style.verticalPadding
 
+    // A label is one line unless the Host asked for more. Left to wrap, a squeezed button
+    // is measured at the narrowest a Hangul label can be, one syllable, and '보내' breaks
+    // into '보' over '내'. With no soft wrap the label's narrowest width is its whole line.
+    val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
+
     val clickable = if (handlerId == null) {
         available.then(modifier)
     } else {
@@ -211,6 +216,7 @@ internal fun HostButton(
             horizontal = labelPadH,
             vertical = labelPadV,
             alignStart = alignStart,
+            labelLines = if (node.children.isEmpty()) lines else 0,
         )
 
     // The variant decides the label colour, unless the node names one itself. A
@@ -234,10 +240,6 @@ internal fun HostButton(
     val label = node.textStyle(theme, style.typeRole).copy(color = tint)
     val text = node.text(PropertyKind.Text)
     val icon = node.role(PropertyKind.Icon, IconRole.entries.toTypedArray())
-    // A label is one line unless the Host asked for more. Left to wrap, a squeezed button
-    // is measured at the narrowest a Hangul label can be, one syllable, and '보내' breaks
-    // into '보' over '내'. With no soft wrap the label's narrowest width is its whole line.
-    val lines = node.intProp(PropertyKind.MaxLines)?.toInt()?.takeIf { it > 0 } ?: 1
     val ellipsis = node.overflow(ComposeOverflow.Ellipsis)
     // A button with a glyph and no word is still a button with a name. The role is what
     // the glyph means, so it is what the name is made of, and assistive technology never
@@ -295,6 +297,7 @@ internal fun HostButton(
                     horizontal = labelPadH,
                     vertical = labelPadV,
                     alignStart = alignStart,
+                    labelLines = lines,
                 ),
                 contentAlignment = alignment,
             ) { ButtonLabel() }
@@ -342,19 +345,41 @@ private fun Int.dpPx(density: Float): Float = this * density
 /**
  * Padding that gives way before the label does.
  *
- * The horizontal padding is fixed. The vertical padding is the design system's, but only as
- * far as the height the button was given leaves room for: when that height is smaller than
- * the padding plus the content's own height, the padding shrinks equally top and bottom,
- * down to nothing, so the content keeps its whole height and sits centred. Only when even
- * no padding fits does the content overflow and get clipped by the button's shape.
+ * Both paddings are the design system's, but only as far as the size the button was given
+ * leaves room for. When the height is smaller than the vertical padding plus the content's
+ * own height, the padding shrinks equally top and bottom, down to nothing, so the content
+ * keeps its whole height and sits centred. Only when even no padding fits does the content
+ * overflow and get clipped by the button's shape.
+ *
+ * The width works the same way for a label: one the button draws from its own text and
+ * icon, as opposed to children the Host laid out ([labelLines] is above zero). The padding
+ * on each side is the design system's value only as far as the width leaves room for the
+ * label, and otherwise shrinks equally on both sides, down to nothing. A fixed padding
+ * wider than the button left the label no room at all: Material's 24dp a side in a 36dp
+ * round button measured '+' at zero width, and it came out as a lone ellipsis dot. The
+ * room a one-line label needs is its whole line; a label allowed more lines needs its
+ * longest word, since wrapping does not lose it. Children fill the width they are offered,
+ * so there is no width of theirs to keep, and they keep the fixed padding.
  */
 internal fun Modifier.labelPadding(
     horizontal: Dp,
     vertical: Dp,
     alignStart: Boolean = false,
+    labelLines: Int = 0,
 ): Modifier = layout { measurable, constraints ->
-    val sides = horizontal.roundToPx()
+    val wantedSides = horizontal.roundToPx()
     val wanted = vertical.roundToPx()
+    val sides = if (labelLines > 0 && constraints.hasBoundedWidth && wantedSides > 0) {
+        val height = if (constraints.hasBoundedHeight) constraints.maxHeight else Constraints.Infinity
+        val needed = if (labelLines == 1) {
+            measurable.maxIntrinsicWidth(height)
+        } else {
+            measurable.minIntrinsicWidth(height)
+        }
+        minOf(wantedSides, ((constraints.maxWidth - needed) / 2).coerceAtLeast(0))
+    } else {
+        wantedSides
+    }
     val inner = Constraints(
         minWidth = (constraints.minWidth - 2 * sides).coerceAtLeast(0),
         maxWidth = if (constraints.hasBoundedWidth) (constraints.maxWidth - 2 * sides).coerceAtLeast(0) else Constraints.Infinity,

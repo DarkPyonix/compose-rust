@@ -186,6 +186,58 @@ class InterpreterTest {
             }
         }
 
+    /**
+     * A report a node sends on its own, such as a picture whose asset is not registered,
+     * is refused by the Rust Host like every other report. What is printed then is the
+     * report: the missing asset. It used to be a second error of its own, code 100,
+     * "compose_rust_host_dispatch_event returned -1", which said a call failed and lost
+     * what the call was about. Android printed one for every picture it could not decode.
+     */
+    @Test
+    fun nfr7_a_refused_report_from_a_node_prints_the_report_not_a_failed_call() =
+        runComposeUiTest {
+            val reported = mutableListOf<TableError>()
+            val previous = onProtocolError
+            onProtocolError = { error -> reported += error }
+            try {
+                val image = 9
+                val connection = FakeHostConnection(
+                    listOf(
+                        Mutation.Create(image, WidgetKind.Image),
+                        Mutation.SetModifier(image, 0, ProtocolModifier.Size(32f, 32f)),
+                        Mutation.SetProp(image, PropertyKind.Asset, PropertyValue.Integer(4242L)),
+                    ),
+                )
+                // What the Rust Host does with a report: no handler owns it, so it is refused.
+                connection.respondWith { event ->
+                    if (event is HostEvent.ProtocolError) {
+                        throw HostCallException("compose_rust_host_dispatch_event returned -1")
+                    }
+                    HostResponse()
+                }
+                setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                waitForIdle()
+
+                val sent = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+                assertEquals(
+                    listOf(TableError.UNKNOWN_ASSET),
+                    sent.map { event -> event.code },
+                    "the missing asset is reported to the Host once",
+                )
+                assertEquals(
+                    listOf(TableError.UNKNOWN_ASSET),
+                    reported.map { error -> error.code },
+                    "the refused report is printed as itself, and nothing else is",
+                )
+                assertTrue(
+                    reported.single().message.contains("asset 4242"),
+                    "the printed report names the asset: ${reported.single().message}",
+                )
+            } finally {
+                onProtocolError = previous
+            }
+        }
+
     @Test
     fun fr4_set_prop_does_not_recompose_siblings() = runComposeUiTest {
         val compositions = mutableMapOf<Int, Int>()

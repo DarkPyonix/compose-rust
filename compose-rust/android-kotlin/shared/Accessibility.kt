@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.ui
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.focused
@@ -83,6 +84,35 @@ private fun SemanticsRole.word(): String? = when (this) {
 }
 
 /**
+ * The role the Host declared for a node, kept beside Compose's own [Role] because most of
+ * them have no Compose name. A window that can give a reader the platform's own word for the
+ * role (a tab group, an outline, a menu) reads it from here.
+ *
+ * Never merged into a parent: a list item inside a pressable row is still the item, and the
+ * row does not become a list item because it holds one.
+ */
+internal val DeclaredRole = SemanticsPropertyKey<SemanticsRole>(
+    name = "ComposeRustDeclaredRole",
+    mergePolicy = { parent, _ -> parent },
+)
+
+/** Whether the Host declared the node open (true) or closed (false). Unset says nothing. */
+internal val DeclaredExpanded = SemanticsPropertyKey<Boolean>(
+    name = "ComposeRustDeclaredExpanded",
+    mergePolicy = { parent, _ -> parent },
+)
+
+/**
+ * What a node's state description says about its declared [role] and [expanded] state, for a
+ * reader that has no other way to hear them. A window that names both natively leaves this
+ * text out, so the reader does not hear the role twice.
+ */
+internal fun declaredStateDescription(role: SemanticsRole?, expanded: Boolean?): String? = listOfNotNull(
+    role?.word(),
+    expanded?.let { if (it) "expanded" else "collapsed" },
+).joinToString(", ").takeIf { it.isNotEmpty() }
+
+/**
  * What the Host said this node is to assistive technology: the accessible name, and the
  * role and state of a `Semantics` modifier.
  *
@@ -115,10 +145,7 @@ internal fun Modifier.accessibility(
     val isHeading = declaredRole == SemanticsRole.Heading
     val isTextBox = declaredRole == SemanticsRole.TextBox
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
-    val description = listOfNotNull(
-        declaredRole?.word(),
-        expanded?.let { if (it) "expanded" else "collapsed" },
-    ).joinToString(", ").takeIf { it.isNotEmpty() }
+    val description = declaredStateDescription(declaredRole, expanded)
     // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
@@ -129,6 +156,8 @@ internal fun Modifier.accessibility(
         if (isHeading) heading()
         if (isTextBox) isEditable = true
         if (description != null) stateDescription = description
+        if (declaredRole != null && declaredRole != SemanticsRole.None) this[DeclaredRole] = declaredRole
+        if (expanded != null) this[DeclaredExpanded] = expanded
         if (checked != null) toggleableState = ToggleableState(checked)
         if (selected != null) this.selected = selected
         if (isDisabled == true) disabled()
