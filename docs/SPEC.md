@@ -4839,6 +4839,8 @@ pub mod storage {
 3. 그림자도 오프셋도 없는 노드는 둘 다 보내지 않습니다.
 4. `Text`와 `TextField`는 준 글꼴과 `Text`의 `word_break`를 속성으로 보내고, 주지 않으면 보내지 않습니다.
 
+**긴 토큰의 줄바꿈과 TextField의 단어 나눔**(이슈 #443, #444, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Text::overflow_wrap(OverflowWrap)`이 있습니다. `Normal`(기본)과 `Anywhere`입니다. `Anywhere`이면 한 줄에 들어가지 않는 긴 토큰(경로, URL, 붙여 쓴 영문)은 `word_break`가 `KeepAll`이어도 그 안에서 줄을 바꿉니다. 들어가는 토큰의 줄바꿈 규칙은 바뀌지 않습니다(CSS `overflow-wrap: anywhere`). `TextField`에도 `word_break(WordBreak)`와 `overflow_wrap(OverflowWrap)`이 있고, 입력한 글과 자리표시 글자 모두에 적용됩니다. 각각 속성 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 120dp에서 `KeepAll`과 `Anywhere`인 글의 공백 없는 40자 토큰이 잘리지 않고 여러 줄로 그려지고, 한글 문장은 여전히 띄어쓰기에서만 줄을 바꿉니다(fr58_overflow_wrap_anywhere_breaks_long_tokens). `KeepAll`인 필드의 한글 자리표시 글자가 낱말 가운데에서 줄을 바꾸지 않습니다(fr58_text_field_word_break_applies_to_the_hint).
+
 ### FR-59 작은 진행 표시 고리의 획 굵기 (`Agreed`, 이슈 #377)
 
 요청한 쪽: darkpyonix-ember#220. 14dp 고리가 디자인 시스템의 4dp 굵기로 그려져 목업의 12px 고리, 2px 획과 맞지 않았습니다.

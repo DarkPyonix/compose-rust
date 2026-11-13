@@ -449,6 +449,23 @@ private const val ZERO_WIDTH_SPACE = '​'
 internal class BrokenText(val text: String, private val map: IntArray?) {
     /** Where character [index] of the original string is in [text]. */
     fun position(index: Int): Int = map?.get(index) ?: index
+
+    /**
+     * The offset in the original string that offset [index] of [text] stands for. The two
+     * offsets on either side of an inserted character stand for the same one: the character
+     * takes no width, so both are the same place on screen.
+     */
+    fun original(index: Int): Int {
+        val map = map ?: return index
+        // The first original offset at or after [index]; the map only grows.
+        var low = 0
+        var high = map.size - 1
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (map[middle] < index) low = middle + 1 else high = middle
+        }
+        return low
+    }
 }
 
 internal fun breakText(text: String, mode: BreakMode): BrokenText {
