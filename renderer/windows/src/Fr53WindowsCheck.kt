@@ -2,12 +2,14 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LastWindowClosed
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
@@ -88,6 +90,8 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
     val checks = FR53_WINDOWS_CHECK_NAMES.zip(bodies)
     var passed = true
     for ((name, body) in checks) {
+        // Said before the check runs, so a check that never returns is named in the log.
+        System.err.println("compose-rust: $name: start")
         try {
             body()
             System.err.println("compose-rust: $name: ok")
@@ -374,14 +378,23 @@ private fun draggedWindowEntersMovesAndDropsOnASubscribedNode() {
 }
 
 private fun tearOffEndsTheSourcePointerCapture() {
-    // The node is a control, and it asks for drag-over only so that it says where it is.
+    // The node is a control that also hears the pointer, and it asks for drag-over only so
+    // that it says where it is.
+    val heard = pointerKindBit(PointerKind.Down) or pointerKindBit(PointerKind.Up) or pointerKindBit(PointerKind.Cancel)
     val h = Fr53Harness(
         listOf(setWindow()) +
             windowNode(
                 1,
                 PropertyKind.WindowChrome to SYSTEM_CHROME,
                 PropertyKind.WindowSize to PropertyValue.Bytes(floats(400f, 300f)),
-            ) + strip(1, 10, PropertyKind.OnClick to handler(77), PropertyKind.OnWindowDragOver to handler(78)),
+            ) + strip(
+                1,
+                10,
+                PropertyKind.OnClick to handler(77),
+                PropertyKind.OnWindowDragOver to handler(78),
+                PropertyKind.OnPointer to handler(79),
+                PropertyKind.PointerKinds to PropertyValue.Integer(heard.toLong()),
+            ),
         scriptPointer = true,
     )
     try {
@@ -397,34 +410,56 @@ private fun tearOffEndsTheSourcePointerCapture() {
         val x = ((at.x + 3f) * scale).toInt()
         val y = ((at.y + 3f) * scale).toInt()
         fun clicks() = h.connection.events.count { it is HostEvent.Clicked && it.nodeId == 10 && it.handlerId == 77L }
+        fun told() = h.connection.events.filterIsInstance<HostEvent.Pointer>().filter { it.nodeId == 10 && it.handlerId == 79L }
+        fun kinds() = told().map { it.kind }
 
         // A press and a release on the node is a click, so the messages below reach it at all.
         postButton(source.handle, down = true, x, y)
         postButton(source.handle, down = false, x, y)
         h.until("the click of a press and a release on the node") { clicks() == 1 }
+        check(kinds() == listOf(PointerKind.Down, PointerKind.Up)) { "a press and a release reached the node as ${kinds()}" }
+        // The window let go of the mouse on that release, and the system answers that with a
+        // move for whichever window the real pointer is over. Nobody holds a real button, so
+        // that move says no button is down, and one that came after the press below would end
+        // it: the scene takes a move without the button as the release it missed. It is heard
+        // now, before there is a press for it to end.
+        h.forMillis(200)
 
         // Pressed again, and a window is torn off under the pointer while it is held.
         postButton(source.handle, down = true, x, y)
         h.forMillis(150)
+        // What follows says nothing unless the press is still held here.
+        check(clicks() == 1 && kinds() == listOf(PointerKind.Down, PointerKind.Up, PointerKind.Down)) {
+            "the posted press did not stay held until the window was torn off: the node heard ${kinds()} and " +
+                "${clicks()} clicks. A posted press holds no real button, so a move of the real pointer over the " +
+                "window ends it; this is the check's press being lost, not the tear-off"
+        }
         pointer.at = ScreenPointer(0f, 0f, true)
         h.batch(
             windowNode(
                 2,
                 PropertyKind.WindowChrome to SYSTEM_CHROME,
-                PropertyKind.DragFromPointer to PropertyValue.Bytes(dragFrom(1, 0f, 0f)),
+                PropertyKind.DragFromPointer to PropertyValue.Bytes(dragFrom(told().last().pointerId, 0f, 0f)),
             ),
         )
         check(2 in pointer.following) { "the window opened with DragFromPointer was not asked to follow the pointer" }
+        // The node that held the pointer is told so, once, in the batch that tore the window off.
+        val torn = listOf(PointerKind.Down, PointerKind.Up, PointerKind.Down, PointerKind.Cancel)
+        check(kinds() == torn) { "the node the pointer was torn off from heard ${kinds()}, not a Cancel after its press" }
         // The release still arrives at the window the button went down in, which holds the
         // mouse. It is no longer the node's: the gesture ended when the window was torn off.
         postButton(source.handle, down = false, x, y)
         h.forMillis(300)
         check(clicks() == 1) { "the node the pointer was torn off from still took the release as a click" }
+        check(kinds() == torn) { "the node heard more of the press that was torn off: ${kinds()}" }
 
         // The next press is a gesture of its own.
         postButton(source.handle, down = true, x, y)
         postButton(source.handle, down = false, x, y)
         h.until("a click after the torn-off gesture") { clicks() == 2 }
+        check(kinds() == torn + listOf(PointerKind.Down, PointerKind.Up)) {
+            "the press after the torn-off one reached the node as ${kinds().drop(torn.size)}"
+        }
     } finally {
         h.close()
     }
