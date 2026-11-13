@@ -1,4 +1,4 @@
-//! A podcast hub: new episodes, an episode you can open, and a player.
+//! A podcast hub: a welcome screen, new episodes, an episode you can open, and a player.
 //!
 //! Covers are pictures: a podcast cover is a poster, made to be recognised at the size of
 //! a thumbnail, and a draw list cannot say one. Each of the three is an original drawing
@@ -21,15 +21,22 @@ mod palette;
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
-use library::{EPISODES, Episode, SHOWS, Show, clock, episode, short_count, show_of, waveform};
+use library::{
+    EPISODES, Episode, SHOWS, Show, WELCOME, clock, episode, short_count, show_of, waveform,
+};
 use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
 
 /// How large each drawing is. Numbers, because these are the proportions of a picture.
-const COVER_LARGE: f32 = 300.0;
+const COVER_LARGE: f32 = 280.0;
+const COVER_CARD: f32 = 140.0;
 const COVER_SMALL: f32 = 72.0;
+const COVER_ROW: f32 = 48.0;
+const AVATAR: f32 = 24.0;
+/// The box each waveform is laid out in. The drawing is scaled to whatever its canvas
+/// measures, so these are proportions rather than sizes, apart from the height.
 const WAVE: (f32, f32) = (340.0, 72.0);
 const WAVE_SMALL: (f32, f32) = (300.0, 48.0);
 /// How many columns a waveform is drawn with.
@@ -38,15 +45,29 @@ const WAVE_SMALL: (f32, f32) = (300.0, 48.0);
 /// forty records, which is a budget a frame can carry without anyone thinking about it.
 const WAVE_COLUMNS: usize = 40;
 
-/// The round controls: the search button at the head of the shelf, the destinations along
-/// the bottom, and the three actions under an episode.
+/// The round controls: the destinations along the bottom and the play buttons.
 const ROUND: f32 = 52.0;
+/// The outlined circles under an episode.
 const ACTION: f32 = 36.0;
+/// The outlined squares: the two at the top of the hub and the two on the player's art.
+const SQUARE: f32 = 44.0;
 const MARK: f32 = 18.0;
+
+/// The rounded bottom of the player's artwork and the corners of the welcome picture.
+const ART_CORNER: f32 = 36.0;
+/// The welcome screen's "Let's Listen" pill.
+const PILL: (f32, f32) = (236.0, 56.0);
+/// How thick the welcome screen's progress segments are.
+const SEGMENT: f32 = 4.0;
+/// How many steps the welcome screen's progress says there are, and the one it is on.
+const WELCOME_STEPS: usize = 3;
 
 /// Where the player picks up, in seconds. Part way in, because a player sitting at zero
 /// shows a waveform with nothing played and says nothing about what the drawing does.
 const START_SECONDS: u32 = 326;
+
+/// How far a skip moves the player.
+const SKIP_SECONDS: u32 = 15;
 
 /// How much of the half waveform on the left of a card is drawn as played.
 ///
@@ -54,6 +75,27 @@ const START_SECONDS: u32 = 326;
 /// the playhead sits behind the artwork: everything to its left is the accent and
 /// everything to its right is grey, which is what the reference draws.
 const CARD_PLAYED: f32 = 1.0;
+
+/// The show picked out under "Podcasts You May Like": the reference's orange row is The
+/// Researcher, so that row comes first and the others follow it, quiet.
+const RECOMMENDED: usize = 1;
+
+/// The names the drawn controls answer to. A control whose face is a picture has no words
+/// on it, so this is what assistive technology reads and what a test presses.
+mod name {
+    pub const BROWSE: &str = "Browse";
+    pub const NOTIFICATIONS: &str = "Notifications";
+    pub const SEARCH: &str = "Search";
+    pub const LISTEN: &str = "Let's Listen";
+    pub const BACK: &str = "Back";
+    pub const SHARE: &str = "Share";
+    pub const LIKES: &str = "Likes";
+    pub const COMMENTS: &str = "Comments";
+    pub const SHARES: &str = "Shares";
+    pub const MORE: &str = "More";
+    pub const SKIP_BACK: &str = "Back 15 seconds";
+    pub const SKIP_AHEAD: &str = "Ahead 15 seconds";
+}
 
 /// What a press hands on. Shared, because one handler reaches several controls.
 type Handler<T> = Rc<dyn Fn(T)>;
@@ -63,14 +105,22 @@ type Handler<T> = Rc<dyn Fn(T)>;
 ///
 /// An icon is a meaning rather than a picture. The Renderer holds the artwork for every
 /// design system, so `Home` comes out as this system's house and the hub never says what
-/// a house looks like. The three marks under an episode are not in that set, so they are
-/// drawings instead; they live in `library` beside the waveform.
+/// a house looks like. The marks under an episode and the two at the top of the hub are
+/// not in that set, so they are drawings instead; they live in `library` beside the
+/// waveform.
 mod icon {
     use compose_rust::ui::IconRole;
 
-    pub static NEW: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
-    pub static SHOWS: [u8; 2] = (IconRole::Search as u16).to_le_bytes();
+    pub static HOME: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
+    /// The reference's middle destination is a compass. The closed set of meanings has
+    /// none, and looking for something to listen to is what the hub is for, so it is the
+    /// search meaning.
+    pub static EXPLORE: [u8; 2] = (IconRole::Search as u16).to_le_bytes();
+    /// The reference's last destination is a person. The closed set has no person yet,
+    /// so it is the settings meaning until it does.
     pub static YOU: [u8; 2] = (IconRole::Settings as u16).to_le_bytes();
+    pub static MORE: [u8; 2] = (IconRole::More as u16).to_le_bytes();
+    pub static ONWARD: [u8; 2] = (IconRole::Forward as u16).to_le_bytes();
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -81,7 +131,13 @@ enum Destination {
 }
 
 impl Destination {
-    const STRIP: [Destination; 3] = [Destination::New, Destination::Shows, Destination::You];
+    /// Left to right. The hub is in the middle, because that is where the reference puts
+    /// the destination it is drawn on: a house, then the compass filled orange, then a
+    /// person.
+    const STRIP: [Destination; 3] = [Destination::Shows, Destination::New, Destination::You];
+
+    /// Where the bar opens: the hub, the middle circle.
+    const FIRST: Destination = Destination::New;
 
     /// What the destination is called. Nothing on screen says it: the reference's bar is
     /// three bare icons. It names the screen you arrive at and it is what a test asks for.
@@ -95,33 +151,62 @@ impl Destination {
 
     fn icon(self) -> &'static [u8] {
         match self {
-            Destination::New => &icon::NEW,
-            Destination::Shows => &icon::SHOWS,
+            Destination::Shows => &icon::HOME,
+            Destination::New => &icon::EXPLORE,
             Destination::You => &icon::YOU,
         }
     }
 }
 
-/// A round control whose face is a drawing: the fill, the mark, and the press over it.
+/// A control whose face is a drawing: the fill or the outline, the mark, and the press
+/// over it.
 ///
 /// The button carries no text and sits over the drawing, so the press lands on it
-/// whatever was drawn underneath.
-fn round_button(size: f32, fill: Paint, face: impl FnOnce(), on_click: Rc<dyn Fn()>) {
+/// whatever was drawn underneath. Its name is what is read out in place of words.
+fn face_button(
+    size: f32,
+    shape: ShapeRole,
+    fill: Option<Paint>,
+    edge: Option<Paint>,
+    name: &'static str,
+    face: impl FnOnce(),
+    on_click: Rc<dyn Fn()>,
+) {
+    let mut outline = Modifier
+        .size(size, size)
+        .background_if(fill)
+        .shape_role(shape);
+    if let Some(edge) = edge {
+        outline = outline.border(1.0, edge);
+    }
     Box()
-        .modifier(
-            Modifier
-                .size(size, size)
-                .background(fill)
-                .shape_role(ShapeRole::Full),
-        )
+        .modifier(outline)
         .alignment(Alignment::Center)
         .content(|| {
             face();
             Button("")
+                .accessible_name(name)
                 .variant(ButtonVariant::Text)
                 .modifier(Modifier.fill_max_size())
                 .on_click(move || on_click());
         });
+}
+
+/// A button that is one of the closed set of meanings, tinted, with nothing written on it.
+fn icon_button(
+    role: IconRole,
+    name: &'static str,
+    tint: Paint,
+    modifier: Modifier,
+    on_click: impl FnMut() + 'static,
+) {
+    Button("")
+        .icon(role)
+        .accessible_name(name)
+        .variant(ButtonVariant::Text)
+        .color(tint)
+        .modifier(modifier)
+        .on_click(on_click);
 }
 
 /// One registered meaning, tinted.
@@ -129,52 +214,197 @@ fn icon_face(picture: &'static [u8], tint: Paint) {
     Icon(asset(AssetKind::VectorIcon, picture)).color(tint);
 }
 
-/// One drawn mark, at the size the row of actions uses.
+/// One drawn mark, at the size the controls use.
 fn mark_face(mark: DrawList) {
     Canvas(mark).modifier(Modifier.size(MARK, MARK));
 }
 
-/// A show's cover at some size.
+/// A show's cover at some size, with its corners rounded.
 ///
 /// The picture is registered here rather than up front. `asset` returns the same id for
 /// the same bytes and queues nothing the second time, so a cover that appears in the strip,
-/// on the episode card and again in the player is one registration and three nodes.
+/// on the episode card and again in the player is one registration and several nodes.
 fn cover(size: f32, show: &Show) {
-    Image(asset(AssetKind::Svg, show.cover))
-        .modifier(Modifier.size(size, size).shape_role(ShapeRole::Large));
+    cover_shaped(size, show, Some(ShapeRole::Large));
 }
 
-/// One of the three things that can be done to an episode: the mark in its outlined
-/// circle, and how many people have done it.
-fn action(mark: DrawList, count: u32, on_press: Rc<dyn Fn()>) {
+fn cover_shaped(size: f32, show: &Show, shape: Option<ShapeRole>) {
+    let mut modifier = Modifier.size(size, size);
+    if let Some(shape) = shape {
+        modifier = modifier.shape_role(shape);
+    }
+    Image(asset(AssetKind::Svg, show.cover)).modifier(modifier);
+}
+
+/// One thing that can be done to an episode: the mark in its outlined circle, and, on the
+/// player, how many people have done it. The card under "New Episodes" shows the circles
+/// alone, which is where the reference keeps its counts off.
+fn action(name: &'static str, face: impl FnOnce(), count: Option<u32>, on_press: Rc<dyn Fn()>) {
     Row()
         .space_role(SpaceRole::Xs)
         .alignment(Alignment::Center)
         .content(|| {
-            Box()
-                .modifier(
-                    Modifier
-                        .size(ACTION, ACTION)
-                        .shape_role(ShapeRole::Full)
-                        .border(1.0, palette::OUTLINE),
-                )
-                .alignment(Alignment::Center)
-                .content(|| {
-                    mark_face(mark);
-                    Button("")
-                        .variant(ButtonVariant::Text)
-                        .modifier(Modifier.fill_max_size())
-                        .on_click(move || on_press());
-                });
-            Text(short_count(count))
-                .type_role(TypeRole::Label)
-                .color(palette::MUTED);
+            face_button(
+                ACTION,
+                ShapeRole::Full,
+                None,
+                Some(palette::OUTLINE),
+                name,
+                face,
+                on_press,
+            );
+            if let Some(count) = count {
+                Text(short_count(count))
+                    .type_role(TypeRole::Label)
+                    .color(palette::INK);
+            }
         });
+}
+
+/// The heart, the bubble and the arrow, with or without their counts.
+fn engagement(found: &Episode, counted: bool) {
+    let count = |value: u32| counted.then_some(value);
+    action(
+        name::LIKES,
+        || mark_face(library::heart(MARK, palette::INK)),
+        count(found.hearts),
+        not_here("Liking"),
+    );
+    action(
+        name::COMMENTS,
+        || mark_face(library::comment(MARK, palette::INK)),
+        count(found.comments),
+        not_here("Replies"),
+    );
+    action(
+        name::SHARES,
+        || mark_face(library::share(MARK, palette::INK)),
+        count(found.shares),
+        not_here("Sharing"),
+    );
+}
+
+/// The "more" circle at the end of a row of actions.
+fn more_action() {
+    action(
+        name::MORE,
+        || icon_face(&icon::MORE, palette::INK),
+        None,
+        not_here("More"),
+    );
 }
 
 /// Says that something on the screen is not part of this sample.
 fn not_here(what: &'static str) -> Rc<dyn Fn()> {
     Rc::new(move || Message::new(format!("{what} is not part of this sample")).show())
+}
+
+/// The welcome screen: where you are in the introduction, a picture, the promise, and the
+/// way in.
+#[Composable]
+fn welcome_page(on_listen: Rc<dyn Fn()>) {
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_size()
+                .background(palette::PAGE)
+                .padding_role(SpaceRole::Lg),
+        )
+        .space_role(SpaceRole::Lg)
+        .content(|| {
+            // Three segments with the first one in the accent: the first of three steps.
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .space_role(SpaceRole::Sm)
+                .content(|| {
+                    for step in 0..WELCOME_STEPS {
+                        let fill = if step == 0 {
+                            palette::ACCENT
+                        } else {
+                            palette::TILE
+                        };
+                        Box()
+                            .modifier(
+                                Modifier
+                                    .weight(1.0)
+                                    .height(SEGMENT)
+                                    .background(fill)
+                                    .shape_role(ShapeRole::Full),
+                            )
+                            .content(|| {});
+                    }
+                });
+            Box()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .weight(1.0)
+                        .corner_radius(ART_CORNER)
+                        .clip(true),
+                )
+                .content(|| {
+                    Image(asset(AssetKind::Svg, WELCOME)).modifier(Modifier.fill_max_size());
+                });
+            Text("The Best Podcast\nof the Year")
+                .type_role(TypeRole::Display)
+                .font_weight(600)
+                .color(palette::INK)
+                .text_align(TextAlign::Center)
+                .modifier(Modifier.fill_max_width());
+            Box()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::Center)
+                .content(|| listen_pill(on_listen));
+        });
+}
+
+/// The way in: an orange pill with a play disc at its start, the words in the middle and
+/// a faint arrow at its end, pressed as one control.
+fn listen_pill(on_listen: Rc<dyn Fn()>) {
+    let inset = 6.0;
+    let disc = PILL.1 - 2.0 * inset;
+    Box()
+        .modifier(
+            Modifier
+                .size(PILL.0, PILL.1)
+                .background(palette::ACCENT)
+                .shape_role(ShapeRole::Full),
+        )
+        .alignment(Alignment::Center)
+        .content(|| {
+            Text(name::LISTEN)
+                .type_role(TypeRole::BodyStrong)
+                .color(palette::PAGE);
+            Box()
+                .modifier(Modifier.fill_max_size().padding(inset))
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    Box()
+                        .modifier(
+                            Modifier
+                                .size(disc, disc)
+                                .background(palette::PAGE)
+                                .shape_role(ShapeRole::Full),
+                        )
+                        .alignment(Alignment::Center)
+                        .content(|| {
+                            // A character rather than an icon: the closed set of meanings
+                            // has no play yet.
+                            Text("\u{25b6}")
+                                .type_role(TypeRole::Label)
+                                .color(palette::ACCENT);
+                        });
+                });
+            Box()
+                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
+                .alignment(Alignment::CenterEnd)
+                .content(|| icon_face(&icon::ONWARD, palette::ON_ACCENT_EDGE));
+            Button("")
+                .accessible_name(name::LISTEN)
+                .variant(ButtonVariant::Text)
+                .modifier(Modifier.fill_max_size())
+                .on_click(move || on_listen());
+        });
 }
 
 /// One episode as a card: the title over the artwork, a waveform either side of it, and
@@ -208,7 +438,8 @@ fn episode_card(found: &Episode, on_play: &Handler<u32>) {
                 .content(|| {
                     // The part that has been played is in the accent and the rest is grey,
                     // so the two halves either side of the cover are one waveform with the
-                    // playhead behind the artwork.
+                    // playhead behind the artwork. The cover is the card's largest thing,
+                    // as it is in the reference.
                     Canvas(waveform(
                         WAVE_SMALL.0 / 2.0,
                         WAVE_SMALL.1,
@@ -219,7 +450,7 @@ fn episode_card(found: &Episode, on_play: &Handler<u32>) {
                         palette::WAVE,
                     ))
                     .modifier(Modifier.weight(1.0).height(WAVE_SMALL.1));
-                    cover(COVER_SMALL, show);
+                    cover(COVER_CARD, show);
                     Canvas(waveform(
                         WAVE_SMALL.0 / 2.0,
                         WAVE_SMALL.1,
@@ -241,31 +472,19 @@ fn episode_card(found: &Episode, on_play: &Handler<u32>) {
                 .space_role(SpaceRole::Sm)
                 .alignment(Alignment::Center)
                 .content(|| {
-                    action(
-                        library::heart(MARK, palette::INK),
-                        found.hearts,
-                        not_here("Liking"),
-                    );
-                    action(
-                        library::comment(MARK, palette::INK),
-                        found.comments,
-                        not_here("Replies"),
-                    );
-                    action(
-                        library::share(MARK, palette::INK),
-                        found.shares,
-                        not_here("Sharing"),
-                    );
+                    engagement(found, false);
                     Spacer().modifier(Modifier.weight(1.0));
+                    more_action();
                     // The one filled control on the card, and the only orange circle on
-                    // the page that is not a destination.
+                    // the page that is not a destination. A character rather than an
+                    // icon: the closed set of meanings has no play yet.
                     let play = Rc::clone(on_play);
                     Button("\u{25b6}")
                         .variant(ButtonVariant::Text)
                         .color(palette::PAGE)
                         .modifier(
                             Modifier
-                                .height(ROUND)
+                                .size(ACTION, ACTION)
                                 .background(palette::ACCENT)
                                 .shape_role(ShapeRole::Full),
                         )
@@ -276,10 +495,10 @@ fn episode_card(found: &Episode, on_play: &Handler<u32>) {
 
 /// A show as a row, with a follow button.
 ///
-/// The first row is the one being recommended, so it is a solid orange pill with white on
-/// it and an outlined white button, and the rest are the same shape on the page with a
-/// hairline round them and the orange on the button instead. That is the reference: one
-/// row picked out, the others quiet.
+/// The recommended row is a solid orange pill with white on it and a paler orange follow
+/// button, and the rest are the same shape on the page with a hairline round them and the
+/// orange on the button instead. That is the reference: one row picked out, the others
+/// quiet.
 #[Composable]
 fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn()>) {
     let ink = if recommended {
@@ -310,7 +529,7 @@ fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn
         .space_role(SpaceRole::Sm)
         .alignment(Alignment::CenterStart)
         .content(|| {
-            cover(48.0, show);
+            cover_shaped(COVER_ROW, show, Some(ShapeRole::Full));
             Column().modifier(Modifier.weight(1.0)).content(|| {
                 Text(show.name)
                     .type_role(TypeRole::BodyStrong)
@@ -321,25 +540,52 @@ fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn
                     .type_role(TypeRole::Caption)
                     .color(quiet);
             });
-            // Orange either way. On the recommended row that is the row's own colour, so
-            // what is left of the button is the white outline round it, and on the others
-            // it is the one filled thing on a white row.
-            let outline = if recommended { 1.0 } else { 0.0 };
+            // On the recommended row the button is white let through onto the row's own
+            // orange, and on the others it is the one filled thing on a white row.
+            let button = if recommended {
+                palette::ON_ACCENT_SOFT
+            } else {
+                palette::ACCENT
+            };
             Button(if followed { "Following" } else { "Follow" })
                 .variant(ButtonVariant::Text)
                 .color(palette::PAGE)
-                .modifier(
-                    Modifier
-                        .shape_role(ShapeRole::Full)
-                        .background(palette::ACCENT)
-                        .border(outline, palette::PAGE),
-                )
+                .modifier(Modifier.shape_role(ShapeRole::Full).background(button))
                 .on_click(move || on_toggle());
         });
 }
 
-/// The shelf: the search button and a row of covers, then the newest episode in full,
-/// then who to follow.
+/// The two outlined squares above the headline: everything laid out on the left, what is
+/// new for you on the right.
+fn top_row() {
+    Row()
+        .modifier(Modifier.fill_max_width())
+        .arrangement(Arrangement::SpaceBetween)
+        .alignment(Alignment::Center)
+        .content(|| {
+            face_button(
+                SQUARE,
+                ShapeRole::Medium,
+                None,
+                Some(palette::OUTLINE),
+                name::BROWSE,
+                || mark_face(library::grid(MARK, palette::INK)),
+                not_here("Browsing"),
+            );
+            face_button(
+                SQUARE,
+                ShapeRole::Medium,
+                None,
+                Some(palette::OUTLINE),
+                name::NOTIFICATIONS,
+                || mark_face(library::bell(MARK, palette::INK)),
+                not_here("Notifications"),
+            );
+        });
+}
+
+/// The two squares, the headline and the shelf, then the newest episode in full, then who
+/// to follow.
 #[Composable]
 fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: Handler<u32>) {
     let following = followed.get();
@@ -347,8 +593,11 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
+            top_row();
+
             Text("New Episodes")
                 .type_role(TypeRole::Headline)
+                .font_weight(500)
                 .color(palette::INK);
 
             Row()
@@ -356,14 +605,26 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                 .space_role(SpaceRole::Sm)
                 .alignment(Alignment::Center)
                 .content(|| {
-                    // The shelf begins with the one round thing on it, which is how the
-                    // reference separates "look for something" from "here is what is new".
-                    round_button(
-                        ROUND,
-                        palette::ACCENT,
-                        || icon_face(&icon::SHOWS, palette::PAGE),
-                        not_here("Search"),
-                    );
+                    // The shelf begins with an orange tile the shape of a cover, which is
+                    // how the reference separates "look for something" from "here is what
+                    // is new".
+                    Box()
+                        .modifier(
+                            Modifier
+                                .size(COVER_SMALL, COVER_SMALL)
+                                .background(palette::ACCENT)
+                                .shape_role(ShapeRole::Large),
+                        )
+                        .content(|| {
+                            let search = not_here("Search");
+                            icon_button(
+                                IconRole::Search,
+                                name::SEARCH,
+                                palette::PAGE,
+                                Modifier.fill_max_size(),
+                                move || search(),
+                            );
+                        });
                     // The shelf across, windowed. A cover that is not on screen is a
                     // picture nobody has asked the Renderer to draw.
                     let on_open = Rc::clone(&on_open);
@@ -409,14 +670,17 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                 .modifier(Modifier.fill_max_width())
                 .space_role(SpaceRole::Sm)
                 .content(|| {
-                    for (index, show) in SHOWS.iter().enumerate() {
+                    let order = std::iter::once(RECOMMENDED)
+                        .chain((0..SHOWS.len()).filter(|index| *index != RECOMMENDED));
+                    for index in order {
+                        let show = &SHOWS[index];
                         let is_followed = following.contains(&index);
                         let list = followed;
                         key(show.name, || {
                             show_row(
                                 show,
                                 is_followed,
-                                index == 0,
+                                index == RECOMMENDED,
                                 Rc::new(move || {
                                     list.update(|list| {
                                         match list.iter().position(|found| *found == index) {
@@ -559,8 +823,12 @@ fn you_page(followed: usize) {
         });
 }
 
-/// The player: the cover full bleed at the top of a white page, with the transport under
-/// it.
+/// The player: the artwork full bleed across the top, then who and what, the counts, the
+/// waveform and the transport.
+///
+/// The artwork runs to the top and both sides of the screen with only its bottom corners
+/// rounded, and the way back and the way to share stand on it as outlined squares, which
+/// is the reference's player: an orange picture rather than a header above one.
 #[Composable]
 fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc<dyn Fn()>) {
     let show = show_of(found);
@@ -568,65 +836,86 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
     let played = at as f32 / found.seconds.max(1) as f32;
     let length = found.seconds;
 
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_size()
-                .background(palette::PAGE)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Md)
+    ScrollColumn()
+        .modifier(Modifier.fill_max_size().background(palette::PAGE))
         .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    let back = Rc::clone(&on_back);
-                    Button("\u{2190}")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::INK)
-                        .on_click(move || back());
-                    Spacer().modifier(Modifier.weight(1.0));
-                    Text(show.name)
-                        .type_role(TypeRole::BodyStrong)
-                        .color(palette::INK);
-                    Spacer().modifier(Modifier.weight(1.0));
-                    let share = not_here("Sharing");
-                    Button("Share")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::ACCENT)
-                        .on_click(move || share());
-                });
-
-            // The artwork, on the accent, which is the reference's player: a cover that
-            // runs to the edges of the page rather than a dark screen behind it.
-            Box()
+            Column()
                 .modifier(
                     Modifier
                         .fill_max_width()
                         .background(palette::ACCENT)
-                        .shape_role(ShapeRole::Large)
+                        .corner_radii([0.0, 0.0, ART_CORNER, ART_CORNER])
+                        .clip(true)
                         .padding_role(SpaceRole::Md),
                 )
-                .alignment(Alignment::Center)
-                .content(|| cover(COVER_LARGE, show));
+                .space_role(SpaceRole::Sm)
+                .content(|| {
+                    Row()
+                        .modifier(Modifier.fill_max_width())
+                        .alignment(Alignment::Center)
+                        .content(|| {
+                            Box()
+                                .modifier(
+                                    Modifier
+                                        .size(SQUARE, SQUARE)
+                                        .shape_role(ShapeRole::Medium)
+                                        .border(1.0, palette::ON_ACCENT_EDGE),
+                                )
+                                .content(|| {
+                                    let back = Rc::clone(&on_back);
+                                    icon_button(
+                                        IconRole::Back,
+                                        name::BACK,
+                                        palette::PAGE,
+                                        Modifier.fill_max_size(),
+                                        move || back(),
+                                    );
+                                });
+                            Spacer().modifier(Modifier.weight(1.0));
+                            Text(show.name)
+                                .type_role(TypeRole::BodyStrong)
+                                .color(palette::PAGE);
+                            Spacer().modifier(Modifier.weight(1.0));
+                            face_button(
+                                SQUARE,
+                                ShapeRole::Medium,
+                                None,
+                                Some(palette::ON_ACCENT_EDGE),
+                                name::SHARE,
+                                || mark_face(library::share(MARK, palette::PAGE)),
+                                not_here("Sharing"),
+                            );
+                        });
+                    // The cover square on the orange, unrounded, so it reads as the
+                    // picture the orange belongs to rather than a tile laid on it.
+                    Box()
+                        .modifier(Modifier.fill_max_width())
+                        .alignment(Alignment::Center)
+                        .content(|| cover_shaped(COVER_LARGE, show, None));
+                });
 
             Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Xs)
+                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+                .space_role(SpaceRole::Sm)
                 .content(|| {
                     Row()
                         .modifier(Modifier.fill_max_width())
                         .space_role(SpaceRole::Sm)
                         .alignment(Alignment::CenterStart)
                         .content(|| {
+                            // The host's picture is the show's own cover in a circle: the
+                            // sample carries no photographs of people.
+                            cover_shaped(AVATAR, show, Some(ShapeRole::Full));
                             Text(show.host)
                                 .type_role(TypeRole::Label)
-                                .color(palette::MUTED)
+                                .color(palette::INK)
                                 .modifier(Modifier.weight(1.0));
-                            Text("\u{2605} 4.7")
+                            // A character rather than an icon: the closed set of meanings
+                            // has no star yet.
+                            Text("\u{2605}")
                                 .type_role(TypeRole::Label)
                                 .color(palette::ACCENT);
+                            Text("4.7").type_role(TypeRole::Label).color(palette::INK);
                         });
                     Text(found.title)
                         .type_role(TypeRole::Title)
@@ -636,60 +925,82 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                         .color(palette::MUTED)
                         .max_lines(3)
                         .overflow(TextOverflow::Ellipsis);
-                });
 
-            Canvas(waveform(
-                WAVE.0,
-                WAVE.1,
-                WAVE_COLUMNS,
-                found.seed,
-                played,
-                palette::ACCENT,
-                palette::WAVE,
-            ))
-            .modifier(Modifier.size(WAVE.0, WAVE.1));
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text(clock(at))
-                        .type_role(TypeRole::Caption)
-                        .color(palette::MUTED)
-                        .modifier(Modifier.weight(1.0));
-                    Text(clock(length))
-                        .type_role(TypeRole::Caption)
-                        .color(palette::MUTED);
-                });
+                    // The counts live here rather than on the card, as they do in the
+                    // reference.
+                    Row()
+                        .modifier(Modifier.fill_max_width())
+                        .space_role(SpaceRole::Sm)
+                        .alignment(Alignment::Center)
+                        .content(|| {
+                            engagement(found, true);
+                            Spacer().modifier(Modifier.weight(1.0));
+                            more_action();
+                        });
 
-            Spacer().modifier(Modifier.weight(1.0));
+                    Canvas(waveform(
+                        WAVE.0,
+                        WAVE.1,
+                        WAVE_COLUMNS,
+                        found.seed,
+                        played,
+                        palette::ACCENT,
+                        palette::WAVE,
+                    ))
+                    .modifier(Modifier.fill_max_width().height(WAVE.1));
+                    Row()
+                        .modifier(Modifier.fill_max_width())
+                        .alignment(Alignment::CenterStart)
+                        .content(|| {
+                            Text(clock(at))
+                                .type_role(TypeRole::Caption)
+                                .color(palette::ACCENT)
+                                .modifier(Modifier.weight(1.0));
+                            Text(clock(length))
+                                .type_role(TypeRole::Caption)
+                                .color(palette::INK);
+                        });
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .arrangement(Arrangement::Center)
-                .content(|| {
-                    let back = position;
-                    Button("\u{21ba} 15")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::INK)
-                        .on_click(move || back.set(back.get_untracked().saturating_sub(15)));
-                    let play = not_here("Playback");
-                    Button("\u{25b6}")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::PAGE)
-                        .modifier(
-                            Modifier
-                                .height(ROUND + 8.0)
-                                .background(palette::ACCENT)
-                                .shape_role(ShapeRole::Full),
-                        )
-                        .on_click(move || play());
-                    let ahead = position;
-                    Button("15 \u{21bb}")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::INK)
-                        .on_click(move || ahead.set((ahead.get_untracked() + 15).min(length)));
+                    // The transport. Skipping is the back and forward meanings; play is a
+                    // character, because the closed set has no play, pause or shuffle yet,
+                    // and the shuffle and sleep timer the reference puts at either end
+                    // are left off rather than drawn as something they are not.
+                    Row()
+                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+                        .space_role(SpaceRole::Lg)
+                        .alignment(Alignment::Center)
+                        .arrangement(Arrangement::Center)
+                        .content(|| {
+                            let back = position;
+                            icon_button(
+                                IconRole::Back,
+                                name::SKIP_BACK,
+                                palette::INK,
+                                Modifier.size(ROUND, ROUND),
+                                move || back.set(back.get_untracked().saturating_sub(SKIP_SECONDS)),
+                            );
+                            let play = not_here("Playback");
+                            Button("\u{25b6}")
+                                .variant(ButtonVariant::Text)
+                                .color(palette::PAGE)
+                                .modifier(
+                                    Modifier
+                                        .size(ROUND, ROUND)
+                                        .background(palette::ACCENT)
+                                        .shape_role(ShapeRole::Full),
+                                )
+                                .on_click(move || play());
+                            let ahead = position;
+                            icon_button(
+                                IconRole::Forward,
+                                name::SKIP_AHEAD,
+                                palette::INK,
+                                Modifier.size(ROUND, ROUND),
+                                move || {
+                                    ahead.set((ahead.get_untracked() + SKIP_SECONDS).min(length))
+                                },
+                            );
+                        });
                 });
         });
 }
@@ -723,14 +1034,35 @@ fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
                 };
                 let go = Rc::clone(&on_go);
                 key(choice.label(), || {
-                    round_button(
+                    face_button(
                         ROUND,
-                        fill,
+                        ShapeRole::Full,
+                        Some(fill),
+                        None,
+                        choice.label(),
                         || icon_face(choice.icon(), tint),
                         Rc::new(move || go(choice)),
                     );
                 });
             }
+        });
+}
+
+/// A screen that covers the whole window, the bar included, laid out in the phone's
+/// measure when the window is wider than a phone.
+fn whole_window(measure: Option<f32>, content: impl FnOnce()) {
+    Box()
+        .modifier(Modifier.fill_max_size().background(palette::PAGE))
+        .alignment(Alignment::TopCenter)
+        .content(|| {
+            Column()
+                .modifier(
+                    Modifier
+                        .width_if(measure)
+                        .fill_max_width_if(measure.is_none())
+                        .fill_max_height(),
+                )
+                .content(content);
         });
 }
 
@@ -743,33 +1075,31 @@ pub fn app() {
         Some(PAGE_MEASURE)
     };
 
-    let destination = remember(|| mutable_state_of(Destination::New));
+    let welcomed = remember(|| mutable_state_of(false));
+    let destination = remember(|| mutable_state_of(Destination::FIRST));
     let playing = remember(|| mutable_state_of(Option::<u32>::None));
     let position = remember(|| mutable_state_of(START_SECONDS));
     let followed = remember(|| mutable_state_of(vec![0_usize]));
 
     let on_play: Handler<u32> = { Rc::new(move |id: u32| playing.set(Some(id))) };
 
+    // The welcome screen comes first and covers everything, as the reference's first
+    // screen does: there is no bar under it, only the way in.
+    if !welcomed.get() {
+        whole_window(measure, || {
+            welcome_page(Rc::new(move || welcomed.set(true)));
+        });
+        return;
+    }
+
     // The player covers everything, including the bar along the bottom, because a full
     // screen player is what the reference draws and a bar under it would be a way out of
     // a screen whose only way out is its own back button.
     if let Some(found) = playing.get().and_then(episode) {
-        Box()
-            .modifier(Modifier.fill_max_size().background(palette::PAGE))
-            .alignment(Alignment::TopCenter)
-            .content(|| {
-                Column()
-                    .modifier(
-                        Modifier
-                            .width_if(measure)
-                            .fill_max_width_if(measure.is_none())
-                            .fill_max_height(),
-                    )
-                    .content(|| {
-                        let close = playing;
-                        player_page(found, position, Rc::new(move || close.set(None)));
-                    });
-            });
+        whole_window(measure, || {
+            let close = playing;
+            player_page(found, position, Rc::new(move || close.set(None)));
+        });
         return;
     }
 
@@ -1090,11 +1420,218 @@ mod tests {
                 })
                 .collect()
         }
+
+        /// The mutations of the frame drawn last: what the screen became on the last press.
+        fn latest(&self) -> Vec<Mutation<'_>> {
+            self.frames
+                .last()
+                .map(|frame| decode_batch(frame).expect("the batch did not decode"))
+                .unwrap_or_default()
+        }
+
+        /// The node that last carried this accessible name. A control whose face is a
+        /// drawing has no words on it, so its name is how it is found.
+        fn node_named(&self, name: &str) -> Option<u32> {
+            self.mutations()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::AccessibleName,
+                        value: PropertyValue::String(text),
+                    } if *text == name => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        fn press_named(&mut self, name: &str) -> bool {
+            let Some(node_id) = self.node_named(name) else {
+                return false;
+            };
+            let Some(handler_id) = self.handler_of(node_id) else {
+                return false;
+            };
+            self.send(HostEvent {
+                node_id,
+                handler_id,
+                payload: EventPayload::Clicked,
+            });
+            true
+        }
+
+        /// The screen past its welcome, on the hub.
+        fn hub() -> Self {
+            let mut screen = Self::new();
+            assert!(
+                screen.press_named(name::LISTEN),
+                "the welcome screen has no way in"
+            );
+            screen
+        }
+
+        /// The hub, with its card's play pressed: the player.
+        fn player() -> Self {
+            let mut screen = Self::hub();
+            assert!(screen.press("\u{25b6}"), "nothing on the hub plays");
+            screen
+        }
+
+        fn parent_of(&self, node: u32) -> Option<u32> {
+            self.parents()
+                .iter()
+                .rev()
+                .find_map(|(child, owner)| (*child == node).then_some(*owner))
+        }
+
+        /// What a node was last filled with.
+        fn background_of(&self, node: u32) -> Option<Paint> {
+            self.mutations()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier: WireModifier::Background(paint),
+                        ..
+                    } if *node_id == node => Some(*paint),
+                    _ => None,
+                })
+        }
+
+        /// Every modifier the last frame gave this node.
+        fn modifiers_of(&self, node: u32) -> Vec<WireModifier> {
+            self.latest()
+                .into_iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id, modifier, ..
+                    } if node_id == node => Some(modifier),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Every meaning a button in the last frame carries.
+        fn latest_button_icons(&self) -> Vec<i64> {
+            self.latest()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                        ..
+                    } => Some(*value),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// What the last frame filled things with, in the order it filled them.
+        fn latest_fills(&self) -> Vec<Paint> {
+            self.latest()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        modifier: WireModifier::Background(paint),
+                        ..
+                    } => Some(*paint),
+                    _ => None,
+                })
+                .collect()
+        }
     }
 
     #[test]
     fn the_first_frame_encodes_without_a_protocol_error() {
         assert!(ComposeHost::new(app).rebuild().is_ok());
+    }
+
+    /// The reference opens on its welcome: a picture, the promise and one way in. That way
+    /// in leads to the hub.
+    #[test]
+    fn fr22_the_app_opens_on_the_welcome_and_listening_leads_to_the_hub() {
+        let mut screen = Screen::new();
+        let first = screen.latest_texts();
+        assert!(
+            first
+                .iter()
+                .any(|text| text == "The Best Podcast\nof the Year"),
+            "the app does not open on its welcome: {first:?}"
+        );
+        assert!(
+            !first.iter().any(|text| text == "New Episodes"),
+            "the hub is drawn under the welcome"
+        );
+        assert!(
+            screen.press_named(name::LISTEN),
+            "the welcome screen has no way in"
+        );
+        assert!(
+            screen
+                .latest_texts()
+                .iter()
+                .any(|text| text == "New Episodes"),
+            "listening did not lead to the hub"
+        );
+    }
+
+    /// The welcome screen's progress is three segments with the first in the accent, and
+    /// nothing on it is painted by the design system.
+    #[test]
+    fn fr22_the_welcome_shows_the_first_of_three_steps() {
+        let screen = Screen::new();
+        let fills = screen.latest_fills();
+        assert_eq!(
+            fills
+                .iter()
+                .filter(|paint| **paint == palette::TILE)
+                .count(),
+            WELCOME_STEPS - 1,
+            "the steps still to come are the grey segments: {fills:?}"
+        );
+        assert!(
+            screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::RegisterAsset { bytes, .. } if *bytes == WELCOME
+            )),
+            "the welcome has no picture"
+        );
+    }
+
+    /// The bar opens on the hub, and the hub is the middle circle: the reference's bar is a
+    /// house, the compass filled orange, and a person, drawn on the hub.
+    #[test]
+    fn fr22_the_bar_opens_on_the_hub_in_the_middle() {
+        assert_eq!(
+            Destination::STRIP[Destination::STRIP.len() / 2],
+            Destination::New,
+            "the hub is not the middle destination"
+        );
+        assert_eq!(Destination::FIRST, Destination::New);
+        let screen = Screen::hub();
+        for choice in Destination::STRIP {
+            let asset = screen
+                .icon_asset(choice.icon())
+                .unwrap_or_else(|| panic!("the bar has no icon for {}", choice.label()));
+            let icon = screen
+                .node_drawing(asset)
+                .unwrap_or_else(|| panic!("nothing draws the icon for {}", choice.label()));
+            let circle = screen
+                .parent_of(icon)
+                .unwrap_or_else(|| panic!("the icon for {} stands alone", choice.label()));
+            let expected = if choice == Destination::New {
+                palette::ACCENT
+            } else {
+                palette::TILE
+            };
+            assert_eq!(
+                screen.background_of(circle),
+                Some(expected),
+                "{} is not filled as the reference fills it",
+                choice.label()
+            );
+        }
     }
 
     /// Every destination has to encode, not just the one the app opens on.
@@ -1103,7 +1640,7 @@ mod tests {
     /// with the one you are on filled, which is the reference's bar.
     #[test]
     fn fr15_every_destination_encodes() {
-        let mut screen = Screen::new();
+        let mut screen = Screen::hub();
         for choice in Destination::STRIP {
             assert!(
                 screen.press_icon(choice.icon()),
@@ -1113,11 +1650,109 @@ mod tests {
         }
     }
 
+    /// Above the headline stand two outlined squares, the grid at the start and the bell
+    /// at the end, as in the reference.
+    #[test]
+    fn fr22_the_hub_has_its_top_row() {
+        let mut screen = Screen::hub();
+        for name in [name::BROWSE, name::NOTIFICATIONS] {
+            let button = screen
+                .node_named(name)
+                .unwrap_or_else(|| panic!("the hub has no {name} button"));
+            let square = screen
+                .parent_of(button)
+                .unwrap_or_else(|| panic!("the {name} button stands alone"));
+            let modifiers = screen.modifiers_of(square);
+            assert!(
+                modifiers.iter().any(|modifier| matches!(
+                    modifier,
+                    WireModifier::Border { paint, .. } if *paint == palette::OUTLINE
+                )),
+                "the {name} square has no hairline: {modifiers:?}"
+            );
+            assert!(
+                !modifiers
+                    .iter()
+                    .any(|modifier| matches!(modifier, WireModifier::Background(_))),
+                "the {name} square is filled, where the reference only outlines it"
+            );
+        }
+        // Pressed after looking, because a press draws a frame of its own and the squares
+        // are looked up in the frame the hub was drawn in.
+        for name in [name::BROWSE, name::NOTIFICATIONS] {
+            assert!(
+                screen.press_named(name),
+                "the {name} button cannot be pressed"
+            );
+        }
+    }
+
+    /// The shelf starts with a search tile the shape of the covers beside it, rather than a
+    /// circle, and the card keeps its counts off and ends in a "more" circle.
+    #[test]
+    fn fr22_the_shelf_and_card_match_the_reference() {
+        let screen = Screen::hub();
+        let search = screen
+            .node_named(name::SEARCH)
+            .expect("the shelf has no search");
+        let tile = screen.parent_of(search).expect("the search stands alone");
+        let modifiers = screen.modifiers_of(tile);
+        assert!(
+            modifiers
+                .iter()
+                .any(|modifier| *modifier == WireModifier::ShapeRole(ShapeRole::Large)),
+            "the search tile is not the covers' shape: {modifiers:?}"
+        );
+        assert!(
+            modifiers.contains(&WireModifier::Width(COVER_SMALL))
+                && modifiers.contains(&WireModifier::Height(COVER_SMALL)),
+            "the search tile is not the covers' size: {modifiers:?}"
+        );
+        assert!(
+            screen
+                .latest_button_icons()
+                .contains(&(IconRole::Search as i64)),
+            "the search tile does not carry the search meaning"
+        );
+        let texts = screen.latest_texts();
+        let found = &EPISODES[0];
+        for count in [found.hearts, found.comments, found.shares] {
+            assert!(
+                !texts.contains(&short_count(count)),
+                "the card shows the count {count}, which the reference keeps for the player"
+            );
+        }
+        assert!(
+            screen.node_named(name::MORE).is_some(),
+            "the card has no more circle"
+        );
+        assert!(
+            screen.icon_asset(&icon::MORE).is_some(),
+            "the more circle does not carry the more meaning"
+        );
+    }
+
+    /// The recommended row is The Researcher, first in the list, as in the reference.
+    #[test]
+    fn fr22_the_recommended_row_is_the_researcher_first() {
+        let screen = Screen::hub();
+        let names: Vec<String> = screen
+            .latest_texts()
+            .into_iter()
+            .filter(|text| SHOWS.iter().any(|show| show.name == text.as_str()))
+            .collect();
+        assert_eq!(
+            names.first().map(String::as_str),
+            Some(SHOWS[RECOMMENDED].name),
+            "the list does not open on the recommended show: {names:?}"
+        );
+        assert_eq!(SHOWS[RECOMMENDED].name, "The Researcher");
+    }
+
     /// Opening the player replaces the whole screen and its back button returns.
     #[test]
     fn fr15_the_player_opens_and_closes() {
-        let mut screen = Screen::new();
-        assert!(screen.press("\u{25b6}"), "nothing on the shelf plays");
+        let mut screen = Screen::player();
         assert!(
             screen
                 .latest_texts()
@@ -1125,17 +1760,17 @@ mod tests {
                 .any(|text| text == EPISODES[0].title),
             "the player did not come up"
         );
-        assert!(screen.press("\u{2190}"), "the player has no way back");
+        assert!(screen.press_named(name::BACK), "the player has no way back");
         assert!(
             screen
                 .latest_texts()
                 .iter()
                 .any(|text| text == "New Episodes"),
-            "closing the player did not bring the shelf back"
+            "closing the player did not bring the hub back"
         );
     }
 
-    /// Skipping back moves the readout.
+    /// Skipping back moves the readout, and skipping ahead moves it back again.
     ///
     /// It does not necessarily move the waveform, and that is the point rather than a gap
     /// in the test. Forty columns over twelve minutes is eighteen seconds a column, so
@@ -1146,28 +1781,140 @@ mod tests {
     /// `fr16_the_played_part_of_the_waveform_grows_with_the_position`.
     #[test]
     fn fr4_skipping_back_moves_the_readout() {
-        let mut screen = Screen::new();
-        assert!(screen.press("\u{25b6}"), "nothing on the shelf plays");
+        let mut screen = Screen::player();
         let before = clock(START_SECONDS);
         assert!(
             screen.latest_texts().contains(&before),
             "the player does not say where it is"
         );
-        assert!(screen.press("\u{21ba} 15"), "the player cannot skip back");
         assert!(
-            screen.latest_texts().contains(&clock(START_SECONDS - 15)),
+            screen.press_named(name::SKIP_BACK),
+            "the player cannot skip back"
+        );
+        assert!(
+            screen
+                .latest_texts()
+                .contains(&clock(START_SECONDS - SKIP_SECONDS)),
             "skipping back left the readout where it was"
         );
+        assert!(
+            screen.press_named(name::SKIP_AHEAD),
+            "the player cannot skip ahead"
+        );
+        assert!(
+            screen.latest_texts().contains(&before),
+            "skipping ahead did not bring the readout back"
+        );
+    }
+
+    /// The player's controls are icons and drawings rather than words and arrows set in
+    /// text, wherever the closed set of meanings has one: back and the skips are the back
+    /// and forward meanings, share and the counts are drawn marks, and more is the more
+    /// meaning. Play stays a character until the set has a play.
+    #[test]
+    fn fr22_the_player_controls_are_icons_rather_than_text() {
+        let screen = Screen::player();
+        let texts = screen.latest_texts();
+        for glyph in ["\u{2190}", "Share", "\u{21ba} 15", "15 \u{21bb}"] {
+            assert!(
+                !texts.iter().any(|text| text == glyph),
+                "the player still writes {glyph:?} where an icon belongs"
+            );
+        }
+        let icons = screen.latest_button_icons();
+        for role in [IconRole::Back, IconRole::Forward] {
+            assert!(
+                icons.contains(&(role as i64)),
+                "the player has no {role:?} button: {icons:?}"
+            );
+        }
+        for name in [
+            name::BACK,
+            name::SHARE,
+            name::SKIP_BACK,
+            name::SKIP_AHEAD,
+            name::LIKES,
+            name::COMMENTS,
+            name::SHARES,
+            name::MORE,
+        ] {
+            assert!(
+                screen.node_named(name).is_some(),
+                "the player has no {name} control"
+            );
+        }
+        // The counts are on the player, as they are in the reference.
+        let found = &EPISODES[0];
+        for count in [found.hearts, found.comments, found.shares] {
+            assert!(
+                texts.contains(&short_count(count)),
+                "the player does not show the count {count}"
+            );
+        }
+    }
+
+    /// The player's artwork runs to the top and both sides with only its bottom corners
+    /// rounded, rather than an inset box under a header.
+    #[test]
+    fn fr22_the_player_artwork_is_full_bleed() {
+        let screen = Screen::player();
+        let latest = screen.latest();
+        let art = latest
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetModifier {
+                    node_id,
+                    modifier:
+                        WireModifier::Shape {
+                            top_start,
+                            top_end,
+                            bottom_end,
+                            bottom_start,
+                        },
+                    ..
+                } if *top_start == 0.0
+                    && *top_end == 0.0
+                    && *bottom_end > 0.0
+                    && *bottom_start > 0.0 =>
+                {
+                    Some(*node_id)
+                }
+                _ => None,
+            })
+            .expect("nothing on the player has square top corners and round bottom ones");
+        assert_eq!(
+            screen.background_of(art),
+            Some(palette::ACCENT),
+            "the artwork with the round bottom is not the orange"
+        );
+        assert!(
+            screen.modifiers_of(art).contains(&WireModifier::Clip(true)),
+            "the artwork is not cut to its rounded bottom"
+        );
+        // Nothing round it pushes it in from the edges of the screen.
+        let mut at = screen.parent_of(art);
+        while let Some(node) = at {
+            let padded = screen.modifiers_of(node).into_iter().any(|modifier| {
+                matches!(
+                    modifier,
+                    WireModifier::Padding(_)
+                        | WireModifier::PaddingRole(_)
+                        | WireModifier::PaddingEach { .. }
+                )
+            });
+            assert!(!padded, "node {node} pads the artwork in from the edges");
+            at = screen.parent_of(node);
+        }
     }
 
     /// Every show's cover reaches the Renderer as a picture, and each one crosses once.
     ///
     /// Named for what it defends: a cover that appears in the strip, on the episode card
-    /// and again in the player is three nodes and has to be one registration, or a screen
-    /// with five episodes on it sends five copies of the same poster.
+    /// and again in the player is several nodes and has to be one registration, or a
+    /// screen with five episodes on it sends five copies of the same poster.
     #[test]
     fn fr16_every_cover_crosses_once_as_a_picture() {
-        let screen = Screen::new();
+        let screen = Screen::hub();
         let mutations = screen.mutations();
         for show in SHOWS {
             assert_eq!(
@@ -1185,15 +1932,12 @@ mod tests {
         }
     }
 
-    /// Every drawing on the shelf has to reach the Renderer with commands on it. A canvas
+    /// Every drawing on the hub has to reach the Renderer with commands on it. A canvas
     /// with none is a blank square, and on this screen most of the artwork is canvases.
     #[test]
     fn fr16_every_canvas_on_the_shelf_carries_a_draw_list() {
-        let batch = ComposeHost::new(app)
-            .rebuild()
-            .expect("the first frame failed")
-            .to_vec();
-        let mutations = decode_batch(&batch).expect("the batch did not decode");
+        let screen = Screen::hub();
+        let mutations = screen.mutations();
         let canvases: Vec<u32> = mutations
             .iter()
             .filter_map(|mutation| match mutation {
@@ -1204,7 +1948,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(!canvases.is_empty(), "the shelf draws nothing at all");
+        assert!(!canvases.is_empty(), "the hub draws nothing at all");
         for canvas in canvases {
             assert!(
                 mutations.iter().any(|mutation| matches!(
@@ -1220,7 +1964,8 @@ mod tests {
         }
     }
 
-    /// Nothing on the screen is painted by the design system.
+    /// Nothing on any screen is painted by the design system: the welcome, the hub and the
+    /// player.
     ///
     /// Named for what it defends: the rows under "Podcasts You May Like" used to be the
     /// three accent containers, so they came out pale blue, lilac and pink, and every
@@ -1228,7 +1973,7 @@ mod tests {
     /// hairline grey.
     #[test]
     fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
-        let screen = Screen::new();
+        let screen = Screen::player();
         for mutation in screen.mutations() {
             if let Mutation::SetModifier {
                 modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
@@ -1245,30 +1990,28 @@ mod tests {
     }
 
     /// The destination you are on is the one filled circle in the bar, and the row being
-    /// recommended is the one filled row in the list.
+    /// recommended is the one orange row in the list.
     #[test]
     fn fr22_the_accent_marks_the_destination_and_the_recommended_row() {
-        let screen = Screen::new();
-        let fills: Vec<Paint> = screen
-            .mutations()
-            .iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::SetModifier {
-                    modifier: WireModifier::Background(paint),
-                    ..
-                } => Some(*paint),
-                _ => None,
-            })
-            .collect();
+        let screen = Screen::hub();
+        let fills = screen.latest_fills();
         let accents = fills
             .iter()
             .filter(|paint| **paint == palette::ACCENT)
             .count();
-        // The search button, the play button on the card, the recommended row, the button
-        // on each of the three rows, and the destination the hub opens on.
+        // The search tile, the play button on the card, the recommended row, the follow
+        // button on each of the two quiet rows, and the destination the hub opens on.
         assert_eq!(
-            accents, 7,
+            accents, 6,
             "the accent is on the wrong number of things: {fills:?}"
+        );
+        assert_eq!(
+            fills
+                .iter()
+                .filter(|paint| **paint == palette::ON_ACCENT_SOFT)
+                .count(),
+            1,
+            "the recommended row's follow button is not the paler orange"
         );
         assert_eq!(
             fills
@@ -1280,7 +2023,18 @@ mod tests {
         );
     }
 
-    /// The shelf, in the design system it ships, in both schemes, at all three widths.
+    /// The welcome, in the design system it ships, in both schemes, at all three widths.
+    #[test]
+    fn fr16_the_welcome_is_recorded() {
+        sample_frames::record_as(
+            "PodcastWelcome",
+            &sample_frames::as_designed(THEME, &sample_frames::APPLE),
+            app,
+            |_| {},
+        );
+    }
+
+    /// The hub, in the design system it ships, in both schemes, at all three widths.
     #[test]
     fn fr16_the_shelf_is_recorded_in_the_system_it_ships() {
         sample_frames::record_as(
@@ -1288,6 +2042,10 @@ mod tests {
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
             app,
             |screen| {
+                assert!(
+                    screen.press_beside(name::LISTEN),
+                    "the welcome screen has no way in"
+                );
                 assert_eq!(
                     screen.fill_lists(5),
                     1,
@@ -1305,8 +2063,12 @@ mod tests {
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
             app,
             |screen| {
+                assert!(
+                    screen.press_beside(name::LISTEN),
+                    "the welcome screen has no way in"
+                );
                 screen.fill_lists(5);
-                assert!(screen.press("\u{25b6}"), "nothing on the shelf plays");
+                assert!(screen.press("\u{25b6}"), "nothing on the hub plays");
             },
         );
     }
