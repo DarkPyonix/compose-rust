@@ -7,6 +7,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.ChromeInsets
 import dev.darkpyonix.composerust.foundation.MessageQueue
+import dev.darkpyonix.composerust.foundation.ScrollPort
+import dev.darkpyonix.composerust.foundation.ScrollReports
+import dev.darkpyonix.composerust.foundation.ScrollRequest
+import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -58,6 +62,19 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal val code: CodeEditorModel? =
         if (widget == WidgetKind.CodeEditor) CodeEditorModel() else null
 
+    /**
+     * What a scroll container holds for the Host's scroll requests and for its reports.
+     * Created with the node, because a request can arrive in the batch that creates it.
+     */
+    internal val scroll: ScrollPort? = if (widget in NodeTable.SCROLL_CONTAINERS) ScrollPort(id) else null
+
+    /**
+     * Set while a scroll request needs to know where this node is drawn. Nothing records
+     * that for a node nobody asked about.
+     */
+    internal var placementWanted by mutableStateOf(false)
+    internal var placement: androidx.compose.ui.layout.LayoutCoordinates? = null
+
     fun property(kind: PropertyKind): PropertyValue? = props[kind]
 
     fun text(kind: PropertyKind, default: String = ""): String =
@@ -103,6 +120,10 @@ data class TableError(val code: Int, val message: String) {
         const val DUPLICATE_IO_REQUEST = 17
         /** A file operation whose request number is still waiting for its answer. The command is dropped. */
         const val DUPLICATE_FILE_CALL = 18
+        /** A scroll request for a node that is not a scroll container. The request is dropped. */
+        const val NOT_SCROLLABLE = 19
+        /** A scroll request whose values make no sense for the container. The request is dropped. */
+        const val INVALID_SCROLL = 20
     }
 }
 
@@ -222,6 +243,15 @@ class NodeTable {
     val storage: dev.darkpyonix.composerust.ui.platform.StorageCenter =
         dev.darkpyonix.composerust.ui.platform.StorageCenter()
 
+    /**
+     * Counts the batches applied, so a scroll container can tell whether its own stated
+     * move and a scroll request came in the same one.
+     */
+    private var batchSerial = 0L
+
+    /** The scroll reports waiting for the next frame, from the containers the Host listens to. */
+    internal val scrolls: ScrollReports = ScrollReports()
+
     private var revision = 0L
 
     /** Increments on each `RequestFocus(0)` so the root composition clears active focus. */
@@ -314,6 +344,7 @@ class NodeTable {
         // Asked once the whole batch is in, because a batch may start an animation before
         // the record that gives it something to play on.
         animations.afterBatch { code, message -> fail(code, message) }
+        batchSerial++
         if (errors.isEmpty()) return emptyList()
         val drained = errors.toList()
         errors.clear()
@@ -332,6 +363,7 @@ class NodeTable {
         nodes.filterValues { it.widget == WidgetKind.Window }.keys.toList()
             .forEach(fileDialogs::windowRemoved)
         animations.clear()
+        scrolls.clear()
         nodes.clear()
         codeNodes.clear()
         rootChildren.clear()
@@ -461,6 +493,12 @@ class NodeTable {
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)
             }
+
+            // Requests too: the scroll position is this side's. Each is checked here and
+            // waits on the node for the container, which keeps it in range, may animate it,
+            // and drops it while the user is scrolling.
+            is Mutation.ScrollTo -> scrollTo(mutation)
+            is Mutation.ScrollIntoView -> scrollIntoView(mutation)
         }
     }
 
@@ -548,6 +586,98 @@ class NodeTable {
         revision += 1
         node.focusRequestRevision = revision
         return true
+    }
+
+    /** The scroll container a command names, or null after reporting that it names none. */
+    private fun scrollNode(nodeId: Int, command: String): Pair<Node, ScrollPort>? {
+        val node = nodes[nodeId] ?: run {
+            fail(TableError.UNKNOWN_NODE, "$command for unknown node $nodeId")
+            return null
+        }
+        val port = node.scroll ?: run {
+            fail(TableError.NOT_SCROLLABLE, "$command on ${node.widget}, which does not scroll")
+            return null
+        }
+        return node to port
+    }
+
+    private fun scrollTo(mutation: Mutation.ScrollTo) {
+        val (node, port) = scrollNode(mutation.nodeId, "ScrollTo") ?: return
+        val invalid = { why: String ->
+            fail(TableError.INVALID_SCROLL, "ScrollTo on node ${node.id}: $why")
+        }
+        if (mutation.flags and ScrollWire.TO_KNOWN.inv() != 0) {
+            return invalid("flag bits this renderer does not know: 0x${(mutation.flags and ScrollWire.TO_KNOWN.inv()).toString(16)}")
+        }
+        val hasX = mutation.flags and ScrollWire.TO_X != 0
+        val hasY = mutation.flags and ScrollWire.TO_Y != 0
+        if (!hasX && !hasY) return invalid("it names neither axis")
+        if (!mutation.xPx.isFinite() || !mutation.yPx.isFinite()) {
+            return invalid("an offset of (${mutation.xPx}, ${mutation.yPx}) is not a distance")
+        }
+        if (mutation.item != 0 && node.widget !in LAZY_CONTAINERS) {
+            return invalid("item ${mutation.item.toUInt()} on ${node.widget}, which has no items")
+        }
+        port.beforeRequest(batchSerial)
+        port.request(
+            ScrollRequest.To(
+                // Unsigned on the wire. An index past what an Int holds is past any list.
+                item = if (mutation.item < 0) Int.MAX_VALUE else mutation.item,
+                x = if (hasX) mutation.xPx else null,
+                y = if (hasY) mutation.yPx else null,
+                animate = mutation.flags and ScrollWire.TO_ANIMATE != 0,
+            ),
+        )
+    }
+
+    private fun scrollIntoView(mutation: Mutation.ScrollIntoView) {
+        val (node, port) = scrollNode(mutation.nodeId, "ScrollIntoView") ?: return
+        val invalid = { why: String ->
+            fail(TableError.INVALID_SCROLL, "ScrollIntoView on node ${node.id}: $why")
+        }
+        if (mutation.flags and ScrollWire.INTO_VIEW_ANIMATE.inv() != 0) {
+            return invalid("flag bits this renderer does not know: 0x${(mutation.flags and ScrollWire.INTO_VIEW_ANIMATE.inv()).toString(16)}")
+        }
+        for (align in intArrayOf(mutation.alignX, mutation.alignY)) {
+            if (align !in ScrollWire.ALIGN_KEEP..ScrollWire.ALIGN_NEAREST) return invalid("unknown alignment $align")
+        }
+        val numbers = doubleArrayOf(mutation.rectXPx, mutation.rectYPx, mutation.rectWidthPx, mutation.rectHeightPx)
+        if (numbers.any { !it.isFinite() }) return invalid("a rectangle of ${numbers.joinToString()} is not a place")
+        if (mutation.rectWidthPx < 0.0 || mutation.rectHeightPx < 0.0) {
+            return invalid("a rectangle ${mutation.rectWidthPx} by ${mutation.rectHeightPx} has a negative size")
+        }
+        val lazy = node.widget in LAZY_CONTAINERS
+        var target = mutation.target
+        when (mutation.targetKind) {
+            ScrollWire.TARGET_CONTENT -> {
+                if (lazy) return invalid("${node.widget} has no content coordinates; name an item")
+                if (target != 0) return invalid("a content rectangle names no target, but $target was sent")
+            }
+            ScrollWire.TARGET_NODE -> {
+                if (target == node.id || !nodes.containsKey(target) || !isDescendant(target, node.id)) {
+                    return invalid("node $target is not inside the container")
+                }
+            }
+            ScrollWire.TARGET_ITEM -> {
+                if (!lazy) return invalid("item ${target.toUInt()} on ${node.widget}, which has no items")
+                if (target < 0) target = Int.MAX_VALUE
+            }
+            else -> return invalid("unknown target kind ${mutation.targetKind}")
+        }
+        port.beforeRequest(batchSerial)
+        port.request(
+            ScrollRequest.IntoView(
+                targetKind = mutation.targetKind,
+                target = target,
+                alignX = mutation.alignX,
+                alignY = mutation.alignY,
+                animate = mutation.flags and ScrollWire.INTO_VIEW_ANIMATE != 0,
+                x = mutation.rectXPx,
+                y = mutation.rectYPx,
+                width = mutation.rectWidthPx,
+                height = mutation.rectHeightPx,
+            ),
+        )
     }
 
     /** The code editor a command names, or null after reporting that it names none. */
@@ -666,6 +796,12 @@ class NodeTable {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        // The revision of a scroll container's own stated move. Where a scroll request is
+        // already waiting from this batch, its place among them is kept, so the two are
+        // applied in the order the batch wrote them.
+        if (mutation.property == PropertyKind.Count && node.scroll != null) {
+            node.scroll.stated(batchSerial, (mutation.value as? PropertyValue.Integer)?.value ?: 0L)
+        }
     }
 
     private fun setModifier(mutation: Mutation.SetModifier) {
@@ -784,6 +920,7 @@ class NodeTable {
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
         codeNodes.remove(nodeId)
+        node.scroll?.let(scrolls::forget)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
             fileDialogs.windowRemoved(nodeId)
@@ -880,6 +1017,14 @@ class NodeTable {
         const val ROOT_ID: Int = 0
         private const val MAX_MODIFIERS = 64
 
+        /** The lazy containers, which scroll by item and have no content coordinates. */
+        internal val LAZY_CONTAINERS: Set<WidgetKind> =
+            setOf(WidgetKind.LazyColumn, WidgetKind.LazyRow, WidgetKind.LazyGrid)
+
+        /** Every widget that takes a scroll request and can report its position. */
+        internal val SCROLL_CONTAINERS: Set<WidgetKind> =
+            LAZY_CONTAINERS + setOf(WidgetKind.ScrollColumn, WidgetKind.ScrollRow, WidgetKind.CodeEditor)
+
         internal fun supportsProperty(widget: WidgetKind, property: PropertyKind): Boolean =
             when (property) {
                 // The name assistive technology reads can be given to any node.
@@ -909,6 +1054,9 @@ class NodeTable {
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
                 -> true
+
+                // The scroll report belongs to the widgets that scroll.
+                PropertyKind.OnScrollChanged -> widget in SCROLL_CONTAINERS
 
                 // Pointer subscription, cursor and selectability belong to the nodes a
                 // pointer can sit over as a region: the containers, text and the HTML

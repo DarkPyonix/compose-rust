@@ -13,6 +13,7 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.sizeOf
+import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
 import org.thisisthepy.compose.window.AccessibleElement
 import org.thisisthepy.compose.window.WindowEvent
@@ -34,7 +35,7 @@ import platform.Foundation.NSTimer
  */
 internal fun startParityRun(window: MacosWindow) {
     val what = System.getenv("DXC_SYNTH")
-    val idleSeconds = System.getenv("DXC_IDLE_SOAK_SECONDS")?.toIntOrNull()?.takeIf { it > 0 }
+    val idleSeconds = IdleSoakSetting.seconds()
     if (what == null && idleSeconds == null) return
     val input = what?.let { SyntheticInput(it) }
     val idleSoak = idleSeconds?.let { KnIdleSoakReport(it) }
@@ -76,26 +77,76 @@ internal fun startParityRun(window: MacosWindow) {
         }
         if (idleSoak?.tick(now) == true) {
             LatencyTrace.summary()
-            NSApplication.sharedApplication().terminate(null)
+            // A moment between the end line and the exit, so a script polling for that line
+            // still finds the process alive and reads its CPU time at the end of the soak.
+            NSTimer.scheduledTimerWithTimeInterval(IDLE_SOAK_EXIT_DELAY_SECONDS, repeats = false) { _ ->
+                NSApplication.sharedApplication().terminate(null)
+            }
         }
     }
 }
 
-private class KnIdleSoakReport(private val seconds: Int) {
-    private val openedAt = System.nanoTime()
+private const val IDLE_SOAK_EXIT_DELAY_SECONDS = 1.0
+
+/**
+ * `DXC_IDLE_SOAK_SECONDS`, read once and then taken out of the environment.
+ *
+ * The soak is this renderer's to run, once, for the one window it chooses. The window library
+ * reads the same variable for every window it opens and runs a soak of its own in each, so a
+ * run with three windows printed four sets of soak lines, and the first of them to end quit
+ * the process under the others. Reading the value before any window opens and removing it
+ * leaves the window library nothing to start.
+ */
+internal object IdleSoakSetting {
+    private const val NAME = "DXC_IDLE_SOAK_SECONDS"
+    private var taken = false
+    private var value: Int? = null
+
+    /** The soak's length in seconds, or null when no soak was asked for. */
+    fun seconds(): Int? {
+        if (!taken) {
+            taken = true
+            value = parse(platform.posix.getenv(NAME)?.toKString())
+            platform.posix.unsetenv(NAME)
+        }
+        return value
+    }
+
+    /** Whether a soak was asked for. */
+    fun requested(): Boolean = seconds() != null
+
+    fun parse(text: String?): Int? = text?.trim()?.toIntOrNull()?.takeIf { it > 0 }
+
+    /** Forgets what was read, for a test that sets the variable again. */
+    internal fun resetForTest() {
+        taken = false
+        value = null
+    }
+}
+
+internal class KnIdleSoakReport(
+    private val seconds: Int,
+    private val openedAt: Long = System.nanoTime(),
+) {
     private var idleStartedAt = 0L
     private var lastSampledSecond = 0
     private var framesDrawn = 0L
+    private var ended = false
 
     fun onFrameDrawn() {
         framesDrawn++
     }
 
+    /**
+     * True once, on the turn the soak ends. The process lives on for a moment after that so a
+     * script can read its CPU time, and the turns in that moment must not end the soak again.
+     */
     fun tick(now: Long): Boolean {
+        if (ended) return false
         if (idleStartedAt == 0L) {
             if ((now - openedAt) / 1_000_000_000L < 8L) return false
             GC.collect()
-            idleStartedAt = System.nanoTime()
+            idleStartedAt = now
             log("start", 0, breakdown = true)
             return false
         }
@@ -104,6 +155,7 @@ private class KnIdleSoakReport(private val seconds: Int) {
             GC.collect()
             log("end", seconds, breakdown = true)
             printStderr("compose-rust: idle-soak done seconds=$seconds")
+            ended = true
             return true
         }
         val step = (elapsed / 10) * 10
@@ -123,7 +175,10 @@ private class KnIdleSoakReport(private val seconds: Int) {
                 "footprint_mb=${mb(footprint)} resident_mb=${mb(resident)} " +
                 "heap_used_mb=${mb(live)} heap_max_mb=${mb(GC.targetHeapBytes)} " +
                 "gcs=${info?.epoch ?: 0} " +
-                "skia_cpu_cache_mb=${mb(org.jetbrains.skia.Graphics.resourceCacheTotalUsed.toLong())}",
+                "skia_cpu_cache_mb=${mb(org.jetbrains.skia.Graphics.resourceCacheTotalUsed.toLong())} " +
+                // Names this renderer's soak, so a script reading the lines tells it from any
+                // other soak a library in the process prints.
+                "owner=renderer",
         )
         if (breakdown && System.getenv("DXC_METRICS_BREAKDOWN") == "1") {
             platform.posix.fflush(null)

@@ -97,6 +97,8 @@ internal fun HostLazyColumn(
     val sized =
         if (node.declaresOwnHeight(table)) modifier else Modifier.fillMaxHeight().then(modifier)
 
+    HostScroll(node, table, remember(state) { state.scrollSurface(vertical = true) })
+
     LazyColumn(modifier = sized, state = state) {
         items(
             count = itemCount,

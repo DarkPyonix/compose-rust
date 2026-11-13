@@ -75,8 +75,14 @@ private class MwWindow(
 
     val pendingFrameWaiters: Int get() = frameWaiters.size
 
+    var adoptedBy: Int? = null
+
     override fun setListener(listener: PlatformWindowListener) {
         this.sink = listener
+    }
+
+    override fun adoptedBy(nodeId: Int) {
+        adoptedBy = nodeId
     }
 
     override fun setTitle(title: String) {
@@ -721,6 +727,7 @@ class MultiWindowTest {
         }
         h.backend.application!!.onWindowRequested("ws:1", system)
         assertFalse(system.closed)
+        assertEquals(8, system.adoptedBy, "the window is told which node it now draws")
         assertEquals("Restored", system.shownTitle)
         assertEquals(listOf(1, 8), h.manager.openWindows)
 
