@@ -649,6 +649,22 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
      * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
      * Answered once by a `PositionRect` event carrying [request].
      */
@@ -915,6 +931,7 @@ object Protocol {
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1199,6 +1216,18 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
+                        )
                     }
                     TAG_QUERY_POSITION_RECT -> {
                         requireRecordLength(length, 20, offset)
@@ -2938,6 +2967,9 @@ pub fn spans_vector() -> crate::spans::TextSpans {
 /// is one a byte count or a character count would get wrong.
 pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
 
+/// The snippet in the mutation vector.
+pub const CODE_SNIPPET_VECTOR: &str = "} // ${1:name} = ${1:name}, ${2|한,😀|} \\$5$0";
+
 /// The grouped edit in the mutation vector, against [`CODE_VECTOR_TEXT`] after the vector's
 /// single edit put `mut ` in front of the name: the first word becomes `pub fn` and the
 /// emoji, a surrogate pair, becomes another one. Listed back to front, which a group may be.
@@ -3958,6 +3990,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Minimap,
             value: PropertyValue::Integer(i64::from(u16::from(crate::schema::MinimapSide::Right))),
         },
+        // A snippet over the editor's closing brace, with a placeholder, a mirror of it, a
+        // choice, an escaped dollar sign and a final stop, so a reader that drops a byte of
+        // the text or reads the range from the wrong place reads another snippet.
+        Mutation::InsertSnippet {
+            node_id: 12,
+            base_version: 3,
+            start_line: 2,
+            start_column: 0,
+            end_line: 2,
+            end_column: 1,
+            snippet: CODE_SNIPPET_VECTOR,
+        },
         // Its view zones: two rows after the first line with text in them, and a half-row
         // after the second with none, so a reader that takes the height for a whole number
         // or reads the text from the wrong place reads different zones.
@@ -4443,7 +4487,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 126,
+    "recordCount": 127,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},

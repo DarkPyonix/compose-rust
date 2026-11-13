@@ -1613,6 +1613,22 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
      * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
      * Answered once by a `PositionRect` event carrying [request].
      */
@@ -1754,7 +1770,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -4231398293013113575L
+    const val SCHEMA_HASH: Long = -8415738101792524869L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1795,6 +1811,7 @@ object Protocol {
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -2079,6 +2096,18 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
+                        )
                     }
                     TAG_QUERY_POSITION_RECT -> {
                         requireRecordLength(length, 20, offset)

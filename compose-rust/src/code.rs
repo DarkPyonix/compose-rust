@@ -1136,6 +1136,20 @@ impl ViewZones {
     }
 }
 
+/// `text` as snippet text that stands for itself: a backslash in front of every `$`, `}`
+/// and `\\`, so a name taken from the document cannot open a tab stop of its own when it is
+/// put inside a snippet.
+pub fn escape_snippet_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if matches!(character, '$' | '}' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
+
 /// The selection of a code editor, as the Renderer reported it.
 ///
 /// `anchor` is where the selection started and `active` where the caret is, so a selection

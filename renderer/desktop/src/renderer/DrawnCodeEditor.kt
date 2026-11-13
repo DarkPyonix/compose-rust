@@ -279,6 +279,14 @@ private class DrawnState(
     }
 
     fun replaceSelection(text: String, origin: EditOrigin) {
+        if (model.secondary.isNotEmpty()) {
+            // Every selection takes what was typed, as one step.
+            if (model.editAtSelections(text, origin = origin)) {
+                moved()
+                callbacks.onOutput()
+            }
+            return
+        }
         val selection = model.selection
         val change = model.edit(selection.start, selection.end, text, origin) ?: return
         model.selection = CodeSelection.at(change.newEnd)
@@ -290,6 +298,13 @@ private class DrawnState(
      * Where a caret at [position] is drawn, in this editor's own pixels. [composed] puts it
      * after what an input method is composing there, which is where the caret is drawn.
      */
+    /** Where the primary caret is drawn, in the pixels of the box that holds the minimap too. */
+    fun caretInEditor(): Rect? {
+        val caret = model.selection.caret
+        if (!model.document.isValid(caret) || model.isHidden(caret.line)) return null
+        return caretLocal(caret, composed = true).translate(Offset(originX, 0f))
+    }
+
     private fun caretLocal(position: CodePosition, composed: Boolean): Rect {
         val view = view(position.line)
         val column = position.column.coerceIn(0, view.caretAt.size - 1)
@@ -525,6 +540,8 @@ private fun DrawnSurface(
                                         state.composing = ""
                                         val anchor = if (event.keyboardModifiers.isShiftPressed) model.selection.anchor else position
                                         model.selection = CodeSelection(anchor, position)
+                                        // A press puts the caret in one place: the other selections go.
+                                        model.dropSecondary()
                                         model.dismissGhostText()
                                         state.moved()
                                         dragging = true
@@ -550,6 +567,7 @@ private fun DrawnSurface(
                 .drawBehind {
                     state.moves
                     state.composing
+                    model.secondaryRevision
                     val scroll = vertical.offset
                     translate(top = -scroll.toFloat()) {
                         drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
@@ -569,6 +587,10 @@ private fun DrawnSurface(
                     .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
                     .scrollable(vertical.scrollable, Orientation.Vertical),
             )
+        }
+        SnippetChoices(model, look, { state.caretInEditor() }) {
+            state.moved()
+            callbacks.onOutput()
         }
     }
 }
@@ -623,6 +645,19 @@ private fun DrawScope.drawLines(
         lenses[line]?.let { row ->
             val label = state.measurer!!.measure(row.joinToString("  |  ") { it.text }, state.style.copy(color = look.lens))
             drawText(label, topLeft = Offset(state.textLeft, top - rowPx))
+        }
+        for (other in model.secondary) {
+            if (line < other.start.line || line > other.end.line) continue
+            if (other.collapsed) {
+                if (focused) {
+                    val x = state.textLeft + view.caretX(other.caret.column)
+                    drawRect(look.cursor, Offset(x, top), Size(1.5.dp.toPx(), rowPx))
+                }
+                continue
+            }
+            val from = if (line == other.start.line) view.charX(other.start.column) else 0f
+            val to = if (line == other.end.line) view.caretX(other.end.column) else view.layout.size.width.toFloat() + rowPx / 3
+            drawRect(look.selection, Offset(state.textLeft + from, top), Size(max(0f, to - from), rowPx))
         }
         if (!selection.collapsed && line >= selection.start.line && line <= selection.end.line) {
             val from = if (line == selection.start.line) view.charX(selection.start.column) else 0f
@@ -709,6 +744,25 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
     }
     val caret = selection.caret
     when {
+        // A snippet's list of choices, its stops, and Escape out of each in turn, as in the
+        // field path.
+        model.snippetChoices != null && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.moveChoice(if (event.key == Key.DirectionDown) 1 else -1)
+        }
+        model.snippetChoices != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+            model.pickChoice(model.choiceIndex)
+            state.moved()
+            callbacks.onOutput()
+        }
+        event.key == Key.Tab && !command && model.snippetActive -> {
+            if (shift) model.previousSnippetStop() else model.nextSnippetStop()
+            state.moved()
+            callbacks.onOutput()
+        }
+        event.key == Key.Escape && (model.closeChoices() || model.endSnippet() || model.dropSecondary()) -> {
+            state.moved()
+            callbacks.onOutput()
+        }
         command && event.key == Key.S -> {
             callbacks.onSave()
         }
@@ -775,6 +829,14 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
         }
         event.key == Key.MoveHome -> move(CodePosition(caret.line, 0))
         event.key == Key.MoveEnd -> move(CodePosition(caret.line, document.line(caret.line).length))
+        (event.key == Key.Backspace || event.key == Key.Delete) && model.secondary.isNotEmpty() -> {
+            // At every selection: a selection goes, and at a caret the character on that side.
+            val backspace = event.key == Key.Backspace
+            if (model.editAtSelections("", if (backspace) 1 else 0, if (backspace) 0 else 1)) {
+                state.moved()
+                callbacks.onOutput()
+            }
+        }
         event.key == Key.Backspace || event.key == Key.Delete -> {
             if (selection.collapsed) {
                 val target = if (event.key == Key.Backspace) {

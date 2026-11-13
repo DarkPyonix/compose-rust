@@ -146,6 +146,7 @@ class ProtocolVectorsTest {
                 is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 is Mutation.QueryPositionRect -> mutation.nodeId !in created
                 is Mutation.EditCodeGroup -> mutation.nodeId !in created
+                is Mutation.InsertSnippet -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -1132,6 +1133,11 @@ class ProtocolVectorsTest {
         assertEquals(
             PropertyValue.Integer(32L),
             props.single { it.property == PropertyKind.OnEditGroupResult }.value,
+        )
+        // The snippet over the closing brace, every character of it as the Rust side wrote it.
+        assertEquals(
+            listOf(Mutation.InsertSnippet(12, 3, 2, 0, 2, 1, "} // \${1:name} = \${1:name}, \${2|\uD55C,\uD83D\uDE00|} \\\$5\$0")),
+            mutations.filterIsInstance<Mutation.InsertSnippet>(),
         )
         // The minimap on the right, and two view zones: the first with text that is not
         // ASCII, the second half a row high.

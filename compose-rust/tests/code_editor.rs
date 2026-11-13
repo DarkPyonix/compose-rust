@@ -1735,3 +1735,44 @@ fn fr38_view_zones_round_trip_on_the_wire() {
         )]
     );
 }
+
+/// A snippet travels as one 36-byte record with tag 40: the node, the version its range was
+/// written against, the range and a reference to the snippet's text, every byte of it as it
+/// was sent.
+#[test]
+fn fr38_insert_snippet_round_trips_on_the_wire() {
+    let snippet = "fn ${1:name}(${2|a,한|}) {$0} \\$";
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.insert_snippet(12, 7, CodeRange::of(1, 2, 3, 4), snippet);
+    let bytes = batch.finish().unwrap().to_vec();
+    // The envelope is twelve bytes, and the record follows it.
+    assert_eq!(&bytes[12..16], &[40, 0, 36, 0]);
+    let decoded = decode_batch(&bytes).unwrap();
+    assert_eq!(
+        decoded,
+        vec![Mutation::InsertSnippet {
+            node_id: 12,
+            base_version: 7,
+            start_line: 1,
+            start_column: 2,
+            end_line: 3,
+            end_column: 4,
+            snippet,
+        }]
+    );
+
+    // A record of another length under the same tag is refused, not read short.
+    let mut short = bytes.clone();
+    short[14] = 32;
+    assert_eq!(
+        decode_batch(&short),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // Plain text put inside a snippet stays plain text.
+    assert_eq!(
+        compose_rust::code::escape_snippet_text("a$1}\\b"),
+        "a\\$1\\}\\\\b"
+    );
+}

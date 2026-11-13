@@ -232,6 +232,26 @@ class CodeEditorModel(
             selectionDirty = true
         }
 
+    /**
+     * The selections past the primary one, in the order they were added. Each is moved by
+     * every change the way the primary is. Empty while there is one selection, which is
+     * almost always.
+     */
+    var secondary: List<CodeSelection> = emptyList()
+        set(value) {
+            if (field.isEmpty() && value.isEmpty()) return
+            field = value
+            selectionDirty = true
+            secondaryRevision += 1
+        }
+
+    /** Changes whenever the selections past the primary one do, for what draws them. */
+    var secondaryRevision: Int by mutableIntStateOf(0)
+        private set
+
+    /** Every selection, the primary first. */
+    val selections: List<CodeSelection> get() = if (secondary.isEmpty()) listOf(selection) else listOf(selection) + secondary
+
     /** The selection changed since it was last compared with what the Host was told. */
     private var selectionDirty = false
     private var reportedSelection = CodeSelection.at(CodePosition.Zero)
@@ -378,6 +398,8 @@ class CodeEditorModel(
         zoneList.clear()
         gutterStamp += 1
         foldStamp += 1
+        snippet = null
+        secondary = emptyList()
         selection = CodeSelection.at(CodePosition.Zero)
         contentRevision += 1
         overlayRevision += 1
@@ -802,6 +824,7 @@ class CodeEditorModel(
      * last told, say nothing.
      */
     private fun flushReports() {
+        keepSnippetAround()
         if (selectionDirty) {
             selectionDirty = false
             val current = snapped(selection)
@@ -1326,9 +1349,347 @@ class CodeEditorModel(
         return a to b
     }
 
+    // Several selections at once, which a snippet's mirrors and the reader's extra carets are.
+
+    /** The place [count] characters before [position], over line breaks, never inside a pair. */
+    fun stepBack(position: CodePosition, count: Int): CodePosition {
+        var at = position
+        repeat(count) {
+            at = when {
+                at.column > 0 -> {
+                    val line = document.line(at.line)
+                    val step = if (at.column >= 2 && line[at.column - 1].isLowSurrogate() && line[at.column - 2].isHighSurrogate()) 2 else 1
+                    CodePosition(at.line, at.column - step)
+                }
+                at.line > 0 -> CodePosition(at.line - 1, document.line(at.line - 1).length)
+                else -> at
+            }
+        }
+        return at
+    }
+
+    /** The place [count] characters after [position], over line breaks, never inside a pair. */
+    fun stepForward(position: CodePosition, count: Int): CodePosition {
+        var at = position
+        repeat(count) {
+            val line = document.line(at.line)
+            at = when {
+                at.column < line.length -> {
+                    val step = if (line[at.column].isHighSurrogate() && at.column + 1 < line.length && line[at.column + 1].isLowSurrogate()) 2 else 1
+                    CodePosition(at.line, at.column + step)
+                }
+                at.line < document.lineCount - 1 -> CodePosition(at.line + 1, 0)
+                else -> at
+            }
+        }
+        return at
+    }
+
+    /**
+     * The same edit at every selection, as one undo step: a selection that is not collapsed
+     * is replaced with [text], and at a caret the [before] characters in front of it and the
+     * [after] characters behind it are. Each selection ends as a caret after what went in
+     * there. Where two of them reach the same text they are one. Returns whether anything
+     * changed.
+     */
+    fun editAtSelections(text: String, before: Int = 0, after: Int = 0, origin: EditOrigin = EditOrigin.Reader): Boolean {
+        dismissGhostText()
+        val all = selections
+        // Each selection's range, with where it stands among the selections.
+        val ranges = all.mapIndexed { index, selection ->
+            if (selection.collapsed) {
+                Triple(index, stepBack(selection.caret, before), stepForward(selection.caret, after))
+            } else {
+                Triple(index, selection.start, selection.end)
+            }
+        }.sortedWith(compareBy<Triple<Int, CodePosition, CodePosition>> { it.second }.thenBy { it.third })
+        // Ranges that overlap are joined, the one that comes first in the list keeping its place.
+        val joined = ArrayList<Triple<Int, CodePosition, CodePosition>>()
+        for (range in ranges) {
+            val last = joined.lastOrNull()
+            if (last != null && range.second < last.third) {
+                joined[joined.size - 1] = Triple(minOf(last.first, range.first), last.second, maxOf(last.third, range.third))
+            } else if (last != null && range.second == last.second && range.third == last.third) {
+                joined[joined.size - 1] = Triple(minOf(last.first, range.first), last.second, last.third)
+            } else {
+                joined += range
+            }
+        }
+        if (text.isEmpty() && joined.all { it.second == it.third }) return false
+        val selectionBefore = selection
+        val secondaryBefore = secondary
+        // From the end backwards, so the ranges in front are still where they were. The carets
+        // already placed behind are moved by every change made in front of them.
+        val carets = HashMap<Int, CodePosition>()
+        val changes = ArrayList<AppliedChange>(joined.size)
+        for ((index, start, end) in joined.asReversed()) {
+            val change = applyRaw(start, end, text)
+            changes += change
+            for (key in carets.keys.toList()) carets[key] = CodeDocument.map(carets.getValue(key), change, Bias.After)
+            carets[index] = change.newEnd
+        }
+        val placed = joined.map { CodeSelection.at(carets.getValue(it.first)) to it.first }.sortedBy { it.second }
+        selection = placed.first().first
+        secondary = placed.drop(1).map { it.first }
+        redoStack.clear()
+        undoStack += UndoEntry(
+            changes,
+            selectionBefore,
+            selection,
+            mergeable = false,
+            at = clock(),
+            secondaryBefore = secondaryBefore,
+            secondaryAfter = secondary,
+        )
+        return true
+    }
+
+    /**
+     * A reader's edit that a surface with one caret of its own made at the primary selection
+     * as it stood before the edit, [primary], made again at every other selection. It is
+     * repeated where it can be said the same way at a caret: text typed or pasted over the
+     * selection, or characters taken from either side of a caret on its own line. Returns
+     * false, and changes nothing, where it is not one of those; the caller then applies it
+     * as an edit of one place.
+     */
+    fun editLikePrimary(primary: CodeSelection, start: CodePosition, end: CodePosition, text: String, origin: EditOrigin): Boolean {
+        if (secondary.isEmpty()) return false
+        if (!primary.collapsed) {
+            if (start != primary.start || end != primary.end) return false
+            val saved = selection
+            selection = primary
+            if (!editAtSelections(text, 0, 0, origin)) selection = saved
+            return true
+        }
+        val caret = primary.caret
+        if (start.line != caret.line || end.line != caret.line || start > caret || end < caret) return false
+        val saved = selection
+        selection = primary
+        if (!editAtSelections(text, caret.column - start.column, end.column - caret.column, origin)) selection = saved
+        return true
+    }
+
+    /** Back to the primary selection alone. Returns whether there were others. */
+    fun dropSecondary(): Boolean {
+        if (secondary.isEmpty()) return false
+        secondary = emptyList()
+        return true
+    }
+
+    // Snippet sessions.
+
+    /** The snippet whose tab stops the reader is stepping through, or null. */
+    private var snippet: SnippetSession? = null
+
+    /** Changes when a snippet session starts, moves to another stop, or ends. */
+    var snippetRevision: Int by mutableIntStateOf(0)
+        private set
+
+    /** Whether the reader is stepping through a snippet's tab stops. */
+    val snippetActive: Boolean get() = snippet != null
+
+    /** The choices of the stop the reader is on, while its list is open, or null. */
+    val snippetChoices: List<String>?
+        get() = snippet?.takeIf { it.choicesOpen }?.let { it.choices[it.order[it.current]] }
+
+    /** The choice the list has marked. */
+    var choiceIndex: Int by mutableIntStateOf(0)
+
+    /**
+     * A snippet the Host asked to have put in place of a range written against
+     * [baseVersion]. The range is moved past what the reader typed since, and where they
+     * typed in it the snippet is dropped and reported, as is a snippet that cannot be read.
+     * What goes in is one undo step, reported as ordinary changes; each new line of it takes
+     * the indentation of the line it goes into. Where it has tab stops, the reader is put on
+     * the first.
+     */
+    fun hostInsertSnippet(baseVersion: Int, startLine: Int, startColumn: Int, endLine: Int, endColumn: Int, source: String) {
+        val sentStart = CodePosition(startLine, startColumn)
+        val sentEnd = CodePosition(endLine, endColumn)
+        if (sentStart > sentEnd || startLine < 0 || startColumn < 0) {
+            output += EditorOutput.Error("a snippet's range starts at $sentStart after it ends at $sentEnd")
+            return
+        }
+        val parsed = parseSnippet(source) ?: run {
+            output += EditorOutput.Error("a snippet cannot be read: \"$source\"")
+            return
+        }
+        if (baseVersion > document.version) {
+            output += EditorOutput.Error(
+                "a snippet was written against version $baseVersion, and the document is at ${document.version}",
+            )
+            return
+        }
+        val changes = document.changesSince(baseVersion) ?: run {
+            output += EditorOutput.Error(
+                "a snippet was written against version $baseVersion, and the document remembers back to ${document.oldestVersion}",
+            )
+            return
+        }
+        var start = sentStart
+        var end = sentEnd
+        for (change in changes) {
+            if (CodeDocument.overlaps(change, start, end)) {
+                output += EditorOutput.Error("the reader changed the range $sentStart to $sentEnd a snippet was written for")
+                return
+            }
+            if (start == end) {
+                start = CodeDocument.map(start, change, Bias.After)
+                end = start
+            } else {
+                start = CodeDocument.map(start, change, Bias.After)
+                end = CodeDocument.map(end, change, Bias.Before)
+            }
+        }
+        if (!document.isValid(start) || !document.isValid(end) || start > end) {
+            output += EditorOutput.Error("a snippet's range $sentStart to $sentEnd is outside the document")
+            return
+        }
+        endSnippet()
+        dismissGhostText()
+        val indent = document.line(start.line).takeWhile { it == ' ' || it == '\t' }
+        val (text, offsets) = parsed.indented(indent)
+        val selectionBefore = selection
+        val secondaryBefore = secondary
+        secondary = emptyList()
+        val change = applyRaw(start, end, text)
+        redoStack.clear()
+        // Where an offset into the inserted text is in the document now.
+        fun at(offset: Int): CodePosition {
+            var line = start.line
+            var column = start.column
+            for (index in 0 until offset) {
+                if (text[index] == '\n') {
+                    line += 1
+                    column = 0
+                } else {
+                    column += 1
+                }
+            }
+            return CodePosition(line, column)
+        }
+        val places = HashMap<Int, MutableList<SnippetPlace>>()
+        val choices = HashMap<Int, List<String>>()
+        for ((index, stop) in parsed.stops.withIndex()) {
+            val (from, to) = offsets[index]
+            places.getOrPut(stop.number) { ArrayList() } += SnippetPlace(at(from), at(to))
+            stop.choices?.let { choices.putIfAbsent(stop.number, it) }
+        }
+        val numbers = places.keys.filter { it != 0 }.sorted()
+        val final = places[0]?.first() ?: SnippetPlace(change.newEnd, change.newEnd)
+        if (numbers.isEmpty()) {
+            selection = CodeSelection.at(final.start)
+        } else {
+            val session = SnippetSession(numbers + 0, places.mapValues { it.value.toList() } + (0 to listOf(final)), choices, SnippetPlace(start, change.newEnd))
+            snippet = session
+            showStop(session)
+        }
+        undoStack += UndoEntry(
+            listOf(change),
+            selectionBefore,
+            selection,
+            mergeable = false,
+            at = clock(),
+            secondaryBefore = secondaryBefore,
+            secondaryAfter = secondary,
+        )
+        hostSelection += 1
+        snippetRevision += 1
+    }
+
+    /** Puts the selections on the stop the session is at, and opens its list where it has choices. */
+    private fun showStop(session: SnippetSession) {
+        val places = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(places[0].start, places[0].end)
+        secondary = places.drop(1).map { CodeSelection(it.start, it.end) }
+        session.choicesOpen = session.choices.containsKey(session.order[session.current])
+        choiceIndex = 0
+    }
+
+    /**
+     * Tab in a snippet: the next stop, or `$0` and the end of the session. A list of choices
+     * that is open has its marked choice taken first. Returns false where there is no session.
+     */
+    fun nextSnippetStop(): Boolean {
+        val session = snippet ?: return false
+        if (session.choicesOpen) pickChoice(choiceIndex)
+        session.current += 1
+        if (session.current >= session.order.size - 1) {
+            // The last stop is `$0`: the caret goes there and the session is over.
+            val final = session.places.getValue(0).first()
+            selection = CodeSelection.at(final.start)
+            secondary = emptyList()
+            snippet = null
+        } else {
+            showStop(session)
+        }
+        hostSelection += 1
+        snippetRevision += 1
+        return true
+    }
+
+    /** Shift+Tab in a snippet: the stop before, if there is one. Returns false where there is no session. */
+    fun previousSnippetStop(): Boolean {
+        val session = snippet ?: return false
+        if (session.current > 0) session.current -= 1
+        showStop(session)
+        hostSelection += 1
+        snippetRevision += 1
+        return true
+    }
+
+    /** Ends the session, leaving the caret where it is. Returns whether there was one. */
+    fun endSnippet(): Boolean {
+        snippet ?: return false
+        snippet = null
+        secondary = emptyList()
+        snippetRevision += 1
+        return true
+    }
+
+    /** Closes the list of choices without taking one. Returns whether one was open. */
+    fun closeChoices(): Boolean {
+        val session = snippet ?: return false
+        if (!session.choicesOpen) return false
+        session.choicesOpen = false
+        snippetRevision += 1
+        return true
+    }
+
+    /** Moves the mark in the open list of choices by [step], round the ends. */
+    fun moveChoice(step: Int) {
+        val choices = snippetChoices ?: return
+        choiceIndex = ((choiceIndex + step) % choices.size + choices.size) % choices.size
+    }
+
+    /** Puts choice [index] in every place of the stop the reader is on, and closes the list. */
+    fun pickChoice(index: Int) {
+        val session = snippet ?: return
+        val choices = session.choices[session.order[session.current]] ?: return
+        val choice = choices.getOrNull(index) ?: return
+        session.choicesOpen = false
+        val places = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(places[0].start, places[0].end)
+        secondary = places.drop(1).map { CodeSelection(it.start, it.end) }
+        editAtSelections(choice)
+        val moved = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(moved[0].start, moved[0].end)
+        secondary = moved.drop(1).map { CodeSelection(it.start, it.end) }
+        hostSelection += 1
+        snippetRevision += 1
+    }
+
+    /** Ends the session where the caret has left the snippet. */
+    private fun keepSnippetAround() {
+        val session = snippet ?: return
+        val caret = selection.caret
+        if (caret < session.bounds.start || caret > session.bounds.end) endSnippet()
+    }
+
     /** Undoes the last step. Each change it makes is reported, in order. */
     fun undo(): Boolean {
         val entry = undoStack.removeLastOrNull() ?: return false
+        endSnippet()
         redoStack += revert(entry)
         return true
     }
@@ -1336,6 +1697,7 @@ class CodeEditorModel(
     /** Does again what was last undone. */
     fun redo(): Boolean {
         val entry = redoStack.removeLastOrNull() ?: return false
+        endSnippet()
         undoStack += revert(entry)
         return true
     }
@@ -1348,12 +1710,15 @@ class CodeEditorModel(
             inverses += applyRaw(change.start, change.newEnd, change.removed)
         }
         selection = entry.selectionBefore
+        secondary = entry.secondaryBefore
         return UndoEntry(
             inverses,
             selectionBefore = entry.selectionAfter,
             selectionAfter = entry.selectionBefore,
             mergeable = false,
             at = 0L,
+            secondaryBefore = entry.secondaryAfter,
+            secondaryAfter = entry.secondaryBefore,
         )
     }
 
@@ -1383,6 +1748,12 @@ class CodeEditorModel(
             CodeDocument.map(selection.anchor, change, Bias.After),
             CodeDocument.map(selection.caret, change, Bias.After),
         )
+        if (secondary.isNotEmpty()) {
+            secondary = secondary.map {
+                CodeSelection(CodeDocument.map(it.anchor, change, Bias.After), CodeDocument.map(it.caret, change, Bias.After))
+            }
+        }
+        snippet?.follow(change)
         output += EditorOutput.Changed(change)
         contentRevision += 1
         return change
@@ -1510,10 +1881,246 @@ class CodeEditorModel(
         val mergeable: Boolean,
         /** When the step last grew. */
         val at: Long,
+        /** The selections past the primary one, before and after the step. */
+        val secondaryBefore: List<CodeSelection> = emptyList(),
+        val secondaryAfter: List<CodeSelection> = emptyList(),
     )
 
     companion object {
         /** Characters typed within this long of each other undo together. */
         const val TYPING_GROUP_NANOS: Long = 1_000_000_000L
     }
+}
+
+/** One place a snippet's tab stop is in the document, followed through edits. */
+class SnippetPlace(var start: CodePosition, var end: CodePosition) {
+    /**
+     * Moves the place past a change. Text typed at either edge of it is taken in, so typing
+     * into an empty stop grows the stop rather than leaving the text beside it.
+     */
+    fun follow(change: AppliedChange) {
+        start = CodeDocument.map(start, change, Bias.Before)
+        end = CodeDocument.map(end, change, Bias.After)
+        if (end < start) end = start
+    }
+}
+
+/**
+ * A snippet the reader is stepping through: its stops in the order Tab visits them, `$0`
+ * last, the places of each, the choices of those that have them, and the whole snippet,
+ * which the caret leaving ends the session.
+ */
+internal class SnippetSession(
+    val order: List<Int>,
+    val places: Map<Int, List<SnippetPlace>>,
+    val choices: Map<Int, List<String>>,
+    val bounds: SnippetPlace,
+) {
+    var current = 0
+    var choicesOpen = false
+
+    fun follow(change: AppliedChange) {
+        for (list in places.values) for (place in list) place.follow(change)
+        bounds.follow(change)
+    }
+}
+
+/** One tab stop of a parsed snippet: its number, and its choices where it has them. */
+class ParsedStop(val number: Int, val choices: List<String>?)
+
+/**
+ * A snippet read: its text, and for each stop in the order they appear, where it is in
+ * that text, as a start and an end offset.
+ */
+class ParsedSnippet(val text: String, val stops: List<ParsedStop>, val offsets: List<Pair<Int, Int>>) {
+    /** The text with [indent] after every line break, and the stops' offsets in it. */
+    fun indented(indent: String): Pair<String, List<Pair<Int, Int>>> {
+        if (indent.isEmpty() || '\n' !in text) return text to offsets
+        val moved = IntArray(text.length + 1)
+        val builder = StringBuilder()
+        for (index in text.indices) {
+            moved[index] = builder.length
+            builder.append(text[index])
+            if (text[index] == '\n') builder.append(indent)
+        }
+        moved[text.length] = builder.length
+        return builder.toString() to offsets.map { (from, to) -> moved[from] to moved[to] }
+    }
+}
+
+/**
+ * Reads a snippet in the subset of VS Code's syntax the editor takes: `$1`, `${1}`,
+ * `${1:placeholder}` (a placeholder may hold stops of its own), `${1|one,two|}`, `$0`, and a
+ * backslash before `$`, `}` or `\\`, and inside choices before `,` and `|`, for the
+ * character itself. A `$` that starts none of these is itself. Every place of one number
+ * shows the text of the first of them that has any, so `${1:name} = $1` reads `name = name`.
+ * Null where the snippet is not one: a `${` that is never closed, a number too large, or
+ * stops that make each other's text.
+ */
+fun parseSnippet(source: String): ParsedSnippet? {
+    var index = 0
+    fun number(): Int? {
+        val from = index
+        while (index < source.length && source[index].isDigit()) index += 1
+        if (index == from || index - from > 6) return null
+        return source.substring(from, index).toInt()
+    }
+    // Reads segments up to an unescaped `}` when [nested], or to the end.
+    fun segments(nested: Boolean): List<SnippetSegment>? {
+        val found = ArrayList<SnippetSegment>()
+        val text = StringBuilder()
+        fun flush() {
+            if (text.isNotEmpty()) {
+                found += SnippetText(text.toString())
+                text.clear()
+            }
+        }
+        while (index < source.length) {
+            val character = source[index]
+            when {
+                character == '\\' && index + 1 < source.length && source[index + 1] in "\$}\\" -> {
+                    text.append(source[index + 1])
+                    index += 2
+                }
+                character == '}' && nested -> {
+                    flush()
+                    return found
+                }
+                character == '$' && index + 1 < source.length && source[index + 1].isDigit() -> {
+                    index += 1
+                    val number = number() ?: return null
+                    flush()
+                    found += SnippetStop(number, null, null)
+                }
+                character == '$' && index + 2 < source.length && source[index + 1] == '{' && source[index + 2].isDigit() -> {
+                    index += 2
+                    val number = number() ?: return null
+                    if (index >= source.length) return null
+                    flush()
+                    when (source[index]) {
+                        '}' -> {
+                            index += 1
+                            found += SnippetStop(number, null, null)
+                        }
+                        ':' -> {
+                            index += 1
+                            val children = segments(nested = true) ?: return null
+                            if (index >= source.length || source[index] != '}') return null
+                            index += 1
+                            found += SnippetStop(number, children, null)
+                        }
+                        '|' -> {
+                            index += 1
+                            val choices = ArrayList<String>()
+                            val choice = StringBuilder()
+                            var closed = false
+                            while (index < source.length) {
+                                val next = source[index]
+                                if (next == '\\' && index + 1 < source.length && source[index + 1] in ",|\\$}") {
+                                    choice.append(source[index + 1])
+                                    index += 2
+                                } else if (next == ',') {
+                                    choices += choice.toString()
+                                    choice.clear()
+                                    index += 1
+                                } else if (next == '|' && index + 1 < source.length && source[index + 1] == '}') {
+                                    choices += choice.toString()
+                                    index += 2
+                                    closed = true
+                                    break
+                                } else {
+                                    choice.append(next)
+                                    index += 1
+                                }
+                            }
+                            if (!closed) return null
+                            found += SnippetStop(number, null, choices)
+                        }
+                        else -> return null
+                    }
+                }
+                else -> {
+                    text.append(character)
+                    index += 1
+                }
+            }
+        }
+        if (nested) return null
+        flush()
+        return found
+    }
+    val tree = segments(nested = false) ?: return null
+
+    // The text each number shows: that of its first place with a placeholder or choices.
+    val defining = HashMap<Int, SnippetStop>()
+    fun collect(list: List<SnippetSegment>) {
+        for (segment in list) {
+            if (segment is SnippetStop) {
+                if ((segment.children != null || segment.choices != null) && segment.number !in defining) defining[segment.number] = segment
+                segment.children?.let(::collect)
+            }
+        }
+    }
+    collect(tree)
+
+    val text = StringBuilder()
+    val stops = ArrayList<ParsedStop>()
+    val offsets = ArrayList<Pair<Int, Int>>()
+    var broken = false
+    fun render(list: List<SnippetSegment>, depth: Int) {
+        if (depth > 16) {
+            broken = true
+            return
+        }
+        for (segment in list) {
+            when (segment) {
+                is SnippetText -> text.append(segment.value)
+                is SnippetStop -> {
+                    val slot = stops.size
+                    stops += ParsedStop(segment.number, segment.choices ?: defining[segment.number]?.choices)
+                    offsets += 0 to 0
+                    val from = text.length
+                    when {
+                        segment.choices != null -> text.append(segment.choices.firstOrNull() ?: "")
+                        segment.children != null -> render(segment.children, depth + 1)
+                        else -> {
+                            val origin = defining[segment.number]
+                            when {
+                                origin?.choices != null -> text.append(origin.choices.firstOrNull() ?: "")
+                                // A mirror shows the placeholder's text, without stops of its own.
+                                origin?.children != null -> text.append(plain(origin.children))
+                            }
+                        }
+                    }
+                    offsets[slot] = from to text.length
+                }
+            }
+        }
+    }
+    render(tree, 0)
+    if (broken) return null
+    return ParsedSnippet(text.toString(), stops, offsets)
+}
+
+/** A piece of a snippet as it was read: text, or a tab stop. */
+private sealed class SnippetSegment
+
+private class SnippetText(val value: String) : SnippetSegment()
+
+private class SnippetStop(val number: Int, val children: List<SnippetSegment>?, val choices: List<String>?) : SnippetSegment()
+
+/** The text of snippet segments, a stop inside them shown as its own text. */
+private fun plain(list: List<SnippetSegment>, depth: Int = 0): String {
+    if (depth > 16) return ""
+    val builder = StringBuilder()
+    for (segment in list) {
+        when (segment) {
+            is SnippetText -> builder.append(segment.value)
+            is SnippetStop -> when {
+                segment.choices != null -> builder.append(segment.choices.firstOrNull() ?: "")
+                segment.children != null -> builder.append(plain(segment.children, depth + 1))
+            }
+        }
+    }
+    return builder.toString()
 }

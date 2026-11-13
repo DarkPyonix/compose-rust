@@ -507,6 +507,19 @@ class NodeTable {
                 )
                 collectCode(node)
             }
+            // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
+            // or whose range the reader has typed over, is reported and dropped.
+            is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
+                code.hostInsertSnippet(
+                    mutation.baseVersion,
+                    mutation.startLine,
+                    mutation.startColumn,
+                    mutation.endLine,
+                    mutation.endColumn,
+                    mutation.snippet,
+                )
+                collectCode(node)
+            }
             is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)

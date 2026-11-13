@@ -83,6 +83,11 @@ const TAG_QUERY_POSITION_RECT: u16 = 39;
 /// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
 /// column.
 const QUERY_POSITION_RECT_LEN: usize = 20;
+// 40 puts a snippet into a code editor and opens its tab stops.
+const TAG_INSERT_SNIPPET: u16 = 40;
+/// `InsertSnippet` in full: the 4 byte head, the node, the base version, the range and the
+/// snippet's reference.
+const INSERT_SNIPPET_LEN: usize = 36;
 /// `ScrollTo` in full: the 4 byte head, the node, the item, the flags and two `f64`.
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
@@ -416,6 +421,21 @@ pub enum Mutation<'a> {
         request_id: u32,
         base_version: u32,
         edits: &'a [u8],
+    },
+    /// Replaces a range of a code editor's document, as it stood at `base_version`, with a
+    /// snippet, and lets the reader step through its tab stops.
+    ///
+    /// `snippet` is in the subset of VS Code's snippet syntax [`crate::code`] describes:
+    /// `$1`, `${1:placeholder}`, `${1|one,two|}`, `$0` and `\$`. The text it leaves is
+    /// reported as ordinary `CodeChanged` events, and undoes as one step.
+    InsertSnippet {
+        node_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        snippet: &'a str,
     },
 }
 
@@ -2275,6 +2295,24 @@ impl BatchEncoder {
                 self.put_u64(x_px.to_bits());
                 self.put_u64(y_px.to_bits());
             }
+            Mutation::InsertSnippet {
+                node_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                snippet,
+            } => {
+                self.begin_record(TAG_INSERT_SNIPPET, (INSERT_SNIPPET_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_string_ref(snippet)?;
+            }
             Mutation::QueryPositionRect {
                 node_id,
                 request,
@@ -3054,6 +3092,16 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 }
             }
             TAG_QUERY_POSITION_RECT => return Err(ProtocolError::InvalidRecordLength),
+            TAG_INSERT_SNIPPET if len == INSERT_SNIPPET_LEN => Mutation::InsertSnippet {
+                node_id: read_u32(bytes, payload)?,
+                base_version: read_u32(bytes, payload + 4)?,
+                start_line: read_u32(bytes, payload + 8)?,
+                start_column: read_u32(bytes, payload + 12)?,
+                end_line: read_u32(bytes, payload + 16)?,
+                end_column: read_u32(bytes, payload + 20)?,
+                snippet: read_string(bytes, payload + 24, records_len)?,
+            },
+            TAG_INSERT_SNIPPET => return Err(ProtocolError::InvalidRecordLength),
             TAG_EDIT_CODE_GROUP if len == EDIT_CODE_GROUP_LEN => Mutation::EditCodeGroup {
                 node_id: read_u32(bytes, payload)?,
                 request_id: read_u32(bytes, payload + 4)?,

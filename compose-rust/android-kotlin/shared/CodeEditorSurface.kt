@@ -2,7 +2,9 @@ package dev.darkpyonix.composerust.foundation.code
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +20,7 @@ import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
@@ -725,6 +728,18 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         var suffix = 0
         while (suffix < limit - prefix && old[old.length - 1 - suffix] == text[text.length - 1 - suffix]) suffix += 1
         if (suffix > 0 && old[old.length - suffix].isLowSurrogate() && old.length - suffix - 1 >= prefix) suffix -= 1
+        // Text typed beside the same text is found at the far end of the run, which is not
+        // always where the caret was. Where the caret now stands right after the typed text
+        // and the insertion can be read there as well, it is read there.
+        val typed = text.length - suffix - prefix
+        val caretNow = state.selection.takeIf { it.collapsed }?.end
+        if (old.length - suffix == prefix && caretNow != null && caretNow - typed in 0 until prefix) {
+            val at = caretNow - typed
+            if (text.regionMatches(0, old, 0, at) && text.regionMatches(at + typed, old, at, old.length - at)) {
+                suffix = old.length - at
+                prefix = at
+            }
+        }
         val startPosition = toDoc(prefix)
         val endPosition = toDoc(old.length - suffix)
         val inserted = text.subSequence(prefix, text.length - suffix).toString()
@@ -736,6 +751,16 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         committed = text.toString()
         lineStarts = lineStartsOf(committed)
         end = start + lineStarts.size
+        if (model.secondary.isNotEmpty()) {
+            // The field has one caret of its own. What the reader did at it is done at every
+            // other selection too, and the field is filled again from the model, which now
+            // holds all of it.
+            if (model.editLikePrimary(model.selection, startPosition, endPosition, inserted, origin)) {
+                load(start, end)
+                return true
+            }
+            model.dropSecondary()
+        }
         model.edit(startPosition, endPosition, inserted, origin)
         syncedRevision = model.contentRevision
         lastSelection = null
@@ -751,6 +776,8 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             seenPresses = presses
             caretOutside = false
             lastSelection = null
+            // A press puts the caret in one place: the other selections go.
+            model.dropSecondary()
         }
         if (selection == lastSelection || caretOutside) return
         lastSelection = selection
@@ -1155,6 +1182,13 @@ internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget 
         return Rect(coordinates.localToRoot(Offset(cursor.left, cursor.top)), Size(caretWidthPx, cursor.height))
     }
 
+    /** Where the primary caret is drawn in the editor's own pixels, or null where it is not on screen. */
+    fun caretInView(): Rect? {
+        val view = viewport?.takeIf { it.isAttached } ?: return null
+        val rect = caretInRoot(window.model.selection.caret)?.takeIf { caretOnScreen(it, viewport, textLeftPx, rightInsetPx) } ?: return null
+        return rect.translate(-view.localToRoot(Offset.Zero))
+    }
+
     override fun positionAt(x: Float, y: Float): CodePosition? {
         if (x < gutterWidthPx) return null
         val view = viewport?.takeIf { it.isAttached } ?: return null
@@ -1499,6 +1533,7 @@ private fun FieldSurface(
                         .scrollable(vertical.scrollable, Orientation.Vertical),
                 )
             }
+            SnippetChoices(model, look, { places.caretInView() }) { callbacks.onOutput() }
         }
     }
 }
@@ -1639,6 +1674,36 @@ private fun handleKey(
         }
         command && event.key == Key.A -> {
             window.selectAll()
+            return true
+        }
+        // A snippet's list of choices takes the keys that move through it, pick from it and
+        // close it; Tab and Shift+Tab step through the snippet's stops; Escape closes the
+        // list, then ends the snippet, then drops the extra selections.
+        model.snippetChoices != null && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.moveChoice(if (event.key == Key.DirectionDown) 1 else -1)
+            return true
+        }
+        model.snippetChoices != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+            window.syncUserEdit()
+            model.pickChoice(model.choiceIndex)
+            window.applyHostSelection()
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Tab && !command && model.snippetActive -> {
+            window.syncUserEdit()
+            if (event.isShiftPressed) model.previousSnippetStop() else model.nextSnippetStop()
+            window.applyHostSelection()
+            window.scrollToCaret += 1
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Escape && (model.closeChoices() || model.endSnippet()) -> {
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Escape && model.dropSecondary() -> {
+            callbacks.onOutput()
             return true
         }
         event.key == Key.Escape -> {
@@ -1966,6 +2031,8 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
     window.revision
     val textLength = layout.layoutInput.text.length
     if (model.backgroundsPresent) drawRangeBackgrounds(window, layout, look)
+    model.secondaryRevision
+    if (model.secondary.isNotEmpty()) drawSecondarySelections(window, layout, look)
     for (decoration in model.decorations) {
         if (decoration.kind != DecorationKind.Underline) continue
         if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
@@ -1987,6 +2054,35 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
             if (right - left < stroke * 4) right = left + (layout.getLineBottom(line) - layout.getLineTop(line)) / 2
             val y = layout.getLineBottom(line) - stroke * 1.5f
             drawUnderline(shape, color, left, right, y, stroke)
+        }
+    }
+}
+
+/**
+ * The selections past the primary one, which the field does not know about: a selection's
+ * tint over its characters, and a caret where it is collapsed, in the field's own
+ * coordinates.
+ */
+private fun DrawScope.drawSecondarySelections(window: FieldWindow, layout: TextLayoutResult, look: CodeEditorLook) {
+    val textLength = layout.layoutInput.text.length
+    for (selection in window.model.secondary) {
+        val from = window.toField(selection.start) ?: continue
+        val to = window.toField(selection.end) ?: continue
+        val shownFrom = window.toShown(from, asEnd = false).coerceIn(0, textLength)
+        val shownTo = window.toShown(to, asEnd = true).coerceIn(0, textLength)
+        if (shownFrom == shownTo) {
+            val caret = layout.getCursorRect(shownFrom)
+            drawRect(look.cursor, Offset(caret.left, caret.top), Size(2.dp.toPx(), caret.height))
+            continue
+        }
+        val firstLine = layout.getLineForOffset(shownFrom)
+        val lastLine = layout.getLineForOffset(shownTo)
+        for (line in firstLine..lastLine) {
+            val left = if (line == firstLine) layout.getHorizontalPosition(shownFrom, true) else layout.getLineLeft(line)
+            val right = if (line == lastLine) layout.getHorizontalPosition(shownTo, true) else layout.getLineRight(line)
+            if (right <= left) continue
+            val top = layout.getLineTop(line)
+            drawRect(look.selection, Offset(left, top), Size(right - left, layout.getLineBottom(line) - top))
         }
     }
 }
@@ -2232,4 +2328,48 @@ internal fun displayColumn(text: String, column: Int, tabWidth: Int): Int {
     val end = min(column, text.length)
     for (index in 0 until end) shown += if (text[index] == '\t') tabWidth - shown % tabWidth else 1
     return shown
+}
+
+/** Test tag of the list a snippet's stop with choices opens. */
+const val CODE_EDITOR_CHOICES_TAG = "code-editor-snippet-choices"
+
+/**
+ * The list a snippet's stop with choices opens, under the caret: each choice in the editor's
+ * type, the marked one in the selection's tint. A press on one puts it in the stop.
+ * [caret] is where the caret is in the editor's own pixels, or null where it is not on screen.
+ */
+@Composable
+internal fun SnippetChoices(
+    model: CodeEditorModel,
+    look: CodeEditorLook,
+    caret: () -> Rect?,
+    onPicked: () -> Unit,
+) {
+    model.snippetRevision
+    val choices = model.snippetChoices ?: return
+    val at = caret() ?: return
+    val marked = model.choiceIndex
+    Column(
+        Modifier
+            .offset { IntOffset(at.left.roundToInt(), at.bottom.roundToInt()) }
+            .testTag(CODE_EDITOR_CHOICES_TAG)
+            .background(look.gutter)
+            .border(1.dp, look.lineNumber.copy(alpha = look.lineNumber.alpha * 0.4f)),
+    ) {
+        for ((index, choice) in choices.withIndex()) {
+            BasicText(
+                choice,
+                style = look.textStyle,
+                modifier = Modifier
+                    .background(if (index == marked) look.selection else Color.Transparent)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .pointerInput(model, index) {
+                        detectTapGestures {
+                            model.pickChoice(index)
+                            onPicked()
+                        }
+                    },
+            )
+        }
+    }
 }
