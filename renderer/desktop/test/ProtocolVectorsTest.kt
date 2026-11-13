@@ -33,6 +33,7 @@ import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.BatchBytes
 import dev.darkpyonix.composerust.protocol.StorageOp
 import dev.darkpyonix.composerust.protocol.Paint
@@ -132,10 +133,14 @@ class ProtocolVectorsTest {
                 is Mutation.ReleaseFileHandle -> false
                 // Storage is the application's, not a node's.
                 is Mutation.StorageCall -> false
+                // A scroll request names the container it asks.
+                is Mutation.ScrollTo -> mutation.nodeId !in created
+                is Mutation.ScrollIntoView -> mutation.nodeId !in created
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
+                is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -263,6 +268,23 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
     }
 
+    /** The wrapping row and its five layout properties, decoded from the bytes the Host wrote. */
+    @Test
+    fun fr76_the_flow_row_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(21, WidgetKind.FlowRow) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.SetProp(21, PropertyKind.HorizontalSpacing, PropertyValue.Float(8f)),
+                Mutation.SetProp(21, PropertyKind.VerticalSpacing, PropertyValue.Float(12f)),
+                Mutation.SetProp(21, PropertyKind.HorizontalAlignment, PropertyValue.Integer(2)),
+                Mutation.SetProp(21, PropertyKind.VerticalAlignment, PropertyValue.Integer(3)),
+                Mutation.SetProp(21, PropertyKind.MaxItemsInEachRow, PropertyValue.Integer(3)),
+            ),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 21 },
+        )
+    }
+
     /**
      * The storage request and both events, read from and encoded to the bytes the Host
      * wrote: a request, an operation and three references; two words and a reference to the
@@ -334,6 +356,57 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The two scroll requests and the scroll report, read from and encoded to the bytes the
+     * Host wrote: a node, an item, a flags word and two doubles; a node, a target, four
+     * half words and four doubles; and an item, a flags word and six doubles.
+     */
+    @Test
+    fun fr80_scroll_records_round_trip_through_the_protocol_vectors() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.ScrollTo(10, 3, ScrollWire.TO_ANIMATE or ScrollWire.TO_Y, 0.0, 120.5)),
+            mutations.filterIsInstance<Mutation.ScrollTo>(),
+        )
+        assertEquals(
+            listOf(
+                Mutation.ScrollIntoView(
+                    nodeId = 10,
+                    target = 12,
+                    targetKind = ScrollWire.TARGET_NODE,
+                    alignX = ScrollWire.ALIGN_KEEP,
+                    alignY = ScrollWire.ALIGN_NEAREST,
+                    flags = ScrollWire.INTO_VIEW_ANIMATE,
+                    rectXPx = 0.0,
+                    rectYPx = 8.0,
+                    rectWidthPx = 40.0,
+                    rectHeightPx = 24.5,
+                ),
+            ),
+            mutations.filterIsInstance<Mutation.ScrollIntoView>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(128)
+        val length = Protocol.encodeEvent(
+            HostEvent.ScrollChanged(
+                nodeId = 10,
+                handlerId = 21,
+                item = 3,
+                flags = ScrollWire.CHANGED_SETTLED or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD,
+                xPx = 0.0,
+                yPx = 700.5,
+                maxXPx = 0.0,
+                maxYPx = -1.0,
+                viewportWidthPx = 320.0,
+                viewportHeightPx = 300.0,
+            ),
+            out,
+        )
+        assertEquals(72, length)
+        assertEquals(bytes.copyOfRange(1319, 1319 + 72).toList(), out.array().copyOf(length).toList())
+    }
+
+    /**
      * The file dialog request and its result, read from and encoded to the bytes the Host
      * wrote: four string references, a kind and a default filter, and three words and a
      * string reference.
@@ -397,6 +470,13 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertTrue(patched, "the vector carries a file dialog request")
+    }
+
+    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    @Test
+    fun fr50_corner_curve_round_trips() {
+        val last = decodeVector("mutations.bin").last()
+        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
     }
 
     /**
@@ -514,6 +594,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
         )
@@ -532,7 +613,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..8).toList(), onBox.map { it.index })
+        assertEquals((0..9).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -549,7 +630,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28, 35 to 28),
             lengths,
         )
     }
@@ -832,6 +913,9 @@ class ProtocolVectorsTest {
             683 to HostEvent.EditorFocusChanged(12, 25L, true),
             707 to HostEvent.FoldChanged(12, 26L, 0, true),
             731 to HostEvent.CompositionChanged(12, 27L, true),
+            // The row height and the scroll offset, after everything that was here before.
+            1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -840,7 +924,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1319, bytes.size)
+        assertEquals(1439, bytes.size)
     }
 
     /**
@@ -861,6 +945,10 @@ class ProtocolVectorsTest {
         assertEquals(
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetScrollOffset(12, 1234.5)),
+            mutations.filterIsInstance<Mutation.SetScrollOffset>(),
         )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()

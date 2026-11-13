@@ -555,6 +555,15 @@ private fun ComposeRustTree(
             }
         }
     }
+    // A scroll container the Host listens to reports where it is the same way: once at the
+    // start of the frame after it moved, for the place it has reached by then.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.scrolls.pendingGeneration.intValue }.collect {
+            while (host.table.scrolls.hasPending) {
+                withFrameNanos { host.table.scrolls.flush { event -> host.dispatch(event) } }
+            }
+        }
+    }
     // Whether the platform asks for reduced motion, told to the Host once and again when it
     // changes. Asked again when the window comes back into use, which is when a setting
     // changed in the system's preferences can have changed. The Host decides what to do
@@ -728,6 +737,11 @@ private fun ComposeRustTree(
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
         SideEffect { platformWindowMaterial(asked) }
+        // Android's back closes the topmost overlay, as Escape does, and is left to the app
+        // when none is open. Where no platform installs a back hook this does nothing.
+        dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
+            overlayFocusStack.handleBack()
+        }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier

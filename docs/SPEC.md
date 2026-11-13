@@ -1689,6 +1689,11 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
 6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
+**Android의 뒤로 가기**(이슈 #559, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). Android의 뒤로 가기(시스템 Back 제스처와 버튼)는 Escape와 같은 규칙을 따릅니다. 맨 위의 열린 `Dialog`, `Sheet`, `Popover` 하나에 `OnDismiss`를 한 번 보내고, `Open`은 Host가 바꿉니다. 열린 오버레이가 없으면 Back은 지금처럼 앱(또는 탐색)에 갑니다. IME 조합 중이면 먼저 조합을 끝내는 것도 Escape와 같습니다.
+
+- 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
+- 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -2162,6 +2167,65 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
    제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
 2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
 3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+
+#### 30.3 막대에 다 들어가지 않는 동작 (`Agreed`, 이슈 #639)
+
+[leader, provisional, 2026-11-13] 소유자의 위임을 받은 리더의 결정입니다.
+
+`TopAppBar`의 동작이 막대에 다 들어가지 않으면, 들어가지 않는 동작은 막대가 직접 그리는
+"더 보기" 메뉴로 옮겨 갑니다. 지금은 막대의 자식이 Compose `Row`에 놓이고, `Row`는 앞의
+자식에게 먼저 폭을 줍니다. 그래서 뒤쪽 동작이 폭 0으로 눌리거나 잘리고, 그 동작에 닿을
+방법이 없습니다. 420dp의 macOS 창에서 notepad의 막대가 "File"을 빈 알약으로 그리고 "Format"과
+"Save"를 아예 그리지 않았습니다. 동작 하나를 조용히 잃는 막대는 애플리케이션이 쓴 것을 그리지
+않은 것입니다.
+
+- **뒤쪽 동작이 무엇인지.** 막대의 자식 중 맨 끝에서부터 이어지는 `Button`과 `Menu` 노드의
+  연속이 뒤쪽 동작입니다. `Weight` 수정자가 있는 자식과, `Button`도 `Menu`도 아닌 자식이 그
+  연속을 끊습니다. 그 앞의 자식(뒤로 버튼, 막대 안의 `Text`, 가중치를 받은 여백, 애플리케이션이
+  넣은 `Row`나 `Box`)과 `title` 속성의 제목은 앞쪽 내용이며 지금처럼 자리를 지킵니다.
+- **우선순위는 선언 순서입니다.** 스키마에는 동작의 우선순위를 말하는 속성이 없고, 이 항목도
+  그것을 더하지 않습니다. 먼저 선언한 동작이 가장 오래 막대에 남고, 폭이 줄면 마지막에 선언한
+  동작부터 메뉴로 갑니다. 메뉴 안의 순서도 선언 순서입니다. 끝까지 남겨야 하는 동작은 먼저
+  씁니다.
+- **막대는 동작을 자르지 않습니다.** 각 동작은 자기 고유 폭으로 잽니다. 앞쪽 내용이 쓰고 남은
+  폭에 고유 폭 그대로 들어가는 앞부분만 막대에 그리고, 나머지는 빠짐없이 메뉴에 넣습니다.
+  막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않습니다.
+- **넘침 버튼.** 넘친 동작이 하나라도 있을 때에만 막대에 남은 동작들 뒤에 넘침 버튼 하나가
+  섭니다. 그림은 디자인 시스템의 `IconRole::More`이고, 모양은 그 디자인 시스템의 글자 없는
+  `Text` 버튼과 같습니다. 접근성 이름은 "More actions"입니다. 넘침 버튼의 폭도
+  남은 폭 안에서 셉니다.
+- **메뉴는 `Menu`의 팝업과 같습니다.** 넘침 버튼을 누르면 그 아래에 메뉴가 열리고, 모양과
+  자리 규칙은 `Menu`의 팝업과 같습니다(FR-15.2.3). 넘친 동작은 메뉴 안에서 같은 노드로 그려지며,
+  고르면 그 노드 자신의 `Clicked`가 그 노드의 id와 핸들러로 갑니다. 한 노드는 한 번에 한 곳(막대
+  또는 메뉴)에만 그려집니다. 항목을 고르면 메뉴가 닫힙니다. 넘친 것이 `Menu`이면 그 앵커를 눌러도
+  막대의 메뉴는 닫히지 않습니다. 그 `Menu`가 자기 팝업을 열어야 하기 때문입니다.
+- **모든 막대 경로에서 같습니다.** 띠로 그리는 막대(창 캡션을 겸하는 막대 포함, FR-19.2),
+  제목을 창 가운데 두는 막대(FR-15.2의 제목 정렬), 떠 있는 캡슐로 그리는 막대(Liquid Glass)가
+  모두 이 규칙을 따릅니다. 떠 있는 막대에서 넘침 버튼은 바로 앞의 일반 동작과 같은 캡슐에
+  들어갑니다. 인터프리터는 데스크톱, iOS, Android, 웹이 같은 파일이므로 플랫폼마다 따로 두지
+  않습니다.
+- **와이어는 바뀌지 않습니다.** 무엇이 넘쳤는지는 폭에 달린 Renderer의 상태이고(D5), Host는
+  그것을 알 필요가 없습니다. 경계 진입점, 위젯 태그, 속성 태그, 이벤트 태그가 모두 그대로입니다.
+
+수용 기준:
+
+1. 동작 다섯 개를 단 막대를 좁은 폭으로 그리면 마지막에 선언한 동작들이 막대에 없고 넘침
+   버튼이 있으며, 넘침 버튼을 누르면 그 동작들이 선언 순서대로 메뉴에 나옵니다. 막대에 남은
+   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다
+   (`fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu`).
+2. 메뉴의 동작을 누르면 그 노드의 `Clicked`가 그 노드의 id와 핸들러로 한 번 가고, 메뉴가
+   닫힙니다(`fr30_3_an_overflowed_action_is_still_invokable`).
+3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
+   (`fr30_3_nothing_overflows_when_there_is_room`).
+4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
+   (`fr30_3_leading_content_keeps_its_place`).
+6. 넘침 버튼의 접근성 이름이 "More actions"입니다
+   (`fr30_3_the_overflow_button_has_an_accessible_name`).
+7. 1과 3이 창 캡션을 겸하는 막대(캡션 높이와 창 버튼 폭이 있는 창), GNOME의 가운데 제목 막대,
+   Liquid Glass의 떠 있는 막대에서도 성립합니다
+   (`fr30_3_every_bar_path_overflows_the_same_way`).
 
 ### FR-31 Scaffold (`Draft`)
 
@@ -4282,7 +4346,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
 - `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
 - 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
-- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 대신 그 파일의 길이를 4바이트 little-endian으로 실은 `TooLarge` 답 하나가 됩니다. FR-79.5와 같은 `IoAnswer`이고 같은 규칙입니다 [leader, provisional, 2026-11-13]. 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
 - 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
 
 
@@ -4549,8 +4613,8 @@ pub mod storage {
 13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
 14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
 15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
-16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
-17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web. 이 시험은 Web Renderer처럼 답하는 저장소를 둔 채 Host를 새로 만들어 다시 불러오기를 확인합니다. `samples-web` 페이지를 Playwright로 다시 부르는 CI 확인은 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session).
 18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
 
 ### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
@@ -4573,7 +4637,7 @@ pub mod storage {
 - **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
 - **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
 - **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
-- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(17)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(18)입니다: NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(19)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(20)입니다(17과 18은 FR-79의 `DUPLICATE_IO_REQUEST`와 FR-72의 `DUPLICATE_FILE_CALL`이 먼저 썼습니다): NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
 - **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
 - **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
 - **구현 범위.** 스키마와 codegen, Rust 인코더와 디코더, 데스크톱 Kotlin 렌더러(macOS, Windows, Linux가 같은 코드)와 `android-kotlin/shared`의 `NodeTable`, 프로토콜 벡터입니다. dioxus-compose의 HTML 연결(`scrollIntoView`, `scrollTop`/`scrollLeft`, `onscroll`)은 dioxus-compose#200과 #179가 이 와이어 위에 만듭니다.

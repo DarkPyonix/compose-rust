@@ -19,6 +19,7 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
@@ -178,5 +179,75 @@ class ButtonRowTest {
         val (_, small) = labelBounds(300f, 13f, TextAlign.Start)
         val (_, large) = labelBounds(300f, 26f, TextAlign.Start)
         assertTrue(large.bottom - large.top > small.bottom - small.top, "FontSize sets the label size")
+    }
+
+    private val reference = 6
+
+    /**
+     * The label of a Button with this role and weight, and a Text with the same role and
+     * weight, measured in the same frame. A label set at the role draws exactly as a Text
+     * of that role does.
+     */
+    private fun labelAndReference(role: TypeRole?, weight: Long?): Pair<DpRect, DpRect> {
+        lateinit var result: Pair<DpRect, DpRect>
+        runComposeUiTest {
+            val mutations = buildList {
+                add(theme())
+                add(Mutation.Create(root, WidgetKind.Column))
+                addAll(buttonNode(null))
+                add(Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("Commit")))
+                if (role != null) add(Mutation.SetProp(button, PropertyKind.TypeRole, PropertyValue.Integer(role.ordinal + 1L)))
+                if (weight != null) add(Mutation.SetProp(button, PropertyKind.FontWeight, PropertyValue.Integer(weight)))
+                add(Mutation.Insert(root, button, 0))
+                add(Mutation.Create(reference, WidgetKind.Text))
+                add(Mutation.SetProp(reference, PropertyKind.Text, PropertyValue.Text("Reference")))
+                add(Mutation.SetProp(reference, PropertyKind.TypeRole, PropertyValue.Integer((role ?: TypeRole.Body).ordinal + 1L)))
+                if (weight != null) add(Mutation.SetProp(reference, PropertyKind.FontWeight, PropertyValue.Integer(weight)))
+                add(Mutation.Insert(root, reference, 1))
+            }
+            setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+            waitForIdle()
+            result = onNodeWithText("Commit", useUnmergedTree = true).getBoundsInRoot() to
+                onNodeWithTag(nodeTestTag(reference), useUnmergedTree = true).getBoundsInRoot()
+        }
+        return result
+    }
+
+    private fun DpRect.height() = bottom - top
+    private fun DpRect.width() = right - left
+
+    @Test
+    fun fr66_button_type_role_and_weight() {
+        val (caption, captionText) = labelAndReference(TypeRole.Caption, null)
+        val (title, _) = labelAndReference(TypeRole.Title, null)
+        assertEquals(captionText.height(), caption.height(), "a Caption label has the Caption line height")
+        assertTrue(title.height() > caption.height(), "the role sets the label's size: ${title.height()} vs ${caption.height()}")
+
+        val (light, _) = labelAndReference(TypeRole.Caption, 100)
+        val (heavy, _) = labelAndReference(TypeRole.Caption, 900)
+        assertEquals(caption.height(), heavy.height(), "a weight leaves the role's size and line height alone")
+        assertTrue(heavy.width() > light.width(), "font_weight overrides the role's weight: ${heavy.width()} vs ${light.width()}")
+    }
+
+    @Test
+    fun fr66_button_font_size_wins_over_its_type_role() {
+        lateinit var bounds: Pair<DpRect, DpRect>
+        runComposeUiTest {
+            val mutations = buildList {
+                add(theme())
+                add(Mutation.Create(root, WidgetKind.Column))
+                addAll(buttonNode(null))
+                add(Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("Commit")))
+                add(Mutation.SetProp(button, PropertyKind.TypeRole, PropertyValue.Integer(TypeRole.Caption.ordinal + 1L)))
+                add(Mutation.SetProp(button, PropertyKind.FontSize, PropertyValue.Float(30f)))
+                add(Mutation.Insert(root, button, 0))
+            }
+            setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+            waitForIdle()
+            bounds = onNodeWithText("Commit", useUnmergedTree = true).getBoundsInRoot() to
+                onNodeWithTag(nodeTestTag(button)).getBoundsInRoot()
+        }
+        val (caption, _) = labelAndReference(TypeRole.Caption, null)
+        assertTrue(bounds.first.width() > caption.width(), "an explicit FontSize beats the role's size")
     }
 }

@@ -13,6 +13,7 @@ import dev.darkpyonix.composerust.protocol.Arrangement as ProtocolArrangement
 import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.ButtonKind
 import dev.darkpyonix.composerust.protocol.ColorRole
+import dev.darkpyonix.composerust.protocol.HorizontalAlignment as ProtocolHorizontalAlignment
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -20,6 +21,7 @@ import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.TextOverflow
 import dev.darkpyonix.composerust.protocol.TypeRole
+import dev.darkpyonix.composerust.protocol.VerticalAlignment as ProtocolVerticalAlignment
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.design.composeLetterSpacing
@@ -183,6 +185,39 @@ internal fun Node.verticalAlignment(): ComposeAlignment.Vertical =
         Alignment.BottomStart, Alignment.BottomCenter, Alignment.BottomEnd -> ComposeAlignment.Bottom
         else -> ComposeAlignment.Top
     }
+
+/**
+ * A FlowRow's gap between the children of one line, and where those children sit along the
+ * line when they do not fill it. The gap is a literal dp and nothing else: a wrapping row
+ * says exactly how far apart its items are, the way a CSS `gap` does.
+ */
+internal fun Node.flowHorizontalArrangement(): Arrangement.Horizontal {
+    val space = (floatProp(PropertyKind.HorizontalSpacing) ?: 0f).dp
+    val alignment = when (role(PropertyKind.HorizontalAlignment, ProtocolHorizontalAlignment.entries.toTypedArray())) {
+        ProtocolHorizontalAlignment.Center -> ComposeAlignment.CenterHorizontally
+        ProtocolHorizontalAlignment.End -> ComposeAlignment.End
+        ProtocolHorizontalAlignment.Start, null -> ComposeAlignment.Start
+    }
+    return Arrangement.spacedBy(space, alignment)
+}
+
+/** A FlowRow's gap between one line and the next, with the lines packed to the top. */
+internal fun Node.flowVerticalArrangement(): Arrangement.Vertical =
+    Arrangement.spacedBy((floatProp(PropertyKind.VerticalSpacing) ?: 0f).dp, ComposeAlignment.Top)
+
+/** Where a child of a FlowRow sits inside the height of its line. */
+internal fun Node.flowItemVerticalAlignment(): ComposeAlignment.Vertical =
+    when (role(PropertyKind.VerticalAlignment, ProtocolVerticalAlignment.entries.toTypedArray())) {
+        ProtocolVerticalAlignment.Center -> ComposeAlignment.CenterVertically
+        ProtocolVerticalAlignment.Bottom -> ComposeAlignment.Bottom
+        ProtocolVerticalAlignment.Top, null -> ComposeAlignment.Top
+    }
+
+/** The most children one line of a FlowRow holds. Absent, zero or negative is no limit. */
+internal fun Node.flowMaxItemsInEachRow(): Int {
+    val limit = intProp(PropertyKind.MaxItemsInEachRow) ?: return Int.MAX_VALUE
+    return if (limit <= 0L || limit > Int.MAX_VALUE) Int.MAX_VALUE else limit.toInt()
+}
 
 /** A Box takes the full nine point alignment. */
 internal fun Node.boxAlignment(): ComposeAlignment = when (alignmentRole()) {
