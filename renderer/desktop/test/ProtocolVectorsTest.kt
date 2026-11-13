@@ -33,8 +33,8 @@ import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.BatchBytes
-import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.StorageOp
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
@@ -133,6 +133,9 @@ class ProtocolVectorsTest {
                 is Mutation.ReleaseFileHandle -> false
                 // Storage is the application's, not a node's.
                 is Mutation.StorageCall -> false
+                // A scroll request names the container it asks.
+                is Mutation.ScrollTo -> mutation.nodeId !in created
+                is Mutation.ScrollIntoView -> mutation.nodeId !in created
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -349,6 +352,57 @@ class ProtocolVectorsTest {
             Protocol.decode(ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)) { }
         }.exceptionOrNull()
         assertTrue(failure is ProtocolException, "an unknown operation is a protocol error, got $failure")
+    }
+
+    /**
+     * The two scroll requests and the scroll report, read from and encoded to the bytes the
+     * Host wrote: a node, an item, a flags word and two doubles; a node, a target, four
+     * half words and four doubles; and an item, a flags word and six doubles.
+     */
+    @Test
+    fun fr80_scroll_records_round_trip_through_the_protocol_vectors() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.ScrollTo(10, 3, ScrollWire.TO_ANIMATE or ScrollWire.TO_Y, 0.0, 120.5)),
+            mutations.filterIsInstance<Mutation.ScrollTo>(),
+        )
+        assertEquals(
+            listOf(
+                Mutation.ScrollIntoView(
+                    nodeId = 10,
+                    target = 12,
+                    targetKind = ScrollWire.TARGET_NODE,
+                    alignX = ScrollWire.ALIGN_KEEP,
+                    alignY = ScrollWire.ALIGN_NEAREST,
+                    flags = ScrollWire.INTO_VIEW_ANIMATE,
+                    rectXPx = 0.0,
+                    rectYPx = 8.0,
+                    rectWidthPx = 40.0,
+                    rectHeightPx = 24.5,
+                ),
+            ),
+            mutations.filterIsInstance<Mutation.ScrollIntoView>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(128)
+        val length = Protocol.encodeEvent(
+            HostEvent.ScrollChanged(
+                nodeId = 10,
+                handlerId = 21,
+                item = 3,
+                flags = ScrollWire.CHANGED_SETTLED or ScrollWire.CHANGED_CAN_SCROLL_BACKWARD,
+                xPx = 0.0,
+                yPx = 700.5,
+                maxXPx = 0.0,
+                maxYPx = -1.0,
+                viewportWidthPx = 320.0,
+                viewportHeightPx = 300.0,
+            ),
+            out,
+        )
+        assertEquals(72, length)
+        assertEquals(bytes.copyOfRange(1319, 1319 + 72).toList(), out.array().copyOf(length).toList())
     }
 
     /**
@@ -866,7 +920,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1319, bytes.size)
+        assertEquals(1391, bytes.size)
     }
 
     /**

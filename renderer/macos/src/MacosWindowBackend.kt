@@ -3,6 +3,9 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.platformZoomLevelStore
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.CancellableContinuation
@@ -22,6 +25,8 @@ import platform.Foundation.NSProcessInfo
 import platform.AppKit.NSEventTypeApplicationDefined
 import platform.AppKit.NSScreen
 import platform.AppKit.NSWindow
+import kotlinx.cinterop.ObjCAction
+import platform.AppKit.NSWindowAbove
 import platform.AppKit.NSWindowDidMoveNotification
 import platform.AppKit.NSWindowDidResizeNotification
 import platform.AppKit.NSWindowStyleMaskResizable
@@ -91,14 +96,37 @@ class MacosSceneFrames {
 }
 
 /**
+ * What one window holds for itself rather than for the application: the zoom it is drawn at,
+ * and the `Window` node it draws.
+ *
+ * The zoom is the window's own, so a level set on one node or a shortcut pressed in one window
+ * changes that window and no other. The level is saved the one way the application saves it
+ * ([platformZoomLevelStore]), so a new window starts at the last saved level.
+ *
+ * The node is state because a window the system asked for is opened before the application has
+ * a node for it, and is told the node when the application answers ([PlatformWindow.adoptedBy]).
+ */
+class MacosWindowSlot(nodeId: Int, val zoom: Zoom) {
+    private val node = mutableIntStateOf(nodeId)
+
+    /** The `Window` node this window draws, 0 while it waits for one. */
+    val nodeId: Int get() = node.intValue
+
+    internal fun drawNode(id: Int) {
+        node.intValue = id
+    }
+}
+
+/**
  * Builds the content of the scene of one `Window` node. Null makes windows without a scene,
  * which is what a test of the window system itself needs.
  */
 typealias MacosSceneContent =
-    (config: PlatformWindowConfig, window: MacosWindow, frames: MacosSceneFrames) -> (@Composable () -> Unit)
+    (config: PlatformWindowConfig, window: MacosWindow, frames: MacosSceneFrames, slot: MacosWindowSlot) -> (@Composable () -> Unit)
 
 class MacosWindowBackend(
     private val scene: MacosSceneContent? = null,
+    private val makeZoom: () -> Zoom = { Zoom(store = platformZoomLevelStore()) },
 ) : WindowBackend {
     override val supportsMultipleWindows: Boolean get() = true
 
@@ -109,6 +137,12 @@ class MacosWindowBackend(
 
     /** The windows that are open now, in the order they were opened. */
     val windows: List<PlatformWindow> get() = live.toList()
+
+    /**
+     * Told of every window this opens, once its scene is set and before the loop draws it:
+     * where the multi-window run prints the start report and starts a parity run.
+     */
+    var onOpened: ((MacosWindow) -> Unit)? = null
 
     /**
      * Where the pointer is on the screen and whether its primary button is held. The system's
@@ -142,7 +176,9 @@ class MacosWindowBackend(
             topLeft = if (x != null && y != null) wholePoints(x) to wholePoints(y) else null,
         )
         val frames = MacosSceneFrames()
-        val content = scene?.invoke(config, created, frames)
+        val slot = MacosWindowSlot(config.nodeId, makeZoom())
+        config.zoomLevel?.let { slot.zoom.setLevel(it) }
+        val content = scene?.invoke(config, created, frames, slot)
         if (content != null) {
             @Suppress("DEPRECATION")
             created.setContent(content)
@@ -157,7 +193,7 @@ class MacosWindowBackend(
         }
         // After setContent: it hands the window's close, focus and event hooks to the scene's
         // own host, which closes the window when asked. Here the application is the one to ask.
-        val window = MacosPlatformWindow(created, frames, listener, { pointer() }) { gone ->
+        val window = MacosPlatformWindow(created, frames, slot, listener, { pointer() }) { gone ->
             live.remove(gone)
             if (byNode[config.nodeId] === gone) byNode.remove(config.nodeId)
             stopTurnsWhenIdle()
@@ -167,11 +203,39 @@ class MacosWindowBackend(
         if (!config.resizable) window.setResizable(false)
         if (config.colorScheme != ColorScheme.FollowSystem) window.setColorScheme(config.colorScheme)
         startTurns()
+        onOpened?.invoke(created)
         return window
     }
 
     override fun setApplicationListener(listener: ApplicationListener?) {
         WindowApplication.onReopen = if (listener == null) null else ({ listener.onReopen() })
+        application = listener
+        macosNewWindowForTab = if (listener == null) null else ({ sender -> requestWindow("", tabWith = sender) })
+    }
+
+    private var application: ApplicationListener? = null
+
+    /**
+     * Opens a window the application did not ask for and asks the application for its node:
+     * a window the system made (the new tab button of a tabbed window) or one restored after
+     * the process started again. [key] is the restore key, empty for a new window.
+     *
+     * The window is opened first and handed over with the request, so the application's answer
+     * is drawn in it rather than in a second one; until then it draws nothing. The manager
+     * closes it when the application answers with no `Window` node of that key. A new tab is
+     * put beside [tabWith]. Returns whether the application took the window.
+     */
+    fun requestWindow(key: String, tabWith: NSWindow? = null): Boolean {
+        val listener = application ?: return false
+        val window = open(PlatformWindowConfig(nodeId = 0, restoreKey = key), UnclaimedWindow) as? MacosPlatformWindow
+            ?: return false
+        listener.onWindowRequested(key, window)
+        if (window.isClosed) return false
+        if (tabWith != null && tabWith !== window.nativeWindow) {
+            tabWith.addTabbedWindow(window.nativeWindow, ordered = NSWindowAbove)
+            window.focus()
+        }
+        return true
     }
 
     /** Asks every window to draw: the batch a frame applied is one snapshot for all of them. */
@@ -209,12 +273,16 @@ class MacosWindowBackend(
 internal class MacosPlatformWindow(
     private val window: MacosWindow,
     private val frames: MacosSceneFrames,
+    private val slot: MacosWindowSlot,
     private var sink: PlatformWindowListener,
     private val pointer: () -> ScreenPointer? = ::systemPointerOnScreen,
     private val onClosed: (MacosPlatformWindow) -> Unit,
 ) : PlatformWindow {
     private val native: NSWindow get() = window.window
     private var closed = false
+
+    /** Whether the window has been closed, by the application or because nobody claimed it. */
+    val isClosed: Boolean get() = closed
     private val observers = ArrayList<Any>()
     private var follow: Pair<Float, Float>? = null
     private var followTimer: NSTimer? = null
@@ -230,6 +298,12 @@ internal class MacosPlatformWindow(
 
     /** Whether the window's accessibility tree is active for external readers. */
     val accessibilityActive: Boolean get() = window.accessibilityActive
+
+    /** The zoom this window is drawn at, its own and no other window's. */
+    val zoom: Zoom get() = slot.zoom
+
+    /** The `Window` node the window draws. */
+    val nodeId: Int get() = slot.nodeId
 
     init {
         window.onClose = {
@@ -373,6 +447,18 @@ internal class MacosPlatformWindow(
         escapeMonitor = null
     }
 
+    // The scene reports the change, naming this window's node, when it composes at the new level.
+    override fun setZoomLevel(level: Int) {
+        if (closed) return
+        if (slot.zoom.setLevel(level)) requestFrame()
+    }
+
+    override fun adoptedBy(nodeId: Int) {
+        if (closed) return
+        slot.drawNode(nodeId)
+        requestFrame()
+    }
+
     override fun setColorScheme(scheme: ColorScheme) {
         if (closed) return
         native.appearance = when (scheme) {
@@ -436,6 +522,17 @@ internal class MacosPlatformWindow(
     }
 }
 
+/** The listener of a window between its opening and the application claiming it: it hears nothing worth telling. */
+private object UnclaimedWindow : PlatformWindowListener {
+    override fun onCloseRequested() {}
+    override fun onFocusChanged(focused: Boolean) {}
+    override fun onMoved(bounds: ScreenBounds) {}
+    override fun onFollowEnded(cancelled: Boolean) {}
+}
+
+/** Where the application delegate sends the new tab button's request, while a manager is listening. */
+internal var macosNewWindowForTab: ((NSWindow?) -> Unit)? = null
+
 // The delegate is weak on the AppKit side, and Kotlin/Native forbids fields on the companion
 // of an Objective-C subclass.
 private var installedDelegate: MacosApplicationDelegate? = null
@@ -460,6 +557,16 @@ internal class MacosApplicationDelegate : NSObject(), NSApplicationDelegateProto
     }
 
     override fun applicationShouldTerminateAfterLastWindowClosed(sender: NSApplication): Boolean = false
+
+    /**
+     * The new tab button of a tabbed window, which AppKit shows when something in the
+     * responder chain answers this, and sends here through it. The system is the one making a
+     * window, so the application is asked for one with an empty restore key.
+     */
+    @ObjCAction
+    fun newWindowForTab(sender: NSObject?) {
+        macosNewWindowForTab?.invoke(sender as? NSWindow)
+    }
 }
 
 /** Where the system says the pointer is, in the renderer's screen space, and whether its primary button is held. */
