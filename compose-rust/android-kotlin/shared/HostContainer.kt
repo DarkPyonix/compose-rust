@@ -55,6 +55,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
@@ -705,10 +707,12 @@ private fun OverflowButton(
     // A menu left open when everything fits again would come back open the next time
     // something overflowed.
     DisposableEffect(bar.id) { onDispose { state.open = false } }
+    val buttonRequester = remember(bar.id) { FocusRequester() }
     Box(modifier) {
         HostButton(
             button,
             Modifier
+                .focusRequester(buttonRequester)
                 .testTag(barOverflowTestTag(bar.id))
                 .semantics { contentDescription = OVERFLOW_NAME },
             table,
@@ -716,7 +720,7 @@ private fun OverflowButton(
             theme,
         )
         if (state.open) {
-            OverflowMenu(bar, overflowed, state, table, dispatcher, theme)
+            OverflowMenu(bar, overflowed, state, buttonRequester, table, dispatcher, theme)
         }
     }
 }
@@ -726,6 +730,7 @@ private fun OverflowMenu(
     bar: Node,
     overflowed: List<Int>,
     state: BarOverflowState,
+    opener: FocusRequester,
     table: NodeTable,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
@@ -741,11 +746,14 @@ private fun OverflowMenu(
     ) {
         // The same popup a `Menu` opens, for the same reasons: the recorded page does not
         // reach into another platform window, and its entries are a list, not a stack of
-        // buttons.
+        // buttons. Its keyboard is a menu's too.
+        ReturnsFocusOnClose(opener)
+        val keys = rememberMenuKeyboard(overflowed, table, close)
         CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
             Column(
                 Modifier
                     .testTag(barOverflowMenuTestTag(bar.id))
+                    .menuKeys(keys)
                     .containerDecoration(surface, style, theme, overlay = true, role = ContainerRole.Menu)
                     .menuWidth(),
             ) {
@@ -756,7 +764,7 @@ private fun OverflowMenu(
                         val entry = table.node(childId)
                         val closes = entry != null && entry.widget != WidgetKind.Menu &&
                             entry.flag(PropertyKind.Enabled, default = true)
-                        Box(if (closes) Modifier.closesAfterChoice(scope, close) else Modifier) {
+                        Box(keys.entry(childId).then(if (closes) Modifier.closesAfterChoice(scope, close) else Modifier)) {
                             RenderNode(childId, table, dispatcher)
                         }
                     }
