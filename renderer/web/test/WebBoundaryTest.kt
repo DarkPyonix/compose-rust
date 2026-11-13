@@ -3,6 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -178,6 +179,20 @@ class WebBoundaryTest {
         assertTrue(
             FrameRequests.global.counter.value > before,
             "a frame request has to move the counter the frame clock watches",
+        )
+    }
+
+    /**
+     * The Host's measure import is bound to this export the same way, and a test binary
+     * keeps an export only if one of its tests names it. Without this the Host's
+     * instantiation fails with a link error before any test above reaches it. Addresses
+     * below the Host's region are refused rather than read.
+     */
+    @Test
+    fun pr6_the_measure_export_refuses_addresses_outside_the_host_region() {
+        assertTrue(
+            onMeasure(0, 0, 0, 0) == MeasureRecords.CALL_UNREADABLE,
+            "a measure call naming memory outside the Host's region has to be refused",
         )
     }
 
