@@ -353,6 +353,8 @@ impl Host {
         crate::message::reset_messages();
         // A clipboard write is the same: it belongs to the Host that asked for it.
         crate::clipboard::reset_clipboard();
+        // A question about where a position is on screen was asked of the old Renderer.
+        crate::code::reset_position_queries();
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
@@ -618,6 +620,27 @@ impl Host {
         self.render_and_finish(0)
     }
 
+    /// Hands where a position of a code editor is to the query that asked. The callback
+    /// runs like a handler, and what it changes is in the batch this call returns. An
+    /// answer nobody is waiting for any more is dropped.
+    fn position_rect(
+        &mut self,
+        request: u32,
+        rect: Option<crate::code::CodeRect>,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::code::deliver_position_rect(request, rect)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     /// Hands the Renderer's answer to whoever asked for it: an operation on a file picked on
     /// the web when the request number has its top bit set, a storage operation otherwise.
     ///
@@ -854,6 +877,15 @@ impl Host {
                     names,
                     kinds,
                 );
+            }
+            // Where a position of a code editor is on screen: the answer to a query an
+            // application asked, found by request number. It names the editor it is about
+            // and no handler.
+            EventPayload::PositionRect { request, rect } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.position_rect(request, rect);
             }
             // Where Android keeps the application's files. Operations that were waiting for
             // it go to the storage thread, which wakes them when they finish.

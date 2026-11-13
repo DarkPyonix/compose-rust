@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -28,6 +30,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -58,7 +61,9 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
@@ -106,7 +111,7 @@ private class DrawnState(
     val model: CodeEditorModel,
     var look: CodeEditorLook,
     var callbacks: CodeEditorCallbacks,
-) : DrawnInputTarget {
+) : DrawnInputTarget, CodePointerTarget {
     /** The platform clipboard, set on every composition. */
     lateinit var clipboard: ClipboardManager
 
@@ -123,6 +128,11 @@ private class DrawnState(
     var coordinates: LayoutCoordinates? = null
     var rows: RowMap = RowMap.of(model)
     var scroll: EditorScroll? = null
+
+    /** Where the text area starts, after the gutter, and how many pixels make a dp. */
+    var gutterWidth = 0f
+    var density = 1f
+    var caretWidthPx = 1.5f
     private val views = HashMap<Int, LineView>()
     private var viewsRevision = -1
 
@@ -270,6 +280,69 @@ private class DrawnState(
         callbacks.onOutput()
     }
 
+    /**
+     * Where a caret at [position] is drawn, in this editor's own pixels. [composed] puts it
+     * after what an input method is composing there, which is where the caret is drawn.
+     */
+    private fun caretLocal(position: CodePosition, composed: Boolean): Rect {
+        val view = view(position.line)
+        val column = position.column.coerceIn(0, view.caretAt.size - 1)
+        val shown = view.caretAt[column] + if (composed) composing.length else 0
+        val x = textLeft + view.layout.getHorizontalPosition(shown, true)
+        val y = rows.textRow(position.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
+        return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
+    }
+
+    private fun Rect.inRoot(): Rect {
+        val coordinates = coordinates?.takeIf { it.isAttached } ?: return this
+        return Rect(coordinates.localToRoot(topLeft), size)
+    }
+
+    /** The function the model finds positions with, the same one for as long as this lives. */
+    val locate: (CodePosition) -> CodeRectDp? = { position ->
+        if (!model.document.isValid(position) || model.isHidden(position.line)) {
+            null
+        } else {
+            val local = caretLocal(position, composed = false)
+            val size = coordinates?.size
+            val onScreen = size != null &&
+                local.bottom > 0f && local.top < size.height &&
+                local.left >= gutterWidth - 0.5f && local.left <= size.width + 0.5f
+            if (onScreen) local.inRoot().toDp(density) else null
+        }
+    }
+
+    /**
+     * Tells the model how to find positions and where the caret is, and answers the queries
+     * that waited for the editor to be drawn. Answers whether the Host has something to hear.
+     */
+    fun report(): Boolean {
+        if (coordinates?.isAttached != true || measurer == null) return false
+        model.locator = locate
+        val caret = model.selection.caret
+        if (model.document.isValid(caret)) {
+            model.reportCaretRect(CaretReport(caret, caretLocal(caret, composed = true).inRoot().toDp(density)))
+        }
+        val answered = model.hasWaitingQueries
+        if (answered) model.answerWaitingQueries()
+        return answered || model.caretUntold
+    }
+
+    override fun positionAt(x: Float, y: Float): CodePosition? {
+        if (x < textLeft) return null
+        val row = ((y + (scroll?.offset ?: 0)) / rowPx).toInt()
+        if (y + (scroll?.offset ?: 0) < 0f || row >= rows.totalRows) return null
+        val line = rows.lineAtRow(row)
+        // A lens above the line, and the rows a suggestion of several lines adds below it,
+        // are not the document's text.
+        if (row != rows.textRow(line)) return null
+        val view = view(line)
+        val local = x - textLeft
+        // Past the end of the line, the pointer is over no character.
+        if (local > view.layout.size.width) return null
+        return CodePosition(line, view.column(local))
+    }
+
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
         val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
         val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
@@ -326,6 +399,18 @@ private fun DrawnSurface(
             markColumn + foldColumn + density.changeColumnPx(model, look)
         ).toFloat()
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
+    state.gutterWidth = gutterWidth
+    state.density = density.density
+    state.caretWidthPx = with(density) { 1.5.dp.toPx() }
+    // What the caret report and the waiting queries found is sent from a coroutine rather
+    // than from inside the draw pass that found it.
+    val scope = rememberCoroutineScope()
+    val reportPlaces: () -> Unit = remember(state, scope) {
+        { if (state.report()) scope.launch { state.callbacks.onOutput() } }
+    }
+    DisposableEffect(model, state) {
+        onDispose { if (model.locator === state.locate) model.locator = null }
+    }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
     SideEffect { callbacks.onOutput() }
@@ -365,6 +450,9 @@ private fun DrawnSurface(
     Box(
         modifier
             .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+            // Outside the box that takes presses, so the Host hears a press before the
+            // caret moves for it.
+            .then(callbacks.codePointer(state))
             .changeSemantics(model, look)
             .background(look.container)
             .clipToBounds()
@@ -376,7 +464,10 @@ private fun DrawnSurface(
                 // their rows less the offset, and the extent is only a number.
                 .fillMaxSize()
                 .scrollable(vertical.scrollable, Orientation.Vertical)
-                .onGloballyPositioned { state.coordinates = it }
+                .onGloballyPositioned {
+                    state.coordinates = it
+                    reportPlaces()
+                }
                 .drawnTextInput(state)
                 .focusRequester(focus)
                 .onFocusChanged {
@@ -395,6 +486,8 @@ private fun DrawnSurface(
                             when (event.type) {
                                 PointerEventType.Press -> {
                                     focus.requestFocus()
+                                    // A press the Host took is not the editor's: the caret stays.
+                                    if (change.isConsumed) continue
                                     val (position, onLens) = state.positionAt(change.position)
                                     if (change.position.x < gutterWidth) {
                                         pressGutter(
@@ -447,6 +540,7 @@ private fun DrawnSurface(
                     translate(top = -scroll.toFloat()) {
                         drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
                     }
+                    reportPlaces()
                 },
         )
     }
@@ -482,6 +576,22 @@ private fun DrawScope.drawLines(
         val top = rows.textRow(line) * rowPx
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
             drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx))
+        }
+        // A line background across the text's whole width, then the stronger tint of a range
+        // background over its characters, both behind the selection and the text.
+        if (model.backgroundsPresent) {
+            model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
+                ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
+                ?.let { drawRect(it, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx)) }
+            for (decoration in model.decorations) {
+                if (decoration.kind != DecorationKind.RangeBackground) continue
+                if (line < decoration.start.line || line > decoration.end.line) continue
+                val color = look.rangeBackground(decoration.color ?: continue)
+                if (color == Color.Unspecified || color.alpha == 0f) continue
+                val from = if (line == decoration.start.line) view.charX(decoration.start.column) else 0f
+                val to = if (line == decoration.end.line) view.caretX(decoration.end.column) else view.layout.size.width.toFloat()
+                if (to > from) drawRect(color, Offset(state.textLeft + from, top), Size(to - from, rowPx))
+            }
         }
         lenses[line]?.let { row ->
             val label = state.measurer!!.measure(row.joinToString("  |  ") { it.text }, state.style.copy(color = look.lens))
@@ -536,6 +646,8 @@ private fun DrawScope.drawLines(
 
 /** The keys the drawn editor answers. Typed characters arrive here the way they reach a text field on the desktop. */
 private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
+    // The Host hears the key first, and a key it takes is not the editor's.
+    if (state.callbacks.onKeyPreview(event, state.composing.isNotEmpty())) return true
     // While an input method composes, its keys are its own.
     if (state.composing.isNotEmpty()) return false
     val model = state.model

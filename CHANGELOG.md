@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Line and range backgrounds in the code editor
+
+Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).
+
+### Code editor pointer events with the text under them
+
+A `CodeEditor` with the new `OnCodePointer` handler property (tag 197) and a `PointerKinds` mask sends its pointer events in a `CodePointer` event (tag 66): the 72 byte `Pointer` record of a node's pointer event, then the line and the column of the character under the pointer, or none over the gutter, past the end of a line or below the last one. The kinds, the buttons, the modifiers, the click count, the capture, a move a frame and the consumption rules are a node's pointer event's, and a `Down` the handler consumes does not move the caret. Cmd or Ctrl and a click goes to a definition this way, and Cmd or Ctrl and a hover underlines a word ([#555](https://github.com/DarkPyonix/compose-rust/issues/555)).
+
+### The Host hears the code editor's keys first
+
+A `CodeEditor` with the new `OnKeyPreview` handler property (tag 196) offers every key press to the Host before it handles the key itself, as the `KeyDown` record a key handler hears. A press the handler consumes, through the same synchronous result as any key handler, is not the editor's: Down does not move the caret and Enter inserts no line. Nothing is offered while an input method is composing. A suggestion list takes Up, Down, Enter, Tab and Escape this way while it is open, and an application takes its own commands such as F12, F2, Ctrl+Space or Ctrl/Cmd+. ([#554](https://github.com/DarkPyonix/compose-rust/issues/554)).
+
+### Where the code editor's caret is, and where any position is
+
+A `CodeEditor` with the new `OnCaretRect` handler property (tag 195) reports where it draws its caret in a `CaretRect` event (tag 64): the line, the column and a rectangle in the window's dp, with the editor's scroll and the window's zoom already in it. It is sent when the caret moves or the view scrolls, at most once a frame. `Batch::query_position_rect(node, request, position)` asks where a caret at any other position would be drawn, in a `QueryPositionRect` command (tag 39), and `compose_rust::code::position_query(callback)` gives the request its number. Every query gets exactly one `PositionRect` event (tag 65) back: the rectangle, or `None` where the position is not on screen, is not in the document, or the editor is gone. A suggestion list, a parameter hint, a rename box or a hover card is placed with them ([#553](https://github.com/DarkPyonix/compose-rust/issues/553)).
+
 ## v0.0.8
 
 ### Typing on macOS inserts each character once

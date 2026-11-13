@@ -210,6 +210,17 @@ pub enum EventPayloadType {
     /// The size a node's size motion settled at: `width_dp` and `height_dp`, two `f32` in
     /// dp. A fixed 24-byte record.
     MotionFinished,
+    /// Where a code editor's caret is drawn: the line and the column it stands at, then
+    /// `x`, `y`, `width` and `height` as `f32` in the window's dp. A fixed 40-byte record.
+    CodeCaretRect,
+    /// The answer to one position query: the request number, a word that is 1 when the
+    /// position is on screen and 0 when it is not, then the rectangle as in
+    /// `CodeCaretRect`, all zero when there is none. A fixed 40-byte record.
+    CodePositionRect,
+    /// A pointer event over a code editor: the 72-byte `Pointer` record, then the line and
+    /// the column of the text under the pointer, both `u32::MAX` where it is over none. A
+    /// fixed 80-byte record.
+    CodePointer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -223,13 +234,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_caret_rect,on_key_preview,on_code_pointer;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView;",
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
     "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius"
@@ -402,6 +413,9 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::FileHandles => 32,
                 EventPayloadType::ScrollChanged => 33,
                 EventPayloadType::MotionFinished => 34,
+                EventPayloadType::CodeCaretRect => 35,
+                EventPayloadType::CodePositionRect => 36,
+                EventPayloadType::CodePointer => 37,
             }],
         );
         index += 1;
@@ -1141,15 +1155,19 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
-// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
-// text above a line, a range that answers a resting pointer, and a suggestion shown in
-// place. Each is what a language server or an extension host already speaks in, so an
-// application can pass its answers through without inventing a fifth.
+// What a code editor decoration is: a mark under a range, a line of text above a line, a
+// range that answers a resting pointer, and a suggestion shown in place. Each is what a
+// language server or an extension host already speaks in, so an application can pass its
+// answers through without inventing its own. After them, the two backgrounds a diff view
+// is drawn with: a tint across whole lines, the width of the editor, and a stronger one
+// over the characters that changed. Values are only appended.
 define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     Underline = 1,
     CodeLens = 2,
     HoverAnchor = 3,
     GhostText = 4,
+    LineBackground = 5,
+    RangeBackground = 6,
 });
 
 // How serious an underlined diagnostic is. The four a language server reports, in its
@@ -3603,6 +3621,16 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // than inside a widget's block: 187 to 192 are held by properties other requirements
     // have numbered.
     OnMotionFinished = 193,
+    // The handler a code editor tells where its caret is drawn. 190 to 194 are held by
+    // properties on other branches.
+    OnCaretRect = 195,
+    // The handler a code editor offers each key press to before it handles the key itself.
+    // It hears the `KeyDown` record a key handler does, and a press it consumes is not the
+    // editor's. Never while an input method is composing.
+    OnKeyPreview = 196,
+    // The handler a code editor sends its pointer events to, each with the place in the
+    // text under the pointer. The kinds it hears are the `PointerKinds` mask's.
+    OnCodePointer = 197,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3954,6 +3982,39 @@ pub enum EventPayload<'a> {
     MotionFinished {
         width_dp: f32,
         height_dp: f32,
+    },
+    /// Where a code editor draws its caret, in the window's dp with the scroll and the zoom
+    /// already in it. At most once a frame, when the caret or the view moves.
+    CaretRect {
+        line: u32,
+        column: u32,
+        rect: crate::code::CodeRect,
+    },
+    /// The answer to one `QueryPositionRect`, carrying the request number the Host gave
+    /// it. `None` where the position is not on screen.
+    PositionRect {
+        request: u32,
+        rect: Option<crate::code::CodeRect>,
+    },
+    /// A pointer event over a code editor: every field a `Pointer` event has, with the same
+    /// meaning and the same rules, and the place in the text under the pointer. `position`
+    /// is `None` where the pointer is not over a character: over the gutter, past the end
+    /// of a line or below the last one.
+    CodePointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+        position: Option<crate::code::Position>,
     },
 }
 
@@ -4340,6 +4401,24 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "MotionFinished",
         tag: 63,
         payload: EventPayloadType::MotionFinished,
+    },
+    // Where a code editor's caret is drawn,
+    // and the answer to a question about where a position is.
+    EventSchema {
+        name: "CaretRect",
+        tag: 64,
+        payload: EventPayloadType::CodeCaretRect,
+    },
+    EventSchema {
+        name: "PositionRect",
+        tag: 65,
+        payload: EventPayloadType::CodePositionRect,
+    },
+    // A pointer over a code editor, with the place in the text under it.
+    EventSchema {
+        name: "CodePointer",
+        tag: 66,
+        payload: EventPayloadType::CodePointer,
     },
 ];
 
