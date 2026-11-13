@@ -213,7 +213,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -225,6 +228,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -1586,7 +1591,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3933357373754473195L
+    const val SCHEMA_HASH: Long = 3656562368380844974L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1792,7 +1797,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1805,6 +1810,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
