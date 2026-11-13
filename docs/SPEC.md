@@ -1689,6 +1689,11 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
 6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
+**Android의 뒤로 가기**(이슈 #559, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). Android의 뒤로 가기(시스템 Back 제스처와 버튼)는 Escape와 같은 규칙을 따릅니다. 맨 위의 열린 `Dialog`, `Sheet`, `Popover` 하나에 `OnDismiss`를 한 번 보내고, `Open`은 Host가 바꿉니다. 열린 오버레이가 없으면 Back은 지금처럼 앱(또는 탐색)에 갑니다. IME 조합 중이면 먼저 조합을 끝내는 것도 Escape와 같습니다.
+
+- 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
+- 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -1742,6 +1747,32 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 2. 같은 `Section`을 든 이웃한 목적지들 위에 그 문자열이 머리글로 한 번 나타나고, 문자열이 바뀌면 새 머리글이 납니다.
 3. 막대로 그려진 같은 선언에는 슬롯도 머리글도 나타나지 않고, 목적지들만 나란히 섭니다.
 4. 속성을 보내지 않은 목적지의 그림은 이 변경 전과 같습니다.
+
+#### 21.2.3 애플리케이션이 고르는 Compact 표현 (`Agreed`, 이슈 #526)
+
+[leader, provisional, 2026-11-13] 소유자의 위임을 받은 리더의 결정입니다.
+
+**21.2의 대응은 그대로 툴킷의 기본입니다.** 아무것도 고르지 않은 애플리케이션의 Compact 창은 디자인 시스템이 막대를 두는 곳에서 하단 막대를 받고, Cupertino와 Liquid Glass의 데스크톱에서는 21.2.1의 치워둠을 받습니다.
+
+그런데 같은 좁은 창이라도 애플리케이션마다 참조가 다릅니다. 세로 Gemini 참조는 Android에서도 하단 막대가 없고, 왼쪽 위의 토글이 사이드바를 엽니다. 할 일 참조에는 목적지를 부르는 막대도 토글도 없습니다(FR-22.1). 디자인 시스템의 규칙은 플랫폼을 따르고 애플리케이션을 모르므로 이 차이에 답할 수 없습니다. 그래서 Compact의 표현 하나만은 애플리케이션이 명시적으로 고를 수 있습니다.
+
+- **Rust API**: `Navigation(selected).compact(CompactNavigation::Sidebar)`. 값은 셋입니다.
+  - `CompactNavigation::Default`(와이어 0): 디자인 시스템의 답입니다(21.2, 21.2.1). 고르지 않은 것과 같고 속성을 보내지 않습니다.
+  - `CompactNavigation::Sidebar`(1): 토글 뒤로 치워진 사이드바입니다(21.2.1의 치워둠). 일곱 디자인 시스템 전부에서 같은 뜻이고, 나와 있을 때의 모양(폭, 색, 선택 표시)은 그 디자인 시스템의 서랍과 같습니다.
+  - `CompactNavigation::None`(2): Compact에서 목적지가 화면에 없고 부르는 버튼도 없습니다. 목적지로 가는 길은 애플리케이션이 직접 그립니다(FR-22.3의 6번). 이름은 Compose의 `NavigationSuiteType.None`을 따릅니다.
+- **고르는 것은 Compact 하나입니다.** Medium과 Expanded의 레일과 서랍은 21.2 그대로 디자인 시스템이 답합니다. 앱은 크기 클래스를 읽지 않고(FR-22) 값을 한 번 보내며, 그 값이 어느 폭에서 쓰이는지는 Renderer가 정합니다.
+- **와이어**: 새 속성 `CompactNavigation`(추가 전용 태그 **185**, u32)을 `Navigation`에만 싣습니다. 값은 새 역할 열거형 `CompactNavigation`(`Sidebar = 1`, `None = 2`)의 태그이고, 0은 보내지 않은 것과 같습니다. 스키마 해시가 움직입니다. 21.2.1의 "와이어에 새로 실리는 것이 없습니다"는 기본에 대해 여전히 참입니다.
+- **사이드바가 나와 있는지는 여전히 Renderer의 상태입니다(D5).** 21.2.1과 같이, 사용자가 토글을 여닫는 동안 경계를 넘는 것은 없습니다.
+- **토글은 페이지 내용 위에 그려지지 않습니다.** 치워둠의 토글은 자기 자리를 가집니다. 창 캡션이 있고 페이지가 막대로 시작하면 그 막대의 내용이 창 버튼과 토글 뒤에서 시작하고(FR-19.2의 같은 줄), 그렇지 않으면 페이지가 토글의 줄 아래에서 시작합니다. 앱이 고른 치워둠과 디자인 시스템이 고른 치워둠에 똑같이 적용됩니다. 이슈 #526에서 macOS와 웹의 420폭 academic, social, todo, selfcare가 토글을 페이지 제목 위에 그렸습니다.
+
+수용 기준:
+
+1. `Sidebar`를 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 하단 막대 없이 토글 하나를 그리고, 토글을 누르면 목적지들이 페이지 위로 나옵니다(`fr21_2_3_a_chosen_sidebar_is_put_away_on_every_design_system`).
+2. `None`을 고른 `Navigation`은 일곱 디자인 시스템 전부에서 Compact 창에 목적지도 토글도 그리지 않고, 페이지가 창 전체를 씁니다(`fr21_2_3_a_chosen_none_draws_no_destinations_on_every_design_system`).
+3. 고른 값은 Medium과 Expanded의 표현을 바꾸지 않습니다(`fr21_2_3_the_choice_leaves_medium_and_expanded_to_the_design_system`).
+4. 치워둠의 토글은 페이지 내용과 겹치지 않습니다. `Navigation`이 페이지를 직접 들 때와 `Scaffold`의 하단 슬롯에 있을 때, 페이지가 막대로 시작할 때와 그렇지 않을 때, 그 넷 모두에서 일곱 디자인 시스템 전부의 토글 경계가 페이지 첫 내용의 경계와 겹치지 않습니다(`fr21_2_3_the_toggle_never_overlaps_the_page`). 창 캡션이 있을 때 막대의 내용이 토글 뒤에서 시작하는 것도 확인합니다(`fr21_2_3_a_bar_on_the_caption_starts_after_the_toggle`).
+5. 값을 고르지 않은 `Navigation`은 이 변경 전과 같은 표현으로 그려집니다(`fr21_2_3_without_a_choice_the_design_system_answers_as_before`).
+6. Rust API가 `Sidebar`와 `None`을 태그 185의 1과 2로 쓰고, 고르지 않으면 이 속성을 보내지 않습니다(`fr21_2_3_compact_navigation_writes_its_tag`).
 
 #### 21.5.1 참조 화면이 요구하는 의미들 (`Agreed`)
 
@@ -1925,9 +1956,9 @@ Gemini 참조의 배경과 검색도 샘플이 색과 크기를 정해서는 만
 1. 계산기 화면이 식 줄, 결과 줄, 키패드 순서로 나옵니다. 참조에 메모리 줄이 있는 Fluent 2와 Deepin에서는 결과 줄과 키패드 사이에 메모리 줄이 서고, 메모리 키가 실제로 값을 저장하고 되불러옵니다. Liquid Glass와 Cupertino(macOS 참조에 메모리 줄이 없습니다)와 참조가 없는 Material 3, GNOME, Breeze에는 메모리 줄이 없습니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 문구는 세 참조 모두에 메모리 줄을 요구해 macOS 참조와 맞지 않았습니다.
 2. 계산기의 키패드가 창 아래쪽에 붙고, 읽는 자리가 남는 높이를 가져갑니다. 참조 셋의 비율(읽는 자리 하나에 키패드 둘에서 셋)을 따릅니다.
 3. 메모장이 문서를 여러 개 들고, 문서 이름이 페이지 맨 위 제목으로 섭니다. Expanded에서 목록이 문서 옆에 서고, 그보다 좁으면 시트로 물러납니다. 서식 제어는 별도 시트에서 문서의 글자 역할을 바꿉니다.
-4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다. Compact에서 목적지 집합은 하단 막대가 아니라 세로 Gemini 참조처럼 토글 뒤의 사이드바입니다. 샘플은 크기 클래스로 분기하지 않습니다. 이것은 툴킷의 Compact `Navigation` 표현(FR-21.2.1의 치워둠)이고, 토글은 페이지 내용과 겹치지 않습니다(이슈 #526). Medium과 Expanded는 22.1 표 그대로입니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 22.1 표는 Compact를 하단 막대로 적어 참조와 맞지 않았습니다.
+4. 채팅의 목적지 집합이 하나의 `Navigation` 선언이고, 대화가 비어 있을 때 가운데에 안내가 섭니다. Compact에서 목적지 집합은 하단 막대가 아니라 세로 Gemini 참조처럼 토글 뒤의 사이드바입니다. 샘플은 크기 클래스로 분기하지 않고, `Navigation`에 `CompactNavigation::Sidebar`를 고릅니다(FR-21.2.3). 그래서 이 기준은 일곱 디자인 시스템 전부에서 성립하고, 토글은 페이지 내용과 겹치지 않습니다(이슈 #526). Medium과 Expanded는 22.1 표 그대로입니다. [leader, provisional, 2026-11-13] 이전 문구는 이것을 툴킷의 Compact 표현이라고 적었습니다. 툴킷의 기본은 FR-21.2 그대로이고, 이 표현은 샘플이 명시적으로 고른 것입니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 이전 22.1 표는 Compact를 하단 막대로 적어 참조와 맞지 않았습니다.
 5. 채팅의 작성란이 `ShapeRole::Full`의 떠 있는 막대이며, 보내기는 그 안에 있습니다.
-6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다. Compact에는 하단 막대가 없습니다. 목적지 목록은 따로 선 화면이고, 페이지 왼쪽 아래의 떠 있는 뒤로 버튼이 그 화면으로 가며, 오른쪽 아래의 떠 있는 추가 버튼이 작성을 엽니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 할 일 참조 네 장에는 하단 막대가 없습니다.
+6. 할 일의 제목이 두 줄이고, Compact에서 작성이 시트로 물러납니다. Compact에는 하단 막대가 없습니다. 샘플이 `Navigation`에 `CompactNavigation::None`을 고르므로(FR-21.2.3) 이 기준은 일곱 디자인 시스템 전부에서 성립합니다([leader, provisional, 2026-11-13]). 목적지 목록은 따로 선 화면이고, 페이지 왼쪽 아래의 떠 있는 뒤로 버튼이 그 화면으로 가며, 오른쪽 아래의 떠 있는 추가 버튼이 작성을 엽니다. 2026-11-13: 참조 그림을 따르도록 고쳤습니다(소유자). 할 일 참조 네 장에는 하단 막대가 없습니다.
 7. 네 샘플이 일곱 디자인 시스템 × 두 색 구성 × 세 폭 전부에서 기록되고 그려집니다(`scripts/sample-shots.sh`).
 8. 적응형 샘플 네 개(22.1)의 소스 어디에도 16진수 색 리터럴이 없습니다. `scripts/tests/samples-speak-in-roles.test.sh`가 그 넷을 검사합니다. 통합 샘플은 22.5를 따릅니다.
 9. 계산기의 `Operator` 키가 Cupertino, Fluent 2, Deepin에서 22.2 표의 서로 다른 표현으로 나옵니다. Fluent 2에서 강조색 바탕은 등호 하나뿐입니다.
@@ -2079,6 +2110,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - Windows와 Linux는 각자의 답이 있을 때까지 FR-23.3의 흐림으로 남습니다. 창 뒤를 비추지 못하는 것과 흐리지 못하는 것은 다른 이야기이고, 뒤쪽은 이미 할 수 있습니다.
 - 14.1의 규칙은 그대로입니다. 이것이 켜졌을 때에만 "창 뒤를 비춘다"고 말할 수 있고, 켜지지 않은 환경에서 그렇게 주장하지 않습니다.
 - 수용 기준: macOS에서 이 재질을 쓴 창이 뒤에 있는 창을 실제로 비춥니다(스크린샷을 데스크톱 배경만 바꿔 두 번 찍어 픽셀이 달라지는 것으로 확인합니다). 재질을 쓰지 않은 창은 지금과 같은 경로로 뜨고 `NSVisualEffectView`가 만들어지지 않습니다. 이 기능이 없는 플랫폼에서 같은 선언이 흐림으로 그려집니다.
+- 수용 기준 [leader, provisional, 2026-11-13]: 창의 모양(appearance)은 테마가 정한 명암(`ColorScheme`)을 따르고, 그래서 재질도 그 명암으로 그려집니다. `Light`이면 시스템이 어두워도 밝은 모양이고(`fr29_light_theme_on_a_dark_system_draws_a_light_material`), `Dark`이면 시스템이 밝아도 어두운 모양입니다(`fr29_dark_theme_on_a_light_system_draws_a_dark_material`). `FollowSystem`이면 창이 자기 모양을 갖지 않으므로 시스템 명암이 바뀌는 대로 바로 따라갑니다(`fr14_follow_system_tracks_the_system_live`). 테마의 명암과 시스템이 다를 때 반투명한 크롬이 반대 명암의 재질 위에 놓여 화면이 회색으로 뜨는 일을 막기 위한 기준입니다.
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
@@ -2136,6 +2168,65 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
    제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
 2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
 3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+
+#### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
+
+[leader, provisional, 2026-11-13] 소유자의 위임을 받은 리더의 결정입니다.
+
+`TopAppBar`의 동작이 막대에 다 들어가지 않으면, 들어가지 않는 동작은 막대가 직접 그리는
+"더 보기" 메뉴로 옮겨 갑니다. 지금은 막대의 자식이 Compose `Row`에 놓이고, `Row`는 앞의
+자식에게 먼저 폭을 줍니다. 그래서 뒤쪽 동작이 폭 0으로 눌리거나 잘리고, 그 동작에 닿을
+방법이 없습니다. 420dp의 macOS 창에서 notepad의 막대가 "File"을 빈 알약으로 그리고 "Format"과
+"Save"를 아예 그리지 않았습니다. 동작 하나를 조용히 잃는 막대는 애플리케이션이 쓴 것을 그리지
+않은 것입니다.
+
+- **뒤쪽 동작이 무엇인지.** 막대의 자식 중 맨 끝에서부터 이어지는 `Button`과 `Menu` 노드의
+  연속이 뒤쪽 동작입니다. `Weight` 수정자가 있는 자식과, `Button`도 `Menu`도 아닌 자식이 그
+  연속을 끊습니다. 그 앞의 자식(뒤로 버튼, 막대 안의 `Text`, 가중치를 받은 여백, 애플리케이션이
+  넣은 `Row`나 `Box`)과 `title` 속성의 제목은 앞쪽 내용이며 지금처럼 자리를 지킵니다.
+- **우선순위는 선언 순서입니다.** 스키마에는 동작의 우선순위를 말하는 속성이 없고, 이 항목도
+  그것을 더하지 않습니다. 먼저 선언한 동작이 가장 오래 막대에 남고, 폭이 줄면 마지막에 선언한
+  동작부터 메뉴로 갑니다. 메뉴 안의 순서도 선언 순서입니다. 끝까지 남겨야 하는 동작은 먼저
+  씁니다.
+- **막대는 동작을 자르지 않습니다.** 각 동작은 자기 고유 폭으로 잽니다. 앞쪽 내용이 쓰고 남은
+  폭에 고유 폭 그대로 들어가는 앞부분만 막대에 그리고, 나머지는 빠짐없이 메뉴에 넣습니다.
+  막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않습니다.
+- **넘침 버튼.** 넘친 동작이 하나라도 있을 때에만 막대에 남은 동작들 뒤에 넘침 버튼 하나가
+  섭니다. 그림은 디자인 시스템의 `IconRole::More`이고, 모양은 그 디자인 시스템의 글자 없는
+  `Text` 버튼과 같습니다. 접근성 이름은 "More actions"입니다. 넘침 버튼의 폭도
+  남은 폭 안에서 셉니다.
+- **메뉴는 `Menu`의 팝업과 같습니다.** 넘침 버튼을 누르면 그 아래에 메뉴가 열리고, 모양과
+  자리 규칙은 `Menu`의 팝업과 같습니다(FR-15.2.3). 넘친 동작은 메뉴 안에서 같은 노드로 그려지며,
+  고르면 그 노드 자신의 `Clicked`가 그 노드의 id와 핸들러로 갑니다. 한 노드는 한 번에 한 곳(막대
+  또는 메뉴)에만 그려집니다. 항목을 고르면 메뉴가 닫힙니다. 넘친 것이 `Menu`이면 그 앵커를 눌러도
+  막대의 메뉴는 닫히지 않습니다. 그 `Menu`가 자기 팝업을 열어야 하기 때문입니다.
+- **모든 막대 경로에서 같습니다.** 띠로 그리는 막대(창 캡션을 겸하는 막대 포함, FR-19.2),
+  제목을 창 가운데 두는 막대(FR-15.2의 제목 정렬), 떠 있는 캡슐로 그리는 막대(Liquid Glass)가
+  모두 이 규칙을 따릅니다. 떠 있는 막대에서 넘침 버튼은 바로 앞의 일반 동작과 같은 캡슐에
+  들어갑니다. 인터프리터는 데스크톱, iOS, Android, 웹이 같은 파일이므로 플랫폼마다 따로 두지
+  않습니다.
+- **와이어는 바뀌지 않습니다.** 무엇이 넘쳤는지는 폭에 달린 Renderer의 상태이고(D5), Host는
+  그것을 알 필요가 없습니다. 경계 진입점, 위젯 태그, 속성 태그, 이벤트 태그가 모두 그대로입니다.
+
+수용 기준:
+
+1. 동작 다섯 개를 단 막대를 좁은 폭으로 그리면 마지막에 선언한 동작들이 막대에 없고 넘침
+   버튼이 있으며, 넘침 버튼을 누르면 그 동작들이 선언 순서대로 메뉴에 나옵니다. 막대에 남은
+   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다
+   (`fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu`).
+2. 메뉴의 동작을 누르면 그 노드의 `Clicked`가 그 노드의 id와 핸들러로 한 번 가고, 메뉴가
+   닫힙니다(`fr30_3_an_overflowed_action_is_still_invokable`).
+3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
+   (`fr30_3_nothing_overflows_when_there_is_room`).
+4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
+   (`fr30_3_leading_content_keeps_its_place`).
+6. 넘침 버튼의 접근성 이름이 "More actions"입니다
+   (`fr30_3_the_overflow_button_has_an_accessible_name`).
+7. 1과 3이 창 캡션을 겸하는 막대(캡션 높이와 창 버튼 폭이 있는 창), GNOME의 가운데 제목 막대,
+   Liquid Glass의 떠 있는 막대에서도 성립합니다
+   (`fr30_3_every_bar_path_overflows_the_same_way`).
 
 ### FR-31 Scaffold (`Draft`)
 
@@ -3832,6 +3923,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 12. 새 레코드와 이벤트가 Rust와 Kotlin에서 같은 바이트로 인코딩되고 디코딩됩니다(프로토콜 벡터, fr53_window_records_round_trip). 루트가 아닌 자리의 `Window`와 창 사이의 `Move`는 `ProtocolError`이고 프로세스는 계속 돕니다(nfr7_misplaced_window_is_a_protocol_error).
 13. Web 렌더러에서 둘째 `Window` 노드는 `WindowUnavailable` 한 건을 받고, 첫째 창은 그대로 그려집니다(fr53_unsupported_platform_reports_unavailable).
 14. 창 셋이 열린 장면에서 정상 상태 프레임의 Host 할당이 0이고 프레임 시간이 NFR-9 예산 안입니다. 둘째 창을 여는 데 드는 메모리를 플랫폼마다 재어 이 항목에 기록합니다.
+    - **macOS(Kotlin/Native, Apple Silicon, 2026-11-13, #405).** `scripts/parity/macos-windows.sh`로 다중 창 픽스처를 창 1, 2, 3개로 띄우고 30초 쉬게 해 잰 값입니다. 유휴 CPU는 1.03%, 1.07%, 1.16%(다시 잰 값 0.70%, 0.94%, 1.03%), 쉬는 동안의 초당 프레임은 0.63, 0, 0(다시 잰 값 0.07, 0, 0), 메모리 풋프린트는 44, 51, 71MB(다시 잰 값 43, 57, 71MB)입니다. 둘째 창은 7MB와 14MB로 재졌습니다. 메인 런 루프의 60Hz 타이머가 장면들을 돌리므로(포크가 `NSApplication.run()` 아래에서 창 이벤트를 비우지 않음) 이 값에는 그 타이머가 들어 있습니다. Host 할당과 프레임 시간은 이 측정에 들어 있지 않습니다.
 15. **Android(에뮬레이터, 계측 테스트).** 둘째 `Window` 노드를 넣으면 같은 프로세스에 둘째 Activity가 따로의 작업(`ActivityManager.appTasks`가 둘)으로 뜨고, 한 Activity의 핸들러가 쓴 상태가 다른 Activity의 화면에 같은 배치로 반영됩니다(fr53_android_second_window_is_a_second_activity). 둘째 Activity를 회전시켜도 같은 노드 id를 그리고 상태가 남으며 `WindowClosed`, `WindowRequested`가 가지 않습니다(fr53_android_recreation_keeps_the_window). 뒤로 가기는 `WindowCloseRequested`, 노드를 지우면 Activity가 끝나고 작업이 사라집니다(fr53_android_back_and_remove_close_the_activity). 태블릿 에뮬레이터(API 33 이상)에서 `TearOffKey` 노드를 UiAutomator로 끌어 분할 자리에 놓으면 `WindowRequested`가 그 키로 오고, 자유 형태 창을 켠 에뮬레이터에서 `Position`과 `Size`가 처음 크기로 쓰입니다(fr53_android_drag_to_split_requests_a_window, fr53_android_launch_bounds_follow_position_and_size).
 16. **iPadOS(iPad 시뮬레이터, XCUITest).** 둘째 `Window` 노드를 넣으면 `connectedScenes`가 둘이 되고 두 장면이 같은 상태를 그립니다(fr53_ipados_second_window_is_a_second_scene). 장면의 연결 끊김과 다시 이음을 장면 대리자 호출로 재현했을 때 같은 노드 id와 상태를 그립니다(fr53_ios_scene_reconnect_keeps_the_window). `TearOffKey` 노드의 끌기가 키를 실은 `NSUserActivity`를 등록하고(fr53_ipados_tear_off_registers_a_user_activity), 화면 가장자리로 끌어 놓으면 `WindowRequested`가 그 키로 옵니다(fr53_ipados_drop_at_edge_requests_a_window).
 17. **iOS(iPhone 시뮬레이터).** 둘째 `Window` 노드를 넣으면 새 장면이 앞에 오고, 전 장면은 `WindowFocusChanged(0)`을 받고 닫히지 않습니다. `TearOffKey` 노드는 끌기를 시작하지 않습니다(fr53_iphone_new_window_switches_scene).
@@ -4255,7 +4347,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
 - `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
 - 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
-- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 대신 그 파일의 길이를 4바이트 little-endian으로 실은 `TooLarge` 답 하나가 됩니다. FR-79.5와 같은 `IoAnswer`이고 같은 규칙입니다 [leader, provisional, 2026-11-13]. 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
 - 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
 
 
@@ -4392,11 +4484,15 @@ pub mod storage {
     pub const MAX_KEY_BYTES: usize = 128;
     pub const MAX_VALUE_BYTES: usize = 16 * 1024 * 1024;
 
-    pub async fn read(key: impl Into<String>) -> Result<Option<Vec<u8>>, StorageError>;
-    pub async fn read_string(key: impl Into<String>) -> Result<Option<String>, StorageError>;
-    pub async fn write(key: impl Into<String>, value: impl Into<Vec<u8>>) -> Result<(), StorageError>;
-    pub async fn remove(key: impl Into<String>) -> Result<(), StorageError>;
-    pub async fn keys() -> Result<Vec<String>, StorageError>;
+    pub fn read(key: impl Into<String>)
+        -> impl Future<Output = Result<Option<Vec<u8>>, StorageError>> + 'static;
+    pub fn read_string(key: impl Into<String>)
+        -> impl Future<Output = Result<Option<String>, StorageError>> + 'static;
+    pub fn write(key: impl Into<String>, value: impl Into<Vec<u8>>)
+        -> impl Future<Output = Result<(), StorageError>> + 'static;
+    pub fn remove(key: impl Into<String>)
+        -> impl Future<Output = Result<(), StorageError>> + 'static;
+    pub fn keys() -> impl Future<Output = Result<Vec<String>, StorageError>> + 'static;
 
     #[non_exhaustive]
     pub enum StorageError {
@@ -4418,6 +4514,7 @@ pub mod storage {
 ```
 
 - **모든 플랫폼에서 async입니다.** Web에서 `with_worker`는 일을 그 자리에서 돌리는 동기 클로저이고(PR-3의 Web 절), IndexedDB는 메인 스레드에서 동기로 쓸 수 없습니다. 그래서 저장 연산은 `with_worker` 안에서 부르는 동기 함수가 될 수 없고, 결과는 future로 옵니다. 같은 이유로 `with_worker`의 클로저 안에서는 이 API를 쓰지 않습니다.
+- **연산은 future를 돌려주는 함수이고, `async fn`이 아닙니다.** [leader, provisional, 2026-11-13] `async fn`은 처음 await될 때까지 아무것도 하지 않습니다. 그러면 기다리지 않고 잇달아 부른 연산이 부른 순서대로 놓이지 않고, 아래의 같은 키 순서(79.8 기준 4)를 지킬 수 없습니다. 그래서 연산은 함수를 부르는 그 자리에서 순서 목록에 들어가고, 돌려받은 future는 그 결과를 기다릴 뿐입니다.
 - **UI 스레드에서 부릅니다.** composition, 이펙트(`launched_effect`, 코루틴 스코프의 `launch`), 이벤트 핸들러에서 부르고 await합니다. future는 `Send`가 아니고, 완료는 UI 스레드에서 일어납니다. 워커 스레드에서 직접 부르는 길은 두지 않습니다. Web에는 워커가 없으므로, 같은 코드가 모든 플랫폼에서 돌게 하려는 것입니다.
 - 없는 키를 읽으면 `Ok(None)`입니다. 오류가 아닙니다. 첫 실행에는 값이 없기 때문입니다.
 - `keys()`는 이 앱의 키를 사전순으로 돌려줍니다.
@@ -4450,7 +4547,7 @@ pub mod storage {
 | Android | `Context.getFilesDir()/compose-rust/storage/<키>` | Host 워커. 경로는 Renderer가 알려 줍니다(아래) |
 | Web | IndexedDB 데이터베이스 `compose-rust/<식별자>`, 객체 저장소 `values`, 키는 그대로 | Renderer(Kotlin/Wasm) |
 
-- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
+- **경로는 Host가 셉니다. Android만 예외입니다.** 데스크톱과 iOS는 환경 변수(`HOME`, `XDG_DATA_HOME`, `APPDATA`)로 정해지므로 Rust가 플랫폼 함수를 부르지 않습니다(손으로 쓴 FFI가 없습니다). Android의 앱 파일 폴더는 `Context`만 알므로, Renderer가 시작할 때 첫 프레임 전에 이벤트 `StorageLocation { path }`(이벤트 태그 59)를 한 번 보냅니다. `path`는 앱 파일 폴더(`Context.getFilesDir()`) 그 자체이고, Host가 그 뒤에 `compose-rust/storage`를 붙여 위 표의 자리를 만듭니다 [leader, provisional, 2026-11-13]. 그 전에 시작된 저장 연산은 그 이벤트가 올 때까지 기다립니다. 다른 플랫폼의 Renderer는 이 이벤트를 보내지 않습니다.
 - **개발과 시험용 덮어쓰기**: 환경 변수 `COMPOSE_RUST_STORAGE_DIR`가 있으면 네이티브에서는 그 폴더가 `<...>/storage`를 대신합니다. 시험이 사용자의 실제 데이터를 건드리지 않게 하려는 것입니다.
 - **확대 수준(FR-43)과는 다른 자리입니다.** FR-43의 값은 Renderer가 가진 UI 로컬 상태(D5)이고 Renderer가 저장합니다. 이 항목의 값은 앱의 도메인 상태이고 Host가 저장합니다(PR-3). 둘은 섞이지 않습니다.
 
@@ -4467,13 +4564,14 @@ pub mod storage {
 **Web에서는 FR-72, FR-78과 같은 요청과 결과의 모양입니다.** 새 경계 함수는 없습니다(PR-2). Rust는 브라우저 함수를 import하지 않습니다. `wasm_bindgen`도, 손으로 쓴 JS도 없고, IndexedDB를 부르는 것은 Renderer의 Kotlin(`renderer/web/src/WebStorage.kt`, `WebClipboard.kt`와 같은 자리)입니다. Renderer가 플랫폼 API를 부르는 것은 macOS Renderer가 `NSSavePanel`을 부르는 것과 같은 일이고, FR-7이 막는 것은 Rust와 Kotlin 사이의 손으로 쓴 접착입니다.
 
 - 명령 `StorageCall`(명령 태그 32): 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Remove=3`, `Keys=4`), 예약 `u16`, 문자열 `store`(앱 식별자), 문자열 `key`(`Keys`에서는 길이 0), 바이트 `data`(`Write`에서만, 나머지는 길이 0). 바이트는 `RegisterAsset`(FR-16.2)처럼 레코드 뒤 문자열 영역에 놓입니다.
-- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
-- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`. Android Renderer만 보냅니다(79.4).
+- 이벤트 `IoAnswer`(이벤트 태그 57): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), `request: u32`, `status: u32`, 바이트 `data: (offset, len)`. `Read`는 값을, `Keys`는 키들을 NUL로 이은 것을 싣고, `Write`와 `Remove`는 길이 0입니다. `TooLarge` 답은 값 대신 그 값의 길이를 4바이트 little-endian으로 `data`에 싣습니다 [leader, provisional, 2026-11-13]. FR-72.9의 파일 연산도 같은 이벤트로 답합니다.
+- 이벤트 `StorageLocation`(이벤트 태그 59): 공통 머리 16바이트(`node_id = 0`, `handler_id = 0`), 문자열 `path`(앱 파일 폴더. Host가 `compose-rust/storage`를 붙입니다) [leader, provisional, 2026-11-13]. Android Renderer만 보냅니다(79.4).
 - `status`는 닫힌 열거형입니다. `Ok=1`, `NotFound=2`, `QuotaExceeded=3`, `Unavailable=4`, `PermissionDenied=5`, `Failed=6`, `ReadOnly=7`, `TooLarge=8`. 모르는 값은 `ProtocolError`입니다. `op`도 같습니다.
 - **요청마다 `IoAnswer`는 정확히 하나입니다.** FR-72.2와 같은 규칙이고 같은 이유입니다. 기다리는 future를 풀 수 있어야 합니다. 이미 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청은 영향을 받지 않습니다. 답을 받기 전에 그 future를 기다리던 composition이 떠나도 답은 하나 오고, Host는 그것을 버립니다.
-- **쓰는 바이트는 한 번만 복사됩니다.** Renderer는 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 가리키는 `Uint8Array` 뷰를 만들어 `put`에 넘깁니다. `put`의 structured clone이 브라우저의 저장 버퍼로 가는 복사 한 번이고, 이것이 쓰기 자체입니다(네이티브의 `write`가 커널 버퍼로 복사하는 것과 같습니다). Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
-- **읽은 바이트는 이벤트 버퍼에 한 번 써서 옵니다.** IndexedDB가 준 `ArrayBuffer`를 Renderer가 이벤트 버퍼에 복사하고 `dispatch_event`를 부릅니다. 이 복사는 브라우저가 가진 메모리에서 wasm 메모리로 오는 것이라 피할 수 없고, 그 뒤로 Host는 제자리에서 읽습니다.
-- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값을 싣지 않은 `TooLarge` 답 하나를 보내고(요청마다 답 하나), Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
+- **Web에서 쓰기와 읽기는 각각 값을 두 번 복사합니다.** [leader, provisional, 2026-11-13] 쓰기에서는 Renderer가 배치를 적용하는 그 호출 안에서 공유 메모리 위의 `data`를 `slice()`로 떼어 내는 것이 한 번, `put`의 structured clone이 그것을 브라우저의 저장 버퍼로 가져가는 것이 한 번입니다. 공유 메모리를 가리키는 `Uint8Array` 뷰를 그대로 `put`에 넘기지 않는 이유는, structured clone이 뷰가 보는 부분이 아니라 뒤의 버퍼 전체, 곧 wasm 메모리 전부를 복사하기 때문입니다. `slice()`는 Host가 호출이 끝난 뒤 그 메모리에 다시 쓸 수 있으므로 어차피 그 호출 안에서 해야 합니다.
+- 읽기에서는 IndexedDB가 준 값을 Renderer가 Kotlin 쪽으로 옮기는 것이 한 번, 그것을 이벤트 버퍼에 써서 `dispatch_event`를 부르는 것이 한 번입니다. 그 뒤로 Host는 제자리에서 읽습니다. 두 방향 모두 Rust와 Kotlin 사이의 복사는 없습니다(PR-6).
+- 측정: 미측정. develop의 웹 빌드에서 notepad/todo가 저장소를 쓰게 된 뒤 값 크기별 시간을 여기에 적습니다.
+- **4 KiB를 넘는 답은 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. 이 항목은 그 규칙을 따로 정하지 않습니다. #583이 들어오기 전에는 답이 버퍼에 들어가지 않으면 Renderer는 값 대신 값의 길이(4바이트 little-endian)를 실은 `TooLarge` 답 하나를 보내고(요청마다 답 하나) [leader, provisional, 2026-11-13], Host는 `StorageError::TooLarge { len, limit }`로 알립니다. `limit`는 그 답이 실을 수 있던 크기입니다. 조용히 잃지 않습니다.
 - 연산이 끝나면(성공이든 실패든) Renderer는 Promise가 풀린 그 작업 안에서 `IoAnswer`를 보냅니다. future는 그 `dispatch_event` 안에서 깨어나고, 그것을 기다리던 코드는 그 호출이 만드는 배치에 반영됩니다.
 - 네이티브 Renderer는 `StorageCall`을 받을 일이 없습니다. 받으면 `Unavailable`로 답합니다(요청마다 답 하나라는 규칙).
 - 이 항목이 더하는 것은 명령 하나, 이벤트 둘, 열거 둘입니다. 속성 태그는 쓰지 않습니다. 새 `EventPayloadType`이 생기고 스키마 해시가 바뀝니다. 기존 태그와 레코드는 바뀌지 않습니다(PR-4의 추가 전용).
@@ -4516,8 +4614,8 @@ pub mod storage {
 13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
 14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
 15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
-16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
-17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web. 이 시험은 Web Renderer처럼 답하는 저장소를 둔 채 Host를 새로 만들어 다시 불러오기를 확인합니다. `samples-web` 페이지를 Playwright로 다시 부르는 CI 확인은 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session).
 18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
 
 ### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
@@ -4540,7 +4638,7 @@ pub mod storage {
 - **보내는 때.** 핸들러가 붙은 노드의 처음 배치 뒤에 한 번(처음 값), 그 뒤로는 오프셋, `max`, 뷰포트 가운데 무엇이 바뀐 프레임마다 **많아야 한 번** 그 프레임의 마지막 값으로, 그리고 끌기, 플링, 애니메이션이 끝나면 `settled`를 켠 보고를 한 번 보냅니다. 바뀐 것이 없으면 보내지 않습니다. 이미 그 자리에 있어 아무것도 움직이지 않은 요청에는 보고가 없습니다(브라우저가 같은 `scrollTop`에 `scroll` 이벤트를 내지 않는 것과 같습니다). Host의 `scrollTop` 읽기는 마지막 보고를 돌려줍니다. 보고가 오기 전의 읽기에 무엇을 돌려줄지는 Host가 정하지만, 다음 보고가 언제나 이깁니다.
 - **`CodeEditor`와의 관계(FR-38, #544).** `SetScrollOffset`(30)과 `CodeScrolled`(55)는 FR-38의 것으로 그대로 둡니다. `CodeEditor`에서 `SetScrollOffset(n, o)`는 `ScrollTo(n, y_px = o, animate 없음)`과 같은 일이고 Renderer는 둘을 한 경로로 처리합니다. 두 핸들러가 다 붙은 편집기에서는 같은 프레임의 `CodeScrolled.offset_px`와 `ScrollChanged.y_px`가 같습니다.
 - **`ScrollState`와의 관계(FR-62).** FR-62의 속성과 `RangeRequested` 보고는 바뀌지 않습니다. 한 배치에서 같은 노드가 FR-62의 이동 요청과 `ScrollTo`를 둘 다 받으면 배치 순서대로 적용합니다.
-- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(17)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(18)입니다: NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
+- **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다. 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다. 스크롤 컨테이너가 아닌 노드(`Box`, `Text` 등)에 온 명령은 새 코드 `TableError.NOT_SCROLLABLE`(19)입니다. 값이 말이 안 되는 레코드는 새 코드 `TableError.INVALID_SCROLL`(20)입니다(17과 18은 FR-79의 `DUPLICATE_IO_REQUEST`와 FR-72의 `DUPLICATE_FILE_CALL`이 먼저 썼습니다): NaN이나 무한대 좌표, 음수 폭이나 높이, 모르는 정렬 값이나 `target_kind`, 모르는 플래그 비트, 두 축 비트가 다 꺼진 `ScrollTo`, Lazy 목록이 아닌 위젯의 `item != 0`이나 `Item`, Lazy 목록의 `Content`, 그 컨테이너의 자손이 아닌 `Node` 대상. `OnScrollChanged`를 스크롤 컨테이너가 아닌 노드에 붙이면 기존 `TableError.UNSUPPORTED_PROPERTY`입니다. 길이가 맞지 않는 레코드는 다른 명령과 같이 `InvalidRecordLength`입니다.
 - **Host API.** `runtime::Batch::scroll_to(node_id, ScrollTo { x_px: Option<f64>, y_px: Option<f64>, item: u32, animate: bool })`와 `runtime::Batch::scroll_into_view(node_id, ScrollIntoView { target: ScrollTarget, align_x: ScrollAlign, align_y: ScrollAlign, animate: bool })`가 명령을 배치에 기록하고(`ScrollTarget::{Content(Rect), Node(u32, Rect), Item(u32, Rect)}`), `Mutation::ScrollTo`, `Mutation::ScrollIntoView`, `EventPayload::ScrollChanged`, `PropertyKind::OnScrollChanged`가 스키마에 있습니다. 경계 함수는 늘지 않습니다(PR-2).
 - **번호.** 명령 30은 FR-38(#544)의 `SetScrollOffset`, 31은 FR-78의 `ReadClipboard`, 32는 FR-79의 `StorageCall`, 33과 34는 FR-72의 `FileCall`, `ReleaseFileHandle`이므로 35, 36입니다. 이벤트 54, 55는 FR-38(#544)의 `CodeMetrics`, `CodeScrolled`, 56은 FR-78의 `ClipboardText`, 57과 59는 FR-79의 `IoAnswer`, `StorageLocation`, 58은 FR-72의 `FileHandles`이므로 60입니다. 속성 178-184는 FR-38(#544)의 편집기 모양과 핸들러, 185는 FR-21(#526)의 `CompactNavigation`이므로 186입니다. 위젯 하나의 블록이 아니라 여러 위젯이 함께 쓰는 핸들러 하나이므로 15.2.2의 십 단위 블록을 열지 않고 마지막 사용분 바로 뒤를 씁니다. 스키마 서술 문자열 끝에 더하므로(`commands=...,ScrollTo,ScrollIntoView`, `events=...,ScrollChanged`, `properties=...,on_scroll_changed`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
 - **구현 범위.** 스키마와 codegen, Rust 인코더와 디코더, 데스크톱 Kotlin 렌더러(macOS, Windows, Linux가 같은 코드)와 `android-kotlin/shared`의 `NodeTable`, 프로토콜 벡터입니다. dioxus-compose의 HTML 연결(`scrollIntoView`, `scrollTop`/`scrollLeft`, `onscroll`)은 dioxus-compose#200과 #179가 이 와이어 위에 만듭니다.
@@ -4997,6 +5095,7 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
+- **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
 - **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
 - **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
@@ -5005,6 +5104,8 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
   3. forwarder의 호출당 비용을 실측해 기록합니다.
   4. M0 화면이 데스크톱과 같은 Rust 소스로 브라우저에 뜨고, 클릭이 Rust에 도달하며, Rust의 상태 변경이 화면에 반영됩니다.
   5. 생성된 Kotlin 선언, 생성된 forwarder, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
+  6. Web에서 64KiB `ClipboardText`, 32KiB `TextChanged`, 1MiB `IoAnswer`가 그대로 Host에 도착합니다(pr6_an_event_larger_than_the_lent_buffer_arrives_whole). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)
+  7. 64MiB를 넘는 이벤트는 거절되고 아무것도 보내지 않습니다(pr6_an_event_past_the_ceiling_is_refused).
 
 **검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
 

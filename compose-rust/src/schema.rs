@@ -196,6 +196,17 @@ pub enum EventPayloadType {
     /// What one clipboard read found: the request number, the status word, the text's length
     /// in bytes, and the text as one string reference.
     ClipboardText,
+    /// The one answer to an input or output request the Host made of the Renderer: the
+    /// request number, an `IoStatus`, and the bytes it carries as one reference.
+    IoAnswer,
+    /// Files the Renderer holds handles for: the request number, the status, the filter in
+    /// use, how they were delivered, the first handle number, then the names (NUL
+    /// separated) and one kind letter per name, as two references.
+    FileHandles,
+    /// Where a scroll container is: the first visible item, the flags, then six `f64` in
+    /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
+    /// record.
+    ScrollChanged,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -208,14 +219,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -381,6 +392,9 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::WindowRequest => 28,
                 EventPayloadType::FileDialogResult => 29,
                 EventPayloadType::ClipboardText => 30,
+                EventPayloadType::IoAnswer => 31,
+                EventPayloadType::FileHandles => 32,
+                EventPayloadType::ScrollChanged => 33,
             }],
         );
         index += 1;
@@ -389,6 +403,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash
 }
 
@@ -578,6 +593,18 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // one window into another, is a protocol error: Compose keeps one composition per
     // window and has no way to hand a node from one to the next.
     Window = 45,
+    // A row that wraps. Children are measured at their own width and placed one after
+    // another on a line; a child that does not fit in what is left of the line starts the
+    // next one. A child wider than the whole line has the line to itself and is measured
+    // at the line's width, so nothing runs out of the row.
+    FlowRow = 46,
+    // A floating box of any content attached to an anchor. The first child is the anchor
+    // and is always drawn; the rest is the content, drawn only while the Host says it is
+    // open. A `Menu` is the same shape with entries in it and a place the design system
+    // fixes; here the Host names the side and the edge, and the Renderer keeps the box
+    // inside the window by flipping it to the other side or sliding it along the edge.
+    // 46 is held for a widget on another branch.
+    Popover = 47,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1145,6 +1172,23 @@ define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
     Glyph = 3,
 });
 
+// The side of its anchor a `Popover` opens on. `Start` and `End` follow the layout
+// direction. It is the side asked for: the Renderer opens on the opposite one when the
+// content does not fit between the anchor and the window's edge.
+define_wire_enum!(POPOVER_PLACEMENT_SCHEMA, PopoverPlacement {
+    Top = 1,
+    Bottom = 2,
+    Start = 3,
+    End = 4,
+});
+
+// Which edge of its anchor a `Popover` lines up with, along the side it opened on.
+define_wire_enum!(POPOVER_ALIGN_SCHEMA, PopoverAlign {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
 // Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
 // the middle of the view, or the top.
 define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
@@ -1521,6 +1565,42 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "FileDialogStatus",
         variants: FILE_DIALOG_STATUS_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "CompactNavigation",
+        variants: COMPACT_NAVIGATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "StorageOp",
+        variants: STORAGE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "IoStatus",
+        variants: IO_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDelivery",
+        variants: FILE_DELIVERY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileOp",
+        variants: FILE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HorizontalAlignment",
+        variants: HORIZONTAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "VerticalAlignment",
+        variants: VERTICAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverPlacement",
+        variants: POPOVER_PLACEMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverAlign",
+        variants: POPOVER_ALIGN_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1595,6 +1675,24 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
     Simple = 2,
 });
 
+// What a `Navigation` becomes in a compact window, where the application chose. Medium and
+// Expanded stay the design system's answer whatever is chosen here.
+//
+// `Default` is no choice at all: the design system answers, which is a bottom bar on most
+// of them and the put-away sidebar on Apple's desktop systems. It travels as tag 0, which
+// is the same as not sending the property, so it is not in the schema table.
+//
+// `Sidebar` is the sidebar put away behind a toggle that brings it over the page, on every
+// design system. `None` leaves the destinations off a compact window altogether, with
+// nothing to call them: the application draws its own way to them. The name is Compose's
+// `NavigationSuiteType.None`.
+define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
+    Sidebar = 1,
+    None = 2,
+} unlisted {
+    Default = 0,
+});
+
 // How the application uses windows. `Single` is every application until now: the
 // root's content fills the one window `SetWindow` describes. `Windows` is the multi-window
 // mode, in which the root's children are `Window` nodes and `SetWindow` describes nothing
@@ -1628,6 +1726,63 @@ define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
     Chosen = 1,
     Cancelled = 2,
     Unavailable = 3,
+});
+
+// How the files a Renderer holds handles for reached it. Closed, because what an
+// application may do with a file depends on it: only a `Handle` can be written again.
+define_wire_enum!(FILE_DELIVERY_SCHEMA, FileDelivery {
+    // The file itself, in the file system. Writing it again changes the same file.
+    Handle = 1,
+    // A copy the browser handed over from a file input. It can only be read.
+    Upload = 2,
+    // A save that became a download. Each write is a new download.
+    Download = 3,
+});
+
+// What one `FileCall` asks of a file the Renderer holds a handle for.
+define_wire_enum!(FILE_OP_SCHEMA, FileOp {
+    Read = 1,
+    Write = 2,
+    Entries = 3,
+    Child = 4,
+});
+
+// What a `StorageCall` asks the Renderer to do with the application's storage. Closed: a
+// Renderer that meets an operation it does not know cannot answer it truthfully.
+define_wire_enum!(STORAGE_OP_SCHEMA, StorageOp {
+    Read = 1,
+    Write = 2,
+    Remove = 3,
+    Keys = 4,
+});
+
+// How one input or output request ended, as an `IoAnswer` says it. Shared by storage and by
+// files picked on the web, so one answer reads the same whichever asked. Closed, so a word
+// this side does not know is a record the two sides disagree on.
+define_wire_enum!(IO_STATUS_SCHEMA, IoStatus {
+    Ok = 1,
+    NotFound = 2,
+    QuotaExceeded = 3,
+    Unavailable = 4,
+    PermissionDenied = 5,
+    Failed = 6,
+    ReadOnly = 7,
+    TooLarge = 8,
+});
+
+// Where the children of one line of a `FlowRow` sit along it, when they do not fill it.
+define_wire_enum!(HORIZONTAL_ALIGNMENT_SCHEMA, HorizontalAlignment {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+// Where a child of a `FlowRow` sits inside the height of its line, when it is shorter
+// than the tallest child on that line.
+define_wire_enum!(VERTICAL_ALIGNMENT_SCHEMA, VerticalAlignment {
+    Top = 1,
+    Center = 2,
+    Bottom = 3,
 });
 
 /// What an application may decide about its own window.
@@ -2199,6 +2354,25 @@ pub enum Modifier {
         role: SemanticsRole,
         state: u32,
     },
+    /// How this node's rounded corners curve, from 0 to 1. 0 is a plain circular arc; above
+    /// it the curve starts further along each side and its curvature changes continuously,
+    /// as Figma's corner smoothing does (0.6 is what iOS looks like). The radius still
+    /// comes from `Shape`, `ShapeRole` or `CornerEach`; this changes only the curve, and
+    /// a node without a radius is not changed. A value outside 0..=1 is drawn as the nearer
+    /// end and NaN as 0, so one bad shape cannot stop the program; see
+    /// [`corner_smoothing`].
+    CornerCurve {
+        smoothing: f32,
+    },
+}
+
+/// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
+pub fn corner_smoothing(smoothing: f32) -> f32 {
+    if smoothing.is_nan() {
+        0.0
+    } else {
+        smoothing.clamp(0.0, 1.0)
+    }
 }
 
 /// Where the checked field sits in `Modifier::Semantics::state`.
@@ -2802,6 +2976,12 @@ const PRESS_FEEDBACK_FIELDS: &[FieldSchema] = &[
     },
 ];
 
+const CORNER_CURVE_FIELDS: &[FieldSchema] = &[FieldSchema {
+    name: "smoothing",
+    ty: FieldType::Float,
+    slot: FieldSlot::FirstLow,
+}];
+
 const SEMANTICS_FIELDS: &[FieldSchema] = &[
     FieldSchema {
         name: "role",
@@ -3014,6 +3194,14 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 34,
         extra_words: 0,
         fields: SEMANTICS_FIELDS,
+    },
+    // 28 to 30 were set aside for modifiers that have not landed, so the next free tag is
+    // 35.
+    VariantSchema {
+        name: "CornerCurve",
+        tag: 35,
+        extra_words: 0,
+        fields: CORNER_CURVE_FIELDS,
     },
 ];
 
@@ -3289,7 +3477,61 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // absent is false.
     ReportSize = 127,
     // Scrim colour for modal overlays (Dialog, Sheet, Menu), as a `Paint` bit value.
+    // A `Popover` draws no scrim unless it is asked to, so there it is also a boolean:
+    // true draws the design system's scrim, and a `Paint` draws that colour.
     Scrim = 128,
+    // A `TextField` or `Dropdown` drawn without the design system's frame (fill, line,
+    // underline, corner clip, inner padding, minimum height, focus line). A boolean;
+    // absent is false. A node `Background` or `Border` is still drawn.
+    Bare = 169,
+    // A `FlowRow`'s layout. The gap between children on one line and the gap between
+    // lines, each a literal dp; where a line's children sit along it and where each child
+    // sits inside its line's height, as `HorizontalAlignment` and `VerticalAlignment` tags;
+    // and the most children one line may hold, an integer, absent for no limit. 169 is
+    // taken by another pending property, so these start at 170.
+    HorizontalSpacing = 170,
+    VerticalSpacing = 171,
+    HorizontalAlignment = 172,
+    VerticalAlignment = 173,
+    MaxItemsInEachRow = 174,
+    // The popover block. All three belong to a `Popover`. 169 to 174 are held for
+    // properties on other branches.
+    //
+    // The side of the anchor the content opens on, a `PopoverPlacement` tag. Absent is
+    // `Bottom`.
+    Placement = 175,
+    // The edge of the anchor the content lines up with, a `PopoverAlign` tag. Absent is
+    // `Start`.
+    Align = 176,
+    // The gap between the anchor and the content, an `f32` in dp. Absent leaves the gap
+    // to the design system.
+    OffsetDp = 177,
+    // How a code editor is laid out and coloured where the application says so. A node
+    // that sets none of them draws with the design system's values. 169 to 177 are
+    // numbered for properties that are not here yet.
+    //
+    // Whether the line numbers are drawn, a boolean. Absent is yes.
+    LineNumbers = 178,
+    // The least width of the line number column with its padding, the padding on each side
+    // of a line number, and the space between the gutter and the text. Each an f32 in dp.
+    GutterMinWidthDp = 179,
+    GutterPaddingDp = 180,
+    TextInsetDp = 181,
+    // One colour record as a blob: a `ColorRole` for each of the container, the gutter, a
+    // line number, the current line's number and the current line. Zero leaves a slot to
+    // the design system.
+    CodeEditorColors = 182,
+    // The handlers of the editor's row height and of its scroll offset.
+    OnCodeMetrics = 183,
+    OnCodeScrolled = 184,
+    // What a `Navigation` becomes in a compact window, as a `CompactNavigation` tag. Absent
+    // or 0 leaves it to the design system.
+    CompactNavigation = 185,
+    // The handler a scroll container reports its position to, the handler id as an
+    // integer. One handler shared by every scroll container rather than one widget's
+    // block, so it takes the number after the last one in use: 169 to 184 are held by
+    // properties other requirements have numbered.
+    OnScrollChanged = 186,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3549,6 +3791,15 @@ pub enum EventPayload<'a> {
         /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
         text: &'a str,
     },
+    /// The height of one row of a code editor in physical pixels, as it is drawn. Sent when
+    /// the editor is first drawn and whenever the height changes.
+    CodeMetrics {
+        line_height_px: f64,
+    },
+    /// How far a code editor is scrolled down, in physical pixels. At most once a frame.
+    CodeScrolled {
+        offset_px: f64,
+    },
     /// A file dialog ended. `request` is the number the Host gave it, `filter` is the
     /// position of the filter in use (`u32::MAX` when there is none) and `paths` holds the
     /// chosen paths separated by one NUL byte, empty unless the status is `Chosen`.
@@ -3569,6 +3820,160 @@ pub enum EventPayload<'a> {
         len: u32,
         text: &'a str,
     },
+    /// The one answer to an input or output request: a storage operation the browser
+    /// carried out, or an operation on a file picked on the web. `request` is the number
+    /// the Host gave it, and `data` is what the operation hands back: a value or a file
+    /// that was read, or the keys joined by NUL, and nothing for an operation that only
+    /// writes. Delivered to the Host itself, with no node and no handler.
+    IoAnswer {
+        request: u32,
+        status: IoStatus,
+        data: &'a [u8],
+    },
+    /// Files the Renderer now holds handles for: the answer to a file dialog that was
+    /// chosen, or to a folder's `Entries` or `Child`. The handles are `first_handle`,
+    /// `first_handle + 1` and so on, one per name. `names` holds the names separated by one
+    /// NUL byte and `kinds` one letter per name, `f` for a file and `d` for a folder.
+    /// `filter` is the position of the filter in use, `u32::MAX` when there is none.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileHandles {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        delivery: FileDelivery,
+        first_handle: u32,
+        names: &'a str,
+        kinds: &'a str,
+    },
+    /// Where the application's storage lives on a platform whose Host cannot work it out
+    /// from the environment: Android's application files directory, which only a
+    /// `Context` knows. Sent once by that Renderer at start. Delivered to the Host itself.
+    StorageLocation(&'a str),
+    /// Where a scroll container is, reported by the Renderer to the node's
+    /// `OnScrollChanged` handler: at most once a frame while it moves, and once more with
+    /// `settled` when it stops. Every length is in physical pixels, the unit the Renderer
+    /// scrolls in, so a value read here and sent back in a `ScrollTo` is the same place.
+    ///
+    /// In a lazy list `item` is the first visible item and the main-axis offset is the
+    /// distance into that item; the list does not know its whole length, so its main-axis
+    /// `max` is `-1.0`. Elsewhere `item` is 0.
+    ScrollChanged {
+        item: u32,
+        /// The movement ended: a drag, a fling or an animation came to rest.
+        settled: bool,
+        /// The container can still scroll towards the start of its main axis.
+        can_scroll_backward: bool,
+        /// The container can still scroll towards the end of its main axis.
+        can_scroll_forward: bool,
+        x_px: f64,
+        y_px: f64,
+        max_x_px: f64,
+        max_y_px: f64,
+        viewport_width_px: f64,
+        viewport_height_px: f64,
+    },
+}
+
+/// A rectangle in physical pixels, for [`ScrollTarget`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    pub x_px: f64,
+    pub y_px: f64,
+    pub width_px: f64,
+    pub height_px: f64,
+}
+
+impl Rect {
+    pub const fn new(x_px: f64, y_px: f64, width_px: f64, height_px: f64) -> Self {
+        Self {
+            x_px,
+            y_px,
+            width_px,
+            height_px,
+        }
+    }
+}
+
+/// A request to scroll a container to an offset, written by `Batch::scroll_to`.
+///
+/// An axis left `None` is not touched, so setting one axis never sends a stale value for
+/// the other. The Renderer keeps each value inside the range the content allows, and
+/// ignores the request while the user is dragging or flinging the container.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollTo {
+    pub x_px: Option<f64>,
+    pub y_px: Option<f64>,
+    /// In a lazy list, the item the offset is measured from. 0 everywhere else.
+    pub item: u32,
+    pub animate: bool,
+}
+
+/// How a rectangle is brought into view along one axis: CSS's `block` and `inline` values,
+/// and `Keep` for an axis that must not move.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u16)]
+pub enum ScrollAlign {
+    /// The axis does not move.
+    #[default]
+    Keep = 0,
+    Start = 1,
+    Center = 2,
+    End = 3,
+    /// No movement when the rectangle is already in view, otherwise the smallest one that
+    /// shows it. A rectangle larger than the viewport is aligned to its start.
+    Nearest = 4,
+}
+
+/// What a `ScrollIntoView` rectangle is measured from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ScrollTarget {
+    /// The container's content: the origin is the content's top left at offset zero. Not
+    /// for a lazy list, which has no content coordinates.
+    Content(Rect),
+    /// A descendant node of the container: the origin is that node's top left, and a
+    /// rectangle with no width and no height means the whole node.
+    Node(u32, Rect),
+    /// An item of a lazy list by its index: the origin is the item's start, and a rectangle
+    /// with no width and no height means the whole item.
+    Item(u32, Rect),
+}
+
+/// A request to bring a rectangle into view in one container, written by
+/// `Batch::scroll_into_view`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollIntoView {
+    pub target: ScrollTarget,
+    pub align_x: ScrollAlign,
+    pub align_y: ScrollAlign,
+    pub animate: bool,
+}
+
+/// The bits of a `ScrollTo` record's flags word.
+pub mod scroll_to_flags {
+    pub const ANIMATE: u32 = 1;
+    pub const X: u32 = 1 << 1;
+    pub const Y: u32 = 1 << 2;
+}
+
+/// The values of a `ScrollIntoView` record's target kind.
+pub mod scroll_target_kind {
+    pub const CONTENT: u16 = 0;
+    pub const NODE: u16 = 1;
+    pub const ITEM: u16 = 2;
+}
+
+/// The bit of a `ScrollIntoView` record's flags.
+pub mod scroll_into_view_flags {
+    pub const ANIMATE: u16 = 1;
+}
+
+/// The bits of a `ScrollChanged` event's flags word.
+pub mod scroll_changed_flags {
+    pub const SETTLED: u32 = 1;
+    pub const CAN_SCROLL_BACKWARD: u32 = 1 << 1;
+    pub const CAN_SCROLL_FORWARD: u32 = 1 << 2;
+    /// Every bit that has a meaning. Any other bit set is a protocol error.
+    pub const KNOWN: u32 = SETTLED | CAN_SCROLL_BACKWARD | CAN_SCROLL_FORWARD;
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3809,6 +4214,43 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 56,
         payload: EventPayloadType::ClipboardText,
     },
+    // The answer to a storage operation, and to a file operation on the web.
+    EventSchema {
+        name: "IoAnswer",
+        tag: 57,
+        payload: EventPayloadType::IoAnswer,
+    },
+    // Files a dialog, or a folder, handed the Renderer handles for.
+    EventSchema {
+        name: "FileHandles",
+        tag: 58,
+        payload: EventPayloadType::FileHandles,
+    },
+    // Android's files directory, which the Host cannot find on its own. A string, like a
+    // text change, so it needs no payload type of its own.
+    EventSchema {
+        name: "StorageLocation",
+        tag: 59,
+        payload: EventPayloadType::Text,
+    },
+    // Where a scroll container is, reported to the node's own handler.
+    EventSchema {
+        name: "ScrollChanged",
+        tag: 60,
+        payload: EventPayloadType::ScrollChanged,
+    },
+    // 51 to 53 are numbered for events that are not here yet. Both of these carry one
+    // `f64` of physical pixels, the shape `ValueChanged` has.
+    EventSchema {
+        name: "CodeMetrics",
+        tag: 54,
+        payload: EventPayloadType::Double,
+    },
+    EventSchema {
+        name: "CodeScrolled",
+        tag: 55,
+        payload: EventPayloadType::Double,
+    },
 ];
 
 /// One argument of a boundary operation.
@@ -3961,6 +4403,21 @@ pub const WEB_BATCH_BYTES: u32 = 16;
 /// The same figure the Android connection allocates for the same job. An event that would
 /// not fit is refused by the encoder rather than truncated.
 pub const WEB_EVENT_BUFFER_BYTES: u32 = 4096;
+
+/// The largest event buffer the Host lends a browser Renderer.
+///
+/// An event that does not fit in the first buffer is encoded into a larger one the Host
+/// lends on request, doubling each time, and this is where the doubling stops. An event
+/// larger than this is refused rather than cut short: a single event that large is a bug
+/// in whatever produced it, and lending without a ceiling would turn that bug into running
+/// out of memory. The other platforms grow their own buffers to the same ceiling.
+pub const WEB_EVENT_BUFFER_MAX_BYTES: u32 = 64 * 1024 * 1024;
+
+/// The Host export a browser Renderer borrows a larger event buffer from.
+///
+/// It is setup, like `compose_rust_host_web_start`, not a boundary operation: the
+/// Renderer calls it only when an event outgrows the buffer it has, and keeps what it gets.
+pub const WEB_LEND_EVENT_BUFFER_SYMBOL: &str = "compose_rust_host_web_lend_event_buffer";
 
 /// Where the event buffer starts inside the block `compose_rust_host_web_start` reports.
 ///

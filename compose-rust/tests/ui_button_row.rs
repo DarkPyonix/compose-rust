@@ -3,7 +3,7 @@
 mod support;
 
 use compose_rust::ComposeHost;
-use compose_rust::schema::TextAlign;
+use compose_rust::schema::{TextAlign, TypeRole};
 use compose_rust::ui::*;
 use support::Tree;
 
@@ -56,4 +56,27 @@ fn fr66_a_button_emits_its_children_under_itself() {
     assert_eq!(children.len(), 3, "{tree}");
     assert!(children[0].contains("Text=\"Files\""), "{tree}");
     assert!(children[2].contains("Text=\"12\""), "{tree}");
+}
+
+#[test]
+fn fr66_button_type_role_and_weight() {
+    let role = format!("TypeRole=Integer({})", TypeRole::Caption as u16);
+
+    let plain = dump(|| {
+        Button("커밋");
+    });
+    assert!(!plain.contains("TypeRole"), "{plain}");
+    assert!(!plain.contains("FontWeight"), "{plain}");
+
+    let captioned = dump(|| {
+        Button("커밋").type_role(TypeRole::Caption);
+    });
+    assert!(captioned.contains(&role), "{captioned}");
+    assert!(!captioned.contains("FontWeight"), "{captioned}");
+
+    let weighted = dump(|| {
+        Button("커밋").type_role(TypeRole::Caption).font_weight(500);
+    });
+    assert!(weighted.contains(&role), "{weighted}");
+    assert!(weighted.contains("FontWeight=Integer(500)"), "{weighted}");
 }

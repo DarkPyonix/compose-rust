@@ -101,7 +101,7 @@ fn fr67_the_checkbox_sends_its_container_check_and_side() {
 fn Dropping() {
     let styled = remember(|| mutable_state_of(true));
     Column().content(|| {
-        let flip = styled.clone();
+        let flip = styled;
         Row()
             .on_click(move || flip.update(|n| *n = !*n))
             .content(|| {

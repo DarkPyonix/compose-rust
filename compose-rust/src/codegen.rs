@@ -10,9 +10,10 @@ use crate::schema::{
     NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
     NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
     ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
-    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
-    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_HOST_GLOBAL, WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
+    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -333,6 +334,35 @@ data class Animation(
     val keyframes: List<Keyframe>,
 )
 
+/**
+ * Bytes that stay where the Host wrote them, inside the batch being applied. They are valid
+ * only while the record that carries them is applied: the arena is the Host's, and its next
+ * call writes over it. [copy] takes them out when they have to outlive that.
+ */
+class BatchBytes(val buffer: ByteBuffer, val index: Int, val size: Int) {
+    /** The bytes, copied into an array of their own. */
+    fun copy(): ByteArray {
+        val copy = ByteArray(size)
+        val mark = buffer.position()
+        buffer.position(index)
+        buffer.get(copy, 0, size)
+        buffer.position(mark)
+        return copy
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is BatchBytes && copy().contentEquals(other.copy()))
+
+    override fun hashCode(): Int = copy().contentHashCode()
+
+    override fun toString(): String = "BatchBytes(size=$size)"
+
+    companion object {
+        /** Bytes of this side's own, for a test or a preview with no batch behind it. */
+        fun of(bytes: ByteArray): BatchBytes = BatchBytes(ByteBuffer.wrap(bytes), 0, bytes.size)
+    }
+}
+
 sealed interface Mutation {
     data class Create(val nodeId: Int, val widget: WidgetKind) : Mutation
     data class SetProp(val nodeId: Int, val property: PropertyKind, val value: PropertyValue) : Mutation
@@ -520,6 +550,116 @@ sealed interface Mutation {
      * `ClipboardText` event carrying [request].
      */
     data class ReadClipboard(val request: Int) : Mutation
+
+    /**
+     * Scrolls a code editor so that [offsetPx] physical pixels of its document are above
+     * the top of its view. The same unit the `CodeScrolled` event reports.
+     */
+    data class SetScrollOffset(val nodeId: Int, val offsetPx: Double) : Mutation
+
+    /**
+     * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
+     * it, list a folder, or find the child called [name] (making a file of that name when
+     * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
+     * listing or a child that was found by a `FileHandles`. [data] is the user's file, so it
+     * is never written to a log.
+     */
+    data class FileCall(
+        val request: Int,
+        val op: FileOp,
+        val create: Boolean,
+        val handle: Int,
+        val name: String,
+        val data: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is FileCall && request == other.request && op == other.op &&
+                    create == other.create && handle == other.handle && name == other.name &&
+                    data.contentEquals(other.data))
+
+        override fun hashCode(): Int =
+            ((request * 31 + op.hashCode()) * 31 + handle) * 31 + data.contentHashCode()
+
+        override fun toString(): String =
+            "FileCall(request=$request, op=$op, create=$create, handle=$handle, length=${data.size})"
+    }
+
+    /** The Host names [handle] nowhere any more; the file behind it may be let go of. */
+    data class ReleaseFileHandle(val handle: Int) : Mutation
+
+    /**
+     * Asks for one operation on the application's storage, which the Renderer carries out
+     * where it is the side that can reach it (a browser's IndexedDB). Answered exactly once,
+     * later, by an `IoAnswer` event carrying [request]. [store] is the application
+     * identifier, [key] the value's name (empty for `Keys`), and [data] the value to write,
+     * read in place and valid only while this record is applied (empty for every other
+     * operation).
+     */
+    data class StorageCall(
+        val request: Int,
+        val op: StorageOp,
+        val store: String,
+        val key: String,
+        val data: BatchBytes,
+    ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to go to an offset in physical pixels. [flags] is
+     * the wire word ([ScrollWire.TO_ANIMATE], [ScrollWire.TO_X], [ScrollWire.TO_Y]): an
+     * axis whose bit is off is not touched. [item] is the lazy list item the offset is
+     * measured from and 0 elsewhere. The fields are as sent; the node table checks them.
+     */
+    data class ScrollTo(
+        val nodeId: Int,
+        val item: Int,
+        val flags: Int,
+        val xPx: Double,
+        val yPx: Double,
+    ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to bring a rectangle into view. [targetKind] is one
+     * of the `ScrollWire.TARGET_*` values and says what the rectangle is measured from;
+     * [alignX] and [alignY] are `ScrollWire.ALIGN_*` values. The fields are as sent; the
+     * node table checks them.
+     */
+    data class ScrollIntoView(
+        val nodeId: Int,
+        val target: Int,
+        val targetKind: Int,
+        val alignX: Int,
+        val alignY: Int,
+        val flags: Int,
+        val rectXPx: Double,
+        val rectYPx: Double,
+        val rectWidthPx: Double,
+        val rectHeightPx: Double,
+    ) : Mutation
+}
+
+/** The words of the scroll records: flag bits, target kinds and alignments. */
+object ScrollWire {
+    const val TO_ANIMATE = 1
+    const val TO_X = 2
+    const val TO_Y = 4
+    const val TO_KNOWN = TO_ANIMATE or TO_X or TO_Y
+
+    const val TARGET_CONTENT = 0
+    const val TARGET_NODE = 1
+    const val TARGET_ITEM = 2
+
+    const val ALIGN_KEEP = 0
+    const val ALIGN_START = 1
+    const val ALIGN_CENTER = 2
+    const val ALIGN_END = 3
+    const val ALIGN_NEAREST = 4
+
+    const val INTO_VIEW_ANIMATE = 1
+
+    const val CHANGED_SETTLED = 1
+    const val CHANGED_CAN_SCROLL_BACKWARD = 2
+    const val CHANGED_CAN_SCROLL_FORWARD = 4
 }
 
 "#,
@@ -611,8 +751,28 @@ sealed interface Mutation {
             EventPayloadType::ClipboardText => output.push_str(
                 ", val request: Int, val status: Int, val length: Int, val text: String",
             ),
+            // What an input or output request handed back: a value or a file read, keys joined
+            // by NUL, or nothing. Never in `toString`, because it is the application's data.
+            EventPayloadType::IoAnswer => {
+                output.push_str(", val request: Int, val status: IoStatus, val data: ByteArray")
+            }
+            // The names are NUL separated; the kinds are one letter per name, `f` or `d`.
+            EventPayloadType::FileHandles => output.push_str(
+                ", val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String",
+            ),
+            // Every length is in physical pixels. The flags are the `ScrollWire.CHANGED_*` bits.
+            EventPayloadType::ScrollChanged => output.push_str(
+                ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
+            ),
         }
-        if event.payload == EventPayloadType::ClipboardText {
+        if event.payload == EventPayloadType::IoAnswer {
+            writeln!(
+                output,
+                ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    request == other.request && status == other.status && data.contentEquals(other.data))\n\n        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(request=$request, status=$status, length=${{data.size}})\"\n    }}",
+                name = event.name
+            )
+            .unwrap();
+        } else if event.payload == EventPayloadType::ClipboardText {
             // What the clipboard held can be anything the user copied, so no log line that
             // prints the event prints the text.
             output.push_str(
@@ -674,6 +834,12 @@ object Protocol {
     private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_SET_SCROLL_OFFSET = 30
+    private const val TAG_STORAGE_CALL = 32
+    private const val TAG_FILE_CALL = 33
+    private const val TAG_RELEASE_FILE_HANDLE = 34
+    private const val TAG_SCROLL_TO = 35
+    private const val TAG_SCROLL_INTO_VIEW = 36
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -865,6 +1031,60 @@ object Protocol {
                         requireRecordLength(length, 8, offset)
                         Mutation.ReadClipboard(readU32(batch, base, available, offset + 4).toInt())
                     }
+                    TAG_STORAGE_CALL -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.StorageCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            storageOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            readString(batch, base, available, offset + 12),
+                            readString(batch, base, available, offset + 20),
+                            readByteView(batch, base, available, offset + 28),
+                        )
+                    }
+                    TAG_FILE_CALL -> {
+                        requireRecordLength(length, 32, offset)
+                        val create = readU16(batch, base, available, offset + 10)
+                        if (create > 1) {
+                            throw ProtocolException("invalid create flag $create", offset + 10)
+                        }
+                        Mutation.FileCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            fileOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            create == 1,
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readString(batch, base, available, offset + 16),
+                            readBytes(batch, base, available, offset + 24),
+                        )
+                    }
+                    TAG_RELEASE_FILE_HANDLE -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SCROLL_TO -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.ScrollTo(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            item = readU32(batch, base, available, offset + 8).toInt(),
+                            flags = readU32(batch, base, available, offset + 12).toInt(),
+                            xPx = Double.fromBits(readU64(batch, base, available, offset + 16)),
+                            yPx = Double.fromBits(readU64(batch, base, available, offset + 24)),
+                        )
+                    }
+                    TAG_SCROLL_INTO_VIEW -> {
+                        requireRecordLength(length, 52, offset)
+                        Mutation.ScrollIntoView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            target = readU32(batch, base, available, offset + 8).toInt(),
+                            targetKind = readU16(batch, base, available, offset + 12),
+                            alignX = readU16(batch, base, available, offset + 14),
+                            alignY = readU16(batch, base, available, offset + 16),
+                            flags = readU16(batch, base, available, offset + 18),
+                            rectXPx = Double.fromBits(readU64(batch, base, available, offset + 20)),
+                            rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
+                            rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
+                            rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
@@ -1009,6 +1229,13 @@ object Protocol {
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
                         )
                     }
+                    TAG_SET_SCROLL_OFFSET -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetScrollOffset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            kotlin.Double.fromBits(readU64(batch, base, available, offset + 8)),
+                        )
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -1144,7 +1371,24 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None => {
+            EventPayloadType::IoAnswer => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.data",
+                    event.name
+                )
+                .unwrap();
+            }
+            // Both strings ride after the record, the names first and the kinds after them.
+            EventPayloadType::FileHandles => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
+            EventPayloadType::None | EventPayloadType::ScrollChanged => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1238,6 +1482,12 @@ object Protocol {
             EventPayloadType::FileDialogResult => 36,
             // The request, the status and the length, then the text's reference.
             EventPayloadType::ClipboardText => 36,
+            // The request and the status, then the data's reference.
+            EventPayloadType::IoAnswer => 32,
+            // Five words, then the names' and the kinds' references.
+            EventPayloadType::FileHandles => 52,
+            // The item and the flags, then six doubles.
+            EventPayloadType::ScrollChanged => 72,
         };
         writeln!(
             output,
@@ -1548,6 +1798,46 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
+            EventPayloadType::IoAnswer => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(ioStatusTag(event.status))\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::ScrollChanged => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.item)\n");
+                output.push_str("                    out.putInt(event.flags)\n");
+                output.push_str("                    out.putDouble(event.xPx)\n");
+                output.push_str("                    out.putDouble(event.yPx)\n");
+                output.push_str("                    out.putDouble(event.maxXPx)\n");
+                output.push_str("                    out.putDouble(event.maxYPx)\n");
+                output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
+                output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::FileHandles => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str(
+                    "                    out.putInt(fileDialogStatusTag(event.status))\n",
+                );
+                output.push_str("                    out.putInt(event.filter)\n");
+                output
+                    .push_str("                    out.putInt(fileDeliveryTag(event.delivery))\n");
+                output.push_str("                    out.putInt(event.firstHandle)\n");
+                output.push_str(
+                    "                    val namesLength = event.names.toByteArray(StandardCharsets.UTF_8).size\n",
+                );
+                output.push_str("                    out.putInt(recordLength)\n");
+                output.push_str("                    out.putInt(namesLength)\n");
+                output.push_str("                    out.putInt(recordLength + namesLength)\n");
+                output.push_str("                    out.putInt(text!!.size - namesLength)\n");
+                output.push_str("                }\n");
+            }
             EventPayloadType::WindowRequest => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.request)\n");
@@ -1723,6 +2013,26 @@ object Protocol {
         .unwrap();
     }
     output.push_str("    }\n\n");
+    // How a file reached the Renderer, and how a request for bytes ended: the Renderer is
+    // the side that learns both.
+    for (function, name, variants) in [
+        (
+            "fileDeliveryTag",
+            "FileDelivery",
+            crate::schema::FILE_DELIVERY_SCHEMA,
+        ),
+        ("ioStatusTag", "IoStatus", crate::schema::IO_STATUS_SCHEMA),
+    ] {
+        writeln!(
+            output,
+            "    private fun {function}(value: {name}): Int = when (value) {{"
+        )
+        .unwrap();
+        for variant in variants {
+            writeln!(output, "        {name}.{} -> {}", variant.name, variant.tag).unwrap();
+        }
+        output.push_str("    }\n\n");
+    }
     // The enums the Renderer writes into animation events and the motion setting.
     for (function, name, variants) in [
         (
@@ -1887,6 +2197,22 @@ object Protocol {
         val copy = ByteArray(length)
         copyOut(batch, base + offset, copy, length)
         return copy
+    }
+
+    /**
+     * An arena range left where it lies, for bytes the Renderer hands straight on (a value
+     * to store) while the record is applied, so this side copies nothing itself.
+     */
+    private fun readByteView(batch: ByteBuffer, base: Int, available: Int, referenceOffset: Int): BatchBytes {
+        val offsetLong = readU32(batch, base, available, referenceOffset)
+        val lengthLong = readU32(batch, base, available, referenceOffset + 4)
+        if (offsetLong > Int.MAX_VALUE || lengthLong > Int.MAX_VALUE) {
+            throw ProtocolException("byte range is too large", referenceOffset)
+        }
+        val offset = offsetLong.toInt()
+        val length = lengthLong.toInt()
+        requireRange(available, offset, length, referenceOffset)
+        return BatchBytes(batch, base + offset, length)
     }
 
     /**
@@ -3209,6 +3535,99 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
         },
         // A clipboard read, answered by the ClipboardText event in the event vector.
         Mutation::ReadClipboard { request: 9 },
+        // A storage write for the Renderer to carry out, answered by the IoAnswer event in
+        // the event vector. The value holds a NUL and Hangul, which a string could not.
+        Mutation::StorageCall {
+            request: 11,
+            op: crate::schema::StorageOp::Write,
+            store: "dev.darkpyonix.composerust.samples.todo",
+            key: "tasks.tsv",
+            data: "1\t0\t할 일\0".as_bytes(),
+        },
+        // A write to a file the Renderer holds handle 3 for, with bytes that are not text.
+        Mutation::FileCall {
+            request: 0x8000_0011,
+            op: crate::schema::FileOp::Write,
+            create: false,
+            handle: 3,
+            name: "",
+            data: &[0x00, 0xff, 0x7f, 0x80],
+        },
+        // The child of a folder by a Korean name, made when it is not there.
+        Mutation::FileCall {
+            request: 0x8000_0012,
+            op: crate::schema::FileOp::Child,
+            create: true,
+            handle: 4,
+            name: "새 문서.txt",
+            data: &[],
+        },
+        Mutation::ReleaseFileHandle { handle: 3 },
+        // The two scroll requests: an animated jump along y measured from item 3 of a lazy
+        // list, and a descendant node brought to the nearest edge.
+        Mutation::ScrollTo {
+            node_id: 10,
+            item: 3,
+            flags: crate::schema::scroll_to_flags::ANIMATE | crate::schema::scroll_to_flags::Y,
+            x_px: 0.0,
+            y_px: 120.5,
+        },
+        Mutation::ScrollIntoView {
+            node_id: 10,
+            target: 12,
+            target_kind: crate::schema::scroll_target_kind::NODE,
+            align_x: crate::schema::ScrollAlign::Keep as u16,
+            align_y: crate::schema::ScrollAlign::Nearest as u16,
+            flags: crate::schema::scroll_into_view_flags::ANIMATE,
+            rect: crate::schema::Rect::new(0.0, 8.0, 40.0, 24.5),
+        },
+        // A wrapping row with every one of its layout properties, appended after every
+        // older record so none of them moves.
+        Mutation::Create {
+            node_id: 21,
+            widget: WidgetKind::FlowRow,
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalSpacing,
+            value: PropertyValue::Float(8.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalSpacing,
+            value: PropertyValue::Float(12.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::HorizontalAlignment::Center as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::VerticalAlignment::Bottom as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::MaxItemsInEachRow,
+            value: PropertyValue::Integer(3),
+        },
+        // The code editor's scroll command, after everything that was here before it. The
+        // offset has a fraction so that a reader of the wrong width cannot pass.
+        Mutation::SetScrollOffset {
+            node_id: 12,
+            offset_px: 1234.5,
+        },
+        // Last, so every byte before it is where it was.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 9,
+            modifier: Modifier::CornerCurve { smoothing: 0.6 },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3527,6 +3946,72 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 text: "한글\n줄 🙂",
             },
         },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request: 11,
+                status: crate::schema::IoStatus::Ok,
+                data: &[0xea, 0xb0, 0x92, 0x00, 0xff],
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request: 0x8000_0011,
+                status: crate::schema::IoStatus::Ok,
+                data: &[0x00, 0xff, 0x7f, 0x80],
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::FileHandles {
+                request: 7,
+                status: crate::schema::FileDialogStatus::Chosen,
+                filter: 1,
+                delivery: crate::schema::FileDelivery::Handle,
+                first_handle: 3,
+                names: "문서.txt\0사진",
+                kinds: "fd",
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::StorageLocation(
+                "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
+            ),
+        },
+        HostEvent {
+            node_id: 10,
+            handler_id: 21,
+            payload: EventPayload::ScrollChanged {
+                item: 3,
+                settled: true,
+                can_scroll_backward: true,
+                can_scroll_forward: false,
+                x_px: 0.0,
+                y_px: 700.5,
+                max_x_px: 0.0,
+                max_y_px: -1.0,
+                viewport_width_px: 320.0,
+                viewport_height_px: 300.0,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeMetrics {
+                line_height_px: 40.0,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 29,
+            payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3546,14 +4031,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 106,
+    "recordCount": 120,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv", "", "새 문서.txt"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{
@@ -3568,7 +4053,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-four independently decodable event records concatenated in schema order",
+    "description": "Forty-two independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3604,7 +4089,14 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowRequested", "offset": 919, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
       {{ "type": "ApplicationReopen", "offset": 953, "length": 16, "nodeId": 0, "handlerId": 0 }},
       {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
-      {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }}
+      {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
+      {{ "type": "IoAnswer", "offset": 1093, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
+      {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
+      {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
+      {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
+      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
+      {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
     ]
   }}
 }}
@@ -3953,11 +4445,11 @@ object SpanRecords {
 /// that record's problem rather than the batch's.
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
-        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
-        SYNTAX_SPAN_RECORD,
+        CODE_EDITOR_COLORS_RECORD, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
+        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD,
     };
 
-    let records: [(RecordSchema, &str, &str); 4] = [
+    let records: [(RecordSchema, &str, &str); 5] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -3985,6 +4477,11 @@ fn write_code_editor_records(output: &mut String) {
             "One mark beside a line number of a code editor. The line is in the document at \
              `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. \
              `id` is the application's own name for it, zero where it cannot be pressed.",
+        ),
+        (
+            CODE_EDITOR_COLORS_RECORD,
+            "decodeCodeEditorColors",
+            "The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour.",
         ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
@@ -4030,6 +4527,7 @@ object CodeEditorRecords {
             "DecorationRecord" => "DECORATION_LENGTH",
             "FoldRecord" => "FOLD_LENGTH",
             "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
+            "CodeEditorColorsRecord" => "CODE_EDITOR_COLORS_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -4208,6 +4706,7 @@ object CodeEditorRecords {
         SYNTAX_SPAN_RECORD,
         FOLD_RECORD,
         GUTTER_DECORATION_RECORD,
+        CODE_EDITOR_COLORS_RECORD,
     ]
     .iter()
     .flat_map(|schema| schema.fields.iter())
@@ -5350,7 +5849,23 @@ pub fn generate_web_bridge_kotlin() -> String {
     .unwrap();
     writeln!(
         output,
-        "/** How much room there is to encode one event into. */\nconst val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+        "/**\n \
+         * How much room there is to encode one event into, before any has needed more.\n \
+         *\n \
+         * An event that does not fit is encoded into a larger buffer the Host lends instead.\n \
+         */\n\
+         const val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "/**\n \
+         * The largest event buffer the Host lends.\n \
+         *\n \
+         * The buffer doubles from [EVENT_BUFFER_BYTES] until an event fits and stops here. An\n \
+         * event larger than this is refused, never cut short.\n \
+         */\n\
+         const val EVENT_BUFFER_MAX_BYTES: Int = {WEB_EVENT_BUFFER_MAX_BYTES}\n"
     )
     .unwrap();
 
@@ -5376,6 +5891,21 @@ pub fn generate_web_bridge_kotlin() -> String {
         )
         .unwrap();
     }
+
+    writeln!(
+        output,
+        "/**\n \
+         * Borrows an event buffer of at least `minLength` bytes from the Host, for an event that\n \
+         * does not fit in the one this side has. The Host keeps it until the next call, so\n \
+         * this side goes on encoding into it. Zero means the Host refused.\n \
+         *\n \
+         * Setup, like starting the Host, rather than a boundary operation: it is called only\n \
+         * when an event outgrows the buffer, which steady state never does.\n \
+         */\n\
+         @JsFun(\"(minLength) => globalThis.{WEB_HOST_GLOBAL}.{WEB_LEND_EVENT_BUFFER_SYMBOL}(minLength)\")\n\
+         external fun hostLendEventBuffer(minLength: Int): Int\n"
+    )
+    .unwrap();
 
     output.push_str(
         INSTALL_HOST_KOTLIN
@@ -5489,6 +6019,7 @@ use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
+use crate::web_event_buffer::{LentEventBuffer, region_address};
 use crate::{LaunchBuilder, LoopMode, Runtime};
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
@@ -5613,6 +6144,43 @@ fn lent(address: u32) -> bool {
     for op in BOUNDARY_SCHEMA {
         write!(output, "{}", wasm_shim(op)).unwrap();
     }
+
+    writeln!(
+        output,
+        r#"thread_local! {{
+    /// The larger event buffer, once an event has outgrown the one in [`BLOCK`].
+    ///
+    /// Kept here rather than in the block because its size is only known when an event
+    /// needs it, and kept until the next request because the Renderer goes on encoding into
+    /// it. A browser tab is one thread, so the thread's own copy is the only one.
+    static LENT_EVENT_BUFFER: std::cell::RefCell<LentEventBuffer> =
+        const {{ std::cell::RefCell::new(LentEventBuffer::new()) }};
+}}
+
+/// Lends the Renderer an event buffer of at least `min_len` bytes and answers with its
+/// address, or zero when the request is refused.
+///
+/// The Renderer calls this only when an event does not fit in the buffer it has, doubling
+/// what it asks for each time up to {max} bytes, and keeps encoding into what it gets.
+/// The buffer stays where it is until the next call, so a request it already satisfies
+/// answers with the same address and allocates nothing. Zero is the answer for a request
+/// past the ceiling, for memory that cannot be had, and for an address outside this
+/// module's region, which the Renderer would have to refuse anyway. A refused request
+/// leaves the buffer lent before it in place.
+///
+/// This is setup, like `{start}`, and not a boundary operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn {lend}(min_len: u32) -> u32 {{
+    LENT_EVENT_BUFFER
+        .with_borrow_mut(|buffer| buffer.lend(min_len))
+        .map_or(0, |pointer| region_address(pointer.cast_const()))
+}}
+"#,
+        max = WEB_EVENT_BUFFER_MAX_BYTES,
+        start = WEB_START_SYMBOL,
+        lend = WEB_LEND_EVENT_BUFFER_SYMBOL,
+    )
+    .unwrap();
 
     writeln!(
         output,

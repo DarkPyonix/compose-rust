@@ -275,10 +275,10 @@ cargo run -p sample-minimal
 | 샘플 | 다루는 것 |
 |---|---|
 | [`calculator`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/calculator) | 빽빽한 버튼 격자, 메모리 레지스터, 키 옆이나 시트에 놓이는 기록 |
-| [`notepad`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad) | 여러 줄 편집, IME, 워커 스레드의 파일 I/O |
+| [`notepad`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad) | 여러 줄 편집, IME, 파일 대화상자로 여는 파일, 앱 저장소에 남는 세션 |
 | [`todo`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo) | 안정된 키, 목적지로 쓰는 필터, 수천 행을 다루는 `LazyColumn` |
 | [`chat`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat) | Enter로 보내고 Shift+Enter로 줄을 바꾸는 입력, 워커 스레드에서 흘러 들어오는 답 |
-| [`minimal`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal) | 스키마의 모든 컨트롤, 채움, 글꼴과 모서리 단계, `Canvas` |
+| [`minimal`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal) | 흑백 구성 요소 시트: 스테퍼, 세그먼트 컨트롤, 카드, 스위치, 그라데이션, 그림자, `Canvas` 그림 |
 | [`store`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/store) | 캐러셀, 분류 띠, 두 칸 격자, 합계를 내는 장바구니 |
 | [`statistics`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/statistics) | `Canvas`로 그리고 역할로만 칠한 다이얼과 한 주의 비용 |
 | [`selfcare`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare) | 기분 고르기, 그려 낸 얼굴, 칩 격자, 윈도잉되는 카드 행 |
