@@ -27,26 +27,20 @@ internal fun windowAppearanceFor(scheme: ColorScheme): NSAppearance? = when (sch
  * Keeps one window's appearance on the colour scheme the application's theme resolves to.
  *
  * The several-window path has this from the window manager, which reads each window's
- * theme after every batch. The single window has no manager, so it is told here: once
- * before the first frame, so the window is not drawn in the wrong material and corrected a
- * moment later, and again whenever the theme changes. A theme that names no scheme, or no
- * theme at all, is the system's.
+ * theme after every batch. The single window has no manager, so it is told here, through
+ * the [WindowSchemeFollower] the native image's AppKit window uses as well: once before
+ * the first frame and again whenever the theme changes.
  *
  * [apply] is the window's, and is only called when the scheme actually changed: setting
  * the appearance makes AppKit redraw everything in the window.
  */
-internal class WindowAppearanceFollower(private val apply: (NSAppearance?) -> Unit) {
+internal class WindowAppearanceFollower(apply: (NSAppearance?) -> Unit) {
     constructor(window: NSWindow) : this({ appearance -> window.appearance = appearance })
 
-    private var applied: ColorScheme? = null
+    private val follower = WindowSchemeFollower { scheme -> apply(windowAppearanceFor(scheme)) }
 
     /** The scheme the window was last given, or null before the first theme. */
-    val scheme: ColorScheme? get() = applied
+    val scheme: ColorScheme? get() = follower.scheme
 
-    fun follow(theme: Theme?) {
-        val scheme = theme?.colorScheme ?: ColorScheme.FollowSystem
-        if (scheme == applied) return
-        applied = scheme
-        apply(windowAppearanceFor(scheme))
-    }
+    fun follow(theme: Theme?) = follower.follow(theme)
 }
