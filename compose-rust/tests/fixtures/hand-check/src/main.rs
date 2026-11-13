@@ -27,7 +27,7 @@
 
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
 use compose_rust::schema::{
-    Color, EventPayload, Modifier, Paint, PropertyKind, WidgetKind, Window,
+    Arrangement, Color, EventPayload, Modifier, Paint, PropertyKind, WidgetKind, Window,
 };
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 
@@ -49,6 +49,8 @@ const MARKER_LEFT: u32 = 1002;
 const MARKER_RULER: u32 = 1003;
 const MARKER_RIGHT: u32 = 1004;
 const MARKER_BOTTOM: u32 = 1005;
+const MARKER_EDGES: u32 = 1006;
+const RULER_LEAD: u32 = 1007;
 const RULER_MARK0: u32 = 2000;
 
 /// The marker colour. Nothing else in the scene, the window's frame or the probe's magenta
@@ -60,8 +62,10 @@ const RULER_DARK: u32 = 0x404040;
 const MARKER_DP: f32 = 2.0;
 const RULER_PERIOD_DP: f32 = 24.0;
 /// Enough ruler periods for a window maximised on a 3840 pixel wide monitor at 100%. The
-/// ruler is a row of fixed-width boxes, so the ones past the window's width get no room
-/// and draw nothing.
+/// ruler is a plain row of fixed-width boxes, so the ones past the window's width get no
+/// room and draw nothing. It must not be a weighted child: the renderer gives a weighted
+/// child at least its minimum intrinsic width, which for this ruler is all 160 periods, and
+/// that pushed the right marker out of the window.
 const RULER_PERIODS: u32 = 160;
 
 const ON_CLICK: i64 = 1;
@@ -122,6 +126,11 @@ impl App {
 
     /// The scene the resize probe reads: markers on the left, right and bottom edges and a
     /// ruler between them, described at the top of this file.
+    ///
+    /// The body is a box of two layers. Below, the ruler fills it. Above, a row spaced
+    /// between its ends holds the left and right markers, so each sits flush with its edge
+    /// and is drawn over the ruler whatever the window's width. Neither layer is weighted
+    /// along the row: see `RULER_PERIODS` for what a weighted ruler did to the right marker.
     fn rebuild_marker_scene(&mut self) {
         let green = Modifier::Background(Paint::Literal(Color::rgb(MARKER_GREEN)));
         self.create(
@@ -135,9 +144,24 @@ impl App {
         );
         self.create(
             MARKER_BODY,
-            WidgetKind::Row,
+            WidgetKind::Box,
             &[Modifier::Weight(1.0), Modifier::FillMaxWidth],
         );
+        self.create(
+            MARKER_RULER,
+            WidgetKind::Row,
+            &[Modifier::FillMaxWidth, Modifier::FillMaxHeight],
+        );
+        self.create(
+            MARKER_EDGES,
+            WidgetKind::Row,
+            &[Modifier::FillMaxWidth, Modifier::FillMaxHeight],
+        );
+        self.batch.write(Mutation::SetProp {
+            node_id: MARKER_EDGES,
+            property: PropertyKind::Arrangement,
+            value: PropertyValue::Integer(i64::from(u16::from(Arrangement::SpaceBetween))),
+        });
         self.create(
             MARKER_LEFT,
             WidgetKind::Box,
@@ -146,11 +170,6 @@ impl App {
                 Modifier::FillMaxHeight,
                 green.clone(),
             ],
-        );
-        self.create(
-            MARKER_RULER,
-            WidgetKind::Row,
-            &[Modifier::Weight(1.0), Modifier::FillMaxHeight],
         );
         self.create(
             MARKER_RIGHT,
@@ -166,9 +185,16 @@ impl App {
             WidgetKind::Box,
             &[Modifier::FillMaxWidth, Modifier::Height(MARKER_DP), green],
         );
-        // Each period is a light gap and a dark line, so the first line starts 24 dp from
-        // the window's left edge: the 2 dp marker and a 22 dp gap.
-        let mut ruler = Vec::with_capacity(RULER_PERIODS as usize * 2);
+        // The ruler starts under the left marker with a light 2 dp lead, then each period is
+        // a light 22 dp gap and a dark 2 dp line, so the first line starts 24 dp from the
+        // window's left edge and the lines repeat every 24 dp, as the control draws them.
+        self.create(
+            RULER_LEAD,
+            WidgetKind::Box,
+            &[Modifier::Width(MARKER_DP), Modifier::FillMaxHeight],
+        );
+        let mut ruler = Vec::with_capacity(RULER_PERIODS as usize * 2 + 1);
+        ruler.push(RULER_LEAD);
         for period in 0..RULER_PERIODS {
             let gap = RULER_MARK0 + period * 2;
             let line = gap + 1;
@@ -193,7 +219,9 @@ impl App {
             ruler.push(line);
         }
         self.insert(MARKER_RULER, &ruler);
-        self.insert(MARKER_BODY, &[MARKER_LEFT, MARKER_RULER, MARKER_RIGHT]);
+        self.insert(MARKER_EDGES, &[MARKER_LEFT, MARKER_RIGHT]);
+        // Later children of a box are drawn over earlier ones: the markers over the ruler.
+        self.insert(MARKER_BODY, &[MARKER_RULER, MARKER_EDGES]);
         self.insert(MARKER_ROOT, &[MARKER_BODY, MARKER_BOTTOM]);
     }
 }

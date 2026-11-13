@@ -131,6 +131,27 @@ else
     ok "$name"
 fi
 
+# Both side markers have to be inside the window. The renderer gives a weighted child at
+# least its minimum intrinsic width, and a weighted ruler of 160 fixed periods took all of it
+# and pushed the right marker out: every hand-check drag ended with no markers at rest. So the
+# ruler is a plain row under the markers, and the markers are a row spaced between its ends,
+# drawn after the ruler so they sit on top.
+name=fr19_8_4_hand_check_keeps_both_side_markers_in_the_window
+scene="$(awk '/fn rebuild_marker_scene/,/^    }$/' "$hand_check")"
+weights="$(grep -c 'Modifier::Weight' <<<"$scene")"
+if [[ -z "$scene" ]]; then
+    fail "$name" "hand-check has no rebuild_marker_scene"
+elif [[ "$weights" != 1 ]] || ! grep -qF '&[Modifier::Weight(1.0), Modifier::FillMaxWidth]' <<<"$scene"; then
+    fail "$name" "the marker scene weights something other than the body in the column ($weights weights); a weighted ruler pushes the right marker out"
+elif ! grep -qF 'Arrangement::SpaceBetween' <<<"$scene" ||
+    ! grep -qF 'self.insert(MARKER_EDGES, &[MARKER_LEFT, MARKER_RIGHT]);' <<<"$scene"; then
+    fail "$name" "the left and right markers are not a row spaced between the body's ends"
+elif ! grep -qF 'self.insert(MARKER_BODY, &[MARKER_RULER, MARKER_EDGES]);' <<<"$scene"; then
+    fail "$name" "the markers are not drawn over the ruler"
+else
+    ok "$name"
+fi
+
 # The colour tests themselves, compiled out of the probe: the markers' green is a marker and
 # nothing else the scene, the frame or the backdrop draws is.
 name=fr19_8_4_the_probe_tells_the_markers_from_everything_else
