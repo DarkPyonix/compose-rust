@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### A place in the window for a platform view the application made
+
+`ui::NativeView(handle)` is a node over which the window places a platform view the application made itself, such as a web view, a video surface or a map: an `NSView` on macOS. Make the view against the handle the window reports in `compose_rust::native_view::native_parent(window)` (the `NativeViewParent` event, sent once a `NativeView` is in a window, again when its backing scale changes, and with a zero handle when it closes), then hand it over. `Batch::attach_native_view` and `Batch::focus_native_view` are the same two commands for a Host that writes its own batches.
+
+The Renderer moves the view with the layout and with every scroll, in the same frame as the content around it, cuts it to what its ancestors leave showing, and cuts out every popover, menu, dropdown list, dialog, sheet, tooltip and message drawn above it as a rounded hole with its shadow, so they show on top. `visible(false)` hides the view and keeps it, with its state. Keyboard focus moves into the view on a click or `focus_native_view(node, true)`, back to the scene on `false`, a Compose focus request, hiding or removing it, and `on_focus_change` hears each move. The view stays the application's: the Renderer never destroys it.
+
+macOS Kotlin/Native places views now. The GraalVM macOS renderer and the other platforms refuse an attach as `NATIVE_VIEW_UNSUPPORTED` (23); a node that is not a `NativeView` is `NOT_NATIVE_VIEW` (21), and a handle the window will not take, or one already attached elsewhere, is `NATIVE_VIEW_REJECTED` (22) ([#680](https://github.com/DarkPyonix/compose-rust/issues/680)).
+
 ### SVG pictures draw on Android
 
 Android has no SVG reader of its own, so every `AssetKind::Svg` registration was reported as unreadable (protocol error 7) and drew an empty box. The Android renderer now reads SVG itself, following the rules Skia draws by on the desktop and iOS, so the same file draws the same picture on every platform. It reads shapes, groups, `use`, fills and strokes with their opacities, dashes, caps and joins, transforms, `viewBox` and `preserveAspectRatio`, linear and radial gradients, patterns and clip paths. It does not read `text`, `image`, `mask`, `filter`, `marker` or `<style>` sheets ([#567](https://github.com/DarkPyonix/compose-rust/issues/567)).
