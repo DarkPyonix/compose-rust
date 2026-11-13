@@ -547,11 +547,16 @@ class ProtocolVectorsTest {
         assertTrue(patched, "the vector carries a file dialog request")
     }
 
-    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    /**
+     * The Rust encoder wrote one `CornerCurve { smoothing: 0.6 }` on node 8; this side reads
+     * the same value. Found by its kind, because records appended later follow it.
+     */
     @Test
     fun fr50_corner_curve_round_trips() {
-        val last = decodeVector("mutations.bin").last()
-        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+        val curves = decodeVector("mutations.bin").filter { mutation ->
+            mutation is Mutation.SetModifier && mutation.modifier is ProtocolModifier.CornerCurve
+        }
+        assertEquals(listOf<Mutation>(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f))), curves)
     }
 
     /**
@@ -999,7 +1004,8 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1439, bytes.size)
+        // The code editor's two events end at 1439; the platform view events follow them.
+        assertTrue(bytes.size >= 1439, "the vector ends before the code editor events: ${bytes.size}")
     }
 
     /**

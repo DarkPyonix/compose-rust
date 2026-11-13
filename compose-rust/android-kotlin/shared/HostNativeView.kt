@@ -160,9 +160,6 @@ private class Slot(val nodeId: Int) {
     var sentHoles: List<NativeHole>? = null
     var sentVisible = false
 
-    /** The focus handler the view had when it took focus, for the report that it lost it. */
-    var focusHandler: Long? = null
-
     fun forget() {
         sentFrame = null
         sentClip = null
@@ -193,6 +190,12 @@ internal class NativeViewCoordinator(
     var focused: Int? = null
         private set
 
+    /**
+     * The handler that heard the focused slot take focus. Kept here rather than read back
+     * when focus goes, because by then the node may already be gone from the table.
+     */
+    private var focusedHandler: Long? = null
+
     /** Events for the Host, waiting for the frame to send them in. */
     private val outbox = ArrayList<HostEvent>()
     val pendingGeneration = mutableIntStateOf(0)
@@ -222,8 +225,11 @@ internal class NativeViewCoordinator(
     }
 
     fun leave(nodeId: Int) {
-        val slot = slots.remove(nodeId) ?: return
+        val slot = slots[nodeId] ?: return
+        // Taken out while it is still known here: a view with focus gives it back to the
+        // scene as it goes, and the report of that needs the slot to say who to tell.
         takeOut(slot)
+        slots.remove(nodeId)
     }
 
     /** The node's handle, attached in place of whatever it had. 0 takes the view out. */
@@ -317,17 +323,16 @@ internal class NativeViewCoordinator(
     // ----- what the window says -----
 
     override fun focusChanged(id: Int, focused: Boolean) {
-        val slot = slots[id]
         if (focused) {
             this.focused = id
             val handler = table.node(id)?.handler(PropertyKind.OnNativeViewFocus)
-            slot?.focusHandler = handler
+            focusedHandler = handler
             if (handler != null) post(HostEvent.NativeViewFocus(id, handler, true))
         } else {
             if (this.focused != id) return
             this.focused = null
-            val handler = slot?.focusHandler ?: table.node(id)?.handler(PropertyKind.OnNativeViewFocus)
-            slot?.focusHandler = null
+            val handler = focusedHandler ?: table.node(id)?.handler(PropertyKind.OnNativeViewFocus)
+            focusedHandler = null
             if (handler != null) post(HostEvent.NativeViewFocus(id, handler, false))
         }
     }
