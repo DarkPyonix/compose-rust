@@ -607,13 +607,20 @@ private fun ComposeRustTree(
     // to the page underneath it. Otherwise the page keeps it and the content starts below
     // the buttons.
     // The strips a phone's system draws in. Zero on a desktop, where a title bar is the
-    // caption above instead. The keyboard is excluded: the renderer moves the field that
-    // is being typed into itself, and taking the keyboard's height off the whole page as
-    // well would move everything else twice.
-    val bars = with(LocalDensity.current) {
+    // caption above instead. The keyboard is not one of them: it is reported on its own
+    // below, because the page stops above it but nothing grows into it.
+    val safeBars = with(LocalDensity.current) {
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    // How much of the window's bottom the on-screen keyboard covers. The window is not
+    // panned for it (the platform layer asks for that), so this is where the page is
+    // told: it ends above the keyboard, the bar at the top stays where it is, and the
+    // focused field is brought into view inside the page that is left.
+    val keyboard = platformKeyboardInset().coerceAtLeast(0.dp)
+    // While the keyboard is up the gesture strip is under it, so nothing above the
+    // keyboard leaves room for it.
+    val bars = if (keyboard > 0.dp) safeBars.copy(bottom = 0.dp) else safeBars
     // A rail or a sidebar that runs to the top of the window takes the caption the same
     // way a bar does: the window buttons sit on its surface and the page beside it starts
     // its own content clear of them. Leaving the page to take the strip instead drew a band
@@ -637,7 +644,7 @@ private fun ComposeRustTree(
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
         openingNavigation != null
-    val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
+    val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom, keyboard)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
     // application on a device in dark mode otherwise gets white icons on its own white
@@ -729,6 +736,7 @@ private fun ComposeRustTree(
         LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
+        LocalKeyboardInset provides keyboard,
     ) {
         // The background fills the whole window and the inset is applied inside it. Putting
         // the inset outside instead leaves the window's own background showing through the
@@ -1175,17 +1183,47 @@ val LocalSystemBars = staticCompositionLocalOf { SystemBars.None }
  * status bar, the way every application on a phone does. A navigation showing a bar along
  * the bottom takes the bottom strip for the same reason. What is left over is the page's,
  * because content running under a clock or a gesture bar is unreadable.
+ *
+ * The keyboard is the one thing nothing grows into. While it is up the page ends at its top
+ * edge, whatever took the bottom strip before, so the field being typed into and everything
+ * below it on the page are above the keyboard rather than under it. The top is not touched:
+ * the bar there stays where it was.
  */
 internal fun pageInsets(
     caption: WindowCaption,
     bars: SystemBars,
     barTakesTheTop: Boolean,
     navigationTakesTheBottom: Boolean,
+    keyboard: Dp = 0.dp,
 ): Pair<Dp, Dp> {
     // Never below nothing, whatever a platform measured. This is a padding, and a negative
     // one does not draw oddly: it throws, from inside composition, and takes the window
     // with it.
     val top = if (caption.fullSize || barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
-    val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
+    val bottom = when {
+        keyboard > 0.dp -> maxOf(keyboard, bars.bottom)
+        navigationTakesTheBottom -> 0.dp
+        else -> bars.bottom
+    }
     return top to bottom
 }
+
+/**
+ * How much of the window's bottom edge the on-screen keyboard covers, as the platform
+ * reports it. Zero where there is no on-screen keyboard.
+ *
+ * A hook so a test can put a keyboard on a desktop window, which has none.
+ */
+var platformKeyboardInset: @Composable () -> Dp = {
+    with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
+}
+
+/**
+ * The keyboard's height over the window, for what is drawn over the page rather than in it.
+ *
+ * A sheet or a dialog covers the whole window and so does its scrim; only its own surface
+ * moves up, by this much, so the field inside it is above the keyboard. Dynamic rather than
+ * static because it changes on every frame the keyboard slides in, and only those readers
+ * should hear it.
+ */
+val LocalKeyboardInset = androidx.compose.runtime.compositionLocalOf { 0.dp }

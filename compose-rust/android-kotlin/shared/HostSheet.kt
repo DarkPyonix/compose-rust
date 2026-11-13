@@ -37,6 +37,7 @@ import dev.darkpyonix.composerust.design.SheetEdge
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.runtime.LocalKeyboardInset
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
@@ -51,6 +52,17 @@ private val DISMISS_TRAVEL = 96.dp
 /** The grab handle's size, where the design system draws one. */
 private val HANDLE_LENGTH = 32.dp
 private val HANDLE_THICKNESS = 4.dp
+
+/**
+ * Called inside the window a sheet or a dialog is drawn in, before anything else in it.
+ *
+ * A hook because only a platform whose overlays are windows of their own can tell such a
+ * window not to be moved by the keyboard: Android shrinks a focusable one to the space
+ * above the keyboard, which left the scrim covering only part of the screen. The renderer
+ * moves the overlay's surface itself (see [LocalKeyboardInset]). Where nobody installs
+ * one, this does nothing.
+ */
+var platformOverlayWindow: @Composable () -> Unit = {}
 
 /**
  * A temporary surface that comes in from an edge of the window.
@@ -150,7 +162,11 @@ internal fun HostSheet(
         properties = PopupProperties(focusable = true, dismissOnBackPress = false),
         onDismissRequest = close,
     ) {
+        platformOverlayWindow()
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
+        // the field inside it is above the keyboard.
+        val keyboard = LocalKeyboardInset.current
         Box(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
@@ -168,11 +184,13 @@ internal fun HostSheet(
             } else {
                 Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
             }
+            val aboveKeyboard = Modifier.padding(bottom = keyboard)
             // Two boxes rather than one: the outer is the sheet itself, which is what is
             // dragged and what the design system sized, and the inner carries whatever
             // Modifiers the Host put on the node, which belong inside its surface.
             Box(
                 Modifier
+                    .then(aboveKeyboard)
                     .testTag(sheetTestTag(node.id))
                     .modalOverlaySurface(node.id, surfaceRequester)
                     .then(sized)
