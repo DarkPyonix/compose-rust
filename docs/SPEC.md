@@ -5027,7 +5027,7 @@ compose_rust_host_dispatch_event: click 1
   - `onStop`/`onStart`: `LifecycleStop`과 `LifecycleStart`를 보냅니다. Host는 그 사이에 도착한 워커의 프레임 요청을 기억만 해 두었다가 시작할 때 한 번 내보내고, 그동안 타이머와 애니메이션은 억제됩니다. `Resumed`/`Paused`/`Destroyed`로 나누지 않습니다. 그리는 일이 실제로 멈추는 경계는 `onStop`이고, `Destroyed`는 프로세스가 사라지는 자리라 Host가 들을 수 없습니다.
     - 예외는 알림입니다(FR-36, 2026-10-03, `Draft`). 멈춘 동안 Host의 알림 대기열에 알림이 들어오면 Host는 그 요청을 미루지 않고 내보내고, Renderer는 PR-3의 개정대로 멈춘 클록 밖에서 `render_frame`을 한 번 부릅니다. 알림은 사용자가 화면을 보지 않을 때 나가야 하는 것이기 때문입니다. 타이머와 애니메이션의 억제는 그대로입니다.
   - 프로세스 kill: 메모리 상태는 복원하지 않습니다. 필요하면 `SaveState`로 작은 blob을 `onSaveInstanceState`에 저장합니다.
-- 에셋: Android는 자기 그래픽 스택으로 그리므로 SVG 파서가 없습니다. `Svg` 종류의 등록은 FR-16이 정한 대로 읽을 수 없다고 보고하고, 나머지 배치는 그대로 적용됩니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
+- 에셋: Android은 렌더러 자신의 SVG 읽개로 SVG를 읽고, 데스크톱 Skia와 같은 규칙을 따릅니다(이슈 #567, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 루트의 `width`와 `height`는 SVG의 뜻 그대로 픽셀입니다. `VectorIcon`은 영향이 없습니다. 모양을 그리는 것은 디자인 시스템이기 때문입니다.
 - android-activity, NativeActivity, GameActivity 진입점은 쓰지 않습니다. ComposeView와 공존한 사례가 없고 IME 충돌 위험이 있습니다. JavaVM은 `JNI_OnLoad`에서 얻습니다.
 
 #### 5.1 Kotlin이 앱 빌드에 들어가는 방법 (INTENT D11)
