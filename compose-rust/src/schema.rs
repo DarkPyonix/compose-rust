@@ -992,11 +992,15 @@ define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     Xxl = 7,
 });
 
+// `Start` and `End` follow the writing direction and swap in right-to-left text. `Left`
+// and `Right` are physical, as CSS `text-align: left|right` is, and never swap.
 define_wire_enum!(TEXT_ALIGN_SCHEMA, TextAlign {
     Start = 1,
     Center = 2,
     End = 3,
     Justify = 4,
+    Left = 5,
+    Right = 6,
 });
 
 define_wire_enum!(TEXT_OVERFLOW_SCHEMA, TextOverflow {
