@@ -3,10 +3,11 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CodeChange, CodeEditorColors, CodeRange,
-    DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN, FOLD_RECORD, Fold, Folds,
-    GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position,
-    RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset,
+    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange, CodeEditorColors,
+    CodePointer, CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations,
+    FOLD_LEN, FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD,
+    GutterDecoration, GutterDecorations, Position, PositionAnswer, RecordFieldType,
+    SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, position_query,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -50,6 +51,11 @@ enum Record {
     SetScrollOffset {
         node_id: u32,
         offset_px: f64,
+    },
+    QueryPositionRect {
+        node_id: u32,
+        request: u32,
+        position: Position,
     },
     Other,
 }
@@ -141,6 +147,16 @@ fn records(batch: &[u8]) -> Vec<Record> {
             Mutation::SetScrollOffset { node_id, offset_px } => {
                 Record::SetScrollOffset { node_id, offset_px }
             }
+            Mutation::QueryPositionRect {
+                node_id,
+                request,
+                line,
+                column,
+            } => Record::QueryPositionRect {
+                node_id,
+                request,
+                position: Position::new(line, column),
+            },
             _ => Record::Other,
         })
         .collect()
@@ -1026,4 +1042,383 @@ fn fr38_editor_scroll_offset_round_trips_on_the_wire() {
     let mut short = encoder.finish().unwrap().to_vec();
     short[14] = 12;
     assert!(decode_batch(&short).is_err());
+}
+
+/// The caret report, the position query and its answer keep the tags the wire table gives
+/// them, past the numbers other requirements hold.
+#[test]
+fn fr38_caret_and_position_rects_keep_their_assigned_tags() {
+    assert_eq!(PropertyKind::OnCaretRect as u16, 195);
+    assert_eq!(event_tag("CaretRect"), 64);
+    assert_eq!(event_tag("PositionRect"), 65);
+    assert_eq!(
+        PropertyKind::from_name("on_caret_rect"),
+        Ok(PropertyKind::OnCaretRect)
+    );
+}
+
+/// The caret comes back as two words and four floats in a 40 byte record, read into the
+/// place and the rectangle. A record of another length under the same tag is refused.
+#[test]
+fn fr38_editor_reports_the_caret_rect_on_the_wire() {
+    let rect = CodeRect::new(120.5, 64.25, 2.0, 20.0);
+    let (length, decoded) = round_trip(EventPayload::CaretRect {
+        line: 2,
+        column: 4,
+        rect,
+    });
+    assert_eq!(length, 40);
+    assert_eq!(
+        CaretRect::from_payload(&decoded.payload),
+        Some(CaretRect {
+            position: Position::new(2, 4),
+            rect,
+        })
+    );
+    assert_eq!(rect.bottom(), 84.25);
+    assert_eq!(rect.right(), 122.5);
+    assert_eq!(
+        CaretRect::from_payload(&EventPayload::CodeSaveRequested { version: 1 }),
+        None
+    );
+
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::CaretRect {
+                line: 0,
+                column: 0,
+                rect,
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[64, 0, 40, 0]);
+    wire[2] = 36;
+    assert_eq!(
+        decode_event(&wire[..36]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+}
+
+thread_local! {
+    static ANSWERS: std::cell::RefCell<Vec<(&'static str, PositionAnswer)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[compose_rust::runtime::Composable]
+fn Nothing() {
+    compose_rust::ui::Text("editor");
+}
+
+/// The query is a 20 byte command written with the request number a callback was given,
+/// the answer a 40 byte event with a word that says whether the position is on screen, and
+/// through a Host the answer reaches its own callback once.
+#[test]
+fn fr38_editor_answers_position_rects_on_the_wire() {
+    ANSWERS.with_borrow_mut(Vec::clear);
+    let near = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("near", answer))));
+    let far = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("far", answer))));
+    assert_ne!(near, 0, "0 is never a request number");
+    assert_ne!(near, far);
+
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.query_position_rect(4, near, Position::new(1, 8));
+    let bytes = batch.finish().unwrap().to_vec();
+    assert_eq!(&bytes[12..16], &[39, 0, 20, 0]);
+    assert_eq!(
+        records(&bytes),
+        vec![Record::QueryPositionRect {
+            node_id: 4,
+            request: near,
+            position: Position::new(1, 8),
+        }]
+    );
+    let mut short = bytes.clone();
+    short[14] = 16;
+    assert!(decode_batch(&short).is_err());
+
+    let rect = CodeRect::new(88.75, 64.25, 2.0, 20.0);
+    let (length, _) = round_trip(EventPayload::PositionRect {
+        request: near,
+        rect: Some(rect),
+    });
+    assert_eq!(length, 40);
+    let (length, decoded) = round_trip(EventPayload::PositionRect {
+        request: far,
+        rect: None,
+    });
+    assert_eq!(length, 40);
+    assert_eq!(
+        decoded.payload,
+        EventPayload::PositionRect {
+            request: far,
+            rect: None
+        }
+    );
+    // The word is 0 or 1, and anything else is a record the two sides disagree on.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 4,
+            handler_id: 0,
+            payload: EventPayload::PositionRect {
+                request: far,
+                rect: Some(rect),
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[20..24], &[1, 0, 0, 0]);
+    wire[20] = 2;
+    assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidValueKind(2)));
+
+    // Through a Host: each answer goes to the callback that asked, once.
+    let mut host = compose_rust::ComposeHost::with_theme(
+        Nothing,
+        compose_rust::schema::Theme::unified(compose_rust::schema::DesignSystem::Material3),
+    );
+    host.rebuild().expect("the first batch encodes");
+    // Made after the Host, which forgets every query a Host before it left waiting.
+    let near = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("near", answer))));
+    let far = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("far", answer))));
+    let answer = |request: u32, rect: Option<CodeRect>| HostEvent {
+        node_id: 4,
+        handler_id: 0,
+        payload: EventPayload::PositionRect { request, rect },
+    };
+    host.dispatch(answer(far, None))
+        .expect("the answer dispatches");
+    host.dispatch(answer(near, Some(rect)))
+        .expect("the answer dispatches");
+    host.dispatch(answer(near, None))
+        .expect("an answer nobody waits for is ignored");
+    assert_eq!(
+        ANSWERS.with_borrow(Clone::clone),
+        vec![("far", None), ("near", Some(rect))]
+    );
+    // An answer is addressed to no handler.
+    assert!(
+        host.dispatch(HostEvent {
+            node_id: 4,
+            handler_id: 7,
+            payload: EventPayload::PositionRect {
+                request: far,
+                rect: None
+            },
+        })
+        .is_err()
+    );
+}
+
+/// The key preview is the editor's own handler property, past the caret's, and what it
+/// hears is the `KeyDown` record a key handler hears: the same 32 bytes and tag, so a Host
+/// reads a previewed key the way it reads any other and answers it with the same result.
+#[test]
+fn fr38_editor_key_preview_keeps_its_tag_and_the_key_down_record() {
+    assert_eq!(PropertyKind::OnKeyPreview as u16, 196);
+    assert_eq!(
+        PropertyKind::from_name("on_key_preview"),
+        Ok(PropertyKind::OnKeyPreview)
+    );
+    let (length, decoded) = round_trip(EventPayload::KeyDown {
+        key: compose_rust::Key::ArrowDown,
+        shift_key: false,
+        ctrl_key: true,
+        alt_key: false,
+        meta_key: false,
+        repeat: true,
+        code: 0x51,
+        text: "ArrowDown",
+    });
+    assert_eq!(length, 32 + "ArrowDown".len());
+    assert!(matches!(
+        decoded.payload,
+        EventPayload::KeyDown {
+            key: compose_rust::Key::ArrowDown,
+            ctrl_key: true,
+            repeat: true,
+            code: 0x51,
+            ..
+        }
+    ));
+}
+
+fn code_pointer(
+    kind: compose_rust::PointerKind,
+    position: Option<Position>,
+) -> EventPayload<'static> {
+    EventPayload::CodePointer {
+        kind,
+        pointer_id: 1,
+        pointer_type: compose_rust::PointerType::Mouse,
+        x: 96.5,
+        y: 30.25,
+        buttons: 1,
+        button: 1,
+        modifiers: 8,
+        click_count: 1,
+        delta_x: 0.0,
+        delta_y: 0.0,
+        delta_mode: compose_rust::WheelDeltaMode::Pixel,
+        timestamp_nanos: 123_456_789_000,
+        position,
+    }
+}
+
+/// A pointer over the editor is the 72 byte pointer record and the line and the column
+/// under it, 80 bytes under its own tag, and both halves of the place are `u32::MAX` where
+/// it is over no character. Read back, it is a pointer event with the place beside it.
+#[test]
+fn fr38_editor_pointer_reports_text_position_on_the_wire() {
+    assert_eq!(PropertyKind::OnCodePointer as u16, 197);
+    assert_eq!(event_tag("CodePointer"), 66);
+    assert_eq!(
+        PropertyKind::from_name("on_code_pointer"),
+        Ok(PropertyKind::OnCodePointer)
+    );
+
+    let over = code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13)));
+    let (length, decoded) = round_trip(over.clone());
+    assert_eq!(length, 80);
+    let read = CodePointer::from_payload(&decoded.payload).expect("a code pointer");
+    assert_eq!(read.position, Some(Position::new(1, 13)));
+    assert_eq!(read.event.kind(), compose_rust::PointerKind::Down);
+    assert!(read.event.meta_key());
+    assert!(!read.event.ctrl_key());
+    assert_eq!(read.event.click_count(), 1);
+    assert_eq!(read.event.x(), 96.5);
+    assert!(CodePointer::from_payload(&EventPayload::CodeSaveRequested { version: 0 }).is_none());
+
+    // The first 72 bytes are what a pointer event of the same fields writes.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: over,
+        },
+        &mut wire,
+    )
+    .unwrap();
+    let mut pointer = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::Pointer {
+                kind: compose_rust::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: compose_rust::PointerType::Mouse,
+                x: 96.5,
+                y: 30.25,
+                buttons: 1,
+                button: 1,
+                modifiers: 8,
+                click_count: 1,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: compose_rust::WheelDeltaMode::Pixel,
+                timestamp_nanos: 123_456_789_000,
+            },
+        },
+        &mut pointer,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[66, 0, 80, 0]);
+    assert_eq!(&wire[4..72], &pointer[4..72]);
+    assert_eq!(&wire[72..80], &[1, 0, 0, 0, 13, 0, 0, 0]);
+
+    // Over no character.
+    let (length, decoded) = round_trip(code_pointer(compose_rust::PointerKind::Move, None));
+    assert_eq!(length, 80);
+    assert_eq!(
+        CodePointer::from_payload(&decoded.payload)
+            .unwrap()
+            .position,
+        None
+    );
+    let mut nowhere = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: code_pointer(compose_rust::PointerKind::Move, None),
+        },
+        &mut nowhere,
+    )
+    .unwrap();
+    assert_eq!(&nowhere[72..80], &[0xff; 8]);
+    // Half of nowhere is a record the two sides disagree on, and a short one is refused.
+    nowhere[72..76].copy_from_slice(&0_u32.to_le_bytes());
+    assert!(decode_event(&nowhere).is_err());
+    wire[2] = 72;
+    assert_eq!(
+        decode_event(&wire[..72]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // The vector both sides test against holds it after the position answer.
+    let vectors = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors");
+    let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
+    let mut expected = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 12,
+            handler_id: 31,
+            payload: code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13))),
+        },
+        &mut expected,
+    )
+    .unwrap();
+    assert_eq!(&events[1543..1623], expected.as_slice());
+}
+
+/// The two backgrounds are decoration kinds 5 and 6, after the four there were, in the
+/// same 44 byte record: lines as a range from the start of the first to the start of the
+/// last, characters as an ordinary range, each with the role it is tinted in. Read back,
+/// they are what was written, and a list with the older kinds keeps its records.
+#[test]
+fn fr38_line_and_range_backgrounds_round_trip_on_the_wire() {
+    assert_eq!(DecorationKind::LineBackground as u16, 5);
+    assert_eq!(DecorationKind::RangeBackground as u16, 6);
+    let line = Decoration::line_background(3, 4, 6, ColorRole::DiffAdded);
+    let range = Decoration::range_background(3, CodeRange::of(5, 2, 5, 9), ColorRole::DiffRemoved);
+    assert_eq!(line.range, CodeRange::of(4, 0, 6, 0));
+    assert_eq!(line.color, Some(ColorRole::DiffAdded));
+    assert_eq!(range.color, Some(ColorRole::DiffRemoved));
+    let lens = Decoration::code_lens(3, 0, "Run", 41);
+    let list = Decorations::new([lens.clone(), line.clone(), range.clone()]);
+    assert_eq!(list.as_bytes().len(), 3 * DECORATION_LEN + "Run".len());
+    let record = &list.as_bytes()[DECORATION_LEN..2 * DECORATION_LEN];
+    assert_eq!(u16::from_le_bytes([record[4], record[5]]), 5);
+    assert_eq!(
+        u16::from_le_bytes([record[8], record[9]]),
+        ColorRole::DiffAdded as u16
+    );
+    assert_eq!(list.decorations(), vec![lens, line, range]);
+
+    // In a batch the blob travels as it was written.
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Decorations,
+            value: PropertyValue::Bytes(list.as_bytes()),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::Decorations,
+            Value::Bytes(list.as_bytes().to_vec())
+        )]
+    );
 }

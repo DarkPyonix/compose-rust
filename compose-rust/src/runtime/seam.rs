@@ -374,6 +374,24 @@ impl Batch {
         self.write(Mutation::SetScrollOffset { node_id, offset_px });
     }
 
+    /// Writes one question to a code editor: where would a caret at `position` be drawn.
+    /// `request` is the number [`crate::code::position_query`] gave the callback that waits
+    /// for the answer. The Renderer answers it exactly once, with a rectangle in the
+    /// window's dp, or with none where the position is not on screen.
+    pub fn query_position_rect(
+        &mut self,
+        node_id: u32,
+        request: u32,
+        position: crate::code::Position,
+    ) {
+        self.write(Mutation::QueryPositionRect {
+            node_id,
+            request,
+            line: position.line,
+            column: position.column,
+        });
+    }
+
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

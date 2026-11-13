@@ -142,6 +142,7 @@ class ProtocolVectorsTest {
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
                 is Mutation.SetScrollOffset -> mutation.nodeId !in created
+                is Mutation.QueryPositionRect -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -943,6 +944,8 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
                 DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+                DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
+                DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
             ),
             decorations,
         )
@@ -983,6 +986,15 @@ class ProtocolVectorsTest {
             // The row height and the scroll offset, after everything that was here before.
             1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
             1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
+            // Where the caret is drawn and the answer to the position query, after them.
+            1463 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
+            1503 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
+            // A Cmd-click over the second line, with the place in the text under it.
+            1543 to HostEvent.CodePointer(
+                12, 31L, dev.darkpyonix.composerust.protocol.PointerKind.Down, 1,
+                dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
+                dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
+            ),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -991,7 +1003,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1463, bytes.size)
+        assertEquals(1623, bytes.size)
     }
 
     /**
@@ -1006,7 +1018,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1463, bytes.size)
+        assertEquals(1623, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1050,6 +1062,10 @@ class ProtocolVectorsTest {
         assertEquals(
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        assertEquals(
+            listOf(Mutation.QueryPositionRect(12, 17, 1, 8)),
+            mutations.filterIsInstance<Mutation.QueryPositionRect>(),
         )
         assertEquals(
             listOf(Mutation.SetScrollOffset(12, 1234.5)),
