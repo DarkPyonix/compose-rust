@@ -15,6 +15,7 @@ use super::{
     role_or_zero, widget_key,
 };
 use crate::drawing::DrawList;
+use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
@@ -900,6 +901,7 @@ pub struct TextScope {
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
     font: FontRefs,
+    font_features: OwnedAttr,
     word_break: Option<WordBreak>,
     overflow_wrap: Option<OverflowWrap>,
     pointer: Option<PointerSubscription>,
@@ -925,6 +927,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         max_lines: None,
         overflow: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
         word_break: None,
         overflow_wrap: None,
         pointer: None,
@@ -991,6 +994,19 @@ impl TextScope {
         self
     }
 
+    /// OpenType features of the font the text is set in, such as
+    /// `FontFeature::TABULAR_NUMS` for digits of one width. Compose's
+    /// `TextStyle.fontFeatureSettings`, CSS's `font-feature-settings`.
+    ///
+    /// Taken with or without a type role: a feature picks one of the forms the font already
+    /// has and does not change the font. A tag given twice takes the later value, an empty
+    /// list is no features, and at most `MAX_FONT_FEATURES` (16) are taken. A font without
+    /// the feature draws as it would have.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
     /// Where a line may break inside a word. CSS `word-break`.
     pub fn word_break(mut self, word_break: WordBreak) -> Self {
         self.word_break = Some(word_break);
@@ -1010,6 +1026,7 @@ impl TextScope {
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
         let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let (type_role, font_size, font_weight, line_height, letter_spacing) = (
             self.type_role,
@@ -1050,6 +1067,12 @@ impl TextScope {
                     },
                 ));
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, so such a text sends what it
+                // always did. A first composition writes every attribute in the list, an
+                // empty one as well, so leaving it out is what keeps it off the wire.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
@@ -1093,6 +1116,7 @@ pub struct TextFieldScope {
     letter_spacing: Option<f32>,
     color: Option<Paint>,
     font: FontRefs,
+    font_features: OwnedAttr,
     word_break: Option<WordBreak>,
     overflow_wrap: Option<OverflowWrap>,
     on_value_change: Option<Box<dyn FnMut(String)>>,
@@ -1124,6 +1148,7 @@ pub fn TextField() -> TextFieldScope {
         letter_spacing: None,
         color: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
         word_break: None,
         overflow_wrap: None,
         on_value_change: None,
@@ -1206,6 +1231,13 @@ impl TextFieldScope {
         self
     }
 
+    /// OpenType features for the typed text and the placeholder, as
+    /// `Text::font_feature_settings` takes them. Taken with or without a type role.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
     /// Where a line of the typed text and of the placeholder may break inside a word, as
     /// `Text::word_break` does. CSS `word-break`.
     pub fn word_break(mut self, word_break: WordBreak) -> Self {
@@ -1285,6 +1317,7 @@ impl TextFieldScope {
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
         let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
@@ -1344,6 +1377,10 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, as `Text` leaves it out.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 // Written only for a bare field, so a framed one sends what it always did.

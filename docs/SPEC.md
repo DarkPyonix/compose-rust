@@ -4984,14 +4984,14 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
 
 수용 기준.
-1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(시험 이름 fr83_font_feature_settings_writes_one_property_only_when_set, 미구현).
-2. 레코드 세 개짜리 목록이 체크인된 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr83_font_feature_settings_round_trips, 미구현).
-3. `tnum`을 가진 테스트 글꼴 에셋으로 그린 `"1111"`과 `"0000"`의 폭이 `tnum 1`이면 같고, 기능이 없으면 다릅니다(시험 이름 fr83_tabular_numerals_equalise_digit_widths, 미구현).
-4. 역할이 `Body`인 글에 `tnum 1`을 주면 역할의 글꼴, 크기, 굵기는 그대로이고 숫자 폭만 같아집니다(시험 이름 fr83_role_text_keeps_its_role_and_takes_features, 미구현).
-5. `TextField`의 입력한 숫자에도 같은 기준 3이 성립합니다(시험 이름 fr83_text_field_applies_font_features, 미구현).
-6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(시험 이름 fr83_malformed_font_features_are_a_protocol_error, 미구현).
+1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(`fr83_font_feature_settings_writes_one_property_only_when_set`).
+2. 레코드 세 개짜리 목록이 체크인된 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(`fr83_font_feature_settings_round_trips`).
+3. `tnum`을 가진 테스트 글꼴 에셋으로 그린 `"1111"`과 `"0000"`의 폭이 `tnum 1`이면 같고, 기능이 없으면 다릅니다(`fr83_tabular_numerals_equalise_digit_widths`).
+4. 역할이 `Body`인 글에 `tnum 1`을 주면 역할의 글꼴, 크기, 굵기는 그대로이고 숫자 폭만 같아집니다(`fr83_role_text_keeps_its_role_and_takes_features`).
+5. `TextField`의 입력한 숫자에도 같은 기준 3이 성립합니다(`fr83_text_field_applies_font_features`).
+6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(`fr83_malformed_font_features_are_a_protocol_error`).
 7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
-8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(시험 이름 fr83_font_features_do_not_allocate_in_steady_state, 미구현).
+8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
 
 ## 4. 경계 프로토콜
 

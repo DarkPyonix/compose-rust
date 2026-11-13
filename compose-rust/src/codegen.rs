@@ -2901,6 +2901,14 @@ fn floats_le(values: &[f32]) -> Vec<u8> {
         .collect()
 }
 
+/// The three font features the mutation vector's text carries: tabular figures on,
+/// ligatures off, and a character variant whose value needs more than one byte.
+pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
+    crate::font_features::FontFeature::TABULAR_NUMS,
+    crate::font_features::FontFeature::NO_LIGATURES,
+    crate::font_features::FontFeature::new(b"cv01", 0x0102),
+];
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -2911,6 +2919,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_size = floats_le(&[800.0, 600.0]);
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
+    let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3653,6 +3662,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .toast_elevation(7)
                 .toast_corner_radius(14),
         ),
+        // A text with three font features, one of them a value above one byte, after
+        // every older record but the last.
+        Mutation::Create {
+            node_id: 22,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::FontFeatureSettings,
+            value: PropertyValue::Bytes(&font_features),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,

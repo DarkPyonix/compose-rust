@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
@@ -53,6 +54,13 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
     internal var focusRequestRevision by mutableStateOf(0L)
+
+    /**
+     * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
+     * Made once when the `FontFeatureSettings` property changes and read as it is on every
+     * frame after, so a text whose value changes builds no string for its features.
+     */
+    internal var fontFeatures by mutableStateOf<String?>(null)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -124,6 +132,11 @@ data class TableError(val code: Int, val message: String) {
         const val NOT_SCROLLABLE = 19
         /** A scroll request whose values make no sense for the container. The request is dropped. */
         const val INVALID_SCROLL = 20
+        /**
+         * A font feature list that cannot be read. The text is drawn without features. 21 to 23
+         * are held by the native view errors, which are numbered on another branch.
+         */
+        const val INVALID_FONT_FEATURES = 24
     }
 }
 
@@ -842,6 +855,16 @@ class NodeTable {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.FontFeatureSettings) {
+            node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                fontFeatureSettings(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "font features on node ${node.id}: $why; the text is drawn without them",
+                    )
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -1377,6 +1400,11 @@ class NodeTable {
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
                 -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                // OpenType features, such as digits of one width. They pick a form the font
+                // has rather than another font, so text with a role takes them too.
+                PropertyKind.FontFeatureSettings ->
+                    widget == WidgetKind.Text || widget == WidgetKind.TextField
 
                 PropertyKind.SpanFonts,
                 PropertyKind.TabSize,
