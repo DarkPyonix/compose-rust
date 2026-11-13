@@ -154,6 +154,62 @@ class ControlColoursTest {
         }
     }
 
+    /** How many pixels of the 30 by 30 corner of `image` are within a small distance of `argb`. */
+    private fun near(image: java.awt.image.BufferedImage, argb: Int): Int {
+        var count = 0
+        for (y in 0 until 30) for (x in 0 until 30) {
+            val pixel = image.getRGB(x, y)
+            val close = (0..2).all { shift ->
+                val a = (pixel shr (shift * 8)) and 0xff
+                val b = (argb shr (shift * 8)) and 0xff
+                kotlin.math.abs(a - b) <= 24
+            }
+            if (close) count++
+        }
+        return count
+    }
+
+    @Test
+    fun fr67_radio_button_colours() {
+        DesignSystem.entries.forEach { system ->
+            for (selected in listOf(true, false)) {
+                render(
+                    system,
+                    WidgetKind.RadioButton,
+                    listOf(
+                        PropertyKind.Checked to PropertyValue.Bool(selected),
+                        PropertyKind.ControlSize to size(30f, 30f),
+                        PropertyKind.ContainerColor to literal(red),
+                        PropertyKind.CheckColor to literal(green),
+                    ),
+                ) { image ->
+                    onNodeWithTag(nodeTestTag(control)).assertWidthIsEqualTo(30.dp)
+                    onNodeWithTag(nodeTestTag(control)).assertHeightIsEqualTo(30.dp)
+                    // The ring is drawn in the colour named, selected or not.
+                    val ring = near(image, red)
+                    check(ring >= 8) { "$system (selected: $selected): the ring is not red ($ring pixels)" }
+                    // A selected button's dot is the dot colour; an unselected one has none.
+                    if (selected) {
+                        assertEquals(green, image.getRGB(15, 15), "$system: the dot")
+                    } else {
+                        assertNotEquals(green, image.getRGB(15, 15), "$system: no dot when not selected")
+                    }
+                    // The button is a circle: its corner is the page.
+                    assertEquals(white, image.getRGB(0, 0), "$system: outside the ring")
+                }
+            }
+            // A radio button that names nothing keeps the design system's own colours.
+            render(
+                system,
+                WidgetKind.RadioButton,
+                listOf(PropertyKind.Checked to PropertyValue.Bool(true)),
+            ) { image ->
+                assertEquals(0, near(image, red), "$system: no red in the default radio button")
+                assertEquals(0, near(image, green), "$system: no green in the default radio button")
+            }
+        }
+    }
+
     /** The measured size of the control and the page around it, after the Host sent `afterwards`, if it did. */
     private class Snapshot(val width: Float, val height: Float, val pixels: List<Int>)
 

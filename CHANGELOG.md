@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Radio button colours and size, and radio groups
+
+`RadioButton` takes `ring_color`, `dot_color` and `size(side)`, sent as the `ContainerColor`, `CheckColor` and `ControlSize` properties a `Checkbox` uses. The ring is drawn in its colour selected or not, and where the design system fills a selected button the fill takes it too; the dot scales with the size. A button that names none of them is drawn by the design system as before, in all seven. `Column::radio_group(true)` and `Row::radio_group(true)` send the new `RadioGroup` property (tag 198): the layout is a radio group to assistive technology, Tab stops at it once (on the selected button, or the first), and the arrow keys move focus along its buttons, wrapping at the ends, reporting each button they land on once as a click would. The selection stays the application's ([#545](https://github.com/DarkPyonix/compose-rust/issues/545)).
+
 ### Line and range backgrounds in the code editor
 
 Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).

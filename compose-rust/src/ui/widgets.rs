@@ -355,6 +355,7 @@ struct Linear {
     space_role: Option<SpaceRole>,
     alignment: Option<Alignment>,
     intrinsic_size: Option<bool>,
+    radio_group: bool,
 }
 
 impl Linear {
@@ -365,6 +366,10 @@ impl Linear {
         attrs.push(("alignment", role_or_zero(self.alignment)));
         if let Some(intrinsic) = self.intrinsic_size {
             attrs.push(("collapsible", OwnedAttr::Bool(intrinsic)));
+        }
+        // Written only for a group, so a plain layout sends what it always did.
+        if self.radio_group {
+            attrs.push(("radio_group", OwnedAttr::Bool(true)));
         }
     }
 }
@@ -425,6 +430,19 @@ macro_rules! linear {
             /// largest sibling without an explicit container size.
             pub fn intrinsic_size(mut self, enabled: bool) -> Self {
                 self.linear.intrinsic_size = Some(enabled);
+                self
+            }
+
+            /// Makes this layout a group of the `RadioButton`s inside it.
+            ///
+            /// The group is one stop for Tab: the selected button, or the first when none
+            /// is. The arrow keys move focus to the next or the previous button, wrapping
+            /// at the ends, and each move sends that button's `on_change(true)` once, the
+            /// same report a click sends. Which button is selected is still the
+            /// application's to decide. Assistive technology hears the layout as a radio
+            /// group.
+            pub fn radio_group(mut self, enabled: bool) -> Self {
+                self.linear.radio_group = enabled;
                 self
             }
 
@@ -1450,7 +1468,7 @@ fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, at
     }
 }
 
-/// The colours and size a Switch, Slider or Checkbox was asked to draw with. Each is sent
+/// The colours and size a Switch, Slider, Checkbox or RadioButton was asked to draw with. Each is sent
 /// only when it was set, so a control that sets none sends the properties it always has
 /// and the design system draws it.
 #[derive(Clone, Copy, Default)]
@@ -1815,6 +1833,28 @@ control_colour!(CheckboxScope, check, check_color, "The check mark.");
 
 impl CheckboxScope {
     /// The length of the box's side in dp.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
+}
+
+control_colour!(
+    RadioButtonScope,
+    container,
+    ring_color,
+    "The ring around the button, selected or not. Where the design system fills a selected \
+     button, the fill takes this colour as well."
+);
+control_colour!(
+    RadioButtonScope,
+    check,
+    dot_color,
+    "The dot inside a selected button."
+);
+
+impl RadioButtonScope {
+    /// The diameter of the ring in dp. The dot scales with it.
     pub fn size(mut self, side: f32) -> Self {
         self.look.size = Some((side, side));
         self
