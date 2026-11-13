@@ -2696,6 +2696,9 @@ Notification::new("세션이 끝났습니다")
 25. 줄 감싸기(이슈 #548, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `WordWrap`(속성 태그 200): `Off`(기본), `Viewport`, `Column(n)`, `Bounded(n)`(둘 중 좁은 쪽). 긴 줄은 보이는 줄 여러 개로 나뉘고, 위아래 화살표와 Home/End는 보이는 줄을 따르며, 적중 판정, 선택, 장식은 보이는 줄 위에 그려지고, 줄 번호는 첫 보이는 줄에만, 보이는 범위 이벤트는 모델 줄로 보고합니다.
     1. 폭 200dp에서 `Viewport`이면 500자 한 줄이 여러 보이는 줄로 그려지고, 아래 화살표가 같은 모델 줄의 다음 보이는 줄로 갑니다(fr38_word_wrap_viewport_breaks_long_lines).
     2. `Column(40)`이면 40열에서 나뉩니다(fr38_word_wrap_column).
+26. 여러 캐럿(이슈 #549, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기는 선택 여러 개를 가집니다. 이벤트 `SelectionsChanged`(이벤트 태그 67, 선택 목록: anchor와 active 쌍들, 첫째가 주 선택)와 명령 `SetSelections`(명령 태그 41). Alt+클릭이 캐럿을 더하고, Cmd/Ctrl+D가 다음 같은 글자를 더하고, Alt+Cmd/Ctrl+위/아래가 위아래 줄에 더합니다. 타이핑, 지우기, 붙여넣기는 모든 선택에 적용되고 실행 취소 한 단계입니다. Escape가 주 선택 하나로 돌아갑니다. 기존 `SelectionChanged`는 주 선택을 계속 보냅니다.
+    1. 세 줄에 캐럿 셋을 두고 "x"를 치면 세 줄 모두에 들어가고 실행 취소 한 번에 모두 사라집니다(fr38_multi_cursor_types_at_every_caret).
+    2. Cmd/Ctrl+D가 다음 일치를 더합니다(fr38_multi_cursor_add_next_match).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
