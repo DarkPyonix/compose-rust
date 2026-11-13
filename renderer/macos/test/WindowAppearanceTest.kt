@@ -53,11 +53,15 @@ class WindowAppearanceTest {
         )
     }
 
-    /** Runs [block] with the application's appearance set to [system], then restores it. */
-    private fun onSystem(system: String, block: () -> Unit) {
+    /**
+     * Runs [block] with the application's appearance set to [system], then restores it. The
+     * AppKit appearance names come into Kotlin as `String?`, so the name is taken as one.
+     */
+    private fun onSystem(system: String?, block: () -> Unit) {
+        val name = requireNotNull(system) { "AppKit has no name for this appearance" }
         val application = NSApplication.sharedApplication()
         val before = application.appearance
-        application.appearance = NSAppearance.appearanceNamed(system)
+        application.appearance = NSAppearance.appearanceNamed(name)
         try {
             block()
         } finally {
