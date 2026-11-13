@@ -1,7 +1,13 @@
 package dev.darkpyonix.composerust.ui.node
 
 import android.graphics.BitmapFactory
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RadialGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.font.FontFamily
@@ -90,3 +96,25 @@ internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): Fo
 
 /** Draws the document into the whole of the current drawing area. */
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) = drawSvgDocument(document)
+
+/**
+ * A radial gradient [radiusX] across and [radiusY] tall around [center]: the circle of
+ * [radiusX], squashed vertically about its centre by the shader's local matrix.
+ */
+internal fun ellipticalRadialShader(
+    center: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    colors: List<Color>,
+    colorStops: List<Float>,
+    tileMode: TileMode,
+): Shader {
+    val shader = RadialGradientShader(center, radiusX, colors, colorStops, tileMode)
+    shader.setLocalMatrix(
+        android.graphics.Matrix().apply { setScale(1f, radiusY / radiusX, center.x, center.y) },
+    )
+    return shader
+}
+
+/** The size the document says it is in its own units, or null where it says none. */
+internal fun vectorIntrinsicSize(document: VectorDocument): Size? = document.intrinsicSize

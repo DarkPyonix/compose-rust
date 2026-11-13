@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.ui.node
 import android.graphics.BitmapFactory
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RadialGradientShader
 import androidx.compose.ui.graphics.Shader
@@ -114,3 +115,6 @@ internal fun ellipticalRadialShader(
     )
     return shader
 }
+
+/** The size the document says it is in its own units, or null where it says none. */
+internal fun vectorIntrinsicSize(document: VectorDocument): Size? = document.intrinsicSize

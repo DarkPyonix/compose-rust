@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.ui.node
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RadialGradientShader
 import androidx.compose.ui.graphics.Shader
@@ -24,6 +25,7 @@ import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.Matrix33
 import org.jetbrains.skia.svg.SVGDOM
+import org.jetbrains.skia.svg.SVGLengthUnit
 
 /**
  * Reading pictures where Skia is the graphics stack, which is every target Compose
@@ -189,4 +191,21 @@ internal fun ellipticalRadialShader(
     return circle.makeWithLocalMatrix(
         Matrix33(1f, 0f, 0f, 0f, squash, center.y * (1f - squash), 0f, 0f, 1f),
     )
+}
+
+/**
+ * The size the document says it is, in its own units: its viewBox, or where it has none, a
+ * width and a height given as plain numbers or pixels. Null where it says neither, which
+ * leaves it a drawing with no proportions of its own.
+ */
+internal fun vectorIntrinsicSize(document: VectorDocument): Size? {
+    val root = document.root ?: return null
+    val box = root.viewBox
+    if (box != null && box.width > 0f && box.height > 0f) return Size(box.width, box.height)
+    val width = root.width
+    val height = root.height
+    val absolute = setOf(SVGLengthUnit.NUMBER, SVGLengthUnit.PX)
+    if (width.unit !in absolute || height.unit !in absolute) return null
+    if (width.value <= 0f || height.value <= 0f) return null
+    return Size(width.value, height.value)
 }
