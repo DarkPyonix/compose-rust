@@ -14,7 +14,8 @@
 #
 # Each then links the static renderer into the consumer fixture and runs it through
 # renderer/desktop/scripts/smoke-test-kn.sh, which fails unless the window, scene and first
-# frame lines appear and the run exits 0.
+# frame lines appear and the run exits 0. The Linux job then has the renderer check its window
+# is sharp at four Xft.dpi values and follows a change of it (.github/scripts/hidpi-linux-check.sh).
 #
 # `test` compiles the module and links its test executable first, so it is also the build.
 # There is no Windows Kotlin/Native renderer on develop yet; its job is added with it.
@@ -49,6 +50,8 @@ on:
       - renderer/libs.versions.toml
       - renderer/project.yaml
       - compose-rust/tests/fixtures/consumer/**
+      - compose-rust/tests/fixtures/hidpi/**
+      - .github/scripts/hidpi-linux-check.sh
       - .github/scripts/resize-metrics-run.sh
       - .github/scripts/resize-memory-check.sh
       - .github/scripts/resize-soak-check.sh
@@ -129,7 +132,7 @@ jobs:
           sudo apt-get install -y build-essential pkg-config unzip xvfb xauth \
             libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
             libfontconfig1-dev libfreetype-dev \
-            openbox xdotool x11-utils imagemagick
+            openbox xdotool x11-utils x11-xserver-utils imagemagick
 
       - name: Restore the patched Compose
         id: compose-cache
@@ -313,6 +316,32 @@ jobs:
           out="$RUNNER_TEMP/resize-metrics"
           xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/linux-live-resize.sh "$out" \
             compose-rust/tests/fixtures/consumer/target/release/consumer --launch | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the HiDPI fixture on the Linux renderer
+        if: matrix.module == 'linux'
+        run: |
+          set -euo pipefail
+          export DXC_LINUX_NATIVE_LIB="$PWD/renderer/build/linux"
+          cargo build --release --manifest-path compose-rust/tests/fixtures/hidpi/Cargo.toml
+
+      - name: The window draws in device pixels at every Xft.dpi and follows a change of it
+        # The renderer checks its own marker scene against the screen at Xft.dpi 96, 120, 144
+        # and 192, and once more while Xft.dpi goes from 192 to 120 and back.
+        # .github/scripts/hidpi-linux-check.sh says what each line it prints measures.
+        if: matrix.module == 'linux'
+        run: |
+          set -o pipefail
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/hidpi-linux-check.sh "$RUNNER_TEMP/hidpi" \
+            compose-rust/tests/fixtures/hidpi/target/release/hidpi | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the HiDPI logs
+        if: always() && matrix.module == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hidpi-linux-kn
+          path: ${{ runner.temp }}/hidpi/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Keep the Linux resize logs
         if: always() && matrix.module == 'linux'
