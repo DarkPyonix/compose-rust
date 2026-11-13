@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.design
 
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -107,6 +108,9 @@ internal object Material3ControlWidgets : ControlWidgets {
         }
     }
 
+    // The slider with a thumb slot is experimental in the Material 3 that Android builds
+    // against, though not in the desktop one; the opt-in is needed there to draw a sized thumb.
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     override fun Slider(
         value: Float,
