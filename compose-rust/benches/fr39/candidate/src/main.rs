@@ -194,12 +194,14 @@ fn convert(bytes: &[u8]) -> Batch {
 }
 
 fn main() {
-    // The todo sample loads its list from a file and would otherwise start from whatever
-    // the last person to run it left there. The path is in the run's own folder and is
-    // never written: the sample saves through a thread nobody starts here.
-    // SAFETY: first thing in `main`, before any thread exists.
-    unsafe { std::env::set_var("SAMPLE_TODO_FILE", "fr39-todo-never-written.tsv") };
-    let _ = install_renderer_api(RendererApi { run, request_frame });
+    // The todo sample keeps its list in the application's storage only once its launch
+    // turns that on, which nothing here does, so every run starts from an empty list and
+    // writes nothing.
+    let _ = install_renderer_api(RendererApi {
+        run,
+        request_frame,
+        measure: compose_rust::measure::fake_measure,
+    });
     let mut path = ComposePath { host: None };
     let mut apps: Vec<App> = SLOT_SWEEP.iter().map(|slots| App::Sweep(*slots)).collect();
     apps.extend([App::Calculator, App::Todo, App::Chat, App::Minimal]);

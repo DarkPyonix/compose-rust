@@ -203,6 +203,10 @@ pub enum EventPayloadType {
     /// use, how they were delivered, the first handle number, then the names (NUL
     /// separated) and one kind letter per name, as two references.
     FileHandles,
+    /// Where a scroll container is: the first visible item, the flags, then six `f64` in
+    /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
+    /// record.
+    ScrollChanged,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -216,13 +220,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,compact_navigation;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,compact_navigation,on_scroll_changed;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,IoAnswer,FileHandles,StorageLocation;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,StorageCall,FileCall,ReleaseFileHandle"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -390,6 +394,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::ClipboardText => 30,
                 EventPayloadType::IoAnswer => 31,
                 EventPayloadType::FileHandles => 32,
+                EventPayloadType::ScrollChanged => 33,
             }],
         );
         index += 1;
@@ -3382,6 +3387,11 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // What a `Navigation` becomes in a compact window, as a `CompactNavigation` tag. Absent
     // or 0 leaves it to the design system.
     CompactNavigation = 185,
+    // The handler a scroll container reports its position to, the handler id as an
+    // integer. One handler shared by every scroll container rather than one widget's
+    // block, so it takes the number after the last one in use: 169 to 184 are held by
+    // properties other requirements have numbered.
+    OnScrollChanged = 186,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3690,6 +3700,131 @@ pub enum EventPayload<'a> {
     /// from the environment: Android's application files directory, which only a
     /// `Context` knows. Sent once by that Renderer at start. Delivered to the Host itself.
     StorageLocation(&'a str),
+    /// Where a scroll container is, reported by the Renderer to the node's
+    /// `OnScrollChanged` handler: at most once a frame while it moves, and once more with
+    /// `settled` when it stops. Every length is in physical pixels, the unit the Renderer
+    /// scrolls in, so a value read here and sent back in a `ScrollTo` is the same place.
+    ///
+    /// In a lazy list `item` is the first visible item and the main-axis offset is the
+    /// distance into that item; the list does not know its whole length, so its main-axis
+    /// `max` is `-1.0`. Elsewhere `item` is 0.
+    ScrollChanged {
+        item: u32,
+        /// The movement ended: a drag, a fling or an animation came to rest.
+        settled: bool,
+        /// The container can still scroll towards the start of its main axis.
+        can_scroll_backward: bool,
+        /// The container can still scroll towards the end of its main axis.
+        can_scroll_forward: bool,
+        x_px: f64,
+        y_px: f64,
+        max_x_px: f64,
+        max_y_px: f64,
+        viewport_width_px: f64,
+        viewport_height_px: f64,
+    },
+}
+
+/// A rectangle in physical pixels, for [`ScrollTarget`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    pub x_px: f64,
+    pub y_px: f64,
+    pub width_px: f64,
+    pub height_px: f64,
+}
+
+impl Rect {
+    pub const fn new(x_px: f64, y_px: f64, width_px: f64, height_px: f64) -> Self {
+        Self {
+            x_px,
+            y_px,
+            width_px,
+            height_px,
+        }
+    }
+}
+
+/// A request to scroll a container to an offset, written by `Batch::scroll_to`.
+///
+/// An axis left `None` is not touched, so setting one axis never sends a stale value for
+/// the other. The Renderer keeps each value inside the range the content allows, and
+/// ignores the request while the user is dragging or flinging the container.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollTo {
+    pub x_px: Option<f64>,
+    pub y_px: Option<f64>,
+    /// In a lazy list, the item the offset is measured from. 0 everywhere else.
+    pub item: u32,
+    pub animate: bool,
+}
+
+/// How a rectangle is brought into view along one axis: CSS's `block` and `inline` values,
+/// and `Keep` for an axis that must not move.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u16)]
+pub enum ScrollAlign {
+    /// The axis does not move.
+    #[default]
+    Keep = 0,
+    Start = 1,
+    Center = 2,
+    End = 3,
+    /// No movement when the rectangle is already in view, otherwise the smallest one that
+    /// shows it. A rectangle larger than the viewport is aligned to its start.
+    Nearest = 4,
+}
+
+/// What a `ScrollIntoView` rectangle is measured from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ScrollTarget {
+    /// The container's content: the origin is the content's top left at offset zero. Not
+    /// for a lazy list, which has no content coordinates.
+    Content(Rect),
+    /// A descendant node of the container: the origin is that node's top left, and a
+    /// rectangle with no width and no height means the whole node.
+    Node(u32, Rect),
+    /// An item of a lazy list by its index: the origin is the item's start, and a rectangle
+    /// with no width and no height means the whole item.
+    Item(u32, Rect),
+}
+
+/// A request to bring a rectangle into view in one container, written by
+/// `Batch::scroll_into_view`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollIntoView {
+    pub target: ScrollTarget,
+    pub align_x: ScrollAlign,
+    pub align_y: ScrollAlign,
+    pub animate: bool,
+}
+
+/// The bits of a `ScrollTo` record's flags word.
+pub mod scroll_to_flags {
+    pub const ANIMATE: u32 = 1;
+    pub const X: u32 = 1 << 1;
+    pub const Y: u32 = 1 << 2;
+}
+
+/// The values of a `ScrollIntoView` record's target kind.
+pub mod scroll_target_kind {
+    pub const CONTENT: u16 = 0;
+    pub const NODE: u16 = 1;
+    pub const ITEM: u16 = 2;
+}
+
+/// The bit of a `ScrollIntoView` record's flags.
+pub mod scroll_into_view_flags {
+    pub const ANIMATE: u16 = 1;
+}
+
+/// The bits of a `ScrollChanged` event's flags word.
+pub mod scroll_changed_flags {
+    pub const SETTLED: u32 = 1;
+    pub const CAN_SCROLL_BACKWARD: u32 = 1 << 1;
+    pub const CAN_SCROLL_FORWARD: u32 = 1 << 2;
+    /// Every bit that has a meaning. Any other bit set is a protocol error.
+    pub const KNOWN: u32 = SETTLED | CAN_SCROLL_BACKWARD | CAN_SCROLL_FORWARD;
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -3948,6 +4083,12 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "StorageLocation",
         tag: 59,
         payload: EventPayloadType::Text,
+    },
+    // Where a scroll container is, reported to the node's own handler.
+    EventSchema {
+        name: "ScrollChanged",
+        tag: 60,
+        payload: EventPayloadType::ScrollChanged,
     },
 ];
 

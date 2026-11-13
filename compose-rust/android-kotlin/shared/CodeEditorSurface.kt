@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
@@ -132,7 +133,7 @@ var defaultCodeEditorPath: CodeEditorPath = CodeEditorPath.Windowed
  * input session, which is not the same type on any two platforms, so it is installed by the
  * platform rather than written here.
  */
-var drawnCodeEditorSurface: (@Composable (CodeEditorModel, CodeEditorLook, CodeEditorCallbacks, Modifier) -> Unit)? = null
+var drawnCodeEditorSurface: (@Composable (CodeEditorModel, CodeEditorLook, CodeEditorCallbacks, Modifier, @Composable (EditorScrolling) -> Unit) -> Unit)? = null
 
 /**
  * Everything a surface needs to draw an editor, already resolved from the design system.
@@ -247,20 +248,32 @@ fun CodeEditorSurface(
     modifier: Modifier = Modifier,
     path: CodeEditorPath = defaultCodeEditorPath,
     focusRequest: Long = 0L,
+    scrolling: @Composable (EditorScrolling) -> Unit = {},
 ) {
     when (path) {
-        CodeEditorPath.Windowed -> FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest)
-        CodeEditorPath.Whole -> FieldSurface(model, look, callbacks, modifier, whole = true, focusRequest = focusRequest)
+        CodeEditorPath.Windowed -> FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest, scrolling = scrolling)
+        CodeEditorPath.Whole -> FieldSurface(model, look, callbacks, modifier, whole = true, focusRequest = focusRequest, scrolling = scrolling)
         CodeEditorPath.Drawn -> {
             val drawn = drawnCodeEditorSurface
             if (drawn != null) {
-                drawn(model, look, callbacks, modifier)
+                drawn(model, look, callbacks, modifier, scrolling)
             } else {
-                FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest)
+                FieldSurface(model, look, callbacks, modifier, whole = false, focusRequest = focusRequest, scrolling = scrolling)
             }
         }
     }
 }
+
+/**
+ * How an editor's view scrolls, handed to whoever wires it to the Host: the offset down the
+ * document, which the editor keeps itself, the offset along the lines where the path
+ * scrolls that way, and the height of the view in pixels.
+ */
+class EditorScrolling internal constructor(
+    internal val vertical: EditorScroll,
+    internal val horizontal: ScrollState?,
+    internal val viewportHeight: () -> Int,
+)
 
 /**
  * Where each line's rows are, counting the rows a lens above a line and a suggestion of
@@ -796,11 +809,15 @@ internal class EditorScroll {
         private set
 
     /** The furthest the view can scroll: the document's height less the viewport's. */
-    var max = 0
+    var max: Int
+        get() = limit
         set(value) {
-            field = value.coerceAtLeast(0)
-            if (offset > field) offset = field
+            limit = value.coerceAtLeast(0)
+            if (offset > limit) offset = limit
         }
+
+    /** Kept as state so that whoever reports the range hears it change. */
+    private var limit by mutableIntStateOf(0)
 
     /** The part of a pixel a scroll gesture has moved and the offset has not yet taken. */
     private var remainder = 0f
@@ -838,6 +855,7 @@ private fun FieldSurface(
     modifier: Modifier,
     whole: Boolean,
     focusRequest: Long = 0L,
+    scrolling: @Composable (EditorScrolling) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val rowPx = remember(look.textStyle, density) { rowHeightPx(look.textStyle, density) }
@@ -855,6 +873,7 @@ private fun FieldSurface(
     val display = remember(window, look) { EditorDisplay(window, look) }
     var viewportHeight by remember { mutableIntStateOf(0) }
     var viewportWidth by remember { mutableIntStateOf(0) }
+    scrolling(remember(vertical, horizontal) { EditorScrolling(vertical, horizontal) { viewportHeight } })
     // A holder rather than a state: the field hands over a new reader on every layout, and
     // keeping it in a state would recompose this surface once per layout for nothing. The
     // reader itself reads the field's layout state, so what draws from it still follows.
