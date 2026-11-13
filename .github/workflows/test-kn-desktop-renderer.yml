@@ -128,7 +128,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config unzip xvfb xauth \
             libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
-            libfontconfig1-dev libfreetype-dev
+            libfontconfig1-dev libfreetype-dev \
+            openbox xdotool x11-utils imagemagick
 
       - name: Restore the patched Compose
         id: compose-cache
@@ -299,6 +300,28 @@ jobs:
         # The same check as the macOS job's, with the main dispatcher Linux has.
         if: matrix.module == 'linux'
         run: xvfb-run -a -s '-screen 0 1280x1024x24' ./renderer/desktop/scripts/smoke-test-kn.sh compose-rust/tests/fixtures/consumer/target/release/consumer linux
+
+      - name: The drawing keeps up with the right edge while it is dragged
+        # Runs the application with DXC_EDGE_MARK=1 under openbox, drags the right edge with
+        # xdotool and reads, from a capture after every step, how many pixels lie between the
+        # window's edge and the magenta bar the renderer draws flush with what it drew. Every
+        # frame shown during a resize must be drawn at the window's size, so the bound is 0 px.
+        # See .github/scripts/linux-live-resize.sh.
+        if: matrix.module == 'linux'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics"
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/linux-live-resize.sh "$out" \
+            compose-rust/tests/fixtures/consumer/target/release/consumer --launch | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the Linux resize logs
+        if: always() && matrix.module == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-linux-kn
+          path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Save the Kotlin toolchain (not from a pull request)
         if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'

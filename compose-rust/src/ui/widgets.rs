@@ -18,9 +18,9 @@ use crate::drawing::DrawList;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, HorizontalAlignment, IconRole,
-    Paint, PopoverAlign, PopoverPlacement, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole,
-    VerticalAlignment, WidgetKind, WordBreak,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
+    HorizontalAlignment, IconRole, Paint, PopoverAlign, PopoverPlacement, SlotRole, SpaceRole,
+    TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
@@ -2897,6 +2897,7 @@ container!(ScaffoldScope<'a>);
 pub struct NavigationScope<'a> {
     modifier: Modifier,
     selected_index: usize,
+    compact: CompactNavigation,
     head: Slot<'a>,
     foot: Slot<'a>,
     done: bool,
@@ -2909,6 +2910,7 @@ pub fn Navigation<'a>(selected_index: usize) -> NavigationScope<'a> {
     NavigationScope {
         modifier: Modifier::new(),
         selected_index,
+        compact: CompactNavigation::Default,
         head: None,
         foot: None,
         done: false,
@@ -2916,6 +2918,19 @@ pub fn Navigation<'a>(selected_index: usize) -> NavigationScope<'a> {
 }
 
 impl<'a> NavigationScope<'a> {
+    /// What the destinations become in a compact window.
+    ///
+    /// Without it the design system answers, which is a bottom bar on most of them. An
+    /// application whose own reference draws a compact window differently says so here:
+    /// `Sidebar` puts the sidebar away behind a toggle on every design system, and `None`
+    /// leaves the destinations off a compact window so the screen can reach them its own
+    /// way. Medium and Expanded windows keep the design system's rail and drawer whatever
+    /// this says, and the screen still never asks how wide the window is.
+    pub fn compact(mut self, compact: CompactNavigation) -> Self {
+        self.compact = compact;
+        self
+    }
+
     /// What sits above the destinations in a strip.
     pub fn head(mut self, head: impl FnOnce() + 'a) -> Self {
         self.head = Some(std::boxed::Box::new(head));
@@ -2931,6 +2946,7 @@ impl<'a> NavigationScope<'a> {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let selected_index = self.selected_index;
+        let compact = self.compact;
         let (head, foot) = (self.head.take(), self.foot.take());
         emit(
             widget_key("compose_rust::ui::Navigation"),
@@ -2938,6 +2954,14 @@ impl<'a> NavigationScope<'a> {
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
+                // No choice is the default, and the default is not sent: a navigation that
+                // says nothing travels exactly as it did before there was a choice.
+                if compact != CompactNavigation::Default {
+                    attrs.push((
+                        "compact_navigation",
+                        OwnedAttr::Int(i64::from(u16::from(compact))),
+                    ));
+                }
             },
             Vec::new(),
             || {

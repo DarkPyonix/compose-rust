@@ -299,7 +299,7 @@ each a clone of a real one, written on the authoring API:
 | [`notepad`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/notepad) | Multiline editing, IME, file I/O from a worker thread |
 | [`todo`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/todo) | Stable keys, filters as destinations, a `LazyColumn` over thousands of rows |
 | [`chat`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/chat) | Enter sends and Shift+Enter starts a line, a reply streamed from a worker thread |
-| [`minimal`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal) | Every control the schema has, the fills, the type and corner ladders, a `Canvas` |
+| [`minimal`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/minimal) | A monochrome component sheet: steppers, a segmented control, cards, switches, a gradient, a shadow and `Canvas` drawings |
 | [`store`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/store) | A carousel, a category strip, a two-up grid, a bag that adds up |
 | [`statistics`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/statistics) | A dial and a week of costs drawn with `Canvas`, painted in roles |
 | [`selfcare`](https://github.com/DarkPyonix/compose-rust/tree/main/samples/selfcare) | A mood picker, drawn faces, a chip grid, a windowed row of cards |
