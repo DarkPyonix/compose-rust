@@ -1847,6 +1847,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **8번은 아직입니다.** Renderer의 `ComponentRules` 구현은 현재 셋(Material 3, Cupertino, Fluent)이고, GNOME/Breeze/Deepin은 다른 작업에서 들어오는 중입니다. 세 멤버 전부 토큰 표에서 유도한 기본 구현을 가지므로 그 셋이 합류할 때 컴파일이 깨지지 않고 각자의 색으로 나오지만, "여섯 시스템 전부"는 그 작업이 합쳐진 뒤에 확인해야 합니다. 그때까지 이 요구사항은 `Done`이 아닙니다.
 
+**시트의 최대 높이**(이슈 #445, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Sheet`에 `max_height_fraction(f32)`(창 높이에 대한 비율, 0보다 크고 1 이하)이 있습니다. 내용이 작으면 시트는 내용 높이이고, 크면 그 비율에서 멈추고 안이 스크롤됩니다. Ember 목업은 0.85입니다. 속성 하나를 보내고, 부르지 않으면 지금과 같습니다. 수용 기준: 창 높이 800dp에서 `max_height_fraction(0.85)`인 시트에 1000dp 내용을 넣으면 시트 높이가 680dp이고 내용이 스크롤되며, 200dp 내용이면 시트 높이가 내용 높이입니다(fr21_sheet_max_height_fraction).
 
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
@@ -4019,6 +4020,8 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 수용 기준.
 1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
 2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
+
+**스크롤 맞춤**(이슈 #547, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ScrollRow`과 `ScrollColumn`에 `snap(Snap)`이 있습니다. `Snap::None`(기본)과 `Snap::ItemStart`입니다. `ItemStart`이면 끌기나 튕기기가 끝난 뒤 가장 가까운 직접 자식의 시작 가장자리가 보이는 영역의 시작에 맞춰 멈춥니다(CSS `scroll-snap-type: x mandatory`와 `scroll-snap-align: start`). Compose의 snap fling 동작으로 그립니다. 속성 `Snap` 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 390dp인 `ScrollRow` 안의 390dp 자식 셋에서 첫 자식의 절반을 넘게 끌고 놓으면 둘째 자식의 시작에 멈추고, 절반이 안 되게 끌면 첫 자식으로 돌아옵니다(fr62_scroll_row_snaps_to_item_start). `Snap::None`은 지금과 같습니다.
 
 ### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
 
