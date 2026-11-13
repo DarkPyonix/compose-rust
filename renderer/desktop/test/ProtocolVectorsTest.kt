@@ -991,7 +991,45 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1439, bytes.size)
+        assertEquals(1463, bytes.size)
+    }
+
+    /**
+     * A node's size motion settling encodes here to the bytes the Rust Host decodes: the
+     * header, then the settled width and height as `f32` in dp. The handler property it
+     * is sent for reads back from its tag.
+     */
+    @Test
+    fun fr24_motion_finished_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val buffer = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
+        assertEquals(24, length)
+        assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
+        assertEquals(1463, bytes.size)
+
+        // A SetProp of the handler, written by hand: the record header, the node, the
+        // property tag 193 and an integer value holding the handler id.
+        val record = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+        record.putShort(2) // SetProp, 24 bytes with its header
+        record.putShort(24)
+        record.putInt(14)
+        record.putShort(193)
+        record.putShort(3) // an integer value
+        record.putLong(30L)
+        record.putInt(0)
+        val envelope = ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN)
+        envelope.putShort(0)
+        envelope.putShort(12)
+        envelope.putInt(36) // the records end 36 bytes in, the envelope included
+        envelope.putInt(1)
+        envelope.put(record.array())
+        val decoded = mutableListOf<Mutation>()
+        Protocol.decode(ByteBuffer.wrap(envelope.array()).order(ByteOrder.LITTLE_ENDIAN), decoded::add)
+        assertEquals(
+            listOf<Mutation>(Mutation.SetProp(14, PropertyKind.OnMotionFinished, PropertyValue.Integer(30L))),
+            decoded,
+        )
     }
 
     /**

@@ -174,6 +174,8 @@ pub(crate) enum EventCallback {
     Range(Rc<RefCell<dyn FnMut(crate::RangeRequest)>>),
     Files(Rc<RefCell<dyn FnMut(crate::FileDrop)>>),
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
+    /// The size a node's size motion settled at.
+    Motion(Rc<RefCell<dyn FnMut(crate::MotionFinished)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
 }
