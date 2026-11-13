@@ -556,7 +556,8 @@ private fun SplitPaneLayout(
                     dismiss(node, dispatcher)
                 }
             }
-            platformBackHandler(selected == 1, goBack)
+            // An open overlay takes the back first, as it takes Escape.
+            platformBackHandler(selected == 1 && !LocalOverlayFocusStack.current.hasOpen, goBack)
             AnimatedContent(
                 targetState = selected == 1,
                 modifier = Modifier.fillMaxSize().then(shortcut),
