@@ -1,22 +1,29 @@
-//! The task list and the file it survives a restart in.
+//! The task list and where it survives a restart: the application's storage, under the
+//! key [`KEY`].
 //!
-//! Saving is file I/O, so it goes through `with_worker`, which is how domain work leaves
-//! the UI thread. The UI thread hands a snapshot to a worker and returns immediately; a
-//! write that a newer snapshot has already overtaken is skipped, so a burst of edits
-//! writes the newest list rather than every one of them. The sample starts no thread of
-//! its own: a browser page cannot start one, and the one it used to start aborted the
-//! page before its first frame.
+//! Loading and saving are storage operations, which are futures on every platform.
+//! compose-rust carries them out off the UI thread: its own storage thread on a desktop or a
+//! phone, and the browser's IndexedDB on the web, through the Renderer. The UI thread starts
+//! one and goes on drawing, so the list is read without the window waiting on a disk, and
+//! the same code keeps the list across a reload of the page.
 //!
-//! A platform with no filesystem (a browser page) answers every write with an error. The
-//! list then lasts until the page is reloaded, and the first failure says so.
+//! One write is on its way at a time. An edit made while one is on its way only replaces
+//! the list waiting behind it, so a burst of edits writes the newest list rather than every
+//! one of them: a save a newer list has overtaken writes nothing.
+//!
+//! Where the values live is compose-rust's: a directory named after the identifier the
+//! application launched with, or the one `COMPOSE_RUST_STORAGE_DIR` names, which is how a
+//! development run keeps its list out of the real one.
 
 use compose_rust::IconRole;
-use compose_rust::runtime::{CoroutineScope, with_worker};
+use compose_rust::runtime::CoroutineScope;
+use compose_rust::storage::{self, StorageError};
 use compose_rust::ui::{Message, MessageDuration};
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// The storage key the list is kept under.
+pub const KEY: &str = "tasks.tsv";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Task {
@@ -69,14 +76,6 @@ impl Filter {
             Filter::Done => task.done,
         }
     }
-}
-
-pub fn store_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SAMPLE_TODO_FILE") {
-        return PathBuf::from(path);
-    }
-    let base = std::env::var("HOME").unwrap_or_else(|_| ".".to_owned());
-    PathBuf::from(base).join(".sample-todo.tsv")
 }
 
 /// One task per line: id, done flag, title. Tabs separate the fields, and a title's own
@@ -132,36 +131,35 @@ fn decode(text: &str) -> Vec<Task> {
         .collect()
 }
 
-/// Read the saved list. A missing or unreadable file is an empty list rather than an
-/// error: a first run has no file, and a corrupt one should not stop the app starting.
-pub fn load() -> Vec<Task> {
-    std::fs::read_to_string(store_path())
-        .map(|text| decode(&text))
-        .unwrap_or_default()
-}
-
-/// Whether edits are written to disk. Off until `start_saver`, so a test that drives the
-/// list never writes over the file another test is reading.
-static SAVING: AtomicBool = AtomicBool::new(false);
-
-/// The newest snapshot handed out, and the newest one written. A worker holding an older
-/// snapshot than `LATEST` has been overtaken and writes nothing; `WRITTEN` is behind a
-/// lock so two workers never write the file at once.
-static LATEST: AtomicU64 = AtomicU64::new(0);
-static WRITTEN: Mutex<u64> = Mutex::new(0);
+/// Whether the list is read from and written to storage. Off until [`start`], so a test or
+/// a benchmark that drives the screen without launching the application starts from an
+/// empty list and never touches storage.
+static STARTED: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     /// Where a save's future runs: the list's own coroutine scope, so its work is
     /// cancelled with the list. Every save starts on the UI thread, which is this one.
     static SCOPE: RefCell<Option<CoroutineScope>> = const { RefCell::new(None) };
+    /// Whether the saved list was read. Until it was, a save would replace a list nobody
+    /// has seen, so nothing is written.
+    static LOADED: Cell<bool> = const { Cell::new(false) };
+    /// The newest list not yet handed to storage, waiting behind the write on its way.
+    static WAITING: RefCell<Option<Vec<Task>>> = const { RefCell::new(None) };
+    /// Whether a write is on its way.
+    static WRITING: Cell<bool> = const { Cell::new(false) };
     /// Whether the last save failed, so a platform that cannot write at all says so once
     /// rather than on every edit.
     static FAILING: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Turn saving on. Called once before the first frame, on every platform.
-pub fn start_saver() {
-    SAVING.store(true, Ordering::Release);
+/// Turn storage on. Called once before the first frame, on every platform.
+pub fn start() {
+    STARTED.store(true, Ordering::Release);
+}
+
+/// Whether the list comes from storage, in which case the screen waits for it.
+pub fn started() -> bool {
+    STARTED.load(Ordering::Acquire)
 }
 
 /// Give the store the coroutine scope its saves run in. Called from the list's
@@ -170,40 +168,74 @@ pub fn attach(scope: CoroutineScope) {
     SCOPE.with(|slot| *slot.borrow_mut() = Some(scope));
 }
 
-/// Hand the current list to a worker. Returns without touching the disk.
+/// Reads the saved list. A first run has none, which is an empty list.
+///
+/// A list that cannot be read is said out loud, and this run then writes nothing, so the
+/// list that could not be read is still there for a run that can read it. A line that is
+/// not a task is skipped rather than failing the whole list.
+pub async fn load() -> Vec<Task> {
+    LOADED.with(|loaded| loaded.set(false));
+    match storage::read_string(KEY).await {
+        Ok(saved) => {
+            LOADED.with(|loaded| loaded.set(true));
+            saved.map(|text| decode(&text)).unwrap_or_default()
+        }
+        Err(error) => {
+            Message::new(format!(
+                "The saved list could not be read, so changes are not saved this time: {error}"
+            ))
+            .with_duration(MessageDuration::Long)
+            .show();
+            Vec::new()
+        }
+    }
+}
+
+/// Puts the list behind the write on its way, or starts one. Returns without waiting.
 pub fn save(tasks: &[Task]) {
-    if !SAVING.load(Ordering::Acquire) {
+    if !started() || !LOADED.with(Cell::get) {
         return;
     }
     let Some(scope) = SCOPE.with(|slot| slot.borrow().clone()) else {
         return;
     };
-    let generation = LATEST.fetch_add(1, Ordering::AcqRel) + 1;
-    let snapshot = tasks.to_vec();
+    WAITING.with(|waiting| *waiting.borrow_mut() = Some(tasks.to_vec()));
+    if WRITING.with(Cell::get) {
+        // The write on its way picks the newest list up when it ends.
+        return;
+    }
+    let flight = Flight::start();
     scope.launch(async move {
-        let outcome = with_worker(move || write(generation, &snapshot)).await;
-        report(outcome);
+        let _flight = flight;
+        while let Some(snapshot) = WAITING.with(|waiting| waiting.borrow_mut().take()) {
+            let outcome = storage::write(KEY, encode(&snapshot)).await;
+            report(outcome);
+        }
     });
 }
 
-/// Writes `snapshot` unless a newer one has been handed out since. Runs on a worker.
-fn write(generation: u64, snapshot: &[Task]) -> std::io::Result<()> {
-    let mut written = WRITTEN.lock().unwrap_or_else(PoisonError::into_inner);
-    if generation <= *written || generation < LATEST.load(Ordering::Acquire) {
-        return Ok(());
+/// A write on its way. Dropped when the writes end, or with the future when the list's
+/// scope is cancelled first, so a cancelled write never leaves the next save waiting for
+/// it.
+struct Flight;
+
+impl Flight {
+    fn start() -> Self {
+        WRITING.with(|writing| writing.set(true));
+        Flight
     }
-    let path = store_path();
-    let temporary = path.with_extension("tsv.tmp");
-    std::fs::write(&temporary, encode(snapshot))?;
-    std::fs::rename(&temporary, &path)?;
-    *written = generation;
-    Ok(())
+}
+
+impl Drop for Flight {
+    fn drop(&mut self) {
+        WRITING.with(|writing| writing.set(false));
+    }
 }
 
 /// Says a failed save out loud, once until a save succeeds again. A write error is an
-/// ordinary outcome: a full disk, a read-only home directory, or a browser page, where
-/// there is no file to write.
-fn report(outcome: std::io::Result<()>) {
+/// ordinary outcome: a full disk, a browser that blocks storage, or a run without an
+/// application identifier.
+fn report(outcome: Result<(), StorageError>) {
     let already = FAILING.with(|failing| failing.replace(outcome.is_err()));
     if let Err(error) = outcome {
         if !already {
@@ -228,21 +260,6 @@ mod tests {
             done: true,
         }];
         assert_eq!(decode(&encode(&tasks)), tasks);
-    }
-
-    /// A burst of edits hands out a snapshot each, and each goes to a worker. A worker
-    /// whose snapshot a newer one has overtaken writes nothing, so the file ends up
-    /// holding the newest list and is not written once per edit. It returns before it
-    /// looks for the file, which is why this touches no disk.
-    #[test]
-    fn pr3_an_overtaken_save_writes_nothing() {
-        let overtaken = LATEST.fetch_add(2, Ordering::AcqRel) + 1;
-        let written_before = *WRITTEN.lock().unwrap_or_else(PoisonError::into_inner);
-        assert!(write(overtaken, &[]).is_ok());
-        assert_eq!(
-            *WRITTEN.lock().unwrap_or_else(PoisonError::into_inner),
-            written_before
-        );
     }
 
     #[test]
