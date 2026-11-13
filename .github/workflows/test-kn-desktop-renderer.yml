@@ -15,7 +15,9 @@
 # Each then links the static renderer into the consumer fixture and runs it through
 # renderer/desktop/scripts/smoke-test-kn.sh, which fails unless the window, scene and first
 # frame lines appear and the run exits 0. The Linux job then has the renderer check its window
-# is sharp at four Xft.dpi values and follows a change of it (.github/scripts/hidpi-linux-check.sh).
+# is sharp at four Xft.dpi values and follows a change of it (.github/scripts/hidpi-linux-check.sh),
+# and the macOS job first reports whether the runner's display offers a HiDPI mode at all
+# (.github/scripts/macos-display-modes.c), which decides whether that check can run there.
 #
 # `test` compiles the module and links its test executable first, so it is also the build.
 # There is no Windows Kotlin/Native renderer on develop yet; its job is added with it.
@@ -52,6 +54,7 @@ on:
       - compose-rust/tests/fixtures/consumer/**
       - compose-rust/tests/fixtures/hidpi/**
       - .github/scripts/hidpi-linux-check.sh
+      - .github/scripts/macos-display-modes.c
       - .github/scripts/resize-metrics-run.sh
       - .github/scripts/resize-memory-check.sh
       - .github/scripts/resize-soak-check.sh
@@ -109,6 +112,16 @@ jobs:
             workers: 4
     steps:
       - uses: actions/checkout@v4
+
+      - name: The display modes the macOS runner offers, and whether one is HiDPI
+        # The HiDPI check can run on macOS only if the runner's display can be switched to two
+        # pixels to a point. This asks first, before anything is built, and changes nothing.
+        if: matrix.module == 'macos'
+        run: |
+          set -euo pipefail
+          clang -O2 -Wall -framework ApplicationServices .github/scripts/macos-display-modes.c \
+            -o "$RUNNER_TEMP/macos-display-modes"
+          "$RUNNER_TEMP/macos-display-modes" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Make room for the Compose build
         if: runner.os == 'Linux'
