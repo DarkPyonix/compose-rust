@@ -1822,6 +1822,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **8번은 아직입니다.** Renderer의 `ComponentRules` 구현은 현재 셋(Material 3, Cupertino, Fluent)이고, GNOME/Breeze/Deepin은 다른 작업에서 들어오는 중입니다. 세 멤버 전부 토큰 표에서 유도한 기본 구현을 가지므로 그 셋이 합류할 때 컴파일이 깨지지 않고 각자의 색으로 나오지만, "여섯 시스템 전부"는 그 작업이 합쳐진 뒤에 확인해야 합니다. 그때까지 이 요구사항은 `Done`이 아닙니다.
 
+**시트의 최대 높이**(이슈 #445, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Sheet`에 `max_height_fraction(f32)`(창 높이에 대한 비율, 0보다 크고 1 이하)이 있습니다. 내용이 작으면 시트는 내용 높이이고, 크면 그 비율에서 멈추고 안이 스크롤됩니다. Ember 목업은 0.85입니다. 속성 하나를 보내고, 부르지 않으면 지금과 같습니다. 수용 기준: 창 높이 800dp에서 `max_height_fraction(0.85)`인 시트에 1000dp 내용을 넣으면 시트 높이가 680dp이고 내용이 스크롤되며, 200dp 내용이면 시트 높이가 내용 높이입니다(fr21_sheet_max_height_fraction).
 
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
