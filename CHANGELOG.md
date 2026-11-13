@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### SVG pictures draw on Android
+
+Android has no SVG reader of its own, so every `AssetKind::Svg` registration was reported as unreadable (protocol error 7) and drew an empty box. The Android renderer now reads SVG itself, following the rules Skia draws by on the desktop and iOS, so the same file draws the same picture on every platform. It reads shapes, groups, `use`, fills and strokes with their opacities, dashes, caps and joins, transforms, `viewBox` and `preserveAspectRatio`, linear and radial gradients, patterns and clip paths. It does not read `text`, `image`, `mask`, `filter`, `marker` or `<style>` sheets ([#567](https://github.com/DarkPyonix/compose-rust/issues/567)).
+
 ### Desktop windows follow the system's text size
 
 The Windows and Linux windows draw native text at the operating system's text size (Windows' Text size slider, GNOME's `text-scaling-factor`, KDE's font DPI) and follow it when it changes with the window open. macOS has no public text size setting, so it stays at 1. Files dropped on a window of the Windows Kotlin/Native renderer now reach the `FileDropTarget` under them, as on Linux and macOS ([#68](https://github.com/DarkPyonix/compose-rust/issues/68), [#72](https://github.com/DarkPyonix/compose-rust/issues/72)).

@@ -11,17 +11,16 @@ import java.io.File
  * Reading pictures on Android, which draws through its own graphics stack rather than
  * through Skia directly.
  *
- * There is no vector document here. Android's graphics stack has no SVG parser, so an SVG
- * registration is reported as unreadable rather than drawn wrong or silently skipped, and
- * nothing ever constructs this type. Icons are unaffected: a vector icon registers a
- * meaning, and the design system draws the shape.
+ * That stack has no SVG reader, so a vector is read by the renderer's own [SvgDocument],
+ * which follows the rules Skia's SVG document draws by on the desktop and iOS. The same file
+ * then draws the same picture on every platform, rather than an empty box here.
  */
-class VectorDocument private constructor()
+typealias VectorDocument = SvgDocument
 
 internal fun decodeRasterAsset(bytes: ByteArray): ImageBitmap? =
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 
-internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? = null
+internal fun decodeVectorAsset(bytes: ByteArray): VectorDocument? = SvgDocument.parse(bytes)
 
 /**
  * Reads a font file into a family, through a file because that is the only door Android
@@ -89,6 +88,5 @@ internal fun systemFontFamily(name: String): FontFamily? {
 @Suppress("UNUSED_PARAMETER")
 internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): FontTracking? = null
 
-internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
-    // Unreachable: nothing produces a VectorDocument on this platform.
-}
+/** Draws the document into the whole of the current drawing area. */
+internal fun DrawScope.drawVectorDocument(document: VectorDocument) = drawSvgDocument(document)
