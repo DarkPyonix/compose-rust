@@ -1604,11 +1604,12 @@ object Protocol {
                 )
                 .unwrap();
             }
-            // The selections as little-endian words behind the record.
+            // The selections as little-endian words behind the record, written byte by byte:
+            // the Kotlin/Native buffer this runs on has no `allocate` and no `array`.
             EventPayloadType::CodeSelections => {
                 writeln!(
                     output,
-                    "                is HostEvent.{} -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also {{ buffer -> for (value in event.selections) buffer.putInt(value) }}.array()",
+                    "                is HostEvent.{} -> ByteArray(event.selections.size * 4).also {{ bytes -> event.selections.forEachIndexed {{ index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() }} }}",
                     event.name
                 )
                 .unwrap();
@@ -4012,6 +4013,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::CollapseBelow,
             value: PropertyValue::Float(720.5),
         },
+        // The two physical text alignments, which do not swap in right-to-left text.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Left as i64),
+        },
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Right as i64),
+        },
         // A question about where a place on the editor's second line is, after its scroll
         // command.
         Mutation::QueryPositionRect {
@@ -5310,7 +5322,9 @@ object CodeEditorRecords {
                 RecordFieldType::F32 => {
                     writeln!(
                         output,
-                        "        val {} = buffer.getFloat(offset + {at})",
+                        // Read as the word it is and turned into a float, because the
+                        // Kotlin/Native buffer this runs on reads no floats.
+                        "        val {} = kotlin.Float.fromBits(buffer.getInt(offset + {at}))",
                         field.name
                     )
                     .unwrap();

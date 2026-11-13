@@ -77,5 +77,20 @@ internal fun composeKey(platformKey: Int): Key = when (platformKey) {
     0x77 -> Key.MoveEnd
     0x74 -> Key.PageUp
     0x79 -> Key.PageDown
+    // The function keys, which AppKit numbers in no order of their own.
+    0x7A -> Key.F1
+    0x78 -> Key.F2
+    0x63 -> Key.F3
+    0x76 -> Key.F4
+    0x60 -> Key.F5
+    0x61 -> Key.F6
+    0x62 -> Key.F7
+    0x64 -> Key.F8
+    0x65 -> Key.F9
+    0x6D -> Key.F10
+    0x67 -> Key.F11
+    0x6F -> Key.F12
+    // The context-menu key of a PC keyboard plugged into a Mac.
+    0x6E -> Key.Menu
     else -> Key.Unknown
 }
