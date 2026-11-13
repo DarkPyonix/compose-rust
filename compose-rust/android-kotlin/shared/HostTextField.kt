@@ -153,7 +153,7 @@ internal fun HostTextField(
     // it. One that names none is spaced by the design system's token, which on the Apple
     // design systems already carries SF's tracking, so it is left as it is.
     val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
-    val textStyle = if (ownChain != null) {
+    val fontStyle = if (ownChain != null) {
         roleStyle.copy(
             fontFamily = ownChain.primary,
             letterSpacing = trackedLetterSpacing(roleStyle, ownChain.primary).takeIf { ownSpacing }
@@ -161,6 +161,15 @@ internal fun HostTextField(
         )
     } else {
         roleStyle
+    }
+    // The node's OpenType features, for the typed text and the placeholder alike, which
+    // are both set in this style. They follow whatever the style already asks for, so a
+    // tag both name takes the node's value. The string was made when the property arrived.
+    val features = node.fontFeatures
+    val textStyle = if (features == null) {
+        fontStyle
+    } else {
+        fontStyle.copy(fontFeatureSettings = appendFontFeatures(fontStyle.fontFeatureSettings, features))
     }
     val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
     // Where the typed text and the placeholder may break, as a `Text` breaks: the same
