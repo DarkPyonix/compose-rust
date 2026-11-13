@@ -763,10 +763,13 @@ fn write_atomically(directory: &Path, key: &str, data: &[u8]) -> std::io::Result
     std::fs::create_dir_all(directory)?;
     let temporary = directory.join(temporary_name(key));
     let written = (|| {
-        let mut file = std::fs::File::create(&temporary)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-        drop(file);
+        // The file is closed at the end of this block, before the rename: Windows will
+        // not rename a file that is still open.
+        {
+            let mut file = std::fs::File::create(&temporary)?;
+            file.write_all(data)?;
+            file.sync_all()?;
+        }
         std::fs::rename(&temporary, directory.join(key))
     })();
     if written.is_err() {
