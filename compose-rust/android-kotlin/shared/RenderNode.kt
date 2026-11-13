@@ -133,6 +133,7 @@ import dev.darkpyonix.composerust.foundation.HostTopAppBar
 import dev.darkpyonix.composerust.foundation.HostTextField
 import dev.darkpyonix.composerust.foundation.SelectableRegion
 import dev.darkpyonix.composerust.foundation.Unselectable
+import dev.darkpyonix.composerust.foundation.UserSelectArea
 import dev.darkpyonix.composerust.foundation.hostKeyEvents
 import dev.darkpyonix.composerust.foundation.hostPointerEvents
 import dev.darkpyonix.composerust.foundation.subscribesToPointer
@@ -376,7 +377,7 @@ fun RenderNode(
     } else focusableModifier
     val dropTarget = platformFileDrop(dropModifier, node, dispatcher)
     // Where the node is drawn, recorded only while a scroll request needs to know.
-    val modifier = if (node.placementWanted) {
+    val nodeModifier = if (node.placementWanted) {
         dropTarget.onPlaced { coordinates -> node.placement = coordinates }
     } else {
         dropTarget
@@ -385,6 +386,9 @@ fun RenderNode(
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
     val glass = node.isMadeOfGlass(theme)
+    // What the node's `UserSelect` asks of the text below it. Where that opens a selection
+    // region, the region takes the node's modifier and the node is drawn inside it with none.
+    UserSelectArea(node, table, nodeModifier) { modifier ->
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
             WidgetKind.Column, WidgetKind.Row -> RadioGroupOrLayout(node, table, dispatcher, modifier) { laidOut ->
@@ -635,6 +639,7 @@ fun RenderNode(
                 measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
             )
         }
+    }
     }
 }
 
