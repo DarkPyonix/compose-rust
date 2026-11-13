@@ -447,7 +447,7 @@ fn shelf_page(
     Column().modifier(Modifier.fill_max_width()).content(|| {
         for block in &blocks {
             if let Block::Hero(found) = block {
-                hero_card(*found, opened);
+                hero_card(found, opened);
             }
         }
         Column()
@@ -466,7 +466,7 @@ fn shelf_page(
                                 .color(palette::INK);
                         }
                         Block::Tiles(row) => tile_row(row.clone(), night, opened),
-                        Block::Wide(found) => wide_card(*found, night, opened),
+                        Block::Wide(found) => wide_card(found, night, opened),
                     });
                 }
             });
@@ -714,6 +714,8 @@ fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called.
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.social")
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
             compose_rust::schema::Window::new()

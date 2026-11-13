@@ -99,6 +99,10 @@ data class TableError(val code: Int, val message: String) {
         const val DUPLICATE_FILE_DIALOG = 15
         /** A modifier whose value could not be honoured. The modifier is dropped. */
         const val INVALID_MODIFIER = 16
+        /** An input or output request whose number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_IO_REQUEST = 17
+        /** A file operation whose request number is still waiting for its answer. The command is dropped. */
+        const val DUPLICATE_FILE_CALL = 18
     }
 }
 
@@ -189,6 +193,14 @@ class NodeTable {
         dev.darkpyonix.composerust.ui.platform.FileDialogCenter()
 
     /**
+     * The operations the Host asked of files this side holds handles for, and their answers.
+     * Not cleared with the tree, for the reason the dialogs are not: every request is owed its
+     * one answer after a resync too.
+     */
+    val fileCalls: dev.darkpyonix.composerust.ui.platform.FileCallCenter =
+        dev.darkpyonix.composerust.ui.platform.FileCallCenter()
+
+    /**
      * Where the text the Host asks to copy goes. Not part of the tree and not cleared with
      * it: the clipboard is the platform's.
      */
@@ -201,6 +213,14 @@ class NodeTable {
      */
     val clipboardReads: dev.darkpyonix.composerust.ui.platform.ClipboardReader =
         dev.darkpyonix.composerust.ui.platform.ClipboardReader()
+
+    /**
+     * The storage operations the Host asked this side to carry out, each answered once.
+     * Not cleared with the tree: a request the Host waits on is owed its answer after a
+     * resync too.
+     */
+    val storage: dev.darkpyonix.composerust.ui.platform.StorageCenter =
+        dev.darkpyonix.composerust.ui.platform.StorageCenter()
 
     private var revision = 0L
 
@@ -397,6 +417,16 @@ class NodeTable {
             // A read is answered later, outside the batch, by one event with its number.
             is Mutation.ReadClipboard -> clipboardReads.request(mutation.request)
 
+            // An operation on a file this side holds a handle for, answered later, outside the
+            // batch, by one event with its number. Where nothing holds handles it is answered
+            // as unavailable, which is still its one answer.
+            is Mutation.FileCall -> fileCall(mutation)
+            // Nothing answers a release, and a handle nobody holds is no error.
+            is Mutation.ReleaseFileHandle -> fileCalls.release(mutation.handle)
+            // Started now, while the value to write can still be read where the Host put it,
+            // and answered later, outside the batch, by one event with its number.
+            is Mutation.StorageCall -> storageCall(mutation)
+
             // Played on this side's frame clock until it ends. Whether the node has
             // somewhere to play it is asked once the whole batch is in.
             is Mutation.StartAnimation -> animations.start(mutation.animation)
@@ -471,6 +501,25 @@ class NodeTable {
             dev.darkpyonix.composerust.ui.platform.FileDialogCenter.Accepted.UnknownWindow -> fail(
                 TableError.UNKNOWN_NODE,
                 "ShowFileDialog for unknown window ${mutation.window}",
+            )
+        }
+    }
+
+    private fun fileCall(mutation: Mutation.FileCall) {
+        if (fileCalls.request(mutation) == dev.darkpyonix.composerust.ui.platform.FileCallCenter.Accepted.Duplicate) {
+            fail(
+                TableError.DUPLICATE_FILE_CALL,
+                "FileCall request ${mutation.request} is already waiting for its answer",
+            )
+        }
+    }
+
+    private fun storageCall(mutation: Mutation.StorageCall) {
+        when (storage.request(mutation)) {
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Accepted -> Unit
+            dev.darkpyonix.composerust.ui.platform.StorageCenter.Accepted.Duplicate -> fail(
+                TableError.DUPLICATE_IO_REQUEST,
+                "StorageCall request ${mutation.request} is already waiting for its answer",
             )
         }
     }
@@ -1180,6 +1229,10 @@ class NodeTable {
                 PropertyKind.OnWindowUnavailable,
                 PropertyKind.OnWindowClosed,
                 -> widget == WidgetKind.Window
+
+                // What a set of destinations becomes in a compact window, where the
+                // application chose. Only a navigation has destinations to place.
+                PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

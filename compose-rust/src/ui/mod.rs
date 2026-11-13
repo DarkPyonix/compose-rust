@@ -38,9 +38,10 @@ pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
-    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, SemanticsRole, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme,
+    CompactNavigation, DesignSystem, IconRole, Key, MaterialRole, MessageDuration, MotionRole,
+    Paint, SemanticsRole, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole,
+    WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
