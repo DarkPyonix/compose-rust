@@ -43,6 +43,7 @@ import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TextSpanRecord
 import dev.darkpyonix.composerust.protocol.ShapeRole
@@ -312,6 +313,21 @@ class ProtocolVectorsTest {
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
                 .filter { it.property == PropertyKind.CollapseBelow },
         )
+    }
+
+    /** The two physical alignments decode to the tags the Host wrote, `Left` 5 and `Right` 6. */
+    @Test
+    fun fr13_physical_text_align_round_trips() {
+        val aligns = decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+            .filter { it.property == PropertyKind.TextAlign }
+        assertEquals(
+            listOf(
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Left.ordinal + 1L)),
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Right.ordinal + 1L)),
+            ),
+            aligns,
+        )
+        assertEquals(listOf(5L, 6L), aligns.map { (it.value as PropertyValue.Integer).value })
     }
 
     /**

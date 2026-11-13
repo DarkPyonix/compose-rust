@@ -219,6 +219,8 @@ internal fun resolveText(
                 TextAlign.Center -> ComposeTextAlign.Center
                 TextAlign.End -> ComposeTextAlign.End
                 TextAlign.Justify -> ComposeTextAlign.Justify
+                TextAlign.Left -> ComposeTextAlign.Left
+                TextAlign.Right -> ComposeTextAlign.Right
                 null -> ComposeTextAlign.Unspecified
             },
             // After what the style already asks for, so a tag both name takes the node's

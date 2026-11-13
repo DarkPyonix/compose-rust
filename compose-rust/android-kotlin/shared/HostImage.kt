@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.design.IconStyle
@@ -19,6 +21,7 @@ import dev.darkpyonix.composerust.design.ResolvedTheme
 import androidx.compose.ui.graphics.Path
 import dev.darkpyonix.composerust.design.iconGeometry
 import dev.darkpyonix.composerust.protocol.ColorRole
+import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -29,6 +32,8 @@ import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.drawVectorDocument
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.TableError
+import dev.darkpyonix.composerust.ui.node.vectorIntrinsicSize
+import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.paintProp
 
 /**
@@ -50,10 +55,13 @@ internal fun HostImage(
     val assetId = node.intProp(PropertyKind.Asset)?.toInt()
     val asset = assetId?.let(assets::asset)
     ReportMissingAsset(node.id, assetId, asset, dispatcher)
+    // Not sent is `Fit`, which is how every picture was drawn before there was a choice.
+    val scale = node.role(PropertyKind.ContentScale, ContentScale.entries.toTypedArray())
+        ?: ContentScale.Fit
     Canvas(modifier) {
         when (asset) {
-            is Asset.Raster -> drawRaster(asset)
-            is Asset.Vector -> drawVector(asset)
+            is Asset.Raster -> drawRaster(asset, scale)
+            is Asset.Vector -> drawVector(asset, scale)
             // A symbol carries a meaning rather than a picture, so drawn as a picture it
             // takes the surface's own colour.
             is Asset.Symbol -> Unit
@@ -157,26 +165,77 @@ private fun ReportMissingAsset(
     }
 }
 
-/** Scales the bitmap to fit the box it was given, keeping its proportions. */
-private fun DrawScope.drawRaster(asset: Asset.Raster) {
+/**
+ * Lays the bitmap into the box it was given, as [scale] says.
+ *
+ * `Fit` keeps its proportions and shows all of it, centred. `Crop` keeps its proportions and
+ * covers the box, centred, cut to the box. `FillBounds` stretches it to the box in each
+ * direction on its own.
+ */
+private fun DrawScope.drawRaster(asset: Asset.Raster, scale: ContentScale = ContentScale.Fit) {
     val bitmap = asset.bitmap
     if (bitmap.width <= 0 || bitmap.height <= 0) return
-    val scale = minOf(size.width / bitmap.width, size.height / bitmap.height)
-    val width = bitmap.width * scale
-    val height = bitmap.height * scale
-    drawImage(
-        image = bitmap,
-        dstOffset = IntOffset(
-            ((size.width - width) / 2f).toInt(),
-            ((size.height - height) / 2f).toInt(),
-        ),
-        dstSize = IntSize(width.toInt(), height.toInt()),
-    )
+    if (scale == ContentScale.FillBounds) {
+        drawImage(
+            image = bitmap,
+            dstOffset = IntOffset.Zero,
+            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+        )
+        return
+    }
+    val factor = if (scale == ContentScale.Crop) {
+        maxOf(size.width / bitmap.width, size.height / bitmap.height)
+    } else {
+        minOf(size.width / bitmap.width, size.height / bitmap.height)
+    }
+    val width = bitmap.width * factor
+    val height = bitmap.height * factor
+    val offset = IntOffset(((size.width - width) / 2f).toInt(), ((size.height - height) / 2f).toInt())
+    val drawn = IntSize(width.toInt(), height.toInt())
+    if (scale == ContentScale.Crop) {
+        clipRect { drawImage(image = bitmap, dstOffset = offset, dstSize = drawn) }
+    } else {
+        drawImage(image = bitmap, dstOffset = offset, dstSize = drawn)
+    }
 }
 
-private fun DrawScope.drawVector(asset: Asset.Vector) {
+/**
+ * Lays the vector document into the box, as [fit] says.
+ *
+ * `Fit` hands the document the whole box and lets it place itself, which for a document
+ * that does not say otherwise is the same centred, whole, proportional fit. `Crop` and
+ * `FillBounds` need the document's own proportions: it is drawn into a box of its own size,
+ * and that box is scaled onto the node's. A document that gives no size of its own has no
+ * proportions to keep or to give up, and is drawn as `Fit`.
+ */
+private fun DrawScope.drawVector(asset: Asset.Vector, fit: ContentScale = ContentScale.Fit) {
     if (size.width <= 0f || size.height <= 0f) return
-    drawVectorDocument(asset.document)
+    val intrinsic = if (fit == ContentScale.Fit) null else vectorIntrinsicSize(asset.document)
+    if (intrinsic == null) {
+        drawVectorDocument(asset.document)
+        return
+    }
+    val box = size
+    var scaleX = box.width / intrinsic.width
+    var scaleY = box.height / intrinsic.height
+    if (fit == ContentScale.Crop) {
+        val factor = maxOf(scaleX, scaleY)
+        scaleX = factor
+        scaleY = factor
+    }
+    val left = (box.width - intrinsic.width * scaleX) / 2f
+    val top = (box.height - intrinsic.height * scaleY) / 2f
+    clipRect {
+        withTransform({
+            translate(left, top)
+            scale(scaleX, scaleY, pivot = Offset.Zero)
+            // The document reads its size from the drawing area, so the area is made the
+            // document's own size in the scaled space.
+            inset(0f, 0f, box.width - intrinsic.width, box.height - intrinsic.height)
+        }) {
+            drawVectorDocument(asset.document)
+        }
+    }
 }
 
 /**

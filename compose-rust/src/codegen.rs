@@ -38,6 +38,7 @@ pub const SCHEMA_HASH_RELATIVE_PATH: &str = "schema-hash.txt";
 pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
 pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
+pub const BACKGROUND_BRUSH_VECTOR_RELATIVE_PATH: &str = "tests/vectors/background_brush.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -1604,11 +1605,12 @@ object Protocol {
                 )
                 .unwrap();
             }
-            // The selections as little-endian words behind the record.
+            // The selections as little-endian words behind the record, written byte by byte:
+            // the Kotlin/Native buffer this runs on has no `allocate` and no `array`.
             EventPayloadType::CodeSelections => {
                 writeln!(
                     output,
-                    "                is HostEvent.{} -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also {{ buffer -> for (value in event.selections) buffer.putInt(value) }}.array()",
+                    "                is HostEvent.{} -> ByteArray(event.selections.size * 4).also {{ bytes -> event.selections.forEachIndexed {{ index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() }} }}",
                     event.name
                 )
                 .unwrap();
@@ -4012,6 +4014,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::CollapseBelow,
             value: PropertyValue::Float(720.5),
         },
+        // The two physical text alignments, which do not swap in right-to-left text.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Left as i64),
+        },
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Right as i64),
+        },
         // A question about where a place on the editor's second line is, after its scroll
         // command.
         Mutation::QueryPositionRect {
@@ -4142,6 +4155,29 @@ pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
             origin_x: 0.5,
             origin_y: 0.25,
             backface_hidden: true,
+        },
+    })?;
+    Ok(encoder.finish()?.to_vec())
+}
+
+/// One batch holding one `BackgroundBrush` on node 4, the only record 52 bytes long. It is a
+/// file of its own, as the 3D transform is, so that every byte of the main mutation vector
+/// stays where it was. Every field is a different value, so a field read from the wrong
+/// half of the wrong word cannot pass.
+pub fn generate_background_brush_vector() -> Result<Vec<u8>, ProtocolError> {
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 4,
+        index: 2,
+        modifier: Modifier::BackgroundBrush {
+            x: 12.5,
+            y: -4.0,
+            width: 48.0,
+            height: 24.0,
+            paint: Paint::Asset(9),
+            repeat: crate::schema::BackgroundRepeat::RepeatX,
+            tile_width: 56.0,
+            tile_height: 30.0,
         },
     })?;
     Ok(encoder.finish()?.to_vec())
@@ -4617,6 +4653,19 @@ pub fn generate_vector_description() -> String {
     "originX": 0.5,
     "originY": 0.25,
     "backfaceHidden": true
+  }},
+  "backgroundBrush": {{
+    "file": "background_brush.bin",
+    "description": "One batch with one 52 byte BackgroundBrush modifier on node 4 at chain position 2: the rectangle (12.5, -4, 48, 24), the brush asset 9, RepeatX and the step (56, 30)",
+    "recordCount": 1,
+    "x": 12.5,
+    "y": -4.0,
+    "width": 48.0,
+    "height": 24.0,
+    "paintAsset": 9,
+    "repeat": "RepeatX",
+    "tileWidth": 56.0,
+    "tileHeight": 30.0
   }},
   "events": {{
     "file": "events.bin",
@@ -5309,7 +5358,9 @@ object CodeEditorRecords {
                 RecordFieldType::F32 => {
                     writeln!(
                         output,
-                        "        val {} = buffer.getFloat(offset + {at})",
+                        // Read as the word it is and turned into a float, because the
+                        // Kotlin/Native buffer this runs on reads no floats.
+                        "        val {} = kotlin.Float.fromBits(buffer.getInt(offset + {at}))",
                         field.name
                     )
                     .unwrap();
