@@ -112,17 +112,21 @@ external fun hostLendEventBuffer(minLength: Int): Int
 
 /**
  * Instantiates the Host on this module's memory, points the trampoline at it, and answers
- * with the address of the block it lends back: the record a call reports into, and the
- * buffer an event is encoded in. Zero means there is no Host on this page.
+ * with a promise of the address of the block it lends back: the record a call reports into,
+ * and the buffer an event is encoded in. Zero means there is no Host on this page.
  *
  * Called once, from `main`. That is the first moment at which both halves exist: this
  * module's own instantiation created the memory the Host imports, and the page compiled the
  * Host's module before that started.
+ *
+ * A promise because a browser will not instantiate a module over 8MB synchronously on its
+ * main thread. The wait is start-up only: the table stays empty until the Host has checked
+ * out, and no call goes through a promise.
  */
 @JsFun(
     """() => {
   const compiled = globalThis.__composeRustHostModule;
-  if (!compiled) return 0;
+  if (!compiled) return Promise.resolve(0);
   const table = globalThis.__composeRustHostTable;
   if (!table) {
     throw new Error('compose-rust: the trampoline table is missing. The loader module ' +
@@ -146,7 +150,7 @@ external fun hostLendEventBuffer(minLength: Int): Int
         'dependency rather than through the boundary.');
     },
   });
-  const host = new WebAssembly.Instance(compiled, {
+  return WebAssembly.instantiate(compiled, {
     env: { memory },
     compose_rust_renderer: {
       // The exported function object itself, not a closure around it: bound this way the
@@ -158,28 +162,30 @@ external fun hostLendEventBuffer(minLength: Int): Int
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
-  }).exports;
-  const block = host.compose_rust_host_web_start();
-  if (block < 4194304) {
-    // Either the Host could not start, or its data landed in the half of the memory this
-    // module's allocator uses. The second draws a wrong screen instead of failing, so
-    // neither is allowed to become the first boundary call: the table stays empty.
-    throw new Error('compose-rust: the Host reported its boundary block at ' + block +
-      ', which is not inside the region above 4194304 that it was linked into. ' +
-      'Check that it was linked with --import-memory and --global-base.');
-  }
-  // The trampoline's slots, in the order its functions call them. The exported function
-  // objects themselves, so a call through a slot is wasm to wasm.
-  table.set(0, host.compose_rust_host_web_init);
-  table.set(1, host.compose_rust_host_web_dispatch_event);
-  table.set(2, host.compose_rust_host_web_render_frame);
-  table.set(3, host.compose_rust_host_web_release_batch);
-  table.set(4, host.compose_rust_host_web_shutdown);
-  table.set(5, host.compose_rust_host_web_lend_event_buffer);
-  return block;
+  }).then((instance) => {
+    const host = instance.exports;
+    const block = host.compose_rust_host_web_start();
+    if (block < 4194304) {
+      // Either the Host could not start, or its data landed in the half of the memory this
+      // module's allocator uses. The second draws a wrong screen instead of failing, so
+      // neither is allowed to become the first boundary call: the table stays empty.
+      throw new Error('compose-rust: the Host reported its boundary block at ' + block +
+        ', which is not inside the region above 4194304 that it was linked into. ' +
+        'Check that it was linked with --import-memory and --global-base.');
+    }
+    // The trampoline's slots, in the order its functions call them. The exported function
+    // objects themselves, so a call through a slot is wasm to wasm.
+    table.set(0, host.compose_rust_host_web_init);
+    table.set(1, host.compose_rust_host_web_dispatch_event);
+    table.set(2, host.compose_rust_host_web_render_frame);
+    table.set(3, host.compose_rust_host_web_release_batch);
+    table.set(4, host.compose_rust_host_web_shutdown);
+    table.set(5, host.compose_rust_host_web_lend_event_buffer);
+    return block;
+  });
 }""",
 )
-external fun installHost(): Int
+external fun installHost(): kotlin.js.Promise<JsNumber>
 
 /**
  * Called by the Host when work done off the frame loop needs one.

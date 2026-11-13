@@ -11,6 +11,8 @@ import dev.darkpyonix.composerust.runtime.clampZoomLevel
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.m0DemoHost
 import dev.darkpyonix.composerust.ui.platform.WebHostConnection
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 
 /**
  * The web renderer's entry point.
@@ -23,7 +25,9 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
  * The Host is installed here rather than on the page, because this is the first moment at
  * which both modules exist. The page compiled the Host's module before this one was
  * evaluated, and instantiating this one is what created the memory the Host imports, so
- * `install` has both halves in hand and is synchronous.
+ * `install` has both halves in hand. It finishes asynchronously, because a browser refuses
+ * to instantiate a module over 8MB synchronously on its main thread, so the viewport is
+ * composed once it has. Nothing calls the Host before then: its table slots are empty.
  *
  * A page served without a Host beside it falls back to the scripted [m0DemoHost], which is
  * the same development shell the JVM target has: the renderer has to be workable without
@@ -64,9 +68,11 @@ fun main() {
     // Where the application's zoom level is kept between visits: the page's local storage,
     // which is the origin's own.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
-    val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
-    ComposeViewport {
-        ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+    MainScope().launch {
+        val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
+        ComposeViewport {
+            ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+        }
     }
 }
 
