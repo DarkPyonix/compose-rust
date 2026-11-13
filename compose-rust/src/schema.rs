@@ -678,6 +678,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
