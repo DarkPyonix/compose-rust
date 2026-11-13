@@ -27,8 +27,12 @@ fn launch_guard() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// What the box was handed: the kind, the position, the buttons held, the button and the
+/// click count.
+type BoxRecord = (PointerKind, f32, f32, u32, u32, u32);
+
 thread_local! {
-    static SEEN: RefCell<Vec<(PointerKind, f32, f32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
+    static SEEN: RefCell<Vec<BoxRecord>> = const { RefCell::new(Vec::new()) };
 }
 
 /// What the row that hears every kind was handed: the kind, the button, the buttons held,

@@ -126,7 +126,7 @@ fn Shared() {
     let count = remember(|| mutable_state_of(0));
     for name in ["a", "b"] {
         key(name, || {
-            let more = count.clone();
+            let more = count;
             Window(|| {}).title(name).content(|| {
                 Text(format!("{name}: {}", count.get()));
                 Button("add").on_click(move || more.update(|count| *count += 1));
@@ -267,7 +267,7 @@ static FOCUS_CHANGES: AtomicUsize = AtomicUsize::new(0);
 fn Closable() {
     let open = remember(|| mutable_state_of(true));
     if open.get() {
-        let close = open.clone();
+        let close = open;
         Window(|| {
             CLOSE_REQUESTS.fetch_add(1, Ordering::SeqCst);
         })
@@ -393,7 +393,7 @@ fn fr53_last_window_closed_policy() {
         .windows()
         .try_launch(Nothing);
     let mut host = ComposeHost::new(Nothing);
-    let (mode, policy) = flags_of(&host.rebuild().unwrap().to_vec());
+    let (mode, policy) = flags_of(host.rebuild().unwrap());
     assert_eq!(mode, WindowMode::Windows);
     assert_eq!(
         policy,
@@ -410,7 +410,7 @@ fn fr53_last_window_closed_policy() {
         .try_launch(Nothing);
     let mut host = ComposeHost::new(Nothing);
     assert_eq!(
-        flags_of(&host.rebuild().unwrap().to_vec()),
+        flags_of(host.rebuild().unwrap()),
         (WindowMode::Single, LastWindowClosed::Exit)
     );
 }
@@ -773,12 +773,12 @@ fn Roaming() {
 #[Composable]
 fn Opener() {
     let open = remember(|| mutable_state_of(false));
-    let toggle = open.clone();
+    let toggle = open;
     Button("toggle").on_click(move || toggle.update(|open| *open = !*open));
     if open.get() {
         Window(|| {})
             .theme(Theme::unified(DesignSystem::Cupertino))
-            .content(|| Roaming());
+            .content(Roaming);
     }
 }
 
@@ -840,7 +840,7 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
 
 #[Composable]
 fn ReportingWindow() {
-    Window(|| {}).report_size(true).content(|| Nothing());
+    Window(|| {}).report_size(true).content(Nothing);
 }
 
 /// A window that opts in writes `report_size` as a boolean property on its node.
@@ -877,7 +877,7 @@ fn fr20_8_window_report_size_writes_the_property() {
 #[Composable]
 fn TogglingWindow() {
     let on = remember(|| mutable_state_of(true));
-    let toggle = on.clone();
+    let toggle = on;
     let window = Window(|| {});
     let window = if on.get() {
         window.report_size(true)
@@ -885,7 +885,7 @@ fn TogglingWindow() {
         window
     };
     window.content(move || {
-        let toggle = toggle.clone();
+        let toggle = toggle;
         Button("toggle").on_click(move || toggle.update(|on| *on = !*on));
     });
 }

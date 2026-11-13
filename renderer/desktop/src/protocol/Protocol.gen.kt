@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, CompactNavigation, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -121,6 +121,16 @@ enum class LastWindowClosed { Exit, KeepRunning }
 enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
 
 enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
+
+enum class CompactNavigation { Sidebar, None }
+
+enum class StorageOp { Read, Write, Remove, Keys }
+
+enum class IoStatus { Ok, NotFound, QuotaExceeded, Unavailable, PermissionDenied, Failed, ReadOnly, TooLarge }
+
+enum class FileDelivery { Handle, Upload, Download }
+
+enum class FileOp { Read, Write, Entries, Child }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1035,7 +1045,7 @@ sealed interface Modifier {
     data class ShapeRole(val role: dev.darkpyonix.composerust.protocol.ShapeRole) : Modifier
     data class Border(val width: kotlin.Float, val paint: Paint) : Modifier
     data class Elevation(val value: kotlin.Float) : Modifier
-    data class ObserveSize(val token: Int) : Modifier
+    data class ObserveSize(val token: Int, val everyDp: Boolean) : Modifier
     data class Motion(val role: dev.darkpyonix.composerust.protocol.MotionRole) : Modifier
     data class Material(val role: dev.darkpyonix.composerust.protocol.MaterialRole) : Modifier
     data class Offset(val x: kotlin.Float, val y: kotlin.Float) : Modifier
@@ -1123,6 +1133,35 @@ data class Animation(
     val events: Int,
     val keyframes: List<Keyframe>,
 )
+
+/**
+ * Bytes that stay where the Host wrote them, inside the batch being applied. They are valid
+ * only while the record that carries them is applied: the arena is the Host's, and its next
+ * call writes over it. [copy] takes them out when they have to outlive that.
+ */
+class BatchBytes(val buffer: ByteBuffer, val index: Int, val size: Int) {
+    /** The bytes, copied into an array of their own. */
+    fun copy(): ByteArray {
+        val copy = ByteArray(size)
+        val mark = buffer.position()
+        buffer.position(index)
+        buffer.get(copy, 0, size)
+        buffer.position(mark)
+        return copy
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is BatchBytes && copy().contentEquals(other.copy()))
+
+    override fun hashCode(): Int = copy().contentHashCode()
+
+    override fun toString(): String = "BatchBytes(size=$size)"
+
+    companion object {
+        /** Bytes of this side's own, for a test or a preview with no batch behind it. */
+        fun of(bytes: ByteArray): BatchBytes = BatchBytes(ByteBuffer.wrap(bytes), 0, bytes.size)
+    }
+}
 
 sealed interface Mutation {
     data class Create(val nodeId: Int, val widget: WidgetKind) : Mutation
@@ -1311,6 +1350,53 @@ sealed interface Mutation {
      * `ClipboardText` event carrying [request].
      */
     data class ReadClipboard(val request: Int) : Mutation
+
+    /**
+     * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
+     * it, list a folder, or find the child called [name] (making a file of that name when
+     * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
+     * listing or a child that was found by a `FileHandles`. [data] is the user's file, so it
+     * is never written to a log.
+     */
+    data class FileCall(
+        val request: Int,
+        val op: FileOp,
+        val create: Boolean,
+        val handle: Int,
+        val name: String,
+        val data: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is FileCall && request == other.request && op == other.op &&
+                    create == other.create && handle == other.handle && name == other.name &&
+                    data.contentEquals(other.data))
+
+        override fun hashCode(): Int =
+            ((request * 31 + op.hashCode()) * 31 + handle) * 31 + data.contentHashCode()
+
+        override fun toString(): String =
+            "FileCall(request=$request, op=$op, create=$create, handle=$handle, length=${data.size})"
+    }
+
+    /** The Host names [handle] nowhere any more; the file behind it may be let go of. */
+    data class ReleaseFileHandle(val handle: Int) : Mutation
+
+    /**
+     * Asks for one operation on the application's storage, which the Renderer carries out
+     * where it is the side that can reach it (a browser's IndexedDB). Answered exactly once,
+     * later, by an `IoAnswer` event carrying [request]. [store] is the application
+     * identifier, [key] the value's name (empty for `Keys`), and [data] the value to write,
+     * read in place and valid only while this record is applied (empty for every other
+     * operation).
+     */
+    data class StorageCall(
+        val request: Int,
+        val op: StorageOp,
+        val store: String,
+        val key: String,
+        val data: BatchBytes,
+    ) : Mutation
 }
 
 sealed interface HostEvent {
@@ -1364,13 +1450,26 @@ sealed interface HostEvent {
         override fun toString(): String =
             "ClipboardText(request=$request, status=$status, length=$length)"
     }
+    data class IoAnswer(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: IoStatus, val data: ByteArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is IoAnswer && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    request == other.request && status == other.status && data.contentEquals(other.data))
+
+        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()
+
+        override fun toString(): String =
+            "IoAnswer(request=$request, status=$status, length=${data.size})"
+    }
+    data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
+    data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 566194655694873154L
+    const val SCHEMA_HASH: Long = 3391176991423237316L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1403,6 +1502,9 @@ object Protocol {
     private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_STORAGE_CALL = 32
+    private const val TAG_FILE_CALL = 33
+    private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1593,6 +1695,35 @@ object Protocol {
                     TAG_READ_CLIPBOARD -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.ReadClipboard(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_STORAGE_CALL -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.StorageCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            storageOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            readString(batch, base, available, offset + 12),
+                            readString(batch, base, available, offset + 20),
+                            readByteView(batch, base, available, offset + 28),
+                        )
+                    }
+                    TAG_FILE_CALL -> {
+                        requireRecordLength(length, 32, offset)
+                        val create = readU16(batch, base, available, offset + 10)
+                        if (create > 1) {
+                            throw ProtocolException("invalid create flag $create", offset + 10)
+                        }
+                        Mutation.FileCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            fileOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            create == 1,
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readString(batch, base, available, offset + 16),
+                            readBytes(batch, base, available, offset + 24),
+                        )
+                    }
+                    TAG_RELEASE_FILE_HANDLE -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1873,6 +2004,9 @@ object Protocol {
                 is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.IoAnswer -> event.data
+                is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -1919,6 +2053,9 @@ object Protocol {
                 is HostEvent.KeyUp -> 32
                 is HostEvent.FileDialogResult -> 36
                 is HostEvent.ClipboardText -> 36
+                is HostEvent.IoAnswer -> 32
+                is HostEvent.FileHandles -> 52
+                is HostEvent.StorageLocation -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -1969,6 +2106,9 @@ object Protocol {
                 is HostEvent.KeyUp -> 49
                 is HostEvent.FileDialogResult -> 50
                 is HostEvent.ClipboardText -> 56
+                is HostEvent.IoAnswer -> 57
+                is HostEvent.FileHandles -> 58
+                is HostEvent.StorageLocation -> 59
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2163,6 +2303,24 @@ object Protocol {
                     out.putInt(event.length)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.IoAnswer -> {
+                    out.putInt(event.request)
+                    out.putInt(ioStatusTag(event.status))
+                    writeStringReference(out, recordLength, text!!)
+                }
+                is HostEvent.FileHandles -> {
+                    out.putInt(event.request)
+                    out.putInt(fileDialogStatusTag(event.status))
+                    out.putInt(event.filter)
+                    out.putInt(fileDeliveryTag(event.delivery))
+                    out.putInt(event.firstHandle)
+                    val namesLength = event.names.toByteArray(StandardCharsets.UTF_8).size
+                    out.putInt(recordLength)
+                    out.putInt(namesLength)
+                    out.putInt(recordLength + namesLength)
+                    out.putInt(text!!.size - namesLength)
+                }
+                is HostEvent.StorageLocation -> writeStringReference(out, recordLength, text!!)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2357,6 +2515,7 @@ object Protocol {
         126 -> PropertyKind.ControlSize
         127 -> PropertyKind.ReportSize
         128 -> PropertyKind.Scrim
+        185 -> PropertyKind.CompactNavigation
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -2416,6 +2575,23 @@ object Protocol {
         FileDialogStatus.Chosen -> 1
         FileDialogStatus.Cancelled -> 2
         FileDialogStatus.Unavailable -> 3
+    }
+
+    private fun fileDeliveryTag(value: FileDelivery): Int = when (value) {
+        FileDelivery.Handle -> 1
+        FileDelivery.Upload -> 2
+        FileDelivery.Download -> 3
+    }
+
+    private fun ioStatusTag(value: IoStatus): Int = when (value) {
+        IoStatus.Ok -> 1
+        IoStatus.NotFound -> 2
+        IoStatus.QuotaExceeded -> 3
+        IoStatus.Unavailable -> 4
+        IoStatus.PermissionDenied -> 5
+        IoStatus.Failed -> 6
+        IoStatus.ReadOnly -> 7
+        IoStatus.TooLarge -> 8
     }
 
     private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
@@ -3037,6 +3213,47 @@ object Protocol {
         else -> throw ProtocolException("unknown FileDialogStatus tag $tag", offset)
     }
 
+    private fun compactNavigation(tag: Int, offset: Int): CompactNavigation = when (tag) {
+        1 -> CompactNavigation.Sidebar
+        2 -> CompactNavigation.None
+        else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
+    }
+
+    private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {
+        1 -> StorageOp.Read
+        2 -> StorageOp.Write
+        3 -> StorageOp.Remove
+        4 -> StorageOp.Keys
+        else -> throw ProtocolException("unknown StorageOp tag $tag", offset)
+    }
+
+    private fun ioStatus(tag: Int, offset: Int): IoStatus = when (tag) {
+        1 -> IoStatus.Ok
+        2 -> IoStatus.NotFound
+        3 -> IoStatus.QuotaExceeded
+        4 -> IoStatus.Unavailable
+        5 -> IoStatus.PermissionDenied
+        6 -> IoStatus.Failed
+        7 -> IoStatus.ReadOnly
+        8 -> IoStatus.TooLarge
+        else -> throw ProtocolException("unknown IoStatus tag $tag", offset)
+    }
+
+    private fun fileDelivery(tag: Int, offset: Int): FileDelivery = when (tag) {
+        1 -> FileDelivery.Handle
+        2 -> FileDelivery.Upload
+        3 -> FileDelivery.Download
+        else -> throw ProtocolException("unknown FileDelivery tag $tag", offset)
+    }
+
+    private fun fileOp(tag: Int, offset: Int): FileOp = when (tag) {
+        1 -> FileOp.Read
+        2 -> FileOp.Write
+        3 -> FileOp.Entries
+        4 -> FileOp.Child
+        else -> throw ProtocolException("unknown FileOp tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -3118,7 +3335,7 @@ object Protocol {
             13 -> Modifier.ShapeRole(shapeRole(first.toInt(), offset))
             14 -> Modifier.Border(kotlin.Float.fromBits(first.toInt()), paint(second, offset))
             15 -> Modifier.Elevation(kotlin.Float.fromBits(first.toInt()))
-            16 -> Modifier.ObserveSize(first.toInt())
+            16 -> Modifier.ObserveSize(first.toInt(), flag(second, offset))
             17 -> Modifier.Motion(motionRole(first.toInt(), offset))
             18 -> Modifier.Material(materialRole(first.toInt(), offset))
             19 -> Modifier.Offset(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits(second.toInt()))
@@ -3155,6 +3372,22 @@ object Protocol {
         val copy = ByteArray(length)
         copyOut(batch, base + offset, copy, length)
         return copy
+    }
+
+    /**
+     * An arena range left where it lies, for bytes the Renderer hands straight on (a value
+     * to store) while the record is applied, so this side copies nothing itself.
+     */
+    private fun readByteView(batch: ByteBuffer, base: Int, available: Int, referenceOffset: Int): BatchBytes {
+        val offsetLong = readU32(batch, base, available, referenceOffset)
+        val lengthLong = readU32(batch, base, available, referenceOffset + 4)
+        if (offsetLong > Int.MAX_VALUE || lengthLong > Int.MAX_VALUE) {
+            throw ProtocolException("byte range is too large", referenceOffset)
+        }
+        val offset = offsetLong.toInt()
+        val length = lengthLong.toInt()
+        requireRange(available, offset, length, referenceOffset)
+        return BatchBytes(batch, base + offset, length)
     }
 
     /**

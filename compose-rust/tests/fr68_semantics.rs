@@ -121,7 +121,7 @@ fn fr68_the_widget_name_wins_over_the_modifier_label_and_the_icon() {
 fn Renaming() {
     let named = remember(|| mutable_state_of(true));
     Column().content(|| {
-        let flip = named.clone();
+        let flip = named;
         Row()
             .on_click(move || flip.update(|n| *n = !*n))
             .content(|| {
@@ -181,7 +181,7 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
 fn Described() {
     let described = remember(|| mutable_state_of(true));
     Column().content(|| {
-        let flip = described.clone();
+        let flip = described;
         Row()
             .on_click(move || flip.update(|d| *d = !*d))
             .content(|| {

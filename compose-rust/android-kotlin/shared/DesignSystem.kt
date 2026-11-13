@@ -924,6 +924,15 @@ enum class NavigationPresentation {
      * own buttons where the platform hands its caption over.
      */
     PutAway,
+
+    /**
+     * Not on the screen, and nothing to bring it back.
+     *
+     * No design system answers this. It is what an application gets in a compact window
+     * when it chose to draw its own way to the destinations, the way the task list's
+     * reference does with a back button floating over the page.
+     */
+    Hidden,
 }
 
 /**
