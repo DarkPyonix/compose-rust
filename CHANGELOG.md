@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A split pane chooses the width it stacks below
+
+`SplitPane().collapse_below(dp)` sets the split pane's own width below which it shows one pane at a time, the one `selected_index` names. At or above that width it never stacks: the design system is asked as for a medium width, so two columns or a side pane laid over the body is still its answer. Without it the line stays at 600 dp. The width is measured on the Renderer, so crossing the line sends the Host nothing and the panes keep their state. It is the new `CollapseBelow` property (91, f32). A negative or non-finite width is a protocol error, and the split pane is drawn as if it had none ([#314](https://github.com/DarkPyonix/compose-rust/issues/314)).
+
 ### Long tokens break inside under `KeepAll`, and fields take a word break
 
 `Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).

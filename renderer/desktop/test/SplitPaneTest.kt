@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.test
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -38,6 +39,7 @@ import dev.darkpyonix.composerust.foundation.SidebarShortcuts
 import dev.darkpyonix.composerust.foundation.splitBackTestTag
 import dev.darkpyonix.composerust.foundation.splitBodyTestTag
 import dev.darkpyonix.composerust.foundation.splitDividerTestTag
+import dev.darkpyonix.composerust.foundation.splitPaneStyle
 import dev.darkpyonix.composerust.foundation.splitSideTestTag
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
@@ -85,6 +87,7 @@ private fun splitTree(
     selected: Long? = null,
     width: Float? = null,
     children: Int = 2,
+    collapseBelow: Float? = null,
 ): List<Mutation> {
     val records = mutableListOf<Mutation>(
         Mutation.SetTheme(Theme(system, system, ColorScheme.Light, false)),
@@ -118,6 +121,7 @@ private fun splitTree(
     min?.let { records += Mutation.SetProp(SPLIT, PropertyKind.Min, PropertyValue.Float(it)) }
     max?.let { records += Mutation.SetProp(SPLIT, PropertyKind.Max, PropertyValue.Float(it)) }
     selected?.let { records += Mutation.SetProp(SPLIT, PropertyKind.SelectedIndex, PropertyValue.Integer(it)) }
+    collapseBelow?.let { records += Mutation.SetProp(SPLIT, PropertyKind.CollapseBelow, PropertyValue.Float(it)) }
     if (children > 2) {
         records += Mutation.Create(EXTRA, WidgetKind.Text)
         records += Mutation.SetProp(EXTRA, PropertyKind.Text, PropertyValue.Text("a third pane"))
@@ -149,6 +153,36 @@ class SplitPaneTest {
             }
         }
         waitForIdle()
+    }
+
+    /** Shows the tree in a place as wide as [width] says, which the test may change. */
+    private fun ComposeUiTest.showIn(connection: FakeHostConnection, width: MutableState<Dp>) {
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                Box(Modifier.requiredSize(width.value, 600.dp)) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+        }
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.bodyWidth(): Float =
+        onNodeWithTag(splitBodyTestTag(SPLIT)).getBoundsInRoot().let { (it.right - it.left).value }
+
+    /** One pane at a time: the side pane, as `SelectedIndex` 0 asks, and no divider. */
+    private fun ComposeUiTest.assertStacked() {
+        onNodeWithTag(splitSideTestTag(SPLIT)).assertIsDisplayed()
+        onNodeWithTag(splitBodyTestTag(SPLIT)).assertDoesNotExist()
+        onNodeWithTag(splitDividerTestTag(SPLIT)).assertDoesNotExist()
+    }
+
+    /** Both panes and the divider, with the body beside the side pane rather than under it. */
+    private fun ComposeUiTest.assertSideBySide(place: Float) {
+        onNodeWithTag(splitSideTestTag(SPLIT)).assertIsDisplayed()
+        onNodeWithTag(splitBodyTestTag(SPLIT)).assertIsDisplayed()
+        onNodeWithTag(splitDividerTestTag(SPLIT)).assertExists()
+        assertTrue(bodyWidth() < place - sideWidth() + 1f, "the body is ${bodyWidth()} wide in a $place dp place")
     }
 
     private fun ComposeUiTest.sideWidth(): Float =
@@ -525,6 +559,178 @@ class SplitPaneTest {
         onNodeWithTag(nodeTestTag(EXTRA)).assertIsDisplayed()
     }
 
+    /**
+     * A split pane told to stack below 720 dp shows one pane at 700 dp, a medium width that
+     * would otherwise be two columns, and two columns at 740 dp.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_stacks_under_its_own_threshold() = runDesktopComposeUiTest(1100, 600) {
+        val width = mutableStateOf(700.dp)
+        showIn(FakeHostConnection(splitTree(collapseBelow = 720f)), width)
+        assertStacked()
+
+        width.value = 740.dp
+        waitForIdle()
+        assertSideBySide(740f)
+
+        width.value = 700.dp
+        waitForIdle()
+        assertStacked()
+    }
+
+    /**
+     * A split pane told to stack below 480 dp does not stack at 520 dp, which is a compact
+     * width: the design system is asked as for a medium one. Where the side pane's minimum
+     * and the body's minimum do not both fit, the side pane is laid over the body; where
+     * they do, the panes sit side by side.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact() {
+        runDesktopComposeUiTest(1100, 600) {
+            // Without the line, 520 dp is compact and stacks.
+            showIn(FakeHostConnection(splitTree()), mutableStateOf(520.dp))
+            assertStacked()
+        }
+        runDesktopComposeUiTest(1100, 600) {
+            // A minimum of 200, a hairline and a body of at least 360 do not fit in 520.
+            showIn(FakeHostConnection(splitTree(collapseBelow = 480f)), mutableStateOf(520.dp))
+            onNodeWithTag(splitSideTestTag(SPLIT)).assertIsDisplayed()
+            onNodeWithTag(splitBodyTestTag(SPLIT)).assertIsDisplayed()
+            onNodeWithTag(splitDividerTestTag(SPLIT)).assertExists()
+            assertTrue(abs(bodyWidth() - 520f) < 1f, "the side pane was not laid over the body: ${bodyWidth()}")
+        }
+        runDesktopComposeUiTest(1100, 600) {
+            // A minimum of 100 does.
+            showIn(FakeHostConnection(splitTree(value = 120f, min = 100f, collapseBelow = 480f)), mutableStateOf(520.dp))
+            assertSideBySide(520f)
+        }
+        // Above the line every system gives its own medium answer, and below it every system
+        // stacks, whatever size class the width is.
+        DesignSystem.entries.forEach { system ->
+            val theme = resolveTheme(Theme(system, system, ColorScheme.Light, false), HostPlatform.Unknown, systemDark = false)
+            assertEquals(
+                theme.rules.splitPane(WindowSizeClass.Medium, theme).presentation,
+                splitPaneStyle(theme, 520f, 480f).presentation,
+                "$system at 520 dp with a line at 480",
+            )
+            assertEquals(
+                SplitPanePresentation.Stacked,
+                splitPaneStyle(theme, 900f, 1000f).presentation,
+                "$system at 900 dp with a line at 1000",
+            )
+            assertEquals(
+                theme.rules.splitPane(WindowSizeClass.Expanded, theme).presentation,
+                splitPaneStyle(theme, 900f, 720f).presentation,
+                "$system at 900 dp with a line at 720",
+            )
+        }
+    }
+
+    /**
+     * A 700 dp place inside an 1100 dp window stacks under a line at 720: it is the split
+     * pane's own width that is measured, not the window's. Without the line the same place
+     * is medium and draws two columns.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_measures_its_own_width() {
+        runDesktopComposeUiTest(1100, 600) {
+            show(FakeHostConnection(splitTree(width = 700f, collapseBelow = 720f)), 1100.dp)
+            assertStacked()
+        }
+        runDesktopComposeUiTest(1100, 600) {
+            show(FakeHostConnection(splitTree(width = 700f)), 1100.dp)
+            assertSideBySide(700f)
+        }
+    }
+
+    /**
+     * Crossing the line back and forth keeps the Host's nodes, sends the Host nothing, and
+     * brings the side pane back at the width the user dragged it to.
+     */
+    @Test
+    fun fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing() = runDesktopComposeUiTest(1100, 600) {
+        val connection = FakeHostConnection(splitTree(collapseBelow = 720f))
+        val width = mutableStateOf(800.dp)
+        showIn(connection, width)
+        drag(60f)
+        val chosen = connection.widths()
+        assertEquals(1, chosen.size, "the drag reported $chosen")
+        assertTrue(chosen.single() > 320.0, "the drag did not move the divider: $chosen")
+        val before = connection.nodeEvents.toList()
+        val eventsBefore = connection.events.toList()
+
+        repeat(3) {
+            width.value = 700.dp
+            waitForIdle()
+            assertStacked()
+            onNodeWithTag(nodeTestTag(SIDE_TEXT)).assertIsDisplayed()
+            width.value = 800.dp
+            waitForIdle()
+            assertSideBySide(800f)
+        }
+
+        assertEquals(before, connection.nodeEvents.toList(), "crossing the line sent something about a node")
+        assertEquals(eventsBefore, connection.events.toList(), "crossing the line sent the Host an event")
+        assertEquals(chosen, connection.widths())
+        assertTrue(abs(sideWidth() - chosen.single().toFloat()) < 1f, "came back at ${sideWidth()}, not $chosen")
+        // The table is the one the Host built: no pane was dropped and made again.
+        onNodeWithTag(nodeTestTag(SIDE_TEXT)).assertIsDisplayed()
+        onNodeWithTag(nodeTestTag(BODY_TEXT)).assertIsDisplayed()
+    }
+
+    /**
+     * Without the property, and with it at 0, the line is the size class's own: one pane
+     * below 600 dp and two columns from 600 dp up, the Expanded answer from 840 dp.
+     */
+    @Test
+    fun fr15_2_12_without_collapse_below_the_size_class_line_is_unchanged() {
+        for (line in listOf(null, 0f)) {
+            runDesktopComposeUiTest(1100, 600) {
+                val width = mutableStateOf(590.dp)
+                showIn(FakeHostConnection(splitTree(min = 100f, collapseBelow = line)), width)
+                assertStacked()
+                width.value = 610.dp
+                waitForIdle()
+                assertSideBySide(610f)
+                width.value = 900.dp
+                waitForIdle()
+                assertSideBySide(900f)
+            }
+        }
+        DesignSystem.entries.forEach { system ->
+            val theme = resolveTheme(Theme(system, system, ColorScheme.Light, false), HostPlatform.Unknown, systemDark = false)
+            for ((place, sizeClass) in listOf(
+                599f to WindowSizeClass.Compact,
+                600f to WindowSizeClass.Medium,
+                839f to WindowSizeClass.Medium,
+                840f to WindowSizeClass.Expanded,
+            )) {
+                val answer = theme.rules.splitPane(sizeClass, theme).presentation
+                assertEquals(answer, splitPaneStyle(theme, place, null).presentation, "$system at $place")
+                assertEquals(answer, splitPaneStyle(theme, place, 0f).presentation, "$system at $place with a line of 0")
+            }
+        }
+    }
+
+    /**
+     * A negative, NaN or infinite line is reported once as a protocol error, the process
+     * goes on, and the split pane is drawn as if it had no line: two columns at 700 dp.
+     */
+    @Test
+    fun fr15_2_12_invalid_collapse_below_is_a_protocol_error() {
+        for (bad in listOf(-10f, Float.NaN, Float.POSITIVE_INFINITY)) {
+            runDesktopComposeUiTest(1100, 600) {
+                val connection = FakeHostConnection(splitTree(collapseBelow = bad))
+                showIn(connection, mutableStateOf(700.dp))
+                val errors = connection.events.filterIsInstance<HostEvent.ProtocolError>()
+                    .filter { it.code == TableError.UNSUPPORTED_PROPERTY }
+                assertEquals(1, errors.size, "$bad: ${connection.events}")
+                assertTrue("stacks below" in errors.single().message, errors.single().message)
+                assertSideBySide(700f)
+            }
+        }
+    }
+
     /** What a split pane carries is kept on a split pane, and its one property nowhere else. */
     @Test
     fun fr15_2_12_a_split_pane_keeps_its_properties() {
@@ -533,6 +739,7 @@ class SplitPaneTest {
             PropertyKind.Min,
             PropertyKind.Max,
             PropertyKind.Collapsible,
+            PropertyKind.CollapseBelow,
             PropertyKind.SelectedIndex,
             PropertyKind.Text,
             PropertyKind.OnValueChange,
@@ -541,5 +748,6 @@ class SplitPaneTest {
             assertTrue(NodeTable.supportsProperty(WidgetKind.SplitPane, property), "$property")
         }
         assertFalse(NodeTable.supportsProperty(WidgetKind.Box, PropertyKind.Collapsible))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.Column, PropertyKind.CollapseBelow))
     }
 }
