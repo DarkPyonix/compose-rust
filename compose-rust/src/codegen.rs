@@ -4012,6 +4012,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::CollapseBelow,
             value: PropertyValue::Float(720.5),
         },
+        // The two physical text alignments, which do not swap in right-to-left text.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Left as i64),
+        },
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::TextAlign,
+            value: PropertyValue::Integer(crate::schema::TextAlign::Right as i64),
+        },
         // A question about where a place on the editor's second line is, after its scroll
         // command.
         Mutation::QueryPositionRect {

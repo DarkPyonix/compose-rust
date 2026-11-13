@@ -59,6 +59,7 @@ import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.letterSpacingProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.textStyle
@@ -152,7 +153,7 @@ internal fun HostTextField(
     // with no role is, so a value typed into it is as wide as the same words drawn beside
     // it. One that names none is spaced by the design system's token, which on the Apple
     // design systems already carries SF's tracking, so it is left as it is.
-    val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
+    val ownSpacing = node.letterSpacingProp() != null
     val fontStyle = if (ownChain != null) {
         roleStyle.copy(
             fontFamily = ownChain.primary,
