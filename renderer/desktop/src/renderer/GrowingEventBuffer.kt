@@ -46,7 +46,12 @@ class GrowingEventBuffer<T : Any>(
         private set
 
     /** The buffer, cleared, for something that knows it fits, like the handshake. */
-    fun cleared(): ByteBuffer = buffer.clear()
+    fun cleared(): ByteBuffer {
+        // Android's ByteBuffer.clear() is typed as returning Buffer, so the buffer itself
+        // is returned rather than the call's result.
+        buffer.clear()
+        return buffer
+    }
 
     /** Encodes [event] from the start of the buffer, growing it first if it has to. */
     fun encode(event: HostEvent): Int {
