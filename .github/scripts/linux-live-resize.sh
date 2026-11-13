@@ -162,7 +162,17 @@ lag_in() {
 }
 
 shot="$out/step.bmp"
+# The drag widens the window by steps * step_px. A window the manager placed further right would
+# leave the screen part way, and a capture of what is off the screen finds no mark. Under
+# Xwayland a 520 px window at x=591 left a 1280 px output at 700 px wide, so it starts at the
+# left edge.
+xdotool windowmove "$window" 0 0 2> /dev/null || true
+sleep 1
 read -r x0 y0 w0 h0 < <(geometry)
+if ((x0 + w0 + steps * step_px > 1280)); then
+    echo "FAIL the window at x=$x0 would leave a 1280 px screen when widened by $((steps * step_px)) px" >&2
+    exit 1
+fi
 echo "linux-live-resize begin window=$window x=$x0 y=$y0 width=$w0 height=$h0" | tee -a "$log"
 # The window at rest, kept whatever happens next: it shows what the measurement started from.
 capture "$x0" "$y0" "$w0" "$h0" "$out/rest.png"
