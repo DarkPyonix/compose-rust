@@ -224,8 +224,8 @@ internal fun HostDialog(
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
     Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
+        popupPositionProvider = ModalOverlayPositionProvider,
+        properties = ModalOverlayProperties,
         onDismissRequest = {
             open.set(false)
             dismiss(node, dispatcher)

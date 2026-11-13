@@ -14,6 +14,13 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import dev.darkpyonix.composerust.foundation.ModalOverlayPositionProvider
+import dev.darkpyonix.composerust.foundation.ModalOverlayProperties
+import dev.darkpyonix.composerust.foundation.bottomSheetHeight
 import dev.darkpyonix.composerust.foundation.dialogTestTag
 import dev.darkpyonix.composerust.foundation.sheetScrimTestTag
 import dev.darkpyonix.composerust.foundation.sheetTestTag
@@ -38,6 +45,7 @@ import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val PAGE = 1
@@ -309,6 +317,107 @@ class KeyboardInsetTest {
             assertTrue(
                 abs(centre.value - drawn.value) <= 16f,
                 "the dialog sits at $drawn, not centred on $centre in what the keyboard leaves",
+            )
+        }
+    }
+
+    /**
+     * The keyboard moves a sheet; it does not shrink it.
+     *
+     * On a phone the todo sheet came down to its drag handle when the keyboard opened: the
+     * keyboard was taken off the height the sheet's share was worked out from, and on
+     * Android it had already been taken off once by the popup's window. The sheet keeps the
+     * height it had and only its position changes.
+     */
+    @Test
+    fun fr19_a_sheet_keeps_its_height_when_the_keyboard_opens() = withKeyboard { setKeyboard ->
+        runComposeUiTest {
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(
+                        rememberComposeRustHost(FakeHostConnection(SHEET_TREE)),
+                        Modifier.requiredSize(WIDTH, HEIGHT),
+                    )
+                }
+            }
+            waitForIdle()
+            val before = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+
+            setKeyboard(KEYBOARD)
+            waitForIdle()
+            val after = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+            val field = onNodeWithTag(nodeTestTag(FIELD)).getBoundsInRoot()
+
+            assertTrue(before.height.value > 0f, "the sheet has no height before the keyboard opens")
+            assertNear(before.height, after.height, "the sheet's height with the keyboard up")
+            assertNear(HEIGHT - KEYBOARD, after.bottom, "the sheet's bottom edge")
+            assertTrue(
+                field.top.value >= after.top.value - 1f && field.bottom.value <= after.bottom.value + 1f,
+                "the field at $field is not inside the sheet at $after",
+            )
+        }
+    }
+
+    /**
+     * The sizes the todo sheet was laid out with on a Galaxy Z Flip 4 (1080 x 2640 pixels at
+     * 2.625 pixels per dp): about 1006dp of window, a 36dp status bar and a 426dp keyboard.
+     *
+     * The popup's window came out as tall as the space between the status bar and the
+     * keyboard (544dp), the keyboard was taken off that again (118dp left), and half of
+     * that was the sheet: 59dp, which is the handle and nothing else. Measured against the
+     * whole window, the sheet is the half it asked for and still fits above the keyboard.
+     */
+    @Test
+    fun fr19_a_sheet_on_a_phone_keeps_its_share_of_the_window_above_the_keyboard() {
+        val window = 1005.7.dp
+        val status = 36.dp
+        val keyboard = 426.dp
+        assertNear(window * 0.5f, bottomSheetHeight(window, 0.5f, 0.dp, status), "without the keyboard")
+        assertNear(window * 0.5f, bottomSheetHeight(window, 0.5f, keyboard, status), "with the keyboard")
+        // A keyboard that leaves less than the sheet asked for: the sheet takes all of what
+        // is left between the status bar and the keyboard, never more.
+        val tall = 700.dp
+        assertNear(window - tall - status, bottomSheetHeight(window, 0.5f, tall, status), "under a tall keyboard")
+        assertEquals(0.dp, bottomSheetHeight(window, 0.5f, window, status), "a keyboard over the whole window")
+    }
+
+    /**
+     * A sheet's or a dialog's window is measured against the whole window.
+     *
+     * Android measures and places a clipped popup inside the parent window's visible frame,
+     * which leaves out the status bar, the gesture bar and the keyboard. That is what put
+     * the top of the todo sheet's scrim below the status bar and made its window only as
+     * tall as the space above the keyboard. A desktop popup has no such frame, so this is
+     * checked on the properties the Android popup reads rather than on a layout.
+     */
+    @Test
+    fun fr19_a_modal_overlay_window_is_not_clipped_to_the_visible_frame() {
+        assertFalse(ModalOverlayProperties.clippingEnabled, "the overlay is measured against the visible frame")
+        assertTrue(ModalOverlayProperties.focusable, "a field in the overlay cannot take the keyboard")
+        assertFalse(ModalOverlayProperties.dismissOnBackPress, "Back closes the overlay behind the renderer's back")
+    }
+
+    /**
+     * A sheet's or a dialog's window starts at the corner of the application's window, not
+     * centred on the node that opened it.
+     *
+     * The numbers are the todo page on the Flip 4 in pixels: the page below its 95 pixel
+     * status bar, a window 2640 pixels tall, and the popup the size of the visible frame
+     * with the keyboard up. Centred on the page, that popup started 654 pixels down; the
+     * scrim has to start at the top of the screen whatever size the popup came out.
+     */
+    @Test
+    fun fr19_a_modal_overlay_window_starts_at_the_window_corner() {
+        val window = IntSize(1080, 2640)
+        val page = IntRect(0, 95, 1080, 2640)
+        for (popup in listOf(window, IntSize(1080, 1427))) {
+            assertEquals(
+                IntOffset.Zero,
+                ModalOverlayPositionProvider.calculatePosition(page, window, LayoutDirection.Ltr, popup),
+                "a $popup overlay opened from $page",
             )
         }
     }

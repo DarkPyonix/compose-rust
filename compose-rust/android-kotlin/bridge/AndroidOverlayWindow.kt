@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import android.content.Context
+import android.os.Build
 import android.view.View
 import android.view.WindowManager
 import androidx.compose.runtime.SideEffect
@@ -16,6 +17,10 @@ import dev.darkpyonix.composerust.foundation.platformOverlayWindow
  * of the screen undimmed. Told to leave the window alone, the scrim keeps covering the
  * whole screen and the renderer lifts the sheet's own surface above the keyboard by the
  * inset the application's window reports.
+ *
+ * The window itself is as big as the application's and sits at its corner, which the
+ * renderer asks the popup for (`ModalOverlayProperties`, `ModalOverlayPositionProvider`);
+ * this is only what the popup has no property for.
  *
  * The layout parameters are the popup's own object, the one it hands back to the window
  * manager whenever it moves, so the setting stays through every later update. The content
@@ -44,15 +49,38 @@ internal fun installAndroidOverlayWindow() {
     }
 }
 
-/** Sets the window holding [view] to be neither resized nor panned for the keyboard. */
+/**
+ * Sets the window holding [view] to be neither resized nor panned for the keyboard, and to
+ * reach into a display cutout the way the application's own window does.
+ *
+ * The application's window is edge to edge and so runs under the camera cutout. An overlay
+ * window left with the default cutout mode can be kept out of it, which leaves a strip along
+ * that edge that the scrim does not dim.
+ */
 private fun leaveForTheKeyboard(view: View) {
     val root = view.rootView
     val params = root.layoutParams as? WindowManager.LayoutParams ?: return
+    var changed = false
     val adjust = params.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST
-    if (adjust == WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING) return
-    params.softInputMode =
-        (params.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
-            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+    if (adjust != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING) {
+        params.softInputMode =
+            (params.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        changed = true
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        // The same modes enableEdgeToEdge gives the application's window.
+        val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else {
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        if (params.layoutInDisplayCutoutMode != cutout) {
+            params.layoutInDisplayCutoutMode = cutout
+            changed = true
+        }
+    }
+    if (!changed) return
     val manager = view.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     manager.updateViewLayout(root, params)
 }
