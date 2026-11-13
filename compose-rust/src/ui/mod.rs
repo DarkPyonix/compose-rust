@@ -39,8 +39,8 @@ pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme,
-    CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
+    Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
+    ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
     MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole,
     TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
@@ -90,6 +90,57 @@ impl Shadow {
             spread,
             paint,
         }
+    }
+}
+
+/// The most background brush layers one node can carry through this API.
+pub const MAX_BACKGROUND_BRUSHES: usize = 4;
+
+/// One background layer, as CSS draws a `background-image` with its position, size and
+/// repeat: a brush laid into a rectangle of the node, in dp from its top left corner, and
+/// repeated from there. A gradient is measured against the rectangle, not the node. The
+/// layer is cut to the node's outline and painted over its background colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackgroundBrush {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub paint: Paint,
+    pub repeat: BackgroundRepeat,
+    /// How far apart the copies are, in dp. The rectangle's own size is CSS `repeat`.
+    pub tile_width: f32,
+    pub tile_height: f32,
+}
+
+impl BackgroundBrush {
+    /// One copy of `paint` in the rectangle, not repeated.
+    pub const fn new(x: f32, y: f32, width: f32, height: f32, paint: Paint) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            paint,
+            repeat: BackgroundRepeat::NoRepeat,
+            tile_width: width,
+            tile_height: height,
+        }
+    }
+
+    /// Repeats the rectangle the given ways, a rectangle's size apart unless
+    /// [`BackgroundBrush::step`] says otherwise.
+    pub const fn repeat(mut self, repeat: BackgroundRepeat) -> Self {
+        self.repeat = repeat;
+        self
+    }
+
+    /// How far apart the copies are, in dp, for CSS `space` and `round`. A step of zero or
+    /// less is not a step, and a layer with one is not sent.
+    pub const fn step(mut self, width: f32, height: f32) -> Self {
+        self.tile_width = width;
+        self.tile_height = height;
+        self
     }
 }
 
@@ -339,6 +390,7 @@ pub struct Modifier {
     window_drag: Option<bool>,
     offset: Option<(f32, f32)>,
     shadows: [Option<Shadow>; MAX_SHADOWS],
+    background_brushes: [Option<BackgroundBrush>; MAX_BACKGROUND_BRUSHES],
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
@@ -386,6 +438,7 @@ impl Modifier {
             window_drag: None,
             offset: None,
             shadows: [None; MAX_SHADOWS],
+            background_brushes: [None; MAX_BACKGROUND_BRUSHES],
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
@@ -624,6 +677,30 @@ impl Modifier {
     pub fn shadows(mut self, shadows: impl IntoIterator<Item = Shadow>) -> Self {
         for shadow in shadows {
             self = self.shadow(shadow);
+        }
+        self
+    }
+
+    /// Adds a background brush layer. Layers are drawn in the order they are added, the
+    /// first at the bottom, all of them over the background colour. A node takes at most
+    /// [`MAX_BACKGROUND_BRUSHES`]; a layer past that is ignored.
+    pub const fn background_brush(mut self, layer: BackgroundBrush) -> Self {
+        let mut index = 0;
+        while index < MAX_BACKGROUND_BRUSHES {
+            if self.background_brushes[index].is_none() {
+                self.background_brushes[index] = Some(layer);
+                break;
+            }
+            index += 1;
+        }
+        self
+    }
+
+    /// Adds several background brush layers, in order. CSS writes its list top first, so
+    /// a list taken from CSS is added last to first.
+    pub fn background_brushes(mut self, layers: impl IntoIterator<Item = BackgroundBrush>) -> Self {
+        for layer in layers {
+            self = self.background_brush(layer);
         }
         self
     }
@@ -1042,6 +1119,28 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                     bytes.extend_from_slice(&value.to_le_bytes());
                 }
                 bytes.extend_from_slice(&shadow.paint.to_bits().to_le_bytes());
+            }
+            OwnedAttr::Bytes(bytes)
+        },
+    );
+    push(
+        false,
+        "background_brushes",
+        if modifier.background_brushes[0].is_none() {
+            OwnedAttr::None
+        } else {
+            let mut bytes = Vec::new();
+            for layer in modifier.background_brushes.iter().flatten() {
+                for value in [layer.x, layer.y, layer.width, layer.height] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes.extend_from_slice(&layer.paint.to_bits().to_le_bytes());
+                bytes.extend_from_slice(&u32::from(u16::from(layer.repeat)).to_le_bytes());
+                bytes.extend_from_slice(&layer.tile_width.to_le_bytes());
+                bytes.extend_from_slice(&layer.tile_height.to_le_bytes());
+                // Padding to the layer's 40 bytes, so a layer starts on an eight byte
+                // boundary as the writer reads it.
+                bytes.extend_from_slice(&[0; 4]);
             }
             OwnedAttr::Bytes(bytes)
         },
