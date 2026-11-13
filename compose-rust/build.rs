@@ -882,7 +882,11 @@ fn unpack_android_kotlin() {
 /// manifest of its own to merge, so it goes into the application's. The manifest sits beside
 /// the Kotlin source root, `<module>/src/main/AndroidManifest.xml`.
 ///
-/// A manifest that already declares it, or that is not where the CLI puts one, is left as
+/// The same pass tells the generated Activity to resize for the keyboard rather than pan
+/// (`windowSoftInputMode="adjustResize"`), for the same reason: there is no manifest of the
+/// renderer's own to carry it.
+///
+/// A manifest that already says both, or that is not where the CLI puts one, is left as
 /// it is.
 fn add_notification_permission(destination: &Path) {
     let Some(main_dir) = destination.parent() else {
@@ -893,12 +897,20 @@ fn add_notification_permission(destination: &Path) {
     let Ok(manifest) = std::fs::read_to_string(&manifest_path) else {
         return;
     };
-    let Some(text) = renderer_dir::with_notification_permission(&manifest) else {
-        return;
+    let permitted = renderer_dir::with_notification_permission(&manifest);
+    let current = permitted.as_deref().unwrap_or(&manifest);
+    // The window resizes for the keyboard rather than sliding up under it, so the page
+    // can stop above the keyboard and the bars keep their place.
+    let text = match renderer_dir::with_keyboard_resize(current) {
+        Some(resized) => resized,
+        None => match permitted {
+            Some(text) => text,
+            None => return,
+        },
     };
     if let Err(error) = std::fs::write(&manifest_path, text) {
         panic!(
-            "\n\ncompose-rust: could not declare the notification permission in {}: \
+            "\n\ncompose-rust: could not update the application's manifest at {}: \
              {error}\n\n",
             manifest_path.display()
         );

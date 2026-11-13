@@ -1327,6 +1327,10 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 - **드래그 영역**: 캡션 영역의 빈 공간을 잡고 창을 움직일 수 있어야 합니다. 상호작용 위젯(Button, TextField 등) 위에서는 드래그가 일어나지 않습니다.
 - **캡션 띠의 색은 루트가 칠한 색입니다.** 창 전체를 테마의 배경색으로 칠하고 그 안에서 인셋을 주면, 자기 팔레트를 가진 앱은 본문과 맨 위 띠의 색이 어긋납니다. 페이지가 회색인데 띠만 흰색으로 남는 식입니다. 루트 노드가 `Background`를 직접 지정했다면 창의 바탕도 그 색이고, 지정하지 않았을 때만 테마의 배경색입니다. `Container`에서 "애플리케이션이 칠한 색이 이긴다"로 정한 것과 같은 규칙이며(FR-14), 이 규칙이 적용되는 범위가 노드에서 창까지 넓어지는 것뿐입니다.
 - **전면 시각 요소도 캡션을 받습니다.** 트리의 앞쪽 가장자리가 `Image`이면 바와 같은 자격으로 캡션 띠를 가져갑니다. 받는 것은 바와 그림뿐입니다. 자기 배경을 칠했다는 이유만으로 주면, 페이지 전체를 담은 `Navigation` 같은 껍데기가 캡션을 가져가고 그 첫 줄의 글자가 창 버튼 아래로 들어갑니다. 껍데기의 색이 해야 할 일은 창을 채우는 것이고, 그건 바로 위 항목이 답합니다. 창 맨 위를 사진이나 색면이 채우는 화면에서 그 위에 인셋만큼의 빈 띠를 남기면, 바가 캡션을 받지 못했을 때와 똑같이 "아무도 요청하지 않은 타이틀바"로 읽힙니다. 창 버튼은 그 위에 그대로 그려지므로 가려지지 않습니다.
+- **[leader, provisional, 2026-11-13] 화면 키보드가 열려도 창은 밀려 올라가지 않습니다.** 페이지는 키보드의 위쪽 가장자리에서 끝나고, 위쪽 바와 위쪽 인셋은 움직이지 않습니다. 키보드 아래에 제스처 바 자리를 따로 남기지 않습니다. 창 전체를 밀어 올리면 바와 제목이 상태 표시줄 밑으로 들어가고, 키보드가 가린 아래쪽 줄은 여전히 보이지 않기 때문입니다. `Sheet`나 `Dialog`의 스크림은 계속 창 전체를 덮고, 키보드 위로 올라가는 것은 그 표면뿐입니다. Android에서는 Activity가 `adjustResize`로 키보드에 맞춰 크기를 바꾸고, iOS에서는 Compose가 포커스된 필드를 위해 화면을 미는 동작을 끕니다. 그대로 두면 Renderer가 이미 줄인 페이지가 한 번 더 움직입니다.
+  - 수용 기준: `fr19_the_android_activity_resizes_for_the_keyboard`, `fr19_an_existing_pan_becomes_a_resize_and_keeps_its_state`, `fr19_the_build_applies_the_keyboard_resize_to_the_manifest` (생성되는 Android 매니페스트가 `adjustResize`를 쓰고, 이미 있던 `adjustPan`은 상태 플래그를 지킨 채 `adjustResize`로 바뀌며, 빌드가 그것을 매니페스트에 적용합니다).
+  - 수용 기준: `fr19_the_page_ends_above_the_keyboard`, `fr19_the_keyboard_leaves_the_top_of_the_page_alone`, `fr19_a_navigation_along_the_bottom_still_stops_above_the_keyboard`, `fr19_with_no_keyboard_nothing_changes`, `fr19_the_page_shrinks_by_the_keyboard_and_the_bar_keeps_its_place`, `fr19_a_sheet_rises_above_the_keyboard_and_its_scrim_still_covers_the_window`, `fr19_a_dialog_is_centred_above_the_keyboard` (`KeyboardInsetTest`).
+  - 수용 기준(수동 검사): Android 휴대폰에서 chat, notepad, todo의 텍스트 필드를 눌러 키보드를 연 화면을 캡처해, 위쪽 바가 제자리에 있고 페이지가 키보드 위에서 끝나며 시트의 스크림이 창 전체를 덮는지 **손으로 확인합니다.** 실제 기기의 IME 창 동작은 JVM 테스트가 재현하지 못합니다.
 
 #### 19.3 Host가 정할 수 있는 것
 

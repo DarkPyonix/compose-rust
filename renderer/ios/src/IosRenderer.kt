@@ -84,7 +84,14 @@ private class RendererAppDelegate : UIResponder, UIApplicationDelegateProtocol {
         // are already the application's own.
         dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { UserDefaultsZoomLevel }
         val window = UIWindow(frame = UIScreen.mainScreen.bounds)
-        val content = ComposeUIViewController {
+        val content = ComposeUIViewController(
+            configure = {
+                // The renderer stops the page above the keyboard itself and lifts a sheet's
+                // surface by the same inset. Left on, Compose would also slide the whole
+                // view up to keep the focused field clear, and everything would move twice.
+                onFocusBehavior = androidx.compose.ui.uikit.OnFocusBehavior.DoNothing
+            },
+        ) {
             ComposeRustContent(
                 rememberComposeRustHost(remember { hostConnectionFactory() }),
                 // The whole screen. Where the safe area is is the renderer's to decide:
