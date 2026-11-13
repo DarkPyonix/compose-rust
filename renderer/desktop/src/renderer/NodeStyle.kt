@@ -48,6 +48,18 @@ internal fun Node.floatProp(kind: PropertyKind): Float? =
         else -> null
     }
 
+/**
+ * The letter spacing the Host set, in sp, or null where it set none. Unlike the other
+ * design floats, 0 is a value here: CSS `letter-spacing: 0` draws no extra spacing, where
+ * an unset spacing takes the type role's. Unset travels as NaN, or as nothing.
+ */
+internal fun Node.letterSpacingProp(): Float? =
+    when (val value = props[PropertyKind.LetterSpacing]) {
+        is PropertyValue.Float -> value.value.takeUnless { it.isNaN() }
+        is PropertyValue.Integer -> value.value.toFloat()
+        else -> null
+    }
+
 internal fun Node.intProp(kind: PropertyKind): Long? =
     (props[kind] as? PropertyValue.Integer)?.value?.takeIf { it != 0L }
 
@@ -85,7 +97,7 @@ internal fun Node.textStyle(theme: ResolvedTheme, defaultRole: TypeRole = TypeRo
             ?.let { androidx.compose.ui.text.font.FontWeight(it.toInt()) }
             ?: token.composeWeight,
         lineHeight = floatProp(PropertyKind.LineHeight)?.sp ?: token.composeLineHeight,
-        letterSpacing = floatProp(PropertyKind.LetterSpacing)?.sp ?: token.composeLetterSpacing,
+        letterSpacing = letterSpacingProp()?.sp ?: token.composeLetterSpacing,
         fontFamily = theme.family(role),
         textAlign = when (role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray())) {
             TextAlign.Start -> ComposeTextAlign.Start
