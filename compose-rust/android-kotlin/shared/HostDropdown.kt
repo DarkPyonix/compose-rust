@@ -276,6 +276,7 @@ private fun OpeningList(
                     Column(
                         Modifier
                             .testTag(dropdownPopupTestTag(node.id))
+                            .nativeViewOverlay(popupShape, shadowReach(popupElevation))
                             .menuKeys(keys)
                             .then(popupRaised)
                             .clip(popupShape)
