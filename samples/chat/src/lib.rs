@@ -226,6 +226,9 @@ pub fn app() {
     // Where a reply runs while it arrives. A reply still arriving when the chat leaves the
     // composition stops with it.
     let replies = remember_coroutine_scope();
+    // Which of the reference's two modes is on screen. The Host owns it, so a press
+    // anywhere on a tab ends with the Renderer showing what the Host chose.
+    let mode = remember(|| mutable_state_of(CHAT_MODE));
 
     let send: Rc<dyn Fn(String)> = {
         let (messages, next_id, draft, turns, settings, conversations, current, replies) = (
@@ -289,6 +292,7 @@ pub fn app() {
         let (next_conversation, conversations, current) =
             (next_conversation, conversations, current);
         Rc::new(move || {
+            mode.set(CHAT_MODE);
             let id = next_conversation.get_untracked();
             next_conversation.set(id + 1);
             conversations.update(|list| {
@@ -444,15 +448,21 @@ pub fn app() {
                                     spark();
                                     Text("Chat").type_role(TypeRole::Subtitle);
                                 });
-                            // The reference's two modes under its name. The second is an
-                            // agent that works on the network, which this sample does not
-                            // have, so choosing it says so and the chat stays chosen.
-                            Tabs(0).modifier(Modifier.fill_max_width()).content(|| {
-                                Text("Chat").type_role(TypeRole::Label);
-                                Box().on_click(agent_unavailable).content(|| {
-                                    Text("Agent").type_role(TypeRole::Label);
+                            // The reference's two modes under its name, both of which can
+                            // be chosen and left. The Renderer sends a press anywhere on a
+                            // tab as that tab's child's own click, so each child carries
+                            // the handler and the whole tab is one target.
+                            Tabs(mode.get())
+                                .modifier(Modifier.fill_max_width())
+                                .content(|| {
+                                    for (index, label) in MODES.into_iter().enumerate() {
+                                        key(label, || {
+                                            Box().on_click(move || mode.set(index)).content(|| {
+                                                Text(label).type_role(TypeRole::Label);
+                                            });
+                                        });
+                                    }
                                 });
-                            });
                         });
                 })
                 .foot(|| {
@@ -493,7 +503,10 @@ pub fn app() {
                         key(id, || {
                             NavigationItem(conversation.label())
                                 .section("Chats")
-                                .on_click(move || pick.set(id));
+                                .on_click(move || {
+                                    mode.set(CHAT_MODE);
+                                    pick.set(id);
+                                });
                         });
                     }
                 });
@@ -513,6 +526,13 @@ pub fn app() {
                         )
                         .space_role(SpaceRole::Md)
                         .content(|| {
+                            if mode.get() == AGENT_MODE {
+                                Box()
+                                    .modifier(Modifier.fill_max_width().weight(1.0))
+                                    .alignment(Alignment::Center)
+                                    .content(agent_page);
+                                return;
+                            }
                             if busy {
                                 IndeterminateProgressIndicator();
                             }
@@ -767,9 +787,31 @@ fn composer_row(
         });
 }
 
-/// The reference's second mode, which needs a network.
-fn agent_unavailable() {
-    compose_rust::Message::new("The agent works over a network, and this sample has none.").show();
+/// The tabs under the sidebar's name, in order.
+const MODES: [&str; 2] = ["Chat", "Agent"];
+const CHAT_MODE: usize = 0;
+const AGENT_MODE: usize = 1;
+
+const AGENT_TITLE: &str = "Agent";
+const AGENT_GUIDANCE: &str = "The agent works through a task for you over a network, and \
+     this sample has none. Choose Chat to talk to the assistant on this device.";
+
+/// The reference's second mode, which needs a network: its page says so, in the same
+/// shape as an empty conversation.
+fn agent_page() {
+    Column()
+        .modifier(Modifier.padding_role(SpaceRole::Lg))
+        .space_role(SpaceRole::Sm)
+        .alignment(Alignment::Center)
+        .content(|| {
+            Text(AGENT_TITLE)
+                .type_role(TypeRole::Headline)
+                .text_align(TextAlign::Center);
+            Text(AGENT_GUIDANCE)
+                .type_role(TypeRole::Body)
+                .color(Paint::Role(ColorRole::OnSurfaceVariant))
+                .text_align(TextAlign::Center);
+        });
 }
 
 /// The reference's mic, which needs speech input.
@@ -2100,6 +2142,195 @@ mod tests {
         assert!(
             removed,
             "the empty state stayed on screen once the conversation had started"
+        );
+    }
+
+    /// Each tab is one press target, and a press anywhere on it leaves one selection.
+    ///
+    /// The Renderer sends a press anywhere on a tab, its padding included, as a click on
+    /// that tab's child, and a press on the child's own area is the same click on the same
+    /// node. So each child has to carry exactly one handler, nothing inside it may carry
+    /// another, and every press has to end with the Host's selection being the tab pressed.
+    /// The second tab used to be a box around its label that showed a message and left
+    /// the selection where it was, so a press on its padding selected it and a press on its
+    /// label did not.
+    #[test]
+    fn fr22_3_4_a_press_anywhere_on_a_tab_leaves_a_consistent_selection() {
+        let mut host = ComposeHost::new(app);
+        let first = host
+            .rebuild()
+            .expect("the first frame failed to encode")
+            .to_vec();
+        let mutations = decode_batch(&first).expect("the first frame did not decode");
+        let tabs = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Tabs,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .expect("the sidebar has no tab control");
+        let selected_in = |mutations: &[Mutation<'_>]| {
+            mutations.iter().rev().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::SelectedIndex,
+                    value: PropertyValue::Integer(index),
+                } if *node_id == tabs => Some(*index),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            selected_in(&mutations[..]),
+            Some(CHAT_MODE as i64),
+            "the chat is not the tab chosen first"
+        );
+
+        let mut children: Vec<(u32, u32)> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id,
+                    node_id,
+                    index,
+                } if *parent_id == tabs => Some((*index, *node_id)),
+                _ => None,
+            })
+            .collect();
+        children.sort();
+        let children: Vec<u32> = children.into_iter().map(|(_, node)| node).collect();
+        assert_eq!(
+            children.len(),
+            MODES.len(),
+            "the tab control is not two tabs"
+        );
+
+        let mut parents = HashMap::new();
+        for mutation in &mutations {
+            if let Mutation::Insert {
+                parent_id, node_id, ..
+            } = mutation
+            {
+                parents.insert(*node_id, *parent_id);
+            }
+        }
+        let clicks: Vec<(u32, u64)> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnClick,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .collect();
+        let mut handlers = Vec::new();
+        for tab in &children {
+            let inside: Vec<&(u32, u64)> = clicks
+                .iter()
+                .filter(|(node, _)| {
+                    let mut at = *node;
+                    loop {
+                        if at == *tab {
+                            return true;
+                        }
+                        match parents.get(&at) {
+                            Some(parent) if *parent != tabs => at = *parent,
+                            _ => return false,
+                        }
+                    }
+                })
+                .collect();
+            assert_eq!(
+                inside.len(),
+                1,
+                "tab {tab} holds {} press targets; the whole tab has to be one",
+                inside.len()
+            );
+            assert_eq!(
+                inside[0].0, *tab,
+                "the tab's handler is on something inside it rather than on the tab's child, \
+                 so a press on the tab's padding reaches nothing"
+            );
+            handlers.push(inside[0].1);
+        }
+        drop(mutations);
+
+        let mut event = Vec::new();
+        let mut press = |host: &mut ComposeHost, tab: usize| {
+            encode_event(
+                &HostEvent {
+                    node_id: children[tab],
+                    handler_id: handlers[tab],
+                    payload: EventPayload::Clicked,
+                },
+                &mut event,
+            )
+            .expect("the press did not encode");
+            host.dispatch_event(&event)
+                .expect("the press failed")
+                .0
+                .to_vec()
+        };
+        let texts_in = |batch: &[u8]| -> Vec<String> {
+            decode_batch(batch)
+                .expect("a frame did not decode")
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                        ..
+                    } => Some((*text).to_owned()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        // To the agent, and its page says why it cannot run here.
+        let batch = press(&mut host, AGENT_MODE);
+        assert_eq!(
+            selected_in(&decode_batch(&batch).expect("a frame did not decode")[..]),
+            Some(AGENT_MODE as i64),
+            "pressing Agent did not choose it"
+        );
+        assert!(
+            texts_in(&batch).iter().any(|text| text == AGENT_GUIDANCE),
+            "the agent's page does not say it needs a network"
+        );
+
+        // Pressing the chosen tab again changes nothing.
+        let batch = press(&mut host, AGENT_MODE);
+        assert!(
+            matches!(
+                selected_in(&decode_batch(&batch).expect("a frame did not decode")[..]),
+                None | Some(1)
+            ),
+            "pressing the chosen tab moved the selection"
+        );
+
+        // And back to the chat, which brings the conversation back.
+        let batch = press(&mut host, CHAT_MODE);
+        assert_eq!(
+            selected_in(&decode_batch(&batch).expect("a frame did not decode")[..]),
+            Some(CHAT_MODE as i64),
+            "pressing Chat did not choose it again"
+        );
+        assert!(
+            decode_batch(&batch)
+                .expect("a frame did not decode")
+                .iter()
+                .any(|mutation| matches!(
+                    mutation,
+                    Mutation::Create {
+                        widget: WidgetKind::TextField,
+                        ..
+                    }
+                )),
+            "leaving the agent did not bring the composer back"
         );
     }
 
