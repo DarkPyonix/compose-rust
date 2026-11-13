@@ -2681,6 +2681,8 @@ Notification::new("세션이 끝났습니다")
 20. 키 미리보기(이슈 #554, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기에 `on_key_preview`(핸들러 속성 `OnKeyPreview`, 속성 태그 196)가 있습니다. 편집기가 키를 처리하기 전에 `KeyDown`(12.1과 같은 레코드: code, text, 수정자, repeat)이 Host로 가고, 핸들러가 소비하면(FR-12의 동기 반환값) 편집기는 그 키를 처리하지 않습니다. IME 조합 중에는 보내지 않습니다(12.1의 규칙). 제안 목록이 열린 동안 위, 아래, Enter, Tab, Escape와 F12, F2, Ctrl+Space, Ctrl/Cmd+. 같은 명령 키를 Host가 가져가는 데 씁니다.
     1. 미리보기 핸들러가 Down을 소비하면 캐럿이 움직이지 않고, 소비하지 않으면 지금처럼 움직입니다(fr38_editor_key_preview_consumes_keys).
     2. IME 조합 중에는 미리보기가 가지 않습니다(fr38_editor_key_preview_skips_composition).
+21. 수정자와 글자 위치를 가진 포인터(이슈 #555, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기에 `on_code_pointer`(핸들러 속성 `OnCodePointer`, 속성 태그 197, FR-46과 같은 종류 마스크)가 있고, FR-46의 포인터 레코드에 그 지점의 글자 위치(`line`, `column`, 글자 위가 아니면 "없음")를 덧붙인 이벤트 `CodePointer`(이벤트 태그 66)를 보냅니다. 버튼, 수정자, 클릭 수, 소비 규칙은 FR-46과 같고, 소비한 Down은 캐럿을 옮기지 않습니다. Cmd/Ctrl+클릭으로 정의로 가고 Cmd/Ctrl+호버로 낱말에 밑줄을 긋는 데 씁니다.
+    1. Cmd+클릭이 그 글자의 줄과 열, 수정자 `meta`를 싣고 한 번 오고, 핸들러가 소비하면 캐럿이 그대로입니다(fr38_editor_pointer_reports_text_position).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
