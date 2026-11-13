@@ -49,6 +49,16 @@ internal fun Node.offersFocusAction(): Boolean {
     return declared != null && declared.state and FOCUS_ACTION_BIT != 0
 }
 
+/**
+ * Whether this node is the chosen one among its siblings: a menu row the Host marked
+ * checked, or a node whose `Semantics` modifier says it is selected.
+ */
+internal fun Node.isDeclaredSelected(): Boolean {
+    if (flag(PropertyKind.Checked, default = false)) return true
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+    return declared != null && declared.state.field(SELECTED_SHIFT) == true
+}
+
 /** A field of the state word: unset, off or on. */
 private fun Int.field(shift: Int): Boolean? = when ((this shr shift) and FIELD_MASK) {
     1 -> false
