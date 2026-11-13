@@ -245,7 +245,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,thumb_size;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
@@ -678,6 +678,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -978,11 +992,15 @@ define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     Xxl = 7,
 });
 
+// `Start` and `End` follow the writing direction and swap in right-to-left text. `Left`
+// and `Right` are physical, as CSS `text-align: left|right` is, and never swap.
 define_wire_enum!(TEXT_ALIGN_SCHEMA, TextAlign {
     Start = 1,
     Center = 2,
     End = 3,
     Justify = 4,
+    Left = 5,
+    Right = 6,
 });
 
 define_wire_enum!(TEXT_OVERFLOW_SCHEMA, TextOverflow {
@@ -1706,6 +1724,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "PopoverAlign",
         variants: POPOVER_ALIGN_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "ContentScale",
+        variants: CONTENT_SCALE_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1832,6 +1854,18 @@ define_wire_enum!(SNAP_SCHEMA, Snap {
     ItemStart = 1,
 } unlisted {
     None = 0,
+});
+
+// How an `Image` lays its picture into the box it was given, as Compose's `ContentScale`.
+//
+// `Fit` keeps the picture's proportions and shows all of it, centred, leaving the rest of
+// the box empty. `Crop` keeps the proportions and covers the whole box, centred, cutting
+// off what falls outside. `FillBounds` stretches the picture to the box in each direction
+// on its own, which is CSS `object-fit: fill`. Not sending the property draws `Fit`.
+define_wire_enum!(CONTENT_SCALE_SCHEMA, ContentScale {
+    Fit = 1,
+    Crop = 2,
+    FillBounds = 3,
 });
 
 // How the application uses windows. `Single` is every application until now: the
@@ -3760,6 +3794,10 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // the `WordWrapMode` tag in the low 16 bits and the column count above them. Absent or
     // 0 breaks no line.
     WordWrap = 200,
+    // How an `Image` lays its picture into its box, as a `ContentScale` tag. Absent or 0
+    // is `Fit`, which is how every picture was drawn before there was a choice. 37 is the
+    // next place in the 28 to 39 block, after the divider's `Vertical`.
+    ContentScale = 37,
     // The diameter in dp a Slider draws its thumb at, an f32. Absent is the design system's
     // size. The track and the area that takes a press stay as they are.
     ThumbSize = 202,
