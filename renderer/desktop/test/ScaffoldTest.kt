@@ -57,6 +57,9 @@ class ScaffoldTest {
                 NavigationPresentation.Bar -> ScaffoldFrame.Stacked
                 // Not in the frame at all: over the page, and only when asked for.
                 NavigationPresentation.PutAway -> ScaffoldFrame.Overlaid
+                // Not in the frame either, with nothing over the page: the page has the
+                // whole window and there is no strip to make room for.
+                NavigationPresentation.Hidden -> ScaffoldFrame.Overlaid
                 NavigationPresentation.Rail, NavigationPresentation.Drawer ->
                     ScaffoldFrame.SideBySide
             }

@@ -30,12 +30,16 @@ case "$output" in /*) ;; *) output="$PWD/$output" ;; esac
 web_dir="$repo_root/renderer/web"
 renderer_out="$repo_root/renderer/build/tasks/_web_buildWasmJs"
 
-# The runtime the toolchain unpacks here refuses to overwrite itself, so a second build
-# in the same tree fails on a file that is already correct.
+# Every wasm bundle task unpacks skiko's runtime into this one directory, deleting and
+# recreating each file. Start from an empty one so nothing left by an older toolchain
+# is copied into the page.
 rm -rf "$repo_root/renderer/build/temp/skiko-js-wasm-runtime"
 
+# Only the app bundle, not `build`: `build` also assembles the test app bundle, in
+# parallel, and the two unpack that runtime into the same directory at once, so one
+# fails with FileAlreadyExistsException (#494). The pages need the app bundle alone.
 echo "==> building the renderer's module once"
-(cd "$repo_root/renderer" && ./kotlin build -p wasmJs -m web) ||
+(cd "$repo_root/renderer" && ./kotlin task :web:buildWasmJsAppWasmJsDebug) ||
     { echo "the renderer's wasm module did not build" >&2; exit 1; }
 
 # The directory the toolchain assembled, not the sources it assembled it from. The page
@@ -44,7 +48,8 @@ echo "==> building the renderer's module once"
 # Which directory it is depends on the toolchain version, so it is found rather than
 # named.
 bundle_dir="$(dirname "$(find "$repo_root/renderer/build/tasks" \
-    -name 'index.html' -path '*web*' -not -path '*node_modules*' -print -quit 2>/dev/null)")"
+    -name 'index.html' -path '*web*' -not -path '*/tasks/*Test*' -not -path '*node_modules*' \
+    -print -quit 2>/dev/null)")"
 [[ -d "$bundle_dir" && -f "$bundle_dir/index.html" ]] ||
     { echo "the renderer's page bundle is not where this looked" >&2; exit 1; }
 grep -q '{{kotlin.scripts}}' "$bundle_dir/index.html" &&
