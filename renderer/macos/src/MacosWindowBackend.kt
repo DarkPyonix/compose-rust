@@ -14,9 +14,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import org.thisisthepy.compose.window.WindowApplication
 import org.thisisthepy.compose.window.contentMinimum
 import org.thisisthepy.compose.window.macos.MacosWindow
-import platform.AppKit.NSAppearance
-import platform.AppKit.NSAppearanceNameAqua
-import platform.AppKit.NSAppearanceNameDarkAqua
 import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationDelegateProtocol
 import platform.AppKit.NSEvent
@@ -461,11 +458,7 @@ internal class MacosPlatformWindow(
 
     override fun setColorScheme(scheme: ColorScheme) {
         if (closed) return
-        native.appearance = when (scheme) {
-            ColorScheme.Light -> NSAppearance.appearanceNamed(NSAppearanceNameAqua)
-            ColorScheme.Dark -> NSAppearance.appearanceNamed(NSAppearanceNameDarkAqua)
-            ColorScheme.FollowSystem -> null
-        }
+        native.appearance = windowAppearanceFor(scheme)
     }
 
     override suspend fun awaitFrame(onFrame: (Long) -> Unit) {
