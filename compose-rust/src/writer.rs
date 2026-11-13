@@ -769,10 +769,19 @@ impl NodeWriter {
             // no record.
             AttrValue::Bytes(bytes) => PropertyValue::Bytes(bytes),
         };
-        let neutral = matches!(
-            value,
-            PropertyValue::None | PropertyValue::Integer(0) | PropertyValue::Float(0.0)
-        );
+        // A type role of 0 is `TypeRole::None`, which is a role of its own: text set only in
+        // the fonts and sizes it names. It has to reach the Renderer, which otherwise sets
+        // the text in its default role. An unset role arrives as nothing and stays unsent,
+        // and one that is cleared sends nothing once, which drops the property rather than
+        // turning the text into text with no role.
+        let neutral = if property == PropertyKind::TypeRole {
+            matches!(value, PropertyValue::None)
+        } else {
+            matches!(
+                value,
+                PropertyValue::None | PropertyValue::Integer(0) | PropertyValue::Float(0.0)
+            )
+        };
         if !self.should_write_optional_property(node_id, property, neutral) {
             return;
         }

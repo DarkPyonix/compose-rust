@@ -156,6 +156,37 @@ class WebBoundaryTest {
     }
 
     /**
+     * A report the Host refuses says which report it was.
+     *
+     * The Rust Host refuses a renderer's protocol error report: no handler owns it. The
+     * web connection used to say only "compose_rust_host_dispatch_event returned -1", so a
+     * page that printed it gave no hint of what had been reported. The minimal sample's
+     * page failed the page check with nothing but that line.
+     */
+    @Test
+    fun nfr7_a_refused_event_is_named_in_the_error() {
+        val connection = hostOrNull() ?: return
+        connection.init { }
+        val report = HostEvent.ProtocolError(
+            nodeId = 0,
+            handlerId = 0,
+            code = 3,
+            message = "a report the Host does not take",
+        )
+        try {
+            connection.dispatchEvent(report) { }
+            fail("the Host took a protocol error report it has no handler for, so nothing was refused")
+        } catch (refused: HostCallException) {
+            val said = refused.message ?: ""
+            assertTrue(
+                said.contains("dispatch_event") && said.contains("a report the Host does not take"),
+                "the refusal names the event it refused: $said",
+            )
+        }
+        connection.shutdown()
+    }
+
+    /**
      * What a boundary call costs, measured rather than assumed.
      *
      * `ReleaseBatch` is the call to time: it is a real boundary function that does almost

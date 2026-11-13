@@ -78,7 +78,7 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         // An event too large for every buffer the Host would lend is refused here, before
         // anything is sent, rather than cut short.
         val length = events.encode(event)
-        checkStatus(hostDispatchEvent(events.backing.address, length, outAddress), "dispatch_event")
+        checkStatus(hostDispatchEvent(events.backing.address, length, outAddress), "dispatch_event", event)
         val result = out.getLong(BATCH_RESULT_OFFSET)
         readBatch(onMutation)
         return result
@@ -145,9 +145,14 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         return created
     }
 
-    private fun checkStatus(status: Int, operation: String) {
+    private fun checkStatus(status: Int, operation: String, event: HostEvent? = null) {
         if (status != STATUS_OK) {
-            throw HostCallException("compose_rust_host_$operation returned $status")
+            // Which event the Host refused, as the desktop and Android connections say. A
+            // bare status says a call failed and leaves the one question that locates it
+            // unanswered: a refused report printed only "dispatch_event returned -1", with
+            // what it reported lost.
+            val about = event?.let { " for $it" } ?: ""
+            throw HostCallException("compose_rust_host_$operation returned $status$about")
         }
     }
 
