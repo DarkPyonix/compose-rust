@@ -15,6 +15,7 @@ import dev.darkpyonix.composerust.runtime.WindowCaption
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
@@ -161,6 +162,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         ),
     )
     requestFrame = window::requestFrame
+    // The window's appearance is the theme's scheme, not the system's: the material behind
+    // the scene is drawn in it. Given before the first frame from the theme the first batch
+    // set, and again below whenever the application changes it.
+    val appearanceFollower = WindowAppearanceFollower(window.window)
+    appearanceFollower.follow(host.table.theme)
     // The one window is where a dialog on node 0, the implicit window, is shown.
     fileDialogs.rootWindow = { window.window }
     // The fork's window runs the scene's coroutines (the frame requests below among them, and
@@ -191,6 +197,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         LocalClipboard provides clipboard,
             LocalClipboardManager provides clipboardManager,
         ) {
+            // A theme the application sends later moves the window's appearance with it.
+            // Read as a snapshot rather than in composition, so a new theme does not
+            // recompose this scope as well as everything that resolves it.
+            LaunchedEffect(Unit) {
+                snapshotFlow { host.table.theme }.collect { appearanceFollower.follow(it) }
+            }
             // The asset arrives a little after the first batch names it, so it is looked for
             // until it is there.
             if (iconAsset != 0) {
