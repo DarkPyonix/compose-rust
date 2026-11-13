@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "15260501639803918062",
+  "schemaHashUnsigned": "378988366624221972",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -27,7 +27,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-three independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -70,7 +70,8 @@
       { "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" },
       { "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 },
       { "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 },
-      { "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }
+      { "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 },
+      { "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }
     ]
   }
 }

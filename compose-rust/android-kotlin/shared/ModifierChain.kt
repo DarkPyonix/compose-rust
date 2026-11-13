@@ -114,6 +114,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     allowPress: Boolean = true,
     allowPadding: Boolean = true,
     pointerEvents: Modifier? = null,
+    motionFinished: ((initialValue: IntSize, targetValue: IntSize) -> Unit)? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -269,7 +270,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
             // user has asked to hold still answers every role with no run at all.
-            is ProtocolModifier.Motion -> chain.animateContentSize(theme.motion(value.role))
+            //
+            // A node with a motion handler is told when a run reaches its target. Compose
+            // calls the listener only for a run that finished, never for one a newer target
+            // interrupted, and never for the first layout, which has nothing to animate. A
+            // node without the handler passes no listener, which is the modifier it always had.
+            is ProtocolModifier.Motion ->
+                chain.animateContentSize(theme.motion(value.role), finishedListener = motionFinished)
 
             // What this node's surface is made of, drawn above at the outside of the chain.
             is ProtocolModifier.Material -> chain
@@ -979,6 +986,30 @@ internal fun Modifier.pressFeedback(
                 drawOutline(shape.createOutline(size, layoutDirection, this), ink.copy(alpha = tint.coerceIn(0f, 1f)))
             }
         }
+}
+
+/**
+ * The listener a node's size motion reports through: when a run reaches its target, the
+ * size it settled at goes to the node's `OnMotionFinished` handler in dp.
+ *
+ * Called by Compose on the UI thread's frame clock, so the event is written on that same
+ * call, with no queue in between. Made once for each handler and density, not on every
+ * composition, so a node's chain does not change because its handler was asked again.
+ */
+internal fun motionFinishedListener(
+    nodeId: Int,
+    handlerId: Long,
+    density: Density,
+    dispatcher: EventDispatcher,
+): (initialValue: IntSize, targetValue: IntSize) -> Unit = { _, target ->
+    dispatcher.dispatch(
+        HostEvent.MotionFinished(
+            nodeId = nodeId,
+            handlerId = handlerId,
+            widthDp = target.width / density.density,
+            heightDp = target.height / density.density,
+        ),
+    )
 }
 
 /**

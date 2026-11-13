@@ -82,7 +82,9 @@ pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
 pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
-pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
+pub use input::{
+    FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds, RangeRequest, pointer_button,
+};
 pub use message::{Message, show_message};
 pub use notification::{
     Notification, NotificationActivation, NotificationSender, notification_permission,
