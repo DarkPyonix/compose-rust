@@ -3627,6 +3627,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
 
+**누르는 컨테이너와 HTML 버튼의 글자**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `OnClick`을 가진 컨테이너는 버튼과 같이 선택 영역에 들어가지 않습니다. 그 안의 글자는 끌거나 두 번 눌러도 골라지지 않고, 누르기는 그대로입니다. HTML 영역의 `<button>`은 브라우저와 같이 Host가 `UserSelect::None`을 계산해 보냅니다. 수용 기준: 선택 영역 안의 `on_click` 컨테이너 글자를 두 번 눌러도 아무것도 골라지지 않고 클릭은 한 번씩 갑니다(fr47_pressable_container_text_is_not_selectable).
+
 ### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
 요청한 쪽: dioxus-compose FR-34.5. 아이콘 글꼴(codicon 등)과 `@font-face`로 받은 글꼴을 Host가 한 번 등록하고, 돌려받은 id를 FR-40의 글꼴 목록에 넣고 싶습니다.

@@ -317,4 +317,56 @@ class UserSelectTest {
         assertNotNull(clipboards.copied, "the drag selected nothing, so this proves nothing")
         assertEquals(emptyList(), connection.nodeEvents)
     }
+
+    /**
+     * A container that answers a press is a button, so its text takes no part in the
+     * selection region around it, in a SelectionContainer and in an HTML region alike. A
+     * double-click there selects nothing and copies nothing, each press arrives once, and
+     * the plain text beside it is still selected by the same double-click.
+     */
+    @Test
+    fun fr47_pressable_container_text_is_not_selectable() {
+        for (region in listOf(WidgetKind.SelectionContainer, WidgetKind.AbsoluteBox)) runComposeUiTest {
+            val clipboards = RecordingClipboards()
+            val tree = buildList {
+                theme()
+                add(Mutation.Create(ROOT, region))
+                if (region == WidgetKind.AbsoluteBox) {
+                    add(Mutation.SetModifier(ROOT, 0, ProtocolModifier.RequiredSize(400f, 300f)))
+                    add(Mutation.SetProp(ROOT, PropertyKind.IslandZoom, PropertyValue.Float(1f)))
+                }
+                text(PLAIN, "plain words", ROOT, 0)
+                add(Mutation.Create(CLICKABLE, WidgetKind.Box))
+                if (region == WidgetKind.AbsoluteBox) add(Mutation.SetModifier(CLICKABLE, 0, ProtocolModifier.Offset(0f, 60f)))
+                add(Mutation.SetProp(CLICKABLE, PropertyKind.OnClick, PropertyValue.Integer(CLICKABLE_HANDLER)))
+                add(Mutation.Insert(ROOT, CLICKABLE, 1))
+                text(CLICKABLE_LABEL, "tab", CLICKABLE, 0)
+                add(Mutation.Create(WHOLE, WidgetKind.Row))
+                if (region == WidgetKind.AbsoluteBox) add(Mutation.SetModifier(WHOLE, 0, ProtocolModifier.Offset(0f, 120f)))
+                add(Mutation.SetModifier(WHOLE, if (region == WidgetKind.AbsoluteBox) 1 else 0, ProtocolModifier.Clickable(BUTTON_HANDLER)))
+                add(Mutation.Insert(ROOT, WHOLE, 2))
+                text(WHOLE_FIRST, "row", WHOLE, 0)
+            }
+            val connection = FakeHostConnection(tree)
+            show(connection, clipboards)
+
+            doubleClickOn(CLICKABLE_LABEL)
+            copy()
+            assertNull(clipboards.copied, "double-clicking an on_click container's label in $region selected it")
+            doubleClickOn(WHOLE_FIRST)
+            copy()
+            assertNull(clipboards.copied, "double-clicking a Clickable container's label in $region selected it")
+
+            val clicks = connection.nodeEvents.filterIsInstance<HostEvent.Clicked>().map { it.nodeId to it.handlerId }
+            assertEquals(
+                List(2) { CLICKABLE to CLICKABLE_HANDLER } + List(2) { WHOLE to BUTTON_HANDLER },
+                clicks,
+                "each press of a double-click should arrive once in $region",
+            )
+
+            doubleClickOn(PLAIN)
+            copy()
+            assertEquals("plain", clipboards.copied?.trim(), "plain text beside the containers in $region")
+        }
+    }
 }

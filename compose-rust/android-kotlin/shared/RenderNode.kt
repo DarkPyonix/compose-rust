@@ -173,7 +173,7 @@ internal object RenderNodeObserver {
 }
 
 /** The containers whose `OnClick` makes them buttons. */
-private val CLICKABLE_CONTAINERS = setOf(
+internal val CLICKABLE_CONTAINERS = setOf(
     WidgetKind.Column,
     WidgetKind.Row,
     WidgetKind.Box,
