@@ -67,11 +67,13 @@ pub const MAX_IDENTIFIER_BYTES: usize = 255;
 /// The environment variable that replaces the storage directory on the native platforms.
 pub const STORAGE_DIR_ENV: &str = "COMPOSE_RUST_STORAGE_DIR";
 
-/// The most bytes one answer can carry back from the web Renderer today: its event buffer,
-/// less the answer's own record. A larger value read there is reported as too large rather
-/// than cut short.
+/// The most bytes one answer can carry back from the web Renderer: the largest event buffer
+/// the Host lends it, less the answer's own record. That is more than [`MAX_VALUE_BYTES`],
+/// so every value a write accepted reads back; a larger one, which only another writer to
+/// the same browser storage could have left, is reported as too large rather than cut
+/// short.
 pub const WEB_ANSWER_LIMIT: usize =
-    crate::schema::WEB_EVENT_BUFFER_BYTES as usize - IO_ANSWER_RECORD_BYTES;
+    crate::schema::WEB_EVENT_BUFFER_MAX_BYTES as usize - IO_ANSWER_RECORD_BYTES;
 
 /// The `IoAnswer` record before the bytes it carries.
 const IO_ANSWER_RECORD_BYTES: usize = 32;

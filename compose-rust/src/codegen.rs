@@ -10,9 +10,10 @@ use crate::schema::{
     NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
     NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
     ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
-    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
-    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_HOST_GLOBAL, WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
+    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -5848,7 +5849,23 @@ pub fn generate_web_bridge_kotlin() -> String {
     .unwrap();
     writeln!(
         output,
-        "/** How much room there is to encode one event into. */\nconst val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+        "/**\n \
+         * How much room there is to encode one event into, before any has needed more.\n \
+         *\n \
+         * An event that does not fit is encoded into a larger buffer the Host lends instead.\n \
+         */\n\
+         const val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "/**\n \
+         * The largest event buffer the Host lends.\n \
+         *\n \
+         * The buffer doubles from [EVENT_BUFFER_BYTES] until an event fits and stops here. An\n \
+         * event larger than this is refused, never cut short.\n \
+         */\n\
+         const val EVENT_BUFFER_MAX_BYTES: Int = {WEB_EVENT_BUFFER_MAX_BYTES}\n"
     )
     .unwrap();
 
@@ -5874,6 +5891,21 @@ pub fn generate_web_bridge_kotlin() -> String {
         )
         .unwrap();
     }
+
+    writeln!(
+        output,
+        "/**\n \
+         * Borrows an event buffer of at least `minLength` bytes from the Host, for an event that\n \
+         * does not fit in the one this side has. The Host keeps it until the next call, so\n \
+         * this side goes on encoding into it. Zero means the Host refused.\n \
+         *\n \
+         * Setup, like starting the Host, rather than a boundary operation: it is called only\n \
+         * when an event outgrows the buffer, which steady state never does.\n \
+         */\n\
+         @JsFun(\"(minLength) => globalThis.{WEB_HOST_GLOBAL}.{WEB_LEND_EVENT_BUFFER_SYMBOL}(minLength)\")\n\
+         external fun hostLendEventBuffer(minLength: Int): Int\n"
+    )
+    .unwrap();
 
     output.push_str(
         INSTALL_HOST_KOTLIN
@@ -5987,6 +6019,7 @@ use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
+use crate::web_event_buffer::{LentEventBuffer, region_address};
 use crate::{LaunchBuilder, LoopMode, Runtime};
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
@@ -6111,6 +6144,43 @@ fn lent(address: u32) -> bool {
     for op in BOUNDARY_SCHEMA {
         write!(output, "{}", wasm_shim(op)).unwrap();
     }
+
+    writeln!(
+        output,
+        r#"thread_local! {{
+    /// The larger event buffer, once an event has outgrown the one in [`BLOCK`].
+    ///
+    /// Kept here rather than in the block because its size is only known when an event
+    /// needs it, and kept until the next request because the Renderer goes on encoding into
+    /// it. A browser tab is one thread, so the thread's own copy is the only one.
+    static LENT_EVENT_BUFFER: std::cell::RefCell<LentEventBuffer> =
+        const {{ std::cell::RefCell::new(LentEventBuffer::new()) }};
+}}
+
+/// Lends the Renderer an event buffer of at least `min_len` bytes and answers with its
+/// address, or zero when the request is refused.
+///
+/// The Renderer calls this only when an event does not fit in the buffer it has, doubling
+/// what it asks for each time up to {max} bytes, and keeps encoding into what it gets.
+/// The buffer stays where it is until the next call, so a request it already satisfies
+/// answers with the same address and allocates nothing. Zero is the answer for a request
+/// past the ceiling, for memory that cannot be had, and for an address outside this
+/// module's region, which the Renderer would have to refuse anyway. A refused request
+/// leaves the buffer lent before it in place.
+///
+/// This is setup, like `{start}`, and not a boundary operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn {lend}(min_len: u32) -> u32 {{
+    LENT_EVENT_BUFFER
+        .with_borrow_mut(|buffer| buffer.lend(min_len))
+        .map_or(0, |pointer| region_address(pointer.cast_const()))
+}}
+"#,
+        max = WEB_EVENT_BUFFER_MAX_BYTES,
+        start = WEB_START_SYMBOL,
+        lend = WEB_LEND_EVENT_BUFFER_SYMBOL,
+    )
+    .unwrap();
 
     writeln!(
         output,
