@@ -16,8 +16,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.ui.node.Asset
@@ -25,8 +23,6 @@ import kotlinx.coroutines.delay
 import org.thisisthepy.compose.window.DockIcon
 import org.thisisthepy.compose.window.SystemDarkMonitor
 import org.thisisthepy.compose.window.contentMinimum
-import org.thisisthepy.compose.window.macos.MacosClipboard
-import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
@@ -146,9 +142,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
         onChange = { dark.value = it },
     )
     observeSystemAppearance(appearance::refresh)
-    val clipboard = MacosClipboard()
-    @Suppress("DEPRECATION")
-    val clipboardManager = MacosClipboardManager()
     val window = MacosWindow(
         name = asked?.title?.takeIf { it.isNotEmpty() } ?: "compose-rust",
         width = if (asked != null && asked.width > 0) asked.width else 520,
@@ -181,11 +174,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     }
     val dockIcon = DockIcon(
         lookup = { id -> (host.table.assets.asset(id) as? Asset.Raster)?.bitmap },
-        apply = { picture -> picture.toNSImage()?.let { application.applicationIconImage = it } },
+        apply = { picture -> applyDockIcon(picture) },
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
         ?: !IdleSoakSetting.requested()
+    window.leaveRightClickMenuToCompose()
     @Suppress("DEPRECATION")
     window.setContent {
         CompositionLocalProvider(
@@ -194,8 +188,6 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
             beginMacosWindowDrag(window.window)
         },
-        LocalClipboard provides clipboard,
-            LocalClipboardManager provides clipboardManager,
         ) {
             // A theme the application sends later moves the window's appearance with it.
             // Read as a snapshot rather than in composition, so a new theme does not
@@ -252,10 +244,12 @@ private const val SINGLE_WINDOW_TURN_SECONDS = 1.0 / 60.0
  * Starts the run-loop turns and accessibility updates for the single-window Kotlin/Native
  * macOS path.
  *
- * The fork's window queues input events in its host log and drains them inside `pumpHost`.
- * `NSApplication.run()` never calls `pumpHost` on its own, so a timer on the main run loop
- * (in the common modes, so it also runs during a live resize or menu tracking) takes one turn
- * per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
+ * The window hands its scene the input it hears from its own event handlers, so input needs
+ * no turn. The scene's own work does: the coroutines its dispatcher holds and the frames an
+ * animation or a state change asks for run only in a turn or a draw, and nothing asks AppKit
+ * to draw when such work is waiting. `NSApplication.run()` never calls `pumpHost` on its own,
+ * so a timer on the main run loop (in the common modes, so it also runs during a live resize
+ * or menu tracking) takes one turn per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
  * populated from the first frame for VoiceOver and external `AXUIElement` / `System Events`
  * clients without waiting for an in-process `accessibilityChildren()` call.
  */

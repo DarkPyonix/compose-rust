@@ -47,8 +47,20 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # `Density.fontScale`, and the Windows window's file drop through IDropTarget (fork #157), which
 # the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
 # are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
-# compiles beside the window.
-WINDOW_REVISION="f9760f9755c8a0cee6964ed79a0ac78bca7f1a40"
+# compiles beside the window. It also holds the macOS right click's single system edit menu and
+# the GraalVM window's dropping of Control characters (fork #158), and the Kotlin/Native macOS
+# window's `setApplicationIcon`, live appearance watch and explicit text clipboard (fork #159),
+# all Kotlin in the window modules, so nothing new is compiled or published here. It also holds
+# the IME text staying at the caret after a key moves it (fork #197), the GraalVM Windows
+# window's text size as a multiplier (fork #198), the X11 window's _NET_WM_PID and
+# WM_CLIENT_MACHINE (fork #199) and the macOS window host delivering heard events from its draw
+# path and event handlers (fork #200), so the macOS renderer needs no timer of its own to drain
+# them. Those changes sit in files the window build already compiles. It also holds the code
+# editor style (fork #155), the new accessibility roles (fork #201), the GraalVM macOS window's
+# appearance setter `dxc_native_set_appearance` (fork #203) and the Windows caption buttons with
+# Snap Layouts (fork #202, a header `win32_caption.h` beside `win32_window.c`). The Kotlin/Native
+# Windows window configures its system chrome itself, so its windows keep their caption.
+WINDOW_REVISION="b88429d011d24d45f95cac2125fd662b87a97534"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
