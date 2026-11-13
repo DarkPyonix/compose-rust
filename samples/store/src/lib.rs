@@ -1138,7 +1138,16 @@ pub fn app() {
                         .modifier(Modifier.width_if(measure))
                         .content(body);
                 } else {
-                    Column().modifier(Modifier.width_if(measure)).content(body);
+                    // A column with no width of its own is as wide as its widest child at
+                    // that child's narrowest, which for the first screen is one word of its
+                    // title. So below the measure it fills the window, as the bar does.
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
+                        .content(body);
                 }
             });
     });
@@ -1398,6 +1407,17 @@ mod tests {
                         property: PropertyKind::Asset,
                         value: PropertyValue::Integer(id),
                     } if *id as u32 == asset_id => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        /// What kind of widget a node was created as.
+        fn widget_of(&self, node: u32) -> Option<WidgetKind> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::Create { node_id, widget } if *node_id == node => Some(*widget),
                     _ => None,
                 })
         }
@@ -2088,6 +2108,54 @@ mod tests {
             "the catalogue has no bar along the bottom"
         );
         compose_rust::window::reset_window_size();
+    }
+
+    /// The first screen is as wide as a phone's window, not as wide as one word of its
+    /// title. Every column it sits in has a width of its own or fills its parent, because
+    /// a column with neither is as narrow as its widest child can get, and on a 360 dp
+    /// phone that put the screen in a strip down the middle.
+    #[test]
+    fn fr22_the_first_screen_fills_a_phone_width() {
+        for width_dp in [360.0, 420.0] {
+            let mut screen = Screen::at_the_door();
+            screen.resize(width_dp);
+            let picture = screen
+                .mutations()
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::RegisterAsset {
+                        asset_id, bytes, ..
+                    } if *bytes == catalogue::WELCOME => Some(*asset_id),
+                    _ => None,
+                })
+                .expect("the first screen's picture was never registered");
+            let mut node = screen
+                .node_drawing(picture)
+                .expect("nothing draws the first screen's picture");
+            let mut columns = 0;
+            while let Some(parent) = screen.parent_of(node) {
+                if screen.widget_of(parent) == Some(WidgetKind::Column) {
+                    columns += 1;
+                    let face = screen.modifiers_of(parent);
+                    assert!(
+                        face.iter().any(|modifier| matches!(
+                            modifier,
+                            Modifier::FillMaxWidth | Modifier::Width(_)
+                        )),
+                        "at {width_dp} dp a column round the first screen has no width and \
+                         does not fill its parent, so it shrinks to one word of the title: \
+                         {face:?}"
+                    );
+                }
+                node = parent;
+            }
+            assert!(
+                columns >= 3,
+                "the walk from the picture to the root passed only {columns} columns, so it \
+                 did not reach the column the screen sits in"
+            );
+            compose_rust::window::reset_window_size();
+        }
     }
 
     /// The sizes are equal circles with gaps between them, not the row shared five ways.
