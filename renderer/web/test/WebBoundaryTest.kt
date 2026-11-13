@@ -175,6 +175,7 @@ class WebBoundaryTest {
         )
         try {
             connection.dispatchEvent(report) { }
+            fail("the Host took a protocol error report it has no handler for, so nothing was refused")
         } catch (refused: HostCallException) {
             val said = refused.message ?: ""
             assertTrue(
