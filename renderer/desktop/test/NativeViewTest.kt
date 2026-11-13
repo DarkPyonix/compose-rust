@@ -137,7 +137,7 @@ private class FakeNativeViewWindow : NativeViewWindow {
     fun click(id: Int) = focus(id)
 }
 
-private class Screen(val connection: FakeHostConnection, val host: ComposeRustHost, val window: FakeNativeViewWindow) {
+private class NativeViewScreen(val connection: FakeHostConnection, val host: ComposeRustHost, val window: FakeNativeViewWindow) {
     val errors: List<HostEvent.ProtocolError>
         get() = connection.events.filterIsInstance<HostEvent.ProtocolError>()
     val parents: List<HostEvent.NativeViewParent>
@@ -177,7 +177,7 @@ private fun scrollingPage(vararg more: Mutation): List<Mutation> = buildList {
 private fun scrollTo(node: Int, y: Double) = Mutation.ScrollTo(node, 0, ScrollWire.TO_Y, 0.0, y)
 
 @OptIn(ExperimentalTestApi::class)
-private fun ComposeUiTest.screen(batch: List<Mutation>, window: FakeNativeViewWindow = FakeNativeViewWindow()): Screen {
+private fun ComposeUiTest.screen(batch: List<Mutation>, window: FakeNativeViewWindow = FakeNativeViewWindow()): NativeViewScreen {
     val connection = FakeHostConnection(batch)
     lateinit var host: ComposeRustHost
     setContent {
@@ -190,11 +190,11 @@ private fun ComposeUiTest.screen(batch: List<Mutation>, window: FakeNativeViewWi
         }
     }
     waitForIdle()
-    return Screen(connection, host, window)
+    return NativeViewScreen(connection, host, window)
 }
 
 @OptIn(ExperimentalTestApi::class)
-private fun ComposeUiTest.send(screen: Screen, vararg mutations: Mutation) {
+private fun ComposeUiTest.send(screen: NativeViewScreen, vararg mutations: Mutation) {
     runOnIdle {
         screen.connection.scheduleFrame(mutations.toList())
         screen.host.renderFrame(0L)
