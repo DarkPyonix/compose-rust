@@ -1293,6 +1293,8 @@ pub struct ButtonScope {
     accessible_name: Option<String>,
     text_align: Option<TextAlign>,
     font_size: Option<f32>,
+    font_weight: Option<u16>,
+    type_role: Option<TypeRole>,
     on_click: Option<Box<dyn FnMut()>>,
     focus_handle: Option<super::FocusHandle>,
     done: bool,
@@ -1317,6 +1319,8 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         accessible_name: None,
         text_align: None,
         font_size: None,
+        font_weight: None,
+        type_role: None,
         on_click: None,
         focus_handle: None,
         done: false,
@@ -1337,6 +1341,21 @@ impl ButtonScope {
     /// design system's size for its variant.
     pub fn font_size(mut self, sp: f32) -> Self {
         self.font_size = Some(sp);
+        self
+    }
+
+    /// The label's weight (e.g. 400, 500, 600, 700). Overrides the type role's weight. A
+    /// button that never calls this sends nothing.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// The rung of the type ladder the label is set in: its size, weight and line height.
+    /// `font_size` and `font_weight` win over the role's values. A button that never calls
+    /// this sends nothing and keeps the design system's label style for its variant.
+    pub fn type_role(mut self, role: TypeRole) -> Self {
+        self.type_role = Some(role);
         self
     }
 
@@ -1407,6 +1426,7 @@ impl ButtonScope {
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
+        let (font_weight, type_role) = (self.font_weight, self.type_role);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
@@ -1427,6 +1447,12 @@ impl ButtonScope {
                 }
                 if font_size.is_some() {
                     attrs.push(("font_size", dp_or_zero(font_size)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(i64::from(font_weight))));
+                }
+                if type_role.is_some() {
+                    attrs.push(("type_role", role_or_zero(type_role)));
                 }
             },
             listeners,
