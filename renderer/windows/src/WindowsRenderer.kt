@@ -38,6 +38,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.
+    // Files let go over a window go to the node under them. Set before the Host starts, because
+    // its first batch may already contain a drop target.
+    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
+        modifier.nativeFileDrop(node, dispatcher)
+    }
     val host = ComposeRustHost(connection())
     host.start()
 

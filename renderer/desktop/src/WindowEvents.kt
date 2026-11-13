@@ -10,6 +10,8 @@ import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.Density
+import org.thisisthepy.compose.window.TextScale
 import org.thisisthepy.compose.window.WindowEvent
 
 // What a window of our own heard, and how it reaches a scene.
@@ -212,3 +214,36 @@ internal fun NativeTextInput.receive(event: WindowEvent, macos: Boolean = false)
     }
 }
 
+
+/**
+ * The operating system's text size one window draws at, which its scene gets as
+ * `Density.fontScale`.
+ *
+ * Starts from what the window module read when the window opened and follows the
+ * [WindowEvent.TEXT_SCALE_CHANGED] events it queues after that, so a reader who moves the
+ * system's text size slider sees the text grow without restarting. The display's scale is
+ * not part of it: [density] puts the two together where the window measures its buffer.
+ * A platform with no such setting (macOS) reports 1 and never sends the event.
+ */
+internal class WindowTextScale(initial: Float) {
+
+    /** The multiplier, 1 when the reader has not changed the system's setting. */
+    var value: Float = TextScale.clamp(initial)
+        private set
+
+    /**
+     * Takes the new text size from [event] when it is a text size change. Answers whether
+     * the size changed, which is a frame to draw: nothing in the scene has invalidated, but
+     * all of its text is about to be laid out again.
+     */
+    fun receive(event: WindowEvent): Boolean {
+        if (!event.isTextScaleChanged) return false
+        val next = TextScale.clamp(event.textScale)
+        if (next == value) return false
+        value = next
+        return true
+    }
+
+    /** The Density a scene on a display of [scale] pixels per point is drawn at. */
+    fun density(scale: Float): Density = Density(scale, value)
+}
