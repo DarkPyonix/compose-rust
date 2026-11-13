@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.0.9
+
+### `user-select` is honoured
+
+A node with `UserSelect::None` and everything under it now takes no part in text selection, so double-clicking a tab or a button label inside a selection region selects nothing, while its controls still click. `UserSelect::Text` opens a selection region, and `UserSelect::All` selects the whole node with one press and copies it with the copy shortcut. Text inside an HTML region is selectable by default, as in a browser: a page that does not want that sends `user-select: none` ([#724](https://github.com/DarkPyonix/compose-rust/pull/724)).
 
 ### Radio button colours and size, and radio groups
 
