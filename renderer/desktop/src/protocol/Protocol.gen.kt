@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -1454,6 +1454,63 @@ sealed interface Mutation {
         val key: String,
         val data: BatchBytes,
     ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to go to an offset in physical pixels. [flags] is
+     * the wire word ([ScrollWire.TO_ANIMATE], [ScrollWire.TO_X], [ScrollWire.TO_Y]): an
+     * axis whose bit is off is not touched. [item] is the lazy list item the offset is
+     * measured from and 0 elsewhere. The fields are as sent; the node table checks them.
+     */
+    data class ScrollTo(
+        val nodeId: Int,
+        val item: Int,
+        val flags: Int,
+        val xPx: Double,
+        val yPx: Double,
+    ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to bring a rectangle into view. [targetKind] is one
+     * of the `ScrollWire.TARGET_*` values and says what the rectangle is measured from;
+     * [alignX] and [alignY] are `ScrollWire.ALIGN_*` values. The fields are as sent; the
+     * node table checks them.
+     */
+    data class ScrollIntoView(
+        val nodeId: Int,
+        val target: Int,
+        val targetKind: Int,
+        val alignX: Int,
+        val alignY: Int,
+        val flags: Int,
+        val rectXPx: Double,
+        val rectYPx: Double,
+        val rectWidthPx: Double,
+        val rectHeightPx: Double,
+    ) : Mutation
+}
+
+/** The words of the scroll records: flag bits, target kinds and alignments. */
+object ScrollWire {
+    const val TO_ANIMATE = 1
+    const val TO_X = 2
+    const val TO_Y = 4
+    const val TO_KNOWN = TO_ANIMATE or TO_X or TO_Y
+
+    const val TARGET_CONTENT = 0
+    const val TARGET_NODE = 1
+    const val TARGET_ITEM = 2
+
+    const val ALIGN_KEEP = 0
+    const val ALIGN_START = 1
+    const val ALIGN_CENTER = 2
+    const val ALIGN_END = 3
+    const val ALIGN_NEAREST = 4
+
+    const val INTO_VIEW_ANIMATE = 1
+
+    const val CHANGED_SETTLED = 1
+    const val CHANGED_CAN_SCROLL_BACKWARD = 2
+    const val CHANGED_CAN_SCROLL_FORWARD = 4
 }
 
 sealed interface HostEvent {
@@ -1520,6 +1577,7 @@ sealed interface HostEvent {
     }
     data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
+    data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
 }
@@ -1528,7 +1586,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3929943652443959327L
+    const val SCHEMA_HASH: Long = 8493683140838181048L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1565,6 +1623,8 @@ object Protocol {
     private const val TAG_STORAGE_CALL = 32
     private const val TAG_FILE_CALL = 33
     private const val TAG_RELEASE_FILE_HANDLE = 34
+    private const val TAG_SCROLL_TO = 35
+    private const val TAG_SCROLL_INTO_VIEW = 36
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1784,6 +1844,31 @@ object Protocol {
                     TAG_RELEASE_FILE_HANDLE -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SCROLL_TO -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.ScrollTo(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            item = readU32(batch, base, available, offset + 8).toInt(),
+                            flags = readU32(batch, base, available, offset + 12).toInt(),
+                            xPx = Double.fromBits(readU64(batch, base, available, offset + 16)),
+                            yPx = Double.fromBits(readU64(batch, base, available, offset + 24)),
+                        )
+                    }
+                    TAG_SCROLL_INTO_VIEW -> {
+                        requireRecordLength(length, 52, offset)
+                        Mutation.ScrollIntoView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            target = readU32(batch, base, available, offset + 8).toInt(),
+                            targetKind = readU16(batch, base, available, offset + 12),
+                            alignX = readU16(batch, base, available, offset + 14),
+                            alignY = readU16(batch, base, available, offset + 16),
+                            flags = readU16(batch, base, available, offset + 18),
+                            rectXPx = Double.fromBits(readU64(batch, base, available, offset + 20)),
+                            rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
+                            rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
+                            rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -2074,6 +2159,7 @@ object Protocol {
                 is HostEvent.IoAnswer -> event.data
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.ScrollChanged -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
             }
@@ -2125,6 +2211,7 @@ object Protocol {
                 is HostEvent.IoAnswer -> 32
                 is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
+                is HostEvent.ScrollChanged -> 72
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
             }
@@ -2180,6 +2267,7 @@ object Protocol {
                 is HostEvent.IoAnswer -> 57
                 is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
+                is HostEvent.ScrollChanged -> 60
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
             }
@@ -2394,6 +2482,16 @@ object Protocol {
                     out.putInt(text!!.size - namesLength)
                 }
                 is HostEvent.StorageLocation -> writeStringReference(out, recordLength, text!!)
+                is HostEvent.ScrollChanged -> {
+                    out.putInt(event.item)
+                    out.putInt(event.flags)
+                    out.putDouble(event.xPx)
+                    out.putDouble(event.yPx)
+                    out.putDouble(event.maxXPx)
+                    out.putDouble(event.maxYPx)
+                    out.putDouble(event.viewportWidthPx)
+                    out.putDouble(event.viewportHeightPx)
+                }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
             }
@@ -2609,6 +2707,7 @@ object Protocol {
         183 -> PropertyKind.OnCodeMetrics
         184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
+        186 -> PropertyKind.OnScrollChanged
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }

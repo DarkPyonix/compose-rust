@@ -602,6 +602,63 @@ sealed interface Mutation {
         val key: String,
         val data: BatchBytes,
     ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to go to an offset in physical pixels. [flags] is
+     * the wire word ([ScrollWire.TO_ANIMATE], [ScrollWire.TO_X], [ScrollWire.TO_Y]): an
+     * axis whose bit is off is not touched. [item] is the lazy list item the offset is
+     * measured from and 0 elsewhere. The fields are as sent; the node table checks them.
+     */
+    data class ScrollTo(
+        val nodeId: Int,
+        val item: Int,
+        val flags: Int,
+        val xPx: Double,
+        val yPx: Double,
+    ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to bring a rectangle into view. [targetKind] is one
+     * of the `ScrollWire.TARGET_*` values and says what the rectangle is measured from;
+     * [alignX] and [alignY] are `ScrollWire.ALIGN_*` values. The fields are as sent; the
+     * node table checks them.
+     */
+    data class ScrollIntoView(
+        val nodeId: Int,
+        val target: Int,
+        val targetKind: Int,
+        val alignX: Int,
+        val alignY: Int,
+        val flags: Int,
+        val rectXPx: Double,
+        val rectYPx: Double,
+        val rectWidthPx: Double,
+        val rectHeightPx: Double,
+    ) : Mutation
+}
+
+/** The words of the scroll records: flag bits, target kinds and alignments. */
+object ScrollWire {
+    const val TO_ANIMATE = 1
+    const val TO_X = 2
+    const val TO_Y = 4
+    const val TO_KNOWN = TO_ANIMATE or TO_X or TO_Y
+
+    const val TARGET_CONTENT = 0
+    const val TARGET_NODE = 1
+    const val TARGET_ITEM = 2
+
+    const val ALIGN_KEEP = 0
+    const val ALIGN_START = 1
+    const val ALIGN_CENTER = 2
+    const val ALIGN_END = 3
+    const val ALIGN_NEAREST = 4
+
+    const val INTO_VIEW_ANIMATE = 1
+
+    const val CHANGED_SETTLED = 1
+    const val CHANGED_CAN_SCROLL_BACKWARD = 2
+    const val CHANGED_CAN_SCROLL_FORWARD = 4
 }
 
 "#,
@@ -702,6 +759,10 @@ sealed interface Mutation {
             EventPayloadType::FileHandles => output.push_str(
                 ", val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String",
             ),
+            // Every length is in physical pixels. The flags are the `ScrollWire.CHANGED_*` bits.
+            EventPayloadType::ScrollChanged => output.push_str(
+                ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -776,6 +837,8 @@ object Protocol {
     private const val TAG_STORAGE_CALL = 32
     private const val TAG_FILE_CALL = 33
     private const val TAG_RELEASE_FILE_HANDLE = 34
+    private const val TAG_SCROLL_TO = 35
+    private const val TAG_SCROLL_INTO_VIEW = 36
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -995,6 +1058,31 @@ object Protocol {
                     TAG_RELEASE_FILE_HANDLE -> {
                         requireRecordLength(length, 8, offset)
                         Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SCROLL_TO -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.ScrollTo(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            item = readU32(batch, base, available, offset + 8).toInt(),
+                            flags = readU32(batch, base, available, offset + 12).toInt(),
+                            xPx = Double.fromBits(readU64(batch, base, available, offset + 16)),
+                            yPx = Double.fromBits(readU64(batch, base, available, offset + 24)),
+                        )
+                    }
+                    TAG_SCROLL_INTO_VIEW -> {
+                        requireRecordLength(length, 52, offset)
+                        Mutation.ScrollIntoView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            target = readU32(batch, base, available, offset + 8).toInt(),
+                            targetKind = readU16(batch, base, available, offset + 12),
+                            alignX = readU16(batch, base, available, offset + 14),
+                            alignY = readU16(batch, base, available, offset + 16),
+                            flags = readU16(batch, base, available, offset + 18),
+                            rectXPx = Double.fromBits(readU64(batch, base, available, offset + 20)),
+                            rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
+                            rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
+                            rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
                     }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
@@ -1299,7 +1387,7 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None => {
+            EventPayloadType::None | EventPayloadType::ScrollChanged => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1397,6 +1485,8 @@ object Protocol {
             EventPayloadType::IoAnswer => 32,
             // Five words, then the names' and the kinds' references.
             EventPayloadType::FileHandles => 52,
+            // The item and the flags, then six doubles.
+            EventPayloadType::ScrollChanged => 72,
         };
         writeln!(
             output,
@@ -1714,6 +1804,18 @@ object Protocol {
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::ScrollChanged => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.item)\n");
+                output.push_str("                    out.putInt(event.flags)\n");
+                output.push_str("                    out.putDouble(event.xPx)\n");
+                output.push_str("                    out.putDouble(event.yPx)\n");
+                output.push_str("                    out.putDouble(event.maxXPx)\n");
+                output.push_str("                    out.putDouble(event.maxYPx)\n");
+                output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
+                output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::FileHandles => {
@@ -3460,6 +3562,24 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             data: &[],
         },
         Mutation::ReleaseFileHandle { handle: 3 },
+        // The two scroll requests: an animated jump along y measured from item 3 of a lazy
+        // list, and a descendant node brought to the nearest edge.
+        Mutation::ScrollTo {
+            node_id: 10,
+            item: 3,
+            flags: crate::schema::scroll_to_flags::ANIMATE | crate::schema::scroll_to_flags::Y,
+            x_px: 0.0,
+            y_px: 120.5,
+        },
+        Mutation::ScrollIntoView {
+            node_id: 10,
+            target: 12,
+            target_kind: crate::schema::scroll_target_kind::NODE,
+            align_x: crate::schema::ScrollAlign::Keep as u16,
+            align_y: crate::schema::ScrollAlign::Nearest as u16,
+            flags: crate::schema::scroll_into_view_flags::ANIMATE,
+            rect: crate::schema::Rect::new(0.0, 8.0, 40.0, 24.5),
+        },
         // A wrapping row with every one of its layout properties, appended after every
         // older record so none of them moves.
         Mutation::Create {
@@ -3864,6 +3984,22 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             ),
         },
         HostEvent {
+            node_id: 10,
+            handler_id: 21,
+            payload: EventPayload::ScrollChanged {
+                item: 3,
+                settled: true,
+                can_scroll_backward: true,
+                can_scroll_forward: false,
+                x_px: 0.0,
+                y_px: 700.5,
+                max_x_px: 0.0,
+                max_y_px: -1.0,
+                viewport_width_px: 320.0,
+                viewport_height_px: 300.0,
+            },
+        },
+        HostEvent {
             node_id: 12,
             handler_id: 28,
             payload: EventPayload::CodeMetrics {
@@ -3894,7 +4030,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 118,
+    "recordCount": 120,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -3916,7 +4052,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-one independently decodable event records concatenated in schema order",
+    "description": "Forty-two independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3957,8 +4093,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
       {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
-      {{ "type": "CodeMetrics", "offset": 1319, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1343, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
+      {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
     ]
   }}
 }}

@@ -208,6 +208,75 @@ impl Batch {
         self.write(Mutation::ReleaseFileHandle { handle });
     }
 
+    /// Writes one request to scroll the container `node_id` to an offset in physical
+    /// pixels. An axis left `None` is not touched; a request that names neither axis is
+    /// refused when the batch is finished.
+    ///
+    /// A request, not a command: the Renderer owns the position. It keeps the offset
+    /// inside what the content allows, ignores the request while the user is dragging or
+    /// flinging, and says where the container ended up in `ScrollChanged`.
+    pub fn scroll_to(&mut self, node_id: u32, request: crate::schema::ScrollTo) {
+        use crate::schema::scroll_to_flags as flag;
+        let mut flags = 0;
+        if request.animate {
+            flags |= flag::ANIMATE;
+        }
+        if request.x_px.is_some() {
+            flags |= flag::X;
+        }
+        if request.y_px.is_some() {
+            flags |= flag::Y;
+        }
+        let x_px = request.x_px.unwrap_or(0.0);
+        let y_px = request.y_px.unwrap_or(0.0);
+        if flags & (flag::X | flag::Y) == 0 || !x_px.is_finite() || !y_px.is_finite() {
+            // The Renderer would refuse it with a protocol error after the batch had
+            // crossed. Refusing it here names the mistake where it was made.
+            self.fail(ProtocolError::InvalidValueKind(0));
+            return;
+        }
+        self.write(Mutation::ScrollTo {
+            node_id,
+            item: request.item,
+            flags,
+            x_px,
+            y_px,
+        });
+    }
+
+    /// Writes one request to bring a rectangle into view in the container `node_id`. One
+    /// request moves one container: to show something inside nested containers, write one
+    /// for each of them, innermost first.
+    pub fn scroll_into_view(&mut self, node_id: u32, request: crate::schema::ScrollIntoView) {
+        use crate::schema::{ScrollTarget, scroll_into_view_flags, scroll_target_kind};
+        let (target_kind, target, rect) = match request.target {
+            ScrollTarget::Content(rect) => (scroll_target_kind::CONTENT, 0, rect),
+            ScrollTarget::Node(node, rect) => (scroll_target_kind::NODE, node, rect),
+            ScrollTarget::Item(item, rect) => (scroll_target_kind::ITEM, item, rect),
+        };
+        let numbers = [rect.x_px, rect.y_px, rect.width_px, rect.height_px];
+        if numbers.iter().any(|value| !value.is_finite())
+            || rect.width_px < 0.0
+            || rect.height_px < 0.0
+        {
+            self.fail(ProtocolError::InvalidValueKind(0));
+            return;
+        }
+        self.write(Mutation::ScrollIntoView {
+            node_id,
+            target,
+            target_kind,
+            align_x: request.align_x as u16,
+            align_y: request.align_y as u16,
+            flags: if request.animate {
+                scroll_into_view_flags::ANIMATE
+            } else {
+                0
+            },
+            rect,
+        });
+    }
+
     /// Writes one file dialog request. Like a notification it names no node: the dialog is
     /// not in the tree, and `window` only says which window it is modal for.
     pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {
