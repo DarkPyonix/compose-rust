@@ -3,11 +3,12 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange, CodeEditorColors,
-    CodePointer, CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations,
-    FOLD_LEN, FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD,
-    GutterDecoration, GutterDecorations, Position, PositionAnswer, RecordFieldType,
-    SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, position_query,
+    CODE_EDIT_LEN, CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange,
+    CodeEditorColors, CodePointer, CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD,
+    Decoration, Decorations, EditGroupResult, FOLD_LEN, FOLD_RECORD, Fold, Folds,
+    GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position,
+    PositionAnswer, RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans,
+    byte_offset, decode_edit_group, encode_edit_group, position_query,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -15,8 +16,8 @@ use compose_rust::protocol::{
 };
 use compose_rust::schema::EVENT_SCHEMA;
 use compose_rust::{
-    ColorRole, DecorationKind, EventPayload, GutterDecorationKind, HoverPhase, Paint, PropertyKind,
-    RevealAlign, Severity, WidgetKind,
+    ColorRole, DecorationKind, EditGroupStatus, EventPayload, GutterDecorationKind, HoverPhase,
+    Paint, PropertyKind, RevealAlign, Severity, WidgetKind,
 };
 
 /// One decoded record with its borrowed parts made owned, so the batch can be dropped.
@@ -1421,4 +1422,218 @@ fn fr38_line_and_range_backgrounds_round_trip_on_the_wire() {
             Value::Bytes(list.as_bytes().to_vec())
         )]
     );
+}
+
+/// The grouped edit's command and result keep the numbers the wire table gives them.
+#[test]
+fn fr38_edit_group_keeps_its_assigned_tags() {
+    assert_eq!(PropertyKind::OnEditGroupResult as u16, 194);
+    let event = EVENT_SCHEMA
+        .iter()
+        .find(|event| event.name == "CodeEditGroupResult")
+        .expect("CodeEditGroupResult is in the event schema");
+    assert_eq!(event.tag, 51);
+    assert_eq!(EditGroupStatus::Applied as u16, 1);
+    assert_eq!(EditGroupStatus::Rejected as u16, 2);
+    assert_eq!(EditGroupStatus::Invalid as u16, 3);
+    assert_eq!(EditGroupStatus::TooOld as u16, 4);
+    assert_eq!(CODE_EDIT_LEN, 24);
+}
+
+/// A group carries how many edits it has and every text exactly, a surrogate pair among
+/// them, and the result carries every word; both are in the protocol vectors.
+#[test]
+fn fr38_edit_group_round_trips_on_the_wire() {
+    let edits = [
+        (CodeRange::of(1, 17, 1, 19), "🎉"),
+        (CodeRange::of(0, 0, 0, 2), "pub fn"),
+        (CodeRange::of(2, 0, 2, 0), ""),
+        (CodeRange::of(3, 4, 5, 0), "한\r\n😀"),
+    ];
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.edit_group(12, 99, 4, &edits);
+    let bytes = batch.finish().unwrap().to_vec();
+    // The envelope is twelve bytes, and the 24-byte record follows it.
+    assert_eq!(&bytes[12..16], &[28, 0, 24, 0]);
+    let decoded = decode_batch(&bytes).unwrap();
+    let [
+        Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 99,
+            base_version: 4,
+            edits: blob,
+        },
+    ] = decoded.as_slice()
+    else {
+        panic!("expected one grouped edit, got {decoded:?}");
+    };
+    // The count, four records, then the texts, whose offsets count from where they start.
+    assert_eq!(u32::from_le_bytes(blob[0..4].try_into().unwrap()), 4);
+    let texts = 4 + 4 * CODE_EDIT_LEN;
+    assert_eq!(&blob[texts..texts + "🎉".len()], "🎉".as_bytes());
+    assert_eq!(u32::from_le_bytes(blob[20..24].try_into().unwrap()), 0);
+    assert_eq!(
+        u32::from_le_bytes(blob[44..48].try_into().unwrap()),
+        "🎉".len() as u32
+    );
+    assert_eq!(decode_edit_group(blob).unwrap(), edits.to_vec());
+
+    for status in [
+        EditGroupStatus::Applied,
+        EditGroupStatus::Rejected,
+        EditGroupStatus::Invalid,
+        EditGroupStatus::TooOld,
+    ] {
+        let (length, decoded) = round_trip(EventPayload::CodeEditGroupResult {
+            request_id: 99,
+            status,
+            base_version: 4,
+            current_version: 8,
+            index: 3,
+        });
+        assert_eq!(length, 36);
+        assert_eq!(
+            EditGroupResult::from_payload(&decoded.payload),
+            Some(EditGroupResult {
+                request_id: 99,
+                status,
+                base_version: 4,
+                current_version: 8,
+                index: 3,
+            })
+        );
+    }
+    // A status this side does not know is a protocol error, not a guess.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 12,
+            handler_id: 32,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 3,
+                index: 2,
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[51, 0, 36, 0]);
+    let mut unknown = wire.clone();
+    unknown[20] = 5;
+    assert_eq!(
+        decode_event(&unknown),
+        Err(ProtocolError::InvalidValueKind(5))
+    );
+    assert_eq!(
+        decode_event(&wire[..32]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // Both are in the vectors: the group after the single edit, and its result last.
+    let vector = compose_rust::codegen::generate_mutation_vector().unwrap();
+    let mutations = decode_batch(&vector).unwrap();
+    let groups: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits,
+            } => Some((
+                *node_id,
+                *request_id,
+                *base_version,
+                decode_edit_group(edits),
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        groups,
+        vec![(
+            12,
+            8,
+            1,
+            Some(vec![
+                (CodeRange::of(1, 17, 1, 19), "🎉"),
+                (CodeRange::of(0, 0, 0, 2), "pub fn"),
+            ])
+        )]
+    );
+    let events = compose_rust::codegen::generate_event_vector().unwrap();
+    assert_eq!(events.len(), 1679);
+    assert_eq!(&events[1623..1659], wire.as_slice());
+}
+
+/// An empty group is no request at all, so nothing is written for it.
+#[test]
+fn fr38_an_empty_edit_group_writes_nothing() {
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.edit_group(12, 5, 1, &[]);
+    let empty = batch.finish().unwrap().to_vec();
+    assert!(decode_batch(&empty).unwrap().is_empty());
+    let mut encoder = BatchEncoder::default();
+    assert_eq!(empty, encoder.finish().unwrap());
+
+    // The same call with one edit writes exactly one record, and a warm batch reuses the
+    // buffer it encodes the group into.
+    batch.begin();
+    batch.edit_group(12, 5, 1, &[(CodeRange::of(0, 0, 0, 1), "x")]);
+    batch.edit_group(12, 6, 1, &[]);
+    let one = batch.finish().unwrap().to_vec();
+    assert_eq!(decode_batch(&one).unwrap().len(), 1);
+}
+
+/// A group record whose length is wrong, or whose edits cannot be read, is refused by the
+/// decoder; a group that only makes no sense (edits that overlap, a range past the end) is
+/// a well formed record, which the Renderer answers with `Invalid` and no protocol error.
+#[test]
+fn fr38_a_broken_group_record_is_a_protocol_error_on_the_wire() {
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.edit_group(
+        12,
+        5,
+        1,
+        &[
+            (CodeRange::of(0, 0, 0, 4), "a"),
+            (CodeRange::of(0, 2, 0, 6), "b"),
+            (CodeRange::of(90, 0, 90, 1), "c"),
+        ],
+    );
+    let overlapping = batch.finish().unwrap().to_vec();
+    assert_eq!(decode_batch(&overlapping).unwrap().len(), 1);
+
+    // The same record four bytes short: the length in its head says 20.
+    let mut short = overlapping.clone();
+    short[14] = 20;
+    assert_eq!(
+        decode_batch(&short),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // Blobs that are not a group: too short for the count, a count the blob cannot hold, a
+    // text past the end, text that is not UTF-8, and bytes after the last text.
+    let mut good = Vec::new();
+    encode_edit_group(&[(CodeRange::of(0, 0, 0, 0), "ab")], &mut good).unwrap();
+    assert!(decode_edit_group(&good).is_some());
+    assert_eq!(decode_edit_group(&[1, 0]), None);
+    let mut too_many = good.clone();
+    too_many[0] = 2;
+    assert_eq!(decode_edit_group(&too_many), None);
+    let mut past_end = good.clone();
+    past_end[24] = 3;
+    assert_eq!(decode_edit_group(&past_end), None);
+    let mut not_text = good.clone();
+    not_text[28] = 0xff;
+    assert_eq!(decode_edit_group(&not_text), None);
+    let mut trailing = good.clone();
+    trailing.push(b'!');
+    assert_eq!(decode_edit_group(&trailing), None);
 }
