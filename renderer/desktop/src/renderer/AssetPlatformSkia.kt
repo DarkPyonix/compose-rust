@@ -1,6 +1,11 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RadialGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -17,6 +22,7 @@ import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
 import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.Matrix33
 import org.jetbrains.skia.svg.SVGDOM
 
 /**
@@ -161,4 +167,26 @@ private fun readTracking(identity: String, weight: Int, italic: Boolean): FontTr
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     document.setContainerSize(size.width, size.height)
     drawIntoCanvas { canvas -> document.render(canvas.nativeCanvas) }
+}
+
+/**
+ * A radial gradient [radiusX] across and [radiusY] tall around [center].
+ *
+ * Compose's radial gradient is a circle, so this is the circle of [radiusX] with a local
+ * matrix that squashes it vertically about its centre. The stops then fall on ellipses, as
+ * CSS `radial-gradient(ellipse ...)` places them.
+ */
+internal fun ellipticalRadialShader(
+    center: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    colors: List<Color>,
+    colorStops: List<Float>,
+    tileMode: TileMode,
+): Shader {
+    val circle = RadialGradientShader(center, radiusX, colors, colorStops, tileMode)
+    val squash = radiusY / radiusX
+    return circle.makeWithLocalMatrix(
+        Matrix33(1f, 0f, 0f, 0f, squash, center.y * (1f - squash), 0f, 0f, 1f),
+    )
 }

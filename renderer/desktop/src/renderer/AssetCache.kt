@@ -99,6 +99,7 @@ class AssetCache {
                 TableError.UNSUPPORTED_ASSET,
                 "asset $assetId has kind tag $kindTag, which this renderer cannot read",
             )
+        decodeWarning = null
         val asset = try {
             decode(kind, bytes)
         } catch (error: Throwable) {
@@ -119,8 +120,16 @@ class AssetCache {
             return TableError(TableError.UNREADABLE_ASSET, "asset $assetId $reason")
         }
         entries[assetId] = asset
-        return null
+        // Kept and drawn, but with a field the renderer could not honour, which the Host
+        // is told about.
+        val warning = decodeWarning ?: return null
+        decodeWarning = null
+        return TableError(TableError.UNREADABLE_ASSET, "asset $assetId: $warning")
     }
+
+    // What the decoder could not honour in an asset it still read, for the registration
+    // that is under way. A brush whose ellipse cannot be drawn is drawn as a circle.
+    private var decodeWarning: String? = null
 
     /**
      * Forgets every registration, for a Renderer that is throwing its tree away and asking
@@ -155,7 +164,8 @@ class AssetCache {
         // An image brush names a picture registered in its own right, so the lookup is
         // into what this cache is already holding. A brush registered before the picture
         // it names is unreadable and says so, rather than drawing nothing quietly.
-        AssetKind.Brush -> decodeBrushAsset(bytes, entries::get)?.let(Asset::Brush)
+        AssetKind.Brush -> decodeBrushAsset(bytes, { why -> decodeWarning = why }, entries::get)
+            ?.let(Asset::Brush)
 
         // A vector icon registers a meaning, so its bytes are the role tag and nothing
         // else. There is no artwork on the wire and no icon name to look up at run time.
