@@ -37,7 +37,11 @@ fractional=fr82_fractional_scale_matches_offscreen_compose
 # Writes Xft.dpi into the root window's resources. -nocpp: the line needs no preprocessor.
 set_dpi() {
     echo "Xft.dpi: $1" | xrdb -nocpp -merge
-    echo "xrdb: $(xrdb -query | grep -i 'xft.dpi' || echo 'no Xft.dpi')"
+    local now
+    now="$(xrdb -query | grep -i 'xft.dpi' || true)"
+    echo "xrdb: ${now:-no Xft.dpi}"
+    # A setting that did not stay would leave every run at scale 1 and pass for the wrong reason.
+    [[ -n "$now" ]] || { echo "FAIL Xft.dpi $1 did not stay in the root window's resources (is Xvfb running with -noreset?)"; exit 1; }
 }
 
 # How many times the run has said it is waiting for the scale to change.

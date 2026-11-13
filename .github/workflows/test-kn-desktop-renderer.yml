@@ -344,7 +344,9 @@ jobs:
         if: matrix.module == 'linux'
         run: |
           set -o pipefail
-          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/hidpi-linux-check.sh "$RUNNER_TEMP/hidpi" \
+          # -noreset: Xvfb otherwise resets when its last client leaves, which drops the Xft.dpi
+          # xrdb has just written into the root window's resources.
+          xvfb-run -a -s '-screen 0 1280x1024x24 -noreset' ./.github/scripts/hidpi-linux-check.sh "$RUNNER_TEMP/hidpi" \
             compose-rust/tests/fixtures/hidpi/target/release/hidpi | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the HiDPI logs
