@@ -676,6 +676,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,

@@ -318,6 +318,7 @@ pub struct Modifier {
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
     corner_curve: Option<f32>,
+    overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     border_each: Option<[(f32, Paint); 4]>,
@@ -364,6 +365,7 @@ impl Modifier {
             corner_radius: None,
             corner_radii: None,
             corner_curve: None,
+            overlay: None,
             border_width: None,
             border_color: None,
             border_each: None,
@@ -468,6 +470,22 @@ impl Modifier {
     /// The same, when there may be no background.
     pub const fn background_if(mut self, paint: Option<Paint>) -> Self {
         self.background = paint;
+        self
+    }
+
+    /// A paint laid over the node: over its content and its background, in the box its
+    /// background fills and cut to the same corners (`corner_radius`, `corner_radii`,
+    /// `shape_role`, curved as `corner_curve` says). It takes no room, so a node sized by
+    /// its content keeps its size, and nothing has to restate the node's size or radius.
+    /// A press tint or a selection wash is one of these; give it a colour with alpha.
+    pub const fn overlay(mut self, paint: Paint) -> Self {
+        self.overlay = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no overlay.
+    pub const fn overlay_if(mut self, paint: Option<Paint>) -> Self {
+        self.overlay = paint;
         self
     }
 
@@ -898,6 +916,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "corner_curve", float(modifier.corner_curve));
+    push(false, "overlay", paint(modifier.overlay));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,

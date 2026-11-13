@@ -4104,6 +4104,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4592,7 +4598,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 129,
+    "recordCount": 130,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
