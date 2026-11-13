@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.ime
@@ -743,8 +744,12 @@ private fun ComposeRustTree(
             overlayFocusStack.handleBack()
         }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
+            // Filling, so what is measured is the space the window gives and not what the
+            // content happens to need: a window whose root is one line of text is still the
+            // whole window, and every caller gets that without having to remember it.
             Box(
                 modifier
+                    .fillMaxSize()
                     .then(measured)
                     .then(dragStrip)
                     .onKeyEvent { event ->

@@ -412,6 +412,33 @@ class WindowSizeTest {
     }
 
     @Test
+    fun fr20_window_size_is_the_window_not_the_content() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("one line")),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                // The window, and a caller that passes no modifier, as a platform window does.
+                androidx.compose.foundation.layout.Box(Modifier.requiredSize(900.dp, 1000.dp)) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+        }
+        waitForIdle()
+        val event = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().last()
+        assertEquals(900f, event.widthDp)
+        assertEquals(1000f, event.heightDp)
+        assertEquals(WindowSizeClass.Expanded, event.sizeClass)
+        assertEquals(WindowHeightClass.Expanded, event.heightClass)
+    }
+
+    @Test
     fun fr20_root_content_reports_its_measured_size_to_the_host() = runComposeUiTest {
         val connection = FakeHostConnection(
             listOf(
