@@ -1814,7 +1814,7 @@ class CodeEditorModel(
         for ((index, stop) in parsed.stops.withIndex()) {
             val (from, to) = offsets[index]
             places.getOrPut(stop.number) { ArrayList() } += SnippetPlace(at(from), at(to))
-            stop.choices?.let { choices.putIfAbsent(stop.number, it) }
+            stop.choices?.let { if (stop.number !in choices) choices[stop.number] = it }
         }
         val numbers = places.keys.filter { it != 0 }.sorted()
         val final = places[0]?.first() ?: SnippetPlace(change.newEnd, change.newEnd)

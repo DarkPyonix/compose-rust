@@ -1009,6 +1009,8 @@ impl TextScope {
         self
     }
 
+    /// Extra space between letters, in sp. 0 draws no extra spacing; NaN, like never
+    /// calling this, takes the type role's spacing.
     pub fn letter_spacing(mut self, sp: f32) -> Self {
         self.letter_spacing = Some(sp);
         self
@@ -1134,7 +1136,11 @@ impl TextScope {
                     OwnedAttr::Int(i64::from(font_weight.unwrap_or(0))),
                 ));
                 attrs.push(("line_height", dp_or_zero(line_height)));
-                attrs.push(("letter_spacing", dp_or_zero(letter_spacing)));
+                // Unset is NaN, so an explicit 0 stays a 0 and draws no extra spacing.
+                attrs.push((
+                    "letter_spacing",
+                    OwnedAttr::Float(letter_spacing.map_or(f64::NAN, f64::from)),
+                ));
                 attrs.push(("color", paint_or_zero(color)));
                 attrs.push(("text_align", role_or_zero(text_align)));
                 attrs.push((
