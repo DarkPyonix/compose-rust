@@ -2207,7 +2207,7 @@ mod tests {
                 .contains(&Modifier::Height(HERO_HEIGHT - PANEL_OVERLAP))),
             "the panel does not start above the picture's bottom edge"
         );
-        assert!(PANEL_OVERLAP > 0.0 && PANEL_OVERLAP < HERO_HEIGHT);
+        const { assert!(PANEL_OVERLAP > 0.0 && PANEL_OVERLAP < HERO_HEIGHT) };
 
         let grabbers = with(&Modifier::Width(GRABBER.0));
         assert!(

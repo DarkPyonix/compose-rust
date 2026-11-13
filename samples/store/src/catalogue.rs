@@ -324,7 +324,7 @@ mod tests {
     fn fr13_the_rating_rounds_to_whole_stars() {
         let star = "\u{2605}";
         assert_eq!(stars(50), (star.repeat(5), String::new()));
-        assert_eq!(stars(44), (star.repeat(4), star.repeat(1)));
+        assert_eq!(stars(44), (star.repeat(4), star.to_owned()));
         assert_eq!(stars(0), (String::new(), star.repeat(5)));
     }
 
