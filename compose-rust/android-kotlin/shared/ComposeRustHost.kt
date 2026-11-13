@@ -774,7 +774,6 @@ private fun ComposeRustTree(
         LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
-        LocalKeyboardInset provides keyboard,
     ) {
         // The background fills the whole window and the inset is applied inside it. Putting
         // the inset outside instead leaves the window's own background showing through the
@@ -1250,18 +1249,11 @@ internal fun pageInsets(
  * How much of the window's bottom edge the on-screen keyboard covers, as the platform
  * reports it. Zero where there is no on-screen keyboard.
  *
+ * The window is the one it is read in: the page reads it for the application's window, and
+ * a sheet or a dialog reads it again inside its own (see `overlayKeyboardInset`).
+ *
  * A hook so a test can put a keyboard on a desktop window, which has none.
  */
 var platformKeyboardInset: @Composable () -> Dp = {
     with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
 }
-
-/**
- * The keyboard's height over the window, for what is drawn over the page rather than in it.
- *
- * A sheet or a dialog covers the whole window and so does its scrim; only its own surface
- * moves up, by this much, so the field inside it is above the keyboard. Dynamic rather than
- * static because it changes on every frame the keyboard slides in, and only those readers
- * should hear it.
- */
-val LocalKeyboardInset = androidx.compose.runtime.compositionLocalOf { 0.dp }
