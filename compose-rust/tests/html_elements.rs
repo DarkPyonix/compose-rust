@@ -158,6 +158,7 @@ fn every_modifier() -> Vec<Modifier> {
             role: compose_rust::SemanticsRole::Button,
             state: 0b0110,
         },
+        Modifier::CornerCurve { smoothing: 0.6 },
     ]
 }
 

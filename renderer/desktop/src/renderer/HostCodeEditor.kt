@@ -1,10 +1,12 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.ResolvedTheme
@@ -14,12 +16,17 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodeEditorSurface
 import dev.darkpyonix.composerust.foundation.code.EditorOutput
 import dev.darkpyonix.composerust.foundation.code.EditorScroll
+import dev.darkpyonix.composerust.protocol.CodeEditorColorsRecord
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.textStyle
@@ -42,12 +49,37 @@ internal fun HostCodeEditor(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
     table: NodeTable,
+    assets: AssetCache? = null,
 ) {
     val model = node.code ?: return
     val tabWidth = (node.property(PropertyKind.TabWidth) as? PropertyValue.Integer)?.value
         ?.toInt()
         ?.takeIf { it > 0 }
-    val look = remember(theme, tabWidth) { codeEditorLook(node, theme, tabWidth) }
+    // The application's own font list, where it gave one: the editor is set in its first
+    // family and a letter that family lacks comes from the next one that has it.
+    val fontBlob = node.bytes(PropertyKind.Font)
+    val fontChain = remember(fontBlob, assets?.size) {
+        if (fontBlob == null || assets == null) {
+            null
+        } else {
+            FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
+        }
+    }
+    // Every property the look is made of is read here, so that changing one of them makes
+    // a new look and leaving them alone keeps the one there is.
+    val look = remember(
+        theme,
+        tabWidth,
+        fontChain,
+        node.property(PropertyKind.TypeRole),
+        node.property(PropertyKind.FontSize),
+        node.property(PropertyKind.LineHeight),
+        node.property(PropertyKind.LineNumbers),
+        node.property(PropertyKind.GutterMinWidthDp),
+        node.property(PropertyKind.GutterPaddingDp),
+        node.property(PropertyKind.TextInsetDp),
+        node.bytes(PropertyKind.CodeEditorColors),
+    ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
@@ -76,6 +108,14 @@ internal fun HostCodeEditor(
                 }
             },
         )
+    }
+    // A listener attached after the editor was drawn has the row height and the offset
+    // waiting for it in the model. Nothing else may redraw the editor soon, so they are
+    // sent now.
+    val hearsMetrics = node.handler(PropertyKind.OnCodeMetrics) != null
+    val hearsScroll = node.handler(PropertyKind.OnCodeScrolled) != null
+    LaunchedEffect(model, hearsMetrics, hearsScroll) {
+        if (hearsMetrics || hearsScroll) callbacks.onOutput()
     }
     val focusRequest = node.focusRequestRevision
     CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest) { scrolling ->
@@ -106,21 +146,51 @@ private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     jump = { target -> scrollTo(target) },
 )
 
-/** What the design system says an editor looks like here, resolved to plain values. */
-internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): CodeEditorLook {
+/** The colours the application gave this editor, or null where it gave none that can be read. */
+internal fun Node.codeEditorColors(): CodeEditorColorsRecord? =
+    bytes(PropertyKind.CodeEditorColors)?.let { bytes ->
+        // What cannot be read was reported when the property arrived; here it is only left out.
+        CodeEditorRecords.decodeCodeEditorColors(bytes) {}.firstOrNull()
+    }
+
+/**
+ * A length in dp the application set on the node, or null where it set none. Zero is a
+ * length like any other here: a text inset of nothing is a thing to ask for. A length
+ * below zero or one that is not a number is left to the design system.
+ */
+private fun Node.lengthOrNull(kind: PropertyKind): Dp? = when (val value = property(kind)) {
+    is PropertyValue.Float -> value.value
+    is PropertyValue.Integer -> value.value.toFloat()
+    else -> null
+}?.takeIf { it >= 0f && it.isFinite() }?.dp
+
+/**
+ * What an editor looks like here, resolved to plain values: the design system's editor,
+ * with the type, the gutter and the colours the application set on the node over it.
+ */
+internal fun codeEditorLook(
+    node: Node,
+    theme: ResolvedTheme,
+    tabWidth: Int?,
+    fontChain: FontChain? = null,
+): CodeEditorLook {
     val style = theme.rules.codeEditor(theme)
+    val colors = node.codeEditorColors()
+    // The role, the size and the row height are the node's where it has them, and the
+    // monospace rung of the type ladder where it does not.
+    val type = node.textStyle(theme, TypeRole.Mono)
     return CodeEditorLook(
-        textStyle = node.textStyle(theme, TypeRole.Mono).copy(color = style.text),
-        container = style.container,
-        gutter = style.gutter,
-        lineNumber = style.lineNumber,
-        currentLineNumber = style.currentLineNumber,
-        currentLine = style.currentLine,
+        textStyle = type.copy(color = style.text, fontFamily = fontChain?.primary ?: type.fontFamily),
+        container = colors?.container?.let { theme.color(it) } ?: style.container,
+        gutter = colors?.gutter?.let { theme.color(it) } ?: style.gutter,
+        lineNumber = colors?.lineNumber?.let { theme.color(it) } ?: style.lineNumber,
+        currentLineNumber = colors?.currentLineNumber?.let { theme.color(it) } ?: style.currentLineNumber,
+        currentLine = colors?.currentLine?.let { theme.color(it) } ?: style.currentLine,
         currentLineBorder = style.currentLineBorder,
         gutterDivider = style.gutterDivider,
         gutterDividerWidth = style.gutterDividerWidth,
-        gutterPadding = style.gutterPadding,
-        textInset = style.textInset,
+        gutterPadding = node.lengthOrNull(PropertyKind.GutterPaddingDp) ?: style.gutterPadding,
+        textInset = node.lengthOrNull(PropertyKind.TextInsetDp) ?: style.textInset,
         selection = style.selection,
         cursor = style.cursor,
         underlineWidth = style.underlineWidth,
@@ -140,6 +210,9 @@ internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): C
         // The same for every design system: the width and gap of a change-marker bar.
         changeBarWidth = 4.dp,
         changeBarGap = 12.dp,
+        lineNumbers = node.flag(PropertyKind.LineNumbers, default = true),
+        gutterMinWidth = node.lengthOrNull(PropertyKind.GutterMinWidthDp) ?: 0.dp,
+        fontFallback = fontChain?.let { chain -> { text: String -> chain.spans(text) } },
     )
 }
 
@@ -211,6 +284,15 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
             is EditorOutput.FoldToggled -> {
                 val handler = handler(PropertyKind.OnFoldChange) ?: continue
                 events += HostEvent.FoldChanged(id, handler, output.startLine, output.collapsed)
+            }
+            // Pixels cross as a whole number in a double, the unit the scroll command takes.
+            is EditorOutput.LineHeight -> {
+                val handler = handler(PropertyKind.OnCodeMetrics) ?: continue
+                events += HostEvent.CodeMetrics(id, handler, output.px.toDouble())
+            }
+            is EditorOutput.Scrolled -> {
+                val handler = handler(PropertyKind.OnCodeScrolled) ?: continue
+                events += HostEvent.CodeScrolled(id, handler, output.offsetPx.toDouble())
             }
             is EditorOutput.Composing -> {
                 val handler = handler(PropertyKind.OnCompositionChange) ?: continue

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
@@ -112,6 +113,7 @@ import dev.darkpyonix.composerust.foundation.HostTimePicker
 import dev.darkpyonix.composerust.foundation.HostLazyColumn
 import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
+import dev.darkpyonix.composerust.foundation.HostPopover
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -126,6 +128,10 @@ import dev.darkpyonix.composerust.foundation.hostPointerEvents
 import dev.darkpyonix.composerust.foundation.subscribesToPointer
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.flowHorizontalArrangement
+import dev.darkpyonix.composerust.ui.flowItemVerticalAlignment
+import dev.darkpyonix.composerust.ui.flowMaxItemsInEachRow
+import dev.darkpyonix.composerust.ui.flowVerticalArrangement
 import dev.darkpyonix.composerust.ui.boxAlignment
 import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
@@ -259,9 +265,17 @@ fun RenderNode(
     // focus target that reports it is focused and whose keys pass the node's handlers.
     val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
         .let { if (keyFocusTarget) it.focusable() else it }
+    // A popover's material is what its floating box is made of, and the popover draws it
+    // in that box's own corner. Left in the chain it would be drawn a second time, square.
+    val ownModifiers: List<dev.darkpyonix.composerust.protocol.Modifier> =
+        if (node.widget == WidgetKind.Popover) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
+        } else {
+            node.modifiers
+        }
     val chain = requested
         .then(
-            node.modifiers.toComposeModifier(
+            ownModifiers.toComposeModifier(
                 nodeId,
                 dispatcher,
                 theme,
@@ -458,6 +472,10 @@ fun RenderNode(
             WidgetKind.TopAppBar -> HostTopAppBar(node, modifier, table, dispatcher, theme)
             WidgetKind.Dialog -> HostDialog(node, modifier, table, dispatcher, theme)
             WidgetKind.Menu -> HostMenu(node, modifier, table, dispatcher, theme)
+            // The anchor stands where the node does and takes what the parent gave the
+            // node; the node's own modifiers are the floating box's.
+            WidgetKind.Popover ->
+                HostPopover(node, parentModifier, modifier, table, dispatcher, theme)
             WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
             WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
             WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)
@@ -545,7 +563,7 @@ fun RenderNode(
             // The document is the editor's own: its text, caret, selection and history live in
             // the node's model, and the Host hears each committed change. Drawn outside a
             // selectable region around it, because selecting inside an editor is the editor's.
-            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme, table) }
+            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme, table, table.assets) }
 
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine
@@ -554,6 +572,19 @@ fun RenderNode(
             // layer exists the interpreter draws a window's children where the node stands, so
             // the tree is whole and a protocol test can walk it.
             WidgetKind.Window -> Box(modifier) { Children(node, table, dispatcher) }
+
+            // A row that wraps. Compose measures each child at its own width and starts a
+            // new line where the next one does not fit, so the break is where the text
+            // really ends. A child wider than the line is given the line's width.
+            WidgetKind.FlowRow -> FlowRow(
+                modifier = modifier,
+                horizontalArrangement = node.flowHorizontalArrangement(),
+                verticalArrangement = node.flowVerticalArrangement(),
+                itemVerticalAlignment = node.flowItemVerticalAlignment(),
+                maxItemsInEachRow = node.flowMaxItemsInEachRow(),
+            ) {
+                OnGlass(glass) { Children(node, table, dispatcher) }
+            }
 
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
@@ -594,6 +625,7 @@ val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
 internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
     WidgetKind.Column,
     WidgetKind.Row,
+    WidgetKind.FlowRow,
     WidgetKind.Box,
     WidgetKind.FileDropTarget,
     WidgetKind.AbsoluteBox,
