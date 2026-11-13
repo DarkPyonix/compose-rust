@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.0.8
+
+### Typing on macOS inserts each character once
+
+On the Kotlin/Native macOS window every typed character was inserted twice ("abc" became "aabbcc", and Korean jamo doubled before composing), because the key event carried the letter while the input method committed it as well. The window pin now includes the Compose fork fix: a key that also goes to the input method reaches Compose without its letter, and Command shortcuts keep theirs ([#563](https://github.com/DarkPyonix/compose-rust/issues/563)).
 
 ### A node hears its size motion settle
 
