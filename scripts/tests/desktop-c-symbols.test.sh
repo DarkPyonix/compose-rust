@@ -43,10 +43,14 @@ macos_fork_names="$(fork_names graalvm-macos)"
 linux_fork_names="$(fork_names graalvm-linux)"
 # The calls the renderer's own loops make through those wrappers, which every desktop's image
 # reaches because the platform switch names all three loops.
+# The appearance setter (the AppKit window follows the theme's scheme) and the X11 window's
+# text factor are among them since the window pin of v0.0.8: a desktop whose C does not define
+# them fails the native-image link, which is how v0.0.8's Windows renderer failed.
 loop_names="dxc_native_window_open dxc_native_window_size dxc_native_frame_begin
 dxc_native_frame_end dxc_native_poll_event dxc_native_pump dxc_native_window_closed
 dxc_native_set_cursor dxc_native_set_accessibility dxc_native_install_menu
-dxc_native_set_frame_callback"
+dxc_native_set_frame_callback
+dxc_native_set_appearance dxc_native_set_text_factor"
 declared="$(printf '%s\n' $declared $loop_names | sort -u)"
 
 # Which C files each desktop compiles, read from its own build script rather than listed
