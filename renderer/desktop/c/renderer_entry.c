@@ -741,6 +741,28 @@ int32_t dxc_native_metal_allocated_mb(void *device_pointer) {
 }
 #endif
 
+/*
+ * The AppKit window's appearance (0 follows the system, 1 light, 2 dark), set from the theme's
+ * scheme. The renderer's Kotlin calls it through the macOS wrapper on every desktop; only the
+ * AppKit window has an appearance to set, so elsewhere it does nothing.
+ */
+#ifndef __APPLE__
+void dxc_native_set_appearance(void *window_pointer, int32_t scheme) {
+    (void)window_pointer;
+    (void)scheme;
+}
+#endif
+
+/*
+ * GNOME's text-scaling-factor as the Kotlin side read it, handed to the X11 window. Called on
+ * every desktop through the Linux wrapper; only the X11 window uses it.
+ */
+#ifndef __linux__
+void dxc_native_set_text_factor(float factor) {
+    (void)factor;
+}
+#endif
+
 #ifndef __linux__
 void dxc_native_window_begin_drag_at(int32_t edge, float x, float y) {
     (void)edge;
