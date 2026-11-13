@@ -5094,6 +5094,7 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
+- **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
 - **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
 - **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
@@ -5102,6 +5103,8 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
   3. forwarder의 호출당 비용을 실측해 기록합니다.
   4. M0 화면이 데스크톱과 같은 Rust 소스로 브라우저에 뜨고, 클릭이 Rust에 도달하며, Rust의 상태 변경이 화면에 반영됩니다.
   5. 생성된 Kotlin 선언, 생성된 forwarder, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
+  6. Web에서 64KiB `ClipboardText`, 32KiB `TextChanged`, 1MiB `IoAnswer`가 그대로 Host에 도착합니다(pr6_an_event_larger_than_the_lent_buffer_arrives_whole). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)
+  7. 64MiB를 넘는 이벤트는 거절되고 아무것도 보내지 않습니다(pr6_an_event_past_the_ceiling_is_refused).
 
 **검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
 

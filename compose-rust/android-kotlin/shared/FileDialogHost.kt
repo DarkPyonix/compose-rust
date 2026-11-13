@@ -152,8 +152,9 @@ object FileDialogs {
 
     /**
      * The largest event this process can hand the Host, record and strings together. A
-     * connection whose event buffer is fixed (the web's is 4096 bytes) sets it, and an answer
-     * that would not fit is unavailable rather than cut short.
+     * connection whose event buffer stops growing at a known size (the web's, at the largest
+     * buffer its Host lends) sets it, and an answer that would not fit is unavailable rather
+     * than cut short.
      */
     var maxEventBytes: Int = Int.MAX_VALUE
 }

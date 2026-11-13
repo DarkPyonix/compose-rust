@@ -4404,6 +4404,21 @@ pub const WEB_BATCH_BYTES: u32 = 16;
 /// not fit is refused by the encoder rather than truncated.
 pub const WEB_EVENT_BUFFER_BYTES: u32 = 4096;
 
+/// The largest event buffer the Host lends a browser Renderer.
+///
+/// An event that does not fit in the first buffer is encoded into a larger one the Host
+/// lends on request, doubling each time, and this is where the doubling stops. An event
+/// larger than this is refused rather than cut short: a single event that large is a bug
+/// in whatever produced it, and lending without a ceiling would turn that bug into running
+/// out of memory. The other platforms grow their own buffers to the same ceiling.
+pub const WEB_EVENT_BUFFER_MAX_BYTES: u32 = 64 * 1024 * 1024;
+
+/// The Host export a browser Renderer borrows a larger event buffer from.
+///
+/// It is setup, like `compose_rust_host_web_start`, not a boundary operation: the
+/// Renderer calls it only when an event outgrows the buffer it has, and keeps what it gets.
+pub const WEB_LEND_EVENT_BUFFER_SYMBOL: &str = "compose_rust_host_web_lend_event_buffer";
+
 /// Where the event buffer starts inside the block `compose_rust_host_web_start` reports.
 ///
 /// The out record comes first, at offset zero, and the event buffer follows it.

@@ -89,7 +89,7 @@ object Storage {
 
     /**
      * The most bytes one answer may carry. An answer with more becomes a too-large answer
-     * that carries the length instead. The web sets it to what its event buffer holds.
+     * that carries the length instead. The web sets it to what its largest event buffer holds.
      */
     var maxAnswerBytes: Int = Int.MAX_VALUE
 }
