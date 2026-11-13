@@ -68,7 +68,7 @@ import kotlin.math.min
  * Installing it does not select it; [defaultCodeEditorPath] does.
  */
 fun installDrawnCodeEditor() {
-    drawnCodeEditorSurface = { model, look, callbacks, modifier -> DrawnSurface(model, look, callbacks, modifier) }
+    drawnCodeEditorSurface = { model, look, callbacks, modifier, scrolling -> DrawnSurface(model, look, callbacks, modifier, scrolling) }
 }
 
 /** One line as it is drawn: the laid-out text and where each column of the source lands in it. */
@@ -279,6 +279,7 @@ private fun DrawnSurface(
     look: CodeEditorLook,
     callbacks: CodeEditorCallbacks,
     modifier: Modifier,
+    scrolling: @Composable (EditorScrolling) -> Unit = {},
 ) {
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer(cacheSize = 0)
@@ -293,6 +294,8 @@ private fun DrawnSurface(
     val vertical = remember { EditorScroll() }
     state.scroll = vertical
     var viewportHeight by remember { mutableIntStateOf(0) }
+    // This path does not scroll along its lines, so there is one axis to hand over.
+    scrolling(remember(vertical) { EditorScrolling(vertical, null) { viewportHeight } })
     var focused by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val hover = remember { HoverTracker() }
