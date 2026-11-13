@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import android.graphics.Color
 import android.os.Build
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -37,6 +38,19 @@ fun installSystemChrome(activity: ComponentActivity) {
         navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
     )
     val window = activity.window
+    // The keyboard is reported rather than panned for. Left to pan, Android slides the
+    // whole window up by the keyboard's height: the bar at the top leaves the screen and
+    // whatever is below the focused field stays under the keyboard. Resizing an edge to
+    // edge window moves nothing on its own; it reports the keyboard as an inset, and the
+    // renderer stops the page above it while the bars keep their place. The generated
+    // manifest says the same, which covers the first frame; this covers an application
+    // that brings its own Activity and manifest. Whether the keyboard opens on start is
+    // the application's, so only the adjust part is changed.
+    @Suppress("DEPRECATION")
+    window.setSoftInputMode(
+        (window.attributes.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+            WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+    )
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         // The system adds a scrim of its own on top of the styles above unless this is
         // turned off, and it is the one that was showing.
