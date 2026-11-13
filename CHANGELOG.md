@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### The system's light or dark appearance reaches the Host
+
+The Renderer now tells the Host whether the system appearance is light or dark, in a `ColorSchemeChanged` event (tag 52) addressed to the Host with node 0 and handler 0. The record is 20 bytes: the header and `scheme: u32`, 0 for light and 1 for dark, and any other value is a protocol error. It is sent once before the first frame and again on every change, never the same value twice in a row, whatever the theme's `color_scheme` is. Application code reads it with `system_color_scheme()`, which is `None` until the first report, and `resolved_color_scheme()` gives the scheme the theme is drawn in, the system's while the theme follows it. `subscribe_system_color_scheme` wakes a reader on each change, the way `subscribe_reduced_motion` does. Native widgets already followed the system without the Host; this is for what an application draws itself, such as an HTML page answering `prefers-color-scheme`. The schema hash changes.
+
 ### Text with no type role reaches the Renderer
 
 `Text`, `TextField` and `Button` with `.type_role(TypeRole::None)` now send the role tag 0, so text that names its own fonts is set in them. `TypeRole::None` is tag 0, which a design property at its neutral value never sent, so such text arrived with no role at all, was drawn in the default role's font, and the Renderer reported its fonts as ignored. A role that is never set is still not sent, and a role that is cleared now removes the property instead of sending 0, so the text goes back to the default role rather than to no role. The minimal sample's serif letters were drawn in the theme's sans this way, and the report they caused failed the web page check ([#569](https://github.com/DarkPyonix/compose-rust/issues/569)).

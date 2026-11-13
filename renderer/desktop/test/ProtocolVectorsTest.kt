@@ -839,6 +839,34 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(527, 547).toList(), motion.array().copyOf(motionLength).toList())
     }
 
+    /**
+     * The system appearance report encodes to the 20 bytes the Host decodes: the header,
+     * then the scheme as one word, 0 for light and 1 for dark. It is the vector's last record.
+     */
+    @Test
+    fun fr44_color_scheme_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(
+            HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Dark),
+            out,
+        )
+        assertEquals(20, length)
+        assertEquals(bytes.copyOfRange(1623, 1643).toList(), out.array().copyOf(length).toList())
+        assertEquals(1643, bytes.size)
+        val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            20,
+            Protocol.encodeEvent(
+                HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Light),
+                light,
+            ),
+        )
+        assertEquals(52, light.getShort(0).toInt())
+        assertEquals(0, light.getInt(16))
+        assertEquals(1, out.getInt(16))
+    }
+
     /** The pointer event encodes to the 72 bytes the Host decodes. */
     @Test
     fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
@@ -1014,7 +1042,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1623, bytes.size)
+        assertEquals(1643, bytes.size)
     }
 
     /**
@@ -1029,7 +1057,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1623, bytes.size)
+        assertEquals(1643, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
