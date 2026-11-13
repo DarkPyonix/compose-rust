@@ -2206,21 +2206,21 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 
 1. 동작 다섯 개를 단 막대를 좁은 폭으로 그리면 마지막에 선언한 동작들이 막대에 없고 넘침
    버튼이 있으며, 넘침 버튼을 누르면 그 동작들이 선언 순서대로 메뉴에 나옵니다. 막대에 남은
-   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다(시험 이름
-   fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu, 미구현).
+   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다
+   (`fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu`).
 2. 메뉴의 동작을 누르면 그 노드의 `Clicked`가 그 노드의 id와 핸들러로 한 번 가고, 메뉴가
-   닫힙니다(시험 이름 fr30_3_an_overflowed_action_is_still_invokable, 미구현).
-3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다(시험 이름
-   fr30_3_nothing_overflows_when_there_is_room, 미구현).
-4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다(시험 이름
-   fr30_3_the_first_declared_actions_stay_in_the_bar_longest, 미구현).
-5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다(시험 이름
-   fr30_3_leading_content_keeps_its_place, 미구현).
-6. 넘침 버튼의 접근성 이름이 "More actions"입니다(시험 이름
-   fr30_3_the_overflow_button_has_an_accessible_name, 미구현).
+   닫힙니다(`fr30_3_an_overflowed_action_is_still_invokable`).
+3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
+   (`fr30_3_nothing_overflows_when_there_is_room`).
+4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
+   (`fr30_3_leading_content_keeps_its_place`).
+6. 넘침 버튼의 접근성 이름이 "More actions"입니다
+   (`fr30_3_the_overflow_button_has_an_accessible_name`).
 7. 1과 3이 창 캡션을 겸하는 막대(캡션 높이와 창 버튼 폭이 있는 창), GNOME의 가운데 제목 막대,
-   Liquid Glass의 떠 있는 막대에서도 성립합니다(시험 이름
-   fr30_3_every_bar_path_overflows_the_same_way, 미구현).
+   Liquid Glass의 떠 있는 막대에서도 성립합니다
+   (`fr30_3_every_bar_path_overflows_the_same_way`).
 
 ### FR-31 Scaffold (`Draft`)
 
