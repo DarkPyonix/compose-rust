@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Word wrap in the code editor
+
+The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
+
+### Multiple cursors in the code editor
+
+The code editor holds several selections at once. Alt and a press adds a caret, Cmd or Ctrl and D adds the next place the selected text is (selecting the word at the caret first), and Alt with Cmd or Ctrl and Up or Down adds a caret on the line above or below. Typing, deleting and pasting happen at every selection as one undo step, the arrows move them all, and Escape goes back to the primary one. `Batch::set_selections(node_id, base_version, &[(anchor, active)])` sends a `SetSelections` command (tag 41, 20 bytes and 16 bytes per selection), and the editor's selection listener hears a `SelectionsChanged` event (tag 67, 28 bytes and 16 bytes per selection, read by `code::SelectionsChange::from_payload`) while there is more than one selection and once more when it comes back to one. `SelectionChanged` goes on reporting the primary selection alone.
+
+### Snippets in the code editor
+
+`Batch::insert_snippet(node_id, base_version, range, snippet)` sends an `InsertSnippet` command (tag 40, 36 bytes: the node, the base version, the range and the snippet's reference) that replaces the range with a snippet in a subset of VS Code's syntax: `$1`, `${1:placeholder}`, `${1|one,two|}`, `$0` and `\$`. The caret selects the first stop, Tab and Shift+Tab move between the stops, places with the same number change together, and a stop with choices opens a list that the arrows, Enter and a press pick from. The session ends at `$0`, on Escape, or when the caret leaves the snippet. The insertion is one undo step and reaches the Host as ordinary `CodeChanged` events. `code::escape_snippet_text` escapes plain text for a snippet.
+
+### View zones in the code editor
+
+`ViewZones::new([ViewZone::new(after_line, height_lines).with_text(..)])` on the new `ViewZones` property (tag 199) leaves room after a line that is not text, the way a diff lines its two sides up. A zone pushes the lines after it down by its height, which need not be whole, follows its line through edits, and is passed over by the caret, a selection and a copy; the visible range is still reported in the document's lines. Its text is drawn dimmed. The field path shows a zone as whole rows.
+
+### Code editor minimap
+
+The new `Minimap` property (tag 201) takes a `MinimapSide` tag, `Right` (1) or `Left` (2), and draws the whole document shrunk on that side, with the part on screen marked and line backgrounds, range backgrounds and diagnostics shown on it. A press or a drag on it scrolls the editor there. `Off` (0) draws none.
+
 ### Grouped edits for the code editor
 
 `Batch::edit_group(node_id, request_id, base_version, &[(CodeRange, &str)])` sends several edits to a code editor as one `EditCodeGroup` command (tag 28). Every range is in the document at `base_version`, in any order, and they must not overlap. The editor applies all of them or none: it moves the ranges past what the reader typed since, applies them from the end of the document backwards with one `CodeChanged` per edit, and makes the group one undo step. It then answers with exactly one `CodeEditGroupResult` (event 51, handler property `OnEditGroupResult` 194): `Applied`, `Rejected` where the reader changed a place the group would write, `TooOld` where the version is older than the editor remembers, or `Invalid` where the group makes no sense. `EditGroupResult::from_payload` reads it. A record that cannot be read is a protocol error, followed by `Invalid` when its request can be read. An empty group writes nothing. The schema hash changes.

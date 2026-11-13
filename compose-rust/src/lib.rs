@@ -73,8 +73,8 @@ pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
     CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
     CodeRect, CodeScroll, Decoration, Decorations, EditGroupResult, EditRejected, Fold, FoldChange,
-    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
-    SyntaxSpans, VisibleRange,
+    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange,
+    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange, WordWrap,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -111,6 +111,7 @@ pub use schema::{
     TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
+pub use schema::{MinimapSide, WordWrapMode};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
 };

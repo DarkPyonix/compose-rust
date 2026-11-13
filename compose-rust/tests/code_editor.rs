@@ -376,7 +376,10 @@ fn fr38_the_record_schema_is_the_layout_the_encoder_writes() {
         };
         let width = match field.ty {
             RecordFieldType::Role { .. } => 2,
-            RecordFieldType::U32 | RecordFieldType::Flag | RecordFieldType::Text => 4,
+            RecordFieldType::U32
+            | RecordFieldType::Flag
+            | RecordFieldType::Text
+            | RecordFieldType::F32 => 4,
             RecordFieldType::U64 | RecordFieldType::Paint => 8,
         };
         assert_eq!(read(field.offset, width), expected, "{}", field.name);
@@ -1566,7 +1569,7 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1679);
+    assert_eq!(events.len(), 1755);
     assert_eq!(&events[1623..1659], wire.as_slice());
 }
 
@@ -1636,4 +1639,277 @@ fn fr38_a_broken_group_record_is_a_protocol_error_on_the_wire() {
     let mut trailing = good.clone();
     trailing.push(b'!');
     assert_eq!(decode_edit_group(&trailing), None);
+}
+
+/// The minimap side travels as a `MinimapSide` tag on property 201, the right side as 1 and
+/// the left as 2. `Off` is 0, the tag an editor that never sets it is read as.
+#[test]
+fn fr38_minimap_side_travels_as_a_tag() {
+    use compose_rust::MinimapSide;
+    assert_eq!(PropertyKind::Minimap as u16, 201);
+    assert_eq!(
+        PropertyKind::from_name("minimap"),
+        Ok(PropertyKind::Minimap)
+    );
+    assert_eq!(u16::from(MinimapSide::Off), 0);
+    assert_eq!(u16::from(MinimapSide::Right), 1);
+    assert_eq!(u16::from(MinimapSide::Left), 2);
+    assert_eq!(MinimapSide::try_from(2), Ok(MinimapSide::Left));
+    assert_eq!(MinimapSide::from_name("right"), Ok(MinimapSide::Right));
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Minimap,
+            value: PropertyValue::Integer(i64::from(u16::from(MinimapSide::Left))),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(2, PropertyKind::Minimap, Value::Integer(2))]
+    );
+}
+
+/// View zones travel as 16-byte records on property 199: the line, the height as an `f32`
+/// and a reference to the text behind the records, at the offsets the schema the Renderer's
+/// decoder is written from gives. A height that is not whole stays what it was.
+#[test]
+fn fr38_view_zones_round_trip_on_the_wire() {
+    use compose_rust::code::{VIEW_ZONE_LEN, VIEW_ZONE_RECORD, ViewZone, ViewZones};
+    assert_eq!(PropertyKind::ViewZones as u16, 199);
+    assert_eq!(
+        PropertyKind::from_name("view_zones"),
+        Ok(PropertyKind::ViewZones)
+    );
+    assert_eq!(VIEW_ZONE_LEN, 16);
+    assert_eq!(usize::from(VIEW_ZONE_RECORD.length), VIEW_ZONE_LEN);
+
+    let zones = ViewZones::new([
+        ViewZone::new(2, 2.0).with_text("removed 한"),
+        ViewZone::new(7, 0.5),
+    ]);
+    let bytes = zones.as_bytes();
+    assert_eq!(bytes.len(), 2 * VIEW_ZONE_LEN + "removed 한".len());
+    for field in VIEW_ZONE_RECORD.fields {
+        let at = usize::from(field.offset);
+        let value = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+        match field.name {
+            "afterLine" => assert_eq!(value, 2),
+            "heightLines" => {
+                assert_eq!(field.ty, RecordFieldType::F32);
+                assert_eq!(f32::from_bits(value), 2.0);
+            }
+            "text" => {
+                assert_eq!(field.ty, RecordFieldType::Text);
+                assert_eq!(value as usize, 2 * VIEW_ZONE_LEN);
+            }
+            other => panic!("the view zone schema has a field this test does not know: {other}"),
+        }
+    }
+    assert_eq!(
+        zones.zones(),
+        vec![
+            ViewZone::new(2, 2.0).with_text("removed 한"),
+            ViewZone::new(7, 0.5)
+        ]
+    );
+    assert!(ViewZones::new([]).is_empty());
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ViewZones,
+            value: PropertyValue::Bytes(bytes),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::ViewZones,
+            Value::Bytes(bytes.to_vec())
+        )]
+    );
+}
+
+/// A snippet travels as one 36-byte record with tag 40: the node, the version its range was
+/// written against, the range and a reference to the snippet's text, every byte of it as it
+/// was sent.
+#[test]
+fn fr38_insert_snippet_round_trips_on_the_wire() {
+    let snippet = "fn ${1:name}(${2|a,한|}) {$0} \\$";
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.insert_snippet(12, 7, CodeRange::of(1, 2, 3, 4), snippet);
+    let bytes = batch.finish().unwrap().to_vec();
+    // The envelope is twelve bytes, and the record follows it.
+    assert_eq!(&bytes[12..16], &[40, 0, 36, 0]);
+    let decoded = decode_batch(&bytes).unwrap();
+    assert_eq!(
+        decoded,
+        vec![Mutation::InsertSnippet {
+            node_id: 12,
+            base_version: 7,
+            start_line: 1,
+            start_column: 2,
+            end_line: 3,
+            end_column: 4,
+            snippet,
+        }]
+    );
+
+    // A record of another length under the same tag is refused, not read short.
+    let mut short = bytes.clone();
+    short[14] = 32;
+    assert_eq!(
+        decode_batch(&short),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // Plain text put inside a snippet stays plain text.
+    assert_eq!(
+        compose_rust::code::escape_snippet_text("a$1}\\b"),
+        "a\\$1\\}\\\\b"
+    );
+}
+
+/// Every selection travels both ways as 16-byte records, the primary first: `SetSelections`
+/// is a 20-byte record with tag 41, and `SelectionsChanged` a 28-byte record with tag 67,
+/// each with the selections behind it. A selection made backwards keeps its anchor after its
+/// active end.
+#[test]
+fn fr38_selections_round_trip_on_the_wire() {
+    use compose_rust::code::{
+        SELECTION_LEN, SelectionsChange, decode_selections, encode_selections,
+    };
+    let event = EVENT_SCHEMA
+        .iter()
+        .find(|event| event.name == "SelectionsChanged")
+        .expect("SelectionsChanged is in the event schema");
+    assert_eq!(event.tag, 67);
+    assert_eq!(SELECTION_LEN, 16);
+
+    let selections = [
+        (Position::new(0, 3), Position::new(0, 7)),
+        (Position::new(1, 12), Position::new(1, 8)),
+        (Position::new(2, 0), Position::new(2, 0)),
+    ];
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.set_selections(12, 4, &selections);
+    let bytes = batch.finish().unwrap().to_vec();
+    assert_eq!(&bytes[12..16], &[41, 0, 20, 0]);
+    let decoded = decode_batch(&bytes).unwrap();
+    let [
+        Mutation::SetSelections {
+            node_id: 12,
+            base_version: 4,
+            selections: sent,
+        },
+    ] = decoded.as_slice()
+    else {
+        panic!("one SetSelections record: {decoded:?}");
+    };
+    assert_eq!(decode_selections(sent), Some(selections.to_vec()));
+    let mut short = bytes.clone();
+    short[14] = 16;
+    assert_eq!(
+        decode_batch(&short),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    let mut blob = Vec::new();
+    encode_selections(&selections, &mut blob);
+    let (length, decoded) = round_trip(EventPayload::SelectionsChanged {
+        version: 9,
+        selections: &blob,
+    });
+    assert_eq!(length, 28 + 3 * SELECTION_LEN);
+    assert_eq!(
+        SelectionsChange::from_payload(&decoded.payload),
+        Some(SelectionsChange {
+            version: 9,
+            selections: selections.to_vec(),
+        })
+    );
+    // Bytes that are not whole selections are refused, on the wire and when read.
+    assert_eq!(decode_selections(&blob[..20]), None);
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::SelectionsChanged {
+                version: 9,
+                selections: &blob[..20],
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidRecordLength));
+
+    // The event vector ends with the selections of the mutation vector's editor.
+    let events = include_bytes!("vectors/events.bin");
+    assert_eq!(events.len(), 1755);
+    let last = decode_event(&events[1679..]).unwrap();
+    assert_eq!((last.node_id, last.handler_id), (12, 33));
+    assert_eq!(
+        SelectionsChange::from_payload(&last.payload),
+        Some(SelectionsChange {
+            version: 4,
+            selections: selections.to_vec(),
+        })
+    );
+}
+
+/// Word wrap travels on property 200 as one integer: the `WordWrapMode` tag in the low 16
+/// bits and the columns above them. A rule that is not one reads back as none.
+#[test]
+fn fr38_word_wrap_travels_as_an_integer() {
+    use compose_rust::{WordWrap, WordWrapMode};
+    assert_eq!(PropertyKind::WordWrap as u16, 200);
+    assert_eq!(
+        PropertyKind::from_name("word_wrap"),
+        Ok(PropertyKind::WordWrap)
+    );
+    assert_eq!(u16::from(WordWrapMode::Off), 0);
+    assert_eq!(u16::from(WordWrapMode::Viewport), 1);
+    assert_eq!(u16::from(WordWrapMode::Column), 2);
+    assert_eq!(u16::from(WordWrapMode::Bounded), 3);
+    for rule in [
+        WordWrap::Off,
+        WordWrap::Viewport,
+        WordWrap::Column(40),
+        WordWrap::Bounded(120),
+    ] {
+        assert_eq!(WordWrap::from_value(rule.to_value()), Some(rule));
+    }
+    assert_eq!(WordWrap::Column(40).to_value(), 2 | (40 << 16));
+    assert_eq!(WordWrap::Off.to_value(), 0);
+    assert_eq!(WordWrap::from_value(2), None, "a column count of none");
+    assert_eq!(WordWrap::from_value(9), None, "a mode that is not one");
+    assert_eq!(WordWrap::from_value(-1), None);
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::WordWrap,
+            value: PropertyValue::Integer(WordWrap::Bounded(80).to_value()),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::WordWrap,
+            Value::Integer(3 | (80 << 16))
+        )]
+    );
 }

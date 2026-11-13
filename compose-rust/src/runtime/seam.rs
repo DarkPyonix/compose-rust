@@ -447,6 +447,58 @@ impl Batch {
         });
     }
 
+    /// Writes one request to set every selection of a code editor, each an anchor and an
+    /// active end in the document as it stood at `base_version`, the first the primary one.
+    /// The Renderer moves every end past what the reader typed since, and drops the request,
+    /// with a protocol error, where an end is not a place in the document or the list is
+    /// empty. Typing, deleting and pasting then happen at every selection as one step, and
+    /// Escape goes back to the primary one.
+    pub fn set_selections(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        selections: &[(crate::code::Position, crate::code::Position)],
+    ) {
+        let mut blob = std::mem::take(&mut self.edit_group);
+        blob.clear();
+        crate::code::encode_selections(selections, &mut blob);
+        self.write(Mutation::SetSelections {
+            node_id,
+            base_version,
+            selections: &blob,
+        });
+        self.edit_group = blob;
+    }
+
+    /// Writes one request to replace `range` of a code editor's document, as it stood at
+    /// `base_version`, with `snippet`, and to open its tab stops.
+    ///
+    /// The snippet is in the subset of VS Code's syntax the editor reads: `$1`,
+    /// `${1:placeholder}`, `${1|one,two|}`, `$0`, and `\$` for a dollar sign
+    /// ([`crate::code::escape_snippet_text`] escapes plain text). The caret selects the first
+    /// stop; Tab and Shift+Tab move between the stops, the places with the same number change
+    /// together, and a stop with choices opens a list. The session ends at `$0`, on Escape, or
+    /// when the caret leaves the snippet. The text it leaves arrives as ordinary changes and
+    /// undoes as one step. Where the reader has typed over the range since `base_version`,
+    /// the Renderer drops the request with a protocol error.
+    pub fn insert_snippet(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        range: crate::code::CodeRange,
+        snippet: &str,
+    ) {
+        self.write(Mutation::InsertSnippet {
+            node_id,
+            base_version,
+            start_line: range.start.line,
+            start_column: range.start.column,
+            end_line: range.end.line,
+            end_column: range.end.column,
+            snippet,
+        });
+    }
+
     /// Appends the streamed tail to a Text node without resending its whole value.
     pub fn append_text_node(&mut self, node_id: u32, text: &str) {
         self.write(Mutation::AppendText { node_id, text });

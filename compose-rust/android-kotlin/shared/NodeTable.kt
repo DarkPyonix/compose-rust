@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.wordWrapRule
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -507,6 +508,40 @@ class NodeTable {
                 )
                 collectCode(node)
             }
+            // Every selection the Host asked for, the first the primary one. A list that is
+            // not whole selections is reported here; the editor refuses one that names a
+            // place the document does not have.
+            is Mutation.SetSelections -> codeNode(mutation.nodeId, "SetSelections")?.let { (node, code) ->
+                val bytes = mutation.selections
+                if (bytes.isEmpty() || bytes.size % 16 != 0) {
+                    fail(
+                        TableError.INVALID_CODE_EDIT,
+                        "SetSelections on node ${node.id}: ${bytes.size} bytes are not whole selections of 16",
+                    )
+                } else {
+                    val values = IntArray(bytes.size / 4) { index ->
+                        (bytes[index * 4].toInt() and 0xff) or
+                            ((bytes[index * 4 + 1].toInt() and 0xff) shl 8) or
+                            ((bytes[index * 4 + 2].toInt() and 0xff) shl 16) or
+                            ((bytes[index * 4 + 3].toInt() and 0xff) shl 24)
+                    }
+                    code.hostSetSelections(mutation.baseVersion, values)
+                    collectCode(node)
+                }
+            }
+            // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
+            // or whose range the reader has typed over, is reported and dropped.
+            is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
+                code.hostInsertSnippet(
+                    mutation.baseVersion,
+                    mutation.startLine,
+                    mutation.startColumn,
+                    mutation.endLine,
+                    mutation.endColumn,
+                    mutation.snippet,
+                )
+                collectCode(node)
+            }
             is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)
@@ -816,6 +851,22 @@ class NodeTable {
                 (value as? PropertyValue.Bytes)?.value?.let { bytes ->
                     CodeEditorRecords.decodeGutterDecorations(bytes) { message ->
                         fail(TableError.INVALID_CODE_EDIT, "gutter decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            // Read where the editor is drawn, which knows how wide it is. Here a rule that is
+            // not one is said once, when it arrives.
+            PropertyKind.WordWrap -> {
+                val raw = (value as? PropertyValue.Integer)?.value
+                if (raw != null && raw != 0L && wordWrapRule(raw) == null) {
+                    fail(TableError.INVALID_CODE_EDIT, "word wrap on node ${node.id}: $raw is not a rule")
+                }
+                return
+            }
+            PropertyKind.ViewZones -> code.setViewZones(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeViewZones(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "view zones on node ${node.id}: $message")
                     }
                 } ?: emptyList(),
             )
@@ -1538,6 +1589,10 @@ class NodeTable {
                 // The handler of its pointer events with the text under them. The kinds it
                 // hears are the node's `PointerKinds`, below.
                 PropertyKind.OnCodePointer,
+                // Whether it draws a minimap, and on which side, and its view zones.
+                PropertyKind.Minimap,
+                PropertyKind.ViewZones,
+                PropertyKind.WordWrap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

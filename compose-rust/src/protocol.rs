@@ -83,6 +83,16 @@ const TAG_QUERY_POSITION_RECT: u16 = 39;
 /// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
 /// column.
 const QUERY_POSITION_RECT_LEN: usize = 20;
+// 41 sets every selection of a code editor at once.
+const TAG_SET_SELECTIONS: u16 = 41;
+/// `SetSelections` in full: the 4 byte head, the node, the base version and the reference
+/// to the selections.
+const SET_SELECTIONS_LEN: usize = 20;
+// 40 puts a snippet into a code editor and opens its tab stops.
+const TAG_INSERT_SNIPPET: u16 = 40;
+/// `InsertSnippet` in full: the 4 byte head, the node, the base version, the range and the
+/// snippet's reference.
+const INSERT_SNIPPET_LEN: usize = 36;
 /// `ScrollTo` in full: the 4 byte head, the node, the item, the flags and two `f64`.
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
@@ -417,6 +427,30 @@ pub enum Mutation<'a> {
         base_version: u32,
         edits: &'a [u8],
     },
+    /// Replaces a range of a code editor's document, as it stood at `base_version`, with a
+    /// snippet, and lets the reader step through its tab stops.
+    ///
+    /// `snippet` is in the subset of VS Code's snippet syntax [`crate::code`] describes:
+    /// `$1`, `${1:placeholder}`, `${1|one,two|}`, `$0` and `\$`. The text it leaves is
+    /// reported as ordinary `CodeChanged` events, and undoes as one step.
+    InsertSnippet {
+        node_id: u32,
+        base_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        snippet: &'a str,
+    },
+    /// Sets every selection of a code editor at once, the first the primary one, each read
+    /// against the document as it stood at `base_version`. `selections` is 16-byte records
+    /// (anchor line, anchor column, active line, active column), which
+    /// [`crate::code::encode_selections`] writes.
+    SetSelections {
+        node_id: u32,
+        base_version: u32,
+        selections: &'a [u8],
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -549,6 +583,9 @@ const EVENT_POSITION_RECT: u16 = 65;
 const CODE_RECT_EVENT_LEN: usize = 40;
 // 66 is a pointer over a code editor: the pointer record and the place in the text under it.
 const EVENT_CODE_POINTER: u16 = 66;
+// 67 is every selection of a code editor: the version, then the selections' reference.
+const EVENT_SELECTIONS_CHANGED: u16 = 67;
+const SELECTIONS_CHANGED_LEN: usize = 28;
 const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
 /// The line and the column of a pointer that is over no character.
 const NO_CODE_POSITION: u32 = u32::MAX;
@@ -1114,6 +1151,17 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_CODE_POINTER => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_SELECTIONS_CHANGED if record_len == SELECTIONS_CHANGED_LEN => {
+            let selections = read_bytes(bytes, 20, record_len)?;
+            if selections.len() % crate::code::SELECTION_LEN != 0 {
+                return Err(ProtocolError::InvalidRecordLength);
+            }
+            crate::schema::EventPayload::SelectionsChanged {
+                version: read_u32(bytes, 16)?,
+                selections,
+            }
+        }
+        EVENT_SELECTIONS_CHANGED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1646,6 +1694,24 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         _ => {}
     }
+    if let crate::schema::EventPayload::SelectionsChanged {
+        version,
+        selections,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_SELECTIONS_CHANGED,
+            SELECTIONS_CHANGED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&version.to_le_bytes());
+        let len = u32::try_from(selections.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(SELECTIONS_CHANGED_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        output.extend_from_slice(selections);
+        return Ok(());
+    }
     if let crate::schema::EventPayload::IoAnswer {
         request,
         status,
@@ -1860,7 +1926,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
         | crate::schema::EventPayload::CodePointer { .. }
-        | crate::schema::EventPayload::CodeEditGroupResult { .. } => unreachable!(),
+        | crate::schema::EventPayload::CodeEditGroupResult { .. }
+        | crate::schema::EventPayload::SelectionsChanged { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -2274,6 +2341,34 @@ impl BatchEncoder {
                 self.put_u32(*flags);
                 self.put_u64(x_px.to_bits());
                 self.put_u64(y_px.to_bits());
+            }
+            Mutation::SetSelections {
+                node_id,
+                base_version,
+                selections,
+            } => {
+                self.begin_record(TAG_SET_SELECTIONS, (SET_SELECTIONS_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_bytes_ref(selections)?;
+            }
+            Mutation::InsertSnippet {
+                node_id,
+                base_version,
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                snippet,
+            } => {
+                self.begin_record(TAG_INSERT_SNIPPET, (INSERT_SNIPPET_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*base_version);
+                self.put_u32(*start_line);
+                self.put_u32(*start_column);
+                self.put_u32(*end_line);
+                self.put_u32(*end_column);
+                self.put_string_ref(snippet)?;
             }
             Mutation::QueryPositionRect {
                 node_id,
@@ -3054,6 +3149,22 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 }
             }
             TAG_QUERY_POSITION_RECT => return Err(ProtocolError::InvalidRecordLength),
+            TAG_INSERT_SNIPPET if len == INSERT_SNIPPET_LEN => Mutation::InsertSnippet {
+                node_id: read_u32(bytes, payload)?,
+                base_version: read_u32(bytes, payload + 4)?,
+                start_line: read_u32(bytes, payload + 8)?,
+                start_column: read_u32(bytes, payload + 12)?,
+                end_line: read_u32(bytes, payload + 16)?,
+                end_column: read_u32(bytes, payload + 20)?,
+                snippet: read_string(bytes, payload + 24, records_len)?,
+            },
+            TAG_INSERT_SNIPPET => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_SELECTIONS if len == SET_SELECTIONS_LEN => Mutation::SetSelections {
+                node_id: read_u32(bytes, payload)?,
+                base_version: read_u32(bytes, payload + 4)?,
+                selections: read_bytes(bytes, payload + 8, records_len)?,
+            },
+            TAG_SET_SELECTIONS => return Err(ProtocolError::InvalidRecordLength),
             TAG_EDIT_CODE_GROUP if len == EDIT_CODE_GROUP_LEN => Mutation::EditCodeGroup {
                 node_id: read_u32(bytes, payload)?,
                 request_id: read_u32(bytes, payload + 4)?,
