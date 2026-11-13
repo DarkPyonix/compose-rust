@@ -11,10 +11,12 @@ import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -22,6 +24,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.wordWrapRule
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -482,6 +485,8 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+            // Several edits as one, all of them or none, answered once whatever became of it.
+            is Mutation.EditCodeGroup -> editCodeGroup(mutation)
 
             // The editor's selection and scroll are this side's, so these are requests
             // too: each is checked against the document and refused, with a protocol
@@ -502,6 +507,40 @@ class NodeTable {
                     CodePosition(mutation.startLine, mutation.startColumn),
                     CodePosition(mutation.endLine, mutation.endColumn),
                     mutation.align,
+                )
+                collectCode(node)
+            }
+            // Every selection the Host asked for, the first the primary one. A list that is
+            // not whole selections is reported here; the editor refuses one that names a
+            // place the document does not have.
+            is Mutation.SetSelections -> codeNode(mutation.nodeId, "SetSelections")?.let { (node, code) ->
+                val bytes = mutation.selections
+                if (bytes.isEmpty() || bytes.size % 16 != 0) {
+                    fail(
+                        TableError.INVALID_CODE_EDIT,
+                        "SetSelections on node ${node.id}: ${bytes.size} bytes are not whole selections of 16",
+                    )
+                } else {
+                    val values = IntArray(bytes.size / 4) { index ->
+                        (bytes[index * 4].toInt() and 0xff) or
+                            ((bytes[index * 4 + 1].toInt() and 0xff) shl 8) or
+                            ((bytes[index * 4 + 2].toInt() and 0xff) shl 16) or
+                            ((bytes[index * 4 + 3].toInt() and 0xff) shl 24)
+                    }
+                    code.hostSetSelections(mutation.baseVersion, values)
+                    collectCode(node)
+                }
+            }
+            // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
+            // or whose range the reader has typed over, is reported and dropped.
+            is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
+                code.hostInsertSnippet(
+                    mutation.baseVersion,
+                    mutation.startLine,
+                    mutation.startColumn,
+                    mutation.endLine,
+                    mutation.endColumn,
+                    mutation.snippet,
                 )
                 collectCode(node)
             }
@@ -749,6 +788,38 @@ class NodeTable {
     }
 
     /**
+     * Hands a grouped edit to its editor, which answers it exactly once.
+     *
+     * A record the decoder could not read arrives marked as such, ahead of the protocol
+     * error the decoder raises for it, so that the editor still answers it; nothing more is
+     * reported for it here. Edits that cannot be read are reported, and answered the same
+     * way. Edits that can be read but make no sense are the editor's to answer, and are no
+     * protocol error.
+     */
+    private fun editCodeGroup(mutation: Mutation.EditCodeGroup) {
+        if (mutation.malformed != null) {
+            val node = nodes[mutation.nodeId] ?: return
+            val code = node.code ?: return
+            code.hostEditGroupUnreadable(mutation.requestId, mutation.baseVersion, null)
+            collectCode(node)
+            return
+        }
+        val (node, code) = codeNode(mutation.nodeId, "EditCodeGroup") ?: return
+        var unreadable: String? = null
+        val edits = CodeEditorRecords.decodeEditGroup(mutation.edits) { message -> unreadable = message }
+        if (edits == null) {
+            code.hostEditGroupUnreadable(
+                mutation.requestId,
+                mutation.baseVersion,
+                unreadable ?: "a grouped edit could not be read",
+            )
+        } else {
+            code.hostEditGroup(mutation.requestId, mutation.baseVersion, edits)
+        }
+        collectCode(node)
+    }
+
+    /**
      * Hands a code editor what the Host just set on it. The text is compared with the
      * document rather than applied, and the two lists are read record by record, so a bad
      * record costs that record and nothing else.
@@ -782,6 +853,22 @@ class NodeTable {
                 (value as? PropertyValue.Bytes)?.value?.let { bytes ->
                     CodeEditorRecords.decodeGutterDecorations(bytes) { message ->
                         fail(TableError.INVALID_CODE_EDIT, "gutter decorations on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            // Read where the editor is drawn, which knows how wide it is. Here a rule that is
+            // not one is said once, when it arrives.
+            PropertyKind.WordWrap -> {
+                val raw = (value as? PropertyValue.Integer)?.value
+                if (raw != null && raw != 0L && wordWrapRule(raw) == null) {
+                    fail(TableError.INVALID_CODE_EDIT, "word wrap on node ${node.id}: $raw is not a rule")
+                }
+                return
+            }
+            PropertyKind.ViewZones -> code.setViewZones(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeViewZones(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "view zones on node ${node.id}: $message")
                     }
                 } ?: emptyList(),
             )
@@ -868,6 +955,36 @@ class NodeTable {
                 return
             }
         }
+        if (mutation.property == PropertyKind.ContentScale) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..ContentScale.entries.size.toLong()) {
+                // A scale this renderer does not know is a newer or a broken Host. The
+                // picture is drawn the way one that never chose is, whole and in its own
+                // proportions, rather than guessed at.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "image ${node.id} was given content scale $tag, which is not Fit (1), " +
+                        "Crop (2) or FillBounds (3); it is drawn as Fit",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
+        if (mutation.property == PropertyKind.TextAlign) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
+                // A tag this side has no alignment for. Guessing one would put the text on
+                // a side nobody asked for, so it is dropped and the text takes its default.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "node ${node.id} was given text alignment tag $tag, which is not one of " +
+                        "${TextAlign.entries.joinToString()} (1 to ${TextAlign.entries.size}); " +
+                        "the text takes its default alignment",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
@@ -902,6 +1019,17 @@ class NodeTable {
             return
         }
         val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.BackgroundBrush && !(modifier.tile_width > 0f && modifier.tile_height > 0f)) {
+            // A step that is not a size has no copies to place: a repeat would never end and
+            // a single copy has no tile to be. The modifier is refused and the slot keeps
+            // what it held.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "BackgroundBrush modifier on node ${mutation.nodeId} repeats every " +
+                    "${modifier.tile_width} by ${modifier.tile_height} dp; both must be more than zero",
+            )
+            return
+        }
         if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
             // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
             // would announce a control as something it is not, so the modifier is refused
@@ -1130,6 +1258,7 @@ class NodeTable {
                 -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+                PropertyKind.ThumbSize -> widget == WidgetKind.Slider
 
                 // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
@@ -1499,9 +1628,15 @@ class NodeTable {
                 // before the editor handles them.
                 PropertyKind.OnCaretRect,
                 PropertyKind.OnKeyPreview,
+                // The handler told what became of each grouped edit.
+                PropertyKind.OnEditGroupResult,
                 // The handler of its pointer events with the text under them. The kinds it
                 // hears are the node's `PointerKinds`, below.
                 PropertyKind.OnCodePointer,
+                // Whether it draws a minimap, and on which side, and its view zones.
+                PropertyKind.Minimap,
+                PropertyKind.ViewZones,
+                PropertyKind.WordWrap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
@@ -1555,6 +1690,10 @@ class NodeTable {
 
                 // The tallest a sheet grows. A dialog sizes itself to its content.
                 PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
+
+                // How a picture is laid into its box. An icon takes its design system's
+                // optical size, so only an image has a box to lay it into.
+                PropertyKind.ContentScale -> widget == WidgetKind.Image
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

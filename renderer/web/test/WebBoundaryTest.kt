@@ -1,4 +1,4 @@
-@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class)
+@file:OptIn(kotlin.js.ExperimentalWasmJsInterop::class, kotlinx.coroutines.DelicateCoroutinesApi::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
@@ -9,10 +9,14 @@ import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import kotlin.js.Promise
 import kotlin.test.Test
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.await
+import kotlinx.coroutines.promise
 
 /**
  * The web boundary, running in a browser, against the Host built from the same Rust source
@@ -34,8 +38,8 @@ import kotlin.test.fail
  */
 class WebBoundaryTest {
     @Test
-    fun pr6_the_two_modules_share_one_memory_and_the_batch_is_read_in_place() {
-        val connection = hostOrNull() ?: return
+    fun pr6_the_two_modules_share_one_memory_and_the_batch_is_read_in_place(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         val table = NodeTable()
         val mutations = mutableListOf<Mutation>()
         connection.init { mutation ->
@@ -52,6 +56,7 @@ class WebBoundaryTest {
             "the batch decoded with errors, so the two sides disagree about the arena",
         )
         connection.shutdown()
+        null
     }
 
     /**
@@ -62,8 +67,8 @@ class WebBoundaryTest {
      * whether or not the handler ran.
      */
     @Test
-    fun pr6_a_click_reaches_the_host_and_its_state_change_comes_back() {
-        val connection = hostOrNull() ?: return
+    fun pr6_a_click_reaches_the_host_and_its_state_change_comes_back(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -91,6 +96,7 @@ class WebBoundaryTest {
         )
         assertTrue(table.drainErrors().isEmpty(), "the reply batches decoded with errors")
         connection.shutdown()
+        null
     }
 
     /**
@@ -98,8 +104,8 @@ class WebBoundaryTest {
      * whole, through a buffer the Host lent for it, and the state it changed comes back.
      */
     @Test
-    fun pr6_an_event_larger_than_the_lent_buffer_arrives_whole() {
-        val connection = hostOrNull() ?: return
+    fun pr6_an_event_larger_than_the_lent_buffer_arrives_whole(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -128,6 +134,7 @@ class WebBoundaryTest {
         )
         assertTrue(table.drainErrors().isEmpty(), "the reply batches decoded with errors")
         connection.shutdown()
+        null
     }
 
     /**
@@ -135,8 +142,8 @@ class WebBoundaryTest {
      * what it lent for a request it already satisfies, and refuses past that.
      */
     @Test
-    fun pr6_an_event_past_the_ceiling_is_refused() {
-        val connection = hostOrNull() ?: return
+    fun pr6_an_event_past_the_ceiling_is_refused(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         val lent = hostLendEventBuffer(8 * 1024)
         assertTrue(lent >= RUST_REGION_BASE, "the Host lent at $lent, outside its region")
         assertTrue(
@@ -153,6 +160,7 @@ class WebBoundaryTest {
             "a refusal leaves the buffer lent before it in place",
         )
         connection.shutdown()
+        null
     }
 
     /**
@@ -164,8 +172,8 @@ class WebBoundaryTest {
      * page failed the page check with nothing but that line.
      */
     @Test
-    fun nfr7_a_refused_event_is_named_in_the_error() {
-        val connection = hostOrNull() ?: return
+    fun nfr7_a_refused_event_is_named_in_the_error(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         connection.init { }
         val report = HostEvent.ProtocolError(
             nodeId = 0,
@@ -184,6 +192,7 @@ class WebBoundaryTest {
             )
         }
         connection.shutdown()
+        null
     }
 
     /**
@@ -200,8 +209,8 @@ class WebBoundaryTest {
      * boundary.
      */
     @Test
-    fun pr6_the_direct_call_cost_is_measured_and_recorded() {
-        val connection = hostOrNull() ?: return
+    fun pr6_the_direct_call_cost_is_measured_and_recorded(): Promise<JsAny?> = GlobalScope.promise<JsAny?> {
+        val connection = hostOrNull() ?: return@promise null
         val table = NodeTable()
         connection.init { table.apply(it) }
 
@@ -224,6 +233,7 @@ class WebBoundaryTest {
                 "this test refuses to let pass unnoticed",
         )
         connection.shutdown()
+        null
     }
 
     /** The best of several timed runs, in nanoseconds per call. */
@@ -291,8 +301,8 @@ class WebBoundaryTest {
     }
 
     /** The Host, or null with a printed reason, because a page may be served without one. */
-    private fun hostOrNull(): WebHostConnection? {
-        if (compileHostForTest(HOST_WASM) == 0) {
+    private suspend fun hostOrNull(): WebHostConnection? {
+        if (compileHostForTest(HOST_WASM).await<JsNumber>().toInt() == 0) {
             println(
                 "pr6 skipped: no $HOST_WASM beside the test page. Run " +
                     "renderer/web/scripts/build-host.sh first.",
@@ -337,35 +347,29 @@ private fun NodeTable.firstOfKind(kind: WidgetKind): Node? =
 /**
  * Fetches and compiles the Host, and leaves it where the generated instantiation looks.
  *
- * Synchronous, because a `kotlin.test` test is. The page the toolchain generates for a test
- * run cannot load a module of its own, which is what would otherwise have done this before
- * the test started, so the fetch happens here and has to be finished by the time it returns.
- * Only this part is test-only: what the address goes on to do is the generated wiring.
+ * The page the toolchain generates for a test run cannot load a module of its own, which is
+ * what would otherwise have done this before the test started, so the fetch happens here.
+ * It compiles asynchronously for the same reason the page does: a browser refuses a
+ * synchronous compile of a module over 8MB on its main thread. Only this part is test-only:
+ * what the module goes on to do is the generated wiring.
  */
 @JsFun(
-    """(url) => {
-  try {
-    const request = new XMLHttpRequest();
-    request.open('GET', url, false);
-    // A synchronous request cannot ask for an ArrayBuffer, so the bytes come back as a
-    // string whose character codes are the bytes, which is what this charset is for.
-    request.overrideMimeType('text/plain; charset=x-user-defined');
-    request.send(null);
-    if (request.status !== 200) return 0;
-    const text = request.responseText;
-    const bytes = new Uint8Array(text.length);
-    for (let index = 0; index < text.length; index++) {
-      bytes[index] = text.charCodeAt(index) & 0xff;
-    }
-    globalThis.__composeRustHostModule = new WebAssembly.Module(bytes);
-    return 1;
-  } catch (error) {
+    """(url) => fetch(url)
+  .then((response) => {
+    if (!response.ok) return 0;
+    return response.arrayBuffer()
+      .then((bytes) => WebAssembly.compile(bytes))
+      .then((module) => {
+        globalThis.__composeRustHostModule = module;
+        return 1;
+      });
+  })
+  .catch((error) => {
     console.info('compose-rust: could not compile the Host for the test: ' + error);
     return 0;
-  }
-}""",
+  })""",
 )
-private external fun compileHostForTest(url: String): Int
+private external fun compileHostForTest(url: String): Promise<JsNumber>
 
 /** Milliseconds, as the page's own clock reports them. */
 @JsFun("() => performance.now()")

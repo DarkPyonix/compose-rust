@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
+import dev.darkpyonix.composerust.protocol.BackgroundRepeat
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -69,13 +70,16 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -315,6 +319,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 chain.boxShadow(value, brush, corners, shape, curve ?: 0f)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
+            // CSS `background-image` with its position, size and repeat: one brush laid into
+            // a rectangle and repeated across the node, cut to the node's outline. Drawn
+            // where it sits in the chain, so a layer after the background colour lies over it.
+            is ProtocolModifier.BackgroundBrush -> theme.brush(value.paint)?.let { brush ->
+                chain.backgroundBrush(value, brush, corners?.withCornerCurve(curve) ?: shape)
+            } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
+
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
             // where it has none.
             is ProtocolModifier.Clip ->
@@ -377,6 +388,68 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
     return attachPressableIfNeeded(folded)
+}
+
+/**
+ * One background layer: [brush] laid into the rectangle [value] names and repeated across
+ * the node the way its repeat says, cut to [outline].
+ *
+ * Each copy is the brush drawn into a rectangle of its own, so a gradient is measured
+ * against one tile, as CSS measures a `background-image` against its `background-size`.
+ * A repeat runs both ways from the rectangle until it is past the node's edges, and only
+ * the copies that reach into the node are drawn. Drawn behind the content, as a background.
+ */
+private fun Modifier.backgroundBrush(
+    value: ProtocolModifier.BackgroundBrush,
+    brush: Brush,
+    outline: Shape,
+): Modifier = drawWithCache {
+    val cut = if (outline === RectangleShape) null else outline.createOutline(size, layoutDirection, this)
+    val clip = cut?.let { Path().apply { addOutline(it) } }
+    val left = value.x.dp.toPx()
+    val top = value.y.dp.toPx()
+    val tile = Size(value.width.dp.toPx(), value.height.dp.toPx())
+    val stepX = value.tile_width.dp.toPx()
+    val stepY = value.tile_height.dp.toPx()
+    val acrossX = value.repeat == BackgroundRepeat.Repeat || value.repeat == BackgroundRepeat.RepeatX
+    val acrossY = value.repeat == BackgroundRepeat.Repeat || value.repeat == BackgroundRepeat.RepeatY
+    // The copies that reach into the node, counted from the one at the rectangle.
+    val columns = if (acrossX) copiesAcross(left, tile.width, stepX, size.width) else 0..0
+    val rows = if (acrossY) copiesAcross(top, tile.height, stepY, size.height) else 0..0
+    onDrawBehind {
+        if (tile.width <= 0f || tile.height <= 0f) return@onDrawBehind
+        val paintCopies: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = {
+            for (row in rows) {
+                for (column in columns) {
+                    // The drawing area is made the tile's own, because a brush is
+                    // measured against the area it is drawn in, not the rectangle.
+                    withTransform({
+                        translate(left + column * stepX, top + row * stepY)
+                        inset(0f, 0f, size.width - tile.width, size.height - tile.height)
+                    }) {
+                        drawRect(brush)
+                    }
+                }
+            }
+        }
+        if (clip == null) {
+            clipRect { paintCopies() }
+        } else {
+            clipPath(clip) { paintCopies() }
+        }
+    }
+}
+
+/**
+ * Which copies of a tile [length] long, placed every [step] from [start], reach into a span
+ * from 0 to [extent]: copy 0 is the one at [start], and the range runs both ways from it.
+ */
+private fun copiesAcross(start: Float, length: Float, step: Float, extent: Float): IntRange {
+    if (step <= 0f || length <= 0f) return 0..0
+    // A copy n covers start + n * step to start + n * step + length.
+    val first = kotlin.math.ceil((-length - start) / step).toInt()
+    val last = kotlin.math.floor((extent - start) / step).toInt()
+    return if (first > last) 0..-1 else first..last
 }
 
 /**

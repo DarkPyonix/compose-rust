@@ -756,6 +756,20 @@ impl Host {
                 self.arm_scheduler_wake();
                 return Ok((self.runtime.batch_mut().finish()?, 0));
             }
+            // The system's light or dark appearance, the same kind of report: no node, no
+            // handler, and only a change wakes anyone.
+            EventPayload::ColorSchemeChanged(scheme) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                self.batch().begin();
+                if crate::theme::publish_system_color_scheme(scheme) {
+                    self.runtime.render(None);
+                }
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
             // A moment in an animation the Renderer is playing. It names the node the
             // animation plays on but no handler: whoever registered for animation events
             // hears about it, and what they change is rendered in the same call, so a

@@ -221,6 +221,17 @@ pub enum EventPayloadType {
     /// the column of the text under the pointer, both `u32::MAX` where it is over none. A
     /// fixed 80-byte record.
     CodePointer,
+    /// Every selection of a code editor, the primary first: the document version, then a
+    /// reference to 16-byte records behind the record (anchor line, anchor column, active
+    /// line, active column). A fixed 28-byte record and its selections.
+    CodeSelections,
+    /// What became of one grouped edit of a code editor: the request id, an
+    /// `EditGroupStatus` word, the version the group was written against, the version the
+    /// document is at now and the index of the edit that decided it (or, applied, how many
+    /// edits went in). A fixed 36-byte record.
+    CodeEditGroupResult,
+    /// One `u32`: whether the system appearance is light (0) or dark (1).
+    ColorScheme,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -234,13 +245,13 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_caret_rect,on_key_preview,on_code_pointer,radio_group;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect;",
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect,InsertSnippet,SetSelections;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
     "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius;",
@@ -418,6 +429,9 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeCaretRect => 35,
                 EventPayloadType::CodePositionRect => 36,
                 EventPayloadType::CodePointer => 37,
+                EventPayloadType::CodeEditGroupResult => 38,
+                EventPayloadType::ColorScheme => 39,
+                EventPayloadType::CodeSelections => 40,
             }],
         );
         index += 1;
@@ -427,6 +441,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
     hash
 }
 
@@ -663,6 +678,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -963,11 +992,15 @@ define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     Xxl = 7,
 });
 
+// `Start` and `End` follow the writing direction and swap in right-to-left text. `Left`
+// and `Right` are physical, as CSS `text-align: left|right` is, and never swap.
 define_wire_enum!(TEXT_ALIGN_SCHEMA, TextAlign {
     Start = 1,
     Center = 2,
     End = 3,
     Justify = 4,
+    Left = 5,
+    Right = 6,
 });
 
 define_wire_enum!(TEXT_OVERFLOW_SCHEMA, TextOverflow {
@@ -1334,6 +1367,13 @@ define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
     Unknown = 3,
 });
 
+// Whether the system appearance is light or dark, as the Renderer reads it. Unlike
+// `ColorScheme`, it has no `FollowSystem`: it is the answer that choice follows.
+define_wire_enum!(SYSTEM_COLOR_SCHEME_SCHEMA, SystemColorScheme {
+    Light = 0,
+    Dark = 1,
+});
+
 define_wire_enum!(POINTER_KIND_SCHEMA, PointerKind {
     Move = 1,
     Enter = 2,
@@ -1573,6 +1613,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: REDUCED_MOTION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "SystemColorScheme",
+        variants: SYSTEM_COLOR_SCHEME_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "DecorationKind",
         variants: DECORATION_KIND_SCHEMA,
     },
@@ -1629,12 +1673,24 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: FILE_DIALOG_STATUS_SCHEMA,
     },
     RoleEnumSchema {
+        name: "EditGroupStatus",
+        variants: EDIT_GROUP_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "CompactNavigation",
         variants: COMPACT_NAVIGATION_SCHEMA,
     },
     RoleEnumSchema {
         name: "Snap",
         variants: SNAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MinimapSide",
+        variants: MINIMAP_SIDE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WordWrapMode",
+        variants: WORD_WRAP_MODE_SCHEMA,
     },
     RoleEnumSchema {
         name: "StorageOp",
@@ -1667,6 +1723,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "PopoverAlign",
         variants: POPOVER_ALIGN_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ContentScale",
+        variants: CONTENT_SCALE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "BackgroundRepeat",
+        variants: BACKGROUND_REPEAT_SCHEMA,
     },
 ];
 
@@ -1769,10 +1833,54 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
 // `ItemStart` stops with the start edge of the nearest direct child on the start of the
 // visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
 // does.
+// Where a code editor breaks a long line, the mode part of the `WordWrap` property: at the
+// edge of the view, at a number of columns, or at whichever of the two comes first. `Off`
+// breaks no line, which is what an editor that never sets it does.
+define_wire_enum!(WORD_WRAP_MODE_SCHEMA, WordWrapMode {
+    Viewport = 1,
+    Column = 2,
+    Bounded = 3,
+} unlisted {
+    Off = 0,
+});
+
+// Which side of a code editor its minimap is drawn on: the whole document shrunk, with the
+// part on screen marked, which a press or a drag scrolls to. `Off` draws none, which is what
+// an editor that never sets it does.
+define_wire_enum!(MINIMAP_SIDE_SCHEMA, MinimapSide {
+    Right = 1,
+    Left = 2,
+} unlisted {
+    Off = 0,
+});
+
 define_wire_enum!(SNAP_SCHEMA, Snap {
     ItemStart = 1,
 } unlisted {
     None = 0,
+});
+
+// How an `Image` lays its picture into the box it was given, as Compose's `ContentScale`.
+//
+// `Fit` keeps the picture's proportions and shows all of it, centred, leaving the rest of
+// the box empty. `Crop` keeps the proportions and covers the whole box, centred, cutting
+// off what falls outside. `FillBounds` stretches the picture to the box in each direction
+// on its own, which is CSS `object-fit: fill`. Not sending the property draws `Fit`.
+define_wire_enum!(CONTENT_SCALE_SCHEMA, ContentScale {
+    Fit = 1,
+    Crop = 2,
+    FillBounds = 3,
+});
+
+// How a `BackgroundBrush` repeats its rectangle across the node, as CSS
+// `background-repeat` does: not at all, in both directions, along the width only, or
+// along the height only. A repeat runs both ways from the rectangle, so a node is covered
+// to its edges whichever corner the rectangle sits in.
+define_wire_enum!(BACKGROUND_REPEAT_SCHEMA, BackgroundRepeat {
+    NoRepeat = 1,
+    Repeat = 2,
+    RepeatX = 3,
+    RepeatY = 4,
 });
 
 // How the application uses windows. `Single` is every application until now: the
@@ -1808,6 +1916,20 @@ define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
     Chosen = 1,
     Cancelled = 2,
     Unavailable = 3,
+});
+
+// What became of one grouped edit of a code editor. The group goes in whole or not at all,
+// and each way it can stay out asks the application for something different: `Rejected`
+// means the reader typed where it would have written, so read the document again and send
+// it again; `TooOld` means the version it was written against is older than the editor
+// remembers, so the application's copy has to be brought back in step; `Invalid` means the
+// group itself makes no sense (edits that overlap, a range outside the document, a version
+// from the future).
+define_wire_enum!(EDIT_GROUP_STATUS_SCHEMA, EditGroupStatus {
+    Applied = 1,
+    Rejected = 2,
+    Invalid = 3,
+    TooOld = 4,
 });
 
 // How the files a Renderer holds handles for reached it. Closed, because what an
@@ -2467,6 +2589,28 @@ pub enum Modifier {
     CornerCurve {
         smoothing: f32,
     },
+    /// A brush laid into a rectangle of this node and repeated across it, the way CSS
+    /// draws one `background-image` layer with its `background-position`,
+    /// `background-size` and `background-repeat`.
+    ///
+    /// `x`, `y`, `width` and `height` are the rectangle in dp from the node's top left
+    /// corner, which is one tile: a gradient is measured against it, not against the node.
+    /// `repeat` says which ways the tile repeats and `tile_width` and `tile_height` how far
+    /// apart the copies are, in dp; a plain CSS repeat sends the rectangle's own size, and
+    /// `space` or `round` the step the Host worked out. The layer is cut to the node's
+    /// outline, its corners included. Several layers are several of these, the first
+    /// drawn at the bottom, so a Host sends a CSS list last to first. A tile width or
+    /// height of zero or less, and any value that is not a finite number, is refused.
+    BackgroundBrush {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        paint: Paint,
+        repeat: BackgroundRepeat,
+        tile_width: f32,
+        tile_height: f32,
+    },
 }
 
 /// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
@@ -3085,6 +3229,49 @@ const CORNER_CURVE_FIELDS: &[FieldSchema] = &[FieldSchema {
     slot: FieldSlot::FirstLow,
 }];
 
+const BACKGROUND_BRUSH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "repeat",
+        ty: FieldType::Role("BackgroundRepeat"),
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "tile_width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "tile_height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+];
+
 const SEMANTICS_FIELDS: &[FieldSchema] = &[
     FieldSchema {
         name: "role",
@@ -3305,6 +3492,14 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 35,
         extra_words: 0,
         fields: CORNER_CURVE_FIELDS,
+    },
+    // 28, the first of the tags set aside above. The rectangle, the paint, the repeat and
+    // the step take five words, three past the two every record has.
+    VariantSchema {
+        name: "BackgroundBrush",
+        tag: 28,
+        extra_words: 3,
+        fields: BACKGROUND_BRUSH_FIELDS,
     },
 ];
 
@@ -3659,7 +3854,10 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // than inside a widget's block: 187 to 192 are held by properties other requirements
     // have numbered.
     OnMotionFinished = 193,
-    // The handler a code editor tells where its caret is drawn. 190 to 194 are held by
+    // The handler a code editor reports what became of each grouped edit to, the handler id
+    // as an integer: one `CodeEditGroupResult` for every `EditCodeGroup`.
+    OnEditGroupResult = 194,
+    // The handler a code editor tells where its caret is drawn. 190 and 191 are held by
     // properties on other branches.
     OnCaretRect = 195,
     // The handler a code editor offers each key press to before it handles the key itself.
@@ -3673,6 +3871,24 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // one stop for Tab, its arrow keys move between the radio buttons inside it, and
     // assistive technology hears it as a radio group. Absent is no.
     RadioGroup = 198,
+    // Whether a code editor draws a minimap beside its text, and on which side, as a
+    // `MinimapSide` tag. Absent or 0 draws none. 199 and 200 are held by the editor's view
+    // zones and its word wrap.
+    Minimap = 201,
+    // A code editor's view zones, rows after a line that are not text, as a blob of
+    // fixed-length records sent whole, with the text they show behind them.
+    ViewZones = 199,
+    // Where a code editor breaks a line too long for it onto the rows below, as an integer:
+    // the `WordWrapMode` tag in the low 16 bits and the column count above them. Absent or
+    // 0 breaks no line.
+    WordWrap = 200,
+    // How an `Image` lays its picture into its box, as a `ContentScale` tag. Absent or 0
+    // is `Fit`, which is how every picture was drawn before there was a choice. 37 is the
+    // next place in the 28 to 39 block, after the divider's `Vertical`.
+    ContentScale = 37,
+    // The diameter in dp a Slider draws its thumb at, an f32. Absent is the design system's
+    // size. The track and the area that takes a press stay as they are.
+    ThumbSize = 202,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3812,6 +4028,9 @@ pub enum EventPayload<'a> {
     /// Whether the platform asks for reduced motion, sent once after start and then only
     /// when the answer changes.
     ReducedMotionChanged(ReducedMotion),
+    /// Whether the system appearance is light or dark, sent once before the first frame and
+    /// then only when it changes. It is sent whatever the theme's `color_scheme` is.
+    ColorSchemeChanged(SystemColorScheme),
     /// A pointer did something inside a node that subscribed to it. Coordinates are in dp
     /// from the node's top left corner, `buttons` is what is held now and `button` is the
     /// one that caused a `Down` or an `Up`. `timestamp_nanos` is on the frame time's clock.
@@ -4057,6 +4276,25 @@ pub enum EventPayload<'a> {
         delta_mode: WheelDeltaMode,
         timestamp_nanos: u64,
         position: Option<crate::code::Position>,
+    },
+    /// Every selection of a code editor, the primary first, read against `version`: sent
+    /// while there is more than one, and once more when it comes back to one, to the same
+    /// listener as `SelectionChanged`, which goes on reporting the primary alone.
+    /// `selections` is 16-byte records, which [`crate::code::SelectionsChange`] reads.
+    SelectionsChanged {
+        version: u32,
+        selections: &'a [u8],
+    },
+    /// What became of one `EditCodeGroup`, sent exactly once for each. `current_version`
+    /// is the version after the last change the group made where it went in, and the
+    /// document's version where it did not. `index` is the position in the group, as sent,
+    /// of the edit that kept it out, or the number of edits that went in.
+    CodeEditGroupResult {
+        request_id: u32,
+        status: EditGroupStatus,
+        base_version: u32,
+        current_version: u32,
+        index: u32,
     },
 }
 
@@ -4393,8 +4631,15 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 50,
         payload: EventPayloadType::FileDialogResult,
     },
-    // Tags 51 to 55 are held by events other requirements have numbered. Like a file dialog's
-    // end, a clipboard read addresses the Host itself and is found by its request number.
+    // What became of a grouped edit of a code editor, reported to the editor's own handler.
+    EventSchema {
+        name: "CodeEditGroupResult",
+        tag: 51,
+        payload: EventPayloadType::CodeEditGroupResult,
+    },
+    // Tags 52 and 53 are held by events other requirements have numbered. Like a file
+    // dialog's end, a clipboard read addresses the Host itself and is found by its request
+    // number.
     EventSchema {
         name: "ClipboardText",
         tag: 56,
@@ -4461,6 +4706,18 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "CodePointer",
         tag: 66,
         payload: EventPayloadType::CodePointer,
+    },
+    // About the platform rather than a node, like the reduced motion setting.
+    EventSchema {
+        name: "ColorSchemeChanged",
+        tag: 52,
+        payload: EventPayloadType::ColorScheme,
+    },
+    // Every selection of a code editor, to its selection listener.
+    EventSchema {
+        name: "SelectionsChanged",
+        tag: 67,
+        payload: EventPayloadType::CodeSelections,
     },
 ];
 

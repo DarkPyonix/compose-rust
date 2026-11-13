@@ -160,6 +160,8 @@ Host 측 규칙:
 1. 새 키마다 태그가 위 값이고 인코딩 후 디코딩해도 같습니다(fr12_named_keys_are_appended_and_round_trip).
 2. Renderer가 Compose의 해당 키를 각 이름으로 보냅니다(fr12_named_keys_map_to_their_protocol_key).
 
+**기능 키와 메뉴 키**(이슈 #717, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Key`에 `F1`부터 `F12`(15부터 26)와 `ContextMenu`(27)를 덧붙입니다(추가 전용). Renderer는 Compose의 해당 키를 그 이름으로 보냅니다. Shift+F10은 Shift 수정자를 가진 `F10`입니다. 수용 기준: F2, F12, Shift+F10, Menu 키가 각각 그 이름과 수정자로 옵니다(fr12_function_and_context_menu_keys).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -736,7 +738,7 @@ LaunchBuilder::new()
 ##### 14.10.5 수용 기준
 
 1. `Primary`의 라이트·다크 값을 준 앱의 `Filled` 버튼이 일곱 디자인 시스템 모두에서 그 색으로 채워지고, 버튼의 모양과 눌림 표현은 시스템마다 다릅니다.
-2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host로 가는 이벤트와 Host가 보내는 `SetTheme` 없이 다크 값으로 바뀝니다.
+2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host의 응답이나 `SetTheme` 없이 다크 값으로 바뀝니다. Host로 가는 것은 FR-44의 알림 하나뿐입니다([leader, provisional] (darkpyonix leader, 2026-11-13)).
 3. 앱이 정하지 않은 역할(예: `Outline`)은 그 디자인 시스템의 값과 같습니다. 라이트 값만 준 역할의 다크 값은 디자인 시스템의 다크 값입니다.
 4. `Primary`만 주고 `OnPrimary`를 주지 않은 경우, Renderer가 고른 잉크가 3:1 이상입니다. 밝은 노랑과 진한 남색 두 경우에서 서로 다른 잉크(검정과 흰색)가 나옵니다.
 5. `Palette::check`가 대비를 어기는 쌍을 돌려주고, 어기지 않는 팔레트에는 빈 목록을 돌려줍니다.
@@ -2688,6 +2690,19 @@ Notification::new("세션이 끝났습니다")
 22. 줄 배경과 범위 배경 장식(이슈 #542, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식에 `LineBackground { line_start, line_end, color: ColorRole }`와 `RangeBackground { range, color: ColorRole }`가 더해집니다(장식 종류 값은 추가 전용으로 뒤에 붙입니다). 줄 배경은 편집기 폭 전체(줄 끝 너머 포함)를 칠하고, 범위 배경은 그 안의 바뀐 글자들을 더 진하게 칠합니다. 색은 `DiffAdded`, `DiffRemoved`, `DiffModified` 같은 역할만 받습니다. 다른 장식과 같이 편집을 따라 움직입니다(기준 4의 규칙).
     1. `DiffAdded` 줄 배경이 그 줄의 편집기 폭 전체를 칠하고(줄 끝 너머 픽셀 포함) 앞에 줄을 끼우면 아래로 따라갑니다(fr38_line_background_spans_the_width_and_follows_edits).
     2. 범위 배경이 그 글자들만 칠합니다(fr38_range_background_paints_its_characters).
+23. 스니펫 세션(이슈 #556, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 명령 `InsertSnippet { version, range, snippet }`(명령 태그 40). 스니펫은 VS Code 문법의 부분집합입니다: `$1`, `${1:자리 글자}`, `${1|선택,지|}`, `$0`, `\$` 이스케이프. 편집기는 범위를 스니펫의 글자로 바꾸고 세션을 엽니다. Tab과 Shift+Tab이 탭 정지 사이를 오가고, 같은 번호의 자리는 함께 고쳐지며(미러), 선택지 자리는 목록을 엽니다. `$0`에 닿거나 Escape를 누르거나 캐럿이 세션 밖으로 나가면 끝납니다. 삽입은 실행 취소 한 단계이고, 바뀐 글자는 보통의 `CodeChanged`로 갑니다.
+    1. `fn ${1:name}(${2:args}) {$0}` 삽입 뒤 캐럿이 `name`을 고른 상태이고, Tab이 `args`로, 다시 Tab이 `$0`로 가며 세션이 끝납니다(fr38_snippet_tab_stops).
+    2. 같은 번호 두 자리 중 하나를 고치면 다른 하나도 같은 글자가 됩니다(fr38_snippet_mirrors_edit_together).
+24. 보기 영역(이슈 #543, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `ViewZones`(속성 태그 199): 레코드 열 `{ after_line, height_lines: f32, text }`. 영역은 그 줄 뒤에 글자가 아닌 행을 끼웁니다(diff의 빈 맞춤 줄). 캐럿, 선택, 복사가 건너뛰고, 편집을 따라 움직이며(앞에 줄을 끼우면 아래로), 보이는 범위 이벤트는 모델 줄로 보고합니다. `text`가 있으면 흐린 글자로 그립니다.
+    1. 3번째 줄 뒤 2줄 높이 영역이 그 높이만큼 4번째 줄을 아래로 밀고, 아래 화살표가 영역을 건너뛰고, 앞에 줄을 끼우면 영역이 따라갑니다(fr38_view_zones_push_lines_and_are_skipped).
+25. 줄 감싸기(이슈 #548, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `WordWrap`(속성 태그 200): `Off`(기본), `Viewport`, `Column(n)`, `Bounded(n)`(둘 중 좁은 쪽). 긴 줄은 보이는 줄 여러 개로 나뉘고, 위아래 화살표와 Home/End는 보이는 줄을 따르며, 적중 판정, 선택, 장식은 보이는 줄 위에 그려지고, 줄 번호는 첫 보이는 줄에만, 보이는 범위 이벤트는 모델 줄로 보고합니다.
+    1. 폭 200dp에서 `Viewport`이면 500자 한 줄이 여러 보이는 줄로 그려지고, 아래 화살표가 같은 모델 줄의 다음 보이는 줄로 갑니다(fr38_word_wrap_viewport_breaks_long_lines).
+    2. `Column(40)`이면 40열에서 나뉩니다(fr38_word_wrap_column).
+26. 여러 캐럿(이슈 #549, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기는 선택 여러 개를 가집니다. 이벤트 `SelectionsChanged`(이벤트 태그 67, 선택 목록: anchor와 active 쌍들, 첫째가 주 선택)와 명령 `SetSelections`(명령 태그 41). Alt+클릭이 캐럿을 더하고, Cmd/Ctrl+D가 다음 같은 글자를 더하고, Alt+Cmd/Ctrl+위/아래가 위아래 줄에 더합니다. 타이핑, 지우기, 붙여넣기는 모든 선택에 적용되고 실행 취소 한 단계입니다. Escape가 주 선택 하나로 돌아갑니다. 기존 `SelectionChanged`는 주 선택을 계속 보냅니다.
+    1. 세 줄에 캐럿 셋을 두고 "x"를 치면 세 줄 모두에 들어가고 실행 취소 한 번에 모두 사라집니다(fr38_multi_cursor_types_at_every_caret).
+    2. Cmd/Ctrl+D가 다음 일치를 더합니다(fr38_multi_cursor_add_next_match).
+27. 미니맵(이슈 #550, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `Minimap`(속성 태그 201): `Off`(기본), `Right`, `Left`. 줄인 문서 전체와 보이는 영역 표시를 그리고, 누르거나 끌면 그 자리로 스크롤하며, 장식(진단, 찾기 결과, diff 줄 배경) 표시를 보입니다.
+    1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -4159,6 +4174,8 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 색과 크기를 준 컨트롤에서 그 속성을 제거하면(제거 전달 뒤) 측정 크기와 색이 디자인 시스템 기본값으로 돌아옵니다. 시험 이름은 `fr67_`로 시작합니다.
 
 **RadioButton의 색과 크기, 라디오 묶음**(이슈 #545, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `RadioButton`에 `ring_color`, `dot_color`, `size(side)`가 있습니다. Checkbox와 같은 방식으로 기존 `ContainerColor`, `CheckColor`, `ControlSize` 속성을 씁니다. 지정하지 않으면 디자인 시스템이 그립니다(일곱 시스템 모두). `Column`과 `Row`의 `radio_group(true)`(속성 `RadioGroup`, 속성 태그 198, bool)는 그 노드에 접근성 역할 radiogroup을 주고, 그 안의 RadioButton들은 탭 정지 하나(선택된 것, 없으면 첫째)를 나누며 위, 아래, 왼쪽, 오른쪽 화살표가 선택을 옮깁니다. 옮기면 그 버튼의 `on_click`이 한 번 가고, 선택 상태는 Host가 정합니다. 수용 기준: 세 버튼 묶음에서 Tab은 묶음에 한 번만 멈추고, 아래 화살표가 다음 버튼의 클릭을 한 번 보내며 포커스를 옮깁니다(fr67_radio_group_arrow_keys_move_the_selection). `ring_color`를 준 버튼의 고리 픽셀이 그 색입니다(fr67_radio_button_colours).
+
+**Slider 손잡이 크기**(이슈 #718, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Slider::thumb_size(dp)`(속성 `ThumbSize`, 속성 태그 202, f32). 지정하지 않으면 디자인 시스템의 크기입니다. 트랙 높이와 누르는 영역은 바뀌지 않습니다(누르는 영역은 최소 44dp를 지킵니다). 수용 기준: `thumb_size(12)`인 슬라이더의 손잡이 지름이 12dp이고, 손잡이를 끌면 값이 바뀝니다(fr67_slider_thumb_size).
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
