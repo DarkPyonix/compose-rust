@@ -15,9 +15,9 @@ import org.graalvm.nativeimage.c.type.CTypeConversion
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import org.graalvm.word.Pointer
+import org.thisisthepy.compose.window.TextScale
 import org.thisisthepy.compose.window.WindowEvent
 import org.thisisthepy.compose.window.WindowMeasurement
 import org.thisisthepy.compose.window.AccessibleElement
@@ -109,6 +109,10 @@ private external fun setCursorShape(shape: Int)
 
 @CFunction("dxc_native_set_accessibility")
 private external fun setAccessibility(elements: Pointer?, count: Int, window: Pointer?)
+
+/** The Text size slider as a percent, 0 when it was never moved (the window's C reads the registry). */
+@CFunction("dxc_native_text_scale_percent")
+private external fun textScalePercent(): Int
 
 /**
  * The five pointers a window is, once Win32 and DXGI have made one.
@@ -251,6 +255,11 @@ private fun drainWindowEvents(): List<WindowEvent> {
             if (byte == ZERO) break
             bytes[length] = byte
             length++
+        }
+        // A text size change carries the slider's percent in x; the scene wants the multiplier.
+        if (record.readInt(0) == WindowEvent.TEXT_SCALE_CHANGED) {
+            events.add(WindowEvent.TextScaleChanged(TextScale.fromWindowsPercent(record.readFloat(4).toInt())))
+            continue
         }
         events.add(
             WindowEvent(
@@ -445,8 +454,10 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // there: a list asking for the rows it is about to show asked from a thread with no
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
+    // The system's text size, the scene's font scale, followed while the window is open.
+    val textScale = WindowTextScale(TextScale.fromWindowsPercent(textScalePercent()))
     val scene = CanvasLayersComposeScene(
-        density = Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, ::setCursorShape),
@@ -500,7 +511,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         nanos = frameTime.next()
         val begun = System.nanoTime()
         LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
-        val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos) else drawFrame(window, context, scene, nanos)
+        val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos, textScale) else drawFrame(window, context, scene, nanos, textScale)
         if (at != null) {
             size = at
             painted = true
@@ -549,6 +560,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                 if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
                     LatencyTrace.mark("window heard ${event.kind}")
                 }
+                textScale.receive(event)
                 // Told which desktop it is, because the key numbers differ: the shared
                 // table is macOS's, and without this Home arrives as Enter.
                 scene.receive(event, win32 = true)
@@ -594,6 +606,7 @@ private fun drawFrame(
     context: org.jetbrains.skia.DirectContext,
     scene: ComposeScene,
     nanos: Long,
+    textScale: WindowTextScale,
 ): IntSize? {
     val resource = window.beginFrame()
     if (resource == 0L) return null
@@ -601,7 +614,7 @@ private fun drawFrame(
     // refitted is refitted, and what is measured here is the buffer that came back.
     val measured = window.measure()
     val fitted = IntSize(measured.width, measured.height)
-    val density = Density(measured.scale)
+    val density = textScale.density(measured.scale)
     // The window was resized, or moved onto a screen of another density. Told to the
     // scene here, because a buffer that fits and a scene that does not is a window drawing
     // its old size into a corner of its new one.
@@ -656,11 +669,11 @@ class RasterTarget(val address: Long, val rowBytes: Int, val width: Int, val hei
  * space and pixel geometry so the switch between the two is not visible, then copied into
  * the window before the resize returns. Null where the C side had no pixels to give.
  */
-private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nanos: Long): IntSize? {
+private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nanos: Long, textScale: WindowTextScale): IntSize? {
     val target = window.rasterBegin() ?: return null
     val measured = window.measure()
     val fitted = IntSize(target.width, target.height)
-    val density = Density(measured.scale)
+    val density = textScale.density(measured.scale)
     if (scene.size != fitted || scene.density != density) {
         scene.density = density
         scene.size = fitted

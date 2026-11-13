@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Desktop windows follow the system's text size
+
+The Windows and Linux windows draw native text at the operating system's text size (Windows' Text size slider, GNOME's `text-scaling-factor`, KDE's font DPI) and follow it when it changes with the window open. macOS has no public text size setting, so it stays at 1. Files dropped on a window of the Windows Kotlin/Native renderer now reach the `FileDropTarget` under them, as on Linux and macOS ([#68](https://github.com/DarkPyonix/compose-rust/issues/68), [#72](https://github.com/DarkPyonix/compose-rust/issues/72)).
+
+- `WINDOW_REVISION` moves to the fork commit that holds the text size reader and the Windows file drop.
+
 ### The Windows release renderer is the Kotlin/Native static kit
 
 A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as the Kotlin/Native static kit, the one the crate's build script links on Windows, and checks it as one executable like the other desktop targets. Up to v0.0.7 that asset was the GraalVM native image, which the build script no longer links. The sample build takes this kit from the release for its crate version, checked against its `.sha256`, and builds the kit itself only when the release does not carry it ([#322](https://github.com/DarkPyonix/compose-rust/issues/322)).
