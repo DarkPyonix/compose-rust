@@ -748,7 +748,7 @@ private fun OverflowMenu(
         // reach into another platform window, and its entries are a list, not a stack of
         // buttons. Its keyboard is a menu's too.
         ReturnsFocusOnClose(opener)
-        val keys = rememberMenuKeyboard(overflowed, table, close)
+        val keys = rememberMenuKeyboard(overflowed, table, onEscape = close)
         CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
             Column(
                 Modifier

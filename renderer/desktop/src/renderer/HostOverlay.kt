@@ -350,6 +350,12 @@ internal fun ReturnsFocusOnClose(opener: FocusRequester) {
 internal class MenuKeyboard(private val table: NodeTable) {
     var entries: List<Int> = emptyList()
 
+    /**
+     * The entry to focus on open when the selection is not marked on the entries themselves,
+     * as in a select field that keeps its choice by position.
+     */
+    var chosen: Int? = null
+
     /** What Escape does: the same as a press outside the menu. */
     var onEscape: () -> Unit = {}
     private val requesters = mutableMapOf<Int, FocusRequester>()
@@ -386,7 +392,7 @@ internal class MenuKeyboard(private val table: NodeTable) {
 
     /** Where focus goes when the menu opens. */
     fun focusOnOpen() {
-        val selected = entries.firstOrNull { table.node(it)?.isDeclaredSelected() == true }
+        val selected = chosen ?: entries.firstOrNull { table.node(it)?.isDeclaredSelected() == true }
         if (selected != null && focus(selected)) return
         focusFrom(0, 1)
     }
@@ -416,12 +422,18 @@ internal class MenuKeyboard(private val table: NodeTable) {
 
 /**
  * The keyboard of a menu whose popup shows [entries], focused on the selected one as it
- * opens. [onEscape] is what closing the menu from the keyboard does.
+ * opens, or on [chosen] when that is given. [onEscape] is what closing the menu from the keyboard does.
  */
 @Composable
-internal fun rememberMenuKeyboard(entries: List<Int>, table: NodeTable, onEscape: () -> Unit): MenuKeyboard {
+internal fun rememberMenuKeyboard(
+    entries: List<Int>,
+    table: NodeTable,
+    chosen: Int? = null,
+    onEscape: () -> Unit,
+): MenuKeyboard {
     val keys = remember(table) { MenuKeyboard(table) }
     keys.entries = entries
+    keys.chosen = chosen
     keys.onEscape = onEscape
     LaunchedEffect(keys) { keys.focusOnOpen() }
     return keys
