@@ -34,7 +34,6 @@ import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.BatchBytes
-import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.StorageOp
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry

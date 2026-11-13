@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
@@ -61,6 +62,13 @@ private const val FRAME = 5
 private const val TOP_SLOT = 6
 private const val BOTTOM_SLOT = 7
 private const val CONTENT_SLOT = 8
+
+/**
+ * The tag on the window the test draws into. The test window is shorter than the 800 dp it
+ * asks for, so Compose centres the content and its top sits above the root's: bounds that
+ * mean "from the window's edge" are measured from this, not from the root.
+ */
+private const val WINDOW = "compact-navigation-window"
 private const val PAGE = 9
 private const val BAR = 10
 private const val TITLE = 11
@@ -197,7 +205,7 @@ class CompactNavigationTest {
             ) {
                 ComposeRustContent(
                     rememberComposeRustHost(FakeHostConnection(batch)),
-                    Modifier.requiredSize(width, 800.dp),
+                    Modifier.requiredSize(width, 800.dp).testTag(WINDOW),
                     caption = caption,
                 )
             }
@@ -259,9 +267,10 @@ class CompactNavigationTest {
                     onAllNodesWithTag(navigationStripTestTag(NAVIGATION)).assertCountEquals(0)
                     onAllNodesWithTag(navigationToggleTestTag(NAVIGATION)).assertCountEquals(0)
                     onAllNodesWithTag(nodeTestTag(FIRST)).assertCountEquals(0)
+                    val window = onNodeWithTag(WINDOW).getBoundsInRoot()
                     val page = onNodeWithTag(nodeTestTag(SCREEN)).getBoundsInRoot()
-                    assertEquals(0.dp, page.left, "$system $shape inset the page from the leading edge")
-                    assertEquals(0.dp, page.top, "$system $shape inset the page from the top")
+                    assertEquals(window.left, page.left, "$system $shape inset the page from the leading edge")
+                    assertEquals(window.top, page.top, "$system $shape inset the page from the top")
                 }
             }
         }
