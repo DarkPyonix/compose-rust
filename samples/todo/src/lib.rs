@@ -1597,16 +1597,21 @@ mod tests {
                 .collect()
         }
 
-        /// The field inside an open sheet that answers Enter.
+        /// The first field inside an open sheet that answers Enter. The Add Task sheet
+        /// holds the task's title and its note under it, and both answer Enter, so the
+        /// first in the order the sheet builds them is the one a title is typed into. The
+        /// handlers are kept in a hash map, whose order changes from run to run, so the
+        /// lowest node id stands for that order.
         fn field_in_an_open_sheet(&self) -> u32 {
             self.submit_handlers
                 .keys()
                 .copied()
                 .filter(|node_id| self.widgets.contains_key(node_id))
-                .find(|node_id| {
+                .filter(|node_id| {
                     self.ancestor(*node_id, WidgetKind::Sheet)
                         .is_some_and(|sheet| self.is_open(sheet))
                 })
+                .min()
                 .expect("no open sheet holds a field that answers Enter")
         }
 
@@ -1767,14 +1772,19 @@ mod tests {
                 .collect()
         }
 
-        /// Types a title into the composer and submits it, as pressing Enter does.
+        /// Types a title into the composer and submits it, as pressing Enter does. In a
+        /// narrow window the composer is the Add Task sheet, whose note field under the
+        /// title answers Enter too, so the first field in tree order is the one taken: the
+        /// lowest node id, since the handlers sit in a hash map whose order changes from
+        /// run to run.
         fn add_task(&mut self, title: &str) -> Vec<OwnedRecord> {
             let (node_id, handler_id) = self
                 .mock
                 .submit_handlers
                 .iter()
                 .map(|(node, handler)| (*node, *handler))
-                .find(|(node, _)| self.mock.widgets.contains_key(node))
+                .filter(|(node, _)| self.mock.widgets.contains_key(node))
+                .min()
                 .expect("the screen has no field to add a task with");
             self.dispatch(HostEvent {
                 node_id,
