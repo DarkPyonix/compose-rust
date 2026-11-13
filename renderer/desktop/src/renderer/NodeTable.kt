@@ -442,6 +442,9 @@ class NodeTable {
                 mutation.text,
                 mutation.action,
                 mutation.duration,
+                mutation.vertical,
+                mutation.horizontal,
+                mutation.offsetDp,
             )
 
             // Outside the window altogether. The centre decides what the window's own state

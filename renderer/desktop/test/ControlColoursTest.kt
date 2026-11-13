@@ -210,6 +210,26 @@ class ControlColoursTest {
         }
     }
 
+    @Test
+    fun fr67_radio_button_without_ring_colour_keeps_the_system_fill() {
+        // Only the dot colour is named, so the fill a selected button gets in these systems
+        // stays the design system's own: every pixel that differs from the default button
+        // is part of the dot in the middle, none of it is the ring or the fill around it.
+        listOf(DesignSystem.Cupertino, DesignSystem.Gnome, DesignSystem.LiquidGlass).forEach { system ->
+            val selected = listOf(PropertyKind.Checked to PropertyValue.Bool(true), PropertyKind.ControlSize to size(30f, 30f))
+            val plain = snapshot(system, WidgetKind.RadioButton, selected)
+            val dotted = snapshot(system, WidgetKind.RadioButton, selected + (PropertyKind.CheckColor to literal(green)))
+            val width = 240
+            val left = plain.pixels.indices.filter { plain.pixels[it] != dotted.pixels[it] }
+            check(left.isNotEmpty()) { "$system: the dot colour changed nothing" }
+            left.forEach { index ->
+                val x = index % width
+                val y = index / width
+                check(x in 8..22 && y in 8..22) { "$system: pixel ($x, $y) outside the dot changed, so the fill did not stay the system's" }
+            }
+        }
+    }
+
     /** The measured size of the control and the page around it, after the Host sent `afterwards`, if it did. */
     private class Snapshot(val width: Float, val height: Float, val pixels: List<Int>)
 

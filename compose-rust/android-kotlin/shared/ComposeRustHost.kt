@@ -827,7 +827,21 @@ private fun ComposeRustTree(
                 }
                 // Over the content rather than in it: a message is not part of the tree,
                 // and it covers whatever it has to for as long as it is up.
-                HostMessages(host.table.messages, host.table.insets, host, theme)
+                // A message the application placed stays out of the strips nothing should
+                // be drawn under: the caption and a status bar along the top, a gesture
+                // bar or the keyboard along the bottom.
+                HostMessages(
+                    host.table.messages,
+                    host.table.insets,
+                    host,
+                    theme,
+                    dev.darkpyonix.composerust.foundation.MessageSafeArea(
+                        top = (caption.height + bars.top).coerceAtLeast(0.dp),
+                        bottom = maxOf(keyboard, bars.bottom).coerceAtLeast(0.dp),
+                        pageTop = pageTop,
+                        topBar = host.table.openingTopBar(pageRoots) ?: 0,
+                    ),
+                )
             }
         }
     }
@@ -962,6 +976,28 @@ private fun NodeTable.slotChild(node: Node, slot: SlotRole): Int? =
             (child.property(PropertyKind.Slot) as? PropertyValue.Integer)?.value?.toInt() ==
             slot.ordinal + 1
     }
+
+/**
+ * The top app bar the page opens with, followed the way [opensWithABar] follows it, or null
+ * when the first thing the tree draws is anything else.
+ *
+ * A message the application placed along the top keeps clear of this bar and of no other:
+ * a bar further down the page is part of the page, not chrome across the top of it.
+ */
+internal fun NodeTable.openingTopBar(roots: List<Int>): Int? {
+    var id = roots.firstOrNull() ?: return null
+    repeat(BAR_SEARCH_DEPTH) {
+        val node = node(id) ?: return null
+        when (node.widget) {
+            WidgetKind.TopAppBar -> return id
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.TopBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
+        }
+    }
+    return null
+}
 
 /**
  * True when the first thing the tree draws is a top app bar.

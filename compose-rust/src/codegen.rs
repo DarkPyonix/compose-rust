@@ -408,12 +408,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -1185,12 +1191,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -3245,6 +3262,21 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             text: "삭제했습니다",
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
+            placement: None,
+            offset_dp: None,
+        },
+        // And one that names where it goes: two placement tags and an offset after the
+        // fields every message has.
+        Mutation::ShowMessage {
+            handler_id: 0,
+            text: "복사했습니다",
+            action: "",
+            duration: crate::schema::MessageDuration::Short,
+            placement: Some(crate::schema::MessagePlacement {
+                vertical: crate::schema::MessageVertical::Bottom,
+                horizontal: crate::schema::MessageHorizontal::Center,
+            }),
+            offset_dp: Some(96.0),
         },
         // The three notification commands: six string references and two closed enums, one
         // string reference, and a bare header that is the shortest record on the wire.

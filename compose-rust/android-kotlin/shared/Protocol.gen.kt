@@ -54,6 +54,10 @@ enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, 
 
 enum class MessageDuration { Short, Long }
 
+enum class MessageVertical { Top, Bottom }
+
+enum class MessageHorizontal { Start, Center, End }
+
 enum class Chrome { Modern, System, FullSize }
 
 enum class TitleBar { Normal, Simple }
@@ -1263,12 +1267,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -1610,7 +1620,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -249032064157425279L
+    const val SCHEMA_HASH: Long = 863612710664529053L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1960,12 +1970,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -3213,6 +3234,19 @@ object Protocol {
         1 -> MessageDuration.Short
         2 -> MessageDuration.Long
         else -> throw ProtocolException("unknown MessageDuration tag $tag", offset)
+    }
+
+    private fun messageVertical(tag: Int, offset: Int): MessageVertical = when (tag) {
+        1 -> MessageVertical.Top
+        2 -> MessageVertical.Bottom
+        else -> throw ProtocolException("unknown MessageVertical tag $tag", offset)
+    }
+
+    private fun messageHorizontal(tag: Int, offset: Int): MessageHorizontal = when (tag) {
+        1 -> MessageHorizontal.Start
+        2 -> MessageHorizontal.Center
+        3 -> MessageHorizontal.End
+        else -> throw ProtocolException("unknown MessageHorizontal tag $tag", offset)
     }
 
     private fun chrome(tag: Int, offset: Int): Chrome = when (tag) {

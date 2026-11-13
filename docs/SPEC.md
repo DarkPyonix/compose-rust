@@ -1849,6 +1849,8 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **시트의 최대 높이**(이슈 #445, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Sheet`에 `max_height_fraction(f32)`(창 높이에 대한 비율, 0보다 크고 1 이하)이 있습니다. 내용이 작으면 시트는 내용 높이이고, 크면 그 비율에서 멈추고 안이 스크롤됩니다. Ember 목업은 0.85입니다. 속성 하나를 보내고, 부르지 않으면 지금과 같습니다. 수용 기준: 창 높이 800dp에서 `max_height_fraction(0.85)`인 시트에 1000dp 내용을 넣으면 시트 높이가 680dp이고 내용이 스크롤되며, 200dp 내용이면 시트 높이가 내용 높이입니다(fr21_sheet_max_height_fraction).
 
+**일시 메시지의 자리**(이슈 #577, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Message::with_placement(MessagePlacement { vertical: Top | Bottom, horizontal: Start | Center | End })`와 `with_offset(dp)`(가장자리에서 떨어지는 거리)가 있습니다. 기본은 지금과 같은 디자인 시스템의 자리입니다. 안전 영역과 앱의 막대(하단 탭 막대, 상단 막대)를 피합니다. `ShowMessage` 레코드에 칸이 더해져 스키마 해시가 움직입니다. 수용 기준: `Bottom`과 `Center`에 offset 96인 메시지가 아래쪽 안전 영역에서 96dp 위, 가로 가운데에 그려지고(fr21_message_placement_bottom_center), `Top`과 `End`가 오른쪽 위에 그려집니다(fr21_message_placement_top_end). 지정하지 않은 메시지는 지금과 같은 자리입니다.
+
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
 #### 22.6 데스크톱 샘플 배포 번들 (`Draft`)
@@ -4117,6 +4119,10 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. `Dropdown`에 `Modifier.background(...)`와 `Modifier.border(...)`를 주면 닫힌 필드가 기본 `Surface` 상자로 덮이지 않고 지정한 배경과 테두리로 그려집니다.
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
+
+**메뉴의 키보드**(이슈 #504, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Menu`가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 자손 사이를 돌고(끝에서 처음으로 돌아갑니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus).
+
+**닫힌 선택 필드 목록의 키보드**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 닫힌 선택 필드(`Dropdown`)가 여는 선택지 목록도 위의 메뉴 키보드 규칙을 그대로 따릅니다. 열리면 지금 고른 선택지에, 없으면 첫 선택지에 포커스가 있고, 위와 아래가 돌고, Home과 End가 처음과 끝으로 가고, Enter와 Space가 고르고, Escape가 닫고 포커스를 필드로 돌려줍니다. 수용 기준: 셋째 선택지가 골라진 필드를 열면 셋째에 포커스가 있고, 위 키 한 번과 Enter로 둘째가 골라져 그 값의 `ValueChanged`가 한 번 갑니다(fr64_dropdown_arrow_keys_move_focus).
 
 ### FR-66 Button이 행이 되는 방법: 왼쪽 정렬 라벨, 글자 크기, 내용 슬롯 (`Agreed`, 이슈 #425)
 
