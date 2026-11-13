@@ -423,7 +423,8 @@ class CodeEditorModel(
             if (record.kind == DecorationKind.LineBackground) {
                 // Whole lines, the first to the last, kept as the start of each. They are
                 // followed to where they are now as lines, the way a gutter mark's line is.
-                val color = record.color ?: run {
+                val color = record.color
+                if (color == null) {
                     output += EditorOutput.Error(
                         "a line background on lines ${record.startLine} to ${record.endLine} names no colour",
                     )
@@ -467,7 +468,8 @@ class CodeEditorModel(
                 // Taken above.
                 DecorationKind.LineBackground -> continue
                 DecorationKind.RangeBackground -> {
-                    val color = record.color ?: run {
+                    val color = record.color
+                    if (color == null) {
                         output += EditorOutput.Error("a range background from $start to $end names no colour")
                         continue
                     }
@@ -1814,7 +1816,7 @@ class CodeEditorModel(
         for ((index, stop) in parsed.stops.withIndex()) {
             val (from, to) = offsets[index]
             places.getOrPut(stop.number) { ArrayList() } += SnippetPlace(at(from), at(to))
-            stop.choices?.let { choices.putIfAbsent(stop.number, it) }
+            stop.choices?.let { if (stop.number !in choices) choices[stop.number] = it }
         }
         val numbers = places.keys.filter { it != 0 }.sorted()
         val final = places[0]?.first() ?: SnippetPlace(change.newEnd, change.newEnd)
