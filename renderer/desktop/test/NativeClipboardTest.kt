@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalLocalization
 import androidx.compose.ui.platform.awtClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -24,8 +25,6 @@ import dev.darkpyonix.composerust.ui.platform.NativeMenuEntry
 import dev.darkpyonix.composerust.ui.platform.PasteboardClipboard
 import dev.darkpyonix.composerust.ui.platform.WindowClipboardImpl
 import java.awt.datatransfer.DataFlavor
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -41,20 +40,6 @@ import kotlin.test.assertTrue
  * handed something else.
  */
 class NativeClipboardTest {
-
-    private var savedLocale: java.util.Locale? = null
-
-    /** The menu labels come from the default locale; a Korean machine would label them 잘라내기. */
-    @BeforeTest
-    fun pinEnglishLocale() {
-        savedLocale = java.util.Locale.getDefault()
-        java.util.Locale.setDefault(java.util.Locale.ENGLISH)
-    }
-
-    @AfterTest
-    fun restoreLocale() {
-        savedLocale?.let { java.util.Locale.setDefault(it) }
-    }
 
     private var board = ""
     private val clipboard = WindowClipboardImpl(PasteboardClipboard({ board }, { board = it }))
@@ -72,8 +57,11 @@ class NativeClipboardTest {
     private fun pasteEnabledOnRightClick(): Boolean? {
         val asked = mutableListOf<List<NativeMenuEntry>>()
         var paste: Boolean? = null
+        // The label Compose gives Paste in the machine's language, read where the menu reads it.
+        var pasteLabel: String? = null
         runComposeUiTest {
             setContent {
+                pasteLabel = LocalLocalization.current.paste
                 CompositionLocalProvider(
                     LocalClipboard provides clipboard,
                     LocalContextMenuRepresentation provides NativeContextMenuRepresentation {
@@ -87,7 +75,8 @@ class NativeClipboardTest {
             }
             onNodeWithTag("field").performMouseInput { rightClick(centerRight) }
             waitForIdle()
-            paste = asked.lastOrNull()?.firstOrNull { it.label == "Paste" }?.enabled
+            val label = assertNotNull(pasteLabel, "the field was composed")
+            paste = asked.lastOrNull()?.firstOrNull { it.label == label }?.enabled
         }
         return paste
     }
