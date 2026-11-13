@@ -100,6 +100,20 @@ pub fn plus(size: f32, ink: Paint) -> DrawList {
 /// width. It is only used to inset a label so it reads as centred under its column.
 const DAY_HALF_WIDTH: f32 = 11.0;
 
+/// How tall a day label's line is: the tallest caption line any design system sets.
+///
+/// A label is drawn with its top-left corner at the point it is given, not its baseline,
+/// so the line has to fit between that point and the bottom of the canvas. The tallest
+/// rung keeps it inside whichever system draws it.
+fn day_line_height() -> f32 {
+    compose_rust::tokens::DESIGN_TOKENS
+        .iter()
+        .flat_map(|table| table.type_scale.iter())
+        .filter(|token| token.role == TypeRole::Caption)
+        .map(|token| token.line_height)
+        .fold(0.0, f32::max)
+}
+
 /// How much of its slot a column takes. The reference's columns are wide, with a narrow
 /// gap between them.
 const COLUMN_SHARE: f32 = 0.8;
@@ -179,7 +193,10 @@ pub fn week(width: f32, height: f32, bars: &[Bar]) -> DrawList {
     let (plot, columns) = layout(width, height, bars);
     let slot = width / bars.len() as f32;
     let label_inset = (slot / 2.0 - DAY_HALF_WIDTH).max(0.0);
-    let baseline = plot + (height - plot) * 0.72;
+    // The label's line is centred in the band under the columns. The point is the line's
+    // top, so a band too short for the line still keeps its bottom on the canvas.
+    let line = day_line_height();
+    let label_top = (plot + ((height - plot) - line) / 2.0).min(height - line);
 
     let mut list = DrawListBuilder::with_capacity(bars.len() * 24, bars.len() * 6);
     for (index, (bar, column)) in bars.iter().zip(&columns).enumerate() {
@@ -202,7 +219,7 @@ pub fn week(width: f32, height: f32, bars: &[Bar]) -> DrawList {
             palette::SAGE_INK,
             bar.day,
             index as f32 * slot + label_inset,
-            baseline,
+            label_top,
             TypeRole::Caption,
         );
     }
@@ -548,6 +565,46 @@ mod tests {
                     column.holds(x1, y1, slack) && column.holds(x2, y2, slack),
                     "a stripe on {} runs from ({x1}, {y1}) to ({x2}, {y2}), outside {column:?}",
                     bar.day
+                );
+            }
+        }
+    }
+
+    /// Every day's label sits whole inside the canvas, under the columns. A label is drawn
+    /// from its top-left corner, and the week used to place it as though the point were
+    /// its baseline, so the lower half of each day ran off the bottom of the sage card.
+    #[test]
+    fn fr22_the_day_labels_sit_inside_the_chart_under_the_columns() {
+        let line = day_line_height();
+        assert!(line >= 15.0, "no design system sets a caption line");
+        for (width, height) in [(200.0_f32, 170.0_f32), (340.0, 280.0), (300.0, 160.0)] {
+            let (plot, _) = layout(width, height, &sample_week());
+            let commands = week(width, height, &sample_week())
+                .decode()
+                .expect("the week did not decode");
+            let labels: Vec<(f32, f32)> = commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::TextAt { x, y, .. } => Some((*x, *y)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(labels.len(), sample_week().len(), "a day has no label");
+            for (x, y) in labels {
+                assert!(
+                    y >= plot,
+                    "a label at {y} in a {width} by {height} chart overlaps the columns, \
+                     which end at {plot}"
+                );
+                assert!(
+                    y + line <= height,
+                    "a label from {y} to {} runs past the bottom of a {width} by {height} \
+                     chart",
+                    y + line
+                );
+                assert!(
+                    (0.0..width).contains(&x),
+                    "a label at x {x} is off a chart {width} wide"
                 );
             }
         }

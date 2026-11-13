@@ -1,5 +1,5 @@
 //! A task list: add, edit in place, complete, delete, reorder, filter, and survive a
-//! restart.
+//! restart, or a reload of the page in a browser, through the application's storage.
 //!
 //! The list is drawn with `LazyColumn`, so the number of widgets that exist is
 //! proportional to what is on screen rather than to the number of tasks. Filling it with
@@ -22,6 +22,9 @@ const BULK_COUNT: usize = 5_000;
 
 /// What opens the sheet, and what the sheet is called.
 const ABOUT_LABEL: &str = "About";
+
+/// What stands where the list will be while the saved list is read.
+const LOADING_LABEL: &str = "Loading tasks";
 
 /// The bar across the top of the window, with its contents held to the list's measure.
 #[Composable]
@@ -130,20 +133,25 @@ pub fn app() {
         None
     };
     let stacked = window.is_compact();
-    // Saves run in this list's scope, on a worker, and stop with it.
+    // Saves run in this list's scope, and stop with it.
     let saves = remember_coroutine_scope();
     store::attach(saves);
-    let tasks = remember(|| mutable_state_of_with_policy(store::load(), never_equal_policy()));
-    let next_id = remember(|| {
-        mutable_state_of(
-            tasks
-                .get_untracked()
-                .iter()
-                .map(|task| task.id + 1)
-                .max()
-                .unwrap_or(1),
-        )
+    let tasks = remember(|| mutable_state_of_with_policy(Vec::<Task>::new(), never_equal_policy()));
+    let next_id = remember(|| mutable_state_of(1_u64));
+    // The saved list is read once, by an effect, so the UI thread never waits for it. Until
+    // it arrives the list says it is loading rather than showing an empty list that would
+    // then fill, and nothing can be added to a list that is not there yet.
+    let loading = remember(|| mutable_state_of(store::started()));
+    launched_effect((), move || async move {
+        if !loading.get_untracked() {
+            return;
+        }
+        let saved = store::load().await;
+        next_id.set(saved.iter().map(|task| task.id + 1).max().unwrap_or(1));
+        tasks.set(saved);
+        loading.set(false);
     });
+    let still_loading = loading.get();
     let filter = remember(|| mutable_state_of(Filter::All));
     let about_open = remember(|| mutable_state_of(false));
     let compose_open = remember(|| mutable_state_of(false));
@@ -170,7 +178,7 @@ pub fn app() {
         let (tasks, next_id, draft) = (tasks, next_id, draft);
         Rc::new(move |title: String| {
             let title = title.trim().to_owned();
-            if title.is_empty() {
+            if title.is_empty() || loading.get_untracked() {
                 return;
             }
             let id = next_id.get_untracked();
@@ -234,8 +242,17 @@ pub fn app() {
     let rows = visible.clone();
 
     let list = || {
-        // An empty list explains itself rather than leaving a blank half window.
-        if rows.is_empty() {
+        if still_loading {
+            Box()
+                .modifier(Modifier.fill_max_width().weight(1.0))
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Text(LOADING_LABEL)
+                        .type_role(TypeRole::Body)
+                        .color(Paint::Role(ColorRole::OnSurfaceVariant));
+                });
+        } else if rows.is_empty() {
+            // An empty list explains itself rather than leaving a blank half window.
             Box()
                 .modifier(Modifier.fill_max_width().weight(1.0))
                 .alignment(Alignment::Center)
@@ -418,6 +435,9 @@ pub fn app() {
                             let fill: Rc<dyn Fn()> = {
                                 let (tasks, next_id, about_open) = (tasks, next_id, about_open);
                                 Rc::new(move || {
+                                    if loading.get_untracked() {
+                                        return;
+                                    }
                                     let start = next_id.get_untracked();
                                     tasks.update(|list| {
                                         list.reserve(BULK_COUNT);
@@ -629,7 +649,7 @@ fn launch_builder() -> LaunchBuilder {
 /// one with a `main`. An Android Activity and a browser page reach the application
 /// through their own entry points, and neither of them runs the desktop binary.
 fn prepare() {
-    store::start_saver();
+    store::start();
 }
 
 compose_rust::android_application!(
@@ -653,9 +673,13 @@ mod tests {
     use super::*;
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, IoStatus, PropertyKind, StorageOp, WidgetKind};
+    use compose_rust::storage::{Backend, testing};
     use std::collections::HashMap;
     use std::sync::OnceLock;
+
+    /// The identifier the sample launches with, which names its storage.
+    const IDENTIFIER: &str = "dev.darkpyonix.composerust.samples.todo";
 
     /// A saved list large enough that a window of twenty is a small fraction of it.
     const SAVED_TASKS: usize = 5_000;
@@ -665,21 +689,76 @@ mod tests {
     const ACTIONS: [&str; 4] = ["Edit", "Move up", "Move down", "Delete"];
     const ACTIONS_ANCHOR: &str = "\u{22ef}";
 
-    /// Point the store at a generated file, once for the whole test binary. Tests run
-    /// concurrently in one process, so the variable is written before any of them reads it
-    /// rather than once per test.
+    /// Storage for every screen in this binary: the Renderer's, as in a browser, so each
+    /// operation is a `StorageCall` record in a batch and the test answers it with an
+    /// `IoAnswer`, the way the web Renderer does. Set once, before any screen is built,
+    /// because the storage's settings are process wide and the tests run at once; each test
+    /// thread keeps its own requests and answers.
     fn saved_list() {
         static PREPARED: OnceLock<()> = OnceLock::new();
         PREPARED.get_or_init(|| {
-            let path = scratch("todo-window");
-            let saved: String = (0..SAVED_TASKS)
-                .map(|id| format!("{id}\t0\tGenerated task {id}\n"))
-                .collect();
-            std::fs::write(&path, saved).expect("the fixture list could not be written");
-            // SAFETY: written once, before this binary's tests read it through
-            // `store::load`, and nothing else in the process touches the environment.
-            unsafe { std::env::set_var("SAMPLE_TODO_FILE", &path) };
+            testing::reset(Some(IDENTIFIER), Backend::Renderer);
+            store::start();
         });
+    }
+
+    /// The saved list most screens start from, as the storage holds it.
+    fn saved_tasks() -> &'static str {
+        static SAVED: OnceLock<String> = OnceLock::new();
+        SAVED.get_or_init(|| {
+            (0..SAVED_TASKS)
+                .map(|id| format!("{id}\t0\tGenerated task {id}\n"))
+                .collect()
+        })
+    }
+
+    /// The storage operations a batch carries: number, operation, store, key and value.
+    fn storage_calls(batch: &[u8]) -> Vec<(u32, StorageOp, String, String, Vec<u8>)> {
+        decode_batch(batch)
+            .expect("the batch did not decode")
+            .into_iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::StorageCall {
+                    request,
+                    op,
+                    store,
+                    key,
+                    data,
+                } => Some((request, op, store.to_owned(), key.to_owned(), data.to_vec())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The one read of the saved list a first frame asks for.
+    fn the_load(batch: &[u8]) -> u32 {
+        let reads: Vec<u32> = storage_calls(batch)
+            .into_iter()
+            .filter(|(_, op, store, key, _)| {
+                *op == StorageOp::Read && store == IDENTIFIER && key == store::KEY
+            })
+            .map(|(request, ..)| request)
+            .collect();
+        assert_eq!(
+            reads.len(),
+            1,
+            "the first frame should ask for the saved list once, under {}",
+            store::KEY
+        );
+        reads[0]
+    }
+
+    /// What the storage says back, as the event the Renderer sends.
+    fn storage_answer(request: u32, status: IoStatus, data: &[u8]) -> HostEvent<'_> {
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request,
+                status,
+                data,
+            },
+        }
     }
 
     fn task_title(index: usize) -> String {
@@ -706,6 +785,8 @@ mod tests {
         item_count: Option<i64>,
         /// The click handler each node declared, so a test can press what it found.
         click_handlers: HashMap<u32, u64>,
+        /// The submit handler each field declared.
+        submit_handlers: HashMap<u32, u64>,
     }
 
     impl MockRenderer {
@@ -740,6 +821,9 @@ mod tests {
                         }
                         (PropertyKind::OnClick, PropertyValue::Integer(value)) => {
                             self.click_handlers.insert(*node_id, *value as u64);
+                        }
+                        (PropertyKind::OnSubmit, PropertyValue::Integer(value)) => {
+                            self.submit_handlers.insert(*node_id, *value as u64);
                         }
                         _ => {}
                     },
@@ -856,48 +940,85 @@ mod tests {
     struct Screen {
         host: ComposeHost,
         mock: MockRenderer,
-        list: u32,
-        handler: u64,
+        /// The windowing list and its range handler, once there is a list to window.
+        list: Option<(u32, u64)>,
         event: Vec<u8>,
+        /// The storage operations every batch so far carried, in order.
+        storage: Vec<(u32, StorageOp, String, String, Vec<u8>)>,
+        /// What stood on screen in the first frame, before the saved list arrived.
+        first_texts: Vec<String>,
     }
 
     impl Screen {
+        /// The screen on a saved list of [`SAVED_TASKS`] tasks.
         fn new() -> Self {
+            Self::loaded(Some(saved_tasks()))
+        }
+
+        /// The screen once storage has answered its first read: with `saved`, or with
+        /// nothing saved yet, which is what a first run finds.
+        fn loaded(saved: Option<&str>) -> Self {
             saved_list();
             let mut host = ComposeHost::new(app);
-            let first = decode_batch(host.rebuild().expect("the first frame failed to encode"))
-                .expect("the first frame did not decode");
+            let first = host
+                .rebuild()
+                .expect("the first frame failed to encode")
+                .to_vec();
             let mut mock = MockRenderer::default();
-            mock.apply(&first);
-            let list = first
-                .iter()
-                .find_map(|mutation| match mutation {
-                    Mutation::Create {
-                        node_id,
-                        widget: WidgetKind::LazyColumn,
-                    } => Some(*node_id),
-                    _ => None,
-                })
-                .expect("the screen has no LazyColumn");
-            let handler = first
-                .iter()
-                .find_map(|mutation| match mutation {
-                    Mutation::SetProp {
-                        node_id,
-                        property: PropertyKind::OnRangeRequested,
-                        value: PropertyValue::Integer(id),
-                    } if *node_id == list => Some(*id as u64),
-                    _ => None,
-                })
-                .expect("the LazyColumn declared no range handler");
-            drop(first);
-            Self {
+            mock.apply(&decode_batch(&first).expect("the first frame did not decode"));
+            let first_texts = mock.texts.values().cloned().collect();
+            let mut screen = Self {
                 host,
                 mock,
-                list,
-                handler,
+                list: None,
                 event: Vec::new(),
-            }
+                storage: storage_calls(&first),
+                first_texts,
+            };
+            let load = the_load(&first);
+            match saved {
+                Some(saved) => screen.answer(load, IoStatus::Ok, saved.as_bytes()),
+                None => screen.answer(load, IoStatus::NotFound, &[]),
+            };
+            screen
+        }
+
+        /// Answers a storage operation the way the browser's Renderer does, and applies
+        /// the batch that comes back.
+        fn answer(&mut self, request: u32, status: IoStatus, data: &[u8]) -> Vec<OwnedRecord> {
+            self.dispatch(storage_answer(request, status, data))
+        }
+
+        /// The writes of the list the batches so far carried, as text, in order.
+        fn written_lists(&self) -> Vec<(u32, String)> {
+            self.storage
+                .iter()
+                .filter(|(_, op, store, key, _)| {
+                    *op == StorageOp::Write && store == IDENTIFIER && key == store::KEY
+                })
+                .map(|(request, _, _, _, data)| {
+                    (
+                        *request,
+                        String::from_utf8(data.clone()).expect("a saved list is UTF-8"),
+                    )
+                })
+                .collect()
+        }
+
+        /// Types a title into the composer and submits it, as pressing Enter does.
+        fn add_task(&mut self, title: &str) -> Vec<OwnedRecord> {
+            let (node_id, handler_id) = self
+                .mock
+                .submit_handlers
+                .iter()
+                .map(|(node, handler)| (*node, *handler))
+                .find(|(node, _)| self.mock.widgets.contains_key(node))
+                .expect("the screen has no field to add a task with");
+            self.dispatch(HostEvent {
+                node_id,
+                handler_id,
+                payload: EventPayload::TextSubmitted(title),
+            })
         }
 
         /// Opens the action menu on the first visible row, which is what builds its
@@ -954,8 +1075,11 @@ mod tests {
             encode_event(&event, &mut self.event).expect("the event did not encode");
             let bytes = self.event.clone();
             let (batch, _) = self.host.dispatch_event(&bytes).expect("the event failed");
-            let decoded = decode_batch(batch).expect("the batch did not decode");
+            let batch = batch.to_vec();
+            self.storage.extend(storage_calls(&batch));
+            let decoded = decode_batch(&batch).expect("the batch did not decode");
             self.mock.apply(&decoded);
+            self.find_list(&decoded);
             decoded
                 .iter()
                 .filter_map(|mutation| match mutation {
@@ -974,13 +1098,39 @@ mod tests {
                 .collect()
         }
 
+        /// Notes the windowing list and its range handler when a batch creates them.
+        fn find_list(&mut self, decoded: &[Mutation<'_>]) {
+            let created = decoded.iter().find_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::LazyColumn,
+                } => Some(*node_id),
+                _ => None,
+            });
+            let Some(list) = created.or(self.list.map(|(list, _)| list)) else {
+                return;
+            };
+            let handler = decoded.iter().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnRangeRequested,
+                    value: PropertyValue::Integer(id),
+                } if *node_id == list => Some(*id as u64),
+                _ => None,
+            });
+            if let Some(handler) = handler {
+                self.list = Some((list, handler));
+            }
+        }
+
         /// Scrolling: the Renderer asks for a window and the Host answers with a batch.
         /// Returns how many widgets that batch created.
         fn request_range(&mut self, start: usize, count: usize) -> usize {
+            let (list, handler) = self.list.expect("the screen has no LazyColumn");
             encode_event(
                 &HostEvent {
-                    node_id: self.list,
-                    handler_id: self.handler,
+                    node_id: list,
+                    handler_id: handler,
                     payload: EventPayload::RangeRequested {
                         start: start as u32,
                         count: count as u32,
@@ -1018,6 +1168,20 @@ mod tests {
 
         saved_list();
         sample_frames::record("Todo", app, |screen| {
+            let load = screen
+                .mutations()
+                .iter()
+                .find_map(|mutation| match mutation {
+                    Mutation::StorageCall {
+                        request,
+                        op: StorageOp::Read,
+                        key,
+                        ..
+                    } if *key == store::KEY => Some(*request),
+                    _ => None,
+                })
+                .expect("the screen did not ask for its saved list");
+            screen.dispatch(storage_answer(load, IoStatus::Ok, saved_tasks().as_bytes()));
             let lists = screen.fill_lists(WINDOW_SHOWN);
             assert_eq!(
                 lists, 1,
@@ -1043,18 +1207,6 @@ mod tests {
                  is not the list that was asked for"
             );
         });
-    }
-
-    /// Every property this screen sets has to be one the wire can name. A property the
-    /// schema does not have fails the whole batch rather than just itself, so a screen that
-    /// builds in Rust can still be blank on screen.
-    /// A path no other run of these tests can touch.
-    ///
-    /// Fixed names in the system temp directory meant two checkouts testing at once wrote
-    /// and deleted each other's files, and whichever lost the race failed for a reason
-    /// that had nothing to do with the code. The process id is what keeps them apart.
-    fn scratch(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("sample-scratch-{name}-{}.tmp", std::process::id()))
     }
 
     #[test]
@@ -1477,6 +1629,138 @@ mod tests {
             chosen,
             vec![i64::from(u16::from(CompactNavigation::None))],
             "the destinations do not choose what a compact window gets"
+        );
+    }
+
+    /// The list is kept in the application's storage, so a browser keeps it across a reload
+    /// of the page as a desktop keeps it across a restart. The storage here answers the way
+    /// the web Renderer does, one `IoAnswer` per `StorageCall`, and a reload is a new Host
+    /// whose storage still holds what the last one wrote.
+    ///
+    /// The first frame asks for the list rather than reading it, and says it is loading
+    /// until the answer comes: the UI thread does not wait for storage, and no empty list
+    /// shows before the saved one arrives.
+    #[test]
+    fn fr79_todo_list_survives_a_reload_on_the_web() {
+        let mut first_run = Screen::loaded(None);
+        assert!(
+            first_run
+                .first_texts
+                .iter()
+                .any(|text| text == LOADING_LABEL),
+            "the first frame should say the list is loading: {:?}",
+            first_run.first_texts
+        );
+        assert!(
+            !first_run
+                .first_texts
+                .iter()
+                .any(|text| text.starts_with("No tasks yet")),
+            "an empty list showed before the saved one had been read"
+        );
+        assert!(first_run.mock.nodes_with_text(LOADING_LABEL).is_empty());
+        assert_eq!(
+            first_run
+                .mock
+                .nodes_with_text("No tasks yet. Add one above.")
+                .len(),
+            1,
+            "a first run finds nothing saved, which is an empty list"
+        );
+
+        first_run.add_task("Buy milk");
+        let written = first_run.written_lists();
+        assert_eq!(written.len(), 1, "one task added is one write: {written:?}");
+        assert_eq!(written[0].1, "1\t0\tBuy milk\n");
+        first_run.answer(written[0].0, IoStatus::Ok, &[]);
+        let saved = written[0].1.clone();
+        drop(first_run);
+
+        // The page is loaded again. The new Host asks for the list again and the storage
+        // gives back what was written.
+        let mut reloaded = Screen::loaded(Some(&saved));
+        reloaded.request_range(0, WINDOW);
+        assert_eq!(
+            reloaded.mock.nodes_with_text("Buy milk").len(),
+            1,
+            "the task added before the reload is not on the list after it"
+        );
+        // A task added after the reload carries on from the saved ids rather than
+        // starting again at one, which would give two tasks the same key.
+        reloaded.add_task("Walk the dog");
+        let after = reloaded.written_lists();
+        assert_eq!(
+            after.last().map(|(_, text)| text.as_str()),
+            Some("1\t0\tBuy milk\n2\t0\tWalk the dog\n")
+        );
+    }
+
+    /// A burst of edits writes the newest list, not every one of them. One write is on its
+    /// way at a time, and an edit made meanwhile only replaces the list waiting behind it,
+    /// so the lists it overtook are never written.
+    #[test]
+    fn pr3_an_overtaken_save_writes_nothing() {
+        let mut screen = Screen::loaded(None);
+        screen.add_task("one");
+        screen.add_task("two");
+        screen.add_task("three");
+        let written = screen.written_lists();
+        assert_eq!(
+            written.len(),
+            1,
+            "only the first edit's write should be on its way: {written:?}"
+        );
+        assert_eq!(written[0].1, "1\t0\tone\n");
+
+        screen.answer(written[0].0, IoStatus::Ok, &[]);
+        let written = screen.written_lists();
+        assert_eq!(
+            written.len(),
+            2,
+            "the two edits behind the first should be one write: {written:?}"
+        );
+        assert_eq!(written[1].1, "1\t0\tone\n2\t0\ttwo\n3\t0\tthree\n");
+
+        screen.answer(written[1].0, IoStatus::Ok, &[]);
+        assert_eq!(screen.written_lists().len(), 2, "nothing was left to write");
+    }
+
+    /// A saved list that cannot be read is not replaced. The run says why and writes
+    /// nothing, so the list is still there for a run that can read it, which is what a
+    /// browser that cannot carry a long list in one answer yet needs.
+    #[test]
+    fn fr79_a_list_that_cannot_be_read_is_not_overwritten() {
+        saved_list();
+        let mut host = ComposeHost::new(app);
+        let first = host
+            .rebuild()
+            .expect("the first frame failed to encode")
+            .to_vec();
+        let mut screen = Screen {
+            host,
+            mock: MockRenderer::default(),
+            list: None,
+            event: Vec::new(),
+            storage: storage_calls(&first),
+            first_texts: Vec::new(),
+        };
+        screen
+            .mock
+            .apply(&decode_batch(&first).expect("the first frame did not decode"));
+        let load = the_load(&first);
+        let said = screen.answer(load, IoStatus::TooLarge, &(64 * 1024_u32).to_le_bytes());
+        assert!(
+            said.iter().any(|record| matches!(
+                record,
+                OwnedRecord::Message { text, .. } if text.starts_with("The saved list could not be read")
+            )),
+            "a list that could not be read should be said: {said:?}"
+        );
+        screen.add_task("new");
+        assert!(
+            screen.written_lists().is_empty(),
+            "a list nobody could read was written over: {:?}",
+            screen.written_lists()
         );
     }
 }

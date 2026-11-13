@@ -49,17 +49,33 @@ pub const STEP_NAMES: [&str; 4] = [
     "fr53_windows_app_exits_after_the_last_window",
 ];
 
-/// The titles of the two windows, which a person and a screen reader see.
-pub const TITLES: [&str; 2] = ["compose-rust first window", "compose-rust second window"];
+/// The most windows the application can open: two, and a third for a measurement run.
+pub const MAX_WINDOWS: usize = 3;
+
+/// How many windows open at the start, from 1 to [`MAX_WINDOWS`]. Two unless `main` was asked
+/// for another number, which `scripts/parity/macos-windows.sh` does to measure one window
+/// against three.
+pub static WINDOWS: AtomicU32 = AtomicU32::new(2);
+
+/// The titles of the windows, which a person and a screen reader see.
+pub const TITLES: [&str; MAX_WINDOWS] = [
+    "compose-rust first window",
+    "compose-rust second window",
+    "compose-rust third window",
+];
 
 /// The size each window opens at, in dp: wide enough to be a Medium window, so its first
 /// report differs from what a window that was never measured holds.
 pub const WINDOW_SIZE: (f32, f32) = (640.0, 520.0);
 
 /// Whether each window has reported a size.
-static MEASURED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+static MEASURED: [AtomicBool; MAX_WINDOWS] = [
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+    AtomicBool::new(false),
+];
 /// The click count each window last composed.
-static SEEN: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
+static SEEN: [AtomicU32; MAX_WINDOWS] = [AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)];
 
 /// Forgets what an earlier run recorded, for a test that runs the application twice.
 pub fn reset() {
@@ -80,9 +96,11 @@ fn reached(step: u32) {
 pub fn app() {
     let clicks = remember(|| mutable_state_of(0_u32));
     let typed = remember(|| mutable_state_of(String::new()));
-    let open = [
-        remember(|| mutable_state_of(true)),
-        remember(|| mutable_state_of(true)),
+    let windows = WINDOWS.load(Ordering::SeqCst) as usize;
+    let open: [MutableState<bool>; MAX_WINDOWS] = [
+        remember(|| mutable_state_of(windows > 0)),
+        remember(|| mutable_state_of(windows > 1)),
+        remember(|| mutable_state_of(windows > 2)),
     ];
     for (index, shown) in open.iter().enumerate() {
         if shown.get() {
@@ -100,7 +118,7 @@ fn window(
     index: usize,
     clicks: MutableState<u32>,
     typed: MutableState<String>,
-    open: [MutableState<bool>; 2],
+    open: [MutableState<bool>; MAX_WINDOWS],
 ) {
     let close = open[index];
     Window(move || {
@@ -166,7 +184,7 @@ async fn frames_until(done: impl Fn() -> bool) {
 }
 
 /// The scripted run: what a person does in the hand check, without the person.
-async fn scripted(clicks: MutableState<u32>, open: [MutableState<bool>; 2]) {
+async fn scripted(clicks: MutableState<u32>, open: [MutableState<bool>; MAX_WINDOWS]) {
     let measured = |index: usize| MEASURED[index].load(Ordering::SeqCst);
     let seen = |index: usize| SEEN[index].load(Ordering::SeqCst);
 
