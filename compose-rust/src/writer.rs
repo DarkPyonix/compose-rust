@@ -897,6 +897,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "filesentered" | "onfilesentered" => Some(PropertyKind::OnFilesEntered),
         "filesdropped" | "onfilesdropped" => Some(PropertyKind::OnFilesDropped),
         "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
+        "scrollchanged" | "onscrollchanged" => Some(PropertyKind::OnScrollChanged),
         "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
         "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
         "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),
