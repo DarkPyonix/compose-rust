@@ -17,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -206,6 +207,25 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
      */
     internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
         table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
+    }
+
+    /** The last system appearance told to the Host, or null before the first report. */
+    private var reportedScheme: SystemColorScheme? = null
+
+    /**
+     * Tells the Host whether the system appearance is dark, the first time and then only
+     * when it changes.
+     *
+     * The value is kept here, on the Host, rather than in a window's composition: every
+     * window of an application reads the same system setting, and each one reporting it
+     * would tell the Host the same thing once per window. Kept per window, it would also
+     * be told again whenever a window's content was composed afresh.
+     */
+    internal fun reportSystemScheme(dark: Boolean) {
+        val scheme = if (dark) SystemColorScheme.Dark else SystemColorScheme.Light
+        if (reportedScheme == scheme) return
+        reportedScheme = scheme
+        dispatch(HostEvent.ColorSchemeChanged(nodeId = 0, handlerId = 0, scheme = scheme))
     }
 
     fun shutdown() {
@@ -614,6 +634,12 @@ private fun ComposeRustTree(
             host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
         }
     }
+    // Whether the system is light or dark, told to the Host before the first frame and then
+    // on every change, whatever the theme asks for. The theme's own colours already follow
+    // the system here without the Host; this is for what the Host draws itself, such as an
+    // HTML page answering `prefers-color-scheme`. In a SideEffect, so it is sent on the
+    // thread the Host runs on, after a composition that read the new value.
+    SideEffect { host.reportSystemScheme(systemDark) }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.
