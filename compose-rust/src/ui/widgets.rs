@@ -15,12 +15,13 @@ use super::{
     role_or_zero, widget_key,
 };
 use crate::drawing::DrawList;
+use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
     HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
-    SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+    Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
@@ -787,6 +788,7 @@ macro_rules! scroll_container {
         pub struct $name {
             modifier: Modifier,
             scroll_state: Option<ScrollState>,
+            snap: Snap,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
             focus_and_keys: FocusAndKeyHandlers,
@@ -798,6 +800,7 @@ macro_rules! scroll_container {
             $name {
                 modifier: Modifier::new(),
                 scroll_state: None,
+                snap: Snap::None,
                 pointer: None,
                 on_click: None,
                 focus_and_keys: FocusAndKeyHandlers::default(),
@@ -813,8 +816,20 @@ macro_rules! scroll_container {
                 self
             }
 
+            /// Where the content comes to rest once a drag or a fling ends.
+            ///
+            /// `Snap::None`, the default, stops wherever the user left it.
+            /// `Snap::ItemStart` stops with the start edge of the nearest direct child on
+            /// the start of the visible area, like CSS `scroll-snap-align: start`. The
+            /// Renderer runs the snap, so it follows the platform's fling physics.
+            pub fn snap(mut self, snap: Snap) -> Self {
+                self.snap = snap;
+                self
+            }
+
             fn compose(&mut self, content: impl FnOnce()) {
                 let modifier = self.modifier;
+                let snap = self.snap;
                 let scroll_state = self.scroll_state.take();
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
@@ -828,6 +843,11 @@ macro_rules! scroll_container {
                     WidgetKind::$widget,
                     |attrs| {
                         push_modifiers(&modifier, Mods::Standard, attrs);
+                        // Free scrolling is the default, and the default is not sent: a
+                        // container that says nothing travels as it did before snapping.
+                        if snap != Snap::None {
+                            attrs.push(("snap", OwnedAttr::Int(i64::from(u16::from(snap)))));
+                        }
                         attrs.append(&mut subscription);
                     },
                     listeners,
@@ -910,6 +930,7 @@ pub struct TextScope {
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
     font: FontRefs,
+    font_features: OwnedAttr,
     word_break: Option<WordBreak>,
     overflow_wrap: Option<OverflowWrap>,
     pointer: Option<PointerSubscription>,
@@ -935,6 +956,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         max_lines: None,
         overflow: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
         word_break: None,
         overflow_wrap: None,
         pointer: None,
@@ -1001,6 +1023,19 @@ impl TextScope {
         self
     }
 
+    /// OpenType features of the font the text is set in, such as
+    /// `FontFeature::TABULAR_NUMS` for digits of one width. Compose's
+    /// `TextStyle.fontFeatureSettings`, CSS's `font-feature-settings`.
+    ///
+    /// Taken with or without a type role: a feature picks one of the forms the font already
+    /// has and does not change the font. A tag given twice takes the later value, an empty
+    /// list is no features, and at most `MAX_FONT_FEATURES` (16) are taken. A font without
+    /// the feature draws as it would have.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
     /// Where a line may break inside a word. CSS `word-break`.
     pub fn word_break(mut self, word_break: WordBreak) -> Self {
         self.word_break = Some(word_break);
@@ -1020,6 +1055,7 @@ impl TextScope {
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
         let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let (type_role, font_size, font_weight, line_height, letter_spacing) = (
             self.type_role,
@@ -1060,6 +1096,12 @@ impl TextScope {
                     },
                 ));
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, so such a text sends what it
+                // always did. A first composition writes every attribute in the list, an
+                // empty one as well, so leaving it out is what keeps it off the wire.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
@@ -1103,6 +1145,7 @@ pub struct TextFieldScope {
     letter_spacing: Option<f32>,
     color: Option<Paint>,
     font: FontRefs,
+    font_features: OwnedAttr,
     word_break: Option<WordBreak>,
     overflow_wrap: Option<OverflowWrap>,
     on_value_change: Option<Box<dyn FnMut(String)>>,
@@ -1135,6 +1178,7 @@ pub fn TextField() -> TextFieldScope {
         letter_spacing: None,
         color: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
         word_break: None,
         overflow_wrap: None,
         on_value_change: None,
@@ -1215,6 +1259,13 @@ impl TextFieldScope {
     /// The fonts to try for the field's text, in order. Taken only with `TypeRole::None`.
     pub fn font(mut self, font: FontRefs) -> Self {
         self.font = font;
+        self
+    }
+
+    /// OpenType features for the typed text and the placeholder, as
+    /// `Text::font_feature_settings` takes them. Taken with or without a type role.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
         self
     }
 
@@ -1306,6 +1357,7 @@ impl TextFieldScope {
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
         let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
@@ -1366,6 +1418,10 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, as `Text` leaves it out.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 // Written only for a bare field, so a framed one sends what it always did.
@@ -2469,6 +2525,7 @@ pub struct ModalScope {
     widget: WidgetKind,
     open: bool,
     scrim: Option<Paint>,
+    max_height_fraction: Option<f32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2481,6 +2538,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         widget: WidgetKind::Dialog,
         open,
         scrim: None,
+        max_height_fraction: None,
         on_dismiss: None,
         done: false,
     }
@@ -2494,6 +2552,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         widget: WidgetKind::Sheet,
         open,
         scrim: None,
+        max_height_fraction: None,
         on_dismiss: None,
         done: false,
     }
@@ -2511,9 +2570,25 @@ impl ModalScope {
         self
     }
 
+    /// The tallest the sheet grows, as a fraction of the window's height, above 0 and at
+    /// most 1.
+    ///
+    /// Below it the sheet is as tall as its content; content taller than that stops the
+    /// sheet at the fraction and scrolls inside it. A fraction above 1 is taken as 1, and
+    /// one that is not above 0 is not sent, which leaves the height to the design system
+    /// as it is without this call. A `Dialog` sizes itself to its content and does not
+    /// take it.
+    pub fn max_height_fraction(mut self, fraction: f32) -> Self {
+        self.max_height_fraction = (fraction > 0.0).then(|| fraction.min(1.0));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, open) = (self.widget, self.open);
+        let max_height_fraction = self
+            .max_height_fraction
+            .filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2528,6 +2603,9 @@ impl ModalScope {
                 attrs.push(("open", OwnedAttr::Bool(open)));
                 if let Some(scrim) = scrim {
                     attrs.push(("scrim", super::paint(Some(scrim))));
+                }
+                if let Some(fraction) = max_height_fraction {
+                    attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
@@ -3411,6 +3489,7 @@ pub struct SplitPaneScope {
     min: Option<f32>,
     max: Option<f32>,
     collapsible: bool,
+    collapse_below: Option<f32>,
     selected_index: usize,
     label: Option<String>,
     on_change: Option<Box<dyn FnMut(f32)>>,
@@ -3427,6 +3506,7 @@ pub fn SplitPane() -> SplitPaneScope {
         min: None,
         max: None,
         collapsible: false,
+        collapse_below: None,
         selected_index: 0,
         label: None,
         on_change: None,
@@ -3457,6 +3537,19 @@ impl SplitPaneScope {
         self
     }
 
+    /// The split pane's own width in dp below which it shows one pane at a time, the one
+    /// `selected_index` names. At or above it the panes are never stacked, and the design
+    /// system still decides between two columns and a side pane laid over the body.
+    ///
+    /// Without it the line is the size class's: stacked below 600 dp. 0 is the same as not
+    /// calling this. The width is measured on the Renderer, so crossing the line sends the
+    /// Host nothing. A negative or non-finite width is reported as a protocol error and
+    /// the split pane is drawn as if it had none.
+    pub fn collapse_below(mut self, dp: f32) -> Self {
+        self.collapse_below = Some(dp);
+        self
+    }
+
     /// Which pane shows when only one fits: 0 the side pane, 1 the body.
     pub fn selected_index(mut self, index: usize) -> Self {
         self.selected_index = index;
@@ -3482,11 +3575,12 @@ impl SplitPaneScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let label = self.label.take();
-        let (value, min, max, collapsible, selected_index) = (
+        let (value, min, max, collapsible, collapse_below, selected_index) = (
             self.value,
             self.min,
             self.max,
             self.collapsible,
+            self.collapse_below,
             self.selected_index,
         );
         let change = match self.on_change.take() {
@@ -3507,6 +3601,7 @@ impl SplitPaneScope {
                 attrs.push(("min", as_float(min)));
                 attrs.push(("max", as_float(max)));
                 attrs.push(("collapsible", OwnedAttr::Bool(collapsible)));
+                attrs.push(("collapse_below", as_float(collapse_below)));
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("text", optional_text(label)));
             },

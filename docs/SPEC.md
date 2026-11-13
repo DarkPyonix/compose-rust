@@ -966,13 +966,13 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 10. 일곱 디자인 시스템에서 렌더링되고 `DesignShowcase`에 나옵니다. 경계선의 생김새가 최소 두 시스템에서 다르고(머리카락 선과 손잡이), 최소 한 시스템이 `Medium`에서 다른 표현을 답합니다.
 11. 자식이 둘이 아닌 분할 창은 `ProtocolError`를 보내고 프로세스가 죽지 않습니다.
 12. `Collapsible`이 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다.
-13. `collapse_below(720.0)`인 분할 창이 700dp 자리에서 `SelectedIndex`의 칸 하나만 그리고, 740dp 자리에서 두 열로 그립니다(시험 이름 fr15_2_12_collapse_below_stacks_under_its_own_threshold, 미구현).
-14. `collapse_below(480.0)`인 분할 창이 520dp 자리(크기 클래스 `Compact`)에서 쌓이지 않습니다. 옆 칸 `Min`과 본문 최소가 들어가지 않으면 `Overlay`입니다(시험 이름 fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact, 미구현).
-15. 넓은 창 안의 700dp 자리에 놓인 `collapse_below(720.0)` 분할 창이 쌓입니다. 창이 아니라 자기 폭으로 잰다는 것을 확인합니다(시험 이름 fr15_2_12_collapse_below_measures_its_own_width, 미구현).
-16. 경계를 여러 번 넘나드는 동안 두 칸의 `Create` 레코드가 나오지 않고, Host로 가는 이벤트가 없으며, 돌아오면 옆 칸이 사용자가 정한 폭입니다(시험 이름 fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing, 미구현).
+13. `collapse_below(720.0)`인 분할 창이 700dp 자리에서 `SelectedIndex`의 칸 하나만 그리고, 740dp 자리에서 두 열로 그립니다(`fr15_2_12_collapse_below_stacks_under_its_own_threshold`).
+14. `collapse_below(480.0)`인 분할 창이 520dp 자리(크기 클래스 `Compact`)에서 쌓이지 않습니다. 옆 칸 `Min`과 본문 최소가 들어가지 않으면 `Overlay`입니다(`fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact`).
+15. 넓은 창 안의 700dp 자리에 놓인 `collapse_below(720.0)` 분할 창이 쌓입니다. 창이 아니라 자기 폭으로 잰다는 것을 확인합니다(`fr15_2_12_collapse_below_measures_its_own_width`).
+16. 경계를 여러 번 넘나드는 동안 두 칸의 `Create` 레코드가 나오지 않고, Host로 가는 이벤트가 없으며, 돌아오면 옆 칸이 사용자가 정한 폭입니다(`fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing`).
 17. 속성을 보내지 않은 분할 창은 기존 fr15_2_12_* 테스트를 그대로 통과합니다.
-18. 음수와 NaN은 `ProtocolError`를 보내고 속성이 없는 것처럼 그립니다(시험 이름 fr15_2_12_invalid_collapse_below_is_a_protocol_error, 미구현).
-19. `CollapseBelow`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr15_2_12_collapse_below_round_trips, 미구현).
+18. 음수와 NaN은 `ProtocolError`를 보내고 속성이 없는 것처럼 그립니다(`fr15_2_12_invalid_collapse_below_is_a_protocol_error`).
+19. `CollapseBelow`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(`fr15_2_12_collapse_below_round_trips`).
 
 ##### 15.2.12.8 열린 질문
 
@@ -1847,6 +1847,7 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **8번은 아직입니다.** Renderer의 `ComponentRules` 구현은 현재 셋(Material 3, Cupertino, Fluent)이고, GNOME/Breeze/Deepin은 다른 작업에서 들어오는 중입니다. 세 멤버 전부 토큰 표에서 유도한 기본 구현을 가지므로 그 셋이 합류할 때 컴파일이 깨지지 않고 각자의 색으로 나오지만, "여섯 시스템 전부"는 그 작업이 합쳐진 뒤에 확인해야 합니다. 그때까지 이 요구사항은 `Done`이 아닙니다.
 
+**시트의 최대 높이**(이슈 #445, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Sheet`에 `max_height_fraction(f32)`(창 높이에 대한 비율, 0보다 크고 1 이하)이 있습니다. 내용이 작으면 시트는 내용 높이이고, 크면 그 비율에서 멈추고 안이 스크롤됩니다. Ember 목업은 0.85입니다. 속성 하나를 보내고, 부르지 않으면 지금과 같습니다. 수용 기준: 창 높이 800dp에서 `max_height_fraction(0.85)`인 시트에 1000dp 내용을 넣으면 시트 높이가 680dp이고 내용이 스크롤되며, 200dp 내용이면 시트 높이가 내용 높이입니다(fr21_sheet_max_height_fraction).
 
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
@@ -4020,6 +4021,8 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 1. `ScrollColumn().scroll_state(&s)`에서 `s.scroll_to(120.0)`을 부르면 렌더러의 스크롤 위치가 120dp로 이동하고, 사용자나 코드가 스크롤한 뒤 `s.offset()`과 `s.max_offset()`이 갱신됩니다(`fr_62_scroll_state_moves_and_reports_offset_and_max`).
 2. `scroll_to(0.0)`을 두 번 연속 불러도 `Count(revision)`가 증가하여 매번 와이어 레코드가 나갑니다(`fr62_scroll_state_sends_target_and_updates_offset_from_range_report`).
 
+**스크롤 맞춤**(이슈 #547, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ScrollRow`과 `ScrollColumn`에 `snap(Snap)`이 있습니다. `Snap::None`(기본)과 `Snap::ItemStart`입니다. `ItemStart`이면 끌기나 튕기기가 끝난 뒤 가장 가까운 직접 자식의 시작 가장자리가 보이는 영역의 시작에 맞춰 멈춥니다(CSS `scroll-snap-type: x mandatory`와 `scroll-snap-align: start`). Compose의 snap fling 동작으로 그립니다. 속성 `Snap` 하나를 보내고, 부르지 않으면 보내지 않습니다. 수용 기준: 폭 390dp인 `ScrollRow` 안의 390dp 자식 셋에서 첫 자식의 절반을 넘게 끌고 놓으면 둘째 자식의 시작에 멈추고, 절반이 안 되게 끌면 첫 자식으로 돌아옵니다(fr62_scroll_row_snaps_to_item_start). `Snap::None`은 지금과 같습니다.
+
 ### FR-54 화면 미리보기와 PNG 내보내기 (`Draft`, 이슈 #357)
 
 요청한 쪽: 소유자(2026-10-26, "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해."). 결정과 폐기한 대안은 INTENT D24입니다. 화면 하나, 또는 상태를 정한 컴포넌트 하나를 1440, 1024, 768, 390 폭과 라이트, 다크에서 저장 후 몇 초 안에 보고, 같은 그림을 창 없이 PNG로 뽑아 목업과 나란히 놓거나 CI 이미지 시험에 씁니다. dioxus-compose의 rsx 화면에 대한 빠른 길(컴파일 없는 템플릿 반영)은 dioxus-compose SPEC FR-54입니다.
@@ -4981,14 +4984,14 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
 
 수용 기준.
-1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(시험 이름 fr83_font_feature_settings_writes_one_property_only_when_set, 미구현).
-2. 레코드 세 개짜리 목록이 체크인된 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr83_font_feature_settings_round_trips, 미구현).
-3. `tnum`을 가진 테스트 글꼴 에셋으로 그린 `"1111"`과 `"0000"`의 폭이 `tnum 1`이면 같고, 기능이 없으면 다릅니다(시험 이름 fr83_tabular_numerals_equalise_digit_widths, 미구현).
-4. 역할이 `Body`인 글에 `tnum 1`을 주면 역할의 글꼴, 크기, 굵기는 그대로이고 숫자 폭만 같아집니다(시험 이름 fr83_role_text_keeps_its_role_and_takes_features, 미구현).
-5. `TextField`의 입력한 숫자에도 같은 기준 3이 성립합니다(시험 이름 fr83_text_field_applies_font_features, 미구현).
-6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(시험 이름 fr83_malformed_font_features_are_a_protocol_error, 미구현).
+1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(`fr83_font_feature_settings_writes_one_property_only_when_set`).
+2. 레코드 세 개짜리 목록이 체크인된 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(`fr83_font_feature_settings_round_trips`).
+3. `tnum`을 가진 테스트 글꼴 에셋으로 그린 `"1111"`과 `"0000"`의 폭이 `tnum 1`이면 같고, 기능이 없으면 다릅니다(`fr83_tabular_numerals_equalise_digit_widths`).
+4. 역할이 `Body`인 글에 `tnum 1`을 주면 역할의 글꼴, 크기, 굵기는 그대로이고 숫자 폭만 같아집니다(`fr83_role_text_keeps_its_role_and_takes_features`).
+5. `TextField`의 입력한 숫자에도 같은 기준 3이 성립합니다(`fr83_text_field_applies_font_features`).
+6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(`fr83_malformed_font_features_are_a_protocol_error`).
 7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
-8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(시험 이름 fr83_font_features_do_not_allocate_in_steady_state, 미구현).
+8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
 
 ## 4. 경계 프로토콜
 
