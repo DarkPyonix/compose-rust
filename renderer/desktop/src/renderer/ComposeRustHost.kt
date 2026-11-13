@@ -320,6 +320,25 @@ fun rememberStartedComposeRustHost(host: ComposeRustHost): ComposeRustHost {
 }
 
 /**
+ * The content of one real window: [ComposeRustContent] filling the whole window.
+ *
+ * What [ComposeRustContent] measures is what the Host is told the window's size is, and a
+ * Compose root wraps its content unless asked to fill. A window whose tree is one line of
+ * text would then report one line of text. Every platform window draws through this, so
+ * none of them can forget the fill; a caller embedding the content in a larger Compose
+ * layout calls [ComposeRustContent] and sizes it itself.
+ */
+@Composable
+fun WindowContent(
+    host: ComposeRustHost,
+    modifier: Modifier = Modifier,
+    caption: WindowCaption = WindowCaption.None,
+    windowNodeId: Int = 0,
+) {
+    ComposeRustContent(host, Modifier.fillMaxSize().then(modifier), caption, windowNodeId)
+}
+
+/**
  * Draws the Host's tree and runs the frame loop.
  *
  * Frame requests coming from Host worker threads coalesce into at most one `render_frame`
@@ -744,12 +763,8 @@ private fun ComposeRustTree(
             overlayFocusStack.handleBack()
         }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
-            // Filling, so what is measured is the space the window gives and not what the
-            // content happens to need: a window whose root is one line of text is still the
-            // whole window, and every caller gets that without having to remember it.
             Box(
                 modifier
-                    .fillMaxSize()
                     .then(measured)
                     .then(dragStrip)
                     .onKeyEvent { event ->

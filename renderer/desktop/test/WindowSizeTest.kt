@@ -28,6 +28,7 @@ import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.runtime.WindowSafeArea
 import dev.darkpyonix.composerust.runtime.WindowCaption
@@ -424,9 +425,9 @@ class WindowSizeTest {
                 LocalFrameRequests provides frames,
                 LocalDensity provides Density(1f),
             ) {
-                // The window, and a caller that passes no modifier, as a platform window does.
+                // The window, and what every platform window draws inside it, with no modifier.
                 androidx.compose.foundation.layout.Box(Modifier.requiredSize(900.dp, 1000.dp)) {
-                    ComposeRustContent(rememberComposeRustHost(connection))
+                    WindowContent(rememberComposeRustHost(connection))
                 }
             }
         }
