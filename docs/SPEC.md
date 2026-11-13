@@ -4979,6 +4979,8 @@ pub mod storage {
 
 **한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
 
+**모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 37): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
+
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 
 요청한 쪽: dioxus-compose(HTML 마운트된 요소의 `focus()`, `blur()`와 `TextField`의 `oncompositionstart`, `oncompositionend`). Host가 특정 노드에 키보드 포커스를 요청하거나 현재 포커스를 거두고, `TextField`에서도 `CodeEditor`(FR-38.9)와 같은 조합 상태 이벤트를 받을 수 있어야 합니다.
