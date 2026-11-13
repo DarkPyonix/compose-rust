@@ -62,11 +62,14 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
@@ -630,13 +633,21 @@ fun RenderNode(
                         islandZoom?.let { islandDensity(outer, zoom, it) } ?: outer
                     }
                     CompositionLocalProvider(LocalDensity provides density) {
+                        // Each child names its node to the measure policy, which reads from it
+                        // which sizes the child gives itself.
                         node.children.forEach { childId ->
-                            key(childId) { RenderNode(childId, table, dispatcher) }
+                            key(childId) {
+                                val child = table.node(childId)
+                                val named = remember(child) { child?.let { Modifier.layoutId(it) } ?: Modifier }
+                                RenderNode(childId, table, dispatcher, parentModifier = named)
+                            }
                         }
                     }
                 },
                 modifier = modifier,
-                measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
+                measurePolicy = LocalWindowInfo.current.let { window ->
+                    remember(nodeId, window) { AbsoluteBoxMeasurePolicy(nodeId, window) }
+                },
             )
         }
     }
@@ -728,21 +739,52 @@ private class TextColor(
  * How an `AbsoluteBox` lays out: every child at the box's own origin, moved from there by
  * its `Offset`, with later children drawn over earlier ones.
  *
- * Each child is measured with no limit at all, so it is exactly the size its own modifiers
- * say. Under a limit, a child bigger than the box would be squeezed, or, with a required
- * size, centred on the room it was given, and either would move it away from where the
- * Host put it. CSS lets a box overflow its parent, and so does this.
+ * A size the child gives itself (`RequiredSize`, `Size`, `Width`, `Height`) is measured
+ * with no limit on that axis, so the child is exactly that size. Under a limit, a child
+ * bigger than the box would be squeezed, or, with a required size, centred on the room it
+ * was given, and either would move it away from where the Host put it. CSS lets a box
+ * overflow its parent, and so does this.
+ *
+ * An axis the child does not size is measured within the box's own limit, so a child that
+ * sizes itself by the room it has (a scroller, a list, a text field, a code editor) stops
+ * at the box's edges. With no limit, such a child has nowhere to stop, and Compose throws
+ * rather than lay out a vertical scroller of infinite height, which takes the Renderer
+ * down with it. A child sized by its content is still the size of its content while that
+ * fits. Where the box has no limit itself, as one with no size inside a scroller has none,
+ * the window is the limit, the way a CSS page's outermost box is the viewport.
  *
  * The box itself is as big as its largest child, within what its parent allows, the way a
  * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
  */
-private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy {
+private class AbsoluteBoxMeasurePolicy(
+    private val nodeId: Int,
+    private val window: WindowInfo,
+) : MeasurePolicy {
     override fun MeasureScope.measure(
         measurables: List<Measurable>,
         constraints: Constraints,
     ): MeasureResult {
         RenderNodeObserver.onMeasure?.invoke(nodeId)
-        val placeables = measurables.map { it.measure(Constraints()) }
+        val windowSize = window.containerSize
+        val maxWidth = finiteLimit(constraints.maxWidth, windowSize.width)
+        val maxHeight = finiteLimit(constraints.maxHeight, windowSize.height)
+        val placeables = measurables.map { measurable ->
+            // Read in the measure pass, so a size the child gains or loses later measures
+            // it again under the right limit without the box being composed again.
+            val modifiers = (measurable.layoutId as? Node)?.modifiers.orEmpty()
+            val sizesWidth = modifiers.any {
+                it is ProtocolModifier.RequiredSize || it is ProtocolModifier.Size || it is ProtocolModifier.Width
+            }
+            val sizesHeight = modifiers.any {
+                it is ProtocolModifier.RequiredSize || it is ProtocolModifier.Size || it is ProtocolModifier.Height
+            }
+            measurable.measure(
+                Constraints(
+                    maxWidth = if (sizesWidth) Constraints.Infinity else maxWidth,
+                    maxHeight = if (sizesHeight) Constraints.Infinity else maxHeight,
+                ),
+            )
+        }
         var width = constraints.minWidth
         var height = constraints.minHeight
         for (placeable in placeables) {
@@ -757,7 +799,21 @@ private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy 
             for (placeable in placeables) placeable.place(0, 0)
         }
     }
+
+    /**
+     * The box's own limit on one axis, or the window's where the box has none. A window
+     * that has not been given a size yet falls back to a large finite one, so a child that
+     * sizes itself by its room is still never measured without an end.
+     */
+    private fun finiteLimit(max: Int, window: Int): Int = when {
+        max != Constraints.Infinity -> max
+        window > 0 -> window
+        else -> UNSIZED_WINDOW_LIMIT
+    }
 }
+
+/** The limit a box with none of its own uses before the window has a size, in pixels. */
+private const val UNSIZED_WINDOW_LIMIT = 4096
 
 /**
  * How a node that takes files gets its drop target, filled in by the platform that has
