@@ -2447,6 +2447,7 @@ pub struct ModalScope {
     widget: WidgetKind,
     open: bool,
     scrim: Option<Paint>,
+    max_height_fraction: Option<f32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2459,6 +2460,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         widget: WidgetKind::Dialog,
         open,
         scrim: None,
+        max_height_fraction: None,
         on_dismiss: None,
         done: false,
     }
@@ -2472,6 +2474,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         widget: WidgetKind::Sheet,
         open,
         scrim: None,
+        max_height_fraction: None,
         on_dismiss: None,
         done: false,
     }
@@ -2489,9 +2492,25 @@ impl ModalScope {
         self
     }
 
+    /// The tallest the sheet grows, as a fraction of the window's height, above 0 and at
+    /// most 1.
+    ///
+    /// Below it the sheet is as tall as its content; content taller than that stops the
+    /// sheet at the fraction and scrolls inside it. A fraction above 1 is taken as 1, and
+    /// one that is not above 0 is not sent, which leaves the height to the design system
+    /// as it is without this call. A `Dialog` sizes itself to its content and does not
+    /// take it.
+    pub fn max_height_fraction(mut self, fraction: f32) -> Self {
+        self.max_height_fraction = (fraction > 0.0).then(|| fraction.min(1.0));
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, open) = (self.widget, self.open);
+        let max_height_fraction = self
+            .max_height_fraction
+            .filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2506,6 +2525,9 @@ impl ModalScope {
                 attrs.push(("open", OwnedAttr::Bool(open)));
                 if let Some(scrim) = scrim {
                     attrs.push(("scrim", super::paint(Some(scrim))));
+                }
+                if let Some(fraction) = max_height_fraction {
+                    attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
