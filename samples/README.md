@@ -19,7 +19,7 @@ one declaration is a phone screen, a tablet screen and a desktop window.
 |---|---|---|
 | `calculator` | The Windows, macOS and Deepin calculators | Dense button grids, `Row` and `Column` nesting, a memory register, numeric formatting, a tape that stands beside the keys or arrives in a sheet |
 | `notepad` | The iOS and Windows memo applications | Multiline text editing, IME, opening and saving through the file dialog on every platform (a download where a browser cannot write a file), several open documents with the list beside the page or in a sheet, the open documents kept in the application storage and restored on the next run or page load |
-| `todo` | A macOS task list and a mobile task scheduler | Lists with stable keys, checkboxes, filtering as a destination set, `LazyColumn` windowing over thousands of rows, the list kept in the application storage (`tasks.tsv`) so it survives a restart or a page reload |
+| `todo` | A macOS task list and a mobile task scheduler | Lists with stable keys, checkboxes, tasks as cards under a heading for each kind, search, filters and user lists as one destination set, a narrow window with no bar (its list of lists is a screen reached from a floating back button, and a floating add button opens the Add Task sheet), `LazyColumn` windowing over thousands of rows, the tasks and lists kept in the application storage (`tasks.tsv`) so they survive a restart or a page reload |
 | `chat` | Google Gemini | Conversations as a destination set, scrollback, a composer where Enter sends and Shift+Enter starts a new line, and a reply streamed in from a worker thread |
 
 The four above are **adaptive**: they take whichever design system the platform picks, so
@@ -32,7 +32,7 @@ them name Cupertino.
 | Sample | What it exercises |
 |---|---|
 | `minimal` | A monochrome component sheet in the reference's own black, white and greys: steppers, a segmented control, a panel with a red delete action, chips, a slider card, a card of button tiles, an inverted bar with a search field, a green and grey switch pair, and two overlapping discs with a gradient and a shadow |
-| `store` | A clothing shop: a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
+| `store` | A clothing shop: a first screen with the way in, a carousel with page dots, a category strip, a two-up grid, a product page with sizes and a stepper, and a bag that adds up |
 | `statistics` | Charts: a dial and a week of hatched columns drawn with `Canvas` in the reference's own palette, and a costs page that is sage to the window's edges |
 | `selfcare` | A check-in whose answers are colours: a drawn face per feeling on a pale panel, a carousel of feelings centred on the chosen one, three progress segments and a chip grid, then a windowing row of session cards, a week as a line in the reference's cyan, and its own bar with the destination you are on named in a pill |
 | `podcast` | A player whose waveform is a `Canvas`, a cover per show, and a full-screen page that covers the navigation bar |
