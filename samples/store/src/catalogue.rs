@@ -55,8 +55,15 @@ static HOODIE: &[u8] = include_bytes!("../assets/hoodie.svg");
 static KIT: &[u8] = include_bytes!("../assets/kit.svg");
 
 /// The banner at the top of the catalogue, which is the one picture that is a scene rather
-/// than a garment.
+/// than a garment. Framed tight on the two figures and anchored to its bottom edge, so the
+/// carousel can stand them on the card and let their heads rise above its top edge, the
+/// way the reference's photograph does.
 pub static HERO: &[u8] = include_bytes!("../assets/hero.svg");
+
+/// The picture the shop opens on: a figure on a beach, filling everything under the title
+/// to the window's edges. It slices rather than fits, the way a photograph cropped to a
+/// phone does, so a window of any shape is covered with no band of page showing round it.
+pub static WELCOME: &[u8] = include_bytes!("../assets/onboarding.svg");
 
 /// The carousel at the top of the catalogue, in the order it turns.
 ///
@@ -190,6 +197,12 @@ pub fn price(cents: u32) -> String {
     }
 }
 
+/// A price with its cents always written, which is how the reference writes the amount on a
+/// garment's own page: "$95.00" beside the stepper, where the shelf label says "$95".
+pub fn price_with_cents(cents: u32) -> String {
+    format!("${}.{:02}", thousands(cents / 100), cents % 100)
+}
+
 /// Groups of three from the right. A bag of six jackets is a four figure total, and a four
 /// figure total without a separator is a number people misread.
 fn thousands(value: u32) -> String {
@@ -204,23 +217,19 @@ fn thousands(value: u32) -> String {
     out
 }
 
-/// Five glyphs, filled up to the rating and hollow after it.
+/// Five stars: as many filled as the rating rounds to, and the rest after them.
+///
+/// Both halves are the same filled glyph, because the reference draws the missing star as
+/// a grey star rather than an outline: the two strings are drawn in two colours, which is
+/// what tells them apart.
 ///
 /// A row of five icons is what the reference draws, and the closed set of icon meanings
-/// has no star in it: a meaning is drawn by every design system, and a star rating is not
-/// a meaning any of them owns. Characters are what is left, and they are sized by the type
-/// ladder like any other text, so they at least follow the design system's scale.
-pub fn stars(rating: u32) -> String {
-    let filled = (rating + 5) / 10;
-    let mut out = String::with_capacity(5 * 3);
-    for step in 0..5 {
-        out.push(if step < filled {
-            '\u{2605}'
-        } else {
-            '\u{2606}'
-        });
-    }
-    out
+/// has no star in it yet (compose-rust issue #539). Characters are what is left, and they
+/// are sized by the type ladder like any other text, so they at least follow the design
+/// system's scale.
+pub fn stars(rating: u32) -> (String, String) {
+    let filled = ((rating + 5) / 10).min(5) as usize;
+    ("\u{2605}".repeat(filled), "\u{2605}".repeat(5 - filled))
 }
 
 /// The rating as it is written beside the stars: one decimal, from tenths.
@@ -313,9 +322,29 @@ mod tests {
 
     #[test]
     fn fr13_the_rating_rounds_to_whole_stars() {
-        assert_eq!(stars(50), "\u{2605}\u{2605}\u{2605}\u{2605}\u{2605}");
-        assert_eq!(stars(44), "\u{2605}\u{2605}\u{2605}\u{2605}\u{2606}");
-        assert_eq!(stars(0), "\u{2606}\u{2606}\u{2606}\u{2606}\u{2606}");
+        let star = "\u{2605}";
+        assert_eq!(stars(50), (star.repeat(5), String::new()));
+        assert_eq!(stars(44), (star.repeat(4), star.repeat(1)));
+        assert_eq!(stars(0), (String::new(), star.repeat(5)));
+    }
+
+    /// The missing star is a grey star, not an outline. The reference draws all five the
+    /// same shape and tells them apart by colour, so neither half may use the hollow glyph.
+    #[test]
+    fn fr22_a_missing_star_is_the_same_star_drawn_apart() {
+        let (filled, rest) = stars(44);
+        assert!(!filled.contains('\u{2606}') && !rest.contains('\u{2606}'));
+        assert_eq!(filled.chars().count() + rest.chars().count(), 5);
+    }
+
+    /// A garment's page writes the cents even when there are none, as the reference does
+    /// beside the stepper. The shelf keeps its short form.
+    #[test]
+    fn fr22_the_garment_page_writes_a_price_with_its_cents() {
+        assert_eq!(price_with_cents(9500), "$95.00");
+        assert_eq!(price_with_cents(9550), "$95.50");
+        assert_eq!(price_with_cents(119250), "$1,192.50");
+        assert_eq!(price(9500), "$95");
     }
 
     /// Every tab has something on its shelf. A tab that shows nothing reads as a shop

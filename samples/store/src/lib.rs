@@ -15,7 +15,8 @@ mod catalogue;
 mod palette;
 
 use catalogue::{
-    BagLine, CATALOGUE, Category, FEATURED, Product, SIZES, price, stars, total, under,
+    BagLine, CATALOGUE, Category, FEATURED, Product, SIZES, price, price_with_cents, stars, total,
+    under,
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
@@ -32,9 +33,32 @@ const PAGE_MEASURE: f32 = 420.0;
 /// how far apart two things sit rather than how large a picture is.
 const TILE_HEIGHT: f32 = 168.0;
 const CAROUSEL_HEIGHT: f32 = 200.0;
-const HERO_HEIGHT: f32 = 300.0;
-/// How tall the row of category labels is.
+/// How far the scene on the carousel's first slide stands above the card. The reference's
+/// two figures rise out of the top of the grey card rather than sitting inside it.
+const CAROUSEL_RISE: f32 = 40.0;
+/// How tall the picture on a garment's page is: a little over half a phone's height, which
+/// is the share the reference's photograph takes before the panel covers it.
+const HERO_HEIGHT: f32 = 400.0;
+/// How far the panel on a garment's page reaches up over the picture, and how round its two
+/// top corners are. The reference's panel slides over the photograph with its top corners
+/// rounded and its bottom running into the window's edge.
+const PANEL_OVERLAP: f32 = 28.0;
+const PANEL_CORNER: f32 = 28.0;
+/// The grabber at the top of that panel.
+const GRABBER: (f32, f32) = (36.0, 4.0);
+/// How tall the row of category labels is, and the gap after each label.
 const STRIP_HEIGHT: f32 = 56.0;
+const STRIP_GAP: f32 = 24.0;
+/// Which weight the chosen category is written in, and which the others are. The
+/// reference sets the chosen one heavier as well as darker.
+const CHOSEN_WEIGHT: u16 = 600;
+const PLAIN_WEIGHT: u16 = 400;
+
+/// The round dark button on the first screen, which sits on the line where the white page
+/// meets the picture, half over each.
+const START_SIDE: f32 = 68.0;
+/// How far that button sits from the window's right edge.
+const START_INSET: f32 = 28.0;
 
 /// The dots under the carousel: a wide pill for the slide that is showing and a small
 /// circle for each of the others, which is what the reference draws.
@@ -48,9 +72,13 @@ const DOT_SLOT: f32 = 26.0;
 const ICON_TAP: f32 = 44.0;
 const LOGO: (f32, f32) = (36.0, 22.0);
 
-/// The size chips on a garment's page, which are round in the reference and as wide as
-/// the row divided five ways here.
-const CHIP_HEIGHT: f32 = 46.0;
+/// The size chips on a garment's page: equal circles with gaps between them, which is
+/// what the reference draws, rather than the row divided five ways.
+const CHIP_SIDE: f32 = 46.0;
+/// The stepper's two round buttons.
+const STEP_SIDE: f32 = 36.0;
+/// How tall the dark pill buttons are: "Add to Bag" and "Checkout".
+const PILL_HEIGHT: f32 = 54.0;
 
 /// The icons this shop draws, as the bytes each registration carries: the meaning's wire
 /// tag, little endian, and nothing else.
@@ -58,6 +86,13 @@ const CHIP_HEIGHT: f32 = 46.0;
 /// An icon is a meaning rather than a picture. The Renderer holds the artwork for every
 /// design system, so `Home` comes out as this system's house and the shop never says what
 /// a house looks like.
+///
+/// The reference's bar is home, a chat bubble, a location pin and a person, its header
+/// has a shopping bag, and its garment page has a heart. The closed set of meanings has
+/// none of those but the house yet (compose-rust issue #539), so the shop's destinations
+/// are the ones the set can say, and the bag is the inbox tray until a bag exists. The
+/// account's `Settings` is drawn as a crosshair at this size under Cupertino, which is the
+/// toolkit's to fix (compose-rust issue #537).
 mod icon {
     use compose_rust::ui::IconRole;
 
@@ -110,21 +145,18 @@ impl Destination {
 /// One icon, with the press behind it.
 ///
 /// No label under it and no pill round it, because the reference's bar has neither: what
-/// marks the destination you are on is that its icon is drawn in the accent. The button
-/// carries no text and sits over the drawing, so the press lands on it whatever the
-/// design system drew.
+/// marks the destination you are on is that its icon is drawn in the accent. The box round
+/// the icon is the control, so the press lands on it whatever the design system drew, and
+/// no button of the design system's is laid over it to show its own pressed state.
 #[Composable]
 fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
+    let press = Rc::clone(&on_click);
     Box()
         .modifier(Modifier.size(ICON_TAP, ICON_TAP))
         .alignment(Alignment::Center)
+        .on_click(move || press())
         .content(|| {
             Icon(asset(AssetKind::VectorIcon, picture)).color(tint);
-            let press = Rc::clone(&on_click);
-            Button("")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || press());
         });
 }
 
@@ -187,12 +219,12 @@ fn header(waiting: u32, on_go: Rc<dyn Fn(Destination)>) {
 
 /// A garment on its card: the flat grey picture area, and the press that opens it.
 ///
-/// The card is the control. The reference has no button on it, and a tile cannot be
-/// tapped: `Modifier::Clickable` is on the wire but no container widget exposes it, so
-/// what carries the press is a `Button` with no label, filling the picture area.
+/// The card is the control. The reference has no button on it, so the card takes the
+/// press itself rather than carrying a button of the design system's over the picture.
 #[Composable]
 fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
     let id = product.id;
+    let open = Rc::clone(&on_open);
     Box()
         .modifier(
             Modifier
@@ -202,14 +234,10 @@ fn tile(product: &'static Product, height: f32, on_open: Rc<dyn Fn(u32)>) {
                 .shape_role(ShapeRole::Large),
         )
         .alignment(Alignment::Center)
+        .on_click(move || open(id))
         .content(|| {
             Image(asset(AssetKind::Svg, product.picture))
                 .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
-            let open = Rc::clone(&on_open);
-            Button("")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || open(id));
         });
 }
 
@@ -226,8 +254,10 @@ fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
         .space_role(SpaceRole::Xs)
         .content(|| {
             tile(product, TILE_HEIGHT, Rc::clone(&on_open));
+            // Name and price in the regular weight, as the reference writes them: the
+            // picture is what the eye goes to, not the words under it.
             Text(product.name)
-                .type_role(TypeRole::BodyStrong)
+                .type_role(TypeRole::Body)
                 .color(palette::INK)
                 .max_lines(1)
                 .overflow(TextOverflow::Ellipsis);
@@ -237,7 +267,7 @@ fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
                 .max_lines(1)
                 .overflow(TextOverflow::Ellipsis);
             Text(price(product.cents))
-                .type_role(TypeRole::BodyStrong)
+                .type_role(TypeRole::Body)
                 .color(palette::INK);
         });
 }
@@ -248,26 +278,44 @@ fn grid_cell(product: &'static Product, on_open: Rc<dyn Fn(u32)>) {
 /// belongs to the Renderer and is never reported back: dots driven by one would be drawn
 /// in the right place and never move. Pressing the card turns it, which is the nearest
 /// thing to the reference's swipe that the vocabulary has.
+///
+/// The first slide is the scene, and it stands on the card with the figures' heads above
+/// the card's top edge, as the reference's photograph does. So the carousel is taller than
+/// its card by that rise, the card sits at the bottom of it, and the scene is drawn over
+/// both. A garment slide is a product shot and stays inside the card.
 #[Composable]
 fn carousel(slide: MutableState<usize>) {
     let showing = slide.get() % FEATURED;
+    let picture = catalogue::featured()[showing];
+    let scene = picture == catalogue::HERO;
     Box()
         .modifier(
             Modifier
                 .fill_max_width()
-                .height(CAROUSEL_HEIGHT)
-                .background(palette::TILE)
-                .shape_role(ShapeRole::Large),
+                .height(CAROUSEL_HEIGHT + CAROUSEL_RISE),
         )
-        .alignment(Alignment::Center)
+        .alignment(Alignment::BottomCenter)
         .content(|| {
-            Image(asset(AssetKind::Svg, catalogue::featured()[showing]))
-                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
             let turn = slide;
-            Button("")
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || turn.set((turn.get_untracked() + 1) % FEATURED));
+            Box()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .height(CAROUSEL_HEIGHT)
+                        .background(palette::TILE)
+                        .shape_role(ShapeRole::Large),
+                )
+                .alignment(Alignment::Center)
+                .on_click(move || turn.set((turn.get_untracked() + 1) % FEATURED))
+                .content(|| {
+                    if !scene {
+                        Image(asset(AssetKind::Svg, picture))
+                            .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md));
+                    }
+                });
+            if scene {
+                Image(asset(AssetKind::Svg, picture)).modifier(Modifier.fill_max_size());
+            }
         });
     Row()
         .modifier(Modifier.fill_max_width())
@@ -320,7 +368,9 @@ fn catalogue_screen(
         .content(|| {
             header(in_bag, Rc::clone(&on_go));
 
-            Text("Let's find your sports outfit!")
+            // Broken where the reference breaks it, so the heading is two lines at every
+            // width rather than one line on a phone wide enough to hold it.
+            Text("Let's find your\nsports outfit!")
                 .type_role(TypeRole::Headline)
                 .color(palette::INK)
                 .modifier(Modifier.fill_max_width());
@@ -345,17 +395,34 @@ fn catalogue_screen(
                             let choice = Category::STRIP[position];
                             let chosen = strip.get() == choice;
                             let pick = strip;
-                            Box().alignment(Alignment::Center).content(|| {
-                                // Every category is a label and one of them is the one you
-                                // are looking at, which is what the reference draws: the
-                                // chosen one in the reading ink and the rest in the quieter
-                                // one. Filling the chosen one instead made the row read as
-                                // five actions on a screen whose only real action is adding
-                                // something to the bag.
-                                Button(choice.label())
-                                    .variant(ButtonVariant::Text)
-                                    .color(if chosen { palette::INK } else { palette::MUTED })
-                                    .on_click(move || pick.set(choice));
+                            // Every category is a label and one of them is the one you are
+                            // looking at, which is what the reference draws: the chosen one
+                            // heavier and in the reading ink, the rest regular and in the
+                            // quieter one. Filling the chosen one instead made the row read
+                            // as five actions on a screen whose only real action is adding
+                            // something to the bag. A label rather than a button, because a
+                            // button's words take the design system's button type and
+                            // padding, and the reference's are plain words with even gaps.
+                            Row().alignment(Alignment::Center).content(|| {
+                                Box()
+                                    .alignment(Alignment::Center)
+                                    .on_click(move || pick.set(choice))
+                                    .content(|| {
+                                        Text(choice.label())
+                                            .type_role(TypeRole::Subtitle)
+                                            .font_weight(if chosen {
+                                                CHOSEN_WEIGHT
+                                            } else {
+                                                PLAIN_WEIGHT
+                                            })
+                                            .color(if chosen {
+                                                palette::INK
+                                            } else {
+                                                palette::MUTED
+                                            })
+                                            .max_lines(1);
+                                    });
+                                Spacer().modifier(Modifier.width(STRIP_GAP));
                             });
                         },
                     );
@@ -393,7 +460,82 @@ fn catalogue_screen(
         });
 }
 
+/// The shop's first screen: the mark, what the shop is, and the way in.
+///
+/// The reference opens on this before the catalogue: a white top with the mark and the
+/// shop's name in large regular type, a picture filling everything under it to the
+/// window's edges, and one round dark button with an arrow sitting on the line where the
+/// two meet. There is no bar along the bottom, because nothing is reachable from here but
+/// the shop itself.
+///
+/// The button straddles that line without drawing outside anything. The picture starts
+/// half the button's height below the top of the area it shares with the button, so the
+/// white page shows above the picture's top edge and the button, laid over both, is
+/// centred on it.
+#[Composable]
+fn onboarding_screen(on_start: Rc<dyn Fn()>) {
+    Column()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .fill_max_height()
+                .background(palette::PAGE),
+        )
+        .content(|| {
+            Column()
+                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+                .space_role(SpaceRole::Xl)
+                .content(|| {
+                    Canvas(logo_mark()).modifier(Modifier.size(LOGO.0, LOGO.1));
+                    Text(WELCOME_TITLE)
+                        .type_role(TypeRole::Headline)
+                        .font_weight(PLAIN_WEIGHT)
+                        .color(palette::INK);
+                });
+            Box()
+                .modifier(Modifier.fill_max_width().weight(1.0))
+                .alignment(Alignment::TopEnd)
+                .content(|| {
+                    Column().modifier(Modifier.fill_max_size()).content(|| {
+                        Spacer().modifier(Modifier.height(START_SIDE / 2.0));
+                        Image(asset(AssetKind::Svg, catalogue::WELCOME))
+                            .modifier(Modifier.fill_max_width().weight(1.0));
+                    });
+                    Row().alignment(Alignment::Center).content(|| {
+                        let start = Rc::clone(&on_start);
+                        Button("")
+                            .icon(IconRole::Forward)
+                            .accessible_name("Start shopping")
+                            .variant(ButtonVariant::Text)
+                            .color(palette::PAGE)
+                            .modifier(
+                                Modifier
+                                    .size(START_SIDE, START_SIDE)
+                                    .background(palette::DARK)
+                                    .shape_role(ShapeRole::Full),
+                            )
+                            .on_click(move || start());
+                        Spacer().modifier(Modifier.width(START_INSET));
+                    });
+                });
+        });
+}
+
+/// What the first screen says the shop is, broken where the reference breaks it.
+const WELCOME_TITLE: &str = "Personal Fitness\nClothes App";
+
 /// One garment: the picture, what it is, what size, how many, and what it costs.
+///
+/// The picture runs to the window's edges and the panel slides up over its lower edge,
+/// with its two top corners rounded and a grabber on it, which is the reference's page.
+/// The two are layers of one box rather than one stacked under the other: the panel's
+/// column starts with a gap a little shorter than the picture, so the panel's top lies
+/// over the picture and nothing is drawn outside the box. The back control is the top
+/// layer, so the panel never covers it.
+///
+/// The reference also has a heart at the top right. The closed set of icon meanings has no
+/// heart yet (compose-rust issue #539), so that corner stays empty rather than holding a
+/// character pretending to be one.
 #[Composable]
 fn detail_screen(
     product: &'static Product,
@@ -404,17 +546,23 @@ fn detail_screen(
 ) {
     let count = quantity.get();
     let chosen = size.get();
-    let line_total = price(product.cents * count);
+    let line_total = price_with_cents(product.cents * count);
+    let (lit, unlit) = stars(product.rating);
     let rating = product.rating;
 
-    Column()
+    Box()
         .modifier(
             Modifier
                 .fill_max_width()
                 .fill_max_height()
                 .background(palette::PAGE),
         )
+        .alignment(Alignment::TopStart)
         .content(|| {
+            // The garment, full size. The reference's product page is a photograph
+            // running to the window's edges with the panel covering its lower part, and a
+            // page that fills that with a flat colour is the one screen in the shop that
+            // shows you nothing about what you are buying.
             Box()
                 .modifier(
                     Modifier
@@ -422,152 +570,192 @@ fn detail_screen(
                         .height(HERO_HEIGHT)
                         .background(palette::TILE),
                 )
-                .alignment(Alignment::TopStart)
+                .alignment(Alignment::Center)
                 .content(|| {
-                    // The garment, full size. The reference's product page is a photograph
-                    // running to the window's edges with the panel covering its lower
-                    // part, and a page that fills that with a flat colour is the one screen
-                    // in the shop that shows you nothing about what you are buying.
                     Image(asset(AssetKind::Svg, product.picture))
-                        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Lg));
-                    Row()
-                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            let back = Rc::clone(&on_back);
-                            Button("\u{2190}")
-                                .variant(ButtonVariant::Text)
-                                .color(palette::INK)
-                                .on_click(move || back());
-                        });
+                        .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Xl));
                 });
 
-            // The panel that covers the lower part of the picture, which is the shape the
-            // reference draws and the shape a grouped iOS sheet has.
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .weight(1.0)
-                        .background(palette::PAGE)
-                        .shape_role(ShapeRole::Large)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Md)
-                .content(|| {
-                    Column()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Xs)
-                        .content(|| {
-                            Text(product.name)
-                                .type_role(TypeRole::Headline)
-                                .color(palette::INK);
-                            Text(product.support)
-                                .type_role(TypeRole::Body)
-                                .color(palette::MUTED);
-                            Row()
-                                .space_role(SpaceRole::Sm)
-                                .alignment(Alignment::CenterStart)
-                                .content(|| {
-                                    Text(stars(rating))
-                                        .type_role(TypeRole::Body)
-                                        .color(palette::INK);
-                                    Text(format!("({})", catalogue::rating_text(rating)))
-                                        .type_role(TypeRole::Label)
-                                        .color(palette::MUTED);
-                                });
-                        });
-
-                    Column()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .content(|| {
-                            Text("Select size")
-                                .type_role(TypeRole::Label)
-                                .color(palette::MUTED);
-                            Row()
-                                .modifier(Modifier.fill_max_width())
-                                .space_role(SpaceRole::Sm)
-                                .content(|| {
-                                    for option in SIZES {
-                                        key(option, || {
-                                            // The chosen size is the one thing on this
-                                            // page in the accent. The rest are the same
-                                            // flat grey as the card the garment is drawn
-                                            // on.
-                                            let pick = size;
-                                            Button(option)
-                                                .modifier(
-                                                    Modifier
-                                                        .weight(1.0)
-                                                        .height(CHIP_HEIGHT)
-                                                        .background(if option == chosen {
-                                                            palette::ACCENT
-                                                        } else {
-                                                            palette::TILE
-                                                        })
-                                                        .shape_role(ShapeRole::Full),
-                                                )
-                                                .variant(ButtonVariant::Text)
-                                                .color(palette::INK)
-                                                .on_click(move || pick.set(option));
+            Column().modifier(Modifier.fill_max_size()).content(|| {
+                Spacer().modifier(Modifier.height(HERO_HEIGHT - PANEL_OVERLAP));
+                Column()
+                    .modifier(
+                        Modifier
+                            .fill_max_width()
+                            .weight(1.0)
+                            .background(palette::PAGE)
+                            .corner_radii([PANEL_CORNER, PANEL_CORNER, 0.0, 0.0])
+                            .padding_role(SpaceRole::Md),
+                    )
+                    .space_role(SpaceRole::Md)
+                    .content(|| {
+                        Box()
+                            .modifier(Modifier.fill_max_width())
+                            .alignment(Alignment::Center)
+                            .content(|| {
+                                Box().modifier(
+                                    Modifier
+                                        .size(GRABBER.0, GRABBER.1)
+                                        .background(palette::DOT)
+                                        .shape_role(ShapeRole::Full),
+                                );
+                            });
+                        Column()
+                            .modifier(Modifier.fill_max_width())
+                            .space_role(SpaceRole::Xs)
+                            .content(|| {
+                                Text(product.name)
+                                    .type_role(TypeRole::Headline)
+                                    .color(palette::INK);
+                                Text(product.support)
+                                    .type_role(TypeRole::Body)
+                                    .color(palette::MUTED);
+                                Row()
+                                    .space_role(SpaceRole::Sm)
+                                    .alignment(Alignment::CenterStart)
+                                    .content(|| {
+                                        // Two runs of the same star in two inks,
+                                        // so the one the rating does not reach is
+                                        // grey rather than hollow.
+                                        Row().alignment(Alignment::CenterStart).content(|| {
+                                            if !lit.is_empty() {
+                                                Text(lit.as_str())
+                                                    .type_role(TypeRole::Caption)
+                                                    .color(palette::INK);
+                                            }
+                                            if !unlit.is_empty() {
+                                                Text(unlit.as_str())
+                                                    .type_role(TypeRole::Caption)
+                                                    .color(palette::FAINT);
+                                            }
                                         });
+                                        Text(format!("({})", catalogue::rating_text(rating)))
+                                            .type_role(TypeRole::Label)
+                                            .color(palette::MUTED);
+                                    });
+                            });
+
+                        Column()
+                            .modifier(Modifier.fill_max_width())
+                            .space_role(SpaceRole::Sm)
+                            .content(|| {
+                                Text("Select size")
+                                    .type_role(TypeRole::Label)
+                                    .color(palette::MUTED);
+                                Row().space_role(SpaceRole::Md).content(|| {
+                                    for option in SIZES {
+                                        key(option, || size_chip(option, chosen, size));
                                     }
                                 });
-                        });
+                            });
 
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            let fewer = quantity;
-                            Button("\u{2212}")
-                                .modifier(
-                                    Modifier
-                                        .background(palette::PAGE)
-                                        .border(1.0, palette::OUTLINE)
-                                        .shape_role(ShapeRole::Full),
-                                )
-                                .variant(ButtonVariant::Text)
-                                .color(palette::INK)
-                                .enabled(count > 1)
-                                .on_click(move || {
-                                    fewer.set(fewer.get_untracked().saturating_sub(1).max(1))
-                                });
-                            Text(count.to_string())
-                                .type_role(TypeRole::Subtitle)
-                                .color(palette::INK);
-                            let more = quantity;
-                            Button("+")
-                                .modifier(
-                                    Modifier
-                                        .background(palette::DARK)
-                                        .shape_role(ShapeRole::Full),
-                                )
-                                .variant(ButtonVariant::Text)
-                                .color(palette::PAGE)
-                                .enabled(count < 9)
-                                .on_click(move || more.set((more.get_untracked() + 1).min(9)));
-                            Spacer().modifier(Modifier.weight(1.0));
-                            Text(line_total)
-                                .type_role(TypeRole::Headline)
-                                .color(palette::INK);
-                        });
+                        Row()
+                            .modifier(Modifier.fill_max_width())
+                            .space_role(SpaceRole::Md)
+                            .alignment(Alignment::CenterStart)
+                            .content(|| {
+                                let fewer = quantity;
+                                step_button(
+                                    "\u{2212}",
+                                    false,
+                                    Rc::new(move || {
+                                        fewer.set(fewer.get_untracked().saturating_sub(1).max(1))
+                                    }),
+                                );
+                                Text(count.to_string())
+                                    .type_role(TypeRole::Subtitle)
+                                    .color(palette::INK);
+                                let more = quantity;
+                                step_button(
+                                    "+",
+                                    true,
+                                    Rc::new(move || more.set((more.get_untracked() + 1).min(9))),
+                                );
+                                Spacer().modifier(Modifier.weight(1.0));
+                                Text(line_total.as_str())
+                                    .type_role(TypeRole::Headline)
+                                    .color(palette::INK);
+                            });
 
-                    let add = Rc::clone(&on_add);
-                    Button("Add to Bag")
-                        .modifier(
-                            Modifier
-                                .fill_max_width()
-                                .height(CHIP_HEIGHT + 8.0)
-                                .background(palette::DARK)
-                                .shape_role(ShapeRole::Full),
-                        )
+                        let add = Rc::clone(&on_add);
+                        Button("Add to Bag")
+                            .modifier(
+                                Modifier
+                                    .fill_max_width()
+                                    .height(PILL_HEIGHT)
+                                    .background(palette::DARK)
+                                    .shape_role(ShapeRole::Full),
+                            )
+                            .variant(ButtonVariant::Text)
+                            .color(palette::PAGE)
+                            .on_click(move || add());
+                    });
+            });
+
+            Row()
+                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    let back = Rc::clone(&on_back);
+                    Button("")
+                        .icon(IconRole::Back)
                         .variant(ButtonVariant::Text)
-                        .color(palette::PAGE)
-                        .on_click(move || add());
+                        .color(palette::INK)
+                        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+                        .on_click(move || back());
                 });
+        });
+}
+
+/// One size on a garment's page: a circle with the size written in it.
+///
+/// Equal circles with gaps between them, as the reference draws them, rather than the row
+/// shared five ways, which made five pills as wide as the window allowed. The chosen size
+/// is the one thing on this page in the accent; the rest are the same flat grey as the
+/// card the garment is drawn on.
+#[Composable]
+fn size_chip(option: &'static str, chosen: &'static str, size: MutableState<&'static str>) {
+    Box()
+        .modifier(
+            Modifier
+                .size(CHIP_SIDE, CHIP_SIDE)
+                .background(if option == chosen {
+                    palette::ACCENT
+                } else {
+                    palette::TILE
+                })
+                .shape_role(ShapeRole::Full),
+        )
+        .alignment(Alignment::Center)
+        .on_click(move || size.set(option))
+        .content(|| {
+            Text(option).type_role(TypeRole::Body).color(palette::INK);
+        });
+}
+
+/// One of the stepper's two round buttons: an outlined circle for fewer and a filled dark
+/// one for more, which is the reference's pair.
+#[Composable]
+fn step_button(glyph: &'static str, filled: bool, on_step: Rc<dyn Fn()>) {
+    let circle = Modifier
+        .size(STEP_SIDE, STEP_SIDE)
+        .shape_role(ShapeRole::Full);
+    let face = if filled {
+        circle.background(palette::DARK)
+    } else {
+        circle.background(palette::PAGE).border(1.0, palette::DARK)
+    };
+    let step = Rc::clone(&on_step);
+    Box()
+        .modifier(face)
+        .alignment(Alignment::Center)
+        .on_click(move || step())
+        .content(|| {
+            Text(glyph).type_role(TypeRole::Body).color(if filled {
+                palette::PAGE
+            } else {
+                palette::INK
+            });
         });
 }
 
@@ -629,7 +817,7 @@ fn bag_screen(bag: MutableState<Vec<BagLine>>) {
                     .modifier(
                         Modifier
                             .fill_max_width()
-                            .height(CHIP_HEIGHT + 8.0)
+                            .height(PILL_HEIGHT)
                             .background(palette::DARK)
                             .shape_role(ShapeRole::Full),
                     )
@@ -854,6 +1042,9 @@ pub fn app() {
         Some(PAGE_MEASURE)
     };
 
+    // The shop opens on its first screen, as the reference does, and the arrow on it is
+    // the way in. Once in, there is nothing that leads back to it.
+    let started = remember(|| mutable_state_of(false));
     let destination = remember(|| mutable_state_of(Destination::Shop));
     let category = remember(|| mutable_state_of(Category::New));
     let slide = remember(|| mutable_state_of(0_usize));
@@ -888,13 +1079,16 @@ pub fn app() {
         })
     };
 
+    let inside = started.get();
     let current = destination.get();
     let showing = open.get().and_then(catalogue::product);
-    // A garment's page fills the window, because the picture runs to the edge. Everything
-    // else is a page that scrolls.
-    let scrolls = showing.is_none() || current != Destination::Shop;
+    // The first screen and a garment's page fill the window, because each has a picture
+    // that runs to the edge, and neither has the bar along the bottom: the reference draws
+    // both without one. Everything else is a page that scrolls, above the bar.
+    let full_screen = !inside || (current == Destination::Shop && showing.is_some());
 
     let body = || match (current, showing) {
+        _ if !inside => onboarding_screen(Rc::new(move || started.set(true))),
         (Destination::Shop, Some(product)) => {
             let back: Rc<dyn Fn()> = { Rc::new(move || open.set(None)) };
             detail_screen(
@@ -913,12 +1107,13 @@ pub fn app() {
         (Destination::Account, _) => account_screen(),
     };
 
-    // The frame is named rather than built. Whether the bar runs across the bottom, stands
-    // down the leading edge or opens as a drawer is the frame's answer from the width it
-    // was given, and the page is laid out clear of whatever it took.
-    Scaffold()
-        .modifier(Modifier.background(palette::PAGE))
-        .bottom_bar(|| {
+    // The frame is named rather than built, and the page is laid out clear of whatever the
+    // bar took. A screen that fills the window gives the frame no bar at all.
+    let frame = Scaffold().modifier(Modifier.background(palette::PAGE));
+    let frame = if full_screen {
+        frame
+    } else {
+        frame.bottom_bar(|| {
             Box()
                 .modifier(Modifier.fill_max_width())
                 .alignment(Alignment::Center)
@@ -932,20 +1127,21 @@ pub fn app() {
                         .content(|| bottom_bar(current, Rc::clone(&on_go)));
                 });
         })
-        .content(|| {
-            Box()
-                .modifier(Modifier.weight(1.0))
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    if scrolls {
-                        ScrollColumn()
-                            .modifier(Modifier.width_if(measure))
-                            .content(body);
-                    } else {
-                        Column().modifier(Modifier.width_if(measure)).content(body);
-                    }
-                });
-        });
+    };
+    frame.content(|| {
+        Box()
+            .modifier(Modifier.weight(1.0))
+            .alignment(Alignment::TopCenter)
+            .content(|| {
+                if !full_screen {
+                    ScrollColumn()
+                        .modifier(Modifier.width_if(measure))
+                        .content(body);
+                } else {
+                    Column().modifier(Modifier.width_if(measure)).content(body);
+                }
+            });
+    });
 }
 
 /// Putting the open garment in the bag, at the size and count that are showing.
@@ -1046,7 +1242,7 @@ mod tests {
 
     use compose_rust::ComposeHost as Host;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, Modifier, PropertyKind};
+    use compose_rust::schema::{EventPayload, Modifier, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -1081,7 +1277,8 @@ mod tests {
     }
 
     impl Screen {
-        fn new() -> Self {
+        /// The shop as it opens: the first screen, before the arrow has been pressed.
+        fn at_the_door() -> Self {
             compose_rust::window::reset_window_size();
             let mut host = Host::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
@@ -1090,6 +1287,17 @@ mod tests {
                 frames: vec![first],
             };
             screen.resize(420.0);
+            screen
+        }
+
+        /// The shop once the arrow on the first screen has been pressed, which is where
+        /// everything but the first screen is reached from.
+        fn new() -> Self {
+            let mut screen = Self::at_the_door();
+            assert!(
+                screen.press_role(IconRole::Forward),
+                "the first screen has no way into the shop"
+            );
             screen
         }
 
@@ -1265,20 +1473,165 @@ mod tests {
             true
         }
 
-        /// Presses whatever carries this label.
-        fn press(&mut self, label: &str) -> bool {
-            let Some(node) = self.node_saying(label) else {
+        /// The node that carries an icon button of this meaning, if one is on screen.
+        fn node_with_role(&self, role: IconRole) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == role as i64 => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        /// Presses the icon button of this meaning: a button with no words on it, named
+        /// by what its glyph means.
+        fn press_role(&mut self, role: IconRole) -> bool {
+            let Some(node_id) = self.node_with_role(role) else {
                 return false;
             };
-            let Some(handler_id) = self.handler_of(node) else {
+            let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
             self.send(HostEvent {
-                node_id: node,
+                node_id,
                 handler_id,
                 payload: EventPayload::Clicked,
             });
             true
+        }
+
+        /// Presses the control a piece of text is written in, such as a size in its
+        /// circle or a category in the strip.
+        fn press_text(&mut self, label: &str) -> bool {
+            let Some(node) = self.node_saying(label) else {
+                return false;
+            };
+            self.press_beside(node)
+        }
+
+        /// Every modifier a node on screen now carries, in the order they were set.
+        fn modifiers_of(&self, node: u32) -> Vec<Modifier> {
+            self.live()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id, modifier, ..
+                    } if *node_id == node => Some(modifier.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// What a node on screen now was last given as a property of this kind.
+        fn integer_prop(&self, node: u32, property: PropertyKind) -> Option<i64> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: found,
+                        value: PropertyValue::Integer(value),
+                    } if *node_id == node && *found == property => Some(*value),
+                    _ => None,
+                })
+        }
+
+        /// The colour a node on screen now is drawn in.
+        fn colour_of(&self, node: u32) -> Option<Paint> {
+            self.integer_prop(node, PropertyKind::Color)
+                .and_then(|bits| Paint::from_bits(bits as u64))
+        }
+
+        /// The texts on screen now, without those of screens that have gone.
+        fn live_texts(&self) -> Vec<String> {
+            self.live()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                        ..
+                    } => Some((*text).to_owned()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Whether an icon registered with these bytes is drawn by anything on screen now.
+        fn shows_icon(&self, tag: &[u8]) -> bool {
+            self.icon_asset(tag)
+                .and_then(|asset_id| self.node_drawing(asset_id))
+                .is_some()
+        }
+
+        /// The children a node on screen now holds.
+        fn children_of(&self, node: u32) -> Vec<u32> {
+            let mut children: Vec<u32> = Vec::new();
+            for (child, parent) in self.parents() {
+                if parent == node && !children.contains(&child) {
+                    children.push(child);
+                }
+            }
+            children
+                .into_iter()
+                .filter(|child| self.parent_of(*child) == Some(node))
+                .collect()
+        }
+
+        /// Answers the category strip's range request, which is what a real Renderer does
+        /// before the first pixel. Until it is answered the strip holds no labels.
+        fn fill_strip(&mut self) {
+            let lists: Vec<(u32, u64)> = {
+                let live = self.live();
+                live.iter()
+                    .filter_map(|mutation| match mutation {
+                        Mutation::Create {
+                            node_id,
+                            widget: WidgetKind::LazyRow,
+                        } => Some(*node_id),
+                        _ => None,
+                    })
+                    .filter_map(|node| {
+                        live.iter().rev().find_map(|mutation| match mutation {
+                            Mutation::SetProp {
+                                node_id,
+                                property: PropertyKind::OnRangeRequested,
+                                value: PropertyValue::Integer(id),
+                            } if *node_id == node => Some((node, *id as u64)),
+                            _ => None,
+                        })
+                    })
+                    .collect()
+            };
+            assert_eq!(lists.len(), 1, "the catalogue should have one strip");
+            for (node_id, handler_id) in lists {
+                self.send(HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::RangeRequested {
+                        start: 0,
+                        count: Category::STRIP.len() as u32,
+                    },
+                });
+            }
+        }
+
+        /// Opens a garment from the catalogue by the name written under it.
+        fn open(&mut self, name: &str) {
+            let named = self
+                .node_saying(name)
+                .unwrap_or_else(|| panic!("the shelf does not show {name}"));
+            assert!(self.press_beside(named), "{name} does not open");
+            assert!(
+                self.live_texts().iter().any(|text| text == "Select size"),
+                "opening {name} did not bring up its page"
+            );
         }
 
         /// Presses a destination along the bottom, which is an icon with nothing written
@@ -1395,7 +1748,17 @@ mod tests {
     #[test]
     fn fr16_a_later_frame_carries_no_pictures() {
         let mut screen = Screen::new();
-        screen.press(Category::Women.label());
+        screen.fill_strip();
+        // Away and back: the second shelf brings drawings of its own the first time, and
+        // coming back to the first one must not send its drawings again.
+        assert!(
+            screen.press_text(Category::Women.label()),
+            "the category strip cannot be pressed"
+        );
+        assert!(
+            screen.press_text(Category::New.label()),
+            "the category strip cannot be pressed back"
+        );
         let last = screen.frames.last().expect("nothing moved").clone();
         let registered = decode_batch(&last)
             .expect("the batch did not decode")
@@ -1503,7 +1866,7 @@ mod tests {
             "opening a garment did not bring up its page"
         );
         assert!(
-            screen.press("\u{2190}"),
+            screen.press_role(IconRole::Back),
             "the garment's page has no way back"
         );
         assert!(
@@ -1638,6 +2001,344 @@ mod tests {
         assert!(!widths(420.0).contains(&PAGE_MEASURE));
     }
 
+    /// The shop opens on the reference's first screen: the mark, the shop's name, a
+    /// picture to the window's edges and a round dark arrow on the line where page and
+    /// picture meet, with no bar along the bottom. The arrow is the way in.
+    #[test]
+    fn fr22_the_shop_opens_on_its_first_screen() {
+        let mut screen = Screen::at_the_door();
+        assert!(
+            screen.live_texts().iter().any(|text| text == WELCOME_TITLE),
+            "the first screen does not say what the shop is"
+        );
+        assert!(
+            !screen
+                .live_texts()
+                .iter()
+                .any(|text| text.starts_with("Let's find")),
+            "the shop opened on the catalogue rather than its first screen"
+        );
+        assert!(
+            !screen.shows_icon(&icon::HOME),
+            "the first screen has the bar along the bottom, which the reference does not"
+        );
+
+        let picture = screen
+            .mutations()
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::RegisterAsset {
+                    asset_id, bytes, ..
+                } if *bytes == catalogue::WELCOME => Some(*asset_id),
+                _ => None,
+            })
+            .expect("the first screen's picture was never registered");
+        let picture = screen
+            .node_drawing(picture)
+            .expect("nothing draws the first screen's picture");
+
+        let start = screen
+            .node_with_role(IconRole::Forward)
+            .expect("the first screen has no arrow");
+        let face = screen.modifiers_of(start);
+        for expected in [
+            Modifier::Width(START_SIDE),
+            Modifier::Height(START_SIDE),
+            Modifier::Background(palette::DARK),
+            Modifier::ShapeRole(ShapeRole::Full),
+        ] {
+            assert!(
+                face.contains(&expected),
+                "the arrow is not a round dark button: {face:?} lacks {expected:?}"
+            );
+        }
+        assert_eq!(screen.colour_of(start), Some(palette::PAGE));
+
+        // Laid over the picture rather than above it: the picture and the arrow are
+        // layers of one box, and the picture starts half the arrow's height down it, so
+        // the arrow sits on the picture's top edge.
+        let picture_column = screen
+            .parent_of(picture)
+            .expect("the picture has no parent");
+        let arrow_row = screen.parent_of(start).expect("the arrow has no parent");
+        assert_eq!(
+            screen.parent_of(picture_column),
+            screen.parent_of(arrow_row),
+            "the arrow and the picture are not layers of one box, so the arrow cannot sit \
+             over the picture's edge"
+        );
+        assert!(
+            screen.children_of(picture_column).iter().any(|child| screen
+                .modifiers_of(*child)
+                .contains(&Modifier::Height(START_SIDE / 2.0))),
+            "the picture does not start half the arrow's height down, so the arrow is not \
+             centred on its edge"
+        );
+
+        assert!(screen.press_role(IconRole::Forward));
+        assert!(
+            screen
+                .live_texts()
+                .iter()
+                .any(|text| text.starts_with("Let's find")),
+            "the arrow did not open the catalogue"
+        );
+        assert!(
+            screen.shows_icon(&icon::HOME),
+            "the catalogue has no bar along the bottom"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The sizes are equal circles with gaps between them, not the row shared five ways.
+    #[test]
+    fn fr22_the_sizes_are_equal_circles() {
+        let mut screen = Screen::new();
+        screen.open(under(Category::New)[0].name);
+        for option in SIZES {
+            let label = screen
+                .node_saying(option)
+                .unwrap_or_else(|| panic!("size {option} is not on the page"));
+            let chip = screen
+                .parent_of(label)
+                .expect("a size has no chip round it");
+            let face = screen.modifiers_of(chip);
+            for expected in [
+                Modifier::Width(CHIP_SIDE),
+                Modifier::Height(CHIP_SIDE),
+                Modifier::ShapeRole(ShapeRole::Full),
+            ] {
+                assert!(
+                    face.contains(&expected),
+                    "size {option} is not a circle: {face:?} lacks {expected:?}"
+                );
+            }
+            assert!(
+                !face
+                    .iter()
+                    .any(|modifier| matches!(modifier, Modifier::Weight(_))),
+                "size {option} stretches to share the row, which makes it a pill"
+            );
+            let chosen = option == SIZES[1];
+            assert_eq!(
+                face.contains(&Modifier::Background(palette::ACCENT)),
+                chosen,
+                "only the chosen size is in the accent"
+            );
+        }
+
+        assert!(screen.press_text("L"), "a size cannot be chosen");
+        let large = screen.node_saying("L").expect("L is gone");
+        let chip = screen.parent_of(large).expect("L has no chip");
+        let fill =
+            screen
+                .modifiers_of(chip)
+                .into_iter()
+                .rev()
+                .find_map(|modifier| match modifier {
+                    Modifier::Background(paint) => Some(paint),
+                    _ => None,
+                });
+        assert_eq!(
+            fill,
+            Some(palette::ACCENT),
+            "choosing L did not move the accent to it"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A garment's page writes the amount with its cents, "$95.00", as the reference does,
+    /// while the shelf it was opened from keeps "$95".
+    #[test]
+    fn fr22_the_garment_page_writes_its_price_with_cents() {
+        let mut screen = Screen::new();
+        let first = under(Category::New)[0];
+        assert!(
+            screen.live_texts().contains(&price(first.cents)),
+            "the shelf does not write the short price"
+        );
+        screen.open(first.name);
+        assert!(
+            screen.live_texts().contains(&price_with_cents(first.cents)),
+            "the garment's page does not write {} with its cents",
+            first.name
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The panel on a garment's page slides up over the picture: its two top corners are
+    /// round and its bottom ones square, it carries a grabber, and it starts above the
+    /// picture's bottom edge in a layer of the same box rather than stacked under it.
+    #[test]
+    fn fr22_the_panel_overlaps_the_picture() {
+        let mut screen = Screen::new();
+        screen.open(under(Category::New)[0].name);
+        let live = screen.live();
+        let with = |wanted: &Modifier| -> Vec<u32> {
+            live.iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id, modifier, ..
+                    } if modifier == wanted => Some(*node_id),
+                    _ => None,
+                })
+                .collect()
+        };
+        let panel = *with(&Modifier::Shape {
+            top_start: PANEL_CORNER,
+            top_end: PANEL_CORNER,
+            bottom_end: 0.0,
+            bottom_start: 0.0,
+        })
+        .first()
+        .expect("no panel with round top corners and square bottom ones");
+        let hero = *with(&Modifier::Height(HERO_HEIGHT))
+            .first()
+            .expect("the garment's picture is not on the page");
+        let layer = screen.parent_of(panel).expect("the panel has no parent");
+        assert_eq!(
+            screen.parent_of(layer),
+            screen.parent_of(hero),
+            "the panel is not a layer over the picture"
+        );
+        assert!(
+            screen.children_of(layer).iter().any(|child| screen
+                .modifiers_of(*child)
+                .contains(&Modifier::Height(HERO_HEIGHT - PANEL_OVERLAP))),
+            "the panel does not start above the picture's bottom edge"
+        );
+        assert!(PANEL_OVERLAP > 0.0 && PANEL_OVERLAP < HERO_HEIGHT);
+
+        let grabbers = with(&Modifier::Width(GRABBER.0));
+        assert!(
+            grabbers.iter().any(|node| {
+                let mut at = *node;
+                while let Some(parent) = screen.parent_of(at) {
+                    if parent == panel {
+                        return true;
+                    }
+                    at = parent;
+                }
+                false
+            }),
+            "the panel has no grabber"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A garment's page has no bar along the bottom, as the reference's has none, and the
+    /// bar comes back with the catalogue.
+    #[test]
+    fn fr22_a_garment_page_fills_the_window_without_the_bar() {
+        let mut screen = Screen::new();
+        assert!(screen.shows_icon(&icon::HOME));
+        screen.open(under(Category::New)[0].name);
+        assert!(
+            !screen.shows_icon(&icon::HOME),
+            "the garment's page still has the bar along the bottom"
+        );
+        assert!(screen.press_role(IconRole::Back));
+        assert!(
+            screen.shows_icon(&icon::HOME),
+            "the bar did not come back with the catalogue"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A star the rating does not reach is the same star in a light grey, not an outline.
+    #[test]
+    fn fr22_a_missing_star_is_grey() {
+        let mut screen = Screen::new();
+        let second = under(Category::New)[1];
+        let (lit, unlit) = stars(second.rating);
+        assert!(
+            !unlit.is_empty(),
+            "{} needs a rating under five",
+            second.name
+        );
+        screen.open(second.name);
+        let faint = screen
+            .node_saying(&unlit)
+            .expect("the stars the rating does not reach are not drawn");
+        assert_eq!(screen.colour_of(faint), Some(palette::FAINT));
+        let full = screen
+            .node_saying(&lit)
+            .expect("the stars the rating reaches are not drawn");
+        assert_eq!(screen.colour_of(full), Some(palette::INK));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The chosen category is heavier as well as darker, and the others are regular, as
+    /// the reference sets them. Plain words, not buttons with the design system's padding.
+    #[test]
+    fn fr22_the_chosen_category_is_the_heavier_word() {
+        let mut screen = Screen::new();
+        screen.fill_strip();
+        for choice in Category::STRIP {
+            let node = screen
+                .node_saying(choice.label())
+                .unwrap_or_else(|| panic!("{} is not in the strip", choice.label()));
+            let chosen = choice == Category::New;
+            assert_eq!(
+                screen.integer_prop(node, PropertyKind::FontWeight),
+                Some(i64::from(if chosen { CHOSEN_WEIGHT } else { PLAIN_WEIGHT })),
+                "{} has the wrong weight",
+                choice.label()
+            );
+            assert_eq!(
+                screen.colour_of(node),
+                Some(if chosen { palette::INK } else { palette::MUTED })
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The first slide's figures stand on the card with their heads above its top edge:
+    /// the card is shorter than the carousel by the rise and sits at its bottom, and the
+    /// scene is drawn over both rather than inside the card.
+    #[test]
+    fn fr22_the_carousel_figures_rise_above_the_card() {
+        let screen = Screen::new();
+        let scene = screen
+            .mutations()
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::RegisterAsset {
+                    asset_id, bytes, ..
+                } if *bytes == catalogue::HERO => Some(*asset_id),
+                _ => None,
+            })
+            .expect("the carousel's scene was never registered");
+        let scene = screen.node_drawing(scene).expect("nothing draws the scene");
+        let carousel = screen.parent_of(scene).expect("the scene has no parent");
+        assert!(
+            screen
+                .modifiers_of(carousel)
+                .contains(&Modifier::Height(CAROUSEL_HEIGHT + CAROUSEL_RISE)),
+            "the scene is not drawn over the rise above the card"
+        );
+        assert!(
+            screen.children_of(carousel).iter().any(|child| {
+                let face = screen.modifiers_of(*child);
+                face.contains(&Modifier::Height(CAROUSEL_HEIGHT))
+                    && face.contains(&Modifier::Background(palette::TILE))
+            }),
+            "the grey card is not under the scene"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The first screen, in the design system it ships.
+    #[test]
+    fn fr14_the_first_screen_is_recorded() {
+        sample_frames::record_as(
+            "StoreOnboarding",
+            &sample_frames::as_designed(THEME, &sample_frames::APPLE),
+            app,
+            |_| {},
+        );
+    }
+
     /// The catalogue, in the design system it ships, in both schemes, at all three widths.
     ///
     /// The category strip windows its labels, so the recorder answers the range request a
@@ -1650,6 +2351,10 @@ mod tests {
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
             app,
             |screen| {
+                assert!(
+                    screen.press_icon(IconRole::Forward),
+                    "the first screen has no way into the shop"
+                );
                 assert_eq!(
                     screen.fill_lists(6),
                     1,
@@ -1669,6 +2374,10 @@ mod tests {
             &sample_frames::as_designed(THEME, &sample_frames::APPLE),
             app,
             |screen| {
+                assert!(
+                    screen.press_icon(IconRole::Forward),
+                    "the first screen has no way into the shop"
+                );
                 screen.fill_lists(6);
                 assert!(
                     screen.press_beside(under(Category::New)[0].name),
