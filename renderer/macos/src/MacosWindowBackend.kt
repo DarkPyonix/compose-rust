@@ -52,8 +52,10 @@ import platform.darwin.NSObject
 //
 // Each window is its own MacosWindow with its own Compose scene. NSApplication.run() owns the
 // loop; this file adds the two things the loop does not do for a window: it turns the main
-// run loop into the scene's turns (events a window heard are read in a turn) and it follows the
-// pointer while a torn-off window is being dragged.
+// run loop into the scene's turns (the scene's held coroutine work and its animations run, and
+// a frame is drawn for them, only in a turn or a draw) and it follows the pointer while a
+// torn-off window is being dragged. The events a window hears no longer wait for a turn: the
+// window hands them to its scene from its event handlers.
 
 private const val DEFAULT_TITLE = "compose-rust"
 private const val DEFAULT_WIDTH = 520
@@ -244,9 +246,12 @@ class MacosWindowBackend(
         for (window in live.toList()) window.requestFrame()
     }
 
-    // The fork's window reads what it heard in a turn of its scene. NSApplication.run() never
-    // takes one, so a timer on the main run loop (in the common modes, so it also runs while a
-    // window is being resized or dragged) takes one for every window.
+    // The window hands its scene what it heard as it hears it, but the scene's own work (the
+    // coroutines its dispatcher holds, an animation's next frame, a state change nothing drew)
+    // runs only in a turn or a draw, and nothing asks for a draw when that work is waiting.
+    // NSApplication.run() never takes a turn, so a timer on the main run loop (in the common
+    // modes, so it also runs while a window is being resized or dragged) takes one for every
+    // window.
     private fun startTurns() {
         if (turns != null) return
         val timer = NSTimer.timerWithTimeInterval(interval = TURN_SECONDS, repeats = true) { _: NSTimer? ->

@@ -232,10 +232,12 @@ private const val SINGLE_WINDOW_TURN_SECONDS = 1.0 / 60.0
  * Starts the run-loop turns and accessibility updates for the single-window Kotlin/Native
  * macOS path.
  *
- * The fork's window queues input events in its host log and drains them inside `pumpHost`.
- * `NSApplication.run()` never calls `pumpHost` on its own, so a timer on the main run loop
- * (in the common modes, so it also runs during a live resize or menu tracking) takes one turn
- * per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
+ * The window hands its scene the input it hears from its own event handlers, so input needs
+ * no turn. The scene's own work does: the coroutines its dispatcher holds and the frames an
+ * animation or a state change asks for run only in a turn or a draw, and nothing asks AppKit
+ * to draw when such work is waiting. `NSApplication.run()` never calls `pumpHost` on its own,
+ * so a timer on the main run loop (in the common modes, so it also runs during a live resize
+ * or menu tracking) takes one turn per frame. `listenForReader()` is enabled up front so the window's `NSAccessibility` tree is
  * populated from the first frame for VoiceOver and external `AXUIElement` / `System Events`
  * clients without waiting for an in-process `accessibilityChildren()` call.
  */

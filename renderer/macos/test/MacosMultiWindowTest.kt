@@ -49,6 +49,7 @@ import dev.darkpyonix.composerust.ui.platform.wholePoints
 import org.thisisthepy.compose.window.WindowApplication
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import dev.darkpyonix.composerust.ui.platform.iconPixels
+import kotlinx.cinterop.toKString
 import kotlinx.cinterop.useContents
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
@@ -722,14 +723,17 @@ class MacosMultiWindowTest {
         val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom("2"))
         assertEquals(listOf(false, true, false), List(3) { starts.next().parityRun })
 
-        // The setting is read once and taken out of the environment, so the window library
-        // finds nothing to start a soak of its own with in any window.
+        // The setting is read once: every window asks the same reading, and a later change
+        // to the environment does not start or stretch a second soak. The variable stays
+        // set; the window library's own soak reads a different one.
         IdleSoakSetting.resetForTest()
         platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "30", 1)
         assertEquals(30, IdleSoakSetting.seconds())
-        assertEquals(null, platform.posix.getenv("DXC_IDLE_SOAK_SECONDS"))
+        assertEquals("30", platform.posix.getenv("DXC_IDLE_SOAK_SECONDS")?.toKString())
+        platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "5", 1)
         assertEquals(30, IdleSoakSetting.seconds())
         assertTrue(IdleSoakSetting.requested())
+        platform.posix.unsetenv("DXC_IDLE_SOAK_SECONDS")
         IdleSoakSetting.resetForTest()
         assertEquals(null, IdleSoakSetting.seconds())
         assertEquals(null, IdleSoakSetting.parse("0"))
