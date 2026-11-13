@@ -195,6 +195,13 @@ class CodeEditorLook(
      * set in the design system's face.
      */
     val fontFallback: ((String) -> List<AnnotatedString.Range<SpanStyle>>)? = null,
+    /**
+     * The tint a line background in a role is drawn with, across the editor's width and
+     * past the end of the line. Unspecified draws nothing.
+     */
+    val lineBackground: (ColorRole) -> Color = { Color.Unspecified },
+    /** The stronger tint a range background in a role is drawn with over its characters. */
+    val rangeBackground: (ColorRole) -> Color = { Color.Unspecified },
 )
 
 /**
@@ -1160,6 +1167,7 @@ private fun FieldSurface(
                     .drawBehind {
                         translate(top = -vertical.offset.toFloat()) {
                             drawCurrentLine(window, rows, rowPx, look)
+                            drawLineBackgrounds(model, rows, rowPx, vertical.offset, viewportHeight, 0f, look)
                         }
                         // Read so that typing, a move of the caret and a scroll along the
                         // lines all draw this again, and the caret is reported from here.
@@ -1576,6 +1584,33 @@ internal fun HoverReport(tracker: HoverTracker, delayMillis: Long, callbacks: Co
     }
 }
 
+/**
+ * The line backgrounds of the lines on screen, from [left] to the right edge whatever the
+ * length of the line, over the current line's band and behind everything else.
+ */
+internal fun DrawScope.drawLineBackgrounds(
+    model: CodeEditorModel,
+    rows: RowMap,
+    rowPx: Int,
+    scroll: Int,
+    viewportHeight: Int,
+    left: Float,
+    look: CodeEditorLook,
+) {
+    model.overlayRevision
+    if (!model.backgroundsPresent) return
+    val first = rows.lineAtRow(scroll / rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    for (line in first..last) {
+        if (rows.isHidden(line)) continue
+        val background = model.lineBackgroundAt(line) ?: continue
+        val color = look.lineBackground(background.color ?: continue)
+        if (color == Color.Unspecified || color.alpha == 0f) continue
+        val top = rows.textRow(line) * rowPx.toFloat()
+        drawRect(color, Offset(left, top), Size(size.width - left, rowPx.toFloat()))
+    }
+}
+
 /** The line the caret is on, across the whole width, behind the text. */
 private fun DrawScope.drawCurrentLine(window: FieldWindow, rows: RowMap, rowPx: Int, look: CodeEditorLook) {
     window.revision
@@ -1701,6 +1736,7 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
     model.overlayRevision
     window.revision
     val textLength = layout.layoutInput.text.length
+    if (model.backgroundsPresent) drawRangeBackgrounds(window, layout, look)
     for (decoration in model.decorations) {
         if (decoration.kind != DecorationKind.Underline) continue
         if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
@@ -1722,6 +1758,34 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
             if (right - left < stroke * 4) right = left + (layout.getLineBottom(line) - layout.getLineTop(line)) / 2
             val y = layout.getLineBottom(line) - stroke * 1.5f
             drawUnderline(shape, color, left, right, y, stroke)
+        }
+    }
+}
+
+/** The range backgrounds over the characters they cover, in the field's own coordinates. */
+private fun DrawScope.drawRangeBackgrounds(window: FieldWindow, layout: TextLayoutResult, look: CodeEditorLook) {
+    val model = window.model
+    val textLength = layout.layoutInput.text.length
+    for (decoration in model.decorations) {
+        if (decoration.kind != DecorationKind.RangeBackground || decoration.start == decoration.end) continue
+        if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
+        val color = look.rangeBackground(decoration.color ?: continue)
+        if (color == Color.Unspecified || color.alpha == 0f) continue
+        val from = window.toField(maxOf(decoration.start, CodePosition(window.start, 0))) ?: continue
+        val lastLine = window.end - 1
+        val to = window.toField(minOf(decoration.end, CodePosition(lastLine, model.document.line(lastLine).length)))
+            ?: continue
+        val shownFrom = window.toShown(from, asEnd = false).coerceIn(0, textLength)
+        val shownTo = window.toShown(to, asEnd = true).coerceIn(0, textLength)
+        if (shownTo <= shownFrom) continue
+        val firstLine = layout.getLineForOffset(shownFrom)
+        val lastShownLine = layout.getLineForOffset(shownTo)
+        for (line in firstLine..lastShownLine) {
+            val left = if (line == firstLine) layout.getHorizontalPosition(shownFrom, true) else layout.getLineLeft(line)
+            val right = if (line == lastShownLine) layout.getHorizontalPosition(shownTo, true) else layout.getLineRight(line)
+            if (right <= left) continue
+            val top = layout.getLineTop(line)
+            drawRect(color, Offset(left, top), Size(right - left, layout.getLineBottom(line) - top))
         }
     }
 }

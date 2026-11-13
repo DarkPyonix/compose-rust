@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
@@ -20,6 +21,7 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorSurface
 import dev.darkpyonix.composerust.foundation.code.EditorOutput
 import dev.darkpyonix.composerust.foundation.code.EditorScroll
 import dev.darkpyonix.composerust.protocol.CodeEditorColorsRecord
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -249,7 +251,36 @@ internal fun codeEditorLook(
         lineNumbers = node.flag(PropertyKind.LineNumbers, default = true),
         gutterMinWidth = node.lengthOrNull(PropertyKind.GutterMinWidthDp) ?: 0.dp,
         fontFallback = fontChain?.let { chain -> { text: String -> chain.spans(text) } },
+        lineBackground = { role -> diffTint(role, theme, strong = false) },
+        rangeBackground = { role -> diffTint(role, theme, strong = true) },
     )
+}
+
+/**
+ * What a line background ([strong] false) or a range background ([strong] true) in a role
+ * is drawn with. An added or a removed line takes the design system's container tint for
+ * it and the changed characters its emphasis tint, the same pair a diff badge uses. A role
+ * that is already one of those tints is drawn as it is. Any other role is laid over the
+ * text as a wash, light enough that the code stays readable.
+ */
+internal fun diffTint(role: ColorRole, theme: ResolvedTheme, strong: Boolean): Color = when (role) {
+    ColorRole.DiffAdded -> theme.color(if (strong) ColorRole.DiffAddedEmphasis else ColorRole.DiffAddedContainer)
+    ColorRole.DiffRemoved -> theme.color(if (strong) ColorRole.DiffRemovedEmphasis else ColorRole.DiffRemovedContainer)
+    ColorRole.DiffAddedContainer,
+    ColorRole.DiffRemovedContainer,
+    ColorRole.DiffAddedEmphasis,
+    ColorRole.DiffRemovedEmphasis,
+    -> theme.color(role)
+    else -> theme.color(role).let { ink ->
+        // The same strengths the container and the emphasis tints are mixed at.
+        val wash = when {
+            strong && theme.dark -> 0.40f
+            strong -> 0.30f
+            theme.dark -> 0.20f
+            else -> 0.12f
+        }
+        ink.copy(alpha = ink.alpha * wash)
+    }
 }
 
 /**

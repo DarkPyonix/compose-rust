@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Line and range backgrounds in the code editor
+
+Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).
+
 ### Code editor pointer events with the text under them
 
 A `CodeEditor` with the new `OnCodePointer` handler property (tag 197) and a `PointerKinds` mask sends its pointer events in a `CodePointer` event (tag 66): the 72 byte `Pointer` record of a node's pointer event, then the line and the column of the character under the pointer, or none over the gutter, past the end of a line or below the last one. The kinds, the buttons, the modifiers, the click count, the capture, a move a frame and the consumption rules are a node's pointer event's, and a `Down` the handler consumes does not move the caret. Cmd or Ctrl and a click goes to a definition this way, and Cmd or Ctrl and a hover underlines a word ([#555](https://github.com/DarkPyonix/compose-rust/issues/555)).

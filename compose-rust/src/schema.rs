@@ -1151,15 +1151,19 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
-// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
-// text above a line, a range that answers a resting pointer, and a suggestion shown in
-// place. Each is what a language server or an extension host already speaks in, so an
-// application can pass its answers through without inventing a fifth.
+// What a code editor decoration is: a mark under a range, a line of text above a line, a
+// range that answers a resting pointer, and a suggestion shown in place. Each is what a
+// language server or an extension host already speaks in, so an application can pass its
+// answers through without inventing its own. After them, the two backgrounds a diff view
+// is drawn with: a tint across whole lines, the width of the editor, and a stronger one
+// over the characters that changed. Values are only appended.
 define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     Underline = 1,
     CodeLens = 2,
     HoverAnchor = 3,
     GhostText = 4,
+    LineBackground = 5,
+    RangeBackground = 6,
 });
 
 // How serious an underlined diagnostic is. The four a language server reports, in its

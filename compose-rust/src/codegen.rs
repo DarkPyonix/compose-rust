@@ -2803,7 +2803,8 @@ pub fn spans_vector() -> crate::spans::TextSpans {
 /// is one a byte count or a character count would get wrong.
 pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
 
-/// One decoration of each kind, with a colour role on one of them and text on two.
+/// One decoration of each kind, with a colour role on one of them and text on two, and the
+/// two backgrounds after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -2813,6 +2814,8 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::code_lens(0, 0, "Run", 41),
         Decoration::hover_anchor(0, CodeRange::of(0, 3, 0, 7), 42),
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
+        Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
+        Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
     ])
 }
 

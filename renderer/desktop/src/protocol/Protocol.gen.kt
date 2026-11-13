@@ -94,7 +94,7 @@ enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
 
 enum class Severity { Error, Warning, Information, Hint }
 
@@ -875,6 +875,8 @@ object CodeEditorRecords {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
         else -> null
     }
 
@@ -1607,7 +1609,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8415703039461350493L
+    const val SCHEMA_HASH: Long = -713190573993818651L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3352,6 +3354,8 @@ object Protocol {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
         else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
     }
 

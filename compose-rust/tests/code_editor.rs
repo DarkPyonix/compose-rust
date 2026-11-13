@@ -1378,3 +1378,47 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
     .unwrap();
     assert_eq!(&events[1519..1599], expected.as_slice());
 }
+
+/// The two backgrounds are decoration kinds 5 and 6, after the four there were, in the
+/// same 44 byte record: lines as a range from the start of the first to the start of the
+/// last, characters as an ordinary range, each with the role it is tinted in. Read back,
+/// they are what was written, and a list with the older kinds keeps its records.
+#[test]
+fn fr38_line_and_range_backgrounds_round_trip_on_the_wire() {
+    assert_eq!(DecorationKind::LineBackground as u16, 5);
+    assert_eq!(DecorationKind::RangeBackground as u16, 6);
+    let line = Decoration::line_background(3, 4, 6, ColorRole::DiffAdded);
+    let range = Decoration::range_background(3, CodeRange::of(5, 2, 5, 9), ColorRole::DiffRemoved);
+    assert_eq!(line.range, CodeRange::of(4, 0, 6, 0));
+    assert_eq!(line.color, Some(ColorRole::DiffAdded));
+    assert_eq!(range.color, Some(ColorRole::DiffRemoved));
+    let lens = Decoration::code_lens(3, 0, "Run", 41);
+    let list = Decorations::new([lens.clone(), line.clone(), range.clone()]);
+    assert_eq!(list.as_bytes().len(), 3 * DECORATION_LEN + "Run".len());
+    let record = &list.as_bytes()[DECORATION_LEN..2 * DECORATION_LEN];
+    assert_eq!(u16::from_le_bytes([record[4], record[5]]), 5);
+    assert_eq!(
+        u16::from_le_bytes([record[8], record[9]]),
+        ColorRole::DiffAdded as u16
+    );
+    assert_eq!(list.decorations(), vec![lens, line, range]);
+
+    // In a batch the blob travels as it was written.
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Decorations,
+            value: PropertyValue::Bytes(list.as_bytes()),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::Decorations,
+            Value::Bytes(list.as_bytes().to_vec())
+        )]
+    );
+}

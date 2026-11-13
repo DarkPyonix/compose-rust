@@ -908,6 +908,8 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
                 DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+                DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
+                DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
             ),
             decorations,
         )

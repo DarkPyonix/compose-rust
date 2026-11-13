@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -575,6 +576,22 @@ private fun DrawScope.drawLines(
         val top = rows.textRow(line) * rowPx
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
             drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx))
+        }
+        // A line background across the text's whole width, then the stronger tint of a range
+        // background over its characters, both behind the selection and the text.
+        if (model.backgroundsPresent) {
+            model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
+                ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
+                ?.let { drawRect(it, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx)) }
+            for (decoration in model.decorations) {
+                if (decoration.kind != DecorationKind.RangeBackground) continue
+                if (line < decoration.start.line || line > decoration.end.line) continue
+                val color = look.rangeBackground(decoration.color ?: continue)
+                if (color == Color.Unspecified || color.alpha == 0f) continue
+                val from = if (line == decoration.start.line) view.charX(decoration.start.column) else 0f
+                val to = if (line == decoration.end.line) view.caretX(decoration.end.column) else view.layout.size.width.toFloat()
+                if (to > from) drawRect(color, Offset(state.textLeft + from, top), Size(to - from, rowPx))
+            }
         }
         lenses[line]?.let { row ->
             val label = state.measurer!!.measure(row.joinToString("  |  ") { it.text }, state.style.copy(color = look.lens))

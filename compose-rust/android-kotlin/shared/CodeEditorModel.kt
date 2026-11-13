@@ -46,6 +46,10 @@ class LiveDecoration(
     val text: String,
 )
 
+/** Whether this is one of the two tints drawn behind the text. */
+val LiveDecoration.isBackground: Boolean
+    get() = kind == DecorationKind.LineBackground || kind == DecorationKind.RangeBackground
+
 /**
  * One stretch of lines that can be folded, as it stands in the current version of the
  * document. Folding keeps [startLine] and hides the lines after it up to [endLine].
@@ -334,6 +338,7 @@ class CodeEditorModel(
         if (document.contentEquals(text)) return false
         document.reset(text)
         decorationList.clear()
+        backgroundsPresent = false
         spanList.clear()
         longestSpanLines = 0
         undoStack.clear()
@@ -352,6 +357,28 @@ class CodeEditorModel(
     fun setDecorations(records: List<DecorationRecord>) {
         decorationList.clear()
         for (record in records) {
+            if (record.kind == DecorationKind.LineBackground) {
+                // Whole lines, the first to the last, kept as the start of each. They are
+                // followed to where they are now as lines, the way a gutter mark's line is.
+                val color = record.color ?: run {
+                    output += EditorOutput.Error(
+                        "a line background on lines ${record.startLine} to ${record.endLine} names no colour",
+                    )
+                    continue
+                }
+                val (first, last) = followLines(record.version, record.startLine, record.endLine, "a line background")
+                    ?: continue
+                decorationList += LiveDecoration(
+                    record.kind,
+                    null,
+                    color,
+                    CodePosition(first, 0),
+                    CodePosition(last, 0),
+                    record.id,
+                    "",
+                )
+                continue
+            }
             val range = follow(record.version, record.startLine, record.startColumn, record.endLine, record.endColumn)
                 ?: continue
             val (start, end) = range
@@ -374,10 +401,24 @@ class CodeEditorModel(
                 )
                 DecorationKind.HoverAnchor ->
                     LiveDecoration(record.kind, null, null, start, end, record.id, "")
+                // Taken above.
+                DecorationKind.LineBackground -> continue
+                DecorationKind.RangeBackground -> {
+                    val color = record.color ?: run {
+                        output += EditorOutput.Error("a range background from $start to $end names no colour")
+                        continue
+                    }
+                    LiveDecoration(record.kind, null, color, start, end, record.id, "")
+                }
             }
         }
+        backgroundsPresent = decorationList.any { it.isBackground }
         overlayRevision += 1
     }
+
+    /** Whether any decoration is a line or a range background, so a frame without one skips them. */
+    var backgroundsPresent = false
+        private set
 
     /** Replaces every colour run with the Host's new list. */
     fun setSyntaxSpans(records: List<SyntaxSpanRecord>) {
@@ -540,6 +581,18 @@ class CodeEditorModel(
     fun hoverAnchorAt(position: CodePosition): LiveDecoration? = decorationList.firstOrNull {
         it.kind == DecorationKind.HoverAnchor && it.start <= position &&
             (position < it.end || (it.start == it.end && position == it.start))
+    }
+
+    /** The line background of [line], the last one sent where several cover it, or null. */
+    fun lineBackgroundAt(line: Int): LiveDecoration? {
+        if (!backgroundsPresent) return null
+        for (index in decorationList.indices.reversed()) {
+            val decoration = decorationList[index]
+            if (decoration.kind == DecorationKind.LineBackground && decoration.start.line <= line && line <= decoration.end.line) {
+                return decoration
+            }
+        }
+        return null
     }
 
     /** The lenses, grouped by the line they sit above, in line order. */
@@ -1146,6 +1199,23 @@ class CodeEditorModel(
             val iterator = decorationList.iterator()
             while (iterator.hasNext()) {
                 val decoration = iterator.next()
+                if (decoration.kind == DecorationKind.LineBackground) {
+                    // Lines rather than a stretch of text: a line typed in front of them
+                    // pushes them down, and they go only when every one of them is deleted.
+                    val lines = CodeDocument.mapRange(
+                        CodePosition(decoration.start.line, 0),
+                        CodePosition(decoration.end.line + 1, 0),
+                        change,
+                    )
+                    val last = lines?.let { if (it.second.column == 0) it.second.line - 1 else it.second.line }
+                    if (lines == null || last == null || last < lines.first.line) {
+                        iterator.remove()
+                    } else {
+                        decoration.start = CodePosition(lines.first.line, 0)
+                        decoration.end = CodePosition(minOf(last, document.lineCount - 1), 0)
+                    }
+                    continue
+                }
                 val range = CodeDocument.mapRange(decoration.start, decoration.end, change)
                 if (range == null) {
                     iterator.remove()

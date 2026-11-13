@@ -365,6 +365,36 @@ impl Decoration {
         }
     }
 
+    /// A tint across lines `line_start` to `line_end`, both included, the whole width of the
+    /// editor and past the end of each line. `color` is a role such as `DiffAdded`,
+    /// `DiffRemoved` or `DiffModified`, and the design system decides how strong the tint
+    /// of each is. The lines follow the reader's edits like every other decoration.
+    pub fn line_background(version: u32, line_start: u32, line_end: u32, color: ColorRole) -> Self {
+        Self {
+            version,
+            kind: DecorationKind::LineBackground,
+            severity: None,
+            color: Some(color),
+            range: CodeRange::of(line_start, 0, line_end, 0),
+            id: 0,
+            text: String::new(),
+        }
+    }
+
+    /// A tint over the characters of `range`, stronger than a line background in the same
+    /// role, for the part of a changed line that changed.
+    pub fn range_background(version: u32, range: CodeRange, color: ColorRole) -> Self {
+        Self {
+            version,
+            kind: DecorationKind::RangeBackground,
+            severity: None,
+            color: Some(color),
+            range,
+            id: 0,
+            text: String::new(),
+        }
+    }
+
     /// Draws an underline in this role rather than the one the design system would pick.
     pub fn with_color(mut self, role: ColorRole) -> Self {
         self.color = Some(role);
