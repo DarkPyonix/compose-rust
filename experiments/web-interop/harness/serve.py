@@ -5,7 +5,7 @@ The harness is opened in a real browser; the page POSTs its measurements back to
 /result, and this server prints them and writes results.json. That keeps the
 numbers in the repository instead of in a screenshot of a devtools console.
 
-Usage: python3 serve.py [port]
+Usage: uv run serve.py [port]
 """
 
 import http.server

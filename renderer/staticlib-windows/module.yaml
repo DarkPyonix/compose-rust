@@ -1,0 +1,21 @@
+# The two C symbols the Host links against on Windows without a virtual machine.
+#
+# The twin of `staticlib-linux`, and for the same reason it is a module of its own: `-produce
+# static` writes a C adapter for everything public in the module it compiles, so the module it
+# compiles has to be only the entry points. They are the shared ones, which name no platform.
+product:
+  type: lib
+  platforms: [ mingwX64 ]
+
+# Where Compose and skiko for this target come from: `scripts/build-compose.sh --target
+# mingwX64` builds and publishes them.
+repositories:
+  - mavenLocal
+
+dependencies:
+  - ../windows
+
+settings:
+  kotlin:
+    optIns:
+      - kotlin.experimental.ExperimentalNativeApi

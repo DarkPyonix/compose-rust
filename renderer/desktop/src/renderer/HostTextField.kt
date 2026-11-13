@@ -6,9 +6,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +23,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -33,8 +35,20 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import dev.darkpyonix.composerust.ui.node.FontChain
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
+import dev.darkpyonix.composerust.protocol.FontRefRecords
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.AnnotatedString
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -44,25 +58,25 @@ import dev.darkpyonix.composerust.design.FieldUnderline
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.role
+import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
-
-/**
- * Quiet period before a `TextChanged` notification is sent.
- *
- * The Host is told about edits, but not once per keystroke: `TextChanged` is a notification,
- * not the mechanism that keeps the field's value, so it can wait for typing to pause. The
- * interval is chosen here rather than negotiated; 120 ms is short enough to feel immediate
- * and long enough to collapse a burst of typing into one event.
- */
-const val TEXT_CHANGED_DEBOUNCE_MILLIS: Long = 120
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.unit.Dp
+import dev.darkpyonix.composerust.design.ResolvedTheme
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 
 /**
  * The uncontrolled TextField.
  *
  * The editing value and the IME composition live in `remember` and never round-trip through
- * the Host. The Host learns about edits through debounced `TextChanged` and through the
+ * the Host. The Host learns about edits through coalesced `TextChanged` and through the
  * commit events `TextSubmitted` and `FocusLost`; it changes the value only with `SetText`,
  * which is held back while a composition is in progress.
  *
@@ -73,27 +87,109 @@ const val TEXT_CHANGED_DEBOUNCE_MILLIS: Long = 120
  * "commit the composition", not "submit".
  */
 @Composable
-internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDispatcher) {
+internal fun HostTextField(
+    node: Node,
+    modifier: Modifier,
+    dispatcher: EventDispatcher,
+    assets: AssetCache? = null,
+) {
     val nodeId = node.id
     var value by remember(nodeId) {
         mutableStateOf(TextFieldValue(node.text(PropertyKind.Text)))
     }
     var appliedHostRevision by remember(nodeId) { mutableStateOf(0L) }
     var focused by remember(nodeId) { mutableStateOf(false) }
+    var reportedComposing by remember(nodeId) { mutableStateOf(false) }
+    val focusRequester = remember(nodeId) { FocusRequester() }
+    val overlayFocusStack = LocalOverlayFocusStack.current
 
     val multiline = node.flag(PropertyKind.Multiline, default = false)
+    // A bare field draws none of the design system's frame. It sits inside a box that
+    // already drew one, and a second frame inside the first reads as a field in a field.
+    val bare = node.flag(PropertyKind.Bare, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val changeHandler = node.handler(PropertyKind.OnValueChange)
     val submitHandler = node.handler(PropertyKind.OnSubmit)
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
+    val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
+    val focusGainedHandler = node.handler(PropertyKind.OnFocusGained)
     val focusLostHandler = node.handler(PropertyKind.OnFocusLost)
+    val compositionHandler = node.handler(PropertyKind.OnCompositionChange)
     val placeholder = node.text(PropertyKind.Placeholder)
     val hostText = node.hostText
+    val focusRequest = node.focusRequestRevision
     val composing = value.composition != null
     // The field takes its type role and its colours from the design system, the same way a
     // Text does.
     val theme = LocalDesignTheme.current
-    val textStyle = node.textStyle(theme)
+    // A field with no role names its own fonts, as a `Text` with no role does; a field with
+    // a role is set in the theme's font for it, which may be a stack. Either way the letters
+    // the first family lacks are set in the next family of the chain that has them.
+    val fontBlob = node.bytes(PropertyKind.Font)
+    val ownChain = remember(fontBlob, assets?.size) {
+        val noRole = (node.property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value ==
+            TYPE_ROLE_NONE.toLong()
+        if (!noRole || fontBlob == null || assets == null) {
+            null
+        } else {
+            FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
+        }
+    }
+    // A font list on a field with a role is thrown away, and the Host is told so: on
+    // screen it would only be letters in a face nobody asked for.
+    if (fontBlob != null &&
+        (node.property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value != TYPE_ROLE_NONE.toLong()
+    ) {
+        ReportRuns(
+            node.id,
+            "text field fonts on node ${node.id}: a font list sent for a field with a type role is ignored: " +
+                "a field with a role is set in the theme's font for it. Send the type role None for a field set in its own fonts",
+            dispatcher,
+        )
+    }
+    val roleStyle = node.textStyle(theme)
+    // A field with no role that names its letter spacing is tracked by its face as a `Text`
+    // with no role is, so a value typed into it is as wide as the same words drawn beside
+    // it. One that names none is spaced by the design system's token, which on the Apple
+    // design systems already carries SF's tracking, so it is left as it is.
+    val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
+    val fontStyle = if (ownChain != null) {
+        roleStyle.copy(
+            fontFamily = ownChain.primary,
+            letterSpacing = trackedLetterSpacing(roleStyle, ownChain.primary).takeIf { ownSpacing }
+                ?: roleStyle.letterSpacing,
+        )
+    } else {
+        roleStyle
+    }
+    // The node's OpenType features, for the typed text and the placeholder alike, which
+    // are both set in this style. They follow whatever the style already asks for, so a
+    // tag both name takes the node's value. The string was made when the property arrived.
+    val features = node.fontFeatures
+    val textStyle = if (features == null) {
+        fontStyle
+    } else {
+        fontStyle.copy(fontFeatureSettings = appendFontFeatures(fontStyle.fontFeatureSettings, features))
+    }
+    val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
+    // Where the typed text and the placeholder may break, as a `Text` breaks: the same
+    // invisible characters, put in by the visual transformation so the value the field holds
+    // and reports is only what was typed.
+    //
+    // `OverflowWrap` is taken and needs nothing more here. A token too long for its line is
+    // broken inside by the line breaker under every mode, and a field never says its text's
+    // narrowest width: it is as wide as it is laid out, so there is no token width for a
+    // parent to size it by. The tokens that fit keep the mode's breaks, which is all
+    // `Anywhere` asks of them.
+    val breakMode = fieldBreakMode(node.role(PropertyKind.WordBreak, WordBreak.entries.toTypedArray()))
+    val fieldText = remember(chain, breakMode) {
+        if (chain == null && breakMode == BreakMode.Normal) {
+            VisualTransformation.None
+        } else {
+            FieldTextTransformation(chain, breakMode)
+        }
+    }
+    val brokenPlaceholder = remember(placeholder, breakMode) { breakText(placeholder, breakMode).text }
 
     // A Host SetText is applied only once the composition has finished: replacing the text
     // mid-composition would destroy the syllable being assembled.
@@ -104,22 +200,68 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         }
     }
 
-    // Debounced change notification. The Host is told what the field now shows; it never
-    // sends the value back, so the composition cannot be reset by the round trip.
+    LaunchedEffect(focusRequest) {
+        if (focusRequest > 0L) focusRequester.requestFocus()
+    }
+
+    val applyValueChange: (TextFieldValue) -> Unit = { next ->
+        val nowComposing = next.composition != null
+        value = next
+        if (nowComposing != reportedComposing) {
+            reportedComposing = nowComposing
+            if (compositionHandler != null) {
+                dispatcher.dispatch(
+                    HostEvent.CompositionChanged(nodeId, compositionHandler, nowComposing),
+                )
+            }
+        }
+    }
+    hostTextFieldValueHook?.invoke(applyValueChange)
+
+    // Change notification, at most one a frame.
+    //
+    // An edit is told to the Host on the next frame, carrying the latest text, so keys that
+    // arrive within one frame cost it one event and a key is never held back by a timer: the
+    // line that echoes what was typed follows the key by a frame. The last text is always
+    // sent, because the frame that follows an edit sends whatever the field holds then, and
+    // a later edit starts another. The Host is told what the field now shows; it never sends
+    // the value back, so the composition cannot be reset by the round trip.
     if (changeHandler != null) {
         LaunchedEffect(nodeId, changeHandler) {
             var lastSent = value.text
-            snapshotFlow { value.text }.collectLatest { text ->
-                if (text == lastSent) return@collectLatest
-                delay(TEXT_CHANGED_DEBOUNCE_MILLIS)
-                lastSent = text
-                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, text))
+            var latest = lastSent
+            var sending: Job? = null
+            coroutineScope {
+                snapshotFlow { value.text }.collect { text ->
+                    latest = text
+                    if (text == lastSent || sending?.isActive == true) return@collect
+                    sending = launch {
+                        do {
+                            // Sent from inside the frame callback, not after it. Resuming
+                            // from withFrameNanos goes back through the scene's dispatcher,
+                            // which on the desktop windows runs what is waiting at the start
+                            // of the next frame, so the send and the recomposition that
+                            // follows it each cost a frame. In the callback the Host's batch
+                            // is applied before this frame is composed and drawn.
+                            withFrameNanos {
+                                lastSent = latest
+                                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            }
+                        } while (latest != lastSent)
+                    }
+                }
             }
         }
     }
 
+    val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
+        .focusRequester(focusRequester)
         .onFocusChanged { state ->
+            overlayFocusStack.noteFocused(focusRequester, state.isFocused)
+            if (!focused && state.isFocused && focusGainedHandler != null) {
+                dispatcher.dispatch(HostEvent.FocusGained(nodeId, focusGainedHandler))
+            }
             if (focused && !state.isFocused && focusLostHandler != null) {
                 dispatcher.dispatch(HostEvent.FocusLost(nodeId, focusLostHandler))
             }
@@ -133,22 +275,33 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         // guard that keeps Enter away from Rust during a Korean composition.
         .onPreviewKeyEvent { event ->
             val composingNow = value.composition != null
-            val consumedByHandler = keyDownHandler != null &&
-                dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher)
-            if (consumedByHandler) {
-                true
-            } else if (!isDispatchableKeyDown(event, composingNow)) {
-                false
-            } else if (!shouldSubmitOnEnter(
-                    composing = composingNow,
-                    multiline = multiline,
-                    shiftPressed = event.isShiftPressed,
-                    hasSubmitHandler = submitHandler != null,
-                )
+            if (composingNow && event.type == KeyEventType.KeyDown &&
+                (event.key == Key.Escape || event.key == Key.Back)
             ) {
-                false
+                applyValueChange(value.copy(composition = null))
+                true
             } else {
-                dispatcher.dispatch(HostEvent.TextSubmitted(nodeId, submitHandler!!, value.text))
+                // The key-down handler sees every event first, key-ups included, so the held
+                // keys it tracks can tell a repeat from a first press.
+                val consumedByHandler = keyDownHandler != null &&
+                    dispatchKeyDown(nodeId, keyDownHandler, event, composingNow, dispatcher, heldKeys)
+                if (consumedByHandler) {
+                    true
+                } else if (keyUpHandler != null && isDispatchableKeyUp(event, composingNow)) {
+                    dispatchKeyUp(nodeId, keyUpHandler, event, composingNow, dispatcher)
+                } else if (!isEnterKeyDown(event, composingNow)) {
+                    false
+                } else if (!shouldSubmitOnEnter(
+                        composing = composingNow,
+                        multiline = multiline,
+                        shiftPressed = event.isShiftPressed,
+                        hasSubmitHandler = submitHandler != null,
+                    )
+                ) {
+                    false
+                } else {
+                    dispatcher.dispatch(HostEvent.TextSubmitted(nodeId, submitHandler!!, value.text))
+                }
             }
         }
 
@@ -177,13 +330,42 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
         }
     }
 
+    val fillsHeight = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Height ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Size
+    }
+    val setsOwnHeight = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.FillMaxHeight ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Height ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.Size ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.RequiredSize
+    }
+
+    // What the node named for itself replaces what the design system would have drawn
+    // The system's frame is the default for a field that said nothing, and a field
+    // that named a fill, a line, a corner or room inside is drawn as it asked: the same rule
+    // a Card already follows.
+    val ownFill = node.setsOwnBackground()
+    val ownLine = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Border ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.BorderEach
+    }
+    val ownShape = node.modifiers.any {
+        it is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole ||
+            it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
+    }
+    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
+
     BasicTextField(
         value = value,
-        onValueChange = { value = it },
+        onValueChange = applyValueChange,
         modifier = inputModifier,
         enabled = enabled,
         singleLine = !multiline,
         textStyle = textStyle,
+        visualTransformation = fieldText,
         cursorBrush = SolidColor(frame.cursor),
         decorationBox = { inner ->
             Box(
@@ -193,20 +375,36 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
                     // it was laid out in belonging to nothing: the composer was a bar you
                     // could only put the caret in by hitting the words.
                     .fillMaxWidth()
-                    .defaultMinSize(minHeight = frame.minHeight)
-                    .clip(frame.shape)
-                    .background(if (focused) frame.containerFocused else frame.container)
-                    .fieldBorder(frame, focused)
-                    .fieldUnderline(frame.underline, focused)
+                    .let { if (fillsHeight) it.fillMaxHeight() else it }
+                    .let {
+                        if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
+                    }
+                    // A bare field clips only to a corner the node named itself.
+                    .let { if (bare && !ownShape) it else it.clip(frameShape) }
+                    .let {
+                        if (ownFill || bare) {
+                            it
+                        } else {
+                            it.background(if (focused) frame.containerFocused else frame.container)
+                        }
+                    }
+                    .let { if (ownLine || bare) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
+                    .let { if (ownLine || ownFill || bare) it else it.fieldUnderline(frame.underline, focused) }
                     .padding(
-                        horizontal = frame.horizontalPadding,
-                        vertical = frame.verticalPadding,
+                        if (bare) {
+                            node.contentPadding(theme, 0.dp, 0.dp)
+                        } else {
+                            node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)
+                        },
                     ),
-                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
+                // A bare field is as tall as its text, so the placeholder and the text share
+                // the first line's baseline from the top edge rather than being centred in
+                // a minimum height the field no longer has.
+                contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
-                    BasicText(
-                        placeholder,
+                    ThemedText(
+                        brokenPlaceholder,
                         style = textStyle.copy(
                             color = theme.color(ColorRole.OnSurfaceVariant)
                                 .copy(alpha = PLACEHOLDER_ALPHA),
@@ -228,6 +426,12 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
  * was going to be replaced the moment you started typing.
  */
 private const val PLACEHOLDER_ALPHA = 0.55f
+
+/**
+ * Test hook that receives the value-change callback of the mounted [HostTextField] so a test
+ * can drive an IME composition transition directly through `TextFieldValue.composition`.
+ */
+internal var hostTextFieldValueHook: (((TextFieldValue) -> Unit) -> Unit)? = null
 
 /** The box around a field, or nothing where the system draws none in this state. */
 private fun Modifier.fieldBorder(style: FieldStyle, focused: Boolean): Modifier {
@@ -283,4 +487,71 @@ internal fun shouldSubmitOnEnter(
     !hasSubmitHandler -> false
     multiline && shiftPressed -> false
     else -> true
+}
+
+/** Where a field's lines may break, from its `WordBreak`. */
+internal fun fieldBreakMode(wordBreak: WordBreak?): BreakMode =
+    when (wordBreak) {
+        WordBreak.KeepAll -> BreakMode.KeepAll
+        WordBreak.BreakAll -> BreakMode.BreakAll
+        WordBreak.Normal, null -> BreakMode.Normal
+    }
+
+/**
+ * A field's text as it is drawn: with the invisible characters [mode] puts where a line may
+ * or may not break, and with each letter the first family of [chain] lacks set in the next
+ * family that has it, as a `Text` in the same font would be set.
+ *
+ * The characters it adds take no width and are never drawn, and the offset mapping steps
+ * over them, so the caret, the selection and an input method's composition land where they
+ * would without it. The value the field holds, and the one the Host is told, is only what
+ * was typed.
+ */
+private class FieldTextTransformation(
+    private val chain: FontChain?,
+    private val mode: BreakMode,
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val broken = breakText(text.text, mode)
+        val spans = chain?.spans(broken.text).orEmpty()
+        if (spans.isEmpty() && broken.text.length == text.length) return TransformedText(text, OffsetMapping.Identity)
+        val styled = buildAnnotatedString {
+            append(broken.text)
+            for (span in text.spanStyles) {
+                addStyle(span.item, broken.position(span.start), broken.position(span.end))
+            }
+            for (span in spans) addStyle(span.item, span.start, span.end)
+        }
+        val mapping = if (broken.text.length == text.length) {
+            OffsetMapping.Identity
+        } else {
+            object : OffsetMapping {
+                override fun originalToTransformed(offset: Int): Int = broken.position(offset)
+
+                override fun transformedToOriginal(offset: Int): Int = broken.original(offset)
+            }
+        }
+        return TransformedText(styled, mapping)
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is FieldTextTransformation && other.chain === chain && other.mode == mode
+
+    override fun hashCode(): Int = 31 * (chain?.hashCode() ?: 0) + mode.hashCode()
+}
+
+internal fun Node.contentPadding(
+    theme: ResolvedTheme,
+    defaultHorizontal: Dp,
+    defaultVertical: Dp,
+): PaddingValues {
+    val padEach = modifiers.filterIsInstance<ProtocolModifier.PaddingEach>().lastOrNull()
+    if (padEach != null) {
+        return PaddingValues(padEach.start.dp, padEach.top.dp, padEach.end.dp, padEach.bottom.dp)
+    }
+    val pad = modifiers.filterIsInstance<ProtocolModifier.Padding>().lastOrNull()
+    if (pad != null) return PaddingValues(pad.value.dp)
+    val padRole = modifiers.filterIsInstance<ProtocolModifier.PaddingRole>().lastOrNull()
+    if (padRole != null) return PaddingValues(theme.space(padRole.role))
+    return PaddingValues(horizontal = defaultHorizontal, vertical = defaultVertical)
 }

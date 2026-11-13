@@ -45,18 +45,19 @@ private external fun hostShutdown()
  * `release_batch` runs before returning. No batch is ever kept.
  */
 class NativeHostConnection : HostConnection {
-    // Reused so that steady-state event dispatch allocates nothing. The frame budget allows
-    // no allocation on the encode path, and a fresh buffer per event would be one.
-    private val eventBytes = ByteArray(EVENT_BUFFER_BYTES)
-    private val eventBuffer: ByteBuffer =
-        ByteBuffer.wrap(eventBytes).order(ByteOrder.LITTLE_ENDIAN)
+    // Pinned for each call, so it is a plain array rather than a direct buffer.
+    private val events = GrowingEventBuffer(
+        GrowingEventBuffer.INITIAL_BYTES,
+        GrowingEventBuffer.MAX_BYTES,
+        allocate = { bytes -> ByteArray(bytes) },
+        view = { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN) },
+    )
 
     override fun init(onMutation: (Mutation) -> Unit) {
-        eventBuffer.clear()
-        val length = Protocol.handshake(eventBuffer)
+        val length = Protocol.handshake(events.cleared())
         // Word values never cross a method or lambda boundary here: native-image only
         // accepts them in straight-line code inside a single method.
-        val pinned = PinnedObject.create(eventBytes)
+        val pinned = PinnedObject.create(events.backing)
         try {
             val batch = StackValue.get<Pointer>(BATCH_BYTES)
             checkStatus(hostInit(pinned.addressOfArrayElement(0), length, batch), "init")
@@ -75,10 +76,10 @@ class NativeHostConnection : HostConnection {
     }
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
-        eventBuffer.clear()
-        val length = Protocol.encodeEvent(event, eventBuffer)
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("dispatch_event in")
+        val length = events.encode(event)
         var result = 0L
-        val pinned = PinnedObject.create(eventBytes)
+        val pinned = PinnedObject.create(events.backing)
         try {
             val batch = StackValue.get<Pointer>(BATCH_BYTES)
             checkStatus(
@@ -99,10 +100,12 @@ class NativeHostConnection : HostConnection {
         } finally {
             pinned.close()
         }
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("dispatch_event out")
         return result
     }
 
     override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("render_frame in")
         val batch = StackValue.get<Pointer>(BATCH_BYTES)
         checkStatus(hostRenderFrame(frameTimeNanos, batch), "render_frame")
         try {
@@ -116,6 +119,7 @@ class NativeHostConnection : HostConnection {
             // Host reuses, so it is invalid the moment this call returns.
             hostReleaseBatch(batch)
         }
+        dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("render_frame out (batch applied)")
     }
 
     override fun shutdown() = hostShutdown()
@@ -136,7 +140,6 @@ class NativeHostConnection : HostConnection {
         const val PTR_OFFSET = 0
         const val LENGTH_OFFSET = 8
         const val RESULT_OFFSET = 16
-        const val EVENT_BUFFER_BYTES = 4096
     }
 }
 

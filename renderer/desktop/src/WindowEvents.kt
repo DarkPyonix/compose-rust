@@ -10,6 +10,9 @@ import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.Density
+import org.thisisthepy.compose.window.TextScale
+import org.thisisthepy.compose.window.WindowEvent
 
 // What a window of our own heard, and how it reaches a scene.
 //
@@ -18,43 +21,10 @@ import androidx.compose.ui.scene.ComposeScene
 // something Compose understands is written once, here, so a window on a platform nobody
 // working on it can run behaves the same way as the one that was tested.
 //
-// Apart from the windows themselves because those name a platform in every line, and this
-// names none: no AppKit, no Win32, no Xlib, and nothing of GraalVM either, which is what
-// lets the Kotlin/Native windows compile it through a symlink.
-
-/**
- * What happened in the window, as the window recorded it.
- *
- * Plain numbers rather than a platform event. What Compose is given is built from these
- * fields, so nothing of AppKit, Win32 or Xlib reaches the scene and a window on any of
- * the three fills in the same record without the scene noticing which one it was.
- */
-data class WindowEvent(
-    val kind: Int,
-    val x: Float,
-    val y: Float,
-    val buttons: Int,
-    val modifiers: Int,
-    val keyCode: Int,
-    val codePoint: Int,
-    /** What an input method produced, and empty for everything that is not text. */
-    val text: String,
-) {
-
-    companion object {
-        const val POINTER_MOVE = 1
-        const val POINTER_DOWN = 2
-        const val POINTER_UP = 3
-        const val SCROLL = 4
-        const val KEY_DOWN = 5
-        const val KEY_UP = 6
-        const val TEXT_COMMIT = 7
-        const val TEXT_COMPOSE = 8
-        const val RESIZE = 9
-        const val FILES_ENTERED = 10
-        const val FILES_DROPPED = 11
-    }
-}
+// The event record itself is the window module's `WindowEvent`. This file is apart from
+// the windows because those name a platform in every line and this names none: no AppKit,
+// no Win32, no Xlib and nothing of GraalVM, which is what lets the Kotlin/Native windows
+// compile it through a symlink.
 
 /**
  * Hands one thing the window heard to the scene.
@@ -67,58 +37,138 @@ data class WindowEvent(
  * platform's scene measures in, so nothing is converted here beyond naming which kind of
  * event it was.
  */
-internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false) {
+private var lastPointerPosition: Offset = Offset.Zero
+
+/**
+ * Hands one window event to the scene. Answers whether a key was consumed by something in
+ * the scene, which is how a window knows a zoom shortcut was the application's to keep.
+ */
+internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): Boolean {
+    var keyConsumed = false
     when (event.kind) {
         // Built from parts rather than from a platform event. The toolkit's own key
         // event is what the supported path converts, and there is none here to convert.
-        WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> sendKeyEvent(
-            KeyEvent(
-                key = if (win32) win32ComposeKey(event.keyCode) else composeKey(event.keyCode),
-                type = if (event.kind == WindowEvent.KEY_DOWN) {
-                    KeyEventType.KeyDown
-                } else {
-                    KeyEventType.KeyUp
-                },
-                codePoint = event.codePoint,
-                isAltPressed = event.modifiers and (if (win32) 4 else MODIFIER_OPTION) != 0,
-                isCtrlPressed = event.modifiers and (if (win32) 2 else MODIFIER_CONTROL) != 0,
-                isMetaPressed = event.modifiers and (if (win32) 8 else MODIFIER_COMMAND) != 0,
-                isShiftPressed = event.modifiers and (if (win32) 1 else MODIFIER_SHIFT) != 0,
-            ),
-        )
+        WindowEvent.KEY_DOWN, WindowEvent.KEY_UP -> {
+            val type = if (event.kind == WindowEvent.KEY_DOWN) {
+                KeyEventType.KeyDown
+            } else {
+                KeyEventType.KeyUp
+            }
+            val key = if (win32) {
+                KeyEvent(
+                    key = win32ComposeKey(event.keyCode),
+                    type = type,
+                    codePoint = event.codePoint,
+                    isAltPressed = event.modifiers and 4 != 0,
+                    isCtrlPressed = event.modifiers and 2 != 0,
+                    isMetaPressed = event.modifiers and 8 != 0,
+                    isShiftPressed = event.modifiers and 1 != 0,
+                )
+            } else {
+                // The modifiers are AppKit's flag word, which the X11 window fills in
+                // with the same bits.
+                macKeyEvent(event.keyCode, event.modifiers.toLong() and 0xFFFFFFFFL, type, event.codePoint)
+            }
+            val consumed = sendKeyEvent(key)
+            if (event.kind == WindowEvent.KEY_DOWN) keyConsumed = consumed
+            if (!win32) KeyLog.compose(key, consumed)
+        }
 
-        WindowEvent.POINTER_MOVE -> sendPointerEvent(
-            eventType = PointerEventType.Move,
-            position = Offset(event.x, event.y),
-            buttons = PointerButtons(isPrimaryPressed = event.buttons and 1 != 0),
-        )
+        WindowEvent.EDIT_COMMAND -> {
+            val keys = editingKeyEvents(event.text)
+            KeyLog.command(event.text, keys != null)
+            keys?.forEach { sendKeyEvent(it) }
+        }
 
-        WindowEvent.POINTER_DOWN -> sendPointerEvent(
-            eventType = PointerEventType.Press,
-            position = Offset(event.x, event.y),
-            button = PointerButton.Primary,
-            buttons = PointerButtons(isPrimaryPressed = true),
-        )
+        WindowEvent.POINTER_MOVE -> {
+            lastPointerPosition = Offset(event.x, event.y)
+            sendPointerEvent(
+                eventType = PointerEventType.Move,
+                position = lastPointerPosition,
+                buttons = PointerButtons(isPrimaryPressed = event.buttons and 1 != 0),
+            )
+        }
 
-        WindowEvent.POINTER_UP -> sendPointerEvent(
-            eventType = PointerEventType.Release,
-            position = Offset(event.x, event.y),
-            button = PointerButton.Primary,
-            buttons = PointerButtons(isPrimaryPressed = false),
-        )
+        WindowEvent.POINTER_DOWN -> {
+            lastPointerPosition = Offset(event.x, event.y)
+            sendPointerEvent(
+                eventType = PointerEventType.Press,
+                position = lastPointerPosition,
+                button = pressedButton(event),
+                buttons = PointerButtons(
+                    isPrimaryPressed = !event.isSecondary,
+                    isSecondaryPressed = event.isSecondary,
+                ),
+            )
+        }
+
+        WindowEvent.POINTER_UP -> {
+            lastPointerPosition = Offset(event.x, event.y)
+            sendPointerEvent(
+                eventType = PointerEventType.Release,
+                position = lastPointerPosition,
+                button = pressedButton(event),
+                buttons = PointerButtons(isPrimaryPressed = false),
+            )
+        }
 
         // The wheel's travel arrives where a position usually is, because a scroll
         // happens wherever the pointer already was.
         WindowEvent.SCROLL -> sendPointerEvent(
             eventType = PointerEventType.Scroll,
-            position = Offset.Zero,
+            position = lastPointerPosition,
             scrollDelta = Offset(event.x, event.y),
         )
     }
+    return keyConsumed
 }
 
 
+private val WindowEvent.isSecondary: Boolean
+    get() = buttons and WindowEvent.SECONDARY_BUTTON != 0
+
+private fun pressedButton(event: WindowEvent): PointerButton =
+    if (event.isSecondary) PointerButton.Secondary else PointerButton.Primary
+
 internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
+    // The letters and digits, which are their own numbers in a virtual key. Without them
+    // control with C, V, X or Z reaches Compose as a key it does not know.
+    0x41 -> Key.A
+    0x42 -> Key.B
+    0x43 -> Key.C
+    0x44 -> Key.D
+    0x45 -> Key.E
+    0x46 -> Key.F
+    0x47 -> Key.G
+    0x48 -> Key.H
+    0x49 -> Key.I
+    0x4A -> Key.J
+    0x4B -> Key.K
+    0x4C -> Key.L
+    0x4D -> Key.M
+    0x4E -> Key.N
+    0x4F -> Key.O
+    0x50 -> Key.P
+    0x51 -> Key.Q
+    0x52 -> Key.R
+    0x53 -> Key.S
+    0x54 -> Key.T
+    0x55 -> Key.U
+    0x56 -> Key.V
+    0x57 -> Key.W
+    0x58 -> Key.X
+    0x59 -> Key.Y
+    0x5A -> Key.Z
+    0x30 -> Key.Zero
+    0x31 -> Key.One
+    0x32 -> Key.Two
+    0x33 -> Key.Three
+    0x34 -> Key.Four
+    0x35 -> Key.Five
+    0x36 -> Key.Six
+    0x37 -> Key.Seven
+    0x38 -> Key.Eight
+    0x39 -> Key.Nine
     0x0D -> Key.Enter
     0x09 -> Key.Tab
     0x20 -> Key.Spacebar
@@ -136,12 +186,6 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     else -> Key.Unknown
 }
 
-// From NSEvent.h. The bits a modifier flag word carries.
-private const val MODIFIER_SHIFT = 1 shl 17
-private const val MODIFIER_CONTROL = 1 shl 18
-private const val MODIFIER_OPTION = 1 shl 19
-private const val MODIFIER_COMMAND = 1 shl 20
-
 /**
  * Puts what the input method produced into the field that asked to be typed into.
  *
@@ -153,7 +197,16 @@ private const val MODIFIER_COMMAND = 1 shl 20
  * and backspace. Nothing is committed from a key's character, because a key that types
  * one has already produced it through the path above and doing both would type it twice.
  */
-internal fun NativeTextInput.receive(event: WindowEvent) {
+internal fun NativeTextInput.receive(event: WindowEvent, macos: Boolean = false) {
+    if (macos && event.kind == WindowEvent.TEXT_COMMIT) {
+        // AppKit's input methods can hand over a Control letter's own character as text,
+        // and a field that takes it draws a box. Dropped here, as the Kotlin/Native window
+        // drops it in its `insertText`.
+        val inserted = insertableText(event.text)
+        KeyLog.insertText(event.text, inserted)
+        if (isActive && inserted.isNotEmpty()) commit(inserted)
+        return
+    }
     if (!isActive) return
     when (event.kind) {
         WindowEvent.TEXT_COMMIT -> commit(event.text)
@@ -161,3 +214,70 @@ internal fun NativeTextInput.receive(event: WindowEvent) {
     }
 }
 
+
+/**
+ * The operating system's text size one window draws at, which its scene gets as
+ * `Density.fontScale`.
+ *
+ * Starts from what the window module read when the window opened and follows the
+ * [WindowEvent.TEXT_SCALE_CHANGED] events it queues after that, so a reader who moves the
+ * system's text size slider sees the text grow without restarting. The display's scale is
+ * not part of it: [density] puts the two together where the window measures its buffer.
+ * A platform with no such setting (macOS) reports 1 and never sends the event.
+ */
+internal class WindowTextScale(initial: Float) {
+
+    /** The multiplier, 1 when the reader has not changed the system's setting. */
+    var value: Float = TextScale.clamp(initial)
+        private set
+
+    /**
+     * Takes the new text size from [event] when it is a text size change. Answers whether
+     * the size changed, which is a frame to draw: nothing in the scene has invalidated, but
+     * all of its text is about to be laid out again.
+     */
+    fun receive(event: WindowEvent): Boolean {
+        if (!event.isTextScaleChanged) return false
+        val next = TextScale.clamp(event.textScale)
+        if (next == value) return false
+        value = next
+        return true
+    }
+
+    /** The Density a scene on a display of [scale] pixels per point is drawn at. */
+    fun density(scale: Float): Density = Density(scale, value)
+}
+
+/**
+ * The display scale one window is drawn at, followed from whatever the window last measured.
+ *
+ * A window dragged from a 1x screen to a 2x one keeps its size in points but changes its
+ * backing scale, and nothing about that is a resize: AppKit may report it on its own, with
+ * or without a size change, or only as a new measurement. So the window is measured on every
+ * resize and every frame, and each measurement goes through [follow], which answers the new
+ * Density and pixel size when the scale moved and null when it did not. The pixel size comes
+ * from the same measurement, so the window's size in dp is what it was.
+ */
+internal class WindowBackingScale(initial: Float, private val textScale: WindowTextScale) {
+
+    /** The scale the scene was last given. */
+    var scale: Float = initial
+        private set
+
+    /** The Density a scene at the current scale is drawn at. */
+    fun density(): Density = textScale.density(scale)
+
+    /** What the scene is told when [follow] sees a new scale. */
+    data class Change(val density: Density, val size: androidx.compose.ui.unit.IntSize)
+
+    /**
+     * Takes one measurement of the window. Answers the scene's new Density (with the system's
+     * text size as its font scale) and its new size in pixels when the scale changed, which is
+     * also a frame to draw; null when it did not.
+     */
+    fun follow(width: Int, height: Int, measuredScale: Float): Change? {
+        if (measuredScale <= 0f || measuredScale == scale) return null
+        scale = measuredScale
+        return Change(textScale.density(measuredScale), androidx.compose.ui.unit.IntSize(width, height))
+    }
+}

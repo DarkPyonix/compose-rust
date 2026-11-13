@@ -164,3 +164,17 @@ pub const STOP_LEN: usize = 8;
 pub fn brush(brush: Brush) -> Paint {
     Paint::Asset(register_owned(AssetKind::Brush, brush.to_bytes()))
 }
+
+/// Releases a brush the screen no longer uses, so the Renderer drops its copy.
+///
+/// Without this a screen whose gradients change (hover, animation, theme) grows the
+/// Renderer's brush table for the life of the app. Returns false when `paint` is not a
+/// registered brush. Releasing one still drawn is the caller's mistake and is reported
+/// by the Renderer as a protocol error, not a crash. Registering the same brush again
+/// afterwards gives a new id.
+pub fn release_brush(paint: Paint) -> bool {
+    match paint {
+        Paint::Asset(id) => crate::asset::release(id, AssetKind::Brush),
+        _ => false,
+    }
+}

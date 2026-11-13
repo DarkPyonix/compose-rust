@@ -1,0 +1,58 @@
+# Heavy checks: the required check that holds a merge until the heavy workflows have passed
+# on the pull request's current head commit.
+#
+# The heavy workflows (Compose from fork test, Kotlin/Native desktop renderer test, Native
+# renderer test, and the Windows resize workflows) take from half an hour to two hours a run.
+# They used to start on every push to every pull request that touched their paths, and a busy
+# day queued them behind each other for hours. They now run only when asked:
+#
+#   - add the label `run-heavy-ci` to the pull request when it is ready to merge:
+#       gh pr edit <number> --add-label run-heavy-ci
+#     Each heavy workflow whose paths the pull request touches then runs on its head, and
+#     this check runs again and waits for them. While the label stays on, every new push runs
+#     them again for the new head, so take it off (gh pr edit <number> --remove-label
+#     run-heavy-ci) while still pushing work in progress, and put it back before the merge.
+#   - or start one by hand on the branch: gh workflow run <file> --ref <branch>, then re-run
+#     this check (gh run rerun <run id of this check>). GitHub only dispatches a workflow
+#     whose file is already on the default branch, so the label is the way that always works.
+#
+# This check passes only when every heavy workflow that applies has a successful run whose
+# head commit is exactly the pull request's head, and whose "Heavy checks requested" job ran
+# and succeeded (a run nobody asked for is skipped, and is not a pass). Which workflows apply
+# is read from their own pull_request path filters, so a pull request that touches none of
+# their paths needs none of them and passes at once. The rule is in
+# .github/scripts/heavy-checks.py, which scripts/tests/ci-on-demand.test.sh lints the
+# workflows with.
+
+name: Heavy checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  # One gate per pull request; a newer event replaces the waiting one.
+  group: heavy-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  gate:
+    name: Heavy checks passed on this head
+    runs-on: ubuntu-latest
+    # Long enough for the slowest heavy workflow to finish after the label goes on.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for the heavy workflows on this head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-heavy-ci') }}
+        run: python3 -I .github/scripts/heavy-checks.py gate

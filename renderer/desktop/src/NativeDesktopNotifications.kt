@@ -11,8 +11,9 @@ import org.graalvm.nativeimage.c.type.CCharPointer
 import org.graalvm.nativeimage.c.type.CIntPointer
 
 // The notification centres of the macOS and Windows native images, reached through the C
-// beside them: `c/macos_notifications.m` and `c/win32_notifications.c`. Linux answers the
-// same names with stubs, because there the renderer speaks D-Bus from Kotlin instead.
+// beside them: `c/macos_notifications.m` and the Compose fork's
+// `windows-shared/c/win32_notifications.c`. Linux answers the same names with stubs, because
+// there the renderer speaks D-Bus from Kotlin instead.
 //
 // In its own file and kept out of the renderer's shared sources for the reason the windows
 // beside it are: a development run on a JVM must never load a GraalVM type, and this is

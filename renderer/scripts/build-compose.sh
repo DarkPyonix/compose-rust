@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Compose modules this renderer needs changed, and publishes them locally.
+# Builds the Compose this renderer draws with from the Compose fork, and publishes it locally.
 #
 # Three things the renderer draws with are not in the build JetBrains publishes and cannot
 # be reached from outside the module that holds them: the Kotlin/Native targets for Linux,
@@ -7,10 +7,16 @@
 # declarations, and an `expect` can only be answered inside its own module. The changes
 # live as commits in a fork of Compose, thisisthepy/compose-multiplatform-core-extended,
 # on its `extended` branch. This fetches one pinned commit of it into a checkout nobody
-# edits by hand and publishes the result under the version the renderer asks for, so that
-# the modules that are not changed keep resolving from JetBrains.
+# edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
+# every module the renderer draws with to the local Maven repository.
 #
-# Usage: build-compose.sh [--target macosArm64|linuxX64] [--clean]
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.2
+# (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
+# JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
+# Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
+# rewrites what the fork published.
+#
+# Usage: build-compose.sh [--target macosArm64|desktop|linux|linuxX64|linuxArm64|mingwX64] [--clean]
 #
 # The work directory is a sibling of the renderer called compose-build. Set
 # DXC_COMPOSE_BUILD to put it elsewhere. It is not inside the renderer because it is a
@@ -18,22 +24,70 @@
 set -euo pipefail
 
 # The commit, not the branch. A branch that moves is a build that changes for a reason
-# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets,
-# the native text context menu and the published version on top, and nothing else: the
-# commits after it on `extended` add a mingwX64 target to every module's build and read
-# skiko from the local Maven repository first, which a macOS or Linux build has no use
-# for. compose-fork.changes lists what this commit must hold at every path it changes,
-# and scripts/tests/compose-fork.test.sh checks it.
+# nobody chose here. This one is JetBrains release/1.11 at 73ac849 with the Linux targets, the
+# native text context menu (opening at the pointer on macOS), the AWT-free copy, text direction
+# and main dispatcher, the AppKit pump on the main thread, the window modules, the design systems
+# under extended/design-systems (which scripts/fetch-design-systems.sh reads), and the
+# org.thisisthepy.compose coordinates with extended/compose/publish-local.sh, which this runs.
+# compose-fork.changes lists what this commit must hold at every path it changes, and
+# scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="c396dcff48c02b8a7c6707e273a7d34038ba5d7e"
-PUBLISHED_AS="1.11.1"
-# Material 3 is versioned on its own line and the renderer asks for it by that version, so
-# publishing it as the others would leave a coordinate nobody looks for.
-MATERIAL3_PUBLISHED_AS="1.11.0-alpha07"
+REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+# The window modules and skiko's builds are not Compose sources: the renderer builds them from
+# this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
+# so they can move without moving the Compose build above. This is the tip of the fork's
+# `extended` branch, which holds the Windows caption buttons safe default and HTMAXBUTTON hit test
+# for Snap Layouts (fork #172), the Windows wheel direction fix (fork #170) and the windows' own
+# accessibility bridges (the renderer hands them the scene's semantics). It replaces the
+# backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
+# older base; multi-window work builds on `extended` itself. It also holds the macOS file open
+# and save sheets (fork #183, `MacosFileDialogs`), which the macOS renderer shows when the Host
+# asks for a file dialog, the operating system's text size (fork #156, `WindowPlatform.textScale`
+# and `WindowEvent.TextScaleChanged`), which every desktop window hands its scene as
+# `Density.fontScale`, and the Windows window's file drop through IDropTarget (fork #157), which
+# the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
+# are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
+# compiles beside the window. It also holds the macOS right click's single system edit menu and
+# the GraalVM window's dropping of Control characters (fork #158), and the Kotlin/Native macOS
+# window's `setApplicationIcon`, live appearance watch and explicit text clipboard (fork #159),
+# all Kotlin in the window modules, so nothing new is compiled or published here. It also holds
+# the IME text staying at the caret after a key moves it (fork #197), the GraalVM Windows
+# window's text size as a multiplier (fork #198), the X11 window's _NET_WM_PID and
+# WM_CLIENT_MACHINE (fork #199) and the macOS window host delivering heard events from its draw
+# path and event handlers (fork #200), so the macOS renderer needs no timer of its own to drain
+# them. Those changes sit in files the window build already compiles. It also holds the code
+# editor style (fork #155), the new accessibility roles (fork #201), the GraalVM macOS window's
+# appearance setter `dxc_native_set_appearance` (fork #203) and the Windows caption buttons with
+# Snap Layouts (fork #202, a header `win32_caption.h` beside `win32_window.c`). The Kotlin/Native
+# Windows window configures its system chrome itself, so its windows keep their caption.
+# It also holds the macOS window typing a key once instead of twice (fork #209), the X11
+# windows reporting Xft.dpi as their scale and following its changes (fork #205), and the
+# Windows window skipping a stretched present when ResizeBuffers fails (fork #206, a header
+# `win32_resize.h` beside `win32_window.c`), the native view slot and both macOS windows following
+# a backing-scale change (fork #207), and the GNOME text scale applied once on Linux (fork #210).
+WINDOW_REVISION="7c7a907631c630cd71ff3ffeb81d360f13a28bc8"
+# The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
+# branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
+# module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
+# Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
+# commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
+# what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
+MINGW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+# What the pinned commit publishes as: its gradle.properties gives every library line a version
+# of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
+# scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
+# commit's gradle.properties says the same before it builds anything.
+COMPOSE_AS="1.11.1-ext.2"
+MATERIAL3_AS="1.11.1-ext.2"
+# The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
+# scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
+# fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
+SKIKO_AWT_AS="1.11.1-ext.2"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK="${DXC_COMPOSE_BUILD:-$(dirname "$RENDERER_DIR")/compose-build}"
+SKIKO_WORK="${DXC_SKIKO_BUILD:-$(dirname "$RENDERER_DIR")/.scratch/skiko-build}"
 
 die() {
     echo "error: $1" >&2
@@ -48,55 +102,26 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --target) target="${2:-}"; shift 2 ;;
         --clean) clean=1; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) die "unknown argument '$1'" "usage: build-compose.sh [--target <target>] [--clean]" ;;
     esac
 done
 
-# Which Gradle publication to ask for, and which modules have to be published at all.
-#
-# These differ by target and not by accident. On macOS the only thing missing from what JetBrains
-# published is the text context menu, which lives in two modules, so those two are rebuilt and
-# everything else still resolves from upstream. On Linux there is no published Kotlin/Native target
-# at all: `runtime` is the one module upstream builds for linuxX64, and every other module the
-# renderer draws with has to be built here. A module left off this list is not a build failure in
-# this script; it is an unresolvable dependency in the renderer's own build, tens of minutes later,
-# naming a coordinate nobody recognises.
-#
-# What is left off, and why it has to be: the renderer's closure and nothing beyond it.
-# Material 2's navigation, the adaptive family and the navigation suite each ask for a
-# published artifact that has no Linux variant at all, so building them here is not slow,
-# it is impossible. None of them is reachable from what the renderer draws, which is
-# runtime, ui, foundation and material3.
+# The fork's publish-local.sh targets. `linux` is both architectures, which is what building
+# the renderer's Linux module takes: the toolchain resolves every platform a module declares,
+# even when it is asked to build one. arm64 is cross compiled on an x86-64 machine, because
+# Kotlin/Native has no arm64 Linux host.
 case "$target" in
-    macosArm64)
-        publication="MacosArm64"
-        modules=(
-            compose:foundation:foundation
-            compose:ui:ui
-        )
+    macosArm64|desktop|linuxX64|linuxArm64) publish_targets=("$target") ;;
+    linux) publish_targets=(linuxX64 linuxArm64) ;;
+    mingwX64)
+        publish_targets=(mingwX64)
+        revision="$MINGW_REVISION"
         ;;
-    linuxX64)
-        publication="LinuxX64"
-        modules=(
-            compose:animation:animation
-            compose:animation:animation-core
-            compose:foundation:foundation
-            compose:foundation:foundation-layout
-            compose:material:material-ripple
-            compose:material3:material3
-            compose:ui:ui
-            compose:ui:ui-backhandler
-            compose:ui:ui-geometry
-            compose:ui:ui-graphics
-            compose:ui:ui-text
-            compose:ui:ui-tooling-preview
-            compose:ui:ui-unit
-            compose:ui:ui-util
-        )
-        ;;
-    *) die "unknown target '$target'" "known: macosArm64, linuxX64" ;;
+    *) die "unknown target '$target'" "known: macosArm64, desktop, linux (both of the next two), linuxX64, linuxArm64, mingwX64" ;;
 esac
+
+revision="${revision:-$REVISION}"
 
 [[ $clean -eq 1 ]] && rm -rf "$WORK"
 
@@ -110,39 +135,52 @@ if [[ ! -d "$WORK/.git" ]]; then
     git -C "$WORK" remote add origin "$FORK"
 fi
 git -C "$WORK" remote set-url origin "$FORK"
-if ! git -C "$WORK" cat-file -e "$REVISION^{commit}" 2>/dev/null; then
-    echo "==> fetching $REVISION"
-    git -C "$WORK" fetch -q --depth 1 origin "$REVISION"
+if ! git -C "$WORK" cat-file -e "$revision^{commit}" 2>/dev/null; then
+    echo "==> fetching $revision"
+    git -C "$WORK" fetch -q --depth 1 origin "$revision"
 fi
 
 # Reset rather than built on top of whatever is there. A tree somebody edited builds
 # something nobody can reproduce, and a work directory from before the fork still holds
 # the patches that used to be applied here.
-echo "==> checking out $REVISION"
-git -C "$WORK" -c advice.detachedHead=false checkout -q --force "$REVISION"
+echo "==> checking out $revision"
+git -C "$WORK" -c advice.detachedHead=false checkout -q --force "$revision"
 git -C "$WORK" clean -qfd -e build -e '.gradle' -e 'out'
 
 [[ -n "${JAVA_HOME:-}" ]] || die "JAVA_HOME is not set" \
-    "The Compose build needs a JDK 17; the toolchain wrapper's does not apply here."
+    "The Compose build needs a JDK 17 or 21; the toolchain wrapper's does not apply here."
 
-echo "==> publishing ${#modules[@]} compose module(s) for $target as $PUBLISHED_AS"
-# Two publications per module, not one. The target's own carries the klib; the root one
-# carries the metadata that says which targets exist. Without the root, a consumer asking
-# for the module is told the library does not support this platform, which is true of what
-# was published and not of what was built.
-tasks=()
-for module in "${modules[@]}"; do
-    tasks+=(":$module:publish${publication}PublicationToMavenLocal")
-    tasks+=(":$module:publishKotlinMultiplatformPublicationToMavenLocal")
+# skiko before Compose on Windows, from the same commit, so the two cannot disagree about
+# which skiko the Compose modules were built against.
+if [[ "$target" == mingwX64 ]]; then
+    skiko_script="$WORK/extended/skiko/build-skiko-mingw.sh"
+    [[ -f "$skiko_script" ]] || die "$revision has no extended/skiko/build-skiko-mingw.sh" \
+        "The Windows pin has to be a commit of the fork that carries the skiko build."
+    echo "==> building skiko for mingwX64 into $SKIKO_WORK"
+    bash "$skiko_script" "$SKIKO_WORK"
+fi
+
+publish="$WORK/extended/compose/publish-local.sh"
+check="$WORK/extended/compose/check-local.py"
+[[ -x "$publish" && -f "$check" ]] || die "$revision has no extended/compose/publish-local.sh" \
+    "Pin a commit of the fork that publishes under org.thisisthepy.compose."
+
+# The versions the pin publishes as are the ones the renderer modules name. Read before the
+# build, so a pin that moved the versions fails in seconds rather than after an hour of Gradle.
+for line in "COMPOSE=$COMPOSE_AS" "COMPOSE_MATERIAL3=$MATERIAL3_AS"; do
+    grep -qx "jetbrains.publication.version.$line" "$WORK/gradle.properties" ||
+        die "the fork at $REVISION does not publish jetbrains.publication.version.$line" \
+            "Its gradle.properties holds: $(grep '^jetbrains.publication.version.COMPOSE' "$WORK/gradle.properties" | paste -sd' ' -)" \
+            "Set COMPOSE_AS and MATERIAL3_AS here to what it publishes, and the renderer modules with them."
 done
-(
-    cd "$WORK"
-    ./gradlew --no-daemon --no-configuration-cache \
-        "-Pjetbrains.publication.version.COMPOSE=$PUBLISHED_AS" \
-        "-Pjetbrains.publication.version.COMPOSE_MATERIAL3=$MATERIAL3_PUBLISHED_AS" \
-        "${tasks[@]}"
-)
+
+echo "==> publishing the fork's Compose for ${publish_targets[*]} as $COMPOSE_AS"
+"$publish" "${publish_targets[@]}"
+
+# Every sibling a published module names is there, nothing names JetBrains' copy of a module the
+# fork publishes, and nothing at JetBrains' coordinates carries a fork version.
+python3 -I "$check"
 
 echo
-echo "published to $HOME/.m2/repository/org/jetbrains/compose as $PUBLISHED_AS"
-echo "the renderer's macos and linux modules read mavenLocal first, so the next build links these"
+echo "published to $HOME/.m2/repository/org/thisisthepy/compose as $COMPOSE_AS"
+echo "the renderer's macos, linux and desktop modules read mavenLocal first, so the next build links these"

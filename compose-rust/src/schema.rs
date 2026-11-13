@@ -15,11 +15,18 @@ pub enum FieldType {
     Paint,
     /// A role enum, named so codegen can emit the matching Kotlin type.
     Role(&'static str),
+    /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+    Bool,
+    /// An `f32` that has to be a number. NaN or an infinity is a protocol error, for a
+    /// value that would otherwise turn a whole subtree into nothing on one side only.
+    FiniteFloat,
 }
 
-/// Which half of which `(first, second)` word a modifier field occupies.
+/// Which half of which `u64` word of a modifier's value a field occupies.
 ///
-/// Two `f32` share one `u64`: the low 32 bits hold the first value.
+/// Two `f32` share one `u64`: the low 32 bits hold the first value. Every modifier has the
+/// `first` and `second` words; the words after them exist only for a modifier whose
+/// schema entry gives it `extra_words`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FieldSlot {
     FirstLow,
@@ -28,6 +35,58 @@ pub enum FieldSlot {
     SecondLow,
     SecondHigh,
     Second,
+    ThirdLow,
+    ThirdHigh,
+    Third,
+    FourthLow,
+    FourthHigh,
+    Fourth,
+    FifthLow,
+    FifthHigh,
+    Fifth,
+    SixthLow,
+    SixthHigh,
+    Sixth,
+    SeventhLow,
+    SeventhHigh,
+    Seventh,
+    EighthLow,
+    EighthHigh,
+    Eighth,
+    NinthLow,
+    NinthHigh,
+    Ninth,
+    TenthLow,
+    TenthHigh,
+    Tenth,
+}
+
+impl FieldSlot {
+    /// Which word, counting from zero, and whether the field is that word's high half.
+    pub const fn word(self) -> (usize, bool) {
+        match self {
+            Self::FirstLow | Self::First => (0, false),
+            Self::FirstHigh => (0, true),
+            Self::SecondLow | Self::Second => (1, false),
+            Self::SecondHigh => (1, true),
+            Self::ThirdLow | Self::Third => (2, false),
+            Self::ThirdHigh => (2, true),
+            Self::FourthLow | Self::Fourth => (3, false),
+            Self::FourthHigh => (3, true),
+            Self::FifthLow | Self::Fifth => (4, false),
+            Self::FifthHigh => (4, true),
+            Self::SixthLow | Self::Sixth => (5, false),
+            Self::SixthHigh => (5, true),
+            Self::SeventhLow | Self::Seventh => (6, false),
+            Self::SeventhHigh => (6, true),
+            Self::EighthLow | Self::Eighth => (7, false),
+            Self::EighthHigh => (7, true),
+            Self::NinthLow | Self::Ninth => (8, false),
+            Self::NinthHigh => (8, true),
+            Self::TenthLow | Self::Tenth => (9, false),
+            Self::TenthHigh => (9, true),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,7 +100,26 @@ pub struct FieldSchema {
 pub struct VariantSchema {
     pub name: &'static str,
     pub tag: u16,
+    /// How many eight byte words this modifier's value takes beyond the two every
+    /// `SetModifier` record carries. The record is `28 + 8 * extra_words` bytes long, fixed
+    /// per tag, so a decoder knows the length from the tag before it reads the value.
+    pub extra_words: u8,
     pub fields: &'static [FieldSchema],
+}
+
+/// The most words any modifier's value takes, the two every record has included.
+pub const MAX_MODIFIER_WORDS: usize = 10;
+
+/// The `extra_words` the schema gives a modifier tag, or `None` for a tag it does not list.
+pub const fn modifier_extra_words(tag: u16) -> Option<u8> {
+    let mut index = 0;
+    while index < MODIFIER_SCHEMA.len() {
+        if MODIFIER_SCHEMA[index].tag == tag {
+            return Some(MODIFIER_SCHEMA[index].extra_words);
+        }
+        index += 1;
+    }
+    None
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,6 +132,7 @@ pub enum EventPayloadType {
     /// One `f64`. Every value-carrying widget shares it, so the same concept has one
     /// name on the wire whether the value counts days or slides between two ends.
     Double,
+    /// Width, height, classes, and three safe-area insets.
     WindowSize,
     /// One `u16`: the tag of the design system the Renderer resolved the theme to.
     DesignSystem,
@@ -62,6 +141,86 @@ pub enum EventPayloadType {
     NotificationActivation,
     /// One `u32`: the notification permission the Renderer last saw.
     NotificationPermission,
+    /// One moment in a renderer-played animation: its id, what happened, the property and
+    /// slot it plays on, the iteration, the elapsed time and the frame time.
+    Animation,
+    /// One `u32`: whether the platform asks for reduced motion.
+    ReducedMotion,
+    /// One committed edit to a code editor's document: the version it produced, the range
+    /// it replaced in the document as it stood before, and the text that replaced it.
+    CodeChange,
+    /// A Host edit the Renderer would not apply: the request it answers, the version it
+    /// was written against, the version the document had reached, and the range as sent.
+    CodeEditRejected,
+    /// A pointer resting on, or leaving, a place in a code editor: the decoration under it,
+    /// where it is, and which of the two it was.
+    CodeHover,
+    /// The save shortcut, with the version of the document it was pressed on.
+    CodeSave,
+    /// The id the application gave one decoration, which was pressed or accepted.
+    Decoration,
+    /// One pointer happening inside a subscribed node: its kind, which pointer, where,
+    /// which buttons and modifiers, the wheel deltas and when. A fixed 72-byte record.
+    Pointer,
+    /// Two `f32` and an `i32`: the whole zoom factor, the system's text size, and the
+    /// application's zoom level.
+    Zoom,
+    /// Where a code editor's selection is: the document version and the two ends.
+    CodeSelection,
+    /// Which lines of a code editor are on screen, folded lines left out.
+    CodeVisibleRange,
+    /// One word, 0 or 1: whether a code editor holds the keyboard focus.
+    CodeFocus,
+    /// The line a fold starts on and whether it is now collapsed.
+    CodeFold,
+    /// One word, 0 or 1: whether an input method is composing in a code editor. The
+    /// composed text is never part of it.
+    CodeComposition,
+    /// One word, 0 or 1: whether a window is the key window.
+    WindowFocus,
+    /// Where a window's outer frame is and how large it is: `x`, `y`, `width`, `height`,
+    /// all `f32` in screen dp.
+    WindowMove,
+    /// A torn-off window being dragged: the phase, the pointer's screen position, and the
+    /// window under the pointer.
+    WindowDrag,
+    /// A dragged window passing over a subscribed node: the kind, the dragged window, and
+    /// the position inside the node.
+    WindowDragOver,
+    /// A window the platform or the user asked the application for: a request number, then
+    /// the `RestoreKey` as a string reference. The one window event that carries a string.
+    WindowRequest,
+    /// What became of one file dialog: the request number, the status, the filter in use
+    /// and the paths as one string reference.
+    FileDialogResult,
+    /// What one clipboard read found: the request number, the status word, the text's length
+    /// in bytes, and the text as one string reference.
+    ClipboardText,
+    /// The one answer to an input or output request the Host made of the Renderer: the
+    /// request number, an `IoStatus`, and the bytes it carries as one reference.
+    IoAnswer,
+    /// Files the Renderer holds handles for: the request number, the status, the filter in
+    /// use, how they were delivered, the first handle number, then the names (NUL
+    /// separated) and one kind letter per name, as two references.
+    FileHandles,
+    /// Where a scroll container is: the first visible item, the flags, then six `f64` in
+    /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
+    /// record.
+    ScrollChanged,
+    /// The size a node's size motion settled at: `width_dp` and `height_dp`, two `f32` in
+    /// dp. A fixed 24-byte record.
+    MotionFinished,
+    /// Where a code editor's caret is drawn: the line and the column it stands at, then
+    /// `x`, `y`, `width` and `height` as `f32` in the window's dp. A fixed 40-byte record.
+    CodeCaretRect,
+    /// The answer to one position query: the request number, a word that is 1 when the
+    /// position is on screen and 0 when it is not, then the rectangle as in
+    /// `CodeCaretRect`, all zero when there is none. A fixed 40-byte record.
+    CodePositionRect,
+    /// A pointer event over a code editor: the 72-byte `Pointer` record, then the line and
+    /// the column of the text under the pointer, both `u32::MAX` where it is over none. A
+    /// fixed 80-byte record.
+    CodePointer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,14 +233,19 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material;",
-    "keys=Enter;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_caret_rect,on_key_preview,on_code_pointer,radio_group;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
+    "keys=Enter,Other;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect;",
+    // The fields of the overlay tokens record in wire order. A field is only appended, and
+    // appending one changes the record's length, so it is part of what the hash covers.
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius;",
+    // The fields of the message record in wire order, appended to in the same way.
+    "showmessage=handler_id,text,action,duration,vertical,horizontal,offset_dp"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -107,6 +271,7 @@ const fn hash_enum_schema(mut hash: u64, schema: &[EnumVariantSchema]) -> u64 {
 const fn schema_hash() -> u64 {
     let mut hash = hash_bytes(0xcbf2_9ce4_8422_2325_u64, SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_bytes(hash, crate::extensions::SCHEMA_DESCRIPTOR.as_bytes());
+    hash = hash_bytes(hash, crate::measure::SCHEMA_DESCRIPTOR.as_bytes());
     hash = hash_enum_schema(hash, WIDGET_SCHEMA);
     hash = hash_enum_schema(hash, PROPERTY_SCHEMA);
     hash = hash_enum_schema(hash, KEY_SCHEMA);
@@ -123,6 +288,7 @@ const fn schema_hash() -> u64 {
         let modifier = MODIFIER_SCHEMA[index];
         hash = hash_bytes(hash, modifier.name.as_bytes());
         hash = hash_bytes(hash, &modifier.tag.to_le_bytes());
+        hash = hash_bytes(hash, &[modifier.extra_words]);
         let mut field_index = 0;
         while field_index < modifier.fields.len() {
             let field = modifier.fields[field_index];
@@ -135,6 +301,8 @@ const fn schema_hash() -> u64 {
                     FieldType::U64 => 3,
                     FieldType::Paint => 4,
                     FieldType::Role(_) => 5,
+                    FieldType::Bool => 6,
+                    FieldType::FiniteFloat => 7,
                 }],
             );
             if let FieldType::Role(role) = field.ty {
@@ -149,6 +317,30 @@ const fn schema_hash() -> u64 {
                     FieldSlot::SecondLow => 3,
                     FieldSlot::SecondHigh => 4,
                     FieldSlot::Second => 5,
+                    FieldSlot::ThirdLow => 6,
+                    FieldSlot::ThirdHigh => 7,
+                    FieldSlot::Third => 8,
+                    FieldSlot::FourthLow => 9,
+                    FieldSlot::FourthHigh => 10,
+                    FieldSlot::Fourth => 11,
+                    FieldSlot::FifthLow => 12,
+                    FieldSlot::FifthHigh => 13,
+                    FieldSlot::Fifth => 14,
+                    FieldSlot::SixthLow => 15,
+                    FieldSlot::SixthHigh => 16,
+                    FieldSlot::Sixth => 17,
+                    FieldSlot::SeventhLow => 18,
+                    FieldSlot::SeventhHigh => 19,
+                    FieldSlot::Seventh => 20,
+                    FieldSlot::EighthLow => 21,
+                    FieldSlot::EighthHigh => 22,
+                    FieldSlot::Eighth => 23,
+                    FieldSlot::NinthLow => 24,
+                    FieldSlot::NinthHigh => 25,
+                    FieldSlot::Ninth => 26,
+                    FieldSlot::TenthLow => 27,
+                    FieldSlot::TenthHigh => 28,
+                    FieldSlot::Tenth => 29,
                 }],
             );
             field_index += 1;
@@ -198,10 +390,43 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::DesignSystem => 7,
                 EventPayloadType::NotificationActivation => 8,
                 EventPayloadType::NotificationPermission => 9,
+                EventPayloadType::Animation => 10,
+                EventPayloadType::ReducedMotion => 11,
+                EventPayloadType::CodeChange => 12,
+                EventPayloadType::CodeEditRejected => 13,
+                EventPayloadType::CodeHover => 14,
+                EventPayloadType::CodeSave => 15,
+                EventPayloadType::Decoration => 16,
+                EventPayloadType::Pointer => 17,
+                EventPayloadType::Zoom => 18,
+                EventPayloadType::CodeSelection => 19,
+                EventPayloadType::CodeVisibleRange => 20,
+                EventPayloadType::CodeFocus => 21,
+                EventPayloadType::CodeFold => 22,
+                EventPayloadType::CodeComposition => 23,
+                EventPayloadType::WindowFocus => 24,
+                EventPayloadType::WindowMove => 25,
+                EventPayloadType::WindowDrag => 26,
+                EventPayloadType::WindowDragOver => 27,
+                EventPayloadType::WindowRequest => 28,
+                EventPayloadType::FileDialogResult => 29,
+                EventPayloadType::ClipboardText => 30,
+                EventPayloadType::IoAnswer => 31,
+                EventPayloadType::FileHandles => 32,
+                EventPayloadType::ScrollChanged => 33,
+                EventPayloadType::MotionFinished => 34,
+                EventPayloadType::CodeCaretRect => 35,
+                EventPayloadType::CodePositionRect => 36,
+                EventPayloadType::CodePointer => 37,
             }],
         );
         index += 1;
     }
+    hash = crate::code::hash_record_schema(hash, crate::code::DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash
 }
 
@@ -219,9 +444,22 @@ fn wire_name_eq(input: &str, schema_name: &str) -> bool {
 
 macro_rules! define_wire_enum {
     ($schema:ident, $name:ident { $($variant:ident = $tag:literal),+ $(,)? }) => {
+        define_wire_enum!($schema, $name { $($variant = $tag),+ } unlisted {});
+    };
+    // `unlisted` variants exist in Rust and travel as their tag, but are not in the schema
+    // table, so codegen mirrors no Kotlin enum entry for them and `TryFrom` does not
+    // produce them. The one there is, `TypeRole::None`, is tag 0, which every role
+    // decoder already reads as "no role", and an entry for it in the Kotlin enum would
+    // shift every ordinal the Renderer indexes its token tables by.
+    (
+        $schema:ident,
+        $name:ident { $($variant:ident = $tag:literal),+ $(,)? }
+        unlisted { $($extra:ident = $extra_tag:literal),* $(,)? }
+    ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         #[repr(u16)]
         pub enum $name {
+            $($extra = $extra_tag,)*
             $($variant = $tag),+
         }
 
@@ -249,7 +487,9 @@ macro_rules! define_wire_enum {
         }
 
         impl $name {
-            #[allow(dead_code)]
+            // The unit error is the wire's own convention: a name either is a variant or is
+            // not, and the caller reports which name it was.
+            #[allow(dead_code, clippy::result_unit_err)]
             #[doc(hidden)]
             #[allow(clippy::result_unit_err)]
             pub fn from_name(value: &str) -> Result<Self, ()> {
@@ -357,6 +597,37 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // side, with the side pane laid over the body, or one at a time, are the design
     // system's answers.
     SplitPane = 42,
+    // Several lines of code that the reader edits. The text, the caret, the selection,
+    // the scroll position and the undo history are the Renderer's, the way a text field's
+    // are, and the Host is told about each committed edit with the version it produced.
+    // What the Host adds on top is said as ranges: colour runs for the syntax, and
+    // decorations for diagnostics, lenses, hover anchors and inline suggestions. How any
+    // of it is drawn, from the gutter to the weight of an underline, is the design
+    // system's.
+    CodeEditor = 43,
+    // Children laid where the Host already put them. Each child is placed at its own
+    // `Offset`, relative to this box, and no child moves or sizes another: the layout was
+    // computed on the Host (an HTML engine, for instance) and laying it out a second time
+    // here would only be a second answer that can disagree with the first. Later children
+    // draw over earlier ones, so a stacking order is the child order.
+    AbsoluteBox = 44,
+    // A platform window, a child of the root and only of the root. The children of a
+    // `Window` are that window's content. Putting one anywhere else, or moving a node from
+    // one window into another, is a protocol error: Compose keeps one composition per
+    // window and has no way to hand a node from one to the next.
+    Window = 45,
+    // A row that wraps. Children are measured at their own width and placed one after
+    // another on a line; a child that does not fit in what is left of the line starts the
+    // next one. A child wider than the whole line has the line to itself and is measured
+    // at the line's width, so nothing runs out of the row.
+    FlowRow = 46,
+    // A floating box of any content attached to an anchor. The first child is the anchor
+    // and is always drawn; the rest is the content, drawn only while the Host says it is
+    // open. A `Menu` is the same shape with entries in it and a place the design system
+    // fixes; here the Host names the side and the edge, and the Renderer keeps the box
+    // inside the window by flipping it to the other side or sliding it along the edge.
+    // 46 is held for a widget on another branch.
+    Popover = 47,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -376,6 +647,22 @@ pub struct Selection {
 // Compose key identities supported by the M0 schema.
 define_wire_enum!(KEY_SCHEMA, Key {
     Enter = 1,
+    // Any key the enum does not name. The event's `code` and `text` say which one.
+    Other = 2,
+    // Keys a menu, a list or an overlay acts on. Appended only: a tag never moves, so an
+    // older Renderer that sends `Other` for these still decodes.
+    Escape = 3,
+    Tab = 4,
+    Backspace = 5,
+    Delete = 6,
+    ArrowUp = 7,
+    ArrowDown = 8,
+    ArrowLeft = 9,
+    ArrowRight = 10,
+    Home = 11,
+    End = 12,
+    PageUp = 13,
+    PageDown = 14,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -561,6 +848,11 @@ define_wire_enum!(COLOR_ROLE_SCHEMA, ColorRole {
 pub const COLOR_ROLE_COUNT: usize = 45;
 
 // The nine-rung type ladder every supported design system maps onto.
+//
+// `None` is text with no rung at all, which is what a page laid out by CSS draws: its size,
+// weight, line height, letter spacing and font come from the text's own values and nothing
+// from the design system. It is the only text that may name a font of its own. It is not
+// in the schema table, because it is not a rung: see `define_wire_enum!`.
 define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Display = 1,
     Headline = 2,
@@ -571,6 +863,36 @@ define_wire_enum!(TYPE_ROLE_SCHEMA, TypeRole {
     Label = 7,
     Caption = 8,
     Mono = 9,
+} unlisted {
+    None = 0,
+});
+
+// Where a line of text may break, as CSS `word-break` says it. `Normal` breaks where the
+// language does: between words, and between syllables in Korean. `KeepAll` breaks only at
+// spaces, which is how Korean prose is usually set. `BreakAll` breaks between any two
+// characters.
+define_wire_enum!(WORD_BREAK_SCHEMA, WordBreak {
+    Normal = 1,
+    KeepAll = 2,
+    BreakAll = 3,
+});
+
+// Whether a word too long for its line may be broken inside, as CSS `overflow-wrap` says
+// it. `Anywhere` also lets that break count when the narrowest width the text can take is
+// worked out; `BreakWord` does not.
+define_wire_enum!(OVERFLOW_WRAP_SCHEMA, OverflowWrap {
+    Normal = 1,
+    Anywhere = 2,
+    BreakWord = 3,
+});
+
+// The families CSS names without naming a font. Which installed font each one is, is the
+// platform's answer.
+define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
+    SystemUi = 1,
+    SansSerif = 2,
+    Serif = 3,
+    Monospace = 4,
 });
 
 // Corner roles. The radius is the design system's decision.
@@ -604,6 +926,30 @@ define_wire_enum!(MATERIAL_ROLE_SCHEMA, MaterialRole {
     Regular = 2,
     Thick = 3,
     Chrome = 4,
+});
+
+// What a node is to assistive technology. Compose's own `Role` names, so the Renderer maps
+// each one to the platform's. `None` leaves the role the widget already has.
+define_wire_enum!(SEMANTICS_ROLE_SCHEMA, SemanticsRole {
+    None = 1,
+    Button = 2,
+    Checkbox = 3,
+    Switch = 4,
+    RadioButton = 5,
+    Tab = 6,
+    Image = 7,
+    DropdownList = 8,
+    TabList = 9,
+    Tree = 10,
+    TreeItem = 11,
+    Menu = 12,
+    MenuItem = 13,
+    TextBox = 14,
+    Heading = 15,
+    Navigation = 16,
+    List = 17,
+    ListItem = 18,
+    Group = 19,
 });
 
 // Density roles, because dp density differs per design system.
@@ -658,6 +1004,12 @@ define_wire_enum!(BUTTON_VARIANT_SCHEMA, ButtonVariant {
     Outlined = 3,
     Text = 4,
     Operator = 5,
+});
+
+// What a button is, independently from the visual emphasis its variant carries.
+define_wire_enum!(BUTTON_KIND_SCHEMA, ButtonKind {
+    Standard = 1,
+    ActionKey = 2,
 });
 
 // What the bytes behind an asset id are. A kind the Renderer cannot read is a reported
@@ -737,6 +1089,34 @@ define_wire_enum!(MESSAGE_DURATION_SCHEMA, MessageDuration {
     Long = 2,
 });
 
+// The edge a transient message is drawn along, where the application chose one. Tag 0 on the
+// wire is "the design system's place", which is what a message that names no placement
+// gets, so neither enum lists it.
+define_wire_enum!(MESSAGE_VERTICAL_SCHEMA, MessageVertical {
+    Top = 1,
+    Bottom = 2,
+});
+
+// Where along that edge the message sits. Start and End follow the layout direction, the
+// same way a `Row`'s do.
+define_wire_enum!(MESSAGE_HORIZONTAL_SCHEMA, MessageHorizontal {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+/// Where a transient message is drawn, for an application that wants a place other than
+/// the design system's.
+///
+/// Wherever it is, the message stays clear of the safe area and of the application's own
+/// bars: a message at the bottom sits above a bottom tab bar, and one at the top below the
+/// top bar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessagePlacement {
+    pub vertical: MessageVertical,
+    pub horizontal: MessageHorizontal,
+}
+
 // How much a notification matters. Closed for the same reason a message's duration is: what
 // it is worth in sound, in an Android channel's importance or in getting through Do Not
 // Disturb is the platform's answer, so the Host has no way to send a sound file or a
@@ -805,6 +1185,227 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
+// What a code editor decoration is: a mark under a range, a line of text above a line, a
+// range that answers a resting pointer, and a suggestion shown in place. Each is what a
+// language server or an extension host already speaks in, so an application can pass its
+// answers through without inventing its own. After them, the two backgrounds a diff view
+// is drawn with: a tint across whole lines, the width of the editor, and a stronger one
+// over the characters that changed. Values are only appended.
+define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
+    Underline = 1,
+    CodeLens = 2,
+    HoverAnchor = 3,
+    GhostText = 4,
+    LineBackground = 5,
+    RangeBackground = 6,
+});
+
+// How serious an underlined diagnostic is. The four a language server reports, in its
+// order. The colour each one gets is the design system's unless the application names a
+// role, and how the mark is drawn, a squiggle or a straight line, is always the system's.
+define_wire_enum!(SEVERITY_SCHEMA, Severity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+});
+
+// Whether a pointer has come to rest over a place in a code editor or has left it. Two
+// values, because the Host is told once on arriving and once on leaving and never while
+// the pointer stays.
+define_wire_enum!(HOVER_PHASE_SCHEMA, HoverPhase {
+    Rest = 1,
+    Leave = 2,
+});
+
+// What a mark beside the line numbers of a code editor looks like: a dot, a bar the height
+// of the line, or one character the application names. The colour is a role or the design
+// system's; the size and the placement of all three are always the system's.
+define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
+    Dot = 1,
+    Bar = 2,
+    Glyph = 3,
+});
+
+// The side of its anchor a `Popover` opens on. `Start` and `End` follow the layout
+// direction. It is the side asked for: the Renderer opens on the opposite one when the
+// content does not fit between the anchor and the window's edge.
+define_wire_enum!(POPOVER_PLACEMENT_SCHEMA, PopoverPlacement {
+    Top = 1,
+    Bottom = 2,
+    Start = 3,
+    End = 4,
+});
+
+// Which edge of its anchor a `Popover` lines up with, along the side it opened on.
+define_wire_enum!(POPOVER_ALIGN_SCHEMA, PopoverAlign {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+// Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
+// the middle of the view, or the top.
+define_wire_enum!(REVEAL_ALIGN_SCHEMA, RevealAlign {
+    Nearest = 1,
+    Center = 2,
+    Top = 3,
+});
+
+// The vocabulary of animations the Renderer plays on its own frame clock. Every one is a
+// byte on the wire and every one starts at 1, so a zero is always a record the two sides
+// disagree about.
+
+// What an animation changes. Each has a place it is drawn from: the node's first `Alpha`,
+// its `color` property, its first `Background`, its first `Transform`, and the colour of
+// every side of its first `Border` or `BorderEach`. A container's `color` is the colour
+// the text inside it inherits, so one animation on it recolours all of that text.
+define_wire_enum!(ANIMATED_PROPERTY_SCHEMA, AnimatedProperty {
+    Alpha = 1,
+    Color = 2,
+    Background = 3,
+    Transform = 4,
+    BorderColor = 5,
+});
+
+define_wire_enum!(PLAYBACK_DIRECTION_SCHEMA, PlaybackDirection {
+    Normal = 1,
+    Reverse = 2,
+    Alternate = 3,
+    AlternateReverse = 4,
+});
+
+define_wire_enum!(FILL_MODE_SCHEMA, FillMode {
+    None = 1,
+    Forwards = 2,
+    Backwards = 3,
+    Both = 4,
+});
+
+define_wire_enum!(PLAY_STATE_SCHEMA, PlayState {
+    Running = 1,
+    Paused = 2,
+});
+
+// How two colours are mixed: the way CSS's older colour syntax does, or in Oklab, the
+// default of CSS Color 4's newer syntax.
+define_wire_enum!(COLOR_INTERPOLATION_SCHEMA, ColorInterpolation {
+    SrgbPremultiplied = 1,
+    Oklab = 2,
+});
+
+define_wire_enum!(TIMING_KIND_SCHEMA, TimingKind {
+    Linear = 1,
+    CubicBezier = 2,
+    Steps = 3,
+});
+
+define_wire_enum!(STEP_POSITION_SCHEMA, StepPosition {
+    JumpStart = 1,
+    JumpEnd = 2,
+    JumpNone = 3,
+    JumpBoth = 4,
+});
+
+define_wire_enum!(TRANSFORM_FUNCTION_KIND_SCHEMA, TransformFunctionKind {
+    Translate = 1,
+    Rotate = 2,
+    Scale = 3,
+    Skew = 4,
+    Matrix = 5,
+});
+
+define_wire_enum!(ANIMATION_CONTROL_SCHEMA, AnimationControl {
+    Pause = 1,
+    Resume = 2,
+    Cancel = 3,
+});
+
+define_wire_enum!(ANIMATION_EVENT_KIND_SCHEMA, AnimationEventKind {
+    Ready = 1,
+    Active = 2,
+    Iteration = 3,
+    End = 4,
+});
+
+define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
+    Off = 1,
+    On = 2,
+    Unknown = 3,
+});
+
+define_wire_enum!(POINTER_KIND_SCHEMA, PointerKind {
+    Move = 1,
+    Enter = 2,
+    Leave = 3,
+    Down = 4,
+    Up = 5,
+    Cancel = 6,
+    Wheel = 7,
+    ContextMenu = 8,
+});
+
+define_wire_enum!(POINTER_TYPE_SCHEMA, PointerType {
+    Mouse = 1,
+    Touch = 2,
+    Pen = 3,
+});
+
+define_wire_enum!(WHEEL_DELTA_MODE_SCHEMA, WheelDeltaMode {
+    Pixel = 0,
+    Line = 1,
+    Page = 2,
+});
+
+// CSS `cursor` keywords, by name and in the order CSS lists them. `Auto` is "let the widget
+// under the pointer decide".
+define_wire_enum!(CURSOR_SCHEMA, Cursor {
+    Auto = 0,
+    Default = 1,
+    Pointer = 2,
+    Text = 3,
+    VerticalText = 4,
+    Crosshair = 5,
+    Move = 6,
+    Grab = 7,
+    Grabbing = 8,
+    NotAllowed = 9,
+    NoDrop = 10,
+    Wait = 11,
+    Progress = 12,
+    Help = 13,
+    ContextMenu = 14,
+    Cell = 15,
+    Copy = 16,
+    Alias = 17,
+    AllScroll = 18,
+    ZoomIn = 19,
+    ZoomOut = 20,
+    ColResize = 21,
+    RowResize = 22,
+    EResize = 23,
+    NResize = 24,
+    NeResize = 25,
+    NwResize = 26,
+    SResize = 27,
+    SeResize = 28,
+    SwResize = 29,
+    WResize = 30,
+    EwResize = 31,
+    NsResize = 32,
+    NeswResize = 33,
+    NwseResize = 34,
+    None = 35,
+});
+
+// CSS `user-select`, resolved by the Host. `Auto` follows the parent.
+define_wire_enum!(USER_SELECT_SCHEMA, UserSelect {
+    Auto = 0,
+    None = 1,
+    Text = 2,
+    All = 3,
+});
+
 /// Every role enum codegen mirrors, in wire order. Appending is the only allowed edit.
 pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
@@ -832,6 +1433,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: MATERIAL_ROLE_SCHEMA,
     },
     RoleEnumSchema {
+        name: "SemanticsRole",
+        variants: SEMANTICS_ROLE_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "SpaceRole",
         variants: SPACE_ROLE_SCHEMA,
     },
@@ -856,6 +1461,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: BUTTON_VARIANT_SCHEMA,
     },
     RoleEnumSchema {
+        name: "ButtonKind",
+        variants: BUTTON_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "DesignSystem",
         variants: DESIGN_SYSTEM_SCHEMA,
     },
@@ -874,6 +1483,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "MessageDuration",
         variants: MESSAGE_DURATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MessageVertical",
+        variants: MESSAGE_VERTICAL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MessageHorizontal",
+        variants: MESSAGE_HORIZONTAL_SCHEMA,
     },
     RoleEnumSchema {
         name: "Chrome",
@@ -898,6 +1515,158 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "NotificationPermission",
         variants: NOTIFICATION_PERMISSION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WordBreak",
+        variants: WORD_BREAK_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "OverflowWrap",
+        variants: OVERFLOW_WRAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GenericFamily",
+        variants: GENERIC_FAMILY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimatedProperty",
+        variants: ANIMATED_PROPERTY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlaybackDirection",
+        variants: PLAYBACK_DIRECTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FillMode",
+        variants: FILL_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PlayState",
+        variants: PLAY_STATE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ColorInterpolation",
+        variants: COLOR_INTERPOLATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TimingKind",
+        variants: TIMING_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "StepPosition",
+        variants: STEP_POSITION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "TransformFunctionKind",
+        variants: TRANSFORM_FUNCTION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationControl",
+        variants: ANIMATION_CONTROL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "AnimationEventKind",
+        variants: ANIMATION_EVENT_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ReducedMotion",
+        variants: REDUCED_MOTION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "DecorationKind",
+        variants: DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Severity",
+        variants: SEVERITY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HoverPhase",
+        variants: HOVER_PHASE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "GutterDecorationKind",
+        variants: GUTTER_DECORATION_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "RevealAlign",
+        variants: REVEAL_ALIGN_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerKind",
+        variants: POINTER_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PointerType",
+        variants: POINTER_TYPE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WheelDeltaMode",
+        variants: WHEEL_DELTA_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Cursor",
+        variants: CURSOR_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "UserSelect",
+        variants: USER_SELECT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WindowMode",
+        variants: WINDOW_MODE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "LastWindowClosed",
+        variants: LAST_WINDOW_CLOSED_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDialogKind",
+        variants: FILE_DIALOG_KIND_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDialogStatus",
+        variants: FILE_DIALOG_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "CompactNavigation",
+        variants: COMPACT_NAVIGATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Snap",
+        variants: SNAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "StorageOp",
+        variants: STORAGE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "IoStatus",
+        variants: IO_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileDelivery",
+        variants: FILE_DELIVERY_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "FileOp",
+        variants: FILE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HorizontalAlignment",
+        variants: HORIZONTAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "VerticalAlignment",
+        variants: VERTICAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverPlacement",
+        variants: POPOVER_PLACEMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverAlign",
+        variants: POPOVER_ALIGN_SCHEMA,
     },
 ];
 
@@ -954,6 +1723,7 @@ impl Paint {
 define_wire_enum!(CHROME_SCHEMA, Chrome {
     Modern = 1,
     System = 2,
+    FullSize = 3,
 });
 
 // Which of two title bars this window has. `Chrome` chooses who draws the caption; this
@@ -970,6 +1740,131 @@ define_wire_enum!(TITLE_BAR_SCHEMA, TitleBar {
     // An ordinary window. For tool applications, for the places the other reads oddly, and
     // as the way back.
     Simple = 2,
+});
+
+// What a `Navigation` becomes in a compact window, where the application chose. Medium and
+// Expanded stay the design system's answer whatever is chosen here.
+//
+// `Default` is no choice at all: the design system answers, which is a bottom bar on most
+// of them and the put-away sidebar on Apple's desktop systems. It travels as tag 0, which
+// is the same as not sending the property, so it is not in the schema table.
+//
+// `Sidebar` is the sidebar put away behind a toggle that brings it over the page, on every
+// design system. `None` leaves the destinations off a compact window altogether, with
+// nothing to call them: the application draws its own way to them. The name is Compose's
+// `NavigationSuiteType.None`.
+define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
+    Sidebar = 1,
+    None = 2,
+} unlisted {
+    Default = 0,
+});
+
+// Where a scroll container comes to rest once a drag or a fling ends.
+//
+// `None` is free scrolling: the container stops wherever the drag or the fling left it. It
+// travels as tag 0, which is the same as not sending the property, so it is not in the
+// schema table.
+//
+// `ItemStart` stops with the start edge of the nearest direct child on the start of the
+// visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
+// does.
+define_wire_enum!(SNAP_SCHEMA, Snap {
+    ItemStart = 1,
+} unlisted {
+    None = 0,
+});
+
+// How the application uses windows. `Single` is every application until now: the
+// root's content fills the one window `SetWindow` describes. `Windows` is the multi-window
+// mode, in which the root's children are `Window` nodes and `SetWindow` describes nothing
+// but the mode.
+define_wire_enum!(WINDOW_MODE_SCHEMA, WindowMode {
+    Single = 0,
+    Windows = 1,
+});
+
+// What happens when the last `Window` node is removed. `Exit` ends the renderer
+// loop, `KeepRunning` leaves the process up with no window. Ignored by `Single`.
+define_wire_enum!(LAST_WINDOW_CLOSED_SCHEMA, LastWindowClosed {
+    Exit = 0,
+    KeepRunning = 1,
+});
+
+// What a file dialog asks the user to pick. Closed: each kind is a different platform panel
+// with different rules about how many paths come back, so a free-form set of flags would
+// allow combinations no panel can honour.
+define_wire_enum!(FILE_DIALOG_KIND_SCHEMA, FileDialogKind {
+    OpenFile = 1,
+    OpenFiles = 2,
+    OpenFolder = 3,
+    OpenFolders = 4,
+    Save = 5,
+});
+
+// How a file dialog ended. `Unavailable` means this run has no way to show one, which is an
+// answer and not an error, and is never used for a user's cancel.
+define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
+    Chosen = 1,
+    Cancelled = 2,
+    Unavailable = 3,
+});
+
+// How the files a Renderer holds handles for reached it. Closed, because what an
+// application may do with a file depends on it: only a `Handle` can be written again.
+define_wire_enum!(FILE_DELIVERY_SCHEMA, FileDelivery {
+    // The file itself, in the file system. Writing it again changes the same file.
+    Handle = 1,
+    // A copy the browser handed over from a file input. It can only be read.
+    Upload = 2,
+    // A save that became a download. Each write is a new download.
+    Download = 3,
+});
+
+// What one `FileCall` asks of a file the Renderer holds a handle for.
+define_wire_enum!(FILE_OP_SCHEMA, FileOp {
+    Read = 1,
+    Write = 2,
+    Entries = 3,
+    Child = 4,
+});
+
+// What a `StorageCall` asks the Renderer to do with the application's storage. Closed: a
+// Renderer that meets an operation it does not know cannot answer it truthfully.
+define_wire_enum!(STORAGE_OP_SCHEMA, StorageOp {
+    Read = 1,
+    Write = 2,
+    Remove = 3,
+    Keys = 4,
+});
+
+// How one input or output request ended, as an `IoAnswer` says it. Shared by storage and by
+// files picked on the web, so one answer reads the same whichever asked. Closed, so a word
+// this side does not know is a record the two sides disagree on.
+define_wire_enum!(IO_STATUS_SCHEMA, IoStatus {
+    Ok = 1,
+    NotFound = 2,
+    QuotaExceeded = 3,
+    Unavailable = 4,
+    PermissionDenied = 5,
+    Failed = 6,
+    ReadOnly = 7,
+    TooLarge = 8,
+});
+
+// Where the children of one line of a `FlowRow` sit along it, when they do not fill it.
+define_wire_enum!(HORIZONTAL_ALIGNMENT_SCHEMA, HorizontalAlignment {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+// Where a child of a `FlowRow` sits inside the height of its line, when it is shorter
+// than the tallest child on that line.
+define_wire_enum!(VERTICAL_ALIGNMENT_SCHEMA, VerticalAlignment {
+    Top = 1,
+    Center = 2,
+    Bottom = 3,
 });
 
 /// What an application may decide about its own window.
@@ -1003,6 +1898,21 @@ pub struct Window {
     pub min_width: u16,
     pub min_height: u16,
     pub resizable: bool,
+    /// The application's zoom level, where it asked for one.
+    ///
+    /// `None` leaves the level to the Renderer, which starts from what the reader chose
+    /// last time. A level set here is applied, remembered and reported back the way one
+    /// chosen with the keys is. Kept inside `-8..=8`.
+    pub zoom_level: Option<i8>,
+    /// Whether the implicit single window reports every whole-dp change of its size,
+    /// not only a change of size class. Off by default. Windows made with `Window`
+    /// nodes opt in through the node's `report_size` property instead.
+    pub report_size: bool,
+    /// One window (the default) or several. In the second the root's children are
+    /// `Window` nodes and the rest of this record describes no window.
+    pub mode: WindowMode,
+    /// What to do when the last window goes. Only read in `WindowMode::Windows`.
+    pub last_window_closed: LastWindowClosed,
 }
 
 impl Window {
@@ -1017,7 +1927,31 @@ impl Window {
             min_width: 0,
             min_height: 0,
             resizable: true,
+            zoom_level: None,
+            report_size: false,
+            mode: WindowMode::Single,
+            last_window_closed: LastWindowClosed::Exit,
         }
+    }
+
+    /// Several windows, one per `Window` node under the root. With the default
+    /// policy of the platform: a macOS application stays up with no window, the others
+    /// exit.
+    pub const fn with_windows(mut self) -> Self {
+        self.mode = WindowMode::Windows;
+        self.last_window_closed = if cfg!(target_os = "macos") {
+            LastWindowClosed::KeepRunning
+        } else {
+            LastWindowClosed::Exit
+        };
+        self
+    }
+
+    /// What happens when the last window is removed. Only meaningful with
+    /// [`Window::with_windows`].
+    pub const fn with_last_window_closed(mut self, policy: LastWindowClosed) -> Self {
+        self.last_window_closed = policy;
+        self
     }
 
     /// Which of the two title bars this window has.
@@ -1043,6 +1977,10 @@ impl Window {
         self
     }
 
+    pub const fn chrome(self, chrome: Chrome) -> Self {
+        self.with_chrome(chrome)
+    }
+
     pub const fn with_chrome(mut self, chrome: Chrome) -> Self {
         self.chrome = chrome;
         self
@@ -1062,6 +2000,24 @@ impl Window {
 
     pub const fn resizable(mut self, resizable: bool) -> Self {
         self.resizable = resizable;
+        self
+    }
+
+    /// Asks the implicit single window to report every whole-dp change of its size.
+    pub const fn with_report_size(mut self, report: bool) -> Self {
+        self.report_size = report;
+        self
+    }
+
+    /// Starts the window at an application zoom level, kept inside `-8..=8`.
+    pub const fn with_zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(if level < -8 {
+            -8
+        } else if level > 8 {
+            8
+        } else {
+            level
+        });
         self
     }
 }
@@ -1096,10 +2052,120 @@ pub struct Theme {
     /// platform. A palette built while the application runs is handed to `use_theme`,
     /// which owns it, so application code never has to give it that lifetime itself.
     pub palette: Option<&'static crate::palette::Palette>,
+    /// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+    pub overlay: Option<&'static OverlayTokens>,
 }
 
 /// How many type roles there are, which is how many font slots a theme carries.
 pub const TYPE_ROLE_COUNT: usize = 9;
+
+/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the
+/// transient message. Every measure is in dp, and 0 keeps the design system's own.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct OverlayTokens {
+    pub sheet_corner_radius: u16,
+    pub dialog_corner_radius: u16,
+    pub popup_corner_radius: u16,
+    pub sheet_elevation: u16,
+    pub popup_elevation: u16,
+    pub dialog_elevation: u16,
+    pub sheet_padding: u16,
+    pub dialog_padding: u16,
+    pub popup_padding: u16,
+    pub scrim: u32,
+    /// How high the transient message floats, which is how much shadow it casts.
+    pub toast_elevation: u16,
+    /// The corner radius of the transient message.
+    pub toast_corner_radius: u16,
+}
+
+impl OverlayTokens {
+    pub const fn new() -> Self {
+        Self {
+            sheet_corner_radius: 0,
+            dialog_corner_radius: 0,
+            popup_corner_radius: 0,
+            sheet_elevation: 0,
+            popup_elevation: 0,
+            dialog_elevation: 0,
+            sheet_padding: 0,
+            dialog_padding: 0,
+            popup_padding: 0,
+            scrim: 0,
+            toast_elevation: 0,
+            toast_corner_radius: 0,
+        }
+    }
+
+    pub const fn sheet_corner_radius(mut self, radius: u16) -> Self {
+        self.sheet_corner_radius = radius;
+        self
+    }
+
+    pub const fn dialog_corner_radius(mut self, radius: u16) -> Self {
+        self.dialog_corner_radius = radius;
+        self
+    }
+
+    pub const fn popup_corner_radius(mut self, radius: u16) -> Self {
+        self.popup_corner_radius = radius;
+        self
+    }
+
+    pub const fn sheet_elevation(mut self, elevation: u16) -> Self {
+        self.sheet_elevation = elevation;
+        self
+    }
+
+    pub const fn popup_elevation(mut self, elevation: u16) -> Self {
+        self.popup_elevation = elevation;
+        self
+    }
+
+    pub const fn dialog_elevation(mut self, elevation: u16) -> Self {
+        self.dialog_elevation = elevation;
+        self
+    }
+
+    pub const fn sheet_padding(mut self, padding: u16) -> Self {
+        self.sheet_padding = padding;
+        self
+    }
+
+    pub const fn dialog_padding(mut self, padding: u16) -> Self {
+        self.dialog_padding = padding;
+        self
+    }
+
+    pub const fn popup_padding(mut self, padding: u16) -> Self {
+        self.popup_padding = padding;
+        self
+    }
+
+    pub const fn scrim(mut self, color: Color) -> Self {
+        self.scrim = color.to_argb();
+        self
+    }
+
+    pub const fn scrim_argb(mut self, argb: u32) -> Self {
+        self.scrim = argb;
+        self
+    }
+
+    /// The transient message's elevation in dp: a shadow under it the height of a surface
+    /// that far up. A message is not a node and takes no Modifier, so this is where its
+    /// shadow is set, once for the application.
+    pub const fn toast_elevation(mut self, elevation: u16) -> Self {
+        self.toast_elevation = elevation;
+        self
+    }
+
+    /// The transient message's corner radius in dp.
+    pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
+        self.toast_corner_radius = radius;
+        self
+    }
+}
 
 impl Theme {
     /// The same design system on every platform.
@@ -1111,6 +2177,7 @@ impl Theme {
             adaptive: false,
             fonts: [0; TYPE_ROLE_COUNT],
             palette: None,
+            overlay: None,
         }
     }
 
@@ -1123,6 +2190,7 @@ impl Theme {
             adaptive: true,
             fonts: [0; TYPE_ROLE_COUNT],
             palette: None,
+            overlay: None,
         }
     }
 
@@ -1137,8 +2205,33 @@ impl Theme {
     /// Renderer, the same way a picture does. An id that names nothing is reported and
     /// the role falls back to the system font, because a screen in the wrong typeface is
     /// better than no screen.
+    ///
+    /// `TypeRole::None` has no font slot: text with no role names its own font, so asking
+    /// the theme to give it one changes nothing.
     pub const fn with_font(mut self, role: TypeRole, asset: u32) -> Self {
+        if let TypeRole::None = role {
+            return self;
+        }
         self.fonts[role as usize - 1] = asset;
+        self
+    }
+
+    /// Resolves every type role but `Mono` to one registered font: the application's own
+    /// typeface, set once for the whole screen.
+    ///
+    /// The font is usually a [`crate::FontStack`], so a role is set in the first family and
+    /// each letter it lacks comes from the next, with the machine's fonts after the last.
+    /// `Mono` is left alone because code set in a proportional face is columns that no
+    /// longer line up; name a font for it with [`Theme::with_font`]. A role named before or
+    /// after this with `with_font` keeps whichever was said last.
+    pub const fn with_default_font(mut self, asset: u32) -> Self {
+        let mut index = 0;
+        while index < TYPE_ROLE_COUNT {
+            if index != TypeRole::Mono as usize - 1 {
+                self.fonts[index] = asset;
+            }
+            index += 1;
+        }
         self
     }
 
@@ -1153,8 +2246,17 @@ impl Theme {
         self
     }
 
+    /// Overrides overlay geometry, spacing, elevation and scrim for Dialog, Menu, Dropdown and Sheet.
+    pub const fn with_overlay_tokens(mut self, overlay: &'static OverlayTokens) -> Self {
+        self.overlay = Some(overlay);
+        self
+    }
+
     /// The font this role resolves to, or `None` for the system font.
     pub const fn font(&self, role: TypeRole) -> Option<u32> {
+        if let TypeRole::None = role {
+            return None;
+        }
         match self.fonts[role as usize - 1] {
             0 => None,
             asset => Some(asset),
@@ -1222,8 +2324,15 @@ pub enum Modifier {
     /// Renderer and is never something the Host chose, so a screen that wants to know how
     /// wide one of its own containers ended up needs a name it gave itself. The Renderer
     /// does not read it.
+    ///
+    /// With `every_dp` off, a report goes out on the first measurement and then only when
+    /// the node's width or height class changes. With it on, a report also goes out when
+    /// the width or height, rounded to the nearest whole dp, changes inside one class, at
+    /// most once a frame and carrying the last size. It rides in the second word, which
+    /// was always zero before, so a record with it off is the same bytes it always was.
     ObserveSize {
         token: u32,
+        every_dp: bool,
     },
     /// Which curve and length this node's changes run along.
     ///
@@ -1235,14 +2344,377 @@ pub enum Modifier {
     /// A role, so that a system which blurs blurs and a system which does not lifts its
     /// surface instead. Nothing here claims a particular effect was achieved.
     Material(MaterialRole),
+    /// Where this node sits inside its parent, in dp from the parent's top left corner.
+    ///
+    /// The position a layout engine on the Host already computed. Left and right are the
+    /// screen's, not the reading direction's: the Host's coordinates are physical, so a
+    /// right-to-left page is not mirrored a second time here.
+    Offset {
+        x: f32,
+        y: f32,
+    },
+    /// This node's size in dp, whatever its parent's constraints say. The size a layout
+    /// engine on the Host already computed, which is not open to negotiation.
+    RequiredSize {
+        width: f32,
+        height: f32,
+    },
+    /// A border whose four sides each have their own width and paint. A node whose four
+    /// sides are the same uses `Border`.
+    BorderEach {
+        top: f32,
+        right: f32,
+        bottom: f32,
+        left: f32,
+        top_paint: Paint,
+        right_paint: Paint,
+        bottom_paint: Paint,
+        left_paint: Paint,
+    },
+    /// A radius in dp for each corner, cut as plain circular arcs. The background, the
+    /// border, the shadow and a `Clip` all follow it. A node with one radius for every
+    /// corner uses `Shape`.
+    CornerEach {
+        top_left: f32,
+        top_right: f32,
+        bottom_right: f32,
+        bottom_left: f32,
+    },
+    /// One shadow cast by this node's outline: an offset, a blur radius and a spread in dp,
+    /// and its paint, drawn only outside the node as CSS draws `box-shadow`. Several
+    /// shadows are several of these. A modifier list draws in its order, so a later shadow
+    /// lies over an earlier one; CSS puts the first of its list on top, so a Host sends
+    /// that list last to first.
+    Shadow {
+        x: f32,
+        y: f32,
+        blur: f32,
+        spread: f32,
+        paint: Paint,
+    },
+    /// Whether this node's content is cut to its outline: the `CornerEach` shape where it
+    /// has one, its rectangle otherwise.
+    Clip(bool),
+    /// Marks this node as a window drag region or excludes it from one.
+    WindowDrag(bool),
+    /// The opacity of this node and everything in it, from 0 to 1, applied once to the
+    /// whole group rather than to each child.
+    Alpha(f32),
+    /// Draws this node and everything in it through a 2D affine matrix, the way CSS
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// The matrix means what CSS `matrix(a, b, c, d, e, f)` means: a point `(x, y)` goes to
+    /// `(a x + c y + e, b x + d y + f)`, with `e` and `f` in dp. The origin is a fraction of
+    /// the node's measured size, `(0.5, 0.5)` being its centre, so it stays right when the
+    /// size is decided on the Renderer's side. An origin given as a length is folded into
+    /// the matrix by the Host, which then sends `(0, 0)`. A matrix with no inverse draws
+    /// nothing and takes no input. No value may be NaN or infinite.
+    Transform {
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        e: f32,
+        f: f32,
+        origin_x: f32,
+        origin_y: f32,
+    },
+    /// Draws this node and everything in it through a 4x4 matrix, the way CSS 3D
+    /// `transform` does, without changing its layout. Pointer input follows the drawn
+    /// shape.
+    ///
+    /// `m` is column-major, in the order of CSS `matrix3d(...)`: element `m[4 * column +
+    /// row]`. A point `(x, y, z, 1)` goes to `M * (x, y, z, 1)`, and the screen position is
+    /// the first two results divided by the fourth. Translations are in dp. A perspective
+    /// term is already inside the matrix, so the Renderer is never sent one separately. The
+    /// origin means what it means for [`Modifier::Transform`] and its z is zero.
+    ///
+    /// `backface_hidden` is CSS `backface-visibility: hidden`: a node whose back is turned
+    /// to the viewer is not drawn and takes no input. A matrix with no inverse draws
+    /// nothing. No value may be NaN or infinite.
+    Transform3D {
+        m: [f32; 16],
+        origin_x: f32,
+        origin_y: f32,
+        backface_hidden: bool,
+    },
+    /// Matches the bounds of a Box parent without contributing to its size.
+    MatchParentSize,
+    /// Controls the scale and tint of a pressed surface.
+    PressFeedback {
+        scale: f32,
+        tint_alpha: f32,
+    },
+    /// What this node is to assistive technology: its role, and whether it is checked or
+    /// selected. `state` holds two tri-state fields, `SEMANTICS_CHECKED_SHIFT` and
+    /// `SEMANTICS_SELECTED_SHIFT` bits up, each 0 for unset, 1 for off and 2 for on. The
+    /// accessible name is the `AccessibleName` property, because a string does not fit in
+    /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
+    /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
+    /// accessibility tree, and the two action bits expose a click and a focus action.
+    Semantics {
+        role: SemanticsRole,
+        state: u32,
+    },
+    /// How this node's rounded corners curve, from 0 to 1. 0 is a plain circular arc; above
+    /// it the curve starts further along each side and its curvature changes continuously,
+    /// as Figma's corner smoothing does (0.6 is what iOS looks like). The radius still
+    /// comes from `Shape`, `ShapeRole` or `CornerEach`; this changes only the curve, and
+    /// a node without a radius is not changed. A value outside 0..=1 is drawn as the nearer
+    /// end and NaN as 0, so one bad shape cannot stop the program; see
+    /// [`corner_smoothing`].
+    CornerCurve {
+        smoothing: f32,
+    },
+}
+
+/// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
+pub fn corner_smoothing(smoothing: f32) -> f32 {
+    if smoothing.is_nan() {
+        0.0
+    } else {
+        smoothing.clamp(0.0, 1.0)
+    }
+}
+
+/// Where the checked field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_CHECKED_SHIFT: u32 = 0;
+/// Where the selected field sits in `Modifier::Semantics::state`.
+pub const SEMANTICS_SELECTED_SHIFT: u32 = 2;
+/// Where the expanded field sits in `Modifier::Semantics::state`: 0 unset, 1 collapsed,
+/// 2 expanded.
+pub const SEMANTICS_EXPANDED_SHIFT: u32 = 4;
+/// Where the disabled field sits in `Modifier::Semantics::state`: 0 unset, 1 enabled,
+/// 2 disabled.
+pub const SEMANTICS_DISABLED_SHIFT: u32 = 6;
+/// Where the focused field sits in `Modifier::Semantics::state`: 0 unset, 1 not focused,
+/// 2 focused.
+pub const SEMANTICS_FOCUSED_SHIFT: u32 = 8;
+/// The bit that excludes the node from the accessibility tree.
+pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
+/// The bit that exposes a click action on the node.
+pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
+/// The bit that exposes a focus action on the node.
+pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
+/// Every bit `Modifier::Semantics::state` may set.
+pub const SEMANTICS_STATE_MASK: u32 = 0b1_1111_1111_1111;
+
+impl Modifier {
+    /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
+    /// left.
+    ///
+    /// Four equal sides are one `Border`, which is the record every node with an ordinary
+    /// border already sends. `BorderEach` is written only where the sides differ, so a
+    /// screen that never mixes them never sends the longer record.
+    pub fn border_sides(widths: [f32; 4], paints: [Paint; 4]) -> Self {
+        let [top, right, bottom, left] = widths;
+        let [top_paint, right_paint, bottom_paint, left_paint] = paints;
+        if widths.iter().all(|width| width.to_bits() == top.to_bits())
+            && paints.iter().all(|paint| *paint == top_paint)
+        {
+            return Self::Border {
+                width: top,
+                paint: top_paint,
+            };
+        }
+        Self::BorderEach {
+            top,
+            right,
+            bottom,
+            left,
+            top_paint,
+            right_paint,
+            bottom_paint,
+            left_paint,
+        }
+    }
+
+    /// A radius for each corner, in CSS order: top left, top right, bottom right, bottom
+    /// left.
+    ///
+    /// One radius for every corner is one `Shape`, the record an ordinary rounded node
+    /// already sends. `CornerEach` is written only where the corners differ.
+    pub fn corner_radii(radii: [f32; 4]) -> Self {
+        let [top_left, top_right, bottom_right, bottom_left] = radii;
+        if radii
+            .iter()
+            .all(|radius| radius.to_bits() == top_left.to_bits())
+        {
+            return Self::Shape {
+                top_start: top_left,
+                top_end: top_left,
+                bottom_end: top_left,
+                bottom_start: top_left,
+            };
+        }
+        Self::CornerEach {
+            top_left,
+            top_right,
+            bottom_right,
+            bottom_left,
+        }
+    }
+}
+
+/// The timing function of one keyframe, which shapes the segment to the next one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Timing {
+    Linear,
+    /// CSS `cubic-bezier(x1, y1, x2, y2)`. Both `x` values are between 0 and 1.
+    CubicBezier {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
+    /// CSS `steps(count, position)`. `count` is at least 1, and at least 2 for `JumpNone`.
+    Steps {
+        count: u32,
+        position: StepPosition,
+    },
+}
+
+/// One CSS transform function: its kind and up to six values, the unused ones zero.
+///
+/// `Translate` is x and y in dp, `Rotate` degrees (not folded into one turn, so 0 to 720
+/// is two turns), `Scale` x and y, `Skew` the x and y angles in degrees, and `Matrix` the
+/// six values of CSS `matrix()`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TransformFunction {
+    pub kind: TransformFunctionKind,
+    pub values: [f32; 6],
+}
+
+impl TransformFunction {
+    pub const fn translate(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Translate,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn rotate(degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Rotate,
+            values: [degrees, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn scale(x: f32, y: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Scale,
+            values: [x, y, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn skew(x_degrees: f32, y_degrees: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Skew,
+            values: [x_degrees, y_degrees, 0.0, 0.0, 0.0, 0.0],
+        }
+    }
+
+    pub const fn matrix(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
+        Self {
+            kind: TransformFunctionKind::Matrix,
+            values: [a, b, c, d, e, f],
+        }
+    }
+}
+
+/// What one keyframe holds, which has to be what its animation's property takes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KeyframeValue {
+    Alpha(f32),
+    /// For `Color`, `Background` and `BorderColor`. A role is resolved against the theme every frame.
+    Paint(Paint),
+    /// A list of functions, the same kinds in the same order in every keyframe.
+    Transform(std::borrow::Cow<'static, [TransformFunction]>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Keyframe {
+    /// Where in an iteration this keyframe stands, from 0 to 1.
+    pub offset: f32,
+    /// How the segment from this keyframe to the next is timed.
+    pub timing: Timing,
+    /// Starts from whatever the node shows the frame this animation begins, instead of
+    /// `value`. Only the first keyframe may say so: it is how a CSS transition that
+    /// changes course midway carries on from where it was without a jump.
+    pub from_presented: bool,
+    pub value: KeyframeValue,
+}
+
+/// Which moments of an animation are reported back as `AnimationEvent`s. None, the
+/// default, means the animation plays to its end without a single call to the Host.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct AnimationEvents(pub u8);
+
+impl AnimationEvents {
+    pub const NONE: Self = Self(0);
+    pub const READY: Self = Self(1);
+    pub const ACTIVE: Self = Self(2);
+    pub const ITERATION: Self = Self(4);
+    pub const END: Self = Self(8);
+    /// Every kind there is. A bit outside these is a record the sides disagree about.
+    pub const ALL: Self = Self(1 | 2 | 4 | 8);
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// One animation the Renderer plays to its end on its own frame clock, described once.
+///
+/// The key is `(node_id, property, slot)`: a second animation with the same key replaces
+/// the first, and of the ones in effect on one property the highest slot is what shows.
+/// Timing follows Web Animations Level 1, which is what CSS transitions and animations
+/// are defined by.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Animation<'a> {
+    pub node_id: u32,
+    /// The Host's own name for the animation, returned in every event about it.
+    pub animation_id: u32,
+    pub property: AnimatedProperty,
+    pub slot: u8,
+    pub direction: PlaybackDirection,
+    pub fill: FillMode,
+    pub play_state: PlayState,
+    /// For `Color`, `Background` and `BorderColor` only, and required there.
+    pub interpolation: Option<ColorInterpolation>,
+    /// On the Renderer's frame clock. Zero starts it on the first frame that draws it.
+    pub start_time_nanos: u64,
+    /// May be negative, which starts it partway through.
+    pub delay_ms: f32,
+    pub duration_ms: f32,
+    /// Infinite for `infinite`.
+    pub iterations: f32,
+    /// For `Transform` only: the origin, as a fraction of the node's size.
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub events: AnimationEvents,
+    /// At least two, the first at offset 0 and the last at 1.
+    pub keyframes: std::borrow::Cow<'a, [Keyframe]>,
 }
 
 const NO_FIELDS: &[FieldSchema] = &[];
-const TOKEN_U32_FIELD: &[FieldSchema] = &[FieldSchema {
-    name: "token",
-    ty: FieldType::U32,
-    slot: FieldSlot::FirstLow,
-}];
+const OBSERVE_SIZE_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "token",
+        ty: FieldType::U32,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "everyDp",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Second,
+    },
+];
 const VALUE_FLOAT_FIELD: &[FieldSchema] = &[FieldSchema {
     name: "value",
     ty: FieldType::Float,
@@ -1346,102 +2818,493 @@ const BORDER_FIELDS: &[FieldSchema] = &[
         slot: FieldSlot::Second,
     },
 ];
+const OFFSET_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+];
+const BORDER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "top",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "right",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottom",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "left",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "topPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "rightPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fourth,
+    },
+    FieldSchema {
+        name: "bottomPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Fifth,
+    },
+    FieldSchema {
+        name: "leftPaint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Sixth,
+    },
+];
+const CORNER_EACH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "topLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "topRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "bottomRight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "bottomLeft",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+const SHADOW_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "blur",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "spread",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+];
+const TRANSFORM_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "a",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "b",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "c",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "d",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "e",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "f",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+];
+const TRANSFORM_3D_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "m0",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "m1",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "m2",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "m3",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "m4",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdLow,
+    },
+    FieldSchema {
+        name: "m5",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::ThirdHigh,
+    },
+    FieldSchema {
+        name: "m6",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "m7",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FourthHigh,
+    },
+    FieldSchema {
+        name: "m8",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "m9",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+    FieldSchema {
+        name: "m10",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthLow,
+    },
+    FieldSchema {
+        name: "m11",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SixthHigh,
+    },
+    FieldSchema {
+        name: "m12",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhLow,
+    },
+    FieldSchema {
+        name: "m13",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SeventhHigh,
+    },
+    FieldSchema {
+        name: "m14",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthLow,
+    },
+    FieldSchema {
+        name: "m15",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::EighthHigh,
+    },
+    FieldSchema {
+        name: "originX",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthLow,
+    },
+    FieldSchema {
+        name: "originY",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::NinthHigh,
+    },
+    FieldSchema {
+        name: "backfaceHidden",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Tenth,
+    },
+];
+const ENABLED_FIELD: &[FieldSchema] = &[FieldSchema {
+    name: "enabled",
+    ty: FieldType::Bool,
+    slot: FieldSlot::First,
+}];
+
+const PRESS_FEEDBACK_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "scale",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "tintAlpha",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+];
+
+const CORNER_CURVE_FIELDS: &[FieldSchema] = &[FieldSchema {
+    name: "smoothing",
+    ty: FieldType::Float,
+    slot: FieldSlot::FirstLow,
+}];
+
+const SEMANTICS_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "role",
+        ty: FieldType::Role("SemanticsRole"),
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "state",
+        ty: FieldType::U32,
+        slot: FieldSlot::SecondLow,
+    },
+];
 
 pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
     VariantSchema {
         name: "Empty",
         tag: 0,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Padding",
         tag: 1,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "FillMaxWidth",
         tag: 2,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "FillMaxHeight",
         tag: 3,
+        extra_words: 0,
         fields: NO_FIELDS,
     },
     VariantSchema {
         name: "Width",
         tag: 4,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Height",
         tag: 5,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Size",
         tag: 6,
+        extra_words: 0,
         fields: SIZE_FIELDS,
     },
     VariantSchema {
         name: "Background",
         tag: 7,
+        extra_words: 0,
         fields: PAINT_FIELD,
     },
     VariantSchema {
         name: "Clickable",
         tag: 8,
+        extra_words: 0,
         fields: HANDLER_ID_FIELD,
     },
     VariantSchema {
         name: "PaddingRole",
         tag: 9,
+        extra_words: 0,
         fields: SPACE_ROLE_FIELD,
     },
     VariantSchema {
         name: "PaddingEach",
         tag: 10,
+        extra_words: 0,
         fields: PADDING_EACH_FIELDS,
     },
     VariantSchema {
         name: "Weight",
         tag: 11,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "Shape",
         tag: 12,
+        extra_words: 0,
         fields: SHAPE_FIELDS,
     },
     VariantSchema {
         name: "ShapeRole",
         tag: 13,
+        extra_words: 0,
         fields: SHAPE_ROLE_FIELD,
     },
     VariantSchema {
         name: "Border",
         tag: 14,
+        extra_words: 0,
         fields: BORDER_FIELDS,
     },
     VariantSchema {
         name: "Elevation",
         tag: 15,
+        extra_words: 0,
         fields: VALUE_FLOAT_FIELD,
     },
     VariantSchema {
         name: "ObserveSize",
         tag: 16,
-        fields: TOKEN_U32_FIELD,
+        extra_words: 0,
+        fields: OBSERVE_SIZE_FIELDS,
     },
     VariantSchema {
         name: "Motion",
         tag: 17,
+        extra_words: 0,
         fields: MOTION_ROLE_FIELD,
     },
     VariantSchema {
         name: "Material",
         tag: 18,
+        extra_words: 0,
         fields: MATERIAL_ROLE_FIELD,
+    },
+    // The elements an HTML and CSS screen is drawn with: boxes a layout engine on the Host
+    // already placed and sized, and the decoration CSS gives them.
+    VariantSchema {
+        name: "Offset",
+        tag: 19,
+        extra_words: 0,
+        fields: OFFSET_FIELDS,
+    },
+    VariantSchema {
+        name: "RequiredSize",
+        tag: 20,
+        extra_words: 0,
+        fields: SIZE_FIELDS,
+    },
+    // Four widths and four paints are six words, so the record is four words longer.
+    VariantSchema {
+        name: "BorderEach",
+        tag: 21,
+        extra_words: 4,
+        fields: BORDER_EACH_FIELDS,
+    },
+    VariantSchema {
+        name: "CornerEach",
+        tag: 22,
+        extra_words: 0,
+        fields: CORNER_EACH_FIELDS,
+    },
+    // Four measurements and a paint are three words, one more than the record has.
+    VariantSchema {
+        name: "Shadow",
+        tag: 23,
+        extra_words: 1,
+        fields: SHADOW_FIELDS,
+    },
+    VariantSchema {
+        name: "Clip",
+        tag: 24,
+        extra_words: 0,
+        fields: ENABLED_FIELD,
+    },
+    VariantSchema {
+        name: "Alpha",
+        tag: 25,
+        extra_words: 0,
+        fields: VALUE_FLOAT_FIELD,
+    },
+    // Eight `f32` are four words: the linear part, the translation, and the origin.
+    VariantSchema {
+        name: "Transform",
+        tag: 26,
+        extra_words: 2,
+        fields: TRANSFORM_FIELDS,
+    },
+    // Sixteen matrix values, the origin and a flag are ten words, eight more than the two
+    // every record has: 92 bytes.
+    VariantSchema {
+        name: "Transform3D",
+        tag: 27,
+        extra_words: 8,
+        fields: TRANSFORM_3D_FIELDS,
+    },
+    VariantSchema {
+        name: "MatchParentSize",
+        tag: 31,
+        extra_words: 0,
+        fields: NO_FIELDS,
+    },
+    VariantSchema {
+        name: "WindowDrag",
+        tag: 32,
+        extra_words: 0,
+        fields: ENABLED_FIELD,
+    },
+    VariantSchema {
+        name: "PressFeedback",
+        tag: 33,
+        extra_words: 0,
+        fields: PRESS_FEEDBACK_FIELDS,
+    },
+    VariantSchema {
+        name: "Semantics",
+        tag: 34,
+        extra_words: 0,
+        fields: SEMANTICS_FIELDS,
+    },
+    // 28 to 30 were set aside for modifiers that have not landed, so the next free tag is
+    // 35.
+    VariantSchema {
+        name: "CornerCurve",
+        tag: 35,
+        extra_words: 0,
+        fields: CORNER_CURVE_FIELDS,
     },
 ];
 
@@ -1580,6 +3443,236 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     //
     // 90 opens the split pane's block of ten, after the badge's.
     Collapsible = 90,
+    // What a button is, as opposed to how loud it is: a plain button, or one key of a
+    // dense grid of them. The variant still chooses the fill and the emphasis; this lets
+    // the design system give the key its own calculator's silhouette, so the Host never
+    // sends a radius or a shape role to get one.
+    //
+    // 75 was reserved for this when the gestures took 67 through 74, and stays here
+    // rather than with its neighbours by number because this list is append only.
+    ButtonKind = 75,
+    // A code editor's own block, after the split pane's.
+    //
+    // The decorations over the document and the colour runs of its syntax, each a blob of
+    // fixed-length records sent whole. Every record carries the document version its
+    // range was written against, so a list computed while the reader kept typing still
+    // lands where it was meant to.
+    Decorations = 100,
+    SyntaxSpans = 101,
+    // How many columns a tab advances. Absent leaves it to the design system.
+    TabWidth = 102,
+    OnEditRejected = 103,
+    OnHover = 104,
+    OnSave = 105,
+    // One listener for every decoration that can be pressed or accepted. The ids inside
+    // the decoration blob are the application's own names for them, not handlers, so the
+    // event carries the id and the application tells them apart.
+    OnDecorationClick = 106,
+    // The editor's additions: the stretches that can be folded and the marks beside the
+    // line numbers, each a blob of fixed-length records sent whole, and the listener for
+    // the selection moving. The other four listeners are in the block at 130.
+    Folds = 107,
+    GutterDecorations = 108,
+    OnSelectionChange = 109,
+    // The text a page laid out by CSS draws, which takes its letters from its own values
+    // rather than from a rung of the type ladder. 110 opens the block for it.
+    //
+    // The fonts to try, in order, for text whose role is `TypeRole::None`: a list of up to
+    // eight registered font assets, installed families by name and generic families, as a
+    // blob. Text with a role ignores it, because its font is the theme's.
+    Font = 110,
+    // Where a line may break, and whether a word too long for its line may be broken
+    // inside. The `WordBreak` and `OverflowWrap` roles.
+    WordBreak = 111,
+    OverflowWrap = 112,
+    // How many spaces' width apart the tab stops are. Absent is eight. A tab advances to
+    // the next stop, which only the side that measures the letters can work out.
+    TabSize = 113,
+    // Whether the sizes are CSS pixels, which the system's font scale does not enlarge.
+    AbsoluteSize = 114,
+    // Whether lines wrap at the width they are given. Absent is yes; `false` is CSS
+    // `nowrap` and `pre`, whose lines run as long as their text.
+    SoftWrap = 115,
+    // The font each run of a `Text` with no role is set in, as a blob beside `Spans`
+    // rather than inside its records: a run record keeps the 36 bytes it has always had,
+    // and only text that names fonts carries this at all.
+    SpanFonts = 116,
+    // The rest of the code editor's listeners, in the first block free after the text and
+    // pointer blocks. The visible lines changing, the editor gaining or losing focus, a
+    // stretch folded or unfolded, and an input method starting or ending a composition.
+    OnVisibleRangeChange = 130,
+    OnEditorFocusChange = 131,
+    OnFoldChange = 132,
+    OnCompositionChange = 133,
+    // The node's pointer subscription: the handler, and the kinds it wants as a bit mask
+    // (`1 << (kind - 1)`). 67 was reserved for a gesture handler that was never sent, so
+    // it is free to carry this one. It is listed here, after the newer blocks, because
+    // this list is append only.
+    OnPointer = 67,
+    // 140 opens the block after the animation and HTML-text properties.
+    PointerKinds = 140,
+    // The cursor the platform shows over the node and whether its text can be selected.
+    // The Host resolves CSS inheritance and sends the value for each node.
+    Cursor = 141,
+    UserSelect = 142,
+    // How large an HTML island is drawn, as the f32 factor `k` (see `ZoomChanged`), on the
+    // island's root `AbsoluteBox`. 120 opens the block for zoom. Absent is 1.
+    IslandZoom = 120,
+    // The window block, after the cursor block. Every one of them belongs to a
+    // `Window` node except the last two, which can sit on any node.
+    //
+    // The title. A string.
+    WindowTitle = 150,
+    // The size when the window opens, width then height, two `f32` in dp as 8 bytes. A
+    // later change resizes the window; a size the user chose is not given back.
+    WindowSize = 151,
+    // The smallest size, in the same 8 bytes.
+    WindowMinSize = 152,
+    WindowResizable = 153,
+    // A `Chrome` tag and a `TitleBar` tag, as integers.
+    WindowChrome = 154,
+    WindowTitleBar = 155,
+    // The asset id of the window's icon; zero is the application's own.
+    WindowIcon = 156,
+    // Where the window sits, x then y, two `f32` in screen dp as 8 bytes. Removing it
+    // leaves the placement to the platform.
+    WindowPosition = 157,
+    // The application's stable name for the window, a string, which matches a window the
+    // system brings back to the node that describes it.
+    WindowRestoreKey = 158,
+    // The window's own zoom level, an integer in -8..=8.
+    WindowZoomLevel = 159,
+    // Open the window under a pointer that is held down and follow it until it is let go:
+    // `pointer_id` as a `u32`, then the anchor `x` and `y` as two `f32`, 12 bytes. Read
+    // when the window opens and not again.
+    DragFromPointer = 160,
+    // The handlers of the window events, each the handler id as an integer.
+    OnWindowCloseRequested = 161,
+    OnWindowFocusChanged = 162,
+    OnWindowMoved = 163,
+    OnWindowDrag = 164,
+    OnWindowUnavailable = 165,
+    OnWindowClosed = 166,
+    // Not window properties: any node may take them. A node that has the handler is told
+    // when a dragged window passes over it, and a node that has the key can be pulled out
+    // into a window of its own, named by it.
+    OnWindowDragOver = 167,
+    TearOffKey = 168,
+    OnFocusGained = 117,
+    OnKeyUp = 118,
+    // The name assistive technology reads for a node, a string. On a widget it overrides
+    // the visible label, and on an icon-only button it beats the name the icon's meaning
+    // would give. 117 and 118 are reserved for another pending change, and 119 is the next
+    // free number; 120 is `IslandZoom`.
+    AccessibleName = 119,
+    // Colours and size of the selection controls. A node that does not set one leaves
+    // the design system's value, so a control that sends none draws as it always has.
+    // The colours are `Paint` bits; the size is two f32 (width, height) in dp.
+    // 120 is the island zoom, so these start at 121.
+    TrackColor = 121,
+    ThumbColor = 122,
+    ActiveTrackColor = 123,
+    ContainerColor = 124,
+    CheckColor = 125,
+    ControlSize = 126,
+    // Opt in to a `WindowSizeChanged` whenever the window's width or height, rounded to
+    // whole dp, changes, and not only when the size class does. A `Window` node's boolean;
+    // absent is false.
+    ReportSize = 127,
+    // Scrim colour for modal overlays (Dialog, Sheet, Menu), as a `Paint` bit value.
+    // A `Popover` draws no scrim unless it is asked to, so there it is also a boolean:
+    // true draws the design system's scrim, and a `Paint` draws that colour.
+    Scrim = 128,
+    // A `TextField` or `Dropdown` drawn without the design system's frame (fill, line,
+    // underline, corner clip, inner padding, minimum height, focus line). A boolean;
+    // absent is false. A node `Background` or `Border` is still drawn.
+    Bare = 169,
+    // A `FlowRow`'s layout. The gap between children on one line and the gap between
+    // lines, each a literal dp; where a line's children sit along it and where each child
+    // sits inside its line's height, as `HorizontalAlignment` and `VerticalAlignment` tags;
+    // and the most children one line may hold, an integer, absent for no limit. 169 is
+    // taken by another pending property, so these start at 170.
+    HorizontalSpacing = 170,
+    VerticalSpacing = 171,
+    HorizontalAlignment = 172,
+    VerticalAlignment = 173,
+    MaxItemsInEachRow = 174,
+    // The popover block. All three belong to a `Popover`. 169 to 174 are held for
+    // properties on other branches.
+    //
+    // The side of the anchor the content opens on, a `PopoverPlacement` tag. Absent is
+    // `Bottom`.
+    Placement = 175,
+    // The edge of the anchor the content lines up with, a `PopoverAlign` tag. Absent is
+    // `Start`.
+    Align = 176,
+    // The gap between the anchor and the content, an `f32` in dp. Absent leaves the gap
+    // to the design system.
+    OffsetDp = 177,
+    // How a code editor is laid out and coloured where the application says so. A node
+    // that sets none of them draws with the design system's values. 169 to 177 are
+    // numbered for properties that are not here yet.
+    //
+    // Whether the line numbers are drawn, a boolean. Absent is yes.
+    LineNumbers = 178,
+    // The least width of the line number column with its padding, the padding on each side
+    // of a line number, and the space between the gutter and the text. Each an f32 in dp.
+    GutterMinWidthDp = 179,
+    GutterPaddingDp = 180,
+    TextInsetDp = 181,
+    // One colour record as a blob: a `ColorRole` for each of the container, the gutter, a
+    // line number, the current line's number and the current line. Zero leaves a slot to
+    // the design system.
+    CodeEditorColors = 182,
+    // The handlers of the editor's row height and of its scroll offset.
+    OnCodeMetrics = 183,
+    OnCodeScrolled = 184,
+    // What a `Navigation` becomes in a compact window, as a `CompactNavigation` tag. Absent
+    // or 0 leaves it to the design system.
+    CompactNavigation = 185,
+    // The handler a scroll container reports its position to, the handler id as an
+    // integer. One handler shared by every scroll container rather than one widget's
+    // block, so it takes the number after the last one in use: 169 to 184 are held by
+    // properties other requirements have numbered.
+    OnScrollChanged = 186,
+    // The width in dp, an f32, below which a split pane shows one pane at a time instead of
+    // its size class deciding. At or above it the split pane never stacks, and the design
+    // system still chooses between two columns and a side pane laid over the body. Absent
+    // or 0 keeps the size class's own line. The next place in the split pane's block after
+    // `Collapsible`.
+    CollapseBelow = 91,
+    // Where a `ScrollRow` or `ScrollColumn` comes to rest, as a `Snap` tag. Absent or 0 is
+    // free scrolling. 187 is held by a property on another branch.
+    Snap = 188,
+    // The tallest a `Sheet` grows, as an `f32` fraction of the window's height above 0 and
+    // at most 1. Below it the sheet is as tall as its content; at it the content scrolls.
+    // Absent leaves the height to the design system. 187 is held by a property on another
+    // branch.
+    MaxHeightFraction = 189,
+    // OpenType features for a `Text` or a `TextField`, such as tabular figures. A blob of
+    // 8-byte records, at most 16: the four tag bytes, then the value as a little-endian
+    // u32. A tag that comes twice takes the later value. Absent, or empty, is no features.
+    // 187 to 191 are held by properties other requirements have numbered.
+    FontFeatureSettings = 192,
+    // The handler a node's size motion reports to once it settles, the handler id as an
+    // integer. Any node may take it, so it is numbered after the last one in use rather
+    // than inside a widget's block: 187 to 192 are held by properties other requirements
+    // have numbered.
+    OnMotionFinished = 193,
+    // The handler a code editor tells where its caret is drawn. 190 to 194 are held by
+    // properties on other branches.
+    OnCaretRect = 195,
+    // The handler a code editor offers each key press to before it handles the key itself.
+    // It hears the `KeyDown` record a key handler does, and a press it consumes is not the
+    // editor's. Never while an input method is composing.
+    OnKeyPreview = 196,
+    // The handler a code editor sends its pointer events to, each with the place in the
+    // text under the pointer. The kinds it hears are the `PointerKinds` mask's.
+    OnCodePointer = 197,
+    // Whether a `Column` or a `Row` is a group of radio buttons, a boolean. Such a group is
+    // one stop for Tab, its arrow keys move between the radio buttons inside it, and
+    // assistive technology hears it as a radio group. Absent is no.
+    RadioGroup = 198,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1598,6 +3691,12 @@ pub enum EventPayload<'a> {
         ctrl_key: bool,
         alt_key: bool,
         meta_key: bool,
+        /// True when the event comes from a held key repeating.
+        repeat: bool,
+        /// The physical key as a USB HID usage value, the same on every layout.
+        code: u32,
+        /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+        text: &'a str,
     },
     /// The Renderer asks the Host to materialise the visible item range.
     RangeRequested {
@@ -1620,6 +3719,9 @@ pub enum EventPayload<'a> {
         height_dp: f32,
         class: WindowSizeClass,
         height_class: WindowHeightClass,
+        safe_area_top: f32,
+        safe_area_leading: f32,
+        safe_area_trailing: f32,
     },
     /// Files are over a node that said it would take them. Nothing about what they are:
     /// the platforms disagree about what is knowable before a drop, and a screen that
@@ -1651,6 +3753,413 @@ pub enum EventPayload<'a> {
     /// Whether notifications may be shown, sent once after start and then only when the
     /// answer changes.
     NotificationPermissionChanged(NotificationPermission),
+    /// One committed edit to a code editor's document.
+    ///
+    /// The range is in the document as it stood before the edit, and `version` is the
+    /// version the edit produced. Lines and columns count from zero and columns are UTF-16
+    /// code units, which is what a language server counts in, so the event can be handed
+    /// to one unchanged. Text still being composed by an input method never arrives here:
+    /// only what the reader committed does.
+    CodeChanged {
+        version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+        text: &'a str,
+    },
+    /// An edit the Host asked for and the Renderer did not apply, because the reader had
+    /// changed the same place since the version the edit was written against.
+    CodeEditRejected {
+        request_id: u32,
+        base_version: u32,
+        current_version: u32,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    },
+    /// A pointer came to rest over a place in a code editor, or left it. `decoration` is
+    /// the id of the hover anchor under it, or zero where there is none.
+    CodeHovered {
+        decoration: u64,
+        line: u32,
+        column: u32,
+        phase: HoverPhase,
+    },
+    /// The reader pressed the platform's save shortcut on a code editor.
+    CodeSaveRequested {
+        version: u32,
+    },
+    /// A decoration was pressed or accepted, named by the id the application gave it.
+    DecorationActivated {
+        decoration: u64,
+    },
+    /// Something happened to an animation the Renderer is playing, sent only for the kinds
+    /// the animation asked for. It names the node the animation plays on and no handler.
+    AnimationEvent {
+        animation_id: u32,
+        kind: AnimationEventKind,
+        property: AnimatedProperty,
+        slot: u8,
+        /// The iteration the animation was in at that moment.
+        iteration: u32,
+        /// What CSS reports as `elapsedTime`: active time, without the delay, in ms.
+        elapsed_ms: f32,
+        /// The frame the moment happened in; for `Ready`, the start time it was given.
+        time_nanos: u64,
+    },
+    /// Whether the platform asks for reduced motion, sent once after start and then only
+    /// when the answer changes.
+    ReducedMotionChanged(ReducedMotion),
+    /// A pointer did something inside a node that subscribed to it. Coordinates are in dp
+    /// from the node's top left corner, `buttons` is what is held now and `button` is the
+    /// one that caused a `Down` or an `Up`. `timestamp_nanos` is on the frame time's clock.
+    Pointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+    },
+    /// How large the Renderer is drawing: `k = os × 1.2^level`. Sent once at start and
+    /// again whenever any of the three changes. A move to a screen of another density
+    /// changes none of them and is not reported.
+    ZoomChanged {
+        k: f32,
+        os: f32,
+        level: i32,
+    },
+    /// The selection of a code editor moved, or an edit moved it. `version` is the document
+    /// version it is read against, the same series `CodeChanged` counts, and an edit's
+    /// change always arrives first. Columns are UTF-16 units and never fall between the
+    /// two halves of a pair.
+    SelectionChanged {
+        version: u32,
+        anchor_line: u32,
+        anchor_column: u32,
+        active_line: u32,
+        active_column: u32,
+    },
+    /// The lines of a code editor that are on screen changed. Folded lines are skipped, so
+    /// `first_line` and `last_line` are the first and last lines the reader can see.
+    VisibleRangeChanged {
+        version: u32,
+        first_line: u32,
+        last_line: u32,
+    },
+    /// A code editor gained or lost the keyboard focus.
+    EditorFocusChanged {
+        focused: bool,
+    },
+    /// The reader folded or unfolded the stretch that starts on `start_line`.
+    FoldChanged {
+        start_line: u32,
+        collapsed: bool,
+    },
+    /// An input method started or ended a composition in a code editor. What is being
+    /// composed stays in the Renderer: only the fact crosses.
+    CompositionChanged {
+        composing: bool,
+    },
+    /// The user asked to close a window. The window stays until the application removes its
+    /// `Window` node. Delivered to the node.
+    WindowCloseRequested,
+    /// A window became the key window or stopped being it.
+    WindowFocusChanged {
+        focused: bool,
+    },
+    /// A window's outer frame moved or changed size, in screen dp. At most once a frame.
+    WindowMoved {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
+    /// A torn-off window being dragged. `phase` is 1 for a move, 2 for the end and 3 for a
+    /// cancel; `over_window` is the node id of the window under the pointer, or 0.
+    WindowDrag {
+        phase: u32,
+        screen_x: f32,
+        screen_y: f32,
+        over_window: u32,
+    },
+    /// A dragged window passing over a node that has `OnWindowDragOver`. `kind` is 1 for
+    /// enter, 2 for move, 3 for leave and 4 for drop, `window` is the dragged window's node
+    /// id, and the position is inside the node, in dp.
+    WindowDragOver {
+        kind: u32,
+        window: u32,
+        x: f32,
+        y: f32,
+    },
+    /// A window that could not be opened here: the platform has no second window, or it
+    /// refused. Delivered once, to the node.
+    WindowUnavailable,
+    /// The platform closed a window without asking. The window is already gone.
+    WindowClosed,
+    /// A window the application has no node for yet, with the `RestoreKey` it was made
+    /// under (empty for a new one) and a request number. Delivered to the root.
+    WindowRequested {
+        key: &'a str,
+        request: u32,
+    },
+    /// The user opened the application again while it had no window. Delivered to the
+    /// root.
+    ApplicationReopen,
+    /// The node or a descendant inside it gained keyboard focus.
+    FocusGained,
+    /// A key was released while the node held focus.
+    KeyUp {
+        key: Key,
+        shift_key: bool,
+        ctrl_key: bool,
+        alt_key: bool,
+        meta_key: bool,
+        /// Always false: a release does not repeat. Present so a key-up carries the same
+        /// fields as a key-down.
+        repeat: bool,
+        /// The physical key as a USB HID usage value, the same on every layout.
+        code: u32,
+        /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
+        text: &'a str,
+    },
+    /// The height of one row of a code editor in physical pixels, as it is drawn. Sent when
+    /// the editor is first drawn and whenever the height changes.
+    CodeMetrics {
+        line_height_px: f64,
+    },
+    /// How far a code editor is scrolled down, in physical pixels. At most once a frame.
+    CodeScrolled {
+        offset_px: f64,
+    },
+    /// A file dialog ended. `request` is the number the Host gave it, `filter` is the
+    /// position of the filter in use (`u32::MAX` when there is none) and `paths` holds the
+    /// chosen paths separated by one NUL byte, empty unless the status is `Chosen`.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileDialogResult {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        paths: &'a str,
+    },
+    /// One clipboard read ended. `request` is the number the Host gave it, `status` is a
+    /// word from `clipboard::read_status`, `len` is the text's length in UTF-8 bytes and
+    /// `text` the text itself, empty unless the status is text. Delivered to the Host itself,
+    /// with no node and no handler.
+    ClipboardText {
+        request: u32,
+        status: u32,
+        len: u32,
+        text: &'a str,
+    },
+    /// The one answer to an input or output request: a storage operation the browser
+    /// carried out, or an operation on a file picked on the web. `request` is the number
+    /// the Host gave it, and `data` is what the operation hands back: a value or a file
+    /// that was read, or the keys joined by NUL, and nothing for an operation that only
+    /// writes. Delivered to the Host itself, with no node and no handler.
+    IoAnswer {
+        request: u32,
+        status: IoStatus,
+        data: &'a [u8],
+    },
+    /// Files the Renderer now holds handles for: the answer to a file dialog that was
+    /// chosen, or to a folder's `Entries` or `Child`. The handles are `first_handle`,
+    /// `first_handle + 1` and so on, one per name. `names` holds the names separated by one
+    /// NUL byte and `kinds` one letter per name, `f` for a file and `d` for a folder.
+    /// `filter` is the position of the filter in use, `u32::MAX` when there is none.
+    /// Delivered to the Host itself, with no node and no handler.
+    FileHandles {
+        request: u32,
+        status: FileDialogStatus,
+        filter: u32,
+        delivery: FileDelivery,
+        first_handle: u32,
+        names: &'a str,
+        kinds: &'a str,
+    },
+    /// Where the application's storage lives on a platform whose Host cannot work it out
+    /// from the environment: Android's application files directory, which only a
+    /// `Context` knows. Sent once by that Renderer at start. Delivered to the Host itself.
+    StorageLocation(&'a str),
+    /// Where a scroll container is, reported by the Renderer to the node's
+    /// `OnScrollChanged` handler: at most once a frame while it moves, and once more with
+    /// `settled` when it stops. Every length is in physical pixels, the unit the Renderer
+    /// scrolls in, so a value read here and sent back in a `ScrollTo` is the same place.
+    ///
+    /// In a lazy list `item` is the first visible item and the main-axis offset is the
+    /// distance into that item; the list does not know its whole length, so its main-axis
+    /// `max` is `-1.0`. Elsewhere `item` is 0.
+    ScrollChanged {
+        item: u32,
+        /// The movement ended: a drag, a fling or an animation came to rest.
+        settled: bool,
+        /// The container can still scroll towards the start of its main axis.
+        can_scroll_backward: bool,
+        /// The container can still scroll towards the end of its main axis.
+        can_scroll_forward: bool,
+        x_px: f64,
+        y_px: f64,
+        max_x_px: f64,
+        max_y_px: f64,
+        viewport_width_px: f64,
+        viewport_height_px: f64,
+    },
+    /// A node's size motion came to rest, reported to the node's `OnMotionFinished`
+    /// handler with the size it settled at, in dp.
+    ///
+    /// Sent once for each run that reaches its target: a run that is interrupted by a new
+    /// target sends nothing, and only the one that settles does. The first layout and a
+    /// layout that leaves the size as it was send nothing, and neither does a node removed
+    /// while its size is moving. Under reduced motion the size changes in one frame and
+    /// this arrives in that frame.
+    MotionFinished {
+        width_dp: f32,
+        height_dp: f32,
+    },
+    /// Where a code editor draws its caret, in the window's dp with the scroll and the zoom
+    /// already in it. At most once a frame, when the caret or the view moves.
+    CaretRect {
+        line: u32,
+        column: u32,
+        rect: crate::code::CodeRect,
+    },
+    /// The answer to one `QueryPositionRect`, carrying the request number the Host gave
+    /// it. `None` where the position is not on screen.
+    PositionRect {
+        request: u32,
+        rect: Option<crate::code::CodeRect>,
+    },
+    /// A pointer event over a code editor: every field a `Pointer` event has, with the same
+    /// meaning and the same rules, and the place in the text under the pointer. `position`
+    /// is `None` where the pointer is not over a character: over the gutter, past the end
+    /// of a line or below the last one.
+    CodePointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+        position: Option<crate::code::Position>,
+    },
+}
+
+/// A rectangle in physical pixels, for [`ScrollTarget`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    pub x_px: f64,
+    pub y_px: f64,
+    pub width_px: f64,
+    pub height_px: f64,
+}
+
+impl Rect {
+    pub const fn new(x_px: f64, y_px: f64, width_px: f64, height_px: f64) -> Self {
+        Self {
+            x_px,
+            y_px,
+            width_px,
+            height_px,
+        }
+    }
+}
+
+/// A request to scroll a container to an offset, written by `Batch::scroll_to`.
+///
+/// An axis left `None` is not touched, so setting one axis never sends a stale value for
+/// the other. The Renderer keeps each value inside the range the content allows, and
+/// ignores the request while the user is dragging or flinging the container.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScrollTo {
+    pub x_px: Option<f64>,
+    pub y_px: Option<f64>,
+    /// In a lazy list, the item the offset is measured from. 0 everywhere else.
+    pub item: u32,
+    pub animate: bool,
+}
+
+/// How a rectangle is brought into view along one axis: CSS's `block` and `inline` values,
+/// and `Keep` for an axis that must not move.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(u16)]
+pub enum ScrollAlign {
+    /// The axis does not move.
+    #[default]
+    Keep = 0,
+    Start = 1,
+    Center = 2,
+    End = 3,
+    /// No movement when the rectangle is already in view, otherwise the smallest one that
+    /// shows it. A rectangle larger than the viewport is aligned to its start.
+    Nearest = 4,
+}
+
+/// What a `ScrollIntoView` rectangle is measured from.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ScrollTarget {
+    /// The container's content: the origin is the content's top left at offset zero. Not
+    /// for a lazy list, which has no content coordinates.
+    Content(Rect),
+    /// A descendant node of the container: the origin is that node's top left, and a
+    /// rectangle with no width and no height means the whole node.
+    Node(u32, Rect),
+    /// An item of a lazy list by its index: the origin is the item's start, and a rectangle
+    /// with no width and no height means the whole item.
+    Item(u32, Rect),
+}
+
+/// A request to bring a rectangle into view in one container, written by
+/// `Batch::scroll_into_view`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScrollIntoView {
+    pub target: ScrollTarget,
+    pub align_x: ScrollAlign,
+    pub align_y: ScrollAlign,
+    pub animate: bool,
+}
+
+/// The bits of a `ScrollTo` record's flags word.
+pub mod scroll_to_flags {
+    pub const ANIMATE: u32 = 1;
+    pub const X: u32 = 1 << 1;
+    pub const Y: u32 = 1 << 2;
+}
+
+/// The values of a `ScrollIntoView` record's target kind.
+pub mod scroll_target_kind {
+    pub const CONTENT: u16 = 0;
+    pub const NODE: u16 = 1;
+    pub const ITEM: u16 = 2;
+}
+
+/// The bit of a `ScrollIntoView` record's flags.
+pub mod scroll_into_view_flags {
+    pub const ANIMATE: u16 = 1;
+}
+
+/// The bits of a `ScrollChanged` event's flags word.
+pub mod scroll_changed_flags {
+    pub const SETTLED: u32 = 1;
+    pub const CAN_SCROLL_BACKWARD: u32 = 1 << 1;
+    pub const CAN_SCROLL_FORWARD: u32 = 1 << 2;
+    /// Every bit that has a meaning. Any other bit set is a protocol error.
+    pub const KNOWN: u32 = SETTLED | CAN_SCROLL_BACKWARD | CAN_SCROLL_FORWARD;
 }
 
 pub const EVENT_SCHEMA: &[EventSchema] = &[
@@ -1691,7 +4200,7 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
     },
     EventSchema {
         name: "ValueChanged",
-        // Tags 8 to 15 are reserved for the pointer gesture events.
+        // Tag 8 is the pointer event and 9 to 15 are reserved for the gesture events.
         tag: 16,
         payload: EventPayloadType::Double,
     },
@@ -1747,6 +4256,211 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "NotificationPermissionChanged",
         tag: 25,
         payload: EventPayloadType::NotificationPermission,
+    },
+    EventSchema {
+        name: "CodeChanged",
+        tag: 26,
+        payload: EventPayloadType::CodeChange,
+    },
+    EventSchema {
+        name: "CodeEditRejected",
+        tag: 27,
+        payload: EventPayloadType::CodeEditRejected,
+    },
+    EventSchema {
+        name: "CodeHovered",
+        tag: 28,
+        payload: EventPayloadType::CodeHover,
+    },
+    EventSchema {
+        name: "CodeSaveRequested",
+        tag: 29,
+        payload: EventPayloadType::CodeSave,
+    },
+    EventSchema {
+        name: "DecorationActivated",
+        tag: 30,
+        payload: EventPayloadType::Decoration,
+    },
+    EventSchema {
+        name: "AnimationEvent",
+        tag: 31,
+        payload: EventPayloadType::Animation,
+    },
+    // About the platform rather than a node, like the notification permission.
+    EventSchema {
+        name: "ReducedMotionChanged",
+        tag: 32,
+        payload: EventPayloadType::ReducedMotion,
+    },
+    // Tag 8 is the pointer event and 9 stays reserved. It is listed last because this table
+    // is append only, not because its tag is the highest.
+    EventSchema {
+        name: "Pointer",
+        tag: 8,
+        payload: EventPayloadType::Pointer,
+    },
+    // Tags 26 to 32 are taken by events other requirements have numbered.
+    EventSchema {
+        name: "ZoomChanged",
+        tag: 33,
+        payload: EventPayloadType::Zoom,
+    },
+    EventSchema {
+        name: "SelectionChanged",
+        tag: 34,
+        payload: EventPayloadType::CodeSelection,
+    },
+    EventSchema {
+        name: "VisibleRangeChanged",
+        tag: 35,
+        payload: EventPayloadType::CodeVisibleRange,
+    },
+    EventSchema {
+        name: "EditorFocusChanged",
+        tag: 36,
+        payload: EventPayloadType::CodeFocus,
+    },
+    EventSchema {
+        name: "FoldChanged",
+        tag: 37,
+        payload: EventPayloadType::CodeFold,
+    },
+    EventSchema {
+        name: "CompositionChanged",
+        tag: 38,
+        payload: EventPayloadType::CodeComposition,
+    },
+    EventSchema {
+        name: "WindowCloseRequested",
+        tag: 39,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowFocusChanged",
+        tag: 40,
+        payload: EventPayloadType::WindowFocus,
+    },
+    EventSchema {
+        name: "WindowMoved",
+        tag: 41,
+        payload: EventPayloadType::WindowMove,
+    },
+    EventSchema {
+        name: "WindowDrag",
+        tag: 42,
+        payload: EventPayloadType::WindowDrag,
+    },
+    EventSchema {
+        name: "WindowDragOver",
+        tag: 43,
+        payload: EventPayloadType::WindowDragOver,
+    },
+    EventSchema {
+        name: "WindowUnavailable",
+        tag: 44,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowClosed",
+        tag: 45,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "WindowRequested",
+        tag: 46,
+        payload: EventPayloadType::WindowRequest,
+    },
+    EventSchema {
+        name: "ApplicationReopen",
+        tag: 47,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "FocusGained",
+        tag: 48,
+        payload: EventPayloadType::None,
+    },
+    EventSchema {
+        name: "KeyUp",
+        tag: 49,
+        payload: EventPayloadType::KeyDown,
+    },
+    // Like the notification events this addresses the Host itself: a dialog is not in the tree, so there is no
+    // node and no handler to name, and the request number finds the callback.
+    EventSchema {
+        name: "FileDialogResult",
+        tag: 50,
+        payload: EventPayloadType::FileDialogResult,
+    },
+    // Tags 51 to 55 are held by events other requirements have numbered. Like a file dialog's
+    // end, a clipboard read addresses the Host itself and is found by its request number.
+    EventSchema {
+        name: "ClipboardText",
+        tag: 56,
+        payload: EventPayloadType::ClipboardText,
+    },
+    // The answer to a storage operation, and to a file operation on the web.
+    EventSchema {
+        name: "IoAnswer",
+        tag: 57,
+        payload: EventPayloadType::IoAnswer,
+    },
+    // Files a dialog, or a folder, handed the Renderer handles for.
+    EventSchema {
+        name: "FileHandles",
+        tag: 58,
+        payload: EventPayloadType::FileHandles,
+    },
+    // Android's files directory, which the Host cannot find on its own. A string, like a
+    // text change, so it needs no payload type of its own.
+    EventSchema {
+        name: "StorageLocation",
+        tag: 59,
+        payload: EventPayloadType::Text,
+    },
+    // Where a scroll container is, reported to the node's own handler.
+    EventSchema {
+        name: "ScrollChanged",
+        tag: 60,
+        payload: EventPayloadType::ScrollChanged,
+    },
+    // 51 to 53 are numbered for events that are not here yet. Both of these carry one
+    // `f64` of physical pixels, the shape `ValueChanged` has.
+    EventSchema {
+        name: "CodeMetrics",
+        tag: 54,
+        payload: EventPayloadType::Double,
+    },
+    EventSchema {
+        name: "CodeScrolled",
+        tag: 55,
+        payload: EventPayloadType::Double,
+    },
+    // A node's size motion settled, reported to the node's own handler. 61 and 62 are
+    // numbered for events that are not here yet.
+    EventSchema {
+        name: "MotionFinished",
+        tag: 63,
+        payload: EventPayloadType::MotionFinished,
+    },
+    // Where a code editor's caret is drawn,
+    // and the answer to a question about where a position is.
+    EventSchema {
+        name: "CaretRect",
+        tag: 64,
+        payload: EventPayloadType::CodeCaretRect,
+    },
+    EventSchema {
+        name: "PositionRect",
+        tag: 65,
+        payload: EventPayloadType::CodePositionRect,
+    },
+    // A pointer over a code editor, with the place in the text under it.
+    EventSchema {
+        name: "CodePointer",
+        tag: 66,
+        payload: EventPayloadType::CodePointer,
     },
 ];
 
@@ -1900,6 +4614,22 @@ pub const WEB_BATCH_BYTES: u32 = 16;
 /// The same figure the Android connection allocates for the same job. An event that would
 /// not fit is refused by the encoder rather than truncated.
 pub const WEB_EVENT_BUFFER_BYTES: u32 = 4096;
+
+/// The largest event buffer the Host lends a browser Renderer.
+///
+/// An event that does not fit in the first buffer is encoded into a larger one the Host
+/// lends on request, doubling each time, and this is where the doubling stops. An event
+/// larger than this is refused rather than cut short: a single event that large is a bug
+/// in whatever produced it, and lending without a ceiling would turn that bug into running
+/// out of memory. The other platforms grow their own buffers to the same ceiling.
+pub const WEB_EVENT_BUFFER_MAX_BYTES: u32 = 64 * 1024 * 1024;
+
+/// The Host export a browser Renderer borrows a larger event buffer from.
+///
+/// It is setup, like `compose_rust_host_web_start`, not a boundary operation: the
+/// Renderer calls it only when an event outgrows the buffer it has, and keeps what it gets.
+/// It goes through the trampoline like the boundary operations, in the slot after theirs.
+pub const WEB_LEND_EVENT_BUFFER_SYMBOL: &str = "compose_rust_host_web_lend_event_buffer";
 
 /// Where the event buffer starts inside the block `compose_rust_host_web_start` reports.
 ///

@@ -5,7 +5,10 @@ import dev.darkpyonix.composerust.design.rulesFor
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.MotionRole
 import dev.darkpyonix.composerust.ui.node.platformReducedMotion
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.motionAnswerIsInverted
 import dev.darkpyonix.composerust.ui.readAnswer
+import dev.darkpyonix.composerust.ui.readMotionAnswer
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -61,7 +64,7 @@ class MotionTest {
 
     @Test
     fun fr24_a_platform_answer_is_read_the_way_that_platform_phrases_it() {
-        // macOS and Windows say whether motion is reduced; GNOME says whether animations
+        // macOS says whether motion is reduced; Windows and GNOME say whether animations
         // are on, which is the same question the other way round.
         assertTrue(readAnswer("1", inverted = false))
         assertTrue(!readAnswer("0", inverted = false))
@@ -71,5 +74,30 @@ class MotionTest {
         // A machine that cannot be asked has not asked for anything.
         assertTrue(!readAnswer("command not found", inverted = false))
         assertTrue(!readAnswer("", inverted = true))
+    }
+
+    @Test
+    fun fr41_windows_with_animations_switched_off_reads_as_reduced_motion() {
+        // `reg query` prints the value at the end of its line. MinAnimate is 1 while
+        // Windows plays its animations and 0 once they are switched off.
+        val windows = motionAnswerIsInverted("Windows 11")
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("    MinAnimate    REG_SZ    0", inverted = windows),
+        )
+        assertEquals(
+            ReducedMotion.Off,
+            readMotionAnswer("    MinAnimate    REG_SZ    1", inverted = windows),
+        )
+        // macOS is asked whether motion is reduced, so its yes stays a yes.
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("1", inverted = motionAnswerIsInverted("Mac OS X")),
+        )
+        // GNOME is asked whether animations are on.
+        assertEquals(
+            ReducedMotion.On,
+            readMotionAnswer("false", inverted = motionAnswerIsInverted("Linux")),
+        )
     }
 }

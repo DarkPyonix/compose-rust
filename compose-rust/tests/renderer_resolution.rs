@@ -17,10 +17,10 @@ mod renderer_dir {
 use renderer_dir::elf;
 use renderer_dir::sha256::{Sha256, checksum_from_sha256_file, sha256_file, sha256_hex};
 use renderer_dir::{
-    CACHE_DIR_ENV, Fetch, FetchError, PUBLISHED_TARGETS, RENDERER_DIR_ENV, Renderer,
-    RendererSource, Request, acquire_renderer, artifact_file_name, artifact_target, artifact_url,
-    cached_renderer_dir, default_cache_root, download_dir, every_failure_message,
-    renderer_lib_file, renderer_lib_subdir, sibling_checksum,
+    CACHE_DIR_ENV, Fetch, FetchError, PUBLISHED_TARGETS, RENDERER_DIR_ENV, Renderer, RendererKind,
+    RendererSource, Request, STATIC_TARGETS, acquire_renderer, artifact_file_name, artifact_target,
+    artifact_url, cached_renderer_dir, default_cache_root, download_dir, every_failure_message,
+    renderer_lib_file, renderer_lib_subdir, renderer_static_file, sibling_checksum,
 };
 use std::path::{Path, PathBuf};
 
@@ -341,6 +341,271 @@ fn nfr11_a_downloaded_artifact_is_verified_and_unpacked() {
 }
 
 // -------------------------------------------------------------------------------------
+// The static renderer: one executable
+// -------------------------------------------------------------------------------------
+
+/// Stand-in bytes for a static archive. Nothing reads inside one before the linker does,
+/// so its content only has to survive the trip unchanged.
+const ARCHIVE_BYTES: &[u8] = b"!<arch>\nstand-in for the renderer's static archive\n";
+
+/// A distribution holding the static renderer: `lib/` for an unpacked artifact, or the
+/// archive straight in the directory, which is how `build-macos.sh` and `build-linux.sh`
+/// lay out what they write.
+fn static_tree(root: &Path, flat: bool) -> PathBuf {
+    let lib_dir = if flat {
+        root.to_path_buf()
+    } else {
+        root.join("lib")
+    };
+    std::fs::create_dir_all(&lib_dir).unwrap();
+    std::fs::write(
+        lib_dir.join(renderer_static_file(SAMPLE_TARGET_OS)),
+        ARCHIVE_BYTES,
+    )
+    .unwrap();
+    lib_dir
+}
+
+/// Every target published as a static archive is a target the release publishes at all,
+/// so a static target cannot be one nothing can download.
+#[test]
+fn nfr14_the_static_targets_are_published_targets() {
+    assert!(!STATIC_TARGETS.is_empty());
+    for target in STATIC_TARGETS {
+        assert!(
+            PUBLISHED_TARGETS.contains(target),
+            "{target} is said to be static and is not published"
+        );
+    }
+    for target in ["macos-aarch64", "linux-x64"] {
+        assert!(
+            STATIC_TARGETS.contains(&target),
+            "{target} has a static renderer and has to be published as one"
+        );
+    }
+}
+
+/// The release artifact for macOS and Linux is the static archive. It is downloaded,
+/// verified and unpacked the same way as a shared library, and then left exactly as it
+/// arrived: it has no name for an executable to record, because it ends up inside it.
+#[test]
+fn nfr15_a_static_archive_is_downloaded_unpacked_and_left_as_it_arrived() {
+    let temp = TempDir::new("static-download");
+    let release = temp.path().join("release");
+    static_tree(&release.join("staging"), false);
+    let prepared = pack(
+        &release.join("staging"),
+        &release,
+        Checksum::Correct,
+        SAMPLE_TARGET,
+    );
+
+    let served = prepared.clone();
+    let fetch = move |url: &str, destination: &Path| -> Result<(), FetchError> {
+        let source = if url.ends_with(".sha256") {
+            sibling_checksum(&served)
+        } else {
+            served.clone()
+        };
+        std::fs::copy(source, destination)
+            .map(|_| ())
+            .map_err(|error| FetchError::Failed(error.to_string()))
+    };
+
+    let renderer =
+        acquire(&temp, None, Network::Allowed(&fetch)).expect("the release serves this target");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    let archive = renderer
+        .lib_dir
+        .join(renderer_static_file(SAMPLE_TARGET_OS));
+    assert_eq!(
+        std::fs::read(&archive).unwrap(),
+        ARCHIVE_BYTES,
+        "the archive was changed on its way in"
+    );
+
+    let again = acquire(&temp, None, Network::Forbidden).expect("now cached");
+    assert_eq!(again.source, RendererSource::Cache);
+    assert_eq!(again.kind, RendererKind::Static);
+    assert_eq!(again.lib_dir, renderer.lib_dir);
+}
+
+/// The variable takes the directory a static build wrote, which holds the archive with no
+/// `lib/` around it.
+#[test]
+fn nfr10_the_variable_accepts_the_directory_a_static_build_wrote() {
+    let temp = TempDir::new("static-env");
+    let built = static_tree(&temp.path().join("build/linux"), true);
+
+    let renderer = acquire(&temp, Some(&built), Network::Forbidden).expect("an archive is there");
+    assert_eq!(renderer.source, RendererSource::Environment);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, built);
+}
+
+/// A directory holding both is linked as the archive, because the archive is what makes
+/// the application one file.
+#[test]
+fn nfr15_the_static_archive_wins_where_a_distribution_holds_both() {
+    let temp = TempDir::new("static-and-shared");
+    let root = renderer_tree(&temp.path().join("both"));
+    static_tree(&root, false);
+
+    let renderer = acquire(&temp, Some(&root), Network::Forbidden).expect("both are there");
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, root.join("lib"));
+}
+
+/// A checkout's static build comes before its native image, and the native image still
+/// answers when there is no static build.
+#[test]
+fn nfr14_a_workspace_static_build_comes_before_the_native_image() {
+    let temp = TempDir::new("workspace-order");
+    let static_dir = temp.path().join("build/linux");
+    let shared_root = renderer_tree(&temp.path().join("build/native-image/dist"));
+    let shared_dir = shared_root.join(renderer_lib_subdir(SAMPLE_TARGET_OS));
+    let request = |workspace: &[&Path]| {
+        acquire_renderer(&Request {
+            env_dir: None,
+            workspace_dirs: workspace,
+            cache_root: Some(&temp.path().join("cache")),
+            crate_version: SAMPLE_VERSION,
+            target: SAMPLE_TARGET,
+            target_os: SAMPLE_TARGET_OS,
+            fetch: None,
+        })
+    };
+
+    let shared =
+        request(&[static_dir.as_path(), shared_dir.as_path()]).expect("the native image is there");
+    assert_eq!(shared.source, RendererSource::Workspace);
+    assert_eq!(shared.kind, RendererKind::Shared);
+
+    static_tree(&static_dir, true);
+    let archive =
+        request(&[static_dir.as_path(), shared_dir.as_path()]).expect("the static build is there");
+    assert_eq!(archive.source, RendererSource::Workspace);
+    assert_eq!(archive.kind, RendererKind::Static);
+    assert_eq!(archive.lib_dir, static_dir);
+}
+
+// -------------------------------------------------------------------------------------
+// Windows: the static kit is the renderer
+// -------------------------------------------------------------------------------------
+
+const WINDOWS_TARGET: &str = "windows-x64";
+const WINDOWS_OS: &str = "windows";
+
+/// What `build-windows.sh` writes into `renderer/build/windows`, and what the release
+/// tarball carries at its root: the archive with `native/`, `gcc/` and `skiko/` beside it.
+fn windows_kit(root: &Path) -> PathBuf {
+    std::fs::create_dir_all(root.join("native")).unwrap();
+    std::fs::write(root.join(renderer_static_file(WINDOWS_OS)), ARCHIVE_BYTES).unwrap();
+    std::fs::write(root.join("native/dxc-windows-native.lib"), b"lib").unwrap();
+    root.to_path_buf()
+}
+
+/// Windows ships the Kotlin/Native static kit, so it is a static target, and the
+/// GraalVM DLL is no longer a renderer there.
+#[test]
+fn nfr14_windows_is_a_static_target() {
+    assert!(STATIC_TARGETS.contains(&WINDOWS_TARGET));
+    assert!(PUBLISHED_TARGETS.contains(&WINDOWS_TARGET));
+}
+
+/// The directory `build-windows.sh` writes resolves as a static renderer, kit root and all.
+#[test]
+fn nfr14_a_windows_workspace_kit_is_static() {
+    let temp = TempDir::new("windows-workspace");
+    let kit = windows_kit(&temp.path().join("build/windows"));
+    let renderer = acquire_renderer(&Request {
+        env_dir: None,
+        workspace_dirs: &[kit.as_path()],
+        cache_root: Some(&temp.path().join("cache")),
+        crate_version: SAMPLE_VERSION,
+        target: WINDOWS_TARGET,
+        target_os: WINDOWS_OS,
+        fetch: None,
+    })
+    .expect("the kit is there");
+    assert_eq!(renderer.source, RendererSource::Workspace);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert_eq!(renderer.lib_dir, kit);
+}
+
+/// A downloaded `compose-rust-renderer-v<ver>-windows-x64.tar.gz` is unpacked and linked as
+/// the static kit, with its sibling directories intact.
+#[test]
+fn nfr15_a_windows_tarball_is_unpacked_as_the_static_kit() {
+    let temp = TempDir::new("windows-download");
+    let release = temp.path().join("release");
+    windows_kit(&release.join("staging"));
+    let prepared = pack(
+        &release.join("staging"),
+        &release,
+        Checksum::Correct,
+        WINDOWS_TARGET,
+    );
+    let served = prepared.clone();
+    let fetch = move |url: &str, destination: &Path| -> Result<(), FetchError> {
+        let source = if url.ends_with(".sha256") {
+            sibling_checksum(&served)
+        } else {
+            served.clone()
+        };
+        std::fs::copy(source, destination)
+            .map(|_| ())
+            .map_err(|error| FetchError::Failed(error.to_string()))
+    };
+    let cache = temp.path().join("cache");
+    let renderer = acquire_for(
+        WINDOWS_TARGET,
+        WINDOWS_OS,
+        &temp,
+        None,
+        Network::Allowed(&fetch),
+        &cache,
+    )
+    .expect("the release serves this target");
+    assert_eq!(renderer.source, RendererSource::Download);
+    assert_eq!(renderer.kind, RendererKind::Static);
+    assert!(
+        renderer
+            .lib_dir
+            .join("native/dxc-windows-native.lib")
+            .is_file()
+    );
+    assert!(
+        renderer
+            .lib_dir
+            .join(renderer_static_file(WINDOWS_OS))
+            .is_file()
+    );
+}
+
+/// A leftover GraalVM DLL is not a renderer on Windows: the directory holding only it
+/// is refused instead of linked.
+#[test]
+fn nfr14_a_windows_dll_alone_is_not_a_renderer() {
+    let temp = TempDir::new("windows-dll");
+    let bin = temp.path().join("dist/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(bin.join("libcompose_rust_renderer.dll"), b"MZ").unwrap();
+    let cache = temp.path().join("cache");
+    let error = acquire_for(
+        WINDOWS_TARGET,
+        WINDOWS_OS,
+        &temp,
+        Some(&temp.path().join("dist")),
+        Network::Forbidden,
+        &cache,
+    )
+    .expect_err("a DLL is not the Windows renderer any more");
+    assert!(error.contains(renderer_static_file(WINDOWS_OS)), "{error}");
+}
+
+// -------------------------------------------------------------------------------------
 // Refusals
 // -------------------------------------------------------------------------------------
 
@@ -591,7 +856,7 @@ fn nfr11_a_renderer_built_in_the_workspace_is_named_after_where_it_sits() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: None,
-        workspace_lib_dir: &lib_dir,
+        workspace_dirs: &[lib_dir.as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -620,7 +885,7 @@ fn nfr10_a_renderer_the_variable_points_at_is_named_after_where_it_sits() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: Some(&root),
-        workspace_lib_dir: &temp.path().join("no-workspace/lib"),
+        workspace_dirs: &[temp.path().join("no-workspace/lib").as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -681,7 +946,7 @@ fn nfr11_a_renderer_that_already_answers_to_its_location_is_left_alone() {
 
     let renderer = acquire_renderer(&Request {
         env_dir: None,
-        workspace_lib_dir: &lib_dir,
+        workspace_dirs: &[lib_dir.as_path()],
         cache_root: Some(&temp.path().join("cache")),
         crate_version: SAMPLE_VERSION,
         target: "macos-aarch64",
@@ -978,7 +1243,7 @@ fn nfr11_launching_without_a_renderer_does_not_return_success() {
 
         fn rebuild(&mut self) {}
 
-        fn render(&mut self) {}
+        fn render(&mut self, _frame_time_nanos: Option<u64>) {}
 
         fn handle_event(&mut self, _event: &HostEvent<'_>) -> Result<i64, ProtocolError> {
             Err(ProtocolError::InvalidValueKind(0))
@@ -1030,7 +1295,7 @@ fn acquire_for(
     let no_workspace = temp.path().join("no-workspace/lib");
     acquire_renderer(&Request {
         env_dir,
-        workspace_lib_dir: &no_workspace,
+        workspace_dirs: &[no_workspace.as_path()],
         cache_root: Some(cache),
         crate_version: SAMPLE_VERSION,
         target,
@@ -1336,6 +1601,7 @@ fn pr5_a_build_outside_an_android_project_unpacks_nothing() {
 #[test]
 fn pr5_compose_is_added_to_a_generated_gradle_project() {
     let module = "plugins {\n    id(\"com.android.application\")\n}\n\n\
+                  android {\n    compileSdk = 34\n}\n\n\
                   dependencies {\n    implementation(\"androidx.webkit:webkit:1.13.0\")\n}\n";
     let root = "buildscript {\n    dependencies {\n        \
                 classpath(\"com.android.tools.build:gradle:8.7.0\")\n        \
@@ -1353,6 +1619,10 @@ fn pr5_compose_is_added_to_a_generated_gradle_project() {
              compile against:\n{module_text}"
         );
     }
+    assert!(
+        module_text.contains("compileSdk = 35"),
+        "Compose 1.9 refuses a module compiled against SDK 34:\n{module_text}"
+    );
     let root_text = root_text.expect("the plugin's jar has to reach the build's classpath");
     assert!(
         root_text.contains("compose-compiler-gradle-plugin:2.0.20"),
@@ -1582,6 +1852,24 @@ fn fr23_the_same_brush_is_registered_once() {
     assert_eq!(first, again);
 }
 
+/// A released brush is no longer a brush, and registering it again is a new one.
+#[test]
+fn fr23_a_released_brush_gets_a_new_id_when_registered_again() {
+    use compose_rust::schema::Color;
+    use compose_rust::{Brush, Stop, brush, release_brush};
+
+    let make = || {
+        Brush::vertical(vec![
+            Stop::new(0.0, Color::rgb(0x202020)),
+            Stop::new(1.0, Color::rgb(0xe0e0e0)),
+        ])
+    };
+    let first = brush(make());
+    assert!(release_brush(first));
+    assert!(!release_brush(first), "already released");
+    assert_ne!(brush(make()), first);
+}
+
 /// A brush travels as the two words a Paint has, whichever kind it is.
 #[test]
 fn fr23_a_brush_paint_survives_the_wire() {
@@ -1630,4 +1918,85 @@ fn fr36_the_generated_activity_hands_notification_presses_to_the_renderer() {
     assert!(install < handle && handle < host);
     assert!(build.contains("override fun onNewIntent(intent: Intent)"));
     assert!(build.contains("RequestPermission()"));
+}
+
+/// The dx template's Activity, as it reaches this build: no keyboard setting at all.
+const DX_MANIFEST: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <application android:label=\"@string/app_name\">\n        <activity\n            android:configChanges=\"orientation|keyboardHidden|screenSize\"\n            android:exported=\"true\"\n            android:name=\"dev.dioxus.main.MainActivity\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.MAIN\" />\n            </intent-filter>\n        </activity>\n    </application>\n</manifest>\n";
+
+/// The window resizes for the keyboard instead of panning. A pan slides the whole window
+/// up by the keyboard's height, which took the top bar off the screen and left whatever was
+/// below the field under the keyboard; with `adjustResize` the renderer is told how much
+/// the keyboard covers and stops the page above it.
+#[test]
+fn fr19_the_android_activity_resizes_for_the_keyboard() {
+    let resized = renderer_dir::with_keyboard_resize(DX_MANIFEST).unwrap();
+    let activity_at = resized.find("<activity").unwrap();
+    let close_at = activity_at + resized[activity_at..].find('>').unwrap();
+    let mode_at = resized
+        .find("android:windowSoftInputMode=\"adjustResize\"")
+        .expect("the Activity says nothing about the keyboard, so Android pans the window");
+    assert!(
+        activity_at < mode_at && mode_at < close_at,
+        "the setting is on the Activity's own tag, not somewhere Android does not read it"
+    );
+    assert_eq!(
+        resized.matches("windowSoftInputMode").count(),
+        1,
+        "said once"
+    );
+    // The rest of the manifest is untouched.
+    assert_eq!(
+        resized.replace(
+            "\n            android:windowSoftInputMode=\"adjustResize\"",
+            ""
+        ),
+        DX_MANIFEST
+    );
+    // A second build changes nothing.
+    assert_eq!(renderer_dir::with_keyboard_resize(&resized), None);
+}
+
+/// A pan that was asked for is replaced, because it is what moves the bars off the screen;
+/// whether the keyboard opens on start is a separate part of the same value and is kept.
+#[test]
+fn fr19_an_existing_pan_becomes_a_resize_and_keeps_its_state() {
+    let panned = DX_MANIFEST.replace(
+        "android:exported=\"true\"",
+        "android:exported=\"true\"\n            android:windowSoftInputMode=\"stateHidden|adjustPan\"",
+    );
+    let resized = renderer_dir::with_keyboard_resize(&panned).unwrap();
+    assert!(resized.contains("android:windowSoftInputMode=\"stateHidden|adjustResize\""));
+    assert!(!resized.contains("adjustPan"));
+    assert_eq!(renderer_dir::with_keyboard_resize(&resized), None);
+
+    let already = DX_MANIFEST.replace(
+        "android:exported=\"true\"",
+        "android:exported=\"true\"\n            android:windowSoftInputMode=\"adjustResize\"",
+    );
+    assert_eq!(renderer_dir::with_keyboard_resize(&already), None);
+    assert_eq!(
+        renderer_dir::with_keyboard_resize("<manifest><application /></manifest>"),
+        None,
+        "a manifest with no Activity has nothing to say it on"
+    );
+    // `<activity-alias` is not an Activity of its own.
+    let alias_first = "<manifest><application><activity-alias android:name=\"a\" /><activity android:name=\"b\" /></application></manifest>";
+    let resized = renderer_dir::with_keyboard_resize(alias_first).unwrap();
+    assert!(resized.contains(
+        "<activity\n            android:windowSoftInputMode=\"adjustResize\" android:name=\"b\""
+    ));
+}
+
+/// The build applies it to the application's manifest along with the notification
+/// permission, and the renderer's own window setting says the same for an application
+/// that brings its own Activity.
+#[test]
+fn fr19_the_build_applies_the_keyboard_resize_to_the_manifest() {
+    let build = include_str!("../build.rs");
+    assert!(build.contains("renderer_dir::with_keyboard_resize("));
+    let chrome = include_str!("../android-kotlin/bridge/AndroidSystemChrome.kt");
+    assert!(
+        chrome.contains("SOFT_INPUT_ADJUST_RESIZE"),
+        "an application with its own Activity and manifest still gets a window that resizes"
+    );
 }

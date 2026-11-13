@@ -1,6 +1,6 @@
 //! The courses, the categories, and the scenes drawn on their cards.
 
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::ui::Paint;
 
 /// The scenes, drawn.
 ///
@@ -44,7 +44,7 @@ impl Palette {
     /// Literals, from the sample's own palette. The reference alternates its illustrations
     /// between a sage and a blush and writes on them in the same deep plum throughout, and
     /// no design system holds any of the three.
-    pub fn roles(self) -> (Color, Color, Color) {
+    pub fn roles(self) -> (Paint, Paint, Paint) {
         match self {
             Palette::First => (
                 crate::palette::SAGE,
@@ -75,6 +75,12 @@ pub struct Course {
     pub palette: Palette,
     /// Which shelf it belongs to.
     pub shelf: Shelf,
+    /// How large it is drawn on that shelf.
+    pub slot: Slot,
+    /// What it is, which is what the line beside its title says.
+    pub kind: Kind,
+    /// The heading the shelf puts above it, if it starts a section.
+    pub heading: Option<&'static str>,
 }
 
 /// Which part of the app a course shows up in.
@@ -85,78 +91,198 @@ pub enum Shelf {
     Sleep,
 }
 
-pub const COURSES: [Course; 9] = [
+/// How large a course is drawn: the picture across the top of a page, one of two to a
+/// row, or a whole row to itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Slot {
+    Hero,
+    Tile,
+    Wide,
+}
+
+/// What a card is, which decides what its line of meta says.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Kind {
+    /// A course of sessions: "7 sessions".
+    Course,
+    /// The one course picked for today: "3 min · meditation of the day".
+    OfTheDay,
+    /// A category holding several courses: "10 courses".
+    Category,
+    /// A story to fall asleep to: "21 min".
+    Story,
+}
+
+/// The shelves in the order the reference draws them, each card where it draws it.
+///
+/// Each course is on its shelf once. The shelf used to take its hero, then everything
+/// after the hero as the grid, then the last course again as the wide card, so the third
+/// course of every shelf was on screen twice.
+pub const COURSES: [Course; 15] = [
     Course {
         id: 1,
-        title: "Brief beginner meditation",
+        title: "Brief Beginner Meditation",
         sessions: 3,
         minutes: 3,
-        palette: Palette::First,
+        palette: Palette::Third,
         shelf: Shelf::ForYou,
+        slot: Slot::Hero,
+        kind: Kind::OfTheDay,
+        heading: None,
     },
     Course {
         id: 2,
-        title: "Seven days to improve your productivity",
+        title: "7 days to improve your productivity",
         sessions: 7,
         minutes: 12,
-        palette: Palette::Second,
+        palette: Palette::First,
         shelf: Shelf::ForYou,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: Some("Courses just for you"),
     },
     Course {
         id: 3,
-        title: "Seven days to prepare your day",
+        title: "7 days to learn how to prepare your day",
         sessions: 7,
         minutes: 9,
-        palette: Palette::Third,
+        palette: Palette::Second,
         shelf: Shelf::ForYou,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: None,
     },
     Course {
         id: 4,
-        title: "Basics of meditation",
-        sessions: 7,
+        title: "Favorite meditation",
+        sessions: 10,
         minutes: 10,
-        palette: Palette::First,
-        shelf: Shelf::Meditate,
+        palette: Palette::Second,
+        shelf: Shelf::ForYou,
+        slot: Slot::Wide,
+        kind: Kind::Category,
+        heading: Some("Recommended category"),
     },
     Course {
         id: 5,
+        title: "Basics of meditation",
+        sessions: 7,
+        minutes: 10,
+        palette: Palette::Third,
+        shelf: Shelf::Meditate,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: None,
+    },
+    Course {
+        id: 6,
         title: "Control your breathing",
         sessions: 7,
         minutes: 8,
         palette: Palette::Second,
         shelf: Shelf::Meditate,
-    },
-    Course {
-        id: 6,
-        title: "Improve focus",
-        sessions: 10,
-        minutes: 15,
-        palette: Palette::Third,
-        shelf: Shelf::Meditate,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: None,
     },
     Course {
         id: 7,
-        title: "The rear light",
-        sessions: 1,
-        minutes: 21,
+        title: "Improve focus",
+        sessions: 10,
+        minutes: 15,
         palette: Palette::First,
-        shelf: Shelf::Sleep,
+        shelf: Shelf::Meditate,
+        slot: Slot::Wide,
+        kind: Kind::Category,
+        heading: Some("Recommended for you"),
     },
     Course {
         id: 8,
-        title: "Imaginary ride",
+        title: "Improve productivity",
+        sessions: 7,
+        minutes: 12,
+        palette: Palette::First,
+        shelf: Shelf::Meditate,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: None,
+    },
+    Course {
+        id: 9,
+        title: "Prepare your day",
+        sessions: 7,
+        minutes: 9,
+        palette: Palette::Second,
+        shelf: Shelf::Meditate,
+        slot: Slot::Tile,
+        kind: Kind::Course,
+        heading: None,
+    },
+    Course {
+        id: 10,
+        title: "Walking meditation",
+        sessions: 10,
+        minutes: 12,
+        palette: Palette::Third,
+        shelf: Shelf::Meditate,
+        slot: Slot::Wide,
+        kind: Kind::Category,
+        heading: None,
+    },
+    Course {
+        id: 11,
+        title: "The rear light",
         sessions: 1,
         minutes: 21,
         palette: Palette::Second,
         shelf: Shelf::Sleep,
+        slot: Slot::Tile,
+        kind: Kind::Story,
+        heading: None,
     },
     Course {
-        id: 9,
-        title: "Private planet",
+        id: 12,
+        title: "Imaginary ride",
+        sessions: 1,
+        minutes: 21,
+        palette: Palette::First,
+        shelf: Shelf::Sleep,
+        slot: Slot::Tile,
+        kind: Kind::Story,
+        heading: None,
+    },
+    Course {
+        id: 13,
+        title: "The audition",
         sessions: 1,
         minutes: 21,
         palette: Palette::Third,
         shelf: Shelf::Sleep,
+        slot: Slot::Tile,
+        kind: Kind::Story,
+        heading: None,
+    },
+    Course {
+        id: 14,
+        title: "Private planet",
+        sessions: 1,
+        minutes: 21,
+        palette: Palette::Second,
+        shelf: Shelf::Sleep,
+        slot: Slot::Tile,
+        kind: Kind::Story,
+        heading: None,
+    },
+    Course {
+        id: 15,
+        title: "The bike ride",
+        sessions: 1,
+        minutes: 21,
+        palette: Palette::Third,
+        shelf: Shelf::Sleep,
+        slot: Slot::Wide,
+        kind: Kind::Story,
+        heading: None,
     },
 ];
 
@@ -181,6 +307,23 @@ pub fn sessions_label(course: &Course) -> String {
     format!("{} {word} \u{00b7} {} min", course.sessions, course.minutes)
 }
 
+/// The line of meta a card carries beside its title, before it is set in capitals.
+pub fn meta_label(course: &Course) -> String {
+    match course.kind {
+        Kind::Course => {
+            let word = if course.sessions == 1 {
+                "session"
+            } else {
+                "sessions"
+            };
+            format!("{} {word}", course.sessions)
+        }
+        Kind::OfTheDay => format!("{} min \u{00b7} meditation of the day", course.minutes),
+        Kind::Category => format!("{} courses", course.sessions),
+        Kind::Story => format!("{} min", course.minutes),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,10 +339,46 @@ mod tests {
 
     #[test]
     fn a_single_session_course_is_described_in_the_singular() {
-        let one = course(7).expect("no course 7");
+        let one = course(11).expect("no course 11");
         assert_eq!(sessions_label(one), "1 session \u{00b7} 21 min");
         let many = course(2).expect("no course 2");
         assert_eq!(sessions_label(many), "7 sessions \u{00b7} 12 min");
+    }
+
+    /// Each kind of card says what it is the way the reference says it.
+    #[test]
+    fn fr22_every_card_says_what_it_is_the_way_the_reference_does() {
+        let label = |id| meta_label(course(id).expect("no such course")).to_uppercase();
+        assert_eq!(label(1), "3 MIN \u{00b7} MEDITATION OF THE DAY");
+        assert_eq!(label(2), "7 SESSIONS");
+        assert_eq!(label(4), "10 COURSES");
+        assert_eq!(label(11), "21 MIN");
+    }
+
+    /// A shelf has its hero first if it has one, and every heading starts a section
+    /// rather than sitting between two tiles of the same row.
+    #[test]
+    fn fr22_every_shelf_is_laid_out_the_way_the_reference_is() {
+        for shelf in [Shelf::ForYou, Shelf::Meditate, Shelf::Sleep] {
+            let items = on(shelf);
+            for (index, found) in items.iter().enumerate() {
+                if found.slot == Slot::Hero {
+                    assert_eq!(index, 0, "{} is a hero part way down", found.title);
+                }
+            }
+            let mut in_row = 0;
+            for found in &items {
+                if found.heading.is_some() {
+                    assert_eq!(in_row % 2, 0, "{} splits a row of tiles", found.title);
+                }
+                in_row = if found.slot == Slot::Tile {
+                    in_row + 1
+                } else {
+                    0
+                };
+            }
+        }
+        assert_eq!(on(Shelf::Sleep).len(), 5, "the reference has five stories");
     }
 
     /// Every id is its own. Two courses sharing one is a shelf where opening either gives

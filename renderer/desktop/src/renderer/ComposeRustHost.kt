@@ -1,14 +1,26 @@
 package dev.darkpyonix.composerust.runtime
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
+import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.ime
@@ -21,9 +33,13 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
+import dev.darkpyonix.composerust.foundation.navigationFor
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -66,6 +82,19 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import dev.darkpyonix.composerust.design.HostPlatform
 
 /**
+ * The press a `WindowDrag(false)` node saw, as pointer id and uptime. Two fields rather than
+ * a pair, so marking a press allocates nothing.
+ */
+internal class WindowDragExclusion {
+    var downId: Long = -1L
+    var downUptime: Long = -1L
+    fun mark(id: Long, uptime: Long) { downId = id; downUptime = uptime }
+    fun clear() { downId = -1L; downUptime = -1L }
+    fun isMarked(id: Long, uptime: Long): Boolean = downId == id && downUptime == uptime
+}
+internal val LocalWindowDragExclusion = staticCompositionLocalOf<WindowDragExclusion?> { null }
+
+/**
  * Sends one event to the Host and reports whether the Host consumed it.
  *
  * Consumption is the same model as the web's `preventDefault()` and Compose's
@@ -101,6 +130,14 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     internal var requestsBeforeStart: Long = 0L
         private set
 
+    /**
+     * Called once a batch has been applied and its errors reported, on the thread the Host
+     * runs on. The window manager of a multi-window application hangs here to open,
+     * close and update platform windows from the nodes the batch changed. Null for every
+     * other application, which is what keeps a single window's path as it was.
+     */
+    internal var afterBatch: (() -> Unit)? = null
+
     fun start() = start(FrameRequests.global)
 
     internal fun start(frames: FrameRequestSource) {
@@ -110,10 +147,23 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // After the first batch, so the first thing the Host hears is a press that started
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
+        table.fileDialogs.attach(this)
+        table.clipboardReads.attach(this)
+        table.fileCalls.attach(this)
+        table.storage.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
     override fun dispatch(event: HostEvent): Boolean {
+        // A report goes the way the errors found in a batch go, best effort, so a Host that
+        // refuses it leaves the report itself to be printed. Sent like any other event, a
+        // refused report became a second, empty error: "dispatch_event returned -1", with
+        // the missing picture or the font it was about lost. The Rust Host refuses every
+        // report, so each picture Android could not decode cost its real message.
+        if (event is HostEvent.ProtocolError) {
+            report(event)
+            return false
+        }
         var result = 0L
         applyTransaction { apply -> result = connection.dispatchEvent(event, apply) }
         return result != 0L
@@ -143,16 +193,33 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // answer from the platform asks for a frame for exactly this, because the frame is
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
+        table.fileDialogs.drain()
+        table.clipboardReads.drain()
+        table.fileCalls.drain()
+        table.storage.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
+    }
+
+    /**
+     * Plays one frame of the animations the Host handed over, and hands the Host the events
+     * they asked for. Called inside a frame, on the thread the Host was started on.
+     */
+    internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
+        table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
     }
 
     fun shutdown() {
         table.notifications.shutdown()
+        table.fileDialogs.shutdown()
+        table.clipboardReads.shutdown()
+        table.fileCalls.shutdown()
+        table.storage.shutdown()
         connection.shutdown()
     }
 
     private fun applyTransaction(call: ((Mutation) -> Unit) -> Unit) {
         val protocolErrors = mutableListOf<TableError>()
+        var editorEvents: List<HostEvent> = emptyList()
         Snapshot.withMutableSnapshot {
             try {
                 call { mutation -> table.apply(mutation) }
@@ -163,6 +230,7 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
                 protocolErrors += TableError(PROTOCOL_DECODE_ERROR, error.describe())
             }
             protocolErrors += table.drainErrors()
+            editorEvents = table.drainEvents()
         }
         // Reported after the transaction so the Host is never re-entered mid-batch.
         //
@@ -173,19 +241,33 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // report exists to prevent, so the report is best effort and the original error is
         // what gets printed.
         protocolErrors.forEach { error ->
-            try {
-                connection.dispatchEvent(
-                    HostEvent.ProtocolError(
-                        nodeId = NodeTable.ROOT_ID,
-                        handlerId = 0,
-                        code = error.code,
-                        message = error.message,
-                    ),
-                ) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
-            } catch (report: Throwable) {
-                if (report is InterruptedException) throw report
-                onProtocolError(error)
-            }
+            report(
+                HostEvent.ProtocolError(
+                    nodeId = NodeTable.ROOT_ID,
+                    handlerId = 0,
+                    code = error.code,
+                    message = error.message,
+                ),
+            )
+        }
+        // What a code editor did with an edit the batch asked of it: the change it made, or
+        // the refusal. After the batch for the same reason as the errors above, and each in
+        // its own call, because the Host answers each one with a batch of its own.
+        editorEvents.forEach { event -> dispatch(event) }
+        afterBatch?.invoke()
+    }
+
+    /**
+     * Hands one protocol error to the Host, and prints it when the Host will not take it.
+     *
+     * Never inside a batch's transaction, so the Host is never re-entered mid-batch.
+     */
+    private fun report(event: HostEvent.ProtocolError) {
+        try {
+            connection.dispatchEvent(event) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
+        } catch (refused: Throwable) {
+            if (refused is InterruptedException) throw refused
+            onProtocolError(TableError(event.code, event.message))
         }
     }
 
@@ -256,19 +338,118 @@ fun rememberStartedComposeRustHost(host: ComposeRustHost): ComposeRustHost {
 }
 
 /**
+ * The content of one real window: [ComposeRustContent] filling the whole window.
+ *
+ * What [ComposeRustContent] measures is what the Host is told the window's size is, and a
+ * Compose root wraps its content unless asked to fill. A window whose tree is one line of
+ * text would then report one line of text. Every platform window draws through this, so
+ * none of them can forget the fill; a caller embedding the content in a larger Compose
+ * layout calls [ComposeRustContent] and sizes it itself.
+ */
+@Composable
+fun WindowContent(
+    host: ComposeRustHost,
+    modifier: Modifier = Modifier,
+    caption: WindowCaption = WindowCaption.None,
+    windowNodeId: Int = 0,
+) {
+    ComposeRustContent(host, Modifier.fillMaxSize().then(modifier), caption, windowNodeId)
+}
+
+/**
  * Draws the Host's tree and runs the frame loop.
  *
  * Frame requests coming from Host worker threads coalesce into at most one `render_frame`
  * per frame, inside `withFrameNanos`.
+ *
+ * Drawn at the window's zoom. A desktop window holds its [Zoom] and has already given its
+ * scene the Density it makes; inside a platform's own Compose host there is none, so one is
+ * made here, takes the system's text size from the font scale the host already carries, and
+ * is applied around the content.
  */
 @Composable
 fun ComposeRustContent(
     host: ComposeRustHost,
     modifier: Modifier = Modifier,
     caption: WindowCaption = WindowCaption.None,
+    /**
+     * The `Window` node whose content this draws, for one window of a multi-window application,
+     * or 0 for the one window of a single window application. A window of the first
+     * kind draws the children of its node, and the process serves the Host's frame requests once
+     * for all of them (the window manager's `awaitFrame`), not once per window.
+     */
+    windowNodeId: Int = 0,
+) {
+    if (windowNodeId != 0) {
+        CompositionLocalProvider(LocalWindowNodeId provides windowNodeId) {
+            ComposeRustContent(host, modifier, caption, 0)
+        }
+        return
+    }
+    val provided = LocalZoom.current
+    if (provided != null) {
+        ZoomReporter(host, provided)
+        ComposeRustTree(host, modifier, caption)
+        return
+    }
+    val base = LocalDensity.current
+    val zoom = remember { Zoom(store = platformZoomLevelStore()) }
+    SideEffect { zoom.followOs(base.fontScale) }
+    val apple = remember {
+        (hostPlatformOverride ?: detectHostPlatform()).let {
+            it == HostPlatform.Ios || it == HostPlatform.MacOs
+        }
+    }
+    CompositionLocalProvider(
+        LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
+        LocalZoom provides zoom,
+    ) {
+        ZoomReporter(host, zoom)
+        // `onKeyEvent` rather than the preview: it runs after everything inside has had the
+        // key, so a key the application consumed never reaches it.
+        ComposeRustTree(
+            host,
+            modifier.onKeyEvent { event ->
+                zoom.takeShortcut(composeZoomShortcut(event, apple), consumedByApplication = false)
+            },
+            caption,
+        )
+    }
+}
+
+/**
+ * Whether the content below serves the Host's frame requests itself. True for a single window,
+ * which has always done so; a multi-window renderer provides false and serves them once for
+ * every window.
+ */
+internal val LocalServesFrames = staticCompositionLocalOf { true }
+
+/** What a window's content draws: the roots of the tree for window 0, else the children of `Window` node [windowNodeId]. */
+internal fun NodeTable.rootsOf(windowNodeId: Int): List<Int> =
+    if (windowNodeId == 0) roots else node(windowNodeId)?.children ?: emptyList()
+
+@Composable
+private fun ComposeRustTree(
+    host: ComposeRustHost,
+    modifier: Modifier,
+    caption: WindowCaption,
 ) {
     val frames = LocalFrameRequests.current
-    LaunchedEffect(host, frames) {
+    val servesFrames = LocalServesFrames.current
+    // The `Window` node this scene draws, or 0 for the one window of a single window
+    // application. A window of a multi-window application draws its own node and nothing
+    // else, and does not serve the Host's frame requests: the platform layer has one driver
+    // for the whole process (`serveWindowFrames`), because the Host is asked once per frame
+    // however many windows there are.
+    val windowNodeId = LocalWindowNodeId.current
+    val pageRoots = if (windowNodeId == 0) host.roots else host.table.node(windowNodeId)?.children?.toList().orEmpty()
+    val focusManager = LocalFocusManager.current
+    val clearFocusRevision = host.table.focusClearRevision
+    LaunchedEffect(clearFocusRevision) {
+        if (clearFocusRevision > 0L) focusManager.clearFocus()
+    }
+    LaunchedEffect(host, frames, windowNodeId, servesFrames) {
+        if (windowNodeId != 0 || !servesFrames) return@LaunchedEffect
         // Counted from the Host's start, not from the moment this loop began listening. The
         // platform starts the Host before there is a window, and work the Host schedules in
         // its first render (an effect, a task spawned at startup) asks for a frame right then.
@@ -284,11 +465,57 @@ fun ComposeRustContent(
     // A notification centre answers on a thread of its own, and the way from any thread to
     // this one is a frame request. The centre asks through the same source this loop serves.
     SideEffect { host.table.notifications.wake = frames::request }
+    // A file dialog's answer arrives the same way, from whichever thread the platform uses.
+    SideEffect { host.table.fileDialogs.wake = frames::request }
+    // A clipboard read is answered at the top of the frame it asks for.
+    SideEffect { host.table.clipboardReads.wake = frames::request }
+    // A file operation is answered at the top of the frame it asks for, like a clipboard read.
+    SideEffect { host.table.fileCalls.wake = frames::request }
+    // A storage answer from the browser is delivered at the top of the frame it asks for.
+    SideEffect { host.table.storage.wake = frames::request }
+    // The clipboard the Host's copies go to is the one this composition sees. Every window
+    // shares it, so the root window's is enough.
+    @Suppress("DEPRECATION")
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // The suspending clipboard, which is the only one a browser can read, and the scope its
+    // reads run in: the composition's own, so they run on the UI thread.
+    val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
+    if (windowNodeId == 0) {
+        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
+        DisposableEffect(host) { onDispose { host.table.fileCalls.detach() } }
+        SideEffect {
+            host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+                @Suppress("DEPRECATION")
+                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+            host.table.clipboardReads.launcher = { read ->
+                clipboardScope.launch(block = { read() })
+            }
+            // File operations suspend on the same scope, on the UI thread.
+            host.table.fileCalls.launcher = { operation ->
+                clipboardScope.launch(block = { operation() })
+            }
+            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+                // A platform with a suspending read uses it. Elsewhere the clipboard manager
+                // answers at once, which every other target supports.
+                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+                if (platformRead != null) {
+                    platformRead(composeClipboard)
+                } else {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.getText()?.text
+                }
+            }
+        }
+    }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
     val windowFocused = LocalWindowInfo.current.isWindowFocused
-    SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
+    // One window of several does not report: its scene knows only itself, and the last to say
+    // would win. The platform layer reports for the application, from the window that is key.
+    if (windowNodeId == 0) SideEffect { host.table.notifications.windowFocusChanged(windowFocused) }
     // The theme is resolved once here, and every node reads it from the CompositionLocal. A `SetTheme` is therefore one record on the wire and one
     // invalidation in Compose, not a SetProp per node.
     val platform = remember { hostPlatformOverride ?: detectHostPlatform() }
@@ -299,11 +526,19 @@ fun ComposeRustContent(
     val observedDark = LocalSystemDarkObserver.current?.invoke() ?: isSystemInDarkTheme()
     val systemDark = systemDarkOverride ?: observedDark
     // The window's size is measured here, where the root content is, and reported to
-    // the Host only when it crosses a size class boundary. onSizeChanged already fires
-    // only when the measured size differs, and the reporter drops everything that does
-    // not change the class, so a drag across one class costs no boundary calls.
-    val reporter = remember(host) { WindowSizeReporter() }
+    // the Host when either class changes, or for a window that asked for it, when the
+    // size changes by a whole dp. onSizeChanged already fires only when the measured size
+    // differs, and the reporter drops everything else, so a drag across one class costs
+    // a window that did not ask no boundary calls.
+    val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
+    val zoom = LocalZoom.current
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    val layoutDirection = LocalLayoutDirection.current
+    // Where a node the Host already sent is measured when it asks. It composes nothing
+    // until it is asked, and what it composes is never placed.
+    val station = remember(host) { MeasuringStation { nodeId -> MeasuredNode(nodeId, host.table) } }
+    DisposableEffect(host) { onDispose { RendererMeasure.uninstall(host.table) } }
     // The same measurement answers three questions. The Host is told when the class
     // changes so a component can choose what to put on the screen; the widgets that
     // change shape with the window read it from the CompositionLocal, because they are
@@ -312,27 +547,73 @@ fun ComposeRustContent(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
-            reporter.report(widthDp, size.height.toDp().value, host)
+            measuredSize = size
         }
     }
     // Whether anything in the tree asked to be made of a material, and so whether the
     // window is stood up with the platform's own material behind it. The design system is
     // told the answer, because chrome that sits straight on the desktop is drawn
     // differently from chrome over the application's own page.
-    val asked = host.table.asksForWindowMaterial(host.roots)
+    val asked = host.table.asksForWindowMaterial(pageRoots)
     val theme = resolveTheme(
-        host.table.theme,
+        host.table.themeFor(windowNodeId),
         platform,
         systemDark,
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
+        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
+        overlay = host.table.overlayTokens,
     )
+    // The animations the Host handed over are played here, on this side's frame clock, and
+    // the Host is not called while they play unless one asked for events. The loop waits
+    // for frames only while something is waiting to start or still running, so a screen
+    // that has stopped moving asks for no frames at all.
+    val currentTheme by rememberUpdatedState(theme)
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.animations.generation.intValue }.collect {
+            while (host.table.animations.needsFrames()) {
+                withFrameNanos { frame -> host.tickAnimations(frame, currentTheme) }
+            }
+        }
+    }
+    // Moves and wheel travel are held between frames and sent once at the start of the next
+    // one, so a pointer that reports faster than the screen draws runs the Host once a frame.
+    // The loop waits for frames only while something is held.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.pointers.pendingGeneration.intValue }.collect {
+            while (host.table.pointers.hasPending) {
+                withFrameNanos { host.table.pointers.flush() }
+            }
+        }
+    }
+    // A scroll container the Host listens to reports where it is the same way: once at the
+    // start of the frame after it moved, for the place it has reached by then.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.scrolls.pendingGeneration.intValue }.collect {
+            while (host.table.scrolls.hasPending) {
+                withFrameNanos { host.table.scrolls.flush { event -> host.dispatch(event) } }
+            }
+        }
+    }
+    // Whether the platform asks for reduced motion, told to the Host once and again when it
+    // changes. Asked again when the window comes back into use, which is when a setting
+    // changed in the system's preferences can have changed. The Host decides what to do
+    // with it, as a page does with a media query; nothing here holds an animation still.
+    val reducedMotion = remember(windowFocused) { platformReducedMotionSetting() }
+    val reportedMotion = remember(host) { arrayOfNulls<ReducedMotion>(1) }
+    SideEffect {
+        if (reportedMotion[0] != reducedMotion) {
+            reportedMotion[0] = reducedMotion
+            host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
+        }
+    }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.
@@ -342,6 +623,14 @@ fun ComposeRustContent(
     // composition is applied on. A coroutine effect runs on the toolkit's event thread
     // instead, where the Host has no state at all: the call came back refused, with the
     // status that means it was made in the wrong place.
+    // What a measure call is answered with: this composition's density, fonts and design
+    // system, made again whenever any of them changes. Installed here, on the thread the
+    // composition runs on, which is the thread the Host calls back in on.
+    SideEffect {
+        RendererMeasure.install(
+            MeasureContext(host.table, theme, density, layoutDirection, fontFamilyResolver, station, zoom),
+        )
+    }
     val reported = remember { arrayOfNulls<DesignSystem>(1) }
     SideEffect {
         if (reported[0] != theme.system) {
@@ -356,37 +645,85 @@ fun ComposeRustContent(
     // to the page underneath it. Otherwise the page keeps it and the content starts below
     // the buttons.
     // The strips a phone's system draws in. Zero on a desktop, where a title bar is the
-    // caption above instead. The keyboard is excluded: the renderer moves the field that
-    // is being typed into itself, and taking the keyboard's height off the whole page as
-    // well would move everything else twice.
-    val bars = with(LocalDensity.current) {
+    // caption above instead. The keyboard is not one of them: it is reported on its own
+    // below, because the page stops above it but nothing grows into it.
+    val safeBars = with(LocalDensity.current) {
         val safe = WindowInsets.safeDrawing.exclude(WindowInsets.ime)
         SystemBars(top = safe.getTop(this).toDp(), bottom = safe.getBottom(this).toDp())
     }
+    // How much of the window's bottom the on-screen keyboard covers. The window is not
+    // panned for it (the platform layer asks for that), so this is where the page is
+    // told: it ends above the keyboard, the bar at the top stays where it is, and the
+    // focused field is brought into view inside the page that is left.
+    val keyboard = platformKeyboardInset().coerceAtLeast(0.dp)
+    // While the keyboard is up the gesture strip is under it, so nothing above the
+    // keyboard leaves room for it.
+    val bars = if (keyboard > 0.dp) safeBars.copy(bottom = 0.dp) else safeBars
     // A rail or a sidebar that runs to the top of the window takes the caption the same
     // way a bar does: the window buttons sit on its surface and the page beside it starts
     // its own content clear of them. Leaving the page to take the strip instead drew a band
     // of page colour across the whole window above the sidebar, which is the leftover
     // title bar this exists to avoid.
-    val navigation = theme.rules.navigation(sizeClass, theme)
+    // Asked of the navigation the page opens with, so a compact window gets what that
+    // navigation chose rather than what its design system would have answered.
+    val openingNavigation = host.table.openingNavigation(pageRoots)
+    val navigation = theme.navigationFor(openingNavigation, sizeClass)
+    // A navigation that is not on the screen at all has no strip to take the top with,
+    // and the page under it starts below the window buttons like any other page.
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
-    val barIsCaption = (caption.height > 0.dp || bars.top > 0.dp) &&
-        (host.table.opensWithABar(host.roots) || stripTakesTheTop)
+        navigation.presentation != NavigationPresentation.Hidden &&
+        openingNavigation != null
+    val barIsCaption = !caption.fullSize && (caption.height > 0.dp || bars.top > 0.dp) &&
+        (host.table.opensWithABar(pageRoots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
     // must not stop short of it as well. The same question the navigation itself asks,
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(host.roots)
-    val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
+        openingNavigation != null
+    val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom, keyboard)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
     // application on a device in dark mode otherwise gets white icons on its own white
     // bar.
     LaunchedEffect(theme.dark) { systemChrome?.setDarkIcons(!theme.dark) }
     val captionStyle = theme.rules.caption(theme)
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
+        val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
+            captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
+        val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
+            captionStyle.side == CaptionSide.Start
+        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
+    }
+    // Read through a derived state so a recomposition does not repeat the map lookup (which
+    // boxes the node id) and the read only runs again when the property itself changes.
+    // The implicit root window (id 0) opts in through its SetWindow settings and any other
+    // window through its node property; the table answers for both.
+    val reportEveryDp = remember(host, windowNodeId) {
+        derivedStateOf { host.table.reportSizeFor(windowNodeId) }
+    }.value
+    // What decides whether the Host is told: both classes, and for a window that asked for
+    // every whole-dp change, the size rounded to whole dp as well. It is read here, in the
+    // composition, through a derived state, so a layout pass that changes it recomposes
+    // this scope once and reaches the effect below, and a layout pass that does not change
+    // it (a drag inside one class for a window that did not opt in) recomposes nothing.
+    // Reading the size only inside the effect would subscribe to nothing, and a window
+    // whose report depends on anything but the width class would never be told.
+    // Recomposition runs at most once a frame, so several layout passes in one frame are
+    // one report.
+    @Suppress("UNUSED_VARIABLE")
+    val reportKey = remember(host, windowNodeId, density, reportEveryDp) {
+        derivedStateOf {
+            val size = measuredSize ?: return@derivedStateOf -1L
+            with(density) { windowReportKey(size.width.toDp().value, size.height.toDp().value, reportEveryDp) }
+        }
+    }.value
+    SideEffect {
+        measuredSize?.let { size ->
+            with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
+        }
+    }
     // How much room the buttons take and at which end. The platform's own are at the
     // leading edge and the renderer's are wherever this design system puts them, so the
     // bar cannot assume either.
@@ -408,11 +745,33 @@ fun ComposeRustContent(
     // wherever focus is. Heard on the way back up from the focused node, so a text field
     // that wants the key keeps it.
     val sidebarShortcuts = remember(host) { dev.darkpyonix.composerust.foundation.SidebarShortcuts() }
+    val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
+    val dragWindow = LocalWindowDrag.current
+    val dragExclusion = remember { WindowDragExclusion() }
+    val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
+            if (!down.isConsumed && !dragExclusion.isMarked(down.id.value, down.uptimeMillis) && down.position.y < caption.height.toPx()) {
+                while (true) {
+                    val change = awaitPointerEvent(PointerEventPass.Final).changes.firstOrNull { it.id == down.id } ?: break
+                    if (change.isConsumed || !change.pressed) break
+                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) {
+                        change.consume()
+                        dragWindow()
+                        break
+                    }
+                }
+            }
+        }
+    } else Modifier
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
+        dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
+        LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,
         LocalWindowCaption provides barCaption,
+        LocalWindowCornerRadius provides caption.cornerRadius,
         LocalStripTakesTheTop provides (barIsCaption && stripTakesTheTop),
         LocalSystemBars provides bars,
     ) {
@@ -423,15 +782,26 @@ fun ComposeRustContent(
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
         SideEffect { platformWindowMaterial(asked) }
+        // Android's back closes the topmost overlay, as Escape does, and is left to the app
+        // when none is open. Where no platform installs a back hook this does nothing.
+        dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
+            overlayFocusStack.handleBack()
+        }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier
                     .then(measured)
-                    .onKeyEvent { event -> sidebarShortcuts.handle(event, platform) }
-                    .background(host.table.windowFill(host.roots, theme)),
+                    .then(dragStrip)
+                    .onKeyEvent { event ->
+                        overlayFocusStack.handleEscape(event) || sidebarShortcuts.handle(event, platform)
+                    }
+                    .background(host.table.windowFill(pageRoots, theme)),
             ) {
                 Box(Modifier.padding(top = pageTop, bottom = pageBottom)) {
-                    host.roots.forEach { rootId ->
+                    // Beside the roots, under the same locals, so a node measured here is
+                    // measured as the page lays it out. It takes no room.
+                    MeasuringStationLayout(station)
+                    (if (windowNodeId == 0) host.roots else listOf(windowNodeId)).forEach { rootId ->
                         androidx.compose.runtime.key(rootId) {
                             RenderNode(rootId, host.table, host)
                         }
@@ -457,7 +827,21 @@ fun ComposeRustContent(
                 }
                 // Over the content rather than in it: a message is not part of the tree,
                 // and it covers whatever it has to for as long as it is up.
-                HostMessages(host.table.messages, host.table.insets, host, theme)
+                // A message the application placed stays out of the strips nothing should
+                // be drawn under: the caption and a status bar along the top, a gesture
+                // bar or the keyboard along the bottom.
+                HostMessages(
+                    host.table.messages,
+                    host.table.insets,
+                    host,
+                    theme,
+                    dev.darkpyonix.composerust.foundation.MessageSafeArea(
+                        top = (caption.height + bars.top).coerceAtLeast(0.dp),
+                        bottom = maxOf(keyboard, bars.bottom).coerceAtLeast(0.dp),
+                        pageTop = pageTop,
+                        topBar = host.table.openingTopBar(pageRoots) ?: 0,
+                    ),
+                )
             }
         }
     }
@@ -540,6 +924,15 @@ data class WindowCaption(
      * same would draw its title through the time.
      */
     val insetTop: Dp = 0.dp,
+    /**
+     * How round the system made the window's corners, or zero where it does not say.
+     *
+     * Read from the window rather than written into a design system: macOS gives a window
+     * with a toolbar a larger radius than one without, and changes both between releases.
+     * A strip laid along the window's edge cuts its own corner concentric with this one.
+     */
+    val cornerRadius: Dp = 0.dp,
+    val fullSize: Boolean = false,
 ) {
     companion object {
         /** No strip to avoid: a system title bar, or a platform without one. */
@@ -556,6 +949,14 @@ data class WindowCaption(
  * line with everything beside it.
  */
 val LocalWindowCaption = staticCompositionLocalOf { WindowCaption.None }
+
+/**
+ * How round the system made the window's corners, or zero where it does not say.
+ *
+ * Separate from [LocalWindowCaption], which only a bar opening the tree receives: a
+ * sidebar beside that bar still stands inside the same window corner.
+ */
+val LocalWindowCornerRadius = staticCompositionLocalOf { 0.dp }
 
 /**
  * Whether a rail or a sidebar at the root of the tree runs to the top of the window and
@@ -575,6 +976,28 @@ private fun NodeTable.slotChild(node: Node, slot: SlotRole): Int? =
             (child.property(PropertyKind.Slot) as? PropertyValue.Integer)?.value?.toInt() ==
             slot.ordinal + 1
     }
+
+/**
+ * The top app bar the page opens with, followed the way [opensWithABar] follows it, or null
+ * when the first thing the tree draws is anything else.
+ *
+ * A message the application placed along the top keeps clear of this bar and of no other:
+ * a bar further down the page is part of the page, not chrome across the top of it.
+ */
+internal fun NodeTable.openingTopBar(roots: List<Int>): Int? {
+    var id = roots.firstOrNull() ?: return null
+    repeat(BAR_SEARCH_DEPTH) {
+        val node = node(id) ?: return null
+        when (node.widget) {
+            WidgetKind.TopAppBar -> return id
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.TopBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
+        }
+    }
+    return null
+}
 
 /**
  * True when the first thing the tree draws is a top app bar.
@@ -627,23 +1050,27 @@ internal fun NodeTable.opensWithABar(roots: List<Int>): Boolean {
  * the strip the system's gesture bar sits in: a nested one has content below it and would
  * leave a gap in the middle of the screen.
  */
-internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean {
-    var id = roots.firstOrNull() ?: return false
+internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean =
+    openingNavigation(roots) != null
+
+/** The navigation [opensWithANavigation] finds, or null where the page opens with none. */
+internal fun NodeTable.openingNavigation(roots: List<Int>): Node? {
+    var id = roots.firstOrNull() ?: return null
     repeat(BAR_SEARCH_DEPTH) {
-        val node = node(id) ?: return false
+        val node = node(id) ?: return null
         when (node.widget) {
-            WidgetKind.Navigation -> return true
+            WidgetKind.Navigation -> return node
             // The same wrappers the search above passes through, for the same reason:
             // they are not things the reader sees.
-            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return false
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
             // A frame's destinations are whatever fills its bottom slot, and the frame
             // owns the page around them, which is what this question is really asking.
-            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return false
-            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return false
-            else -> return false
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
         }
     }
-    return false
+    return null
 }
 
 /**
@@ -829,17 +1256,40 @@ val LocalSystemBars = staticCompositionLocalOf { SystemBars.None }
  * status bar, the way every application on a phone does. A navigation showing a bar along
  * the bottom takes the bottom strip for the same reason. What is left over is the page's,
  * because content running under a clock or a gesture bar is unreadable.
+ *
+ * The keyboard is the one thing nothing grows into. While it is up the page ends at its top
+ * edge, whatever took the bottom strip before, so the field being typed into and everything
+ * below it on the page are above the keyboard rather than under it. The top is not touched:
+ * the bar there stays where it was.
  */
 internal fun pageInsets(
     caption: WindowCaption,
     bars: SystemBars,
     barTakesTheTop: Boolean,
     navigationTakesTheBottom: Boolean,
+    keyboard: Dp = 0.dp,
 ): Pair<Dp, Dp> {
     // Never below nothing, whatever a platform measured. This is a padding, and a negative
     // one does not draw oddly: it throws, from inside composition, and takes the window
     // with it.
-    val top = if (barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
-    val bottom = if (navigationTakesTheBottom) 0.dp else bars.bottom
+    val top = if (caption.fullSize || barTakesTheTop) 0.dp else (caption.height + bars.top).coerceAtLeast(0.dp)
+    val bottom = when {
+        keyboard > 0.dp -> maxOf(keyboard, bars.bottom)
+        navigationTakesTheBottom -> 0.dp
+        else -> bars.bottom
+    }
     return top to bottom
+}
+
+/**
+ * How much of the window's bottom edge the on-screen keyboard covers, as the platform
+ * reports it. Zero where there is no on-screen keyboard.
+ *
+ * The window is the one it is read in: the page reads it for the application's window, and
+ * a sheet or a dialog reads it again inside its own (see `overlayKeyboardInset`).
+ *
+ * A hook so a test can put a keyboard on a desktop window, which has none.
+ */
+var platformKeyboardInset: @Composable () -> Dp = {
+    with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
 }

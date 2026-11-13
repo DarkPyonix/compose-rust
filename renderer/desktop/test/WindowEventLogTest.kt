@@ -1,7 +1,7 @@
 package dev.darkpyonix.composerust.test
 
-import dev.darkpyonix.composerust.ui.platform.WindowEvent
-import dev.darkpyonix.composerust.ui.platform.WindowEventLog
+import org.thisisthepy.compose.window.WindowEvent
+import org.thisisthepy.compose.window.WindowEventLog
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

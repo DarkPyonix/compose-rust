@@ -2,8 +2,9 @@
 # Builds the Rust Host as a wasm module and puts it where the page fetches it.
 # Usage: ./build-host.sh [--debug] [--sample <name>] [example]
 #
-# The default example is web_demo, the vertical slice, which is the Dioxus adapter's. Any
-# target that calls `dioxus_compose_adapter::web_main!` works the same way, which is what --sample reaches: a
+# The default example is compose-rust's web_host, a counter whose runtime is written by
+# hand, so the module carries no authoring layer. Any target that exports
+# `compose_rust_host_web_start` works the same way, which is what --sample reaches: a
 # sample is an rlib for its desktop binary and a cdylib here, because a page owns the
 # loop and there is no `main` of ours to run.
 #
@@ -20,9 +21,12 @@
 #   --initial-memory  Declares how large the imported memory has to be. The Renderer's
 #                     memory starts at zero pages, so the page grows it to this before the
 #                     two module types match.
-#
-# `--stack-first` must not be added. It would put the shadow stack below --global-base,
-# which is the half of the memory the Renderer is using.
+#   --no-stack-first  rustc's wasm32-unknown-unknown target passes --stack-first to wasm-ld
+#                     itself, which puts the shadow stack at the bottom of memory, below
+#                     --global-base and inside the Renderer's half. This flag is appended
+#                     after rustc's own argument, and the last one wins, so the stack sits
+#                     above the region base. scripts/tests/web-stack-placement.test.sh
+#                     checks the linked module.
 
 set -euo pipefail
 
@@ -32,7 +36,7 @@ repo_root="$(cd "$module_dir/../.." && pwd)"
 
 profile=release
 profile_dir=release
-example=web_demo
+example=web_host
 sample=
 expecting_sample=false
 for argument in "$@"; do
@@ -74,12 +78,13 @@ initial_memory=$((memory_pages * 65536))
 if [[ -n "$sample" ]]; then
     selector=(--package "sample-$sample" --lib)
 else
-    selector=(--package dioxus-compose-adapter --example "$example")
+    selector=(--package compose-rust --example "$example")
 fi
 
 RUSTFLAGS="-Clink-arg=--import-memory \
 -Clink-arg=--global-base=$region_base \
--Clink-arg=--initial-memory=$initial_memory" \
+-Clink-arg=--initial-memory=$initial_memory \
+-Clink-arg=--no-stack-first" \
     cargo build --manifest-path "$repo_root/Cargo.toml" \
     --profile "$profile" "${selector[@]}" --target "$target"
 

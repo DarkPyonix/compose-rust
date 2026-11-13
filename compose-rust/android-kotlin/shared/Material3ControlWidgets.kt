@@ -3,8 +3,10 @@ package dev.darkpyonix.composerust.design
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.unit.Dp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
@@ -43,7 +45,15 @@ internal object Material3ControlWidgets : ControlWidgets {
         onChange: ((Boolean) -> Unit)?,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
+        // The library's Switch and Checkbox have fixed metrics, so a size or a colour the
+        // application named for them is drawn by the shared control drawing instead, which
+        // also owns the transition and the toggle semantics.
+        if (look.appliesTo(role)) {
+            DrawnControlWidgets.Toggle(role, checked, enabled, onChange, modifier, theme, look)
+            return
+        }
         val primary = theme.color(ColorRole.Primary)
         val onPrimary = theme.color(ColorRole.OnPrimary)
         val outline = theme.color(ColorRole.Outline)
@@ -99,6 +109,7 @@ internal object Material3ControlWidgets : ControlWidgets {
         onChange: (Float) -> Unit,
         modifier: Modifier,
         theme: ResolvedTheme,
+        look: ControlLook,
     ) {
         val primary = named ?: theme.color(ColorRole.Primary)
         Slider(
@@ -109,9 +120,9 @@ internal object Material3ControlWidgets : ControlWidgets {
             valueRange = range,
             steps = steps,
             colors = SliderDefaults.colors(
-                thumbColor = primary,
-                activeTrackColor = primary,
-                inactiveTrackColor = theme.color(ColorRole.SurfaceVariant),
+                thumbColor = look.thumb ?: primary,
+                activeTrackColor = look.activeTrack ?: primary,
+                inactiveTrackColor = look.track ?: theme.color(ColorRole.SurfaceVariant),
             ),
         )
     }
@@ -123,20 +134,24 @@ internal object Material3ControlWidgets : ControlWidgets {
         circular: Boolean,
         modifier: Modifier,
         theme: ResolvedTheme,
+        diameter: Dp?,
     ) {
         val indicator = theme.color(ColorRole.Primary)
         val track = theme.color(ColorRole.SurfaceVariant)
+        val stroke = ringThickness(ProgressIndicatorDefaults.CircularStrokeWidth, diameter)
         when {
             circular && determinate -> CircularProgressIndicator(
                 progress = { value },
                 modifier = modifier,
                 color = indicator,
+                strokeWidth = stroke,
                 trackColor = track,
             )
 
             circular -> CircularProgressIndicator(
                 modifier = modifier,
                 color = indicator,
+                strokeWidth = stroke,
                 trackColor = track,
             )
 

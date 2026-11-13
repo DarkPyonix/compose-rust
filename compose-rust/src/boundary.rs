@@ -1,5 +1,6 @@
 use crate::Selection;
-use crate::protocol::{HostEvent, ProtocolError, decode_event};
+use crate::measure::MeasureResult;
+use crate::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError, decode_event};
 use crate::runtime::Runtime;
 use crate::schema::{
     AssetKind, EventPayload, IconRole, LoopMode, PROTOCOL_VERSION, SCHEMA_HASH, Theme,
@@ -19,6 +20,10 @@ pub const STATUS_PANIC: i32 = -4;
 /// There is no renderer in this build to run. Returned by the loop entry point, never by
 /// a boundary call: a call could not have got this far without a renderer to make it.
 pub const STATUS_NO_RENDERER: i32 = -5;
+/// The application identifier given to `LaunchBuilder::identifier` breaks the rules for one,
+/// so nothing was started. Returned by the loop entry point, never by a boundary call, and
+/// said in a sentence on the standard error first.
+pub const STATUS_INVALID_IDENTIFIER: i32 = -6;
 
 /// What the process exits with when the renderer loop does not finish successfully.
 ///
@@ -44,10 +49,14 @@ impl Default for MutationBatch {
     }
 }
 
+/// The Renderer's half of the boundary, as the Host calls it.
 #[derive(Clone, Copy)]
 pub struct RendererApi {
     pub run: extern "C" fn() -> c_int,
     pub request_frame: extern "C" fn(),
+    /// Reads `count` request records from the buffer and writes `count` results. Only on
+    /// the UI thread, and normally from inside a Host call the Renderer made.
+    pub measure: unsafe extern "C" fn(*const u8, u32, u32, *mut MeasureResult) -> i32,
 }
 
 static RENDERER_API: OnceLock<RendererApi> = OnceLock::new();
@@ -70,29 +79,21 @@ pub fn install_renderer_api(api: RendererApi) -> Result<(), RendererApi> {
 unsafe extern "C" {
     fn compose_rust_renderer_run() -> c_int;
     fn compose_rust_renderer_request_frame();
-}
-
-// Defined by the small library the Linux static renderer ships beside its archive. The
-// renderer finds the Host's functions with dlsym, so the application has to export them,
-// and that library is what makes the linker do it: it needs them, and a linker exports
-// from an executable what a library it links needs. Rust links with --as-needed, which
-// drops a library nothing refers to, so this byte is the reference that keeps it.
-#[cfg(all(
-    renderer_host_exports,
-    renderer_linked,
-    not(any(test, feature = "mock-renderer"))
-))]
-unsafe extern "C" {
-    static compose_rust_renderer_host_exports: u8;
+    fn compose_rust_renderer_measure(
+        requests: *const u8,
+        length: u32,
+        count: u32,
+        results: *mut MeasureResult,
+    ) -> i32;
 }
 
 #[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_run() -> c_int {
-    // A volatile read so that the reference survives optimisation. The value means
-    // nothing; being linked is the point.
-    #[cfg(renderer_host_exports)]
-    // SAFETY: a byte the library defines as a constant.
-    let _ = unsafe { std::ptr::read_volatile(&raw const compose_rust_renderer_host_exports) };
+    // The Linux static renderer refers to the five Host functions weakly, so that its own
+    // test executable links without a Host, and a weak reference does not make a linker
+    // pull in the code it names. This one does: running the renderer keeps them linked,
+    // whichever object file of this crate the compiler happened to put them in.
+    std::hint::black_box(&BOUNDARY_EXPORTS);
     // SAFETY: The application links the Renderer implementation of this declared C ABI.
     unsafe { compose_rust_renderer_run() }
 }
@@ -101,6 +102,20 @@ extern "C" fn native_run() -> c_int {
 extern "C" fn native_request_frame() {
     // SAFETY: The Renderer contract makes request_frame thread-safe.
     unsafe { compose_rust_renderer_request_frame() }
+}
+
+/// # Safety
+/// As `compose_rust_renderer_measure`: readable requests, writable results.
+#[cfg(all(renderer_linked, not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: The caller's promise is passed on unchanged, and the Renderer refuses a call
+    // from the wrong thread rather than measuring on it.
+    unsafe { compose_rust_renderer_measure(requests, length, count, results) }
 }
 
 // The mock renderer and the crate's own tests drive the boundary directly and never want
@@ -113,6 +128,10 @@ extern "C" fn native_run() -> c_int {
 #[cfg(any(test, feature = "mock-renderer"))]
 extern "C" fn native_request_frame() {}
 
+// The mock renderer answers by fixed rules, so a test of the Host can predict every size.
+#[cfg(any(test, feature = "mock-renderer"))]
+use crate::measure::fake_measure as native_measure;
+
 // A real build with no renderer. This used to return success, so an application built
 // this way opened no window, drew nothing, printed nothing and exited 0, and there was
 // no way to tell that from a program that had simply finished.
@@ -124,6 +143,18 @@ extern "C" fn native_run() -> c_int {
 
 #[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
 extern "C" fn native_request_frame() {}
+
+/// There is nothing to measure with, which the caller hears as a refusal and carries on
+/// past with every size at zero.
+#[cfg(all(not(renderer_linked), not(any(test, feature = "mock-renderer"))))]
+unsafe extern "C" fn native_measure(
+    _requests: *const u8,
+    _length: u32,
+    _count: u32,
+    _results: *mut MeasureResult,
+) -> i32 {
+    crate::measure::MEASURE_UNAVAILABLE
+}
 
 /// What a build with no renderer says on its way out.
 ///
@@ -151,7 +182,23 @@ fn renderer_api() -> RendererApi {
     RENDERER_API.get().copied().unwrap_or(RendererApi {
         run: native_run,
         request_frame: native_request_frame,
+        measure: native_measure,
     })
+}
+
+/// Asks the Renderer to measure, through whichever Renderer is installed.
+///
+/// Crate-internal: the safe way in is `measure::measurer`, which only hands out the right
+/// to call this inside a Host call. The pointers come from slices that outlive the call.
+pub(crate) fn renderer_measure(
+    requests: *const u8,
+    length: u32,
+    count: u32,
+    results: *mut MeasureResult,
+) -> i32 {
+    // SAFETY: the caller passes a readable buffer of `length` bytes and room for `count`
+    // results, both borrowed for the length of this call.
+    unsafe { (renderer_api().measure)(requests, length, count, results) }
 }
 
 /// Coalesced wake used internally by the runtime's scheduler waker.
@@ -304,6 +351,15 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // A clipboard write is the same: it belongs to the Host that asked for it.
+        crate::clipboard::reset_clipboard();
+        // A question about where a position is on screen was asked of the old Renderer.
+        crate::code::reset_position_queries();
+        // The Renderer reports its zoom again at start, and a level the last Host asked for
+        // and never sent is that Host's business.
+        crate::zoom::reset_zoom();
+        // The windows' commands and registrations belong to the Host that queued them.
+        crate::windows::reset_windows();
         // The assets do not go with them. The Renderer this Host is about to talk to has
         // an empty cache, so every registration has to be made again, which is what this
         // does: the ids stay as they were and the bytes are queued for the first batch.
@@ -325,6 +381,13 @@ impl Host {
             frame_waker: Waker::from(Arc::new(FrameWake)),
             pending_appends: Vec::new(),
         }
+    }
+
+    /// Replaces the window settings this Host was made with, which are the launch's. For a
+    /// test or a tool that builds a Host without launching an application, such as one
+    /// that wants several windows: `Window::new().with_windows()`.
+    pub fn set_window(&mut self, window: crate::schema::Window) {
+        self.window = window;
     }
 
     fn batch(&mut self) -> &mut crate::runtime::Batch {
@@ -390,7 +453,7 @@ impl Host {
     /// closes the batch. The tail every call that renders shares.
     fn render_and_finish(&mut self, result: i64) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(None);
         self.flush_messages();
         self.arm_scheduler_wake();
         Ok((self.runtime.batch_mut().finish()?, result))
@@ -420,7 +483,7 @@ impl Host {
         };
         self.batch().begin();
         if woke {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -437,7 +500,7 @@ impl Host {
     ) -> Result<(&[u8], i64), ProtocolError> {
         self.batch().begin();
         if crate::notification::publish_permission(state) {
-            self.runtime.render();
+            self.runtime.render(None);
         }
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -457,6 +520,203 @@ impl Host {
             return self.render_and_finish(0);
         }
         self.empty_batch()
+    }
+
+    /// Records how large the Renderer is drawing, and wakes the components that read it.
+    ///
+    /// The level the Renderer reports is also kept as the window's own, so a resync
+    /// rebuilds the window at the level the reader is looking at rather than at one the
+    /// application asked for before the reader changed it.
+    fn publish_zoom(&mut self, k: f32, os: f32, level: i32) -> Result<(&[u8], i64), ProtocolError> {
+        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
+        if self.window.zoom_level.is_some() {
+            self.window.zoom_level = Some(level);
+        }
+        if crate::zoom::publish(crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
+    /// Records how large one window is drawing, and wakes the components in that window
+    /// that read it.
+    fn publish_window_zoom(
+        &mut self,
+        window: u32,
+        k: f32,
+        os: f32,
+        level: i32,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
+        if crate::zoom::publish_window(window, crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
+    /// Hands a window nobody has a node for to the components that listen for one.
+    fn window_requested(&mut self, key: &str, request: u32) -> Result<(&[u8], i64), ProtocolError> {
+        let requested = crate::windows::WindowRequest {
+            key: key.to_owned(),
+            request,
+        };
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime
+                .run_in_context(&mut || delivered = crate::windows::deliver_request(&requested));
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands the end of a file dialog to the callback that asked for it.
+    ///
+    /// No node and no handler: a dialog is not in the tree, and the request number names the
+    /// callback. An answer nobody is waiting for is dropped.
+    fn file_dialog_result(
+        &mut self,
+        request: u32,
+        status: crate::schema::FileDialogStatus,
+        filter: u32,
+        paths: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::file_dialog::deliver(request, status, filter, paths)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands what a clipboard read found to the callback that asked for it.
+    ///
+    /// No node and no handler, like a file dialog's end: the request number names the
+    /// callback, and an answer nobody is waiting for is dropped.
+    fn clipboard_text(
+        &mut self,
+        request: u32,
+        status: u32,
+        len: u32,
+        text: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::clipboard::deliver_read(request, status, len, text)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands where a position of a code editor is to the query that asked. The callback
+    /// runs like a handler, and what it changes is in the batch this call returns. An
+    /// answer nobody is waiting for any more is dropped.
+    fn position_rect(
+        &mut self,
+        request: u32,
+        rect: Option<crate::code::CodeRect>,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::code::deliver_position_rect(request, rect)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands the Renderer's answer to whoever asked for it: an operation on a file picked on
+    /// the web when the request number has its top bit set, a storage operation otherwise.
+    ///
+    /// The future that waits for it wakes here, and what the code awaiting it changes is
+    /// in the batch this call returns. An answer nobody is waiting for any more is dropped.
+    fn io_answer(
+        &mut self,
+        request: u32,
+        status: crate::schema::IoStatus,
+        data: &[u8],
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut awaited = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                // File operations number their requests with the top bit set and storage
+                // never does, so the number alone says whose answer this is.
+                awaited = if request & crate::picked_file::REQUEST_BIT != 0 {
+                    crate::picked_file::deliver_io(request, status, data)
+                } else {
+                    crate::storage::deliver_answer(request, status, data)
+                }
+            });
+        }
+        if !awaited {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands files the Renderer now holds handles for to whoever asked: a folder's listing or
+    /// child, or a file dialog, which receives them as `webfile:` references.
+    #[allow(clippy::too_many_arguments)]
+    fn file_handles(
+        &mut self,
+        request: u32,
+        status: crate::schema::FileDialogStatus,
+        filter: u32,
+        delivery: crate::schema::FileDelivery,
+        first_handle: u32,
+        names: &str,
+        kinds: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::picked_file::deliver_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                )
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Tells the components that listen that the application was opened with no window.
+    fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime
+                .run_in_context(&mut || delivered = crate::windows::deliver_reopen());
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
     }
 
     pub fn dispatch(&mut self, event: HostEvent<'_>) -> Result<(&[u8], i64), ProtocolError> {
@@ -482,6 +742,160 @@ impl Host {
                 }
                 return self.publish_notification_permission(state);
             }
+            // About the platform, like the permission above: no node and no handler, and
+            // a repeat of the same answer wakes nobody.
+            EventPayload::ReducedMotionChanged(state) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                self.batch().begin();
+                if crate::animation::publish_reduced_motion(state) {
+                    self.runtime.render(None);
+                }
+                self.flush_messages();
+                self.arm_scheduler_wake();
+                return Ok((self.runtime.batch_mut().finish()?, 0));
+            }
+            // A moment in an animation the Renderer is playing. It names the node the
+            // animation plays on but no handler: whoever registered for animation events
+            // hears about it, and what they change is rendered in the same call, so a
+            // handler that starts the next animation does not leave a frame between them.
+            EventPayload::AnimationEvent {
+                animation_id,
+                kind,
+                property,
+                slot,
+                iteration,
+                elapsed_ms,
+                time_nanos,
+            } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                let moment = crate::animation::AnimationMoment {
+                    node_id: event.node_id,
+                    animation_id,
+                    kind,
+                    property,
+                    slot,
+                    iteration,
+                    elapsed_ms,
+                    time_nanos,
+                };
+                let _dispatch_guard = EventDispatchGuard::enter();
+                let mut delivered = false;
+                self.runtime
+                    .run_in_context(&mut || delivered = crate::animation::deliver(moment));
+                if !delivered {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
+            }
+            EventPayload::ZoomChanged { k, os, level } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                // In a multi-window application the report names the window it is about
+                //; a single window's is node 0.
+                if event.node_id != 0 {
+                    if !self.runtime.is_window(event.node_id) {
+                        return Err(ProtocolError::InvalidValueKind(0));
+                    }
+                    return self.publish_window_zoom(event.node_id, k, os, level);
+                }
+                return self.publish_zoom(k, os, level);
+            }
+            // The two events that belong to the application and to no window: no node and
+            // no handler, and an answer before anything is looked up.
+            EventPayload::WindowRequested { key, request } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.window_requested(key, request);
+            }
+            EventPayload::ApplicationReopen => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.application_reopen();
+            }
+            // The end of a file dialog: the Host's own business, found by request number.
+            EventPayload::FileDialogResult {
+                request,
+                status,
+                filter,
+                paths,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.file_dialog_result(request, status, filter, paths);
+            }
+            // What a clipboard read found: the Host's own business, found by request number.
+            EventPayload::ClipboardText {
+                request,
+                status,
+                len,
+                text,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.clipboard_text(request, status, len, text);
+            }
+            // The answer to a storage operation, or to an operation on a file picked on the
+            // web, found by request number like a clipboard read.
+            EventPayload::IoAnswer {
+                request,
+                status,
+                data,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.io_answer(request, status, data);
+            }
+            // Files the Renderer holds handles for, for a dialog or a folder that asked.
+            EventPayload::FileHandles {
+                request,
+                status,
+                filter,
+                delivery,
+                first_handle,
+                names,
+                kinds,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.file_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                );
+            }
+            // Where a position of a code editor is on screen: the answer to a query an
+            // application asked, found by request number. It names the editor it is about
+            // and no handler.
+            EventPayload::PositionRect { request, rect } => {
+                if event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.position_rect(request, rect);
+            }
+            // Where Android keeps the application's files. Operations that were waiting for
+            // it go to the storage thread, which wakes them when they finish.
+            EventPayload::StorageLocation(path) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                crate::storage::set_android_files(path);
+                return self.empty_batch();
+            }
             _ => {}
         }
         // The window's size belongs to no node and no handler: the Renderer measures the
@@ -492,12 +906,28 @@ impl Host {
             height_dp,
             class,
             height_class,
+            safe_area_top,
+            safe_area_leading,
+            safe_area_trailing,
         } = event.payload
         {
             // Node id zero is the window; anything else is one of its nodes. One event
             // for both, because they are the same fact measured at two scales and a
             // second way of saying it would be a second thing to keep in step.
-            let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class);
+            let size = crate::window::WindowSize::new(width_dp, height_dp, class, height_class)
+                .with_safe_area(crate::window::WindowSafeArea {
+                    top: safe_area_top,
+                    leading: safe_area_leading,
+                    trailing: safe_area_trailing,
+                });
+            // A window's report names the window's node, and that is not an
+            // observed node: it is the same fact for a window of its own.
+            if event.node_id != 0 && self.runtime.is_window(event.node_id) {
+                if !crate::window::publish_window(event.node_id, size) {
+                    return self.empty_batch();
+                }
+                return self.render_and_finish(0);
+            }
             if event.node_id != 0 {
                 let woke = self
                     .runtime
@@ -535,7 +965,7 @@ impl Host {
         self.render_and_finish(result)
     }
 
-    pub fn render_frame(&mut self, _frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
+    pub fn render_frame(&mut self, frame_time_nanos: u64) -> Result<&[u8], ProtocolError> {
         let _call = HostCallGuard::enter();
         if LIFECYCLE_SUPPRESSED.load(Ordering::Acquire) {
             // The platform has the UI off screen and the Renderer called anyway, which it
@@ -551,7 +981,7 @@ impl Host {
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
         self.batch().begin();
-        self.runtime.render();
+        self.runtime.render(Some(frame_time_nanos));
         self.flush_pending_appends();
         self.flush_messages();
         self.arm_scheduler_wake();
@@ -591,6 +1021,32 @@ impl Host {
             self.theme = theme;
             self.batch().set_theme(theme);
         }
+        // A zoom level the application asked for, on the window record that carries it.
+        if let Some(level) = crate::zoom::take_pending_level() {
+            self.window.zoom_level = Some(level);
+            let window = self.window;
+            self.batch().set_window(window);
+        }
+        // What the application asked of a window that happens once: forward, a theme of its
+        // own, a zoom level of its own.
+        {
+            let batch = self.runtime.batch_mut();
+            crate::windows::drain_commands(|command| match command {
+                crate::windows::Command::Focus(node_id) => {
+                    batch.write(Mutation::FocusWindow { node_id });
+                }
+                crate::windows::Command::Theme(node_id, theme) => {
+                    batch.write(Mutation::SetWindowTheme { node_id, theme });
+                }
+                crate::windows::Command::ZoomLevel(node_id, level) => {
+                    batch.write(Mutation::SetProp {
+                        node_id,
+                        property: crate::schema::PropertyKind::WindowZoomLevel,
+                        value: PropertyValue::Integer(i64::from(level)),
+                    });
+                }
+            });
+        }
         let batch = self.runtime.batch_mut();
         // Registrations first. Not because the Renderer needs them first, it applies the
         // whole batch before drawing any of it, but because a batch read by a person
@@ -598,15 +1054,40 @@ impl Host {
         crate::asset::drain(|pending| {
             batch.register_asset(pending.asset_id, pending.kind, pending.bytes);
         });
+        crate::asset::drain_releases(|asset_id| batch.release_asset(asset_id));
         crate::message::drain(|message| {
-            batch.show_message(
+            batch.show_placed_message(
                 message.handler_id,
                 &message.text,
                 &message.action,
                 message.duration,
+                message.placement,
+                message.offset_dp,
             );
         });
         self.flush_notifications();
+        // Text the application asked to put on the clipboard, in the order it asked.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain(|text| batch.set_clipboard_text(text));
+        // Clipboard reads, each answered later by one event with its number.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain_reads(|request| batch.read_clipboard(request));
+        // Storage operations the Renderer carries out, on the web, in the order asked.
+        let batch = self.runtime.batch_mut();
+        crate::storage::drain_calls(|call| batch.storage_call(call));
+        // File dialogs an application asked for, from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::file_dialog::drain(|request| batch.file_dialog(request));
+        // Handles the Host let go of, then the operations asked of the files it holds.
+        let batch = self.runtime.batch_mut();
+        let calls = std::cell::RefCell::new(batch);
+        crate::picked_file::drain(
+            |handle| calls.borrow_mut().release_file_handle(handle),
+            |call| calls.borrow_mut().file_call(call),
+        );
+        // Animations an application started from a handler, a component or a worker.
+        let batch = self.runtime.batch_mut();
+        crate::animation::drain(|mutation| batch.write(mutation));
     }
 
     /// Writes the notification commands waiting in the Host into this batch.
@@ -763,6 +1244,8 @@ pub struct LaunchBuilder {
     mode: LoopMode,
     theme: Theme,
     window: crate::schema::Window,
+    /// Kept as a leaked string so the builder stays `Copy`. It is set once per launch.
+    identifier: Option<&'static str>,
 }
 
 impl Default for LaunchBuilder {
@@ -771,6 +1254,7 @@ impl Default for LaunchBuilder {
             mode: LoopMode::Renderer,
             theme: Theme::default(),
             window: crate::schema::Window::new(),
+            identifier: None,
         }
     }
 }
@@ -801,7 +1285,48 @@ impl LaunchBuilder {
     /// be said here is short on purpose: nothing names a colour, a corner, or where the
     /// window buttons go.
     pub fn with_window(mut self, window: crate::schema::Window) -> Self {
+        let (mode, policy) = (self.window.mode, self.window.last_window_closed);
         self.window = window;
+        // A builder that already asked for windows keeps asking, whichever order the two
+        // calls came in.
+        if mode == crate::schema::WindowMode::Windows {
+            self.window.mode = mode;
+            self.window.last_window_closed = policy;
+        }
+        self
+    }
+
+    /// Runs several windows in one process: the root's children are `Window`
+    /// nodes, each a platform window, and they share one composition and one set of
+    /// states. Without this the root's content fills the one window.
+    ///
+    /// The window that closes last ends the application, except on macOS where the
+    /// application stays; [`LaunchBuilder::on_last_window_closed`] chooses.
+    pub fn windows(mut self) -> Self {
+        self.window = self.window.with_windows();
+        self
+    }
+
+    /// What happens when the last `Window` node is removed. Mobile platforms
+    /// ignore it: the system decides how long the process lives.
+    pub fn on_last_window_closed(mut self, policy: crate::schema::LastWindowClosed) -> Self {
+        self.window = self.window.with_last_window_closed(policy);
+        self
+    }
+
+    /// The application's identifier, which names its storage (`compose_rust::storage`).
+    ///
+    /// Use the same value as `[bundle] identifier` in the application's `Dioxus.toml`,
+    /// such as `"dev.darkpyonix.composerust.samples.todo"`. It is not read from anywhere
+    /// else: a bundle, a package name or an executable name would give the same program a
+    /// different storage depending on how it was started, and the web has none of them.
+    ///
+    /// It is 1 to 255 bytes of ASCII letters, digits, `.` and `-`, because it names a
+    /// directory and a browser database as it is. One that is not stops the launch before
+    /// anything starts, with a sentence that says what is wrong and a failing exit status.
+    /// An application that never uses storage does not need one.
+    pub fn identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.identifier = Some(Box::leak(identifier.into().into_boxed_str()));
         self
     }
 
@@ -829,6 +1354,13 @@ impl LaunchBuilder {
         self,
         runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
     ) -> i32 {
+        // Before anything starts: an identifier that cannot name a directory would only
+        // fail later, at the first save, far from the line that set it.
+        if let Some(Err(problem)) = self.identifier.map(crate::storage::validate_identifier) {
+            eprintln!("compose-rust: {problem}");
+            return STATUS_INVALID_IDENTIFIER;
+        }
+        crate::storage::set_identifier(self.identifier);
         let factory: RuntimeFactory = Arc::new(runtime);
         if let Ok(mut slot) = APP.lock() {
             *slot = Some(factory);
@@ -1340,45 +1872,73 @@ static BOUNDARY_EXPORTS: BoundaryExports = BoundaryExports([
     compose_rust_host_shutdown as *const (),
 ]);
 
-/// The same five names, as a linker directive the object file carries.
-///
-/// The Renderer finds these with GetProcAddress against the running executable, which
-/// reads the PE export table, and an executable has no export table unless the link is
-/// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
-/// reach the binaries of this package and no further: Cargo does not pass a dependency's
-/// link arguments on to whatever depends on it.
-///
-/// So every application built on this crate linked without an export table, the Renderer
-/// could not reach back into it, and the window came up empty. It looked like it worked
-/// because the only Windows binaries anyone had run were this package's own examples.
-///
-/// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
-/// reads that section out of every object it links, so the directive travels inside the
-/// rlib and applies wherever the rlib ends up.
+// The same five names, as a linker directive the object file carries.
+//
+// The Renderer finds these with GetProcAddress against the running executable, which
+// reads the PE export table, and an executable has no export table unless the link is
+// told to make one. The build script asks for that with `/EXPORT:` arguments, and those
+// reach the binaries of this package and no further: Cargo does not pass a dependency's
+// link arguments on to whatever depends on it.
+//
+// So every application built on this crate linked without an export table, the Renderer
+// could not reach back into it, and the window came up empty. It looked like it worked
+// because the only Windows binaries anyone had run were this package's own examples.
+//
+// `.drectve` is how an object file carries linker arguments of its own. The MSVC linker
+// reads that section out of every object it links, so the directive travels inside the
+// rlib and applies wherever the rlib ends up.
 #[cfg(all(target_os = "windows", target_env = "msvc"))]
-const EXPORT_DIRECTIVES: &str = concat!(
-    " /EXPORT:compose_rust_host_init",
-    " /EXPORT:compose_rust_host_dispatch_event",
-    " /EXPORT:compose_rust_host_render_frame",
-    " /EXPORT:compose_rust_host_release_batch",
-    " /EXPORT:compose_rust_host_shutdown",
+core::arch::global_asm!(
+    // A section of directives and nothing else, in the COFF flags the MSVC linker reads
+    // them from: information only ("i") and dropped from the image ("n").
+    //
+    // Assembled rather than written as a `static` placed in the section. A static is a
+    // symbol, and a crate's own DLL asks for every symbol it keeps by name; the LLVM linker
+    // takes the section's bytes as directives, keeps no symbol for them, and the DLL then
+    // fails to link on a symbol nobody can define.
+    ".section .drectve,\"yni\"",
+    ".ascii \" /EXPORT:compose_rust_host_init\"",
+    ".ascii \" /EXPORT:compose_rust_host_dispatch_event\"",
+    ".ascii \" /EXPORT:compose_rust_host_render_frame\"",
+    ".ascii \" /EXPORT:compose_rust_host_release_batch\"",
+    ".ascii \" /EXPORT:compose_rust_host_shutdown\"",
+    ".text",
 );
 
-#[cfg(all(target_os = "windows", target_env = "msvc"))]
-#[used]
-#[unsafe(link_section = ".drectve")]
-static EXPORT_DIRECTIVE_BYTES: [u8; EXPORT_DIRECTIVES.len()] = {
-    let source = EXPORT_DIRECTIVES.as_bytes();
-    let mut bytes = [0u8; EXPORT_DIRECTIVES.len()];
-    let mut index = 0;
-    while index < source.len() {
-        bytes[index] = source[index];
-        index += 1;
-    }
-    bytes
-};
+// Which C runtime an application linking the Kotlin/Native Windows renderer gets, said
+// where the linker reads it from every object: the build script cannot say it, for the
+// same reason it cannot ask for the exports above.
+//
+// Set by the build script when it links that renderer and the application asked for
+// nothing (`build/windows_crt.rs` says why each of these is here). The Universal C Runtime
+// stays the DLL that is part of Windows; vcruntime and the C++ standard library are linked
+// in, so the executable needs no Visual C++ runtime DLL beside it. An application that asked
+// for `+crt-static` links all of it statically and needs none of these.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_linked_in))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:vcruntime.lib\"",
+    ".ascii \" /DEFAULTLIB:libvcruntime.lib\"",
+    ".ascii \" /NODEFAULTLIB:msvcprt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".ascii \" /INCLUDE:longjmp\"",
+    ".text",
+);
 
-/// Never read. Being referenced is the entire contract.
+// The same for an application that asked for vcruntime from its DLL
+// (`DXC_WINDOWS_CRT=dynamic`): the stock static C++ library and C runtime that a prebuilt
+// object may still name as defaults would define, a second time, what the build script's
+// blanked copy and the DLLs' import libraries already do.
+#[cfg(all(target_os = "windows", target_env = "msvc", windows_crt_dynamic))]
+core::arch::global_asm!(
+    ".section .drectve,\"yni\"",
+    ".ascii \" /NODEFAULTLIB:libcpmt.lib\"",
+    ".ascii \" /NODEFAULTLIB:libcmt.lib\"",
+    ".text",
+);
+
+// Never read. Being referenced is the entire contract.
 struct BoundaryExports(#[allow(dead_code)] [*const (); 5]);
 
 // SAFETY: The addresses are written once, at compile time, and never read. A static has

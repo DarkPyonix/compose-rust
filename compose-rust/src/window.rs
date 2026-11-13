@@ -10,6 +10,14 @@ use crate::schema::{WindowHeightClass, WindowSizeClass};
 use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
+/// Insets in dp needed to avoid the window controls.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WindowSafeArea {
+    pub top: f32,
+    pub leading: f32,
+    pub trailing: f32,
+}
+
 /// The window's size, as the Renderer last measured it.
 ///
 /// `width_dp` and `height_dp` are density-independent pixels, the same unit gesture
@@ -22,6 +30,7 @@ pub struct WindowSize {
     pub height_dp: f32,
     pub class: WindowSizeClass,
     pub height_class: WindowHeightClass,
+    pub safe_area: WindowSafeArea,
 }
 
 impl WindowSize {
@@ -36,7 +45,17 @@ impl WindowSize {
             height_dp,
             class,
             height_class,
+            safe_area: WindowSafeArea {
+                top: 0.0,
+                leading: 0.0,
+                trailing: 0.0,
+            },
         }
+    }
+
+    pub const fn with_safe_area(mut self, safe_area: WindowSafeArea) -> Self {
+        self.safe_area = safe_area;
+        self
     }
 
     /// Phone-shaped: narrower than 600dp. One column.
@@ -104,14 +123,107 @@ thread_local! {
         height_dp: 0.0,
         class: WindowSizeClass::Compact,
         height_class: WindowHeightClass::Compact,
+        safe_area: WindowSafeArea { top: 0.0, leading: 0.0, trailing: 0.0 },
     }) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
+    /// What each window of a multi-window application last measured, by the id of its
+    /// `Window` node. Empty in a single-window application, which keeps its one
+    /// value in `CURRENT`.
+    static WINDOWS: RefCell<Vec<(u32, WindowSize)>> = const { RefCell::new(Vec::new()) };
+    static WINDOW_SUBSCRIBERS: RefCell<Vec<(u32, Subscriber)>> = const { RefCell::new(Vec::new()) };
     static NEXT_SUBSCRIBER_ID: Cell<u64> = const { Cell::new(1) };
 }
 
 /// The size the Renderer last reported. Available outside a component too.
+///
+/// In a multi-window application it is the size of the window the caller is in:
+/// the window a composable is composed in, or the window whose node a handler was called
+/// for. Outside any window it is the single window's, which a multi-window application
+/// never has, so it reads as the default.
 pub fn window_size() -> WindowSize {
-    CURRENT.with(Cell::get)
+    match crate::windows::current_window_id() {
+        0 => CURRENT.with(Cell::get),
+        window => window_size_of(window),
+    }
+}
+
+/// The size a window last measured, by the id of its `Window` node, or the default for one
+/// nothing has reported yet.
+pub fn window_size_of(window: u32) -> WindowSize {
+    WINDOWS.with_borrow(|windows| {
+        windows
+            .iter()
+            .find(|(id, _)| *id == window)
+            .map(|(_, size)| *size)
+            .unwrap_or_default()
+    })
+}
+
+/// Records one window's measurement and wakes the components in that window that read it.
+/// Returns whether anything was woken. A report for another window wakes nobody here.
+pub(crate) fn publish_window(window: u32, size: WindowSize) -> bool {
+    let changed =
+        WINDOWS.with_borrow_mut(
+            |windows| match windows.iter_mut().find(|(id, _)| *id == window) {
+                Some(entry) => {
+                    if entry.1 == size {
+                        return false;
+                    }
+                    entry.1 = size;
+                    true
+                }
+                None => {
+                    windows.push((window, size));
+                    true
+                }
+            },
+        );
+    if !changed {
+        return false;
+    }
+    WINDOW_SUBSCRIBERS.with_borrow(|subscribers| {
+        let mut woke = false;
+        for (id, subscriber) in subscribers {
+            if *id == window {
+                (subscriber.notify)();
+                woke = true;
+            }
+        }
+        woke
+    })
+}
+
+/// How many windows' sizes and subscriptions are held.
+pub(crate) fn window_state_len() -> usize {
+    WINDOWS.with_borrow(Vec::len) + WINDOW_SUBSCRIBERS.with_borrow(Vec::len)
+}
+
+/// Forgets a window that left the tree, and what it measured.
+pub(crate) fn forget_window(window: u32) {
+    WINDOWS.with_borrow_mut(|windows| windows.retain(|(id, _)| *id != window));
+}
+
+/// A registration for one window's size class. Dropping it ends the registration.
+pub struct WindowSubscription {
+    id: u64,
+}
+
+/// Registers `notify` to be called each time the window `window` measures a different
+/// size class.
+pub fn subscribe_window(window: u32, notify: Arc<dyn Fn() + Send + Sync>) -> WindowSubscription {
+    let id = next_subscriber_id();
+    WINDOW_SUBSCRIBERS.with_borrow_mut(|subscribers| {
+        subscribers.push((window, Subscriber { id, notify }));
+    });
+    WindowSubscription { id }
+}
+
+impl Drop for WindowSubscription {
+    fn drop(&mut self) {
+        WINDOW_SUBSCRIBERS.with_borrow_mut(|subscribers| {
+            subscribers.retain(|(_, subscriber)| subscriber.id != self.id);
+        });
+    }
 }
 
 /// Records a new measurement and wakes the components that asked about it.
@@ -185,6 +297,8 @@ pub fn reset_window_size() {
     SUBSCRIBERS.with_borrow_mut(Vec::clear);
     NODES.with_borrow_mut(Vec::clear);
     NODE_SUBSCRIBERS.with_borrow_mut(Vec::clear);
+    WINDOWS.with_borrow_mut(Vec::clear);
+    WINDOW_SUBSCRIBERS.with_borrow_mut(Vec::clear);
 }
 
 /// A registration for changes of the window's size class. Dropping it ends the
@@ -330,6 +444,27 @@ impl Drop for NodeSizeSubscription {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fr19_9_safe_area_only_change_republishes() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        reset_window_size();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let _subscription = subscribe(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        let size = WindowSize::default().with_safe_area(WindowSafeArea {
+            top: 28.0,
+            leading: 70.0,
+            trailing: 0.0,
+        });
+        assert!(publish(size));
+        assert_eq!(window_size(), size);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(!publish(size));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
 
     #[test]
     fn fr20_window_size_starts_compact_before_the_renderer_measures_anything() {

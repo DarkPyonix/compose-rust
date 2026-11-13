@@ -40,6 +40,19 @@ if [[ -n "$sizes" ]]; then
     status=1
 fi
 
+# The same sizes given through the builders, which is how the samples are written now. The
+# argument is a literal or a constant either way, and naming a number does not make it a
+# role: the chat sample carried nine of them past the check above. The `_role` builders
+# (`padding_role`, `space_role`, `shape_role`) are the roles, and `width_if` takes the
+# measure the size class gives, so neither matches.
+builders="$(grep -nE '\.(padding|padding_each|spacing|corner_radius|elevation|border_width|width|height|size|required_size|offset|font_size|line_height|letter_spacing)\(\s*[^)[:space:]]' $sources \
+    | grep -vE '^[^:]+:[0-9]+:\s*(//|///)' || true)"
+if [[ -n "$builders" ]]; then
+    echo "error: a sample gives a widget a size in dp instead of a role" >&2
+    echo "$builders" >&2
+    status=1
+fi
+
 if [[ $status -eq 0 ]]; then
     echo "ok    samples speak in roles"
 fi

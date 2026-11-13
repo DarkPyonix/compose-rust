@@ -1,8 +1,9 @@
 package dev.darkpyonix.composerust.design
 
-// A copy of GlassMaterial.kt from the liquid-glass module of the design-systems
-// project, with the package changed and SurfaceMaterial taken from this module rather
-// than from that project's core. That project is published on its own and must never
+// A copy of GlassMaterial.kt from the liquid-glass module of the design systems project, which
+// lives in thisisthepy/compose-multiplatform-core-extended under extended/design-systems,
+// with the package changed and SurfaceMaterial taken from this module rather than from
+// that project's core. That project is published on its own and must never
 // depend on the renderer, so the material exists twice deliberately. Copies run in one
 // direction: change the design systems file first, then bring the change here.
 
@@ -17,7 +18,8 @@ import androidx.compose.ui.unit.dp
  * Most surfaces are a flat colour. Apple's are not: since iOS 26 and macOS 26 they
  * translucently tint what is behind them and catch light along their edges.
  *
- * This mirrors the type of the same name in the design systems project's core module.
+ * This mirrors the type of the same name in the design systems project's core module
+ * (extended/design-systems in thisisthepy/compose-multiplatform-core-extended).
  * The two are kept identical by hand because that project must stay publishable without
  * the renderer, and the renderer must stay buildable without it.
  */

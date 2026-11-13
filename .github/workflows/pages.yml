@@ -1,7 +1,18 @@
-# Publishes the guide site (docs/guide) to GitHub Pages.
+# Publishes the guide site (docs/guide) to GitHub Pages, with every sample as a page a
+# reader can run in the browser at /samples/<name>/.
 #
-# The site is hand-written HTML with no build step, so this only uploads the directory.
-# Pages is configured for workflow deployment on the custom domain darkpyonix.dev.
+# The guide is hand-written HTML with no build step. The sample pages are not built here:
+# the samples workflow builds them for a `sample-v*` tag on main and releases them as one
+# archive (samples-web.tar.gz), and this downloads that archive from `samples-latest`, or
+# from the release a dispatch names. Building them here would repeat a build of tens of
+# minutes on every edit to the guide, and the pages served are then the ones from a tagged
+# commit of main. A sample that has a src/main.rs but no page in the archive fails the run,
+# so a broken web build is reported rather than hidden behind a missing link.
+#
+# Only main deploys. A pull request or a dispatch on another branch assembles the same
+# site and uploads it as the run's artifact, so the result can be checked without
+# replacing what is live. Pages is configured for workflow deployment on the custom domain
+# darkpyonix.dev.
 name: Pages
 
 on:
@@ -9,26 +20,34 @@ on:
     branches: [main]
     paths:
       - docs/guide/**
+      - .github/scripts/pages/**
+      - .github/workflows/pages.yml
+  pull_request:
+    paths:
+      - docs/guide/**
+      - .github/scripts/pages/**
       - .github/workflows/pages.yml
   workflow_dispatch:
+    inputs:
+      samples_release:
+        description: 'Release to take the web samples from; empty means samples-latest, or the newest sample-v* release before that exists'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  # Never let two deployments race; a later commit wins, but a running deploy finishes.
-  group: pages
-  cancel-in-progress: false
+  # Never let two deployments race: runs on main share one group, a later commit wins, and
+  # a running deploy finishes. A pull request's newer commit cancels its older run.
+  group: pages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  deploy:
+  build:
+    name: Assemble the guide and the sample pages
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -39,11 +58,43 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/configure-pages@v5
+      - name: Download the web samples from the release
+        id: fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SAMPLES_RELEASE: ${{ inputs.samples_release }}
+        run: |
+          set -euo pipefail
+          result="$(.github/scripts/pages/fetch-web-samples.sh "$RUNNER_TEMP/web-samples" "$SAMPLES_RELEASE")"
+          echo "$result"
+          echo "$result" >> "$GITHUB_OUTPUT"
+
+      - name: Put every sample under samples/
+        run: |
+          set -euo pipefail
+          cp -R docs/guide "$RUNNER_TEMP/site"
+          .github/scripts/pages/place-web-samples.sh \
+            "$RUNNER_TEMP/web-samples/samples-web.tar.gz" "$RUNNER_TEMP/site"
+          echo "Sample pages from release ${{ steps.fetch.outputs.release }}." >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/guide
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    name: Deploy the guide to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
 
       - id: deployment
         uses: actions/deploy-pages@v4

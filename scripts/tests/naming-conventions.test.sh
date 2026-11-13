@@ -15,12 +15,12 @@ cd "$repo_root"
 
 failures=0
 
-# Every `#[unsafe(no_mangle)] pub extern "C" fn` in the crate and in the Dioxus adapter,
-# whose entry macros export into every application built with it, by the name it exports.
+# Every `#[unsafe(no_mangle)] pub extern "C" fn` in the crate and in its examples, which
+# export the web entry point the way an application does, by the name it exports.
 # Six lines of context rather than three, and `unsafe` allowed between `pub` and
 # `extern`. The first version of this read neither, found nine of the thirteen, and
 # passed while a renamed export sat in the four it could not see.
-exported="$(grep -rEh -A 6 'no_mangle' --include='*.rs' compose-rust/src adapters/dioxus/src |
+exported="$(grep -rEh -A 6 'no_mangle' --include='*.rs' compose-rust/src compose-rust/examples |
     grep -oE 'pub (unsafe )?extern "C" fn [a-zA-Z0-9_]+' |
     sed -E 's/pub (unsafe )?extern "C" fn //' | sort -u)"
 

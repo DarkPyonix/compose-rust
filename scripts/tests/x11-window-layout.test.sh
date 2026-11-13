@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
 # Compare all three event records everywhere. On Linux, also ask C for the actual
-# offsets and sizes that the Kotlin reader uses.
+# offsets and sizes that the Kotlin readers use.
+#
+# The X11 and AppKit windows, their C and their Kotlin readers are the Compose fork's
+# graalvm-linux and graalvm-macos modules, and the Windows window is its windows-shared
+# module, all read here at the commit the renderer pins.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/x11_window.c"
-appkit_source="$repo_root/renderer/desktop/c/appkit_window.m"
-win32_source="$repo_root/renderer/desktop/c/win32_window.c"
-kotlin_file="$repo_root/renderer/desktop/src/X11Window.kt"
-event_reader="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+source_file="$fork_window/graalvm/graalvm-linux/c/x11_window.c"
+appkit_source="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+win32_source="$fork_window/windows-shared/c/win32_window.c"
+kotlin_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Window.kt"
+layout_file="$fork_window/graalvm/graalvm-linux/src/org/thisisthepy/compose/window/graalvm/linux/X11Natives.kt"
+event_reader="$kotlin_file"
 for file in "$source_file" "$appkit_source" "$win32_source" "$kotlin_file" "$event_reader"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
 
 declaration() {
     sed -n '/^struct dxc_event {/,/^};/p' "$1" | sed 's://.*::' | tr -s ' \t\n' ' '
-}
-element_declaration() {
-    sed -n '/^struct dxc_element {/,/^};/p' "$1" | sed 's://.*::' | tr -s ' \t\n' ' '
 }
 x11_event="$(declaration "$source_file")"
 appkit_event="$(declaration "$appkit_source")"
@@ -26,15 +30,10 @@ if [[ -z "$x11_event" || "$x11_event" != "$appkit_event" || "$x11_event" != "$wi
     echo "fail: the three windows declare different dxc_event fields or order"
     exit 1
 fi
-# What the window tells a reader who cannot see it. The renderer writes these records once
-# and every platform reads that one layout, so a field that moved in one file only would
-# have one window reading a label where another reads a rectangle.
-x11_element="$(element_declaration "$source_file")"
-appkit_element="$(element_declaration "$appkit_source")"
-if [[ -z "$x11_element" || "$x11_element" != "$appkit_element" ]]; then
-    echo "fail: the X11 and macOS windows declare different dxc_element fields or order"
-    exit 1
-fi
+# What the window tells a reader who cannot see it is no longer one shared record. The X11
+# window answers screen readers over AT-SPI from Kotlin, and the AppKit window has a record of
+# its own (struct dxc_ax_element in appkit_accessibility.h), whose layout the fork's
+# appkit_window_test.m checks with offsetof against the Kotlin that writes it.
 
 text_bytes="$(grep '^#define DXC_TEXT_BYTES ' "$source_file")"
 if [[ "$text_bytes" != "$(grep '^#define DXC_TEXT_BYTES ' "$appkit_source")" ||
@@ -59,7 +58,6 @@ probe="$work/x11-window-layout.c"
     grep '^#define DXC_TEXT_BYTES' "$source_file"
     sed -n '/^struct dxc_native_window {/,/^};/p' "$source_file"
     sed -n '/^struct dxc_event {/,/^};/p' "$source_file"
-    sed -n '/^struct dxc_element {/,/^};/p' "$source_file"
     echo 'int main(void) {'
     for field in window view device queue layer; do
         echo "printf(\"$field %zu\\n\", offsetof(struct dxc_native_window, $field));"
@@ -69,17 +67,18 @@ probe="$work/x11-window-layout.c"
         echo "printf(\"$field %zu\\n\", offsetof(struct dxc_event, $field));"
     done
     echo 'printf("event_size %zu\n", sizeof(struct dxc_event));'
-    echo 'printf("element_label %zu\n", offsetof(struct dxc_element, label));'
-    echo 'printf("element_size %zu\n", sizeof(struct dxc_element));'
     echo 'return 0; }'
 } > "$probe"
 cc -o "$work/layout" "$probe" || { echo "fail: the declarations did not compile"; exit 1; }
 layout="$("$work/layout")"
 offset() { awk -v f="$1" '$1 == f {print $2}' <<< "$layout"; }
 red=0
-for field in window view device queue layer; do
+# The fork's wrapper keeps the window and the queue out of the five pointers, so those are
+# the two it reads by offset.
+for entry in window:windowPointer queue:queuePointer; do
+    IFS=: read -r field name <<< "$entry"
     value="$(offset "$field")"
-    if ! grep -Fq "$field = out.readWord<Pointer>($value)" "$kotlin_file"; then
+    if ! grep -Fq "$name = out.readWord<Pointer>($value)" "$kotlin_file"; then
         echo "fail: X11Window.kt reads $field at the wrong offset"
         red=1
     fi
@@ -92,14 +91,11 @@ for entry in kind:readInt:kind x:readFloat:x y:readFloat:y buttons:readInt:butto
         red=1
     fi
 done
-grep -Fq "TEXT_OFFSET = $(offset text)" "$event_reader" || { echo "fail: text offset"; red=1; }
-grep -Fq "EVENT_STRUCT_BYTES = $(offset event_size)" "$event_reader" || { echo "fail: event size"; red=1; }
-grep -Fq "WINDOW_STRUCT_BYTES = $(offset window_size)" "$kotlin_file" || { echo "fail: window size"; red=1; }
-# The accessibility records are written by the shared code the X11 window hands its tree to,
-# so the offsets it writes at are checked against the C the X11 window declares.
-grep -Fq "ELEMENT_LABEL_OFFSET = $(offset element_label)" "$event_reader" ||
-    { echo "fail: an element's label is not written where C keeps it"; red=1; }
-grep -Fq "ELEMENT_BYTES = $(offset element_size)" "$event_reader" ||
-    { echo "fail: an element is not the size C declares"; red=1; }
+grep -Fq "record.readByte($(offset text) + length)" "$event_reader" || { echo "fail: text offset"; red=1; }
+grep -Fq "EVENT_BYTES = $(offset text) + EVENT_TEXT_BYTES" "$layout_file" || { echo "fail: event size"; red=1; }
+grep -Fq "WINDOW_BYTES = $(offset window_size)" "$layout_file" || { echo "fail: window size"; red=1; }
+text_capacity="$(sed -n 's/^#define DXC_TEXT_BYTES \([0-9]*\)$/\1/p' "$source_file")"
+grep -Fq "EVENT_TEXT_BYTES = $text_capacity" "$layout_file" ||
+    { echo "fail: the Kotlin text capacity is not the one C declares"; red=1; }
 (( red == 0 )) || exit 1
 echo "ok: X11 fields and shared events match their Kotlin offsets"

@@ -59,6 +59,8 @@ internal fun HostLazyRow(
     // never fill and every one of `item_count` slots would be measured.
     var gapWidth by remember(node.id) { mutableStateOf(ESTIMATED_ITEM_WIDTH) }
 
+    HostScroll(node, table, remember(state) { state.scrollSurface(vertical = false) })
+
     LazyRow(modifier = modifier, state = state) {
         items(
             count = itemCount,

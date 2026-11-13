@@ -1,6 +1,7 @@
 //! What the school teaches, and what a pupil has got through.
 
-use dioxus_compose_adapter::prelude::*;
+use crate::palette;
+use compose_rust::ui::Paint;
 
 /// The four subject marks, drawn.
 ///
@@ -10,8 +11,8 @@ use dioxus_compose_adapter::prelude::*;
 /// targets in four colours.
 ///
 /// These are original drawings of the things a drummer actually touches, registered once
-/// and drawn by id. The tile behind a mark, the name under it and the ink on both are
-/// still roles, so the four tiles are still the design system's four colours.
+/// and drawn by id. The tile behind a mark is the reference's colour for that subject, from
+/// `palette`.
 pub static MARKS: [&[u8]; 4] = [
     include_bytes!("../assets/mark-technique.svg"),
     include_bytes!("../assets/mark-arsenal.svg"),
@@ -26,55 +27,11 @@ pub struct Subject {
     pub blurb: &'static str,
     /// How much of it is done, nought to one.
     pub progress: f32,
-    pub tile: Tile,
+    /// The colour of the subject's tile, which is the reference's: four equals, purple,
+    /// coral, teal and amber, with white written on each.
+    pub fill: Paint,
     /// The drawing on the subject's tile.
     pub mark: &'static [u8],
-}
-
-/// The fill a subject's tile takes, and the ink that reads on it.
-///
-/// Four subjects, three accent families. The vocabulary has `Primary`, `Secondary` and
-/// `Tertiary` with a container each, and nothing else that is a peer of those: `Error` is
-/// a warning rather than a fourth colour, and using it for a subject would mean the tile
-/// marked "Songs" is the one the design system reserves for something going wrong.
-///
-/// So the fourth tile is the neutral fill. It reads as quieter than its three neighbours,
-/// which is a real loss against the reference, where the four subjects are four equals. A
-/// fourth accent family is what the picture actually asked for.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Tile {
-    First,
-    Second,
-    Third,
-    Neutral,
-}
-
-impl Tile {
-    /// The fill, the ink on it, and the stronger colour of the same family for a mark.
-    pub fn roles(self) -> (ColorRole, ColorRole, ColorRole) {
-        match self {
-            Tile::First => (
-                ColorRole::PrimaryContainer,
-                ColorRole::OnPrimaryContainer,
-                ColorRole::Primary,
-            ),
-            Tile::Second => (
-                ColorRole::SecondaryContainer,
-                ColorRole::OnSecondaryContainer,
-                ColorRole::Secondary,
-            ),
-            Tile::Third => (
-                ColorRole::TertiaryContainer,
-                ColorRole::OnTertiaryContainer,
-                ColorRole::Tertiary,
-            ),
-            Tile::Neutral => (
-                ColorRole::SurfaceVariant,
-                ColorRole::OnSurfaceVariant,
-                ColorRole::Outline,
-            ),
-        }
-    }
 }
 
 pub const SUBJECTS: [Subject; 4] = [
@@ -83,38 +40,41 @@ pub const SUBJECTS: [Subject; 4] = [
         mark: MARKS[0],
         blurb: "Grip, rebound and the four strokes",
         progress: 0.75,
-        tile: Tile::First,
+        fill: palette::PURPLE,
     },
     Subject {
         name: "Arsenal",
         mark: MARKS[1],
         blurb: "Fills, rolls and where to put them",
         progress: 0.4,
-        tile: Tile::Second,
+        fill: palette::ACCENT,
     },
     Subject {
         name: "Coordination",
         mark: MARKS[2],
         blurb: "Limbs that disagree, on purpose",
         progress: 0.55,
-        tile: Tile::Third,
+        fill: palette::TEAL,
     },
     Subject {
         name: "Songs",
         mark: MARKS[3],
         blurb: "Whole tunes, start to finish",
         progress: 0.2,
-        tile: Tile::Neutral,
+        fill: palette::AMBER,
     },
 ];
 
 /// One lesson in a stage.
+///
+/// A title and nothing to summarise it: the reference's cards carry the title, which
+/// lesson it is, and whether it is open, and a sentence under the title was a line the
+/// picture does not have.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Lesson {
     pub stage: u32,
     pub number: u32,
     pub title: &'static str,
-    pub summary: &'static str,
     /// A lesson is open once the one before it is finished.
     pub open: bool,
     pub recent: bool,
@@ -127,7 +87,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 1,
         number: 1,
         title: "Holding the sticks",
-        summary: "Where the fulcrum is and why it matters",
         open: true,
         recent: false,
     },
@@ -135,7 +94,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 1,
         number: 2,
         title: "The single stroke",
-        summary: "One hand, then the other, evenly",
         open: true,
         recent: false,
     },
@@ -143,7 +101,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 2,
         number: 4,
         title: "Breaks, and where to show off",
-        summary: "The four bars everyone remembers",
         open: true,
         recent: true,
     },
@@ -151,7 +108,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 2,
         number: 5,
         title: "Breaks inside the rhythm",
-        summary: "Leaving without anyone noticing",
         open: false,
         recent: false,
     },
@@ -159,7 +115,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 2,
         number: 6,
         title: "Advanced breaks",
-        summary: "Coming back in on the right beat",
         open: false,
         recent: false,
     },
@@ -167,7 +122,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 3,
         number: 7,
         title: "Ghost notes",
-        summary: "The ones you feel rather than hear",
         open: false,
         recent: false,
     },
@@ -175,7 +129,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 3,
         number: 8,
         title: "Playing behind the beat",
-        summary: "Late, deliberately, and still in time",
         open: false,
         recent: false,
     },
@@ -183,7 +136,6 @@ pub const LESSONS: [Lesson; 8] = [
         stage: 4,
         number: 9,
         title: "Writing your own part",
-        summary: "What the song needs rather than what you can do",
         open: false,
         recent: false,
     },
@@ -198,6 +150,14 @@ pub fn stage(number: u32) -> Vec<&'static Lesson> {
 }
 
 /// How far through the whole course a pupil is, as a fraction.
+/// Whether a pupil has reached a stage: any lesson in it is open. The strip names a stage
+/// that has been reached in white and one that has not in grey, as the reference does.
+pub fn reached(number: u32) -> bool {
+    LESSONS
+        .iter()
+        .any(|lesson| lesson.stage == number && lesson.open)
+}
+
 pub fn overall_progress() -> f32 {
     let open = LESSONS.iter().filter(|lesson| lesson.open).count();
     open as f32 / LESSONS.len() as f32
@@ -268,11 +228,9 @@ mod tests {
         for (index, first) in SUBJECTS.iter().enumerate() {
             for second in &SUBJECTS[index + 1..] {
                 assert_ne!(
-                    first.tile.roles().0,
-                    second.tile.roles().0,
+                    first.fill, second.fill,
                     "{} and {} are drawn in one colour",
-                    first.name,
-                    second.name
+                    first.name, second.name
                 );
             }
         }
@@ -311,6 +269,16 @@ mod tests {
                 subject.name
             );
         }
+    }
+
+    /// The first two stages are reached and the last two are not, which is the strip the
+    /// reference draws: "1 Stage" white, "2 Stage" chosen, "3 Stage" and on in grey.
+    #[test]
+    fn the_stages_reached_are_the_ones_with_an_open_lesson() {
+        assert!(reached(1));
+        assert!(reached(2));
+        assert!(!reached(3));
+        assert!(!reached(4));
     }
 
     #[test]

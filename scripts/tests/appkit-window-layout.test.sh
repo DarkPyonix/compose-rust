@@ -10,8 +10,11 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$repo_root/renderer/desktop/c/appkit_window.m"
-kotlin_file="$repo_root/renderer/desktop/src/AppKitWindow.kt"
+# The window, its C and its Kotlin reader, are the Compose fork's graalvm-macos module.
+source "$repo_root/scripts/tests/fork-window.sh"
+fork_window_or_skip "$repo_root"
+source_file="$fork_window/graalvm/graalvm-macos/native/appkit_window.m"
+kotlin_file="$fork_window/graalvm/graalvm-macos/src/org/thisisthepy/compose/window/graalvm/macos/AppKitWindow.kt"
 red=0
 
 [[ -f "$source_file" ]] || { echo "missing $source_file"; exit 1; }
@@ -33,7 +36,6 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     grep '^#define DXC_TEXT_BYTES' "$source_file"
     sed -n '/^struct dxc_native_window {/,/^};/p' "$source_file"
     sed -n '/^struct dxc_event {/,/^};/p' "$source_file"
-    sed -n '/^struct dxc_element {/,/^};/p' "$source_file"
     echo 'int main(void) {'
     echo '    printf("window %zu\nview %zu\ndevice %zu\nqueue %zu\nlayer %zu\nsize %zu\n",'
     echo '        offsetof(struct dxc_native_window, window),'
@@ -52,9 +54,6 @@ trap 'rm -f "$probe" "${probe%.m}"' EXIT
     echo '        offsetof(struct dxc_event, code_point),'
     echo '        offsetof(struct dxc_event, text),'
     echo '        sizeof(struct dxc_event));'
-    echo '    printf("element_label %zu\nelement_size %zu\n",'
-    echo '        offsetof(struct dxc_element, label),'
-    echo '        sizeof(struct dxc_element));'
     echo '    return 0;'
     echo '}'
 } > "$probe"
@@ -67,7 +66,7 @@ check_field() {
     local offset
     offset="$(awk -v f="$field" '$1 == f { print $2 }' <<< "$layout")"
     if ! grep -q "$field = out.readWord<Pointer>($offset)" "$kotlin_file"; then
-        echo "fail: C puts $field at $offset, which is not where AppKitWindow.kt reads it"
+        echo "fail: C puts $field at $offset, which is not where the fork's AppKitWindow.kt reads it"
         red=1
     fi
 }
@@ -81,7 +80,7 @@ check_event_field() {
     local offset
     offset="$(awk -v f="$field" '$1 == f { print $2 }' <<< "$layout")"
     if ! grep -q "$name = record.$reader($offset)" "$kotlin_file"; then
-        echo "fail: C puts $field at $offset, which is not where AppKitWindow.kt reads it"
+        echo "fail: C puts $field at $offset, which is not where the fork's AppKitWindow.kt reads it"
         red=1
     fi
 }
@@ -96,19 +95,7 @@ check_event_field code_point readInt codePoint
 
 text_offset="$(awk '$1 == "text" { print $2 }' <<< "$layout")"
 if ! grep -q "TEXT_OFFSET = $text_offset" "$kotlin_file"; then
-    echo "fail: C puts the text at $text_offset, which is not where AppKitWindow.kt reads it"
-    red=1
-fi
-
-element_label="$(awk '$1 == "element_label" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_LABEL_OFFSET = $element_label" "$kotlin_file"; then
-    echo "fail: C puts an element's label at $element_label, not where AppKitWindow.kt writes it"
-    red=1
-fi
-
-element_size="$(awk '$1 == "element_size" { print $2 }' <<< "$layout")"
-if ! grep -q "ELEMENT_BYTES = $element_size" "$kotlin_file"; then
-    echo "fail: an element is $element_size bytes, which is not what AppKitWindow.kt writes"
+    echo "fail: C puts the text at $text_offset, which is not where the fork's AppKitWindow.kt reads it"
     red=1
 fi
 

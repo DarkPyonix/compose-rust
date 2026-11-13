@@ -18,9 +18,10 @@ path = "src/lib.rs"
 crate-type = ["rlib", "cdylib", "staticlib"]
 bench = false
 
+# compose-rust's own authoring API: composables, state and the widget composables. No
+# Dioxus anywhere in the graph.
 [dependencies]
-dioxus-compose-adapter.workspace = true
-dioxus-hooks.workspace = true
+compose-rust = { path = "../../compose-rust" }
 
 [dev-dependencies]
 sample-frames = { path = "../frames" }

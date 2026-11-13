@@ -1,9 +1,11 @@
 package dev.darkpyonix.composerust.runtime
 
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
+import kotlin.math.floor
 
 /**
  * The width in dp at which each size class begins.
@@ -70,9 +72,30 @@ fun windowHeightClassOf(heightDp: Float): WindowHeightClass = when {
  * because a Host that needs pixel-by-pixel sizes is asking for work that belongs in
  * Compose's own layout.
  */
-class WindowSizeReporter {
+val LocalWindowDrag = staticCompositionLocalOf<() -> Unit> { {} }
+
+data class WindowSafeArea(val top: Float = 0f, val leading: Float = 0f, val trailing: Float = 0f)
+
+/**
+ * One number that changes exactly when [WindowSizeReporter.report] would send for a new
+ * size: the two classes, and with [everyDpChange] the size rounded to whole dp the same way
+ * the reporter rounds it. A number rather than an object, so comparing it on every layout
+ * pass allocates nothing.
+ */
+fun windowReportKey(widthDp: Float, heightDp: Float, everyDpChange: Boolean): Long {
+    val classes = (windowSizeClassOf(widthDp).ordinal * 3 + windowHeightClassOf(heightDp).ordinal).toLong()
+    if (!everyDpChange) return classes
+    val width = floor(widthDp + 0.5f).toLong() and 0xFFFFFF
+    val height = floor(heightDp + 0.5f).toLong() and 0xFFFFFF
+    return (1L shl 62) or (classes shl 48) or (width shl 24) or height
+}
+
+class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
+    private var lastSafeArea = WindowSafeArea()
     private var lastHeightClass: WindowHeightClass = WindowHeightClass.Compact
+    private var lastWidthDp = 0
+    private var lastHeightDp = 0
 
     /**
      * Reports one measurement. Returns whether an event was sent.
@@ -80,23 +103,72 @@ class WindowSizeReporter {
      * Nothing is allocated when neither class has changed, which is the common case. The
      * two classes ride in one record, so a window that gets wider and shorter in the same
      * drag costs one event rather than two.
+     *
+     * A window that asked for [everyDpChange] also reports when its width or height, each
+     * rounded to the nearest whole dp (a half rounds up), differs from the rounded values of
+     * the last event sent. The rounded integers are compared, never the raw floats, so jitter
+     * under one dp is ignored. The event still carries the measured, unrounded size.
      */
-    fun report(widthDp: Float, heightDp: Float, dispatcher: EventDispatcher): Boolean {
+    fun report(
+        widthDp: Float,
+        heightDp: Float,
+        dispatcher: EventDispatcher,
+        safeArea: WindowSafeArea = WindowSafeArea(),
+        everyDpChange: Boolean = false,
+    ): Boolean {
         val sizeClass = windowSizeClassOf(widthDp)
         val heightClass = windowHeightClassOf(heightDp)
-        if (sizeClass == lastClass && heightClass == lastHeightClass) return false
+        if (sizeClass == lastClass && heightClass == lastHeightClass && safeArea == lastSafeArea) {
+            if (!everyDpChange) return false
+            if (floor(widthDp + 0.5f).toInt() == lastWidthDp && floor(heightDp + 0.5f).toInt() == lastHeightDp) return false
+        }
+        if (everyDpChange) {
+            lastWidthDp = floor(widthDp + 0.5f).toInt()
+            lastHeightDp = floor(heightDp + 0.5f).toInt()
+        }
         lastClass = sizeClass
         lastHeightClass = heightClass
+        lastSafeArea = safeArea
         dispatcher.dispatch(
             HostEvent.WindowSizeChanged(
-                nodeId = 0,
+                nodeId = nodeId,
                 handlerId = 0,
                 widthDp = widthDp,
                 heightDp = heightDp,
                 sizeClass = sizeClass,
                 heightClass = heightClass,
+                safeAreaTop = safeArea.top,
+                safeAreaLeading = safeArea.leading,
+                safeAreaTrailing = safeArea.trailing,
             ),
         )
         return true
+    }
+}
+
+/**
+ * The `Window` node the content being composed is drawn in, or 0 for the one window
+ * of a single window application. The events a window names itself by - its size class, its
+ * zoom - carry this as their node id, and the theme and zoom level are looked up under it.
+ */
+val LocalWindowNodeId = staticCompositionLocalOf { 0 }
+
+/** Bounds are in window pixels, matching the Linux backend's screen coordinates. */
+internal object WindowDropTargets {
+    private data class Target(val left: Float, val top: Float, val right: Float, val bottom: Float, val density: Float, val depth: Int)
+    private val targets = LinkedHashMap<Pair<Int, Int>, Target>()
+
+    fun update(windowId: Int, nodeId: Int, left: Float, top: Float, right: Float, bottom: Float, density: Float, depth: Int) {
+        targets[windowId to nodeId] = Target(left, top, right, bottom, density, depth)
+    }
+
+    fun remove(windowId: Int, nodeId: Int) { targets.remove(windowId to nodeId) }
+
+    fun find(windowId: Int, x: Float, y: Float): Pair<Int, Pair<Float, Float>>? {
+        val target = targets.entries.toList().asReversed().filter { (key, rect) ->
+            key.first == windowId && x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+        }.maxByOrNull { it.value.depth } ?: return null
+        val rect = target.value
+        return target.key.second to ((x - rect.left) / rect.density to (y - rect.top) / rect.density)
     }
 }

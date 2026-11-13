@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.design
 
+import dev.darkpyonix.composerust.ui.node.FontChain
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -21,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.DesignTokens
 import androidx.compose.animation.core.FiniteAnimationSpec
 import dev.darkpyonix.composerust.protocol.MaterialRole
 import dev.darkpyonix.composerust.protocol.MotionRole
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.SpaceRole
@@ -171,7 +173,33 @@ class ResolvedTheme(
      * brand colour is drawn the way this system draws a colour.
      */
     val applicationColors: List<Color?> = emptyList(),
+
+    /**
+     * The font stacks the roles are set in, for the roles the application set in one.
+     *
+     * A stack's first family is a family of its own, so the family a piece of text was
+     * given is enough to find the rest of the stack: see [chainFor].
+     */
+    val fontChains: List<FontChain> = emptyList(),
+
+    /**
+     * Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
+     */
+    val overlay: OverlayTokens? = null,
 ) {
+    /**
+     * The stack [family] is the first family of, or null where it is not one.
+     *
+     * Asked by identity, not by equality, because the first family of a stack and the
+     * face it was made from can be equal and must not be confused: only the stack carries
+     * the families after it.
+     */
+    fun chainFor(family: FontFamily?): FontChain? =
+        if (family == null) null else fontChains.firstOrNull { it.primary === family }
+
+    /** The stack this role is set in, or null where the role is set in one face. */
+    fun chain(role: TypeRole): FontChain? = chainFor(fonts[role])
+
     fun color(role: ColorRole): Color =
         applicationColors.getOrNull(role.ordinal) ?: systemColor(role)
 
@@ -344,6 +372,21 @@ interface ComponentRules {
         variant: dev.darkpyonix.composerust.protocol.ButtonVariant,
         theme: ResolvedTheme,
     ): ButtonStyle
+
+    /**
+     * The silhouette of a key in a dense grid of them: a button whose kind is
+     * `ButtonKind.ActionKey`, a calculator's pad above all.
+     *
+     * A key is a different component from a button on a page, and the systems disagree
+     * about it in ways a shape role cannot say: Apple draws a circle, Windows 11 a
+     * rectangle at its small control corner, Deepin a rounder one. The Host sends neither a
+     * radius nor a role for it, so this is the only place the answer can come from.
+     *
+     * Deliberately without a default. A system that inherited someone else's key would draw
+     * another platform's calculator, so every system has to say what its own is. The
+     * variant still chooses the fill; only the outline is answered here.
+     */
+    fun actionKeyShape(theme: ResolvedTheme): Shape
 
     /**
      * How a container or overlay looks. The widget says which kind of container it is and
@@ -665,6 +708,16 @@ interface ComponentRules {
         edgeSwipeBack = false,
         focusRing = theme.color(ColorRole.Primary),
     )
+
+    /**
+     * How a code editor is drawn: its gutter and line numbers, how the current line is shown,
+     * how a diagnostic is marked and in which roles, how faint a suggestion is, and how far a
+     * tab advances.
+     *
+     * The default is read from this system's own table, so a system that says nothing still
+     * draws an editor in its own colours.
+     */
+    fun codeEditor(theme: ResolvedTheme): CodeEditorStyle = defaultCodeEditorStyle(theme)
 }
 
 /**
@@ -815,21 +868,6 @@ data class CaptionStyle(
     val edgePadding: Dp,
     val titleAlignment: CaptionTitleAlignment,
     /**
-     * How far in from the window's corner the platform's own buttons sit.
-     *
-     * macOS only, and only where the window's buttons are the system's. Everywhere else
-     * the caption's buttons are ours and drawn where [side] says, so there is no corner to
-     * come in from. Zero leaves them where the system put them.
-     */
-    val platformButtonInset: Dp = 0.dp,
-    /**
-     * How round the window's own corners are, or zero to leave the system's.
-     *
-     * macOS only, for the same reason. On Windows and Linux the window's outline belongs
-     * to the compositor rather than to the application.
-     */
-    val windowCornerRadius: Dp = 0.dp,
-    /**
      * How tall the caption is where the application draws it.
      *
      * Windows and Linux. Zero means the design system has nothing to say and the caption
@@ -837,6 +875,13 @@ data class CaptionStyle(
      * modes existed.
      */
     val height: Dp = 0.dp,
+    /**
+     * The fill under a button while it is held. Transparent means the system has no
+     * pressed fill of its own and the hover fill stays.
+     */
+    val pressed: Color = Color.Transparent,
+    /** The fill under close while it is held, where the system reddens close on hover. */
+    val closePressed: Color = Color.Transparent,
 )
 
 /**
@@ -879,6 +924,15 @@ enum class NavigationPresentation {
      * own buttons where the platform hands its caption over.
      */
     PutAway,
+
+    /**
+     * Not on the screen, and nothing to bring it back.
+     *
+     * No design system answers this. It is what an application gets in a compact window
+     * when it chose to draw its own way to the destinations, the way the task list's
+     * reference does with a back button floating over the page.
+     */
+    Hidden,
 }
 
 /**
@@ -936,6 +990,15 @@ data class NavigationStyle(
     val stripMaterial: SurfaceMaterial? = null,
     /** The outline of a floating strip. A strip on the window's edge has none. */
     val stripShape: Shape = RectangleShape,
+    /**
+     * The exponent of a floating strip's corner when it is cut concentric with the
+     * window's, or null for a strip whose outline is [stripShape] alone.
+     *
+     * The window's radius is the system's and is only known once the window is open, so
+     * the rules say how the corner is cut and the strip takes the radius from the window.
+     * [stripShape] stands where the window reports no radius.
+     */
+    val stripCornerExponent: Double? = null,
     /**
      * How far a floating strip stands off the edges of the window it is laid along.
      *
@@ -1584,6 +1647,14 @@ fun resolveTheme(
      * set aside and the design system's own colours are drawn.
      */
     highContrast: () -> Boolean = { dev.darkpyonix.composerust.ui.node.platformHighContrast() },
+    /**
+     * The stack a registered font asset is, or null where it is a single face or nothing.
+     * A role set in a stack is drawn in the stack's first family, and the letters that
+     * family lacks in the families after it.
+     */
+    chainOf: (Int) -> FontChain? = { null },
+    /** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+    overlay: OverlayTokens? = null,
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1606,6 +1677,10 @@ fun resolveTheme(
             }
         }
     }
+    // Each stack once, however many roles are set in it.
+    val chains = theme?.let { asked ->
+        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
+    }.orEmpty()
     val tokens = DesignTokens.of(system)
     val rules = rulesFor(system)
     // The same palette goes onto whichever system was chosen, and both of its schemes are
@@ -1625,6 +1700,8 @@ fun resolveTheme(
         windowBackdrop,
         platform,
         application,
+        chains,
+        overlay,
     )
 }
 

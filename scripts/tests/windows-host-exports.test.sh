@@ -88,10 +88,20 @@ echo "ok    $(echo "$exported" | wc -l | tr -d ' ') host functions are exported,
 # crate's own cdylib on the way: `/ENTRY:mainCRTStartup` points at a `main` a library does
 # not have. So every sample carries the attribute, and anyone building on this crate has
 # to as well.
+#
+# Finding no sample at all is a failure too: a glob that matches nothing would otherwise
+# pass on nothing.
 missing=()
+checked=0
 for main in samples/*/src/main.rs; do
+    [[ -f "$main" ]] || continue
+    checked=$((checked + 1))
     grep -q 'windows_subsystem = "windows"' "$main" || missing+=("$main")
 done
+if [[ "$checked" -eq 0 ]]; then
+    echo "fail  no sample application was found under samples/ to check" >&2
+    exit 1
+fi
 if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "fail  ${#missing[@]} sample(s) would open a console beside their window:" >&2
     printf '        %s\n' "${missing[@]}" >&2

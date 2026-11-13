@@ -34,6 +34,10 @@ rm -f "$directory"/*.bin "$directory"/*.png
 
 # Every recording test says so in its name, whichever requirement it is named after.
 DXC_FRAME_DIR="$directory" cargo test --workspace is_recorded --quiet
+# The desktop module asks for the Compose fork's desktop modules by versions only the fork
+# publishes; checked before the toolchain runs, which would otherwise remember the failed
+# download and keep failing after they are published.
+"$repo_root/renderer/scripts/require-fork-artifacts.sh" desktop
 cd "$repo_root/renderer"
 DXC_FRAME_DIR="$directory" DXC_FRAME_FILTER="$filter" \
     ./kotlin test -p jvm --include-module desktop --include-classes '*SampleScreenshotTest'

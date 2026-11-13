@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# A crate whose Cargo.toml names only the Dioxus adapter builds, links, and starts, with
-# compose-rust and its build script reaching it as the adapter's dependency.
+# A crate whose Cargo.toml names only compose-rust builds, links, and starts, with
+# compose-rust's build script finding the renderer for it.
 #
 # This is the case the rest of the test suite could not reach. Every sample in this
 # repository used to carry a build script that repeated the library's rpath, so the
@@ -59,7 +59,7 @@ command -v cargo >/dev/null || fail "cargo is not on PATH" \
 target="$repo_root/target/consumer-crate"
 export CARGO_TARGET_DIR="$target"
 
-echo "== building a crate that depends on the Dioxus adapter and nothing else"
+echo "== building a crate that depends on compose-rust and nothing else"
 # The real renderer, found the way a consumer's build finds it: the published one for this
 # version unless the environment or the workspace has another.
 #
@@ -109,8 +109,23 @@ rpath_count() {
 }
 
 renderer="$(recorded_renderer)"
-[[ -n "$renderer" ]] || fail "the binary records no dependency on $(library_name)" \
-    "Without one the renderer is not linked in and nothing would draw."
+if [[ -z "$renderer" ]]; then
+    # No shared renderer named: on macOS and Linux the release ships the static archive, and
+    # then the renderer is inside the executable. That has to be really so, or nothing would
+    # draw: its entry point is defined in the binary itself.
+    symbols="$(nm "$binary" 2>/dev/null || true)"
+    grep -qE ' T _?compose_rust_renderer_run$' <<< "$symbols" ||
+        fail "the binary records no dependency on $(library_name) and has no renderer inside it" \
+            "Without one of the two nothing would draw."
+    count="$(rpath_count)"
+    [[ "$count" == "0" ]] || fail "the binary carries $count rpath entries" \
+        "It has the renderer inside it, so a search path can only point at something it does not need."
+    echo "== starting it"
+    "$binary" >/dev/null
+    echo "ok    a crate depending only on compose-rust builds, has the renderer inside it, and starts"
+    echo "      .github/scripts/check-single-executable.sh checks such an executable runs alone"
+    exit 0
+fi
 
 [[ "$renderer" == /* ]] || fail "the binary looks for the renderer as '$renderer'" \
     "That is not an absolute path, so the loader has to search for it, and an application" \
@@ -146,7 +161,7 @@ echo "== starting it"
 # into were checked above.
 "$binary" >/dev/null
 
-echo "ok    a crate depending only on the Dioxus adapter builds, has no rpath, and starts"
+echo "ok    a crate depending only on compose-rust builds, has no rpath, and starts"
 echo "      renderer: $renderer"
 
 # ------------------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.design.glassSurface
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.runtime.LocalStripTakesTheTop
 import dev.darkpyonix.composerust.runtime.LocalWindowCaption
+import dev.darkpyonix.composerust.runtime.LocalWindowCornerRadius
 import androidx.compose.ui.unit.Dp
 import dev.darkpyonix.composerust.runtime.WindowCaption
 import dev.darkpyonix.composerust.runtime.opensWithABar
@@ -31,7 +32,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -60,6 +60,8 @@ import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.WindowSizeClass
+import dev.darkpyonix.composerust.protocol.CompactNavigation
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.LocalSystemBars
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
@@ -130,7 +132,7 @@ internal fun HostNavigation(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
-    val style = theme.rules.navigation(LocalWindowSizeClass.current, theme)
+    val style = theme.navigationFor(node, LocalWindowSizeClass.current)
     val destinations = node.children.filter { table.node(it)?.widget == WidgetKind.NavigationItem }
     // A slot names where its content goes inside its parent, and inside a strip that means
     // above the destinations or below them. Everything else that is not a destination is
@@ -276,7 +278,11 @@ internal fun HostNavigation(
             val bringBack = { putAway = false }
             Box(modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier)) {
                 if (holdsAPage) {
-                    Screen(content, table, dispatcher)
+                    // Clear of the button below. It is drawn last so it stays on top, and
+                    // a page laid out from the same corner put its title under it.
+                    ClearOfPutAwayButton(theme, opensWithABar = table.opensWithABar(content)) {
+                        Screen(content, table, dispatcher)
+                    }
                 }
                 // Over the page rather than beside it, and the page stays where it is
                 // while it is open: choosing a destination is what changes the page, and a
@@ -312,6 +318,7 @@ internal fun HostNavigation(
                     style = style,
                     theme = theme,
                     modifier = Modifier.align(Alignment.TopStart),
+                    testTag = navigationToggleTestTag(node.id),
                 ) {
                     if (style.presentation == NavigationPresentation.Drawer) {
                         bringBack()
@@ -319,6 +326,16 @@ internal fun HostNavigation(
                         open = !open
                     }
                 }
+            }
+        }
+
+        // Not on the screen and nothing to call it back: the application chose to reach
+        // the destinations its own way in a window this narrow. What is left is the page.
+        NavigationPresentation.Hidden -> Box(
+            modifier.then(if (holdsAPage) Modifier.pageBackdrop(style) else Modifier),
+        ) {
+            if (holdsAPage) {
+                Screen(content, table, dispatcher)
             }
         }
 
@@ -455,7 +472,7 @@ private fun BarStrip(
 @Composable
 private fun SectionHeading(name: String, style: NavigationStyle, theme: ResolvedTheme) {
     val token = theme.type(TypeRole.Caption)
-    BasicText(
+    ThemedText(
         text = name,
         style = TextStyle(
             fontSize = token.fontSize,
@@ -591,7 +608,19 @@ private fun SideStrip(
         return
     }
     val inset = style.floatingInset
-    val shape = style.stripShape
+    // Cut concentric with the window's own corner, which is the system's and differs
+    // between a window with a toolbar and one without. The rules' outline stands where the
+    // window reports no radius.
+    val windowCorner = LocalWindowCornerRadius.current
+    val exponent = style.stripCornerExponent
+    val shape = if (exponent != null && windowCorner > 0.dp) {
+        dev.darkpyonix.composerust.design.ContinuousCornerShape(
+            dev.darkpyonix.composerust.design.concentricRadius(windowCorner, inset),
+            exponent = exponent,
+        )
+    } else {
+        style.stripShape
+    }
     Box(
         Modifier
             .width(width + inset)
@@ -874,7 +903,7 @@ private fun DestinationLabel(
 ) {
     if (!show) return
     val rung = node.textStyle(theme, style.typeRole)
-    BasicText(
+    ThemedText(
         text = label,
         style = rung.copy(color = tint, fontWeight = style.destinationWeight ?: rung.fontWeight),
     )
@@ -947,6 +976,108 @@ internal fun HostNavigationItem(
 /** Test tag of the strip of destinations, which is the half that changes shape. */
 fun navigationStripTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-strip"
 
+/** Test tag of the button that brings a put-away navigation out over the page. */
+fun navigationToggleTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-toggle"
+
+/**
+ * How a navigation is drawn at this width.
+ *
+ * The design system's answer, unless the application chose what a compact window gets.
+ * The choice covers a compact window and nothing wider: a rail and a drawer stay the
+ * design system's, because a wide window is where it already has a strip worth showing.
+ *
+ * A sidebar that was chosen is the design system's own drawer, put away. Where the design
+ * system already puts it away at this width, its answer is kept as it is; everywhere else
+ * the drawer it draws for a wide window is taken and put away, so the sidebar that comes
+ * out over the page is the one the same application shows beside the page once the window
+ * is wider.
+ */
+internal fun ResolvedTheme.navigationFor(node: Node?, sizeClass: WindowSizeClass): NavigationStyle {
+    val answer = rules.navigation(sizeClass, this)
+    if (sizeClass != WindowSizeClass.Compact) return answer
+    return when (node?.role(PropertyKind.CompactNavigation, CompactNavigation.entries.toTypedArray())) {
+        null -> answer
+        CompactNavigation.Sidebar ->
+            if (answer.presentation == NavigationPresentation.PutAway) {
+                answer
+            } else {
+                rules.navigation(WindowSizeClass.Expanded, this)
+                    .copy(presentation = NavigationPresentation.PutAway)
+            }
+        CompactNavigation.None -> answer.copy(presentation = NavigationPresentation.Hidden)
+    }
+}
+
+/**
+ * How a page keeps clear of the button that brings a put-away navigation back.
+ *
+ * The button sits in the window's leading top corner, after any window buttons there, and
+ * is drawn over the page. A page laid out from the same corner put its title under it, so
+ * the page is given room for it in one of two ways.
+ */
+internal sealed interface ToggleClearance {
+    /**
+     * The page opens with a bar on the window's caption: the bar is told the window's
+     * buttons reach as far as the end of this one, and at least as low, so its content
+     * starts after it on the same line, which is where a desktop toolbar puts it.
+     */
+    data class Beside(val caption: WindowCaption) : ToggleClearance
+
+    /** Anything else starts below the button's line, with no caption left to avoid. */
+    data class Below(val top: Dp) : ToggleClearance
+}
+
+/**
+ * Which of the two a page gets, from the caption it is under and how it opens.
+ *
+ * [padding] is the room the button keeps around itself, the same the button is drawn
+ * with. Beside the button only works where there is a caption line to share and nothing
+ * of the window's at the far end the bar would also have to keep clear of; a caption
+ * names one end for its buttons, and the button is at the leading one.
+ */
+internal fun toggleClearance(
+    caption: WindowCaption,
+    padding: Dp,
+    opensWithABar: Boolean,
+): ToggleClearance {
+    val line = padding + PUT_AWAY_BUTTON + padding
+    val shareable = caption.height > 0.dp && (caption.buttonsAtStart || caption.buttonsWidth <= 0.dp)
+    if (opensWithABar && shareable) {
+        val leading = if (caption.buttonsAtStart) caption.buttonsWidth else 0.dp
+        return ToggleClearance.Beside(
+            caption.copy(
+                buttonsWidth = leading + line,
+                buttonsAtStart = true,
+                height = maxOf(caption.height, caption.insetTop + line),
+            ),
+        )
+    }
+    return ToggleClearance.Below(caption.insetTop + maxOf(caption.height, line))
+}
+
+/** [content], kept clear of the put-away navigation's button in the window's corner. */
+@Composable
+internal fun ClearOfPutAwayButton(
+    theme: ResolvedTheme,
+    opensWithABar: Boolean,
+    content: @Composable () -> Unit,
+) {
+    when (
+        val clearance = toggleClearance(
+            LocalWindowCaption.current,
+            theme.space(SpaceRole.Sm),
+            opensWithABar,
+        )
+    ) {
+        is ToggleClearance.Beside ->
+            CompositionLocalProvider(LocalWindowCaption provides clearance.caption) { content() }
+        is ToggleClearance.Below ->
+            CompositionLocalProvider(LocalWindowCaption provides WindowCaption.None) {
+                Box(Modifier.padding(top = clearance.top)) { content() }
+            }
+    }
+}
+
 /**
  * The button that brings a put-away navigation back.
  *
@@ -961,6 +1092,8 @@ private fun PutAwayButton(
     modifier: Modifier = Modifier,
     /** True where it sits at the window's own leading corner, beside the platform's buttons. */
     fromTheCorner: Boolean = true,
+    /** Put on the button itself rather than on the room around it, so its bounds are its own. */
+    testTag: String? = null,
     onClick: () -> Unit,
 ) {
     val caption = LocalWindowCaption.current
@@ -974,6 +1107,7 @@ private fun PutAwayButton(
                 top = if (fromTheCorner) caption.insetTop + padding else padding,
             )
             .size(PUT_AWAY_BUTTON)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .clip(theme.shape(ShapeRole.Small))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,

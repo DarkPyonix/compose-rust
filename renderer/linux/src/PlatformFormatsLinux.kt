@@ -4,11 +4,11 @@ package dev.darkpyonix.composerust.design
 
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.toKString
-import langinfo.dxc_langinfo
-import langinfo.dxc_langinfo_abbreviated_day
-import langinfo.dxc_langinfo_first_weekday
-import langinfo.dxc_langinfo_month
-import langinfo.dxc_langinfo_time_format
+import renderer_langinfo.dxc_langinfo
+import renderer_langinfo.dxc_langinfo_abbreviated_day
+import renderer_langinfo.dxc_langinfo_first_weekday
+import renderer_langinfo.dxc_langinfo_month
+import renderer_langinfo.dxc_langinfo_time_format
 import platform.posix.LC_ALL
 import platform.posix.setlocale
 
@@ -83,3 +83,11 @@ private fun uses24HourClock(timeFormat: String): Boolean = when {
         timeFormat.contains("%r") || timeFormat.contains("%p") -> false
     else -> PlatformFormats.Fallback.uses24HourClock
 }
+
+/**
+ * Which thread this is, as something that compares equal only to itself on the same thread.
+ *
+ * A measure call is only answered on the thread the composition runs on, and a POSIX
+ * thread id is that identity for as long as the thread lives.
+ */
+internal fun currentThreadToken(): Any = platform.posix.pthread_self()

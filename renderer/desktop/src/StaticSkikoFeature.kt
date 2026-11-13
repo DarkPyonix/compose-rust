@@ -9,7 +9,7 @@ import org.graalvm.nativeimage.hosted.Feature
  * opens by name. That is one more file every application has to carry: 21MB beside the
  * renderer on macOS, and on Windows a 14MB DLL plus a 10MB data file that a single
  * executable cannot absorb. The archive is built by
- * experiments/static-library/build-static-skiko.sh from the same object files and Skia
+ * experiments/static-library/build-static-skiko.sh (develop branch only) from the same object files and Skia
  * archives the shared library is linked from, so nothing here is a different Skia.
  *
  * The three calls below are what tells the image that a named library is already inside

@@ -3,6 +3,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -93,6 +94,68 @@ class WebBoundaryTest {
     }
 
     /**
+     * An edit far larger than the 4 KiB buffer in the startup block reaches the real Host
+     * whole, through a buffer the Host lent for it, and the state it changed comes back.
+     */
+    @Test
+    fun pr6_an_event_larger_than_the_lent_buffer_arrives_whole() {
+        val connection = hostOrNull() ?: return
+        val table = NodeTable()
+        connection.init { table.apply(it) }
+
+        val field = table.firstOfKind(WidgetKind.TextField)
+            ?: fail("the demo tree has no TextField to type into")
+        val button = table.firstOfKind(WidgetKind.Button)
+            ?: fail("the demo tree has no Button to click")
+        val onValueChange = field.handler(PropertyKind.OnValueChange)
+            ?: fail("the TextField has no value handler")
+        val onClick = button.handler(PropertyKind.OnClick)
+            ?: fail("the Button has no click handler")
+
+        val message = "a pasted document line\n".repeat(32 * 1024 / 23 + 1).take(32 * 1024)
+        connection.dispatchEvent(HostEvent.TextChanged(field.id, onValueChange, message)) {
+            table.apply(it)
+        }
+        connection.dispatchEvent(HostEvent.Clicked(button.id, onClick)) { table.apply(it) }
+
+        val texts = table.allNodes()
+            .filter { it.widget == WidgetKind.Text }
+            .map { it.text(PropertyKind.Text) }
+        assertTrue(
+            texts.contains(message),
+            "the 32 KiB edit did not come back whole; the longest text is " +
+                "${texts.maxOfOrNull { it.length }} characters",
+        )
+        assertTrue(table.drainErrors().isEmpty(), "the reply batches decoded with errors")
+        connection.shutdown()
+    }
+
+    /**
+     * The Host's own half of the ceiling: it lends inside its region up to 64 MiB, keeps
+     * what it lent for a request it already satisfies, and refuses past that.
+     */
+    @Test
+    fun pr6_an_event_past_the_ceiling_is_refused() {
+        val connection = hostOrNull() ?: return
+        val lent = hostLendEventBuffer(8 * 1024)
+        assertTrue(lent >= RUST_REGION_BASE, "the Host lent at $lent, outside its region")
+        assertTrue(
+            hostLendEventBuffer(4 * 1024) == lent,
+            "a request the lent buffer already satisfies has to answer with the same buffer",
+        )
+        assertTrue(
+            hostLendEventBuffer(EVENT_BUFFER_MAX_BYTES + 1) == 0,
+            "the Host has to refuse a buffer past the ceiling",
+        )
+        assertTrue(hostLendEventBuffer(0) == 0, "and a request for nothing")
+        assertTrue(
+            hostLendEventBuffer(8 * 1024) == lent,
+            "a refusal leaves the buffer lent before it in place",
+        )
+        connection.shutdown()
+    }
+
+    /**
      * What a boundary call costs, measured rather than assumed.
      *
      * `ReleaseBatch` is the call to time: it is a real boundary function that does almost
@@ -179,6 +242,20 @@ class WebBoundaryTest {
         assertTrue(
             FrameRequests.global.counter.value > before,
             "a frame request has to move the counter the frame clock watches",
+        )
+    }
+
+    /**
+     * The Host's measure import is bound to this export the same way, and a test binary
+     * keeps an export only if one of its tests names it. Without this the Host's
+     * instantiation fails with a link error before any test above reaches it. Addresses
+     * below the Host's region are refused rather than read.
+     */
+    @Test
+    fun pr6_the_measure_export_refuses_addresses_outside_the_host_region() {
+        assertTrue(
+            onMeasure(0, 0, 0, 0) == MeasureRecords.CALL_UNREADABLE,
+            "a measure call naming memory outside the Host's region has to be refused",
         )
     }
 

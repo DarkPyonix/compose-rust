@@ -28,6 +28,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 
 ### D2. Rust 측 작성 모델은 compose-rust 자신의 Compose 모양 API이고, Dioxus는 그 위에 얹힌다
 
+> **현황(2026-10-04).** 결정은 기록되었고 구현은 develop에 없습니다. 런타임은 초안 PR #112(`feature/compose-api`)에 있고 병합되지 않았습니다(이슈 #23, #64, SPEC FR-39).
+
 **소유자의 결정입니다(2026-10-03).** 2026-09-28부터 같은 말로 여러 번 주어졌고, 이 문서에 적히지 않은 채 다시 질문으로 돌아갔습니다.
 
 > "이미 결정했는데 왜 대체 안하는거야? 왜 다시 물어보는거야?" (2026-10-03)
@@ -46,7 +48,7 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 - **Dioxus 없이 씁니다.** compose-rust만 의존하는 애플리케이션이 화면을 작성하고, 실행하고, 이벤트를 받을 수 있어야 합니다. `dioxus-core`는 compose-rust의 의존성이 아닙니다.
 - **dioxus-compose는 compose-rust 위에 얹힙니다.** `rsx!`와 `dioxus-core` VirtualDom으로 쓰고 싶은 사람을 위한 층이고, compose-rust가 내놓는 같은 노드 트리와 같은 와이어로 내려갑니다(D19의 `darkpyonix/dioxus-compose`). 사용자 앞에 놓이는 이름과 모양은 Compose입니다.
 - **경계 아래는 바뀌지 않습니다.** D1(트리를 값으로 보내고 Kotlin 인터프리터가 그린다), D5(UI 로컬 상태는 Kotlin), D6(Rust 단일 소스 스키마), D8(동기 직접 호출, zero-copy 배치)과 PR-1~PR-6은 그대로입니다. Compose 모양이라는 것은 Rust 쪽 작성 API의 모양이지 Rust에서 Kotlin의 Compose API를 부른다는 뜻이 아닙니다. 런타임이 내보내는 것은 지금과 같은 Mutation 레코드이고, 같은 렌더러가 그것을 그립니다.
-- **1.0.0 범위입니다(2026-10-20).** 요구사항과 수용 기준은 SPEC FR-39입니다.
+- **1.0.0 범위입니다(2026-11-14).** 요구사항과 수용 기준은 SPEC FR-39입니다. 소유자의 결정입니다(2026-10-04): "1.0을 10/31 이후로". 원래 목표는 2026-10-20이었습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다. 약속은 그대로이고 날짜만 옮겼습니다.
 
 **측정이 말하는 것과 말하지 않는 것.** `experiments/recomposition-host`(2026-09-30, Apple M1, 릴리스 빌드)가 이 결정 이전에 잰 숫자입니다.
 
@@ -82,6 +84,8 @@ Rust에서 Compose API를 직접 호출하지 않습니다. GraalVM `@CEntryPoin
 | Web | 대상 플랫폼. Compose wasmJs + Dioxus wasm. 브라우저에서 실행하는 것이라 앱이 웹뷰를 내장하는 것과는 다르고 C1에 해당하지 않습니다. 메모리는 하나를 공유하고, 호출은 JS를 거치지 않고 직접 갑니다. Renderer에서 Host로는 코드젠이 만든 wasm `call_indirect` 트램펄린을, 반대 방향은 wasm import를 그대로 씁니다(SPEC PR-6). 소유자 결정입니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-10-03 재측정에서 트램펄린 호출은 Safari 26.5에서 4.35ns(JS 경유 12.45ns), Chrome 154에서 7.11ns(JS 경유 25.57ns)이고 메모리 공유도 그대로입니다(#54, PR #75). 생성된 경계를 트램펄린으로 바꾸는 작업은 #54 (d)입니다 |
 
 ### D4. 데스크톱 렌더러는 AWT 없이 만들고, 그것을 기본으로 배포한다
+
+> **현황(2026-10-17).** macOS와 Linux에서 develop이 배포하는 데스크톱 렌더러는 AWT 없는 Kotlin/Native 정적 렌더러입니다. 기본값 전환은 PR #113(3be2ec74, 2026-10-04 병합)으로 들어왔고 이슈 #22는 닫혔습니다(SPEC NFR-14). 실행 38823417678의 "One executable" 잡이 macOS와 Linux에서 이를 확인합니다. Windows는 아직 GraalVM native-image AWT 경로이고 PR #119, #174가 그것을 바꿉니다. compose-rust가 내는 길은 Kotlin/Native뿐입니다(소유자, 2026-10-17).
 
 **소유자의 결정입니다(2026-10-03).**
 
@@ -310,7 +314,7 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 
 > "내가 지시한지가 언제인데 아직 물어보나?" (2026-10-03)
 
-**결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-10-20)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
+**결정.** compose-rust로 만든 데스크톱 애플리케이션은 macOS, Windows, Linux 모두에서 **실행 파일 하나**입니다. 옆에 놓이는 렌더러 라이브러리, Skia 라이브러리, `icudtl.dat`, JDK DLL, `lib/` 디렉터리가 없습니다. 실행 파일이 불러오는 것은 그 플랫폼의 시스템 라이브러리뿐입니다. 이것은 "목표"가 아니라 compose-rust 1.0.0(2026-11-14)의 요구사항이고, SPEC NFR-15가 수용 기준입니다. 번들(`.app`, msix, AppImage)은 이 실행 파일을 감싸는 것이지 대신하는 것이 아닙니다.
 
 **D2와 D4에서 이렇게 따라 나옵니다.**
 
@@ -342,6 +346,8 @@ macOS 26과 iOS 26은 같은 재질을 쓰지만 같은 방식으로 쓰지 않�
 **2026-09-23의 "단일 exe는 비용이 너무 크니 번들을 먼저"는 제안이었고 결정이 아니었습니다.** 기록하지 않아서 결정처럼 굳었고, 그래서 이 항목이 뒤늦게 적힙니다.
 
 ### D18. Windows 렌더러는 Kotlin/Native로 만들고, MinGW는 Kotlin 오브젝트 안에 가둔다
+
+> **현황(2026-10-26).** Kotlin/Native 렌더러는 PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174로 2026-10-24에 develop에 병합됐습니다(이슈 #24, SPEC NFR-13). 2026-10-26 소유자 결정: compose-rust가 Windows에 내는 렌더러는 이 정적 렌더러뿐이고 GraalVM은 배포에서 빠집니다(SPEC §5.6). GraalVM 단일 바이너리는 확장 플러그인 포크의 몫이고, "graal, kn 둘 다 돌아야 한다"는 조건도 그쪽 요구입니다. 기각한 것: compose-rust가 GraalVM 경로도 단일 실행 파일로 내는 안.
 
 **소유자의 결정입니다(2026-10-03). 실험이 아니라 정식 통합입니다.**
 
@@ -396,6 +402,8 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 ### D19. Compose를 확장하는 일은 이 프로젝트 밖, Compose의 포크에서 한다
 
+> **현황(2026-10-17).** 디자인 시스템 소스는 포크로 옮겨졌습니다(PR #86). 두 층으로 나누는 일과 남은 좌표 이동은 두 포크의 `chore/thisisthepy-coordinates` 브랜치에 있고 병합되지 않았습니다. compose-rust 쪽은 초안 PR #109입니다(이슈 #39). 창 코드는 macOS와 Linux 몫이 PR #165(45eaa177)로 포크로 옮겨졌고 이 저장소의 복사본은 지워졌습니다. Windows 창 코드는 아직 이 저장소에 있고, 이동은 이슈 #26이 추적합니다.
+
 이 저장소에는 성격이 다른 세 가지가 섞여 있었습니다. Compose 자체를 고치는 일(upstream 패치, GraalVM native-image에서 AWT를 걷어내는 경로, Kotlin/Native로 직접 만든 데스크톱 창), Rust에서 Compose를 쓰게 하는 일(위젯 스키마, 인터프리터, 경계), 그리고 Dioxus를 붙이는 일입니다. 첫째는 Rust와 무관하고, 같은 회사의 다른 프로젝트(Python에서 Compose를 쓰는 pythonx-compose)도 필요로 합니다. **2026-10-02에 셋으로 나눕니다.**
 
 | 저장소 | 맡는 것 |
@@ -417,6 +425,12 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - pythonx-compose 쪽은 Compose 1.6.11에 묶여 있고 GraalVM도 다른 배포판을 씁니다. 같은 포크를 쓰려면 그쪽이 버전을 올려야 하고, 그쪽 바인딩은 Compose jar에서 생성되므로 포크가 공개 API를 바꾸면 바인딩이 함께 움직입니다. **포크의 변경은 공개 API를 바꾸지 않는 쪽으로 둡니다.**
 - 옮기는 동안 렌더러가 빌드되지 않는 기간이 생기면 안 됩니다. `patches/`와 `scripts/build-compose.sh`는 포크가 같은 결과를 내는 것이 확인될 때까지 남깁니다.
 
+**창에 관한 수정은 모두 포크(extended)에서 합니다. 소유자의 결정입니다(2026-10-17).**
+
+> "compose-rust 규정에 창 관련 모든 수정사항은 extended에서 수정해야 한다고 규정 추가해" (2026-10-17)
+
+창, 입력, IME, 메뉴, 크롬, 리사이즈, 접근성, 그리고 창의 C/Obj-C 계층을 고치는 일은 GraalVM 경로든 Kotlin/Native 경로든, 어느 OS든 `extended`에서 고치고 이 저장소는 핀만 옮깁니다. 이 저장소에 남는 것은 렌더러가 창을 부르는 접착 코드(호출과 링크하는 심볼)뿐입니다. 임시 조치라도 이 저장소에서 먼저 고치지 않습니다. Windows와 GraalVM의 창 코드가 이 저장소의 브랜치에만 남아 포크로 가지 못한 것이 그렇게 생겼습니다(2026-10-17 열린 PR 감사).
+
 **디자인 시스템은 `compose-multiplatform-core-extended`로 갑니다. 소유자의 결정입니다(2026-10-03).**
 
 > "디자인 시스템 extended쪽에 넣어. 다만 기존 material3와 같은 부모 패키지에 넣을지 아니면 새 패키지를 만들지는 결정해야 할거같은데 논의하고 알려줘봐." (2026-10-03)
@@ -429,7 +443,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 - 디자인 시스템은 `org.thisisthepy.compose.<시스템>` 패키지(`material3`, `cupertino`, `fluent`, `gnome`, `breeze`, `deepin`, `liquidglass`)이고, 공통 부분은 `org.thisisthepy.compose.designsystem`입니다. 모듈은 포크의 `extended/design-systems/<시스템>/` 아래에 둡니다.
 - 포크가 내는 라이브러리의 Maven 그룹은 `org.thisisthepy.compose.*`입니다. JetBrains가 라이브러리와 플러그인 모두 `org.jetbrains.compose`를 쓰는 것과 같은 방식입니다.
-- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. darkpyonix는 `dev.darkpyonix` 하나만 씁니다(소유자 답변, 2026-10-03). darkpyonix는 Kotlin 라이브러리를 내지 않으므로, 라이브러리와 앱을 가르는 둘째 네임스페이스가 필요 없습니다. 예: `dev.darkpyonix.Ember`, `dev.darkpyonix.composerust.samples.<샘플>`.
+- 앱으로 배포되는 것의 식별자는 `io.github.thisisthepy.<앱>`입니다. **darkpyonix의 코드는 `dev.darkpyonix` 네임스페이스만 씁니다.** 패키지, 앱 식별자, 그룹 이름 모두 해당하며, 소유자가 답했고(2026-10-03) 이 결정으로 확정했습니다(2026-10-25, 이슈 #63). darkpyonix는 Kotlin 라이브러리를 내지 않으므로, 라이브러리와 앱을 가르는 둘째 네임스페이스가 필요 없습니다. 예: `dev.darkpyonix.Ember`, `dev.darkpyonix.composerust.samples.<샘플>`.
 - `androidx.compose.*` 아래에 두지 않는 이유는 위의 둘째 선택지 설명 그대로입니다. upstream과 부딪히지 않고, 포크가 더한 것이 이름만으로 구별되며, 공개 API를 바꾸지 않는다는 원칙을 지킵니다.
 
 **디자인 시스템은 두 층으로 냅니다. 소유자의 결정입니다(2026-10-03).**
@@ -443,6 +457,139 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 - **공통 계약은 별도 모듈 `org.thisisthepy.compose.designsystem`에 남깁니다.** 역할 enum, `DesignSystem` 인터페이스, 토큰입니다. 두 층이 모두 이것에 의존합니다. adaptive에 합치지 않는 이유는 의존 방향입니다. adaptive는 1층 일곱 개 전부에 의존하고, 1층은 adaptive에 의존하면 안 됩니다. 계약이 adaptive 안에 있으면 1층이 계약을 쓰려고 adaptive에 의존하게 되어 순환이 생깁니다.
 - **이름이 비슷한 것 하나.** JetBrains의 `androidx.compose.material3.adaptive`는 적응형 레이아웃(창 크기 클래스)이고 `org.thisisthepy.compose.adaptive`와 무관합니다. 네임스페이스가 달라 부딪히지 않습니다.
 - 요구사항과 수용 기준은 SPEC FR-14.11입니다.
+
+### D21. 데스크톱 창 코드는 두 벌로 두고, 공통 로직은 한 벌로, 일치는 시험으로 지킨다 (2026-10-04)
+
+**소유자의 결정입니다(2026-10-04, darkpyonix 리더가 전달).**
+
+> [user] "두 벌 + 공통 로직 + 일치 테스트" (2026-10-04)
+
+이 결정에 이르는 과정에서 소유자가 한 말입니다.
+
+> [user] "통합하지 않거나 Kotlin/native쪽에 맞출 방법이 필요할거 같아" (2026-10-04)
+
+> [user] "니 말만 들으면 구현을 따로 하는게 나아보이긴 하네" (2026-10-04)
+
+- 데스크톱 창은 macOS와 Linux에서 구현이 둘입니다(Windows는 아래 예외). 경로마다 얇은 OS 층을 둡니다. GraalVM 경로는 `appkit_window.m`, `win32_window.c`, `x11_window.c`이고, Kotlin/Native 경로는 Kotlin cinterop입니다(D18의 Windows를 포함).
+- 공통 로직은 Kotlin 소스 한 벌에 둡니다(D3). 두 경로가 같은 소스를 컴파일합니다.
+- 일치 테스트: 같은 점검표와 측정을 두 경로에 CI에서 돌립니다.
+- **폐기:** 컴파일한 K/N 창 모듈을 GraalVM 이미지에 정적으로 링크하는 통합(조사 문서의 선택지 A)과 그 전제를 확인하려던 실험 E1 ~ E4는 하지 않습니다. 왜 그랬는지는 `docs/design/graalvm-reuse-kn-window.md`(PR #148)에 있습니다.
+- **E0(upcall 비용 측정)은 끝났습니다(2026-10-04).** upcall 한 번은 약 8 ~ 9 ns라 허용합니다. 핸드셰이크(스레드 사이 왕복, 약 2.75 us)는 프레임당 몇 번까지만 허용합니다. 접근성 질의는 캐시에서 답하고 경계를 넘지 않습니다. Win32와 X11의 그리기 콜백은 upcall로 둡니다.
+- **공통 로직에는 순수 C 헤더도 들어갑니다.** 두 경로가 OS 콜백 안의 계산에 함께 쓰는 헤더(`win32_resize.h`, `appkit_resize.h`)입니다. GraalVM 경로에서는 C에서 직접 부르고, K/N 경로에서는 cinterop으로 부릅니다. 같은 계산이 한 벌의 소스에서 나옵니다.
+- **Windows 예외 (소유자 결정, 2026-10-04).** Windows K/N 렌더러(#119, `feature/windows-kotlin-native`)는 GraalVM 경로가 쓰는 `renderer/desktop/c/win32_window.c`를 그대로 링크합니다(`renderer/windows/module.yaml`, `Win32Window.kt`가 심볼 이름으로 부릅니다). 그래서 Windows의 창은 두 경로가 공유하는 C 구현 하나이고, "구현이 둘"은 macOS와 Linux에만 해당합니다. K/N도 macOS처럼 자기 Kotlin 창을 가질지 물었고, 소유자가 C 한 벌 유지로 정했습니다(리더의 권고와 같습니다).
+
+> [user] "C 한 벌 유지" (2026-10-04)
+
+  Kotlin 창을 따로 두는 안은 폐기합니다. 이유는 MinGW 객체와 MSVC 링크가 맞물리는 위험이 창 코드까지 번지는 것, 그리고 Windows에도 일치 테스트가 하나 더 필요해지는 부담입니다.
+- 이동 계획: D19가 포크로 옮기기로 한 창 코드는 이 구조에 맞춰 `extended/window/{common, native/<os>, graalvm/<os>, parity}`로 나눕니다. 순서와 날짜는 `docs/design/fork-window-move.md`에 있습니다.
+
+**치르는 값.** 같은 동작을 두 곳에서 구현하므로 표류가 생길 수 있고, 시험이 그것을 막는 유일한 장치입니다. 시험이 덮지 못하는 것(IME, VoiceOver, 리사이즈 감)은 사람이 실기기에서 봅니다.
+
+### D22. 시트는 가운데에도 뜨고, 창은 맨 위까지 애플리케이션의 것일 수 있다 (2026-10-26)
+
+**결정**: `Sheet`에 `Presentation::Centered`와 `MaxWidth`를 더하고(FR-21.3.1), 창에 `Chrome::FullSize`와 `WindowSafeArea { top, leading, trailing }`를 더한다(FR-19.9).
+
+**근거**: Ember의 목업과 앱을 같은 폭에서 나란히 놓은 비교(2026-10-26)에서, 설정과 새 항목 시트가 가운데 카드가 아니라 오른쪽 서랍으로 나오고, 자기 상단 바를 그리는 앱인데도 창 맨 위에 약 50px의 빈 띠가 남는 것이 화면 전체가 목업과 달라 보이는 큰 원인으로 나왔다. 소유자 원문(2026-10-26), 질문 "가운데 모달(FR-21.3a)과 창 맨 위까지 쓰기(FR-19.8, Chrome::FullSize + WindowSafeArea)를 compose-rust SPEC에 넣는 것을 승인하시나요?"에 대한 답: "둘 다 승인". 기록은 compose-rust #344, #345 댓글. 세부(폭은 일반 `max_width`, 이름, 기본 드래그 영역을 앱이 덮어쓸 수 있게)는 같은 날 리더의 결정이다.
+
+**버린 것**
+
+| 대안 | 버린 이유 |
+|---|---|
+| 모니터처럼 넓은 시트를 위한 전용 크기 등급 | 폭 하나를 위해 이름 붙은 등급을 늘리게 된다. `MaxWidth` 하나로 같은 일을 한다 |
+| 가운데 시트를 별도 위젯(`Modal`)으로 | `Dialog`, `Sheet`와 같은 오버레이에 같은 `Open`/`OnDismiss`를 쓰는 위젯이 셋째로 생긴다. 표현만 다르므로 속성이다 |
+| 바가 없을 때 띠를 남기는 19.2 규칙을 모든 앱에서 없애기 | 바를 두지 않은 기존 앱의 첫 줄이 창 버튼 아래로 들어간다. 옵트인이어야 한다 |
+| 안전 영역을 앱이 상수로 들고 있기(Windows 138dp 같은) | 버튼 폭과 신호등 자리는 디자인 시스템, DPI, OS 버전에 따라 바뀐다(19.5, 19.7). Renderer만 실제 값을 안다 |
+
+### D23. 창 여러 개는 한 Host, 한 composition 안의 `Window` 노드다 (2026-10-26)
+
+**요구**: 한 프로세스가 같은 앱의 창 여러 개를 열고 닫으며, 창들이 상태를 나눠 가진다. Electron처럼 IDE 탭을 끌어 새 창으로 떼어 내고 다시 붙일 수 있어야 한다(Ember FR-B2). 소유자 원문(2026-10-26):
+
+> "여러 창을 띄우는 기능 >> 내가 저번에 electron 처럼 IDE 탭 떼서 새 창 만드는거도 가능해야 한다고 말했잖아. 니가 스펙으로 안만들어놨나보지. 여러 창을 띄우는 기능 추가해."
+
+> "compose-rust에 여러 창 띄우기 할 때 모바일도 해줘야해. 안드로이드는 액티비티 하나 더 추가하는걸로 생각하면 되겠지?" (같은 날)
+
+**결정(소유자 승인)**: 창은 루트의 자식인 `Window` 노드다. 노드를 넣으면 창이 열리고 지우면 닫힌다. 모든 창이 Host 하나, composition 하나, 노드 표 하나, UI 스레드 하나를 쓴다. 경계 함수는 그대로이고(PR-2), 바뀌는 것은 스키마다(FR-7). 한 창짜리 앱은 소스도 바이트도 바뀌지 않는다. 창 하나는 데스크톱에서 플랫폼 창, Android에서 Activity, iOS와 iPadOS에서 `UIScene`이고, Rust API는 모든 플랫폼에서 같다. 요구사항과 수용 기준은 SPEC FR-53이다.
+
+소유자의 승인입니다. 질문은 "창은 `Window` 노드, 모든 창이 Host 하나를 나눠 쓰고, 한 창짜리 앱은 그대로이며, 모든 플랫폼에서 `TearOffKey`로 탭을 떼어 낸다"는 안이었습니다.
+
+> [user] "승인 (Recommended)" (2026-10-26)
+
+**근거**
+
+- 상태를 나눠 갖는 것이 요구의 중심이다. 한 composition 안에 창이 있으면 한 창의 핸들러가 쓴 상태를 다른 창이 읽는 것이 지금의 recomposition 그대로이고, 창 사이의 메시지 장치가 필요 없다. Compose Desktop의 `application { Window { } }`가 같은 모양이고, compose-rust의 작성 API는 Compose의 모양을 따른다(D2).
+- 경계를 넓히지 않는다. 창을 여닫는 것이 Mutation이고 창의 일이 이벤트이므로, PR-1의 동기 호출, PR-2의 다섯 함수, PR-4의 배치가 그대로다. 노드 id 공간이 하나라 노드 이벤트에 창 번호를 더할 필요도 없다. 창 수준의 이벤트(크기 클래스, 확대, 밀도)는 이미 `node_id = 0`을 쓰고 있으므로 그 자리에 `Window` 노드의 id를 넣으면 된다.
+- 탭 떼어 내기에 필요한 화면 좌표를 Host가 들고 있지 않아도 된다. Host는 "누르고 있는 그 포인터 아래에 이 창의 이 지점을 놓아라"라고만 말하고(`DragFromPointer`), 화면의 포인터를 아는 Renderer가 창을 놓고 따라 옮긴다.
+
+**버린 것**
+
+| 대안 | 버린 이유 |
+|---|---|
+| 창마다 Host 하나(창 번호를 받는 경계 함수, 창마다 arena와 노드 표) | 경계 함수가 모두 바뀌고(PR-2, iOS의 `@CName`, JNI 심, wasm 포워더, 스모크 하네스), 창 사이의 상태 공유가 composition 밖의 일이 된다. dioxus-desktop이 창마다 `VirtualDom`을 두는 방식이고, 그쪽은 창 사이 공유를 앱에게 넘긴다 |
+| 창마다 프로세스 하나(Chrome의 렌더러 프로세스) | 상태를 나누려면 프로세스 사이 통신이 필요하고, 그것은 D8이 피한 직렬화와 비동기 큐다 |
+| `open_window(config, content)` 같은 명령형 API | 창이 열려 있다는 사실이 트리 밖에 있게 되어, resync(PR-2)에서 다시 만들 근거가 없다. 선언형이면 트리를 다시 짓는 것으로 창도 다시 선다 |
+| 노드를 창 사이로 옮기는 `Move` 허용 | Compose의 composition은 창(장면)마다 따로이고, 장면 사이로 노드를 옮기는 공개 API가 없다. 탭을 옮기는 것은 앱의 모델을 옮기는 일이다 |
+
+**치르는 값**
+
+- 창 코드(포크, D19)가 창 하나를 전제로 한 곳이 많다. Windows의 `win32_window.c`는 창 상태가 전부 정적 변수이고, Linux는 창마다 X 연결을 따로 연다. macOS Kotlin/Native는 창마다 객체이지만 닫기 버튼이 아무것도 부르지 않는다. 고치는 일은 포크에서 한다.
+- 렌더러의 프레임 요청(`FrameRequests.global`)과 측정 호출은 프로세스에 하나라는 전제로 짜여 있다. 창이 여럿이어도 `render_frame`이 프레임당 한 번이도록 바꿔야 한다.
+- 모바일에서는 창을 만드는 주체가 시스템인 경우(끌어 놓기로 생긴 장면이나 Activity, 프로세스가 죽은 뒤 되살아난 창)가 있어 순서가 데스크톱과 반대다. 노드 id만으로는 그 창을 맞출 수 없으므로 앱이 안정된 이름(`RestoreKey`)을 붙여야 하고, Android의 Host는 Activity가 아니라 프로세스의 수명을 가져야 한다(PR-5를 그렇게 읽는다).
+- 출시되지 않는 GraalVM 경로(D4)는 이 결정을 따르지 않는다. 둘째 창은 `WindowUnavailable`로 답한다.
+
+### D24. 화면 미리보기는 실제 렌더러로 다시 빌드해 다시 띄우고, PNG는 창 없이 같은 장면에서 뽑는다 (2026-10-26)
+
+**소유자의 지시입니다(2026-10-26, darkpyonix 리더가 전달).**
+
+> [user] "미리보기 도구는 필요할거 같아. 구현할 방향 찾아서 스펙에 추가하도록 해." (2026-10-26)
+
+방향은 소유자가 리더에게 맡겼고, 아래는 리더의 결정입니다. 요구사항과 수용 기준은 SPEC FR-54입니다(이슈 #357).
+
+**왜 필요한가.** compose-rust 화면의 모양을 한 번 확인하려면 Rust 전체 빌드와 앱 실행이 필요합니다. 서브 에이전트는 cargo를 아예 돌리지 않습니다. HTML 목업은 브라우저에서 바로 보입니다. Ember 화면이 목업에서 멀어진 큰 원인이 이 고리의 느림이었습니다.
+
+**결정.**
+
+- **미리보기는 Rust 코드 안에 화면 옆에 적습니다.** `#[Preview]`를 붙인 함수 하나가 미리보기 하나이고, 함수는 크기, 명암, 디자인 시스템, 배율, 고정 데이터 이름을 담은 문맥을 받아 화면을 돌려줍니다. Jetpack Compose의 `@Preview`, SwiftUI의 `#Preview`와 같은 모양입니다. 이름은 대문자 P로 시작합니다. `#[Composable]`과 같은 규칙이고, 소유자의 말이 그 이유입니다.
+
+  > [user] "Jetpack Compose에서 Preview가 대문자로 시작하니까 P를 대문자로 해줘. Composable도 C 대문자로 하기로 했잖아" (2026-10-26)
+
+- **미리보기는 실제 렌더러로 그립니다.** 미리보기만을 위한 두 번째 렌더러나 두 번째 경계 전송을 만들지 않습니다. 미리보기에서 본 것이 배포된 앱에서 보이는 것이어야 목업 비교가 의미를 가집니다.
+- **대화형 미리보기는 "다시 빌드하고 다시 띄우기"입니다.** 도구가 소스를 지켜보다가 저장되면 미리보기 실행 파일을 증분 빌드하고, 프로세스를 다시 띄우면서 창의 위치와 크기, 고른 미리보기, 명암, 배율을 그대로 되살립니다. 어느 크레이트의 어떤 변경이든 같은 길로 반영되고, 상태 배치가 바뀌어도 프로세스가 죽지 않습니다.
+- **PNG는 창 없이 같은 장면에서 뽑습니다.** 렌더러에 화면 밖 그리기 진입점 하나를 더해, 창을 그리는 것과 같은 Compose 장면(`CanvasLayersComposeScene`)을 Skia의 CPU 래스터 표면에 정해진 프레임 시각으로 그리고 PNG로 씁니다. 이 길은 이미 있습니다: Windows 창의 리사이즈 프레임이 같은 장면을 `Surface.makeRasterDirect`로 그리고, 렌더러 시험(`HeldButtonsTest`, `DesignScreenshotTest`)이 장면을 래스터 표면에 그려 PNG로 씁니다. 바뀌는 것은 가짜 Host 대신 진짜 Rust Host가 트리를 보낸다는 것뿐입니다. 디스플레이도 GPU도 필요 없으므로 CI에서 그대로 돕니다.
+- **서브 에이전트는 CI가 뽑은 PNG로 화면을 봅니다.** cargo를 돌리지 않는다는 규칙은 그대로 둡니다. 풀 리퀘스트마다 CI가 미리보기 PNG를 아티팩트로 올리고, 서브 에이전트는 그것을 내려받아 목업과 나란히 봅니다.
+- **목업과의 나란히 보기는 도구가 합니다.** 같은 크기의 목업 PNG를 주면 두 그림을 나란히 놓은 그림과 차이 그림을 씁니다.
+- **도구의 이름은 `compose-rust-preview`이고 `cargo install compose-rust-preview`로 설치합니다**(리더 결정, 2026-10-26). 개발 머신에 한 번 설치하는 도구이고, 앱의 `Cargo.toml`에는 줄이 늘지 않습니다.
+- **3초 기준은 Ember에도 적용합니다**(리더 결정, 2026-10-26). Ember에서 재어 넘으면 Ember의 화면 코드를 크레이트로 나눠 증분 빌드의 단위를 줄입니다.
+- **dioxus-compose의 rsx 화면에는 컴파일 없는 빠른 길을 따로 둡니다.** rsx 리터럴(문자열 속성, 글, 마크업)의 변경은 Dioxus의 템플릿 핫 리로드로 빌드 없이 반영합니다. 그것은 dioxus-compose의 일이고 그쪽 SPEC FR-54와 INTENT에 있습니다. compose-rust 작성 API(FR-39)에는 rsx 템플릿이 없으므로 이 길이 없습니다.
+
+**되돌리는 조건.** FR-54의 시간 기준(저장에서 미리보기 갱신까지 3초)을 소유자의 Mac에서 재었는데 넘고, 그 시간의 대부분이 컴파일이 아니라 링크(정적 렌더러를 실행 파일에 다시 링크하는 일)와 렌더러 시작에 쓰인다면, 아래 표의 "창을 띄운 채로 두는 미리보기 뷰어"를 다시 검토합니다. 숫자는 FR-54 옆에 적습니다.
+
+**폐기한 대안.**
+
+| 대안 | 폐기 이유 |
+|---|---|
+| Rust 핫 패치(Dioxus 0.7 `subsecond`, `dx serve --hotpatch`)를 바탕으로 | subsecond는 `main.rs`가 있는 맨 위 크레이트만 패치하고, 다른 크레이트의 변경은 무시하며, `main.rs`가 `lib.rs`를 불러오는 구성은 제대로 패치되지 않는다고 스스로 밝힙니다. 이 프로젝트의 샘플과 Ember는 모두 "라이브러리 + 한 줄짜리 바이너리" 모양이라 화면 코드가 패치되지 않습니다. 구조체 배치가 바뀌면 프로세스가 죽을 수 있고, Dioxus CLI의 링커 래퍼가 있어야 하며, 0.7에서도 실험 기능입니다. 작업 공간 전체를 패치하게 되면 다시 봅니다 |
+| 오래 사는 렌더러 프로세스에 미리보기 크레이트를 dylib로 다시 적재 | Rust ABI가 빌드마다 보장되지 않아 경계를 C ABI로 다시 감싸야 하고, 런타임과 정적 변수가 dylib마다 한 벌씩 생깁니다. macOS에서 스레드 로컬을 가진 Rust dylib은 `dlclose`로 내려가지 않습니다. 렌더러가 부르는 `compose_rust_host_*` 심벌은 링크 시점에 정해지므로(D12) 바꿔 끼울 수 없습니다 |
+| 창을 띄운 채로 두는 미리보기 뷰어와 프로세스 사이 전송(Host는 소켓 너머에서 다시 빌드) | 창이 닫히지 않고 렌더러를 다시 링크하지 않아 빠를 수 있습니다. 하지만 경계가 동기 직접 호출이고(PR-1) 측정 호출이 composition 도중 Host에서 렌더러로 들어오므로(PR-2.1) 프로세스 사이에서는 왕복마다 막히는 두 번째 전송을 만들어 양쪽에서 유지해야 합니다. 미리보기가 배포되는 경계를 지나지 않게 됩니다. 위의 되돌리는 조건이 성립하면 다시 봅니다 |
+| JVM 개발 셸(NFR-5)의 Compose Hot Reload와 Kotlin `@Preview` | 렌더러의 Kotlin 코드를 고칠 때의 고리입니다. 화면은 Rust에 있으므로 거기서 보려면 트리를 손으로 적은 가짜 Host가 필요하고, 그것은 사용자가 쓴 화면이 아닙니다 |
+| 브라우저 미리보기(wasm, PR-6) | 그래도 cargo 빌드가 필요하고, 웹 렌더러는 다른 빌드(Kotlin/Wasm)라 글꼴과 래스터 결과가 데스크톱과 다릅니다. 그 그림은 데스크톱 기준 그림과 비교할 수 없습니다 |
+| OS의 창 캡처(`screencapture`, `simctl io screenshot`) | 디스플레이와 화면 기록 권한이 필요하고, 창 테두리와 그림자, GPU 합성이 들어가 같은 입력에서 같은 바이트가 나오지 않습니다. 헤드리스 CI에서 돌지 않습니다. iOS 스모크 시험의 스크린샷은 이 종류이고 그 용도로 남깁니다 |
+| Android 쪽 JVM 스크린샷 도구(Paparazzi, Roborazzi) | Kotlin으로 쓴 Compose를 그립니다. Rust Host가 보내는 트리를 그리지 않고, JVM이 필요합니다 |
+
+**치르는 값.**
+
+- 렌더러에 진입점 하나가 늘어납니다(PR-2). 플랫폼마다 화면 밖 그리기가 같은 결과를 내는지 시험해야 합니다.
+- 다시 띄우기 방식이라 저장할 때마다 창이 한 번 다시 그려지고, 화면 안의 상태(스크롤 위치, 펼친 메뉴)는 미리보기가 고정 데이터로 다시 만들어야 합니다. 고정 데이터를 준비하는 일은 화면을 쓰는 사람의 몫입니다.
+- PNG는 같은 플랫폼, 같은 렌더러 버전에서만 바이트 단위로 같습니다. 글꼴 래스터화가 OS마다 다르므로 CI 기준 그림은 플랫폼마다 둡니다.
+
+출처: subsecond 문서 <https://docs.rs/subsecond/latest/subsecond/>(맨 위 크레이트 한정, 구조체, 지원 플랫폼), Dioxus 0.7 핫 리로드 문서 <https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload>(rsx 핫 리로드는 작업 공간 전체, Rust 핫 패치는 맨 위 크레이트만), `dioxus-devtools` <https://docs.rs/dioxus-devtools/latest/dioxus_devtools/>(`connect`, `apply_changes`), Jetpack Compose 미리보기 <https://developer.android.com/develop/ui/compose/tooling/previews>, SwiftUI 미리보기 <https://developer.apple.com/documentation/swiftui/previews-in-xcode>.
+
+### D25. 가이드 사이트는 릴리스의 웹 샘플을 그대로 싣고, 빠진 샘플이 있으면 배포가 실패한다 (2026-11-13)
+
+**결정**: Pages는 wasm을 직접 빌드하지 않고 태그의 릴리스에서 웹 샘플 아카이브를 가져와 `/samples/<name>/`에 싣는다. 배포는 main에서만 하고, 빌드되지 않은 샘플이 있으면 배포가 실패한다(SPEC FR-22.7, 이슈 #20). [leader, provisional, 2026-11-13]
+
+### D26. 앱 상태는 compose-rust의 저장 API에 두고, 사용자의 파일은 Web에서도 FR-72의 대화상자로 연다 (2026-11-13)
+
+**결정**: 소유자가 (b)안을 골랐다. `compose_rust::storage`가 앱 식별자마다 이름 붙은 값을 주고, 네이티브는 Host 워커가 데이터 폴더의 파일에, Web은 Renderer가 IndexedDB에 쓴다. 사용자의 파일은 새 API가 아니라 FR-72를 Web에서 File System Access API로 구현하고, 그 API가 없는 브라우저는 `<input type=file>`과 내려받기로 대신한다. 경계 진입점은 늘지 않는다(SPEC FR-79, FR-72.9, 이슈 #529, #483). [leader, provisional, 2026-11-13]
 
 ### D15. iOS의 Liquid Glass는 시스템에게 받아 온다. UIKit을 Kotlin이 직접 몬다
 

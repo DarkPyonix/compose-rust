@@ -39,14 +39,80 @@ pub const RELEASE_BASE_URL: &str = "https://github.com/DarkPyonix/compose-rust/r
 /// missing", and the two have completely different answers.
 pub const PUBLISHED_TARGETS: &[&str] = &["macos-aarch64", "windows-x64", "linux-x64", "linux-arm64"];
 
-/// The shared library every distribution of the Renderer contains, whatever else
-/// travels alongside it. The name follows the platform's own convention, which is what
-/// its loader will look for.
+/// What a renderer distribution carries: the renderer as a static archive, or as a shared
+/// library.
+///
+/// The archive is what the release ships for macOS and Linux. It is Kotlin/Native, with
+/// Compose, Skia and ICU inside it, and it is linked into the application, so the
+/// application is one executable that needs nothing but the system's own libraries. The
+/// shared library is the GraalVM native image, which a checkout can still build for macOS
+/// and Linux. Windows has no shared renderer: its distribution is the static kit that
+/// `build-windows.sh` writes (the archive with `native/`, `gcc/` and `skiko/` beside it).
+///
+/// Which one a distribution is, is read from what is in it rather than from the platform.
+/// That is what lets a crate version whose release still carries shared libraries go on
+/// building, and what lets a platform move to the archive by publishing one, with nothing
+/// here to change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RendererKind {
+    /// `libcompose_rust_renderer.a`, linked into the executable.
+    Static,
+    /// The platform's shared library, loaded beside the executable.
+    Shared,
+}
+
+/// The release publishes these targets as a static archive. The others are a shared
+/// library for now; the build script says which in its messages, and links whichever
+/// the distribution holds.
+pub const STATIC_TARGETS: &[&str] = &["macos-aarch64", "windows-x64", "linux-x64", "linux-arm64"];
+
+/// The static archive a distribution of the Renderer contains when it is one. Kotlin/Native
+/// names it the same way on every platform it builds one for.
+pub fn renderer_static_file(_target_os: &str) -> &'static str {
+    "libcompose_rust_renderer.a"
+}
+
+/// The file a distribution of the given kind holds the renderer in.
+pub fn renderer_file(target_os: &str, kind: RendererKind) -> &'static str {
+    match kind {
+        RendererKind::Static => renderer_static_file(target_os),
+        RendererKind::Shared => renderer_lib_file(target_os),
+    }
+}
+
+/// The renderer in `dir`, and which kind it is.
+///
+/// Either the directory itself holds it, or its `lib` or `bin` subdirectory does, because
+/// both an unpacked artifact and the directory holding the file are natural things to point
+/// at. The archive wins where a directory somehow holds both, because it is what makes the
+/// application one file.
+pub fn find_renderer_in(dir: &Path, target_os: &str) -> Option<(PathBuf, RendererKind)> {
+    // The Windows kit is the directory itself: the archive sits at its root with the MSVC
+    // bridge libraries beside it, and linking needs all of them, so a `lib/` or `bin/`
+    // holding only an archive is not a kit. There is no Windows DLL to find.
+    if target_os == "windows" {
+        let file = renderer_static_file(target_os);
+        return dir
+            .join(file)
+            .is_file()
+            .then(|| (dir.to_path_buf(), RendererKind::Static));
+    }
+    for kind in [RendererKind::Static, RendererKind::Shared] {
+        let file = renderer_file(target_os, kind);
+        for candidate in [dir.join("lib"), dir.join("bin"), dir.to_path_buf()] {
+            if candidate.join(file).is_file() {
+                return Some((candidate, kind));
+            }
+        }
+    }
+    None
+}
+
+/// The shared library a distribution of the Renderer contains when it is one, whatever
+/// else travels alongside it. The name follows the platform's own convention, which is
+/// what its loader will look for.
 pub fn renderer_lib_file(target_os: &str) -> &'static str {
     match target_os {
-        // The Windows build names the image `libcompose_rust_renderer`, so the DLL keeps
-        // the `lib` prefix that Windows itself would not have added.
-        "windows" => "libcompose_rust_renderer.dll",
         "macos" => "libcompose_rust_renderer.dylib",
         _ => "libcompose_rust_renderer.so",
     }
@@ -54,14 +120,9 @@ pub fn renderer_lib_file(target_os: &str) -> &'static str {
 
 /// Where a platform's build script puts the renderer inside the distribution.
 ///
-/// Windows keeps the DLL beside the AWT and Skia DLLs in `bin`, because the loader
-/// searches the directory of the module that needs them and they have to be found
-/// together. The other platforms put the shared library in `lib`.
-pub fn renderer_lib_subdir(target_os: &str) -> &'static str {
-    match target_os {
-        "windows" => "bin",
-        _ => "lib",
-    }
+/// Every shared library goes in `lib`. Windows has none: its renderer is the static kit.
+pub fn renderer_lib_subdir(_target_os: &str) -> &'static str {
+    "lib"
 }
 
 /// One line holding the crate version the artifact was built for. The release packaging
@@ -70,7 +131,7 @@ pub fn renderer_lib_subdir(target_os: &str) -> &'static str {
 pub const RENDERER_VERSION_FILE: &str = "renderer.version";
 
 /// The release artifact for a crate version and platform target, as
-/// `.github/workflows/native-renderer.yml` names it.
+/// `.github/workflows/test-native-renderer.yml` names it.
 pub fn artifact_file_name(crate_version: &str, target: &str) -> String {
     format!("compose-rust-renderer-v{crate_version}-{target}.tar.gz")
 }
@@ -136,8 +197,10 @@ pub fn download_dir(cache_root: &Path) -> PathBuf {
 /// Where the Renderer was found, and which version file (if any) vouched for it.
 #[derive(Debug)]
 pub struct Renderer {
-    /// The directory to add to the link search path and the rpath.
+    /// The directory to add to the link search path.
     pub lib_dir: PathBuf,
+    /// Whether that directory holds the static archive or the shared library.
+    pub kind: RendererKind,
     /// The version recorded in the artifact, when it carries one.
     pub artifact_version: Option<String>,
     /// What answered: used for the one line the build prints about where its renderer
@@ -183,9 +246,10 @@ pub enum FetchError {
 pub struct Request<'a> {
     /// The value of [`RENDERER_DIR_ENV`], if it is set.
     pub env_dir: Option<&'a Path>,
-    /// The in-repository build output. Does not exist for a consumer of the published
-    /// crate, which is the case every error path here is written for.
-    pub workspace_lib_dir: &'a Path,
+    /// The in-repository build outputs, in the order they are preferred. None of them
+    /// exists for a consumer of the published crate, which is the case every error path
+    /// here is written for.
+    pub workspace_dirs: &'a [&'a Path],
     /// The cache root, or `None` when the platform gave us nowhere to put one.
     pub cache_root: Option<&'a Path>,
     pub crate_version: &'a str,
@@ -204,27 +268,25 @@ pub struct Request<'a> {
 /// 1. [`RENDERER_DIR_ENV`]. Set means set: if there is no renderer there this fails
 ///    rather than falling through, because a build that was pointed at a renderer on
 ///    purpose must not quietly turn into a download of a different one.
-/// 2. The workspace build output, which only a checkout of this repository has.
+/// 2. The workspace build outputs, which only a checkout of this repository has.
 /// 3. The version-and-target cache, which costs no network.
 /// 4. The tarball in the download directory, verified and unpacked.
 /// 5. The release for this crate version.
+///
+/// Each place may hold either kind of renderer (see [`RendererKind`]); what is found there
+/// is what is linked.
 pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
-    let lib_file = renderer_lib_file(request.target_os);
-
     if let Some(dir) = request.env_dir {
-        let lib_dir = lib_dir_within(dir, lib_file);
-        if !lib_dir.join(lib_file).is_file() {
-            return Err(missing_from_env_message(dir, &lib_dir, lib_file));
-        }
-        return finish(lib_dir, request, RendererSource::Environment);
+        let Some((lib_dir, kind)) = find_renderer_in(dir, request.target_os) else {
+            return Err(missing_from_env_message(dir, request.target_os));
+        };
+        return finish(lib_dir, kind, request, RendererSource::Environment);
     }
 
-    if request.workspace_lib_dir.join(lib_file).is_file() {
-        return finish(
-            request.workspace_lib_dir.to_path_buf(),
-            request,
-            RendererSource::Workspace,
-        );
+    for workspace in request.workspace_dirs {
+        if let Some((lib_dir, kind)) = find_renderer_in(workspace, request.target_os) {
+            return finish(lib_dir, kind, request, RendererSource::Workspace);
+        }
     }
 
     let Some(cache_root) = request.cache_root else {
@@ -232,9 +294,8 @@ pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
     };
 
     let cached = cached_renderer_dir(cache_root, request.crate_version, request.target);
-    let cached_lib_dir = cached.join(renderer_lib_subdir(request.target_os));
-    if cached_lib_dir.join(lib_file).is_file() {
-        return finish(cached_lib_dir, request, RendererSource::Cache);
+    if let Some((lib_dir, kind)) = find_renderer_in(&cached, request.target_os) {
+        return finish(lib_dir, kind, request, RendererSource::Cache);
     }
 
     if !PUBLISHED_TARGETS.contains(&request.target) {
@@ -256,15 +317,14 @@ pub fn acquire_renderer(request: &Request) -> Result<Renderer, String> {
         request.target,
     )?;
 
-    if !cached_lib_dir.join(lib_file).is_file() {
+    let Some((lib_dir, kind)) = find_renderer_in(&cached, request.target_os) else {
         return Err(unexpected_layout_message(
             &tarball,
             &cached,
-            lib_file,
-            renderer_lib_subdir(request.target_os),
+            request.target_os,
         ));
-    }
-    finish(cached_lib_dir, request, source)
+    };
+    finish(lib_dir, kind, request, source)
 }
 
 /// Make sure the tarball and its checksum are both in the download directory, by
@@ -413,15 +473,18 @@ fn unpack(
 
     // While it is still invisible to any other build, and using the name it is about to
     // have. Doing it after the rename would mean a second build could link the library in
-    // the moment between the two.
-    let subdir = renderer_lib_subdir(target_os);
-    let lib_file = renderer_lib_file(target_os);
-    let unpacked = scratch.join(subdir).join(lib_file);
-    // A missing library is reported properly by the layout check downstream.
-    if unpacked.is_file() {
+    // the moment between the two. A static archive has no name to give: it is copied into
+    // whatever links it. A missing renderer is reported properly by the layout check
+    // downstream.
+    if let Some((unpacked_dir, RendererKind::Shared)) = find_renderer_in(&scratch, target_os) {
+        let lib_file = renderer_lib_file(target_os);
+        let relative = unpacked_dir
+            .strip_prefix(&scratch)
+            .unwrap_or(Path::new(""))
+            .to_path_buf();
         if let Err(message) = name_after_its_location(
-            &unpacked,
-            &destination.join(subdir).join(lib_file),
+            &unpacked_dir.join(lib_file),
+            &destination.join(relative).join(lib_file),
             target_os,
             crate_version,
             target,
@@ -563,7 +626,12 @@ fn set_soname(library: &Path, name: &Path, crate_version: &str, target: &str) ->
 /// renderer a developer of this repository builds from source is loaded exactly the way
 /// the one a consumer downloads is. Two different loading paths meant the one people use
 /// every day was not the one that was broken.
-fn finish(lib_dir: PathBuf, request: &Request, source: RendererSource) -> Result<Renderer, String> {
+fn finish(
+    lib_dir: PathBuf,
+    kind: RendererKind,
+    request: &Request,
+    source: RendererSource,
+) -> Result<Renderer, String> {
     // Whatever was found, from here on it is an absolute path. The name written into the
     // library is the name every application that links it will look it up by, and a
     // relative one would be resolved against whatever directory that application happens
@@ -582,17 +650,22 @@ fn finish(lib_dir: PathBuf, request: &Request, source: RendererSource) -> Result
         }
     }
 
-    let library = lib_dir.join(renderer_lib_file(request.target_os));
-    name_after_its_location(
-        &library,
-        &library,
-        request.target_os,
-        request.crate_version,
-        request.target,
-    )?;
+    // Only a shared library is looked up by name when the application starts. An archive
+    // is inside the application by then.
+    if kind == RendererKind::Shared {
+        let library = lib_dir.join(renderer_lib_file(request.target_os));
+        name_after_its_location(
+            &library,
+            &library,
+            request.target_os,
+            request.crate_version,
+            request.target,
+        )?;
+    }
 
     Ok(Renderer {
         lib_dir,
+        kind,
         artifact_version,
         source,
     })
@@ -621,23 +694,6 @@ pub fn absolute(dir: &Path) -> PathBuf {
     }
 }
 
-/// Accept either the unpacked artifact root or the directory holding the library. Both are
-/// natural things for a human to point the variable at, and guessing wrong is a linker
-/// error rather than a message.
-///
-/// The subdirectory differs by platform: Windows keeps the renderer in `bin` beside the
-/// AWT and Skia DLLs, which the loader needs to find together, and the others use `lib`.
-/// Both are tried, so pointing at the wrong one of the two still works.
-fn lib_dir_within(dir: &Path, lib_file: &str) -> PathBuf {
-    for subdir in ["lib", "bin"] {
-        let nested = dir.join(subdir);
-        if nested.join(lib_file).is_file() {
-            return nested;
-        }
-    }
-    dir.to_path_buf()
-}
-
 /// The version file lives in the artifact root, which is the parent of `lib/` for an
 /// unpacked artifact. It is also accepted inside the library directory, so a vendored
 /// copy that keeps only `lib/` can still declare its version.
@@ -662,25 +718,30 @@ fn read_artifact_version(lib_dir: &Path) -> Option<String> {
 fn build_it_yourself(crate_version: &str, target: &str) -> String {
     let artifact = artifact_file_name(crate_version, target);
     format!(
-        "Any renderer you already have works too. Unpack {artifact}, or build one with\n\
-         renderer/desktop/scripts/build-native.sh from a checkout of the\n\
-         repository, then set {RENDERER_DIR_ENV} to that directory. The variable is checked\n\
-         first and nothing is downloaded when it is set."
+        "Any renderer you already have works too. Unpack {artifact}, or build one from a\n\
+         checkout of the repository: the static archive with\n\
+         renderer/desktop/scripts/build-macos.sh or\n\
+         renderer/desktop/scripts/build-linux.sh, the shared library with\n\
+         renderer/desktop/scripts/build-native.sh. Then set\n\
+         {RENDERER_DIR_ENV} to the directory it wrote. The variable is checked first and\n\
+         nothing is downloaded when it is set."
     )
 }
 
-fn missing_from_env_message(env_dir: &Path, looked_in: &Path, lib_file: &str) -> String {
+fn missing_from_env_message(env_dir: &Path, target_os: &str) -> String {
     format!(
         "compose-rust: {RENDERER_DIR_ENV} is set to {env_dir}, but no renderer is there.\n\
          \n\
-         Looked for {lib_file} in {looked_in}, in {env_dir}/lib and in {env_dir}/bin. Point\n\
-         the variable either at the directory an artifact was unpacked into or straight at\n\
-         the directory holding the library.\n\
+         Looked for {archive} (the static renderer) and for {shared} (the shared one) in\n\
+         {env_dir}, in {env_dir}/lib and in {env_dir}/bin. Point the variable either at the\n\
+         directory an artifact was unpacked into or straight at the directory holding the\n\
+         renderer.\n\
          \n\
          Nothing was downloaded, because the variable is set. Unset it and this build\n\
          fetches the renderer for its own version by itself.",
         env_dir = env_dir.display(),
-        looked_in = looked_in.display(),
+        archive = renderer_static_file(target_os),
+        shared = renderer_lib_file(target_os),
     )
 }
 
@@ -688,12 +749,14 @@ fn unpublished_target_message(crate_version: &str, target: &str) -> String {
     format!(
         "compose-rust: no renderer is published for {target}.\n\
          \n\
-         The release builds these targets: {published}. This build is for {target}, so\n\
-         there is nothing to download, and a download would only have produced a 404 that\n\
-         does not say which of the two is missing.\n\
+         The release builds these targets: {published}. The static renderer, which makes an\n\
+         application one executable, is published for {static_targets}. This build is for\n\
+         {target}, so there is nothing to download, and a download would only have produced\n\
+         a 404 that does not say which of the two is missing.\n\
          \n\
          {build_it_yourself}",
         published = PUBLISHED_TARGETS.join(", "),
+        static_targets = STATIC_TARGETS.join(", "),
         build_it_yourself = build_it_yourself(crate_version, target),
     )
 }
@@ -873,20 +936,38 @@ fn unpack_failed_message(tarball: &Path, detail: &str) -> String {
     )
 }
 
-fn unexpected_layout_message(
-    tarball: &Path,
-    unpacked_into: &Path,
-    lib_file: &str,
-    subdir: &str,
-) -> String {
+fn unexpected_layout_message(tarball: &Path, unpacked_into: &Path, target_os: &str) -> String {
     format!(
         "compose-rust: the renderer artifact unpacked, but does not contain a renderer.\n\
          \n\
-         Expected {subdir}/{lib_file} under {unpacked_into}, from {tarball}. An artifact\n\
-         built for a different platform would look exactly like this. Delete that directory\n\
-         and the downloaded artifact, then build again.",
+         Expected lib/{archive} or {subdir}/{shared} under {unpacked_into}, from {tarball}.\n\
+         An artifact built for a different platform would look exactly like this. Delete that\n\
+         directory and the downloaded artifact, then build again.",
         tarball = tarball.display(),
         unpacked_into = unpacked_into.display(),
+        archive = renderer_static_file(target_os),
+        subdir = renderer_lib_subdir(target_os),
+        shared = renderer_lib_file(target_os),
+    )
+}
+
+/// Why a static renderer cannot be linked for a platform, when nothing says what it needs
+/// from the system.
+///
+/// Each platform's archive calls into a different set of system libraries, and the build
+/// script holds that list per platform. A platform with an archive and no list is one whose
+/// static renderer has not been brought up yet; linking it anyway fails with thousands of
+/// undefined references that say nothing about why.
+pub fn no_static_link_message(target: &str, lib_dir: &Path) -> String {
+    format!(
+        "compose-rust: {lib_dir} holds a static renderer for {target}, and this crate does not\n\
+         yet know how to link one there.\n\
+         \n\
+         The static renderer is linked for {static_targets}. For {target} use the shared\n\
+         renderer the release publishes: unset {RENDERER_DIR_ENV}, or point it at a\n\
+         distribution that holds the shared library.",
+        lib_dir = lib_dir.display(),
+        static_targets = STATIC_TARGETS.join(", "),
     )
 }
 
@@ -924,7 +1005,7 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
     let target = "macos-aarch64";
     let tarball = sample_dir.join(artifact_file_name(version, target));
     vec![
-        missing_from_env_message(sample_dir, sample_dir, renderer_lib_file("macos")),
+        missing_from_env_message(sample_dir, "macos"),
         unpublished_target_message(version, "freebsd-x86_64"),
         offline_message(version, target, sample_dir, "curl could not resolve the host"),
         not_in_release_message(version, target, &artifact_file_name(version, target)),
@@ -947,7 +1028,8 @@ pub fn every_failure_message(sample_dir: &Path) -> Vec<String> {
             version,
             "linux-x64",
         ),
-        unexpected_layout_message(&tarball, sample_dir, renderer_lib_file("macos"), "lib"),
+        unexpected_layout_message(&tarball, sample_dir, "macos"),
+        no_static_link_message("freebsd-x64", sample_dir),
         version_mismatch_message(sample_dir, "0.1.0", version, target),
         build_it_yourself(version, target),
     ]
@@ -1036,11 +1118,37 @@ pub fn android_gradle_kotlin(
 /// build file because it is the renderer that is written against them, and an application
 /// that had to name them would be guessing at what its dependency needs.
 pub const ANDROID_COMPOSE_DEPENDENCIES: [&str; 4] = [
-    "androidx.activity:activity-compose:1.9.3",
-    "androidx.compose.ui:ui:1.7.5",
-    "androidx.compose.foundation:foundation:1.7.5",
-    "androidx.compose.material3:material3:1.3.1",
+    "androidx.activity:activity-compose:1.10.1",
+    "androidx.compose.ui:ui:1.9.0",
+    "androidx.compose.foundation:foundation:1.9.0",
+    "androidx.compose.material3:material3:1.4.0",
 ];
+
+/// The lowest `compileSdk` the Compose libraries above accept. Compose 1.9 carries AAR
+/// metadata that refuses a module compiled against anything older, and the dx template
+/// pins 34.
+const ANDROID_COMPOSE_MIN_COMPILE_SDK: u32 = 35;
+
+/// The module text with `compileSdk` raised to [`ANDROID_COMPOSE_MIN_COMPILE_SDK`], or
+/// `None` when it is already that high or the module does not set one in a form this reads
+/// (`compileSdk = 34`).
+fn with_compile_sdk(module: &str) -> Option<String> {
+    let key = "compileSdk";
+    let at = module.find(key)?;
+    let rest = &module[at + key.len()..];
+    let digits_at = rest.find(|c: char| c.is_ascii_digit())?;
+    if !rest[..digits_at].trim().starts_with('=') {
+        return None;
+    }
+    let digits: String = rest[digits_at..].chars().take_while(char::is_ascii_digit).collect();
+    if digits.parse::<u32>().ok()? >= ANDROID_COMPOSE_MIN_COMPILE_SDK {
+        return None;
+    }
+    let from = at + key.len() + digits_at;
+    let mut text = module.to_owned();
+    text.replace_range(from..from + digits.len(), &ANDROID_COMPOSE_MIN_COMPILE_SDK.to_string());
+    Some(text)
+}
 
 /// The Gradle plugin that compiles `@Composable`, which Kotlin 2.0 made compulsory.
 const COMPOSE_PLUGIN_ID: &str = "org.jetbrains.kotlin.plugin.compose";
@@ -1066,6 +1174,59 @@ pub fn with_notification_permission(manifest: &str) -> Option<String> {
     Some(text)
 }
 
+/// The application's manifest with its first Activity told to resize for the keyboard, or
+/// `None` when it already says so or has no `<activity>` to say it on.
+///
+/// Without it Android pans the window instead: the whole screen slides up by the
+/// keyboard's height, so the bar at the top leaves the screen and runs under the status
+/// bar, and nothing below the focused field is laid out for the space that is left. With
+/// it, an edge-to-edge window is not resized either, but it is told how much the keyboard
+/// covers, and the renderer stops the page above it while bars and overlays keep their
+/// place. The Activity is the one the build generates, so the setting goes on that.
+///
+/// Any `state...` part of an existing value is kept; an `adjust...` part other than
+/// `adjustResize` is what causes the pan, so it is replaced.
+pub fn with_keyboard_resize(manifest: &str) -> Option<String> {
+    const ATTRIBUTE: &str = "android:windowSoftInputMode=\"";
+    const RESIZE: &str = "adjustResize";
+    let open = manifest
+        .match_indices("<activity")
+        .map(|(at, _)| at)
+        .find(|&at| {
+            manifest[at + "<activity".len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+        })?;
+    let end = open + manifest[open..].find('>')?;
+    let tag = &manifest[open..end];
+    let Some(attribute_at) = tag.find(ATTRIBUTE) else {
+        let after = open + "<activity".len();
+        let mut text = String::with_capacity(manifest.len() + 64);
+        text.push_str(&manifest[..after]);
+        text.push_str(&format!("\n            {ATTRIBUTE}{RESIZE}\""));
+        text.push_str(&manifest[after..]);
+        return Some(text);
+    };
+    let value_at = open + attribute_at + ATTRIBUTE.len();
+    let value_end = value_at + manifest[value_at..end].find('"')?;
+    let value = &manifest[value_at..value_end];
+    if value.split('|').any(|part| part.trim() == RESIZE) {
+        return None;
+    }
+    let mut parts: Vec<&str> = value
+        .split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !part.starts_with("adjust"))
+        .collect();
+    parts.push(RESIZE);
+    let mut text = String::with_capacity(manifest.len() + 16);
+    text.push_str(&manifest[..value_at]);
+    text.push_str(&parts.join("|"));
+    text.push_str(&manifest[value_end..]);
+    Some(text)
+}
+
 /// Puts Compose into an application module's generated `build.gradle.kts`.
 ///
 /// The Dioxus CLI generates this file and offers `gradle_plugins` for adding to it, but
@@ -1083,6 +1244,9 @@ pub fn with_compose(module: &str, root: &str) -> Option<(String, Option<String>)
         let plugins = module.find("plugins {")?;
         let after = module[plugins..].find('\n')? + plugins + 1;
         module_text.insert_str(after, &format!("    id(\"{COMPOSE_PLUGIN_ID}\")\n"));
+    }
+    if let Some(raised) = with_compile_sdk(&module_text) {
+        module_text = raised;
     }
     let missing: Vec<&str> = ANDROID_COMPOSE_DEPENDENCIES
         .iter()

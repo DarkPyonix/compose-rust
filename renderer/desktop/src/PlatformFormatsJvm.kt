@@ -37,3 +37,11 @@ internal fun platformFormats(): PlatformFormats {
         },
     )
 }
+
+/**
+ * Which thread this is, as something that compares equal only to itself on the same thread.
+ *
+ * A measure call is only answered on the thread the composition runs on, and a JVM thread
+ * object is that identity.
+ */
+internal fun currentThreadToken(): Any = Thread.currentThread()

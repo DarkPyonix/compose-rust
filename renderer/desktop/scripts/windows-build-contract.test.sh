@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Static contract for the Windows native-image path. It runs on macOS so that untested
-# Windows work cannot silently lose the evidence, staging, or PE/COFF boundary rules.
+# Windows work cannot silently lose the evidence, staging, or PE/COFF boundary rules. The
+# reachability metadata it reads is the development shell's, which still opens the toolkit's
+# window on a JVM; the image is built without it.
 set -euo pipefail
 
 scripts_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +13,7 @@ smoke_script="$scripts_dir/smoke-test-windows.ps1"
 metadata="$scripts_dir/windows-metadata/reachability-metadata.json"
 resources="$scripts_dir/windows-metadata/resources/resource-config.json"
 evidence="$scripts_dir/windows-metadata/evidence.json"
-workflow="$native_dir/../../.github/workflows/native-renderer.yml"
+workflow="$native_dir/../../.github/workflows/test-native-renderer.yml"
 
 for file in "$build_script" "$smoke_script" "$metadata" "$resources" "$evidence"; do
     [[ -f "$file" ]] || { echo "error: missing $file" >&2; exit 1; }
@@ -19,12 +21,22 @@ done
 
 grep -q 'UNTESTED' "$build_script"
 grep -q 'GraalVM 25' "$build_script"
-grep -q 'ConfigurationFileDirectories=$MetadataDir,$ResourceMetadataDir' "$build_script"
+# The image carries no toolkit: only the resource registrations, the toolkit switched off
+# where Compose and this renderer would name it, its types forbidden, Swing's dispatcher
+# provider off the class path, the toolkit's libraries removed and jawt.dll the stub.
+grep -q 'ConfigurationFileDirectories=$ResourceMetadataDir"' "$build_script"
+! grep -q 'ConfigurationFileDirectories=.*ToolkitMetadataDir' "$build_script"
+! grep -q 'Preserve=module=java.desktop' "$build_script"
+! grep -q 'ImeReachabilityFeature' "$build_script"
+for flag in '-Ddxc.toolkit.window=false' '-Dcompose.awt=false' '-Ddxc.awt.clipboard=false' \
+            'ReportAnalysisForbiddenType=java.awt.Toolkit' 'ReportAnalysisForbiddenType=java.awt.Component' \
+            'kotlinx-coroutines-swing' 'win32_jawt_stub.c'; do
+    grep -qF -- "$flag" "$build_script" || { echo "error: build-native-windows.ps1 lost $flag" >&2; exit 1; }
+done
 grep -q 'skiko-windows-x64.dll' "$build_script"
 grep -q 'icudtl.dat' "$build_script"
-grep -q 'fontconfig.bfc' "$build_script"
-grep -q 'awt.dll' "$build_script"
-grep -q 'jawt.dll' "$build_script"
+grep -q '"awt.dll", "fontmanager.dll"' "$build_script"
+grep -q 'JAWT_GetAWT' "$native_dir/c/win32_jawt_stub.c"
 grep -q 'GetProcAddress' "$native_dir/c/renderer_entry.c"
 grep -q 'GetModuleHandleExW' "$native_dir/c/renderer_entry.c"
 grep -q '__declspec(dllexport)' "$native_dir/c/smoke_host.c"
@@ -75,9 +87,10 @@ assert verified == {
     "os": "windows-x64",
     "composeMultiplatform": "1.9.0",
 }
+# The image's resources: skiko's checksum and the service files, and nothing of the toolkit's.
 patterns = {entry["pattern"] for entry in resources["resources"]["includes"]}
-assert any("windows_ko.properties" in pattern for pattern in patterns)
 assert any("skiko-windows-x64.dll.sha256" in pattern for pattern in patterns)
+assert not any("java.desktop:" in pattern or "java.awt" in pattern for pattern in patterns), patterns
 assert evidence["rendererStatus"] == "untested"
 PY
 

@@ -1,5 +1,11 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.protocol.MeasureRecords
+import dev.darkpyonix.composerust.runtime.RendererMeasure
+import java.nio.ByteBuffer
+import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CPointer
+
 import dev.darkpyonix.composerust.ui.platform.IosHostConnection
 import platform.Foundation.NSThread
 
@@ -44,4 +50,30 @@ object RendererApi {
     /** Thread-safe, because Host worker threads call it: requests coalesce into one
      *  `render_frame` per frame. */
     fun requestFrame() = FrameRequests.request()
+
+    /**
+     * Measures for the Host, from inside a call this side made into it. The thread is
+     * checked against the composition's before anything is read, and nothing unwinds into
+     * C: a call that fails as a whole answers a negative status the Host carries on past.
+     */
+    fun measure(
+        requests: CPointer<ByteVar>?,
+        length: Int,
+        count: Int,
+        results: CPointer<ByteVar>?,
+    ): Int {
+        if (requests == null || results == null) return MeasureRecords.CALL_UNREADABLE
+        if (count < 0 || length < 0 || count > Int.MAX_VALUE / MeasureRecords.RESULT_LENGTH) {
+            return MeasureRecords.CALL_UNREADABLE
+        }
+        return try {
+            RendererMeasure.measure(
+                ByteBuffer.wrapPointer(requests, length),
+                count,
+                ByteBuffer.wrapPointer(results, count * MeasureRecords.RESULT_LENGTH),
+            )
+        } catch (error: Throwable) {
+            MeasureRecords.CALL_UNREADABLE
+        }
+    }
 }

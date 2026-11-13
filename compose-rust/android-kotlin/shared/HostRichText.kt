@@ -1,32 +1,39 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.layout.LayoutModifier
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.IntrinsicMeasurable
+import androidx.compose.ui.layout.IntrinsicMeasureScope
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.LinkAnnotation
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.sp
+import dev.darkpyonix.composerust.design.LocalDesignTheme
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.MultiParagraphIntrinsics
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Paint
-import dev.darkpyonix.composerust.protocol.PropertyKind
-import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TypeRole
+import dev.darkpyonix.composerust.protocol.WordBreak
+import dev.darkpyonix.composerust.protocol.OverflowWrap
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.TableError
-import dev.darkpyonix.composerust.ui.maxLines
-import dev.darkpyonix.composerust.ui.overflow
-import dev.darkpyonix.composerust.ui.textStyle
 
 /**
  * One run of different treatment inside a string.
@@ -114,6 +121,9 @@ internal fun runsProblem(runs: List<TextRun>, byteLength: Int): String? {
  * One widget rather than three, because a paragraph with a bold phrase in it is one piece
  * of text: split into pieces it would wrap at the seams, and the phrase would never share
  * a line with the words around it.
+ *
+ * How it is set is decided by [resolveText], the same function a measure request is
+ * answered with, so the size the Host was told is the size that is drawn.
  */
 @Composable
 internal fun HostRichText(
@@ -121,88 +131,97 @@ internal fun HostRichText(
     modifier: Modifier,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    assets: AssetCache,
+    /** The colour an animation shows in the draw phase, or the style's own where none does. */
+    color: androidx.compose.ui.graphics.ColorProducer? = null,
 ) {
-    val raw = node.text(PropertyKind.Text)
-    val blob = (node.property(PropertyKind.Spans) as? PropertyValue.Bytes)?.value
-    val runs = blob?.let(::decodeRuns)
-
-    if (blob == null || runs == null || runs.isEmpty()) {
-        if (blob != null && runs == null) {
-            ReportRuns(node.id, "the run list is not a whole number of records", dispatcher)
-        }
-        BasicText(
-            text = raw,
-            modifier = modifier,
-            style = node.textStyle(theme),
-            maxLines = node.maxLines(),
-            overflow = node.overflow(),
-        )
-        return
-    }
-
-    val utf8 = raw.encodeToByteArray()
-    val problem = runsProblem(runs, utf8.size)
-    if (problem != null) {
-        ReportRuns(node.id, problem, dispatcher)
-        BasicText(
-            text = raw,
-            modifier = modifier,
-            style = node.textStyle(theme),
-            maxLines = node.maxLines(),
-            overflow = node.overflow(),
-        )
-        return
-    }
-
-    val annotated = buildAnnotatedString {
-        append(raw)
-        for (run in runs) {
-            val from = utf8.decodeToString(0, run.start).length
-            val to = utf8.decodeToString(0, run.start + run.length).length
-            val style = SpanStyle(
-                color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
-                // Behind this run's letters only, line by line where it wraps. The line's
-                // own background is the node's, and this is the part of it that changed.
-                background = runBackground(run, theme),
-                fontWeight = if (run.bold) FontWeight.Bold else null,
-                fontStyle = if (run.italic) FontStyle.Italic else null,
-                fontSize = run.role?.let { theme.type(it).size.sp }
-                    ?: androidx.compose.ui.unit.TextUnit.Unspecified,
-                textDecoration = when {
-                    run.underline && run.strikethrough ->
-                        TextDecoration.combine(
-                            listOf(TextDecoration.Underline, TextDecoration.LineThrough),
-                        )
-                    run.underline -> TextDecoration.Underline
-                    run.strikethrough -> TextDecoration.LineThrough
-                    else -> null
+    val input = node.textInput()
+    val density = textDensity(input, LocalDensity.current)
+    val fontResolver = LocalFontFamilyResolver.current
+    val resolved = resolveText(
+        input,
+        theme,
+        assets,
+        density,
+        fontResolver,
+        link = { run ->
+            // A link is a press on a range, and a press is the event the boundary already
+            // has. No new event tag for a thing that is already a click.
+            LinkAnnotation.Clickable(
+                tag = "compose-link-${run.start}",
+                linkInteractionListener = {
+                    dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
                 },
             )
-            addStyle(style, from, to)
-            if (run.handlerId != 0L) {
-                // A link is a press on a range, and a press is the event the boundary
-                // already has. No new event tag for a thing that is already a click.
-                addLink(
-                    LinkAnnotation.Clickable(
-                        tag = "compose-link-${run.start}",
-                        linkInteractionListener = {
-                            dispatcher.dispatch(HostEvent.Clicked(node.id, run.handlerId))
-                        },
-                    ),
-                    from,
-                    to,
-                )
-            }
-        }
-    }
-
-    BasicText(
-        text = annotated,
-        modifier = modifier,
-        style = node.textStyle(theme),
-        maxLines = node.maxLines(),
-        overflow = node.overflow(),
+        },
     )
+    val wordFloor = if (input.softWrap && (input.wordBreak == null || input.wordBreak == WordBreak.Normal) && input.overflowWrap != OverflowWrap.Anywhere) {
+        val words = resolveText(input, theme, assets, density, fontResolver, intrinsicWordBreak = WordBreak.KeepAll)
+        kotlin.math.ceil(MultiParagraphIntrinsics(words.text, words.style, words.placeholders, density, fontResolver).minIntrinsicWidth).toInt()
+    } else 0
+    // A text that may break a token too long for its line anywhere is as narrow as its
+    // widest letter, whatever its tokens are, so a parent that sizes it by the narrowest
+    // width it can take gives it a width it then wraps in. Asked at its own breaks, a
+    // `KeepAll` text would say the width of its longest token, and a 40 letter path in a
+    // narrow column would be laid out wider than the column and cut off.
+    val minContent = resolved.minContentText?.takeIf { input.softWrap }?.let { text ->
+        kotlin.math.ceil(MultiParagraphIntrinsics(text, resolved.style, resolved.minContentPlaceholders, density, fontResolver).minIntrinsicWidth).toInt()
+    }
+    val runs = node.runsDecodeProblem() ?: resolved.runsProblem
+    val fonts = node.fontListProblem() ?: resolved.problems.firstOrNull()
+    val problem = when {
+        runs != null -> "text runs on node ${node.id}: $runs; the string is drawn without them"
+        fonts != null -> "text fonts on node ${node.id}: $fonts"
+        resolved.ignoredFonts != null -> "text fonts on node ${node.id}: ${resolved.ignoredFonts}"
+        else -> null
+    }
+    if (problem != null) ReportRuns(node.id, problem, dispatcher)
+    // A node selected whole shows it the way a selection does: every letter on the
+    // selection colour.
+    val text = if (LocalSelectedWhole.current) {
+        val background = LocalTextSelectionColors.current.backgroundColor
+        remember(resolved.text, background) {
+            AnnotatedString.Builder(resolved.text).apply {
+                addStyle(SpanStyle(background = background), 0, resolved.text.length)
+            }.toAnnotatedString()
+        }
+    } else {
+        resolved.text
+    }
+    // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
+    // text size does not reach it. Everything else is laid out where it stands.
+    CompositionLocalProvider(LocalDensity provides density) {
+        BasicText(
+            text = text,
+            modifier = modifier.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
+            style = resolved.style,
+            overflow = resolved.overflow,
+            softWrap = resolved.softWrap,
+            maxLines = resolved.maxLines,
+            inlineContent = resolved.inlineContent,
+            color = color,
+        )
+    }
+}
+
+private class WordFloor(private val width: Int) : LayoutModifier {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints) =
+        measurable.measure(constraints).let { placeable ->
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int =
+        maxOf(width, measurable.minIntrinsicWidth(height))
+}
+
+/** The narrowest width of a text that may break anywhere: [width], not its longest token. */
+private class MinContentWidth(private val width: Int) : LayoutModifier {
+    override fun MeasureScope.measure(measurable: Measurable, constraints: Constraints) =
+        measurable.measure(constraints).let { placeable ->
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+
+    override fun IntrinsicMeasureScope.minIntrinsicWidth(measurable: IntrinsicMeasurable, height: Int): Int = width
 }
 
 /**
@@ -214,7 +233,7 @@ internal fun HostRichText(
  * composition runs on, which is the thread the Host was started on.
  */
 @Composable
-private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
+internal fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
     val said = remember(nodeId) { arrayOfNulls<String>(1) }
     SideEffect {
         if (said[0] == problem) return@SideEffect
@@ -224,8 +243,55 @@ private fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher
                 nodeId = nodeId,
                 handlerId = 0,
                 code = TableError.UNSUPPORTED_PROPERTY,
-                message = "text runs on node $nodeId: $problem; the string is drawn without them",
+                message = problem,
             ),
+        )
+    }
+}
+
+/**
+ * `BasicText` for a plain string set in the theme's type: a label, a title, a message.
+ *
+ * Where the family the style names is the first family of a font stack, the letters it
+ * has no glyph for are set in the stack's next family that has them, as a `Text` node's
+ * are. Without this a Korean label in a theme set in Inter and Pretendard would take its
+ * Hangul from the machine's own fonts, which is a different face on every platform.
+ * Every other string is drawn exactly as `BasicText` draws it.
+ */
+@Composable
+internal fun ThemedText(
+    text: String,
+    modifier: Modifier = Modifier,
+    style: TextStyle = TextStyle.Default,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
+    overflow: TextOverflow = TextOverflow.Clip,
+    softWrap: Boolean = true,
+    maxLines: Int = Int.MAX_VALUE,
+    minLines: Int = 1,
+) {
+    val chain = LocalDesignTheme.current.chainFor(style.fontFamily)
+    val spans = remember(text, chain) { chain?.spans(text).orEmpty() }
+    if (spans.isEmpty()) {
+        BasicText(
+            text = text,
+            modifier = modifier,
+            style = style,
+            onTextLayout = onTextLayout,
+            overflow = overflow,
+            softWrap = softWrap,
+            maxLines = maxLines,
+            minLines = minLines,
+        )
+    } else {
+        BasicText(
+            text = AnnotatedString(text, spans),
+            modifier = modifier,
+            style = style,
+            onTextLayout = onTextLayout,
+            overflow = overflow,
+            softWrap = softWrap,
+            maxLines = maxLines,
+            minLines = minLines,
         )
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ComposeViewport
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.clampZoomLevel
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.m0DemoHost
 import dev.darkpyonix.composerust.ui.platform.WebHostConnection
@@ -32,8 +33,78 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
 fun main() {
     // Before the Host: its first batch may already post a notification.
     dev.darkpyonix.composerust.ui.platform.Notifications.platform = dev.darkpyonix.composerust.ui.platform.WebNotifications()
+    // The browser reads its clipboard only asynchronously, after asking the user.
+    dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform = { clipboard ->
+        dev.darkpyonix.composerust.ui.platform.readWebClipboardText(clipboard)
+    }
+    // The user's files: the browser's pickers, and the handles they give, behind the same
+    // dialog and file requests every platform answers. The event buffer grows as far as the
+    // largest one the Host lends, so an answer longer than that is refused whole instead of
+    // cut.
+    val files = dev.darkpyonix.composerust.ui.platform.WebFiles()
+    dev.darkpyonix.composerust.ui.platform.FileDialogs.platform = files
+    dev.darkpyonix.composerust.ui.platform.FileCalls.platform = files
+    dev.darkpyonix.composerust.ui.platform.FileDialogs.maxEventBytes =
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES
+    // The application's storage is the browser's here, so this side carries the Host's
+    // storage requests out, in IndexedDB. An answer travels in the event buffer, so one
+    // larger than the largest buffer the Host lends is reported as too large rather than
+    // cut short.
+    dev.darkpyonix.composerust.ui.platform.Storage.platform = dev.darkpyonix.composerust.ui.platform.WebStorage()
+    dev.darkpyonix.composerust.ui.platform.Storage.maxAnswerBytes =
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES - IO_ANSWER_RECORD_BYTES
+    // The browser's own answer to the media query a page would ask.
+    dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
+        if (prefersReducedMotion()) {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.On
+        } else {
+            dev.darkpyonix.composerust.protocol.ReducedMotion.Off
+        }
+    }
+    // Where the application's zoom level is kept between visits: the page's local storage,
+    // which is the origin's own.
+    dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
     val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
     ComposeViewport {
         ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
     }
 }
+
+/** An `IoAnswer` record before the bytes it carries: the header, two words, one reference. */
+private const val IO_ANSWER_RECORD_BYTES = 32
+
+/** `matchMedia('(prefers-reduced-motion: reduce)').matches`, or false where it cannot ask. */
+private fun prefersReducedMotion(): Boolean =
+    js("typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches")
+/** The application's zoom level in the page's local storage. */
+private object LocalStorageZoomLevel : dev.darkpyonix.composerust.runtime.ZoomLevelStore {
+    override fun load(): Int? = loadZoomLevel().takeIf { it != NO_LEVEL }?.let { clampZoomLevel(it) }
+
+    override fun save(level: Int) = saveZoomLevel(clampZoomLevel(level))
+}
+
+/** What [loadZoomLevel] answers where nothing is saved, outside any level there can be. */
+private const val NO_LEVEL = -1000
+
+// Storage a browser refuses (a private window, a blocked origin) is no saved level, and a
+// level that cannot be saved is still the level on screen.
+private fun loadZoomLevel(): Int = js(
+    """(() => {
+        try {
+            const saved = window.localStorage.getItem("compose-rust.zoom-level");
+            const level = saved === null ? NaN : parseInt(saved, 10);
+            return Number.isNaN(level) ? -1000 : level;
+        } catch (e) {
+            return -1000;
+        }
+    })()"""
+)
+
+private fun saveZoomLevel(level: Int): Unit = js(
+    """{
+        try {
+            window.localStorage.setItem("compose-rust.zoom-level", String(level));
+        } catch (e) {
+        }
+    }"""
+)

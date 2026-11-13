@@ -10,10 +10,13 @@ use compose_rust::codegen::{
     WEB_TEST_LOADER_RELATIVE_PATH, generate_wasm_rust, generate_web_bridge_kotlin,
     generate_web_loader_js, generate_web_trampoline_wasm,
 };
+use compose_rust::protocol::{HostEvent, decode_event, encode_event};
 use compose_rust::schema::{
-    BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, WEB_BATCH_BYTES, WEB_BATCH_FIELDS,
-    WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
+    BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, EventPayload, IoStatus, WEB_BATCH_BYTES,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
 };
+use compose_rust::web_event_buffer::{LentEventBuffer, region_address};
 
 /// The wasm symbol for one operation, spelled out here rather than taken from the
 /// generator, so that a renamed symbol fails a test instead of renaming its own assertion.
@@ -58,6 +61,32 @@ fn wasm_types(op: &BoundaryOp) -> Vec<u8> {
 
 fn arguments(op: &BoundaryOp) -> usize {
     kotlin_types(op).len()
+}
+
+/// Every call the trampoline carries, in slot order, as (symbol, wasm parameter types): the
+/// boundary operations in schema order, then the event buffer lend, which takes one length.
+fn trampoline_calls() -> Vec<(String, Vec<u8>)> {
+    let mut calls: Vec<(String, Vec<u8>)> = BOUNDARY_SCHEMA
+        .iter()
+        .map(|op| (symbol(op), wasm_types(op)))
+        .collect();
+    calls.push((WEB_LEND_EVENT_BUFFER_SYMBOL.to_owned(), vec![0x7F]));
+    calls
+}
+
+/// A non-negative slot number as the signed LEB128 an `i32.const` carries it in.
+fn sleb(value: u32) -> Vec<u8> {
+    let mut value = value as i64;
+    let mut output = Vec::new();
+    loop {
+        let byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value == 0 && byte & 0x40 == 0 {
+            output.push(byte);
+            return output;
+        }
+        output.push(byte | 0x80);
+    }
 }
 
 /// The four parts are renderings of one table, and what is checked in has to be what the
@@ -224,11 +253,18 @@ fn pr6_renderer_to_host_calls_are_wasm_imports_with_no_javascript() {
             op.name
         );
     }
+    assert!(
+        kotlin.contains(&format!(
+            "@WasmImport(\"./{WEB_LOADER_FILE_NAME}\", \"{WEB_LEND_EVENT_BUFFER_SYMBOL}\")\n\
+             external fun hostLendEventBuffer(minLength: Int): Int"
+        )),
+        "the event buffer lend is not a wasm import bound to the trampoline"
+    );
     assert_eq!(
         kotlin.matches("@JsFun(").count(),
         1,
         "the only JavaScript in the Kotlin bridge is installHost; a second @JsFun is a \
-         JavaScript forwarder on a boundary call"
+         JavaScript forwarder on a call into the Host"
     );
     assert!(kotlin.contains("external fun installHost(): Int"));
     for forbidden in ["await", "Promise", "new Uint8Array", "JSON", "BigInt"] {
@@ -244,8 +280,7 @@ fn pr6_renderer_to_host_calls_are_wasm_imports_with_no_javascript() {
 #[test]
 fn pr6_the_loader_exports_the_trampoline_functions_themselves() {
     let loader = generate_web_loader_js();
-    for op in BOUNDARY_SCHEMA {
-        let symbol = symbol(op);
+    for (symbol, _) in trampoline_calls() {
         assert!(
             loader.contains(&format!("export const {symbol} = trampoline.{symbol};")),
             "the loader does not export the trampoline's {symbol} as itself"
@@ -259,9 +294,9 @@ fn pr6_the_loader_exports_the_trampoline_functions_themselves() {
     assert!(
         loader.contains(&format!(
             "new WebAssembly.Table({{ element: 'anyfunc', initial: {} }})",
-            BOUNDARY_SCHEMA.len()
+            BOUNDARY_SCHEMA.len() + 1
         )),
-        "the table needs one slot per operation"
+        "the table needs one slot per operation and one for the event buffer lend"
     );
     assert!(
         loader.contains("{ env: { table } }"),
@@ -269,56 +304,47 @@ fn pr6_the_loader_exports_the_trampoline_functions_themselves() {
     );
 }
 
-/// The trampoline itself: one function per operation, of the operation's own type, that
-/// passes its arguments on through its slot and does nothing else. Parsed here byte by byte,
-/// because the browser would report a mistake only as a trap at the first frame.
+/// The trampoline itself: one function per call into the Host, of the call's own type,
+/// that passes its arguments on through its slot and does nothing else. Parsed here byte by
+/// byte, because the browser would report a mistake only as a trap at the first frame.
 #[test]
 fn pr6_the_trampoline_calls_each_slot_through_the_table() {
     let module = Wasm::parse(&generate_web_trampoline_wasm());
-    let count = BOUNDARY_SCHEMA.len() as u32;
+    let calls = trampoline_calls();
+    let count = calls.len() as u32;
 
     assert_eq!(
         module.table_import,
         Some(("env".to_owned(), "table".to_owned(), count)),
-        "the trampoline imports env.table with one slot per operation"
+        "the trampoline imports env.table with one slot per call into the Host"
     );
     assert!(
         module.memories == 0,
         "the trampoline has no memory of its own"
     );
-    assert_eq!(module.functions.len(), BOUNDARY_SCHEMA.len());
-    for (slot, op) in BOUNDARY_SCHEMA.iter().enumerate() {
+    assert_eq!(module.functions.len(), calls.len());
+    for (slot, (symbol, wasm_params)) in calls.iter().enumerate() {
         assert_eq!(
             module.exports.get(slot),
-            Some(&(symbol(op), slot as u32)),
-            "export {slot} is not {}",
-            symbol(op)
+            Some(&(symbol.clone(), slot as u32)),
+            "export {slot} is not {symbol}"
         );
         let type_index = module.functions[slot];
         let (params, results) = &module.types[type_index as usize];
-        assert_eq!(
-            params,
-            &wasm_types(op),
-            "{} has the wrong parameters",
-            op.name
-        );
-        assert_eq!(
-            results,
-            &vec![0x7Fu8],
-            "{} has to answer with an i32",
-            op.name
-        );
+        assert_eq!(params, wasm_params, "{symbol} has the wrong parameters");
+        assert_eq!(results, &vec![0x7Fu8], "{symbol} has to answer with an i32");
 
         let mut expected = vec![0x00];
         for parameter in 0..params.len() {
             expected.push(0x20);
             expected.push(parameter as u8);
         }
-        expected.extend([0x41, slot as u8, 0x11, type_index as u8, 0x00, 0x0B]);
+        expected.push(0x41);
+        expected.extend(sleb(slot as u32));
+        expected.extend([0x11, type_index as u8, 0x00, 0x0B]);
         assert_eq!(
             module.bodies[slot], expected,
-            "{} does not just pass its arguments to slot {slot}",
-            op.name
+            "{symbol} does not just pass its arguments to slot {slot}"
         );
     }
 }
@@ -355,11 +381,11 @@ fn pr6_the_table_is_filled_only_after_the_host_checks_out() {
     let check = kotlin
         .find(&format!("if (block < {WEB_RUST_REGION_BASE}) {{"))
         .expect("the block check is missing");
-    for (slot, op) in BOUNDARY_SCHEMA.iter().enumerate() {
-        let fill = format!("table.set({slot}, host.{});", symbol(op));
+    for (slot, (symbol, _)) in trampoline_calls().iter().enumerate() {
+        let fill = format!("table.set({slot}, host.{symbol});");
         let at = kotlin
             .find(&fill)
-            .unwrap_or_else(|| panic!("slot {slot} is never filled with {}", symbol(op)));
+            .unwrap_or_else(|| panic!("slot {slot} is never filled with {symbol}"));
         assert!(
             at > check,
             "slot {slot} is filled before the block is checked"
@@ -531,6 +557,188 @@ fn nfr5_a_page_without_a_host_says_so_and_carries_on() {
     assert!(
         loader.contains("console.info("),
         "and say on the console why the screen is the development host"
+    );
+}
+
+/// Writes `bytes` where the Renderer would, into a buffer the Host lent, and decodes what the
+/// Host then reads there.
+fn through_lent_buffer<'a>(
+    lender: &mut LentEventBuffer,
+    bytes: &[u8],
+    read: &'a mut Vec<u8>,
+) -> HostEvent<'a> {
+    let length = u32::try_from(bytes.len()).expect("the event fits in 32 bits");
+    let pointer = lender
+        .lend(length)
+        .expect("the Host refused a buffer under the ceiling");
+    // SAFETY: the buffer just lent holds at least `length` bytes and nothing else refers to
+    // it while this writes, which is the promise the Renderer relies on in a browser.
+    let lent = unsafe { std::slice::from_raw_parts_mut(pointer, bytes.len()) };
+    lent.clone_from_slice(bytes);
+    read.clear();
+    read.extend_from_slice(lent);
+    decode_event(read).expect("the Host could not decode the event it was lent a buffer for")
+}
+
+/// A paste, a large edit and a long storage answer are each larger than the 4 KiB buffer in
+/// the startup block. The Host lends a buffer that holds each of them, and what it reads
+/// there is the whole event.
+#[test]
+fn pr6_an_event_larger_than_the_lent_buffer_arrives_whole() {
+    let clipboard = "가나다라마바사아".repeat(64 * 1024 / 24) + &"x".repeat(64 * 1024 % 24);
+    assert_eq!(clipboard.len(), 64 * 1024);
+    let edit = "line of a pasted document\n".repeat(32 * 1024 / 26 + 1)[..32 * 1024].to_owned();
+    let value: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
+    let events = [
+        HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::ClipboardText {
+                request: 1,
+                status: 0,
+                len: clipboard.chars().count() as u32,
+                text: &clipboard,
+            },
+        },
+        HostEvent {
+            node_id: 5,
+            handler_id: 2,
+            payload: EventPayload::TextChanged(&edit),
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request: 7,
+                status: IoStatus::Ok,
+                data: &value,
+            },
+        },
+    ];
+
+    let mut lender = LentEventBuffer::new();
+    let mut wire = Vec::new();
+    let mut read = Vec::new();
+    for event in &events {
+        encode_event(event, &mut wire).expect("the event did not encode");
+        assert!(wire.len() > WEB_EVENT_BUFFER_BYTES as usize);
+        let arrived = through_lent_buffer(&mut lender, &wire, &mut read);
+        assert_eq!(
+            &arrived, event,
+            "the Host read something other than what was sent"
+        );
+    }
+    assert!(lender.len() >= wire.len());
+}
+
+/// The lent buffer is kept: a request it already satisfies answers with the same address and
+/// allocates nothing, so a second event like the largest one costs nothing.
+#[test]
+fn pr6_a_lent_buffer_is_kept_until_a_larger_one_is_asked_for() {
+    let mut lender = LentEventBuffer::new();
+    assert!(lender.is_empty());
+    let grown = lender.lend(16 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.len(), 16 * 1024);
+    for smaller in [1, 8 * 1024, 16 * 1024] {
+        assert_eq!(
+            lender.lend(smaller),
+            Some(grown),
+            "a request for {smaller} bytes moved the buffer"
+        );
+    }
+    assert_eq!(
+        lender.len(),
+        16 * 1024,
+        "a smaller request does not shrink it"
+    );
+    lender.lend(32 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.len(), 32 * 1024);
+}
+
+/// Past 64 MiB the Host refuses, and a refusal leaves the buffer it lent before in place,
+/// because the Renderer goes on encoding into that one.
+#[test]
+fn pr6_an_event_past_the_ceiling_is_refused() {
+    assert_eq!(WEB_EVENT_BUFFER_MAX_BYTES, 64 * 1024 * 1024);
+    let mut lender = LentEventBuffer::new();
+    let kept = lender.lend(8 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.lend(WEB_EVENT_BUFFER_MAX_BYTES + 1), None);
+    assert_eq!(lender.lend(u32::MAX), None);
+    assert_eq!(lender.lend(0), None, "a request for nothing lends nothing");
+    assert_eq!(
+        lender.len(),
+        8 * 1024,
+        "a refusal frees nothing and lends nothing"
+    );
+    assert_eq!(lender.lend(8 * 1024), Some(kept));
+
+    let largest = lender
+        .lend(WEB_EVENT_BUFFER_MAX_BYTES)
+        .expect("the ceiling itself is lent");
+    assert!(!largest.is_null());
+    assert_eq!(lender.len(), WEB_EVENT_BUFFER_MAX_BYTES as usize);
+}
+
+/// Only an address in the Host's region is ever handed to the Renderer. Below it is the
+/// Renderer's own allocator, and past 32 bits is not an address a browser memory has.
+#[test]
+fn pr6_a_lent_address_is_in_the_host_region() {
+    let below = (WEB_RUST_REGION_BASE as usize - 1) as *const u8;
+    let base = WEB_RUST_REGION_BASE as usize as *const u8;
+    let above = (WEB_RUST_REGION_BASE as usize + 4096) as *const u8;
+    assert_eq!(region_address(std::ptr::null()), 0);
+    assert_eq!(region_address(below), 0);
+    assert_eq!(region_address(base), WEB_RUST_REGION_BASE);
+    assert_eq!(region_address(above), WEB_RUST_REGION_BASE + 4096);
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(region_address((u32::MAX as usize + 1) as *const u8), 0);
+}
+
+/// The export the Renderer borrows from is generated beside the boundary shims, takes one
+/// 32-bit length, answers with one 32-bit address, and only ever answers with an address
+/// the region check passed. The Renderer reaches it the way it reaches every boundary
+/// call: a wasm import bound to the trampoline, in the slot after the boundary operations.
+#[test]
+fn pr6_the_lend_export_and_its_import_come_from_the_schema() {
+    let rust = generate_wasm_rust();
+    let kotlin = generate_web_bridge_kotlin();
+    assert!(
+        rust.contains(&format!(
+            "#[unsafe(no_mangle)]\npub extern \"C\" fn {WEB_LEND_EVENT_BUFFER_SYMBOL}(min_len: u32) -> u32 {{"
+        )),
+        "the wasm module has to export {WEB_LEND_EVENT_BUFFER_SYMBOL}"
+    );
+    assert!(
+        rust.contains(".map_or(0, |pointer| region_address(pointer.cast_const()))"),
+        "the export has to answer zero for anything the region check refuses"
+    );
+    assert!(
+        kotlin.contains(&format!(
+            "@WasmImport(\"./{WEB_LOADER_FILE_NAME}\", \"{WEB_LEND_EVENT_BUFFER_SYMBOL}\")\n\
+             external fun hostLendEventBuffer(minLength: Int): Int"
+        )),
+        "the Renderer's import of {WEB_LEND_EVENT_BUFFER_SYMBOL} is not bound to the trampoline"
+    );
+    assert!(
+        kotlin.contains(&format!(
+            "table.set({}, host.{WEB_LEND_EVENT_BUFFER_SYMBOL});",
+            BOUNDARY_SCHEMA.len()
+        )),
+        "the lend's slot comes right after the boundary operations'"
+    );
+    assert!(
+        !kotlin.contains("__composeRustHost.") && !kotlin.contains("__composeRustHost ="),
+        "nothing reaches the Host through a global any more"
+    );
+    assert!(kotlin.contains(&format!(
+        "const val EVENT_BUFFER_MAX_BYTES: Int = {WEB_EVENT_BUFFER_MAX_BYTES}"
+    )));
+    // Setup, not a boundary operation: the list of boundary functions does not grow.
+    assert!(
+        BOUNDARY_SCHEMA
+            .iter()
+            .all(|op| !op.symbol.contains("lend_event_buffer")),
+        "lending is setup and has no place in the boundary schema"
     );
 }
 

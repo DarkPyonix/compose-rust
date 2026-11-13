@@ -1,15 +1,18 @@
 //! The fake assistant.
 //!
 //! There is no network here. What matters is the shape of the work rather than where the
-//! tokens come from: a reply arrives a few characters at a time, from a thread that is not
-//! the UI thread, over a stretch of time long enough that the user is still scrolling and
-//! typing while it lands.
+//! tokens come from: a reply is worked out on a worker, then arrives a few characters at a
+//! time over a stretch of time long enough that the user is still scrolling and typing
+//! while it lands.
 //!
-//! The worker appends to the shared message list and nothing else. It never calls a
-//! boundary function: writing the signal marks the reading scope dirty, and the Host asks
-//! the Renderer for the next frame on its own.
+//! The reply is a future on the chat's coroutine scope. Working the answer out goes
+//! through `with_worker`, the way domain work leaves the UI thread, and the pause between
+//! chunks is a `delay`, which waits without holding any thread. The sample starts no
+//! thread of its own: a browser page cannot start one, and `with_worker` is what runs the
+//! same code there. Nothing here calls a boundary function: writing the state queues it
+//! for the scopes that read it, and the Host asks the Renderer for the next frame.
 
-use dioxus_compose_adapter::prelude::*;
+use compose_rust::runtime::{MutableState, delay, with_worker};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -113,10 +116,10 @@ fn reply_to(prompt: &str, length: Length) -> String {
         Length::Normal => full,
         Length::Detailed => format!(
             "{full}\n\nOne more thing, since you asked for detail. Everything above \
-arrived on a worker thread a few characters at a time, and the only reason it could is \
-that writing the shared list is all the worker does. It never calls across the boundary. \
-The scheduler notices the write, the Host asks for a frame, and the frame carries the \
-characters that landed since the last one."
+arrived a few characters at a time while you could still scroll and type, and the only \
+reason it could is that writing the shared list is all the reply does. It never calls \
+across the boundary. The scheduler notices the write, the Host asks for a frame, and the \
+frame carries the characters that landed since the last one."
         ),
     }
 }
@@ -133,17 +136,17 @@ fn full_reply(prompt: &str) -> String {
     let lowered = prompt.to_lowercase();
     if lowered.contains("hello") || lowered.contains("hi ") || lowered.trim() == "hi" {
         return "Hello. I am a stand-in for a language model: there is no network behind \
-me, only a worker thread handing you a few characters at a time so the streaming path \
-gets exercised for real. Ask me anything and I will answer at length, because a short \
+me, only a worker working out an answer and a timer handing it to you a few characters at \
+a time so the streaming path gets exercised for real. Ask me anything and I will answer at length, because a short \
 answer would not tell you whether scrolling stays smooth."
             .to_owned();
     }
     if lowered.contains("thread") || lowered.contains("stream") {
         return "Streaming works like this. The UI thread pushes your message and an empty \
-reply, then hands the prompt to a worker. The worker sleeps, appends to the shared list, \
-sleeps again. Writing the list marks the scope that reads it dirty, which wakes the \
-scheduler, which asks for a frame. Nothing in the loop touches the boundary directly, and \
-nothing in the loop runs on the UI thread except the diff of the one message that grew."
+reply, then hands the prompt to a worker. The answer comes back, and a timer lets it out \
+a few characters at a time, appending to the shared list. Writing the list marks the \
+scope that reads it dirty, which wakes the scheduler, which asks for a frame. Nothing in \
+the loop touches the boundary directly, and nothing waits on the UI thread."
             .to_owned();
     }
     if lowered.contains("code") || lowered.contains("rust") {
@@ -162,63 +165,117 @@ that was ever in doubt."
     )
 }
 
-/// Start a reply. Returns immediately; the text arrives on `messages` over the next second
-/// or so.
-pub fn stream_reply(
+/// The reply, as a future to launch on the chat's coroutine scope. The text arrives on
+/// `messages` over the next second or so.
+///
+/// Every chunk whose time has come lands in one write. A frame that comes late therefore
+/// carries several chunks at once instead of the reply falling behind the speed the user
+/// set, and the Host sends that message's tail once for the frame.
+pub async fn stream_reply(
     prompt: String,
     token: u64,
     turns: Turns,
     settings: Settings,
-    mut messages: SyncSignal<Vec<Message>>,
+    messages: MutableState<Vec<Message>>,
 ) {
-    std::thread::Builder::new()
-        .name("sample-chat-assistant".to_owned())
-        .spawn(move || {
-            let reply = reply_to(prompt.trim(), settings.length);
-            if !settings.streaming {
-                // Not typed out: the whole reply lands in one write, which is the shape a
-                // non-streaming endpoint has. The thread still exists, because the wait
-                // for the answer is still a wait.
-                std::thread::sleep(FIRST_TOKEN_DELAY);
-                if !turns.is_current(token) {
-                    return;
-                }
-                let mut list = messages.write();
-                if let Some(message) = list.last_mut() {
-                    if message.token == token {
-                        message.text.push_str(&reply);
-                        message.streaming = false;
-                    }
-                }
-                return;
-            }
-            // Chunk on character boundaries, never on bytes: a reply cut through the middle
-            // of a multi-byte character would not be valid UTF-8 to push.
-            let characters: Vec<char> = reply.chars().collect();
-            let gap = settings.gap();
-            std::thread::sleep(FIRST_TOKEN_DELAY);
-            for chunk in characters.chunks(CHUNK) {
-                if !turns.is_current(token) {
-                    return;
-                }
-                let tail: String = chunk.iter().collect();
-                {
-                    let mut list = messages.write();
-                    match list.last_mut() {
-                        // The append is the point. Replacing the message instead would make
-                        // the whole reply new text on every chunk.
-                        Some(message) if message.token == token => message.text.push_str(&tail),
-                        _ => return,
-                    }
-                }
-                std::thread::sleep(gap);
-            }
-            if turns.is_current(token) {
-                let mut list = messages.write();
-                if let Some(message) = list.last_mut() {
+    let length = settings.length;
+    let reply = with_worker(move || reply_to(prompt.trim(), length)).await;
+    // The beat before the first characters, the way a real model takes a moment.
+    delay(FIRST_TOKEN_DELAY).await;
+    if !turns.is_current(token) {
+        return;
+    }
+    if !settings.streaming {
+        // Not typed out: the whole reply lands in one write, which is the shape a
+        // non-streaming endpoint has.
+        messages.update(|list| {
+            if let Some(message) = list.last_mut() {
+                if message.token == token {
+                    message.text.push_str(&reply);
                     message.streaming = false;
                 }
             }
-        })
-        .expect("the assistant thread could not be started");
+        });
+        return;
+    }
+    // Chunk on character boundaries, never on bytes: a reply cut through the middle of a
+    // multi-byte character would not be valid UTF-8 to push.
+    let characters: Vec<char> = reply.chars().collect();
+    let gap = settings.gap();
+    let clock = Clock::start().await;
+    let mut sent = 0;
+    while sent < characters.len() {
+        if !turns.is_current(token) {
+            return;
+        }
+        let elapsed = clock.elapsed().await;
+        let chunks_due = (elapsed.as_nanos() / gap.as_nanos().max(1)) as usize + 1;
+        let due = (chunks_due * CHUNK).min(characters.len());
+        if due > sent {
+            let tail: String = characters[sent..due].iter().collect();
+            let mut appended = false;
+            messages.update(|list| match list.last_mut() {
+                // The append is the point. Replacing the message instead would make the
+                // whole reply new text on every chunk.
+                Some(message) if message.token == token => {
+                    message.text.push_str(&tail);
+                    appended = true;
+                }
+                _ => {}
+            });
+            if !appended {
+                return;
+            }
+            sent = due;
+        }
+        if sent < characters.len() {
+            delay(gap).await;
+        }
+    }
+    if turns.is_current(token) {
+        messages.update(|list| {
+            if let Some(message) = list.last_mut() {
+                message.streaming = false;
+            }
+        });
+    }
+}
+
+/// How long the reply has been arriving.
+///
+/// A desktop or a phone reads the system's monotonic clock. A browser page has none that
+/// Rust can read here (`std::time::Instant` panics on `wasm32-unknown-unknown`), so there
+/// the time is the frame clock's, which is the clock `delay` counts on as well.
+struct Clock {
+    #[cfg(not(target_family = "wasm"))]
+    started: std::time::Instant,
+    #[cfg(target_family = "wasm")]
+    started: u64,
+}
+
+impl Clock {
+    #[cfg(not(target_family = "wasm"))]
+    async fn start() -> Self {
+        Self {
+            started: std::time::Instant::now(),
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    async fn start() -> Self {
+        Self {
+            started: compose_rust::runtime::with_frame_nanos(|now| now).await,
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+
+    #[cfg(target_family = "wasm")]
+    async fn elapsed(&self) -> Duration {
+        let now = compose_rust::runtime::with_frame_nanos(|now| now).await;
+        Duration::from_nanos(now.saturating_sub(self.started))
+    }
 }

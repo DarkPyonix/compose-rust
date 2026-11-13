@@ -7,4 +7,6 @@ modules:
   - staticlib
   - staticlib-linux
   - staticlib-macos
+  - staticlib-windows
   - web
+  - windows

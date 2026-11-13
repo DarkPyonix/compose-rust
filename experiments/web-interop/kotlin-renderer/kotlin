@@ -197,7 +197,7 @@ find_project_context() {
     fi
 
     if [ -f "$wrapper_candidate" ] && [ -x "$wrapper_candidate" ]; then
-      # Found the wrapper — check that a project context exists alongside it
+      # Found the wrapper: check that a project context exists alongside it
       if [ -f "$project_dir/project.yaml" ] || [ -f "$project_dir/module.yaml" ]; then
         wrapper_script="$wrapper_candidate"
         return 0

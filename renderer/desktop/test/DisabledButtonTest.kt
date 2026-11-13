@@ -2,15 +2,22 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
+import dev.darkpyonix.composerust.design.contrastRatio
 import dev.darkpyonix.composerust.protocol.ButtonVariant
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.IconRole
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -19,6 +26,7 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import kotlin.test.Test
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 /**
  * A button that cannot be pressed has to look like one.
@@ -91,5 +99,110 @@ class DisabledButtonTest {
                     "only way to find out that it cannot be pressed is to press it",
             )
         }
+    }
+
+    @Test
+    fun fr69_disabled_button_label_contrast_at_least_3_to_1() {
+        for (system in DesignSystem.entries) {
+            for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
+                for (variant in listOf(ButtonVariant.Filled, ButtonVariant.Tonal, ButtonVariant.Text)) {
+                    for (parent in listOf(ColorRole.Background, ColorRole.Surface, ColorRole.SurfaceContainer)) {
+                        runComposeUiTest {
+                            val mutations = batch(system, false).toMutableList().apply {
+                                this[0] = Mutation.SetTheme(Theme(system, system, scheme, false))
+                                this[3] = Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("MMMM"))
+                                this[4] = Mutation.SetProp(button, PropertyKind.Variant, PropertyValue.Integer(variant.ordinal + 1L))
+                                add(Mutation.SetModifier(root, 0, ProtocolModifier.Background(Paint.Role(parent))))
+                            }
+                            setContent {
+                                ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
+                            }
+                            waitForIdle()
+                            val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
+                            val frequencies = mutableMapOf<Int, Int>()
+                            for (y in image.height / 3 until image.height * 2 / 3) {
+                                for (x in image.width / 3 until image.width * 2 / 3) {
+                                    val rgb = image.getRGB(x, y)
+                                    frequencies[rgb] = (frequencies[rgb] ?: 0) + 1
+                                }
+                            }
+                            val fill = Color(frequencies.maxBy { it.value }.key)
+                            // The button here has a word and no glyph or border, so every pixel that
+                            // differs from the fill belongs to the label.
+                            var best = 1f
+                            for (y in image.height / 3 until image.height * 2 / 3) {
+                                for (x in image.width / 3 until image.width * 2 / 3) {
+                                    val pixel = Color(image.getRGB(x, y))
+                                    best = maxOf(best, contrastRatio(fill, pixel))
+                                }
+                            }
+                            assertTrue(best >= 3f, "$system $scheme $variant on $parent: contrast $best")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * A button that named its own background and glyph colour fades both as one group when
+     * disabled.
+     *
+     * The node's `Background` is applied on the modifier chain before `HostButton` runs, so
+     * placing the disabled fade after the incoming modifier left the background fully opaque
+     * and faded the glyph on top of it, turning a white glyph on a dark circle grey while
+     * the circle stayed at full strength.
+     */
+    @Test
+    fun fr13_a_disabled_button_fades_the_fill_the_host_named() {
+        val ink = 0xFF14181F.toInt()
+        val white = 0xFFFFFFFF.toInt()
+        fun captureFillChannel(enabled: Boolean): Int {
+            var green = 0
+            runComposeUiTest {
+                val mutations = listOf(
+                    Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)),
+                    Mutation.Create(root, WidgetKind.Box),
+                    Mutation.SetModifier(root, 0, ProtocolModifier.Size(80f, 80f)),
+                    Mutation.SetModifier(root, 1, ProtocolModifier.Background(Paint.Literal(white))),
+                    Mutation.Create(button, WidgetKind.Button),
+                    Mutation.SetModifier(button, 0, ProtocolModifier.Size(36f, 36f)),
+                    Mutation.SetModifier(button, 1, ProtocolModifier.Background(Paint.Literal(ink))),
+                    Mutation.SetModifier(button, 2, ProtocolModifier.ShapeRole(ShapeRole.Full)),
+                    Mutation.SetProp(button, PropertyKind.Text, PropertyValue.Text("")),
+                    Mutation.SetProp(button, PropertyKind.Icon, PropertyValue.Integer(IconRole.Send.ordinal + 1L)),
+                    Mutation.SetProp(button, PropertyKind.Variant, PropertyValue.Integer(ButtonVariant.Text.ordinal + 1L)),
+                    Mutation.SetProp(
+                        button,
+                        PropertyKind.Color,
+                        PropertyValue.Integer((2L shl 32) or (white.toLong() and 0xffffffffL)),
+                    ),
+                    Mutation.SetProp(button, PropertyKind.Enabled, PropertyValue.Bool(enabled)),
+                    Mutation.Insert(root, button, 0),
+                )
+                setContent {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations)))
+                }
+                waitForIdle()
+                // Sample inside the 36x36 button (placed at TopStart of the 80x80 root)
+                // away from the centred glyph: on the root's white ground, an unfaded ink
+                // circle stays at 0x18 while a faded one blends toward white.
+                val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
+                val rgb = image.getRGB(18, 6)
+                green = (rgb ushr 8) and 0xFF
+            }
+            return green
+        }
+        val live = captureFillChannel(enabled = true)
+        val disabled = captureFillChannel(enabled = false)
+        assertTrue(
+            live <= 0x20,
+            "the live button's ink fill should be dark (green=$live), not faded",
+        )
+        assertTrue(
+            disabled in (live + 0x40)..0xE0,
+            "a disabled button with an app background must fade that background toward the page " +
+                "(live green=$live, disabled green=$disabled)",
+        )
     }
 }

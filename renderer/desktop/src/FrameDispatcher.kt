@@ -20,8 +20,12 @@ import kotlinx.coroutines.CoroutineDispatcher
 internal class FrameDispatcher : CoroutineDispatcher() {
     private val waiting = ConcurrentLinkedQueue<Runnable>()
 
+    /** How a window whose loop waits between turns is told work arrived from another thread. */
+    val loopWake = LoopWake()
+
     override fun dispatch(context: CoroutineContext, block: Runnable) {
         waiting.add(block)
+        loopWake.workArrived()
     }
 
     /**

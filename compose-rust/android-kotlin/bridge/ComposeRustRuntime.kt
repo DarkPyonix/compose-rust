@@ -33,6 +33,12 @@ object ComposeRustRuntime {
     private var host: ComposeRustHost? = null
 
     /**
+     * The application's files directory, set by [installStorageLocation] before the Host is
+     * started, and handed to the Host once when it is.
+     */
+    internal var storageLocation: String? = null
+
+    /**
      * Loads the application's cdylib. The generated Activity calls this before anything
      * else, with the name the build gave it.
      *
@@ -66,8 +72,13 @@ object ComposeRustRuntime {
                 "the name of the application's own library before asking for the Host."
         }
         installAndroidBack()
+        installAndroidOverlayWindow()
         val created = ComposeRustHost(connection)
         created.start()
+        // Before the first frame, so an application's first read finds where its values are.
+        storageLocation?.let { location ->
+            created.dispatch(HostEvent.StorageLocation(NO_NODE, NO_HANDLER, location))
+        }
         host = created
         return created
     }

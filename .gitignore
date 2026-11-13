@@ -23,6 +23,9 @@ target
 # macOS
 .DS_Store
 
+# Python bytecode from running tools/packager and its tests
+__pycache__/
+
 # Agent worktrees
 .claude/
 .agent-salvage/
@@ -41,6 +44,9 @@ target
 # needs at the time, and tracking it would mean a second lock file to update on every
 # dependency change, plus a dirty working tree every time the test runs.
 compose-rust/tests/fixtures/consumer/Cargo.lock
+compose-rust/tests/fixtures/consumer-mixed-runtime/Cargo.lock
+compose-rust/tests/fixtures/hand-check/Cargo.lock
+compose-rust/tests/fixtures/multi-window/Cargo.lock
 
 # The Host's wasm module, built next to the page by
 # renderer/web/scripts/build-host.sh. The loader beside it is generated and

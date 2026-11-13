@@ -70,6 +70,18 @@ class FakeHostConnection(
         // The same for the notification permission: the Renderer reporting what the platform
         // said, sent once at start, and nothing a fixture's reply is about.
         if (event is HostEvent.NotificationPermissionChanged) return 0
+        // The end of a file dialog is the Renderer reporting too, not something a fixture's
+        // reply to a click is about.
+        if (event is HostEvent.FileDialogResult) return 0
+        // And a clipboard read's answer.
+        if (event is HostEvent.ClipboardText) return 0
+        // And the answers to storage and file operations, and to a dialog that handed over files.
+        if (event is HostEvent.IoAnswer) return 0
+        if (event is HostEvent.FileHandles) return 0
+        // And the motion setting, for the same reason.
+        if (event is HostEvent.ReducedMotionChanged) return 0
+        // And the zoom, reported at start and on every change.
+        if (event is HostEvent.ZoomChanged) return 0
         val response = responder(event)
         response.mutations.forEach(onMutation)
         return response.result

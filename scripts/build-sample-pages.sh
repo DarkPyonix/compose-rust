@@ -7,7 +7,9 @@
 # loader that carries the trampoline between them. The renderer half is the same bytes for every sample, so it is
 # built once and copied; only the Host half is rebuilt per sample.
 #
-# A sample that does not build is skipped and named at the end.
+# A sample that does not build fails the run, after the others have been tried, and is
+# named at the end. The guide site publishes a page for every sample from what this builds,
+# so a sample left out quietly would be a broken build nobody hears about.
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,12 +30,16 @@ case "$output" in /*) ;; *) output="$PWD/$output" ;; esac
 web_dir="$repo_root/renderer/web"
 renderer_out="$repo_root/renderer/build/tasks/_web_buildWasmJs"
 
-# The runtime the toolchain unpacks here refuses to overwrite itself, so a second build
-# in the same tree fails on a file that is already correct.
+# Every wasm bundle task unpacks skiko's runtime into this one directory, deleting and
+# recreating each file. Start from an empty one so nothing left by an older toolchain
+# is copied into the page.
 rm -rf "$repo_root/renderer/build/temp/skiko-js-wasm-runtime"
 
+# Only the app bundle, not `build`: `build` also assembles the test app bundle, in
+# parallel, and the two unpack that runtime into the same directory at once, so one
+# fails with FileAlreadyExistsException (#494). The pages need the app bundle alone.
 echo "==> building the renderer's module once"
-(cd "$repo_root/renderer" && ./kotlin build -p wasmJs -m web) ||
+(cd "$repo_root/renderer" && ./kotlin task :web:buildWasmJsAppWasmJsDebug) ||
     { echo "the renderer's wasm module did not build" >&2; exit 1; }
 
 # The directory the toolchain assembled, not the sources it assembled it from. The page
@@ -42,7 +48,8 @@ echo "==> building the renderer's module once"
 # Which directory it is depends on the toolchain version, so it is found rather than
 # named.
 bundle_dir="$(dirname "$(find "$repo_root/renderer/build/tasks" \
-    -name 'index.html' -path '*web*' -not -path '*node_modules*' -print -quit 2>/dev/null)")"
+    -name 'index.html' -path '*web*' -not -path '*/tasks/*Test*' -not -path '*node_modules*' \
+    -print -quit 2>/dev/null)")"
 [[ -d "$bundle_dir" && -f "$bundle_dir/index.html" ]] ||
     { echo "the renderer's page bundle is not where this looked" >&2; exit 1; }
 grep -q '{{kotlin.scripts}}' "$bundle_dir/index.html" &&
@@ -50,7 +57,7 @@ grep -q '{{kotlin.scripts}}' "$bundle_dir/index.html" &&
 
 mkdir -p "$output"
 built=()
-skipped=()
+skipped=()  # samples whose page did not build
 
 for manifest in samples/*/Cargo.toml; do
     sample="$(basename "$(dirname "$manifest")")"
@@ -92,5 +99,9 @@ done
 
 echo
 echo "built ${#built[@]} pages into $output: ${built[*]:-none}"
-[[ ${#skipped[@]} -eq 0 ]] || echo "skipped ${#skipped[@]}: ${skipped[*]}"
 [[ ${#built[@]} -gt 0 ]] || { echo "no page was built at all" >&2; exit 1; }
+if [[ ${#skipped[@]} -gt 0 ]]; then
+    echo "error: ${#skipped[@]} samples did not build for the web: ${skipped[*]}" >&2
+    echo "       Every sample has a page; the build above says why each one failed." >&2
+    exit 1
+fi

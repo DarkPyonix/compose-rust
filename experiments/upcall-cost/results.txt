@@ -1,0 +1,27 @@
+# 2026년 10월  4일 일요일 23시 17분 00초 KST Apple M1 25.5.0 load: load averages: 3.11 2.15 2.31
+-- run 1
+== (a) upcall C -> Java
+a1 empty, IsolateThread passed                 median       8.7  p99      13.9  max       44.2  ns/call (batch means)
+a2 struct(32B), IsolateThread passed           median       8.7  p99      10.2  max       18.4  ns/call (batch means)
+a3 empty, graal_get_current_thread each call   median      20.7  p99      26.9  max       49.3  ns/call (batch means)
+a1 empty, singly timed (41.7 ns ticks)         median       0.0  p99      42.0  max     8167.0  ns/call
+a4 fresh thread: attach + empty + detach       median    2334.0  p99   11042.0  max   159542.0  ns (includes pthread-local setup)
+== (c) downcall Java -> C (timed in Java)
+c1 @CFunction probe_nop                        median      10.2  p99      18.9  max       76.2  ns/call (batch means)
+c0 plain C call (loop overhead reference)      median       1.3  p99       1.5  max       32.1  ns/call (batch means)
+== (b) handshake: signal a parked thread, wait for its reply
+b0 baseline: parked plain C thread             median    2750.0  p99   20458.0  max    68458.0  ns/round trip
+b1 Java thread parked in @CFunction            median    2750.0  p99   20083.0  max   101000.0  ns/round trip
+-- run 2
+== (a) upcall C -> Java
+a1 empty, IsolateThread passed                 median       8.4  p99      11.5  max       24.0  ns/call (batch means)
+a2 struct(32B), IsolateThread passed           median       9.0  p99      14.6  max       16.0  ns/call (batch means)
+a3 empty, graal_get_current_thread each call   median      21.4  p99      30.0  max       58.2  ns/call (batch means)
+a1 empty, singly timed (41.7 ns ticks)         median       0.0  p99      42.0  max    11541.0  ns/call
+a4 fresh thread: attach + empty + detach       median    2250.0  p99    8334.0  max   199917.0  ns (includes pthread-local setup)
+== (c) downcall Java -> C (timed in Java)
+c1 @CFunction probe_nop                        median       9.8  p99      12.6  max       22.4  ns/call (batch means)
+c0 plain C call (loop overhead reference)      median       1.3  p99       1.5  max       10.7  ns/call (batch means)
+== (b) handshake: signal a parked thread, wait for its reply
+b0 baseline: parked plain C thread             median    2750.0  p99   15084.0  max    85042.0  ns/round trip
+b1 Java thread parked in @CFunction            median    2750.0  p99   18916.0  max    92083.0  ns/round trip

@@ -1,0 +1,4048 @@
+//! One composable per widget in the schema.
+//!
+//! Each is a function with the widget's Compose name that takes what the widget cannot do
+//! without, and returns a description whose methods set the rest. The description is
+//! composed when the statement it is written in ends, or at once by `content` for a
+//! widget that has children.
+//!
+//! Every attribute list below is the `rsx!` widget's, in its order, with its defaults. A
+//! difference would be a widget that draws differently depending on which API wrote it.
+
+#![allow(non_snake_case)]
+
+use super::{
+    Attrs, Modifier, Mods, dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers,
+    role_or_zero, widget_key,
+};
+use crate::drawing::DrawList;
+use crate::font_features::FontFeature;
+use crate::fonts::FontRefs;
+use crate::runtime::composer::{EventCallback, OwnedAttr};
+use crate::schema::{
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
+    Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+};
+use crate::spans::TextSpans;
+use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+/// The empty handler every listener has until one is given. The `rsx!` widgets write
+/// their listeners whether or not a handler was supplied, so these do too.
+fn unit(handler: Option<Box<dyn FnMut()>>) -> EventCallback {
+    match handler {
+        Some(handler) => EventCallback::Unit(Rc::new(RefCell::new(handler))),
+        None => EventCallback::Unit(Rc::new(RefCell::new(|| {}))),
+    }
+}
+
+fn text_handler(handler: Option<Box<dyn FnMut(String)>>) -> EventCallback {
+    match handler {
+        Some(handler) => EventCallback::Text(Rc::new(RefCell::new(handler))),
+        None => EventCallback::Text(Rc::new(RefCell::new(|_: String| {}))),
+    }
+}
+
+fn value_handler(handler: Option<Box<dyn FnMut(f64)>>) -> EventCallback {
+    match handler {
+        Some(handler) => EventCallback::Value(Rc::new(RefCell::new(handler))),
+        None => EventCallback::Value(Rc::new(RefCell::new(|_: f64| {}))),
+    }
+}
+
+/// A node's subscription to pointer input: the kinds it wants and the handler that gets
+/// them. A node without one has no pointer input at all.
+struct PointerSubscription {
+    kinds: PointerKinds,
+    handler: Box<dyn FnMut(PointerEvent)>,
+}
+
+/// Writes a subscription as the two things the wire needs: the handler, and the mask. A
+/// subscription of no kinds writes neither, so it is not a subscription.
+fn pointer_input(
+    subscription: Option<PointerSubscription>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(subscription) = subscription else {
+        return;
+    };
+    if subscription.kinds == PointerKinds::NONE {
+        return;
+    }
+    attrs.push((
+        "pointer_kinds",
+        OwnedAttr::Int(i64::from(subscription.kinds.bits())),
+    ));
+    listeners.push((
+        "onpointer",
+        EventCallback::Pointer(Rc::new(RefCell::new(subscription.handler))),
+    ));
+}
+
+/// What a node says about windows that is not a window's own: the key it is torn
+/// off under, and the handler for a dragged window passing over it.
+struct TearOff {
+    key: Option<String>,
+    drag_over: Option<Box<dyn FnMut(crate::windows::WindowDragOver)>>,
+}
+
+/// Writes a node's tear-off key and drag-over handler as what the wire needs. A node with
+/// neither writes nothing.
+fn tear_off_input(
+    tear_off: Option<TearOff>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(tear_off) = tear_off else {
+        return;
+    };
+    if let Some(key) = tear_off.key {
+        attrs.push(("tear_off_key", OwnedAttr::Text(key)));
+    }
+    if let Some(mut handler) = tear_off.drag_over {
+        listeners.push((
+            "onwindowdragover",
+            EventCallback::Window(Rc::new(RefCell::new(
+                move |event: crate::windows::WindowEvent| {
+                    if let crate::windows::WindowEvent::DragOver { kind, window, x, y } = event {
+                        handler(crate::windows::WindowDragOver { kind, window, x, y });
+                    }
+                },
+            ))),
+        ));
+    }
+}
+
+/// Adds `tear_off_key` and `on_window_drag_over` to a builder that has a `tear_off` field.
+macro_rules! tear_off {
+    ($name:ident) => {
+        impl $name {
+            /// Lets the user pull this node out into a window of its own, named by `key`:
+            /// the `RestoreKey` of the window that results.
+            pub fn tear_off_key(mut self, key: impl Into<String>) -> Self {
+                self.tear_off
+                    .get_or_insert_with(|| TearOff {
+                        key: None,
+                        drag_over: None,
+                    })
+                    .key = Some(key.into());
+                self
+            }
+
+            /// Hears a dragged window pass over this node: where a tab row shows the place
+            /// a dropped tab would go.
+            pub fn on_window_drag_over(
+                mut self,
+                handler: impl FnMut(crate::windows::WindowDragOver) + 'static,
+            ) -> Self {
+                self.tear_off
+                    .get_or_insert_with(|| TearOff {
+                        key: None,
+                        drag_over: None,
+                    })
+                    .drag_over = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
+/// Adds `on_pointer` to a builder that has a `pointer` field.
+macro_rules! pointer_subscription {
+    ($name:ident) => {
+        impl $name {
+            /// Subscribes the node to the kinds of pointer input in `kinds`. The handler runs
+            /// on the same call as the input; calling `consume` on the event keeps it from
+            /// the nearest subscribed ancestor and from the Renderer's own handling.
+            ///
+            /// A node that never calls this has no pointer input at all, and costs nothing.
+            pub fn on_pointer(
+                mut self,
+                kinds: PointerKinds,
+                handler: impl FnMut(PointerEvent) + 'static,
+            ) -> Self {
+                self.pointer = Some(PointerSubscription {
+                    kinds,
+                    handler: std::boxed::Box::new(handler),
+                });
+                self
+            }
+        }
+    };
+}
+
+/// Writes a container's click handler as the listener the wire needs. A container that was
+/// given none has no `OnClick` at all, so it is not a control: it takes no focus, no key and
+/// no pointer press, and says nothing to assistive technology.
+fn click_input(
+    on_click: Option<Box<dyn FnMut()>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = on_click {
+        listeners.push(("onclick", unit(Some(handler))));
+    }
+}
+
+/// Adds `on_click` to a builder that has an `on_click` field.
+macro_rules! click_handler {
+    ($name:ident) => {
+        impl $name {
+            /// Makes the container a button. The Renderer gives it keyboard focus, runs
+            /// the handler on a click and on Enter or Space, announces it to assistive
+            /// technology as a button, and shows hover, pressed and focus state.
+            ///
+            /// A container that never calls this is not a control and costs nothing.
+            pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.on_click = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
+/// Optional focus and key handlers on a node. A node that registers none of these
+/// emits no focus or key listener property on the wire.
+#[derive(Default)]
+struct FocusAndKeyHandlers {
+    on_focus_gained: Option<Box<dyn FnMut()>>,
+    on_focus_lost: Option<Box<dyn FnMut()>>,
+    on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    focus_handle: Option<super::FocusHandle>,
+}
+
+/// Writes a motion handler as the listener the wire needs. A node that was given none has
+/// no `OnMotionFinished` at all, and the Renderer attaches nothing to its size motion.
+fn motion_input(
+    handler: Option<Box<dyn FnMut(MotionFinished)>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handler {
+        listeners.push((
+            "onmotionfinished",
+            EventCallback::Motion(Rc::new(RefCell::new(handler))),
+        ));
+    }
+}
+
+/// Turns the handlers into listeners and binds the focus handle, if there is one, to the
+/// node the widget is about to emit, so it is called right before that `emit`.
+fn focus_and_key_input(
+    mut handlers: FocusAndKeyHandlers,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    super::focus::bind_focus_handle(handlers.focus_handle.take());
+    if let Some(handler) = handlers.on_focus_gained.take() {
+        listeners.push(("onfocusgained", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_focus_lost.take() {
+        listeners.push(("onfocuslost", unit(Some(handler))));
+    }
+    if let Some(handler) = handlers.on_key_down.take() {
+        listeners.push((
+            "onkeydown",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+    if let Some(handler) = handlers.on_key_up.take() {
+        listeners.push((
+            "onkeyup",
+            EventCallback::Key(Rc::new(RefCell::new(handler))),
+        ));
+    }
+    motion_input(handlers.on_motion_finished.take(), listeners);
+}
+
+macro_rules! focus_and_key_handlers {
+    ($name:ident) => {
+        impl $name {
+            /// Runs when this node or a descendant inside it gains keyboard focus.
+            pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_gained = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Runs when this node and its descendants lose keyboard focus.
+            pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
+                self.focus_and_keys.on_focus_lost = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key pressed while this node or a descendant inside it holds focus;
+            /// calling `consume` on the event keeps the Renderer from acting on it.
+            pub fn on_key_down(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_down = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Sees each key released while this node or a descendant inside it holds focus.
+            pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+                self.focus_and_keys.on_key_up = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            /// Binds `handle` to this node, so `handle.request()` puts keyboard focus here.
+            pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+                self.focus_and_keys.focus_handle = Some(handle.clone());
+                self
+            }
+
+            /// Runs once when this node's size motion comes to rest, with the size it settled
+            /// at in dp. The node needs `Modifier::motion` for its size to move; without it
+            /// nothing is reported. A run interrupted by a newer size is not reported, only
+            /// the one that settles, and under reduced motion it arrives in the frame the
+            /// size changes in.
+            pub fn on_motion_finished(
+                mut self,
+                handler: impl FnMut(MotionFinished) + 'static,
+            ) -> Self {
+                self.focus_and_keys.on_motion_finished = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
+}
+
+/// Composes the description when the statement it was written in ends.
+macro_rules! composed_on_drop {
+    ($name:ident $(<$lifetime:lifetime>)?) => {
+        impl$(<$lifetime>)? Drop for $name$(<$lifetime>)? {
+            fn drop(&mut self) {
+                // A panic is already unwinding the composition, and composing on the way
+                // out would only risk a second one.
+                if !self.done && !std::thread::panicking() {
+                    self.done = true;
+                    self.compose(|| {});
+                }
+            }
+        }
+
+        impl$(<$lifetime>)? $name$(<$lifetime>)? {
+            /// What sits around it. Compose's `modifier` parameter.
+            pub fn modifier(mut self, modifier: Modifier) -> Self {
+                self.modifier = modifier;
+                self
+            }
+        }
+    };
+}
+
+/// A container's `content`: composes it now, with these children.
+macro_rules! container {
+    ($name:ident $(<$lifetime:lifetime>)?) => {
+        composed_on_drop!($name $(<$lifetime>)?);
+
+        impl$(<$lifetime>)? $name$(<$lifetime>)? {
+            /// Composes this widget with `content` as its children.
+            pub fn content(mut self, content: impl FnOnce()) {
+                self.done = true;
+                self.compose(content);
+            }
+        }
+    };
+}
+
+// ----- layout ---------------------------------------------------------------------------
+
+/// The properties a linear layout takes.
+#[derive(Default)]
+struct Linear {
+    arrangement: Option<Arrangement>,
+    spacing: Option<f32>,
+    space_role: Option<SpaceRole>,
+    alignment: Option<Alignment>,
+    intrinsic_size: Option<bool>,
+    radio_group: bool,
+}
+
+impl Linear {
+    fn push(&self, attrs: &mut Attrs) {
+        attrs.push(("arrangement", role_or_zero(self.arrangement)));
+        attrs.push(("spacing", dp_or_zero(self.spacing)));
+        attrs.push(("space_role", role_or_zero(self.space_role)));
+        attrs.push(("alignment", role_or_zero(self.alignment)));
+        if let Some(intrinsic) = self.intrinsic_size {
+            attrs.push(("collapsible", OwnedAttr::Bool(intrinsic)));
+        }
+        // Written only for a group, so a plain layout sends what it always did.
+        if self.radio_group {
+            attrs.push(("radio_group", OwnedAttr::Bool(true)));
+        }
+    }
+}
+
+macro_rules! linear {
+    ($name:ident, $widget:ident, $key:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            linear: Linear,
+            pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
+            tear_off: Option<TearOff>,
+            done: bool,
+        }
+
+        #[doc = concat!("Lays its children out one after another. Compose's `", stringify!($widget), "`.")]
+        pub fn $widget() -> $name {
+            $name {
+                modifier: Modifier::new(),
+                linear: Linear::default(),
+                pointer: None,
+                on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
+                tear_off: None,
+                done: false,
+            }
+        }
+
+        impl $name {
+            /// How the children share the main axis.
+            pub fn arrangement(mut self, arrangement: Arrangement) -> Self {
+                self.linear.arrangement = Some(arrangement);
+                self
+            }
+
+            /// A literal gap between children, in dp.
+            pub fn spacing(mut self, dp: f32) -> Self {
+                self.linear.spacing = Some(dp);
+                self
+            }
+
+            /// A gap from the design system's spacing ladder.
+            pub fn space_role(mut self, role: SpaceRole) -> Self {
+                self.linear.space_role = Some(role);
+                self
+            }
+
+            /// Where the children sit on the cross axis.
+            pub fn alignment(mut self, alignment: Alignment) -> Self {
+                self.linear.alignment = Some(alignment);
+                self
+            }
+
+            /// Sizes the cross axis to the tallest child in a `Row` or the widest child in
+            /// a `Column`, so children with `fill_max_height` or `fill_max_width` match the
+            /// largest sibling without an explicit container size.
+            pub fn intrinsic_size(mut self, enabled: bool) -> Self {
+                self.linear.intrinsic_size = Some(enabled);
+                self
+            }
+
+            /// Makes this layout a group of the `RadioButton`s inside it.
+            ///
+            /// The group is one stop for Tab: the selected button, or the first when none
+            /// is. The arrow keys move focus to the next or the previous button, wrapping
+            /// at the ends, and each move sends that button's `on_change(true)` once, the
+            /// same report a click sends. Which button is selected is still the
+            /// application's to decide. Assistive technology hears the layout as a radio
+            /// group.
+            pub fn radio_group(mut self, enabled: bool) -> Self {
+                self.linear.radio_group = enabled;
+                self
+            }
+
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let linear = std::mem::take(&mut self.linear);
+                let pointer = self.pointer.take();
+                let tear_off = self.tear_off.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
+                tear_off_input(tear_off, &mut subscription, &mut listeners);
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, Mods::Container, attrs);
+                        linear.push(attrs);
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
+                    content,
+                );
+            }
+        }
+
+        container!($name);
+        pointer_subscription!($name);
+        click_handler!($name);
+        focus_and_key_handlers!($name);
+        tear_off!($name);
+    };
+}
+
+linear!(ColumnScope, Column, "compose_rust::ui::Column");
+linear!(RowScope, Row, "compose_rust::ui::Row");
+
+impl RowScope {
+    /// Sizes the row to its tallest child so children with `fill_max_height` match their
+    /// siblings' height.
+    pub fn equal_height(self, enabled: bool) -> Self {
+        self.intrinsic_size(enabled)
+    }
+}
+
+impl ColumnScope {
+    /// Sizes the column to its widest child so children with `fill_max_width` match their
+    /// siblings' width.
+    pub fn equal_width(self, enabled: bool) -> Self {
+        self.intrinsic_size(enabled)
+    }
+}
+
+/// A `FlowRow` and its builder.
+pub struct FlowRowScope {
+    modifier: Modifier,
+    horizontal_spacing: Option<f32>,
+    vertical_spacing: Option<f32>,
+    horizontal_alignment: Option<HorizontalAlignment>,
+    vertical_alignment: Option<VerticalAlignment>,
+    max_items_in_each_row: Option<u32>,
+    done: bool,
+}
+
+/// Lays its children out on a line and starts a new line when the next child does not fit
+/// in what is left of it. Each child is measured at its own width, so a line breaks where
+/// the text really ends rather than where an estimate put it. A child wider than the whole
+/// line has the line to itself and is measured at the line's width. Compose's `FlowRow`.
+pub fn FlowRow() -> FlowRowScope {
+    FlowRowScope {
+        modifier: Modifier::new(),
+        horizontal_spacing: None,
+        vertical_spacing: None,
+        horizontal_alignment: None,
+        vertical_alignment: None,
+        max_items_in_each_row: None,
+        done: false,
+    }
+}
+
+impl FlowRowScope {
+    /// The gap between two children on the same line, in dp.
+    pub fn horizontal_spacing(mut self, dp: f32) -> Self {
+        self.horizontal_spacing = Some(dp);
+        self
+    }
+
+    /// The gap between two lines, in dp.
+    pub fn vertical_spacing(mut self, dp: f32) -> Self {
+        self.vertical_spacing = Some(dp);
+        self
+    }
+
+    /// Where the children of a line sit along it when they do not fill it. `Start` when
+    /// not set.
+    pub fn horizontal_alignment(mut self, alignment: HorizontalAlignment) -> Self {
+        self.horizontal_alignment = Some(alignment);
+        self
+    }
+
+    /// Where a child sits inside the height of its line. `Top` when not set.
+    pub fn vertical_alignment(mut self, alignment: VerticalAlignment) -> Self {
+        self.vertical_alignment = Some(alignment);
+        self
+    }
+
+    /// The most children one line holds, even when more would fit. No limit when not set.
+    pub fn max_items_in_each_row(mut self, count: u32) -> Self {
+        self.max_items_in_each_row = Some(count);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (horizontal_spacing, vertical_spacing) =
+            (self.horizontal_spacing, self.vertical_spacing);
+        let (horizontal_alignment, vertical_alignment) =
+            (self.horizontal_alignment, self.vertical_alignment);
+        let max_items = self.max_items_in_each_row;
+        emit(
+            widget_key("compose_rust::ui::FlowRow"),
+            WidgetKind::FlowRow,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Container, attrs);
+                // Only what was set is written: an absent property is the Renderer's
+                // default, and a zero gap or tag would say nothing an absent one does not.
+                if let Some(dp) = horizontal_spacing {
+                    attrs.push(("horizontal_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(dp) = vertical_spacing {
+                    attrs.push(("vertical_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(alignment) = horizontal_alignment {
+                    attrs.push(("horizontal_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(alignment) = vertical_alignment {
+                    attrs.push(("vertical_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(count) = max_items {
+                    attrs.push(("max_items_in_each_row", OwnedAttr::Int(i64::from(count))));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(FlowRowScope);
+
+/// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
+/// this module would otherwise hide.
+pub struct ComposeBox {
+    modifier: Modifier,
+    alignment: Option<Alignment>,
+    pointer: Option<PointerSubscription>,
+    on_click: Option<Box<dyn FnMut()>>,
+    focus_and_keys: FocusAndKeyHandlers,
+    tear_off: Option<TearOff>,
+    done: bool,
+}
+
+/// Stacks its children on top of each other. Compose's `Box`.
+pub fn Box() -> ComposeBox {
+    ComposeBox {
+        modifier: Modifier::new(),
+        alignment: None,
+        pointer: None,
+        on_click: None,
+        focus_and_keys: FocusAndKeyHandlers::default(),
+        tear_off: None,
+        done: false,
+    }
+}
+
+impl ComposeBox {
+    /// Where the children sit inside it.
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = Some(alignment);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let (modifier, alignment) = (self.modifier, self.alignment);
+        let pointer = self.pointer.take();
+        let tear_off = self.tear_off.take();
+        let mut listeners = Vec::new();
+        let mut subscription = Attrs::new();
+        pointer_input(pointer, &mut subscription, &mut listeners);
+        click_input(self.on_click.take(), &mut listeners);
+        focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
+        tear_off_input(tear_off, &mut subscription, &mut listeners);
+        emit(
+            widget_key("compose_rust::ui::Box"),
+            WidgetKind::Box,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Container, attrs);
+                attrs.push(("alignment", role_or_zero(alignment)));
+                attrs.append(&mut subscription);
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+container!(ComposeBox);
+pointer_subscription!(ComposeBox);
+click_handler!(ComposeBox);
+focus_and_key_handlers!(ComposeBox);
+tear_off!(ComposeBox);
+
+/// A plain container with the standard Modifiers and nothing of its own.
+macro_rules! plain_container {
+    ($name:ident, $widget:ident, $mods:expr, $key:literal, $doc:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
+            done: bool,
+        }
+
+        #[doc = $doc]
+        pub fn $widget() -> $name {
+            $name {
+                modifier: Modifier::new(),
+                pointer: None,
+                on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
+                done: false,
+            }
+        }
+
+        impl $name {
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, $mods, attrs);
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
+                    content,
+                );
+            }
+        }
+
+        container!($name);
+        pointer_subscription!($name);
+        click_handler!($name);
+        focus_and_key_handlers!($name);
+    };
+}
+
+/// The scroll position of a [`ScrollColumn`] or [`ScrollRow`], and a handle to move it.
+///
+/// The Renderer owns the scroll physics and the scrollbar; this handle reads the current
+/// offset and maximum offset in dp as observable states and sends target scroll requests.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScrollState {
+    offset: crate::runtime::MutableState<f32>,
+    max_offset: crate::runtime::MutableState<f32>,
+    command: crate::runtime::MutableState<(i64, f32, bool)>,
+}
+
+impl Default for ScrollState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScrollState {
+    /// Creates a new scroll state starting at 0 dp.
+    pub fn new() -> Self {
+        Self {
+            offset: crate::runtime::mutable_state_of(0.0),
+            max_offset: crate::runtime::mutable_state_of(0.0),
+            command: crate::runtime::mutable_state_of((0, 0.0, false)),
+        }
+    }
+
+    /// The current scroll offset in dp. A composable that reads this runs again when the
+    /// user or a programmatic scroll moves the container.
+    pub fn offset(&self) -> f32 {
+        self.offset.get()
+    }
+
+    /// The furthest offset in dp the container can scroll to (`0.0` when the content fits
+    /// inside the viewport). A composable that reads this runs again when the content or
+    /// viewport size changes the scrollable distance.
+    pub fn max_offset(&self) -> f32 {
+        self.max_offset.get()
+    }
+
+    /// Jumps to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), false));
+    }
+
+    /// Smoothly scrolls to `dp` (clamped by the Renderer to `0.0..=max_offset`).
+    pub fn animate_scroll_to(&self, dp: f32) {
+        let (revision, _, _) = self.command.get_untracked();
+        self.command
+            .set((revision.wrapping_add(1).max(1), dp.max(0.0), true));
+    }
+}
+
+/// Remembers a [`ScrollState`] across recompositions. Compose's `rememberScrollState`.
+pub fn remember_scroll_state() -> ScrollState {
+    crate::runtime::remember(ScrollState::new)
+}
+
+fn scroll_state_input(
+    state: Option<ScrollState>,
+    attrs: &mut Attrs,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    let (revision, target, animate) = state.command.get();
+    if revision > 0 {
+        attrs.push(("value", OwnedAttr::Float(f64::from(target))));
+        attrs.push(("determinate", OwnedAttr::Bool(animate)));
+        attrs.push(("count", OwnedAttr::Int(revision)));
+    }
+    let offset = state.offset;
+    let max_offset = state.max_offset;
+    listeners.push((
+        "onrangerequest",
+        EventCallback::Range(Rc::new(RefCell::new(move |range: crate::RangeRequest| {
+            let next_offset = f32::from_bits(range.start() as u32);
+            let next_max = f32::from_bits(range.count() as u32);
+            if next_offset.is_finite() {
+                offset.set(next_offset);
+            }
+            if next_max.is_finite() {
+                max_offset.set(next_max);
+            }
+        }))),
+    ));
+}
+
+macro_rules! scroll_container {
+    ($name:ident, $widget:ident, $key:literal, $doc:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            scroll_state: Option<ScrollState>,
+            snap: Snap,
+            pointer: Option<PointerSubscription>,
+            on_click: Option<Box<dyn FnMut()>>,
+            focus_and_keys: FocusAndKeyHandlers,
+            done: bool,
+        }
+
+        #[doc = $doc]
+        pub fn $widget() -> $name {
+            $name {
+                modifier: Modifier::new(),
+                scroll_state: None,
+                snap: Snap::None,
+                pointer: None,
+                on_click: None,
+                focus_and_keys: FocusAndKeyHandlers::default(),
+                done: false,
+            }
+        }
+
+        impl $name {
+            /// Binds a [`ScrollState`] so the application can read `offset()` and
+            /// `max_offset()` or call `scroll_to` and `animate_scroll_to`.
+            pub fn scroll_state(mut self, state: &ScrollState) -> Self {
+                self.scroll_state = Some(state.clone());
+                self
+            }
+
+            /// Where the content comes to rest once a drag or a fling ends.
+            ///
+            /// `Snap::None`, the default, stops wherever the user left it.
+            /// `Snap::ItemStart` stops with the start edge of the nearest direct child on
+            /// the start of the visible area, like CSS `scroll-snap-align: start`. The
+            /// Renderer runs the snap, so it follows the platform's fling physics.
+            pub fn snap(mut self, snap: Snap) -> Self {
+                self.snap = snap;
+                self
+            }
+
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let snap = self.snap;
+                let scroll_state = self.scroll_state.take();
+                let pointer = self.pointer.take();
+                let mut listeners = Vec::new();
+                let mut subscription = Attrs::new();
+                scroll_state_input(scroll_state, &mut subscription, &mut listeners);
+                pointer_input(pointer, &mut subscription, &mut listeners);
+                click_input(self.on_click.take(), &mut listeners);
+                focus_and_key_input(std::mem::take(&mut self.focus_and_keys), &mut listeners);
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, Mods::Standard, attrs);
+                        // Free scrolling is the default, and the default is not sent: a
+                        // container that says nothing travels as it did before snapping.
+                        if snap != Snap::None {
+                            attrs.push(("snap", OwnedAttr::Int(i64::from(u16::from(snap)))));
+                        }
+                        attrs.append(&mut subscription);
+                    },
+                    listeners,
+                    content,
+                );
+            }
+        }
+
+        container!($name);
+        pointer_subscription!($name);
+        click_handler!($name);
+        focus_and_key_handlers!($name);
+    };
+}
+
+scroll_container!(
+    ScrollColumnScope,
+    ScrollColumn,
+    "compose_rust::ui::ScrollColumn",
+    "All of its content, with a vertical scroll the Renderer owns."
+);
+scroll_container!(
+    ScrollRowScope,
+    ScrollRow,
+    "compose_rust::ui::ScrollRow",
+    "All of its content, with a horizontal scroll the Renderer owns."
+);
+plain_container!(
+    CardScope,
+    Card,
+    Mods::Container,
+    "compose_rust::ui::Card",
+    "A grouped container. What it looks like is the design system's."
+);
+plain_container!(
+    SurfaceScope,
+    Surface,
+    Mods::Container,
+    "compose_rust::ui::Surface",
+    "A plain background and elevation, without a card's meaning."
+);
+plain_container!(
+    SelectionContainerScope,
+    SelectionContainer,
+    Mods::Standard,
+    "compose_rust::ui::SelectionContainer",
+    "Every `Text` inside can be selected and copied as one selection."
+);
+plain_container!(
+    SpacerScope,
+    Spacer,
+    Mods::Standard,
+    "compose_rust::ui::Spacer",
+    "Empty space, sized by its Modifier."
+);
+
+// ----- text -----------------------------------------------------------------------------
+
+/// A font list as the property blob, or nothing when it is empty.
+fn font_bytes(font: &FontRefs) -> OwnedAttr {
+    if font.is_empty() {
+        OwnedAttr::None
+    } else {
+        OwnedAttr::Bytes(font.as_bytes().to_vec())
+    }
+}
+
+/// A `Text` and its builder.
+pub struct TextScope {
+    modifier: Modifier,
+    text: String,
+    spans: TextSpans,
+    type_role: Option<TypeRole>,
+    font_size: Option<f32>,
+    font_weight: Option<u16>,
+    line_height: Option<f32>,
+    letter_spacing: Option<f32>,
+    color: Option<Paint>,
+    text_align: Option<TextAlign>,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
+    font: FontRefs,
+    font_features: OwnedAttr,
+    word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
+    pointer: Option<PointerSubscription>,
+    done: bool,
+}
+
+/// Text. Compose's `Text`.
+///
+/// `type_role` alone takes the design system's size, weight, line height and letter
+/// spacing; each other style method overrides one axis of it.
+pub fn Text(text: impl Into<String>) -> TextScope {
+    TextScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        spans: TextSpans::default(),
+        type_role: None,
+        font_size: None,
+        font_weight: None,
+        line_height: None,
+        letter_spacing: None,
+        color: None,
+        text_align: None,
+        max_lines: None,
+        overflow: None,
+        font: FontRefs::default(),
+        font_features: OwnedAttr::None,
+        word_break: None,
+        overflow_wrap: None,
+        pointer: None,
+        done: false,
+    }
+}
+
+impl TextScope {
+    /// Runs of different treatment inside the text: a bold phrase, a link, some code.
+    pub fn spans(mut self, spans: TextSpans) -> Self {
+        self.spans = spans;
+        self
+    }
+
+    pub fn type_role(mut self, role: TypeRole) -> Self {
+        self.type_role = Some(role);
+        self
+    }
+
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    pub fn line_height(mut self, sp: f32) -> Self {
+        self.line_height = Some(sp);
+        self
+    }
+
+    pub fn letter_spacing(mut self, sp: f32) -> Self {
+        self.letter_spacing = Some(sp);
+        self
+    }
+
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = Some(align);
+        self
+    }
+
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
+    /// The fonts to try, in order. Only text with `TypeRole::None` takes its own fonts;
+    /// text with a role is set in the theme's font for that role.
+    pub fn font(mut self, font: FontRefs) -> Self {
+        self.font = font;
+        self
+    }
+
+    /// OpenType features of the font the text is set in, such as
+    /// `FontFeature::TABULAR_NUMS` for digits of one width. Compose's
+    /// `TextStyle.fontFeatureSettings`, CSS's `font-feature-settings`.
+    ///
+    /// Taken with or without a type role: a feature picks one of the forms the font already
+    /// has and does not change the font. A tag given twice takes the later value, an empty
+    /// list is no features, and at most `MAX_FONT_FEATURES` (16) are taken. A font without
+    /// the feature draws as it would have.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
+    /// Where a line may break inside a word. CSS `word-break`.
+    pub fn word_break(mut self, word_break: WordBreak) -> Self {
+        self.word_break = Some(word_break);
+        self
+    }
+
+    /// Whether a token too long for its line, such as a path or a URL, may break inside
+    /// itself. CSS `overflow-wrap`. With `Anywhere` such a token breaks between its letters
+    /// even under `WordBreak::KeepAll`; tokens that fit keep the breaking rule they had.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let spans = std::mem::take(&mut self.spans);
+        let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
+        let (type_role, font_size, font_weight, line_height, letter_spacing) = (
+            self.type_role,
+            self.font_size,
+            self.font_weight,
+            self.line_height,
+            self.letter_spacing,
+        );
+        let (color, text_align, max_lines, overflow) =
+            (self.color, self.text_align, self.max_lines, self.overflow);
+        let pointer = self.pointer.take();
+        let mut listeners = Vec::new();
+        let mut subscription = Attrs::new();
+        pointer_input(pointer, &mut subscription, &mut listeners);
+        emit(
+            widget_key("compose_rust::ui::Text"),
+            WidgetKind::Text,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                // Left out entirely when there are none, as the rsx widget leaves it out.
+                let span_fonts = spans.font_table().to_vec();
+                attrs.push((
+                    "spans",
+                    if spans.is_empty() {
+                        OwnedAttr::None
+                    } else {
+                        OwnedAttr::Spans(spans)
+                    },
+                ));
+                // The fonts each styled run names travel beside the runs, and are left out
+                // when no run names any.
+                attrs.push((
+                    "span_fonts",
+                    if span_fonts.is_empty() {
+                        OwnedAttr::None
+                    } else {
+                        OwnedAttr::Bytes(span_fonts)
+                    },
+                ));
+                attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, so such a text sends what it
+                // always did. A first composition writes every attribute in the list, an
+                // empty one as well, so leaving it out is what keeps it off the wire.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
+                attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("type_role", role_or_zero(type_role)));
+                attrs.push(("font_size", dp_or_zero(font_size)));
+                attrs.push((
+                    "font_weight",
+                    OwnedAttr::Int(i64::from(font_weight.unwrap_or(0))),
+                ));
+                attrs.push(("line_height", dp_or_zero(line_height)));
+                attrs.push(("letter_spacing", dp_or_zero(letter_spacing)));
+                attrs.push(("color", paint_or_zero(color)));
+                attrs.push(("text_align", role_or_zero(text_align)));
+                attrs.push((
+                    "max_lines",
+                    OwnedAttr::Int(i64::from(max_lines.unwrap_or(0))),
+                ));
+                attrs.push(("overflow", role_or_zero(overflow)));
+                attrs.append(&mut subscription);
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+composed_on_drop!(TextScope);
+pointer_subscription!(TextScope);
+
+/// A `TextField` and its builder.
+pub struct TextFieldScope {
+    modifier: Modifier,
+    text: String,
+    placeholder: String,
+    enabled: bool,
+    multiline: bool,
+    type_role: Option<TypeRole>,
+    font_size: Option<f32>,
+    font_weight: Option<u16>,
+    line_height: Option<f32>,
+    letter_spacing: Option<f32>,
+    color: Option<Paint>,
+    font: FontRefs,
+    font_features: OwnedAttr,
+    word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
+    on_value_change: Option<Box<dyn FnMut(String)>>,
+    on_submit: Option<Box<dyn FnMut(String)>>,
+    on_focus_gained: Option<Box<dyn FnMut()>>,
+    on_focus_lost: Option<Box<dyn FnMut()>>,
+    on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_composition_change: Option<Box<dyn FnMut(bool)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
+    focus_handle: Option<super::FocusHandle>,
+    bare: bool,
+    done: bool,
+}
+
+/// An uncontrolled text field. Compose's `TextField`, with the value kept where the
+/// platform's text input keeps it: the Renderer reports each change and the Host never
+/// writes the value back while the user types.
+pub fn TextField() -> TextFieldScope {
+    TextFieldScope {
+        modifier: Modifier::new(),
+        text: String::new(),
+        placeholder: String::new(),
+        enabled: true,
+        multiline: false,
+        type_role: None,
+        font_size: None,
+        font_weight: None,
+        line_height: None,
+        letter_spacing: None,
+        color: None,
+        font: FontRefs::default(),
+        font_features: OwnedAttr::None,
+        word_break: None,
+        overflow_wrap: None,
+        on_value_change: None,
+        on_submit: None,
+        on_focus_gained: None,
+        on_focus_lost: None,
+        on_key_down: None,
+        on_key_up: None,
+        on_composition_change: None,
+        on_motion_finished: None,
+        focus_handle: None,
+        bare: false,
+        done: false,
+    }
+}
+
+impl TextFieldScope {
+    /// The text the field starts with. Only the start: the field stays uncontrolled, so
+    /// what the user types is never written back, and a later value here changes nothing
+    /// on the field that is already there. To show other text, such as another document,
+    /// give the field a new identity with `key`, and the new field starts with this text.
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+
+    pub fn placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.placeholder = placeholder.into();
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn multiline(mut self, multiline: bool) -> Self {
+        self.multiline = multiline;
+        self
+    }
+
+    /// The rung of the type ladder the field's own text is set in.
+    pub fn type_role(mut self, role: TypeRole) -> Self {
+        self.type_role = Some(role);
+        self
+    }
+
+    /// Explicit font size in sp. Overrides the type role's size.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
+    /// Explicit font weight (e.g. 400, 500, 600, 700). Overrides the type role's weight.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// Explicit line height in sp.
+    pub fn line_height(mut self, sp: f32) -> Self {
+        self.line_height = Some(sp);
+        self
+    }
+
+    /// Explicit letter spacing in sp.
+    pub fn letter_spacing(mut self, sp: f32) -> Self {
+        self.letter_spacing = Some(sp);
+        self
+    }
+
+    /// Explicit text colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The fonts to try for the field's text, in order. Taken only with `TypeRole::None`.
+    pub fn font(mut self, font: FontRefs) -> Self {
+        self.font = font;
+        self
+    }
+
+    /// OpenType features for the typed text and the placeholder, as
+    /// `Text::font_feature_settings` takes them. Taken with or without a type role.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
+    /// Where a line of the typed text and of the placeholder may break inside a word, as
+    /// `Text::word_break` does. CSS `word-break`.
+    pub fn word_break(mut self, word_break: WordBreak) -> Self {
+        self.word_break = Some(word_break);
+        self
+    }
+
+    /// Whether a token too long for its line may break inside itself, in the typed text
+    /// and the placeholder, as `Text::overflow_wrap` does. CSS `overflow-wrap`.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
+        self
+    }
+
+    pub fn on_value_change(mut self, handler: impl FnMut(String) + 'static) -> Self {
+        self.on_value_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    pub fn on_submit(mut self, handler: impl FnMut(String) + 'static) -> Self {
+        self.on_submit = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    pub fn on_focus_gained(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_focus_gained = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    pub fn on_focus_lost(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_focus_lost = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sees each key the field is pressed with; calling `consume` on the event keeps the
+    /// field from acting on it.
+    pub fn on_key_down(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+        self.on_key_down = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sees each key released while the field holds focus.
+    pub fn on_key_up(mut self, handler: impl FnMut(KeyEvent) + 'static) -> Self {
+        self.on_key_up = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Reports when an input method begins or ends an active composition in the field.
+    pub fn on_composition_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_composition_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Binds `handle` to this field, so `handle.request()` puts keyboard focus here.
+    pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+
+    /// Runs once when the field's size motion comes to rest, with the size it settled at
+    /// in dp. The field needs `Modifier::motion` for its size to move; without it nothing
+    /// is reported. A run interrupted by a newer size is not reported, only the one that
+    /// settles.
+    pub fn on_motion_finished(mut self, handler: impl FnMut(MotionFinished) + 'static) -> Self {
+        self.on_motion_finished = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Draws the field without the design system's frame: no fill, line, underline,
+    /// corner clip, inner padding, minimum height or focus line. Text, placeholder, caret,
+    /// selection and input methods stay as they are. For a field that sits inside a box
+    /// which already draws its own frame, so the frame is not drawn twice. A `background`
+    /// or `border` given on the node is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let placeholder = std::mem::take(&mut self.placeholder);
+        let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let bare = self.bare;
+        let (font_size, font_weight, line_height) =
+            (self.font_size, self.font_weight, self.line_height);
+        let (letter_spacing, color) = (self.letter_spacing, self.color);
+        let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
+        let key_down: EventCallback = match self.on_key_down.take() {
+            Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
+            None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
+        };
+        let mut listeners = vec![
+            ("onvaluechange", text_handler(self.on_value_change.take())),
+            ("onsubmit", text_handler(self.on_submit.take())),
+            ("onfocuslost", unit(self.on_focus_lost.take())),
+            ("onkeydown", key_down),
+        ];
+        if let Some(handler) = self.on_focus_gained.take() {
+            listeners.push(("onfocusgained", unit(Some(handler))));
+        }
+        if let Some(handler) = self.on_key_up.take() {
+            listeners.push((
+                "onkeyup",
+                EventCallback::Key(Rc::new(RefCell::new(handler))),
+            ));
+        }
+        if let Some(mut handler) = self.on_composition_change.take() {
+            listeners.push((
+                "oncompositionchange",
+                EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                    handler(value != 0.0);
+                }))),
+            ));
+        }
+        motion_input(self.on_motion_finished.take(), &mut listeners);
+        super::focus::bind_focus_handle(self.focus_handle.take());
+        emit(
+            widget_key("compose_rust::ui::TextField"),
+            WidgetKind::TextField,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                // Written only when there is a starting text, so a field without one sends
+                // the same records it always did.
+                if !text.is_empty() {
+                    attrs.push(("text", OwnedAttr::Text(text)));
+                }
+                attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("multiline", OwnedAttr::Bool(multiline)));
+                attrs.push(("type_role", role_or_zero(type_role)));
+                if let Some(font_size) = font_size {
+                    attrs.push(("font_size", OwnedAttr::Float(font_size as f64)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(font_weight as i64)));
+                }
+                if let Some(line_height) = line_height {
+                    attrs.push(("line_height", OwnedAttr::Float(line_height as f64)));
+                }
+                if let Some(letter_spacing) = letter_spacing {
+                    attrs.push(("letter_spacing", OwnedAttr::Float(letter_spacing as f64)));
+                }
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
+                attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, as `Text` leaves it out.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
+                attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                // Written only for a bare field, so a framed one sends what it always did.
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
+                }
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+composed_on_drop!(TextFieldScope);
+
+// ----- buttons and controls ---------------------------------------------------------------
+
+/// The label's line limit and overflow, written only when they were set, so a widget that
+/// never asks for them sends what it always sent.
+fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, attrs: &mut Attrs) {
+    if let Some(lines) = max_lines {
+        attrs.push(("max_lines", OwnedAttr::Int(i64::from(lines))));
+    }
+    if overflow.is_some() {
+        attrs.push(("overflow", role_or_zero(overflow)));
+    }
+}
+
+/// The colours and size a Switch, Slider, Checkbox or RadioButton was asked to draw with. Each is sent
+/// only when it was set, so a control that sets none sends the properties it always has
+/// and the design system draws it.
+#[derive(Clone, Copy, Default)]
+struct ControlLook {
+    track: Option<Paint>,
+    thumb: Option<Paint>,
+    active_track: Option<Paint>,
+    container: Option<Paint>,
+    check: Option<Paint>,
+    size: Option<(f32, f32)>,
+}
+
+impl ControlLook {
+    fn push(&self, attrs: &mut Attrs) {
+        let paints = [
+            ("track_color", self.track),
+            ("thumb_color", self.thumb),
+            ("active_track_color", self.active_track),
+            ("container_color", self.container),
+            ("check_color", self.check),
+        ];
+        for (name, paint) in paints {
+            if let Some(paint) = paint {
+                attrs.push((name, super::paint(Some(paint))));
+            }
+        }
+        if let Some((width, height)) = self.size {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&width.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&height.to_bits().to_le_bytes());
+            attrs.push(("control_size", OwnedAttr::Bytes(bytes)));
+        }
+    }
+}
+
+/// Adds a colour setter that fills one slot of `look`.
+macro_rules! control_colour {
+    ($name:ident, $slot:ident, $setter:ident, $doc:literal) => {
+        impl $name {
+            #[doc = $doc]
+            pub fn $setter(mut self, paint: Paint) -> Self {
+                self.look.$slot = Some(paint);
+                self
+            }
+        }
+    };
+}
+
+/// Writes a widget's own accessible name. It replaces one the Modifier gave, so the name
+/// said on the widget is the one that reaches assistive technology.
+fn push_accessible_name(name: Option<String>, attrs: &mut Attrs) {
+    if let Some(name) = name.filter(|name| !name.is_empty()) {
+        attrs.retain(|(key, _)| *key != "accessible_name");
+        attrs.push(("accessible_name", OwnedAttr::Text(name)));
+    }
+}
+
+/// Adds `accessible_name` to a builder that has an `accessible_name` field.
+macro_rules! accessible_name {
+    ($name:ident) => {
+        impl $name {
+            /// The name assistive technology reads. With no visible label it is the
+            /// control's name; with one it replaces the label, and on an icon-only button
+            /// it is read instead of the icon's meaning.
+            pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+                self.accessible_name = Some(name.into());
+                self
+            }
+        }
+    };
+}
+
+/// A `Button` and its builder.
+pub struct ButtonScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    enabled: bool,
+    variant: Option<ButtonVariant>,
+    kind: Option<ButtonKind>,
+    color: Option<Paint>,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
+    accessible_name: Option<String>,
+    text_align: Option<TextAlign>,
+    font_size: Option<f32>,
+    font_weight: Option<u16>,
+    type_role: Option<TypeRole>,
+    on_click: Option<Box<dyn FnMut()>>,
+    focus_handle: Option<super::FocusHandle>,
+    done: bool,
+}
+
+/// A button with a label. Compose's `Button`; the variant is the design system's seam,
+/// so `ButtonVariant::Text` is Compose's `TextButton` and `Outlined` its `OutlinedButton`.
+///
+/// An empty label with an icon is an icon button, named for assistive technology by its
+/// icon's meaning.
+pub fn Button(text: impl Into<String>) -> ButtonScope {
+    ButtonScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        enabled: true,
+        variant: None,
+        kind: None,
+        color: None,
+        max_lines: None,
+        overflow: None,
+        accessible_name: None,
+        text_align: None,
+        font_size: None,
+        font_weight: None,
+        type_role: None,
+        on_click: None,
+        focus_handle: None,
+        done: false,
+    }
+}
+
+accessible_name!(ButtonScope);
+
+impl ButtonScope {
+    /// Where the label sits in the button. A button that never calls this sends nothing
+    /// and keeps its label centred.
+    pub fn text_align(mut self, align: TextAlign) -> Self {
+        self.text_align = Some(align);
+        self
+    }
+
+    /// The label's size in sp. A button that never calls this sends nothing and takes the
+    /// design system's size for its variant.
+    pub fn font_size(mut self, sp: f32) -> Self {
+        self.font_size = Some(sp);
+        self
+    }
+
+    /// The label's weight (e.g. 400, 500, 600, 700). Overrides the type role's weight. A
+    /// button that never calls this sends nothing.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// The rung of the type ladder the label is set in: its size, weight and line height.
+    /// `font_size` and `font_weight` win over the role's values. A button that never calls
+    /// this sends nothing and keeps the design system's label style for its variant.
+    pub fn type_role(mut self, role: TypeRole) -> Self {
+        self.type_role = Some(role);
+        self
+    }
+
+    /// The meaning of the glyph on it, never a picture.
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = Some(variant);
+        self
+    }
+
+    /// What the button is, apart from how loud it is: `ButtonKind::ActionKey` is one key of
+    /// a dense grid, drawn in the design system's own calculator-key shape.
+    pub fn kind(mut self, kind: ButtonKind) -> Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// Korean label is never broken between syllables by a squeezed parent.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
+    /// The label's colour, for the rare button whose meaning is not its variant's.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no colour of its own.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Binds `handle` to this button, so `handle.request()` puts keyboard focus here.
+    pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
+        self.focus_handle = Some(handle.clone());
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let (icon, enabled, variant, kind, color) =
+            (self.icon, self.enabled, self.variant, self.kind, self.color);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
+        let accessible_name = self.accessible_name.take();
+        let (text_align, font_size) = (self.text_align, self.font_size);
+        let (font_weight, type_role) = (self.font_weight, self.type_role);
+        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        super::focus::bind_focus_handle(self.focus_handle.take());
+        emit(
+            widget_key("compose_rust::ui::Button"),
+            WidgetKind::Button,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("variant", role_or_zero(variant)));
+                attrs.push(("button_kind", role_or_zero(kind)));
+                attrs.push(("color", super::paint(color)));
+                lines_and_overflow(max_lines, overflow, attrs);
+                push_accessible_name(accessible_name, attrs);
+                if text_align.is_some() {
+                    attrs.push(("text_align", role_or_zero(text_align)));
+                }
+                if font_size.is_some() {
+                    attrs.push(("font_size", dp_or_zero(font_size)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(i64::from(font_weight))));
+                }
+                if type_role.is_some() {
+                    attrs.push(("type_role", role_or_zero(type_role)));
+                }
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+container!(ButtonScope);
+
+/// A two-state control, for Checkbox, RadioButton and Switch alike: the Host owns the
+/// value, the control draws exactly what it is told and reports what the user asked for.
+macro_rules! toggle {
+    ($name:ident, $widget:ident, $setter:ident, $key:literal, $doc:literal) => {
+        #[doc = concat!("A `", stringify!($widget), "` and its builder.")]
+        pub struct $name {
+            modifier: Modifier,
+            checked: bool,
+            enabled: bool,
+            accessible_name: Option<String>,
+            look: ControlLook,
+            on_change: Option<Box<dyn FnMut(bool)>>,
+            done: bool,
+        }
+
+        #[doc = $doc]
+        pub fn $widget($setter: bool) -> $name {
+            $name {
+                modifier: Modifier::new(),
+                checked: $setter,
+                enabled: true,
+                accessible_name: None,
+                look: ControlLook::default(),
+                on_change: None,
+                done: false,
+            }
+        }
+
+        accessible_name!($name);
+
+        impl $name {
+            pub fn enabled(mut self, enabled: bool) -> Self {
+                self.enabled = enabled;
+                self
+            }
+
+            /// Called with the state the user asked for. The control changes only when the
+            /// value passed in does.
+            pub fn on_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+                self.on_change = Some(std::boxed::Box::new(handler));
+                self
+            }
+
+            fn compose(&mut self, content: impl FnOnce()) {
+                let modifier = self.modifier;
+                let (checked, enabled) = (self.checked, self.enabled);
+                let accessible_name = self.accessible_name.take();
+                let look = self.look;
+                let handler: EventCallback = match self.on_change.take() {
+                    Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(
+                        // Off is 0.0 and on is anything else, so a Renderer that reports a
+                        // half-finished transition still reads as on.
+                        move |value: f64| handler(value != 0.0),
+                    ))),
+                    None => value_handler(None),
+                };
+                emit(
+                    widget_key($key),
+                    WidgetKind::$widget,
+                    |attrs| {
+                        push_modifiers(&modifier, Mods::Standard, attrs);
+                        attrs.push(("checked", OwnedAttr::Bool(checked)));
+                        attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                        push_accessible_name(accessible_name, attrs);
+                        look.push(attrs);
+                    },
+                    vec![("onchange", handler)],
+                    content,
+                );
+            }
+        }
+
+        composed_on_drop!($name);
+    };
+}
+
+control_colour!(
+    SwitchScope,
+    track,
+    track_color,
+    "The track, whichever state it is in. The Host owns the state, so it passes the colour \
+     that goes with it."
+);
+control_colour!(
+    SwitchScope,
+    thumb,
+    thumb_color,
+    "The thumb that travels along the track."
+);
+
+impl SwitchScope {
+    /// The track's width and height in dp. The thumb scales with the height.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.look.size = Some((width, height));
+        self
+    }
+}
+
+control_colour!(
+    CheckboxScope,
+    container,
+    container_color,
+    "The box when it is checked."
+);
+control_colour!(CheckboxScope, check, check_color, "The check mark.");
+
+impl CheckboxScope {
+    /// The length of the box's side in dp.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
+}
+
+control_colour!(
+    RadioButtonScope,
+    container,
+    ring_color,
+    "The ring around the button, selected or not. Where the design system fills a selected \
+     button, the fill takes this colour as well."
+);
+control_colour!(
+    RadioButtonScope,
+    check,
+    dot_color,
+    "The dot inside a selected button."
+);
+
+impl RadioButtonScope {
+    /// The diameter of the ring in dp. The dot scales with it.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
+}
+
+toggle!(
+    CheckboxScope,
+    Checkbox,
+    checked,
+    "compose_rust::ui::Checkbox",
+    "A box that is ticked or not. Compose's `Checkbox(checked, onCheckedChange)`."
+);
+toggle!(
+    RadioButtonScope,
+    RadioButton,
+    selected,
+    "compose_rust::ui::RadioButton",
+    "One choice out of several. Compose's `RadioButton(selected, onClick)`."
+);
+toggle!(
+    SwitchScope,
+    Switch,
+    checked,
+    "compose_rust::ui::Switch",
+    "An on and off control. Compose's `Switch(checked, onCheckedChange)`."
+);
+
+/// A `Slider` and its builder.
+pub struct SliderScope {
+    modifier: Modifier,
+    color: Option<Paint>,
+    value: f32,
+    min: f32,
+    max: f32,
+    steps: u32,
+    enabled: bool,
+    accessible_name: Option<String>,
+    look: ControlLook,
+    on_change: Option<Box<dyn FnMut(f32)>>,
+    done: bool,
+}
+
+/// A value picked from a range. Compose's `Slider`. The drag is the Renderer's; `value`
+/// seeds it and moves it when the change came from elsewhere.
+pub fn Slider(value: f32) -> SliderScope {
+    SliderScope {
+        modifier: Modifier::new(),
+        color: None,
+        value,
+        min: 0.0,
+        max: 1.0,
+        steps: 0,
+        enabled: true,
+        accessible_name: None,
+        look: ControlLook::default(),
+        on_change: None,
+        done: false,
+    }
+}
+
+accessible_name!(SliderScope);
+control_colour!(
+    SliderScope,
+    track,
+    track_color,
+    "The part of the track that is not filled."
+);
+control_colour!(SliderScope, thumb, thumb_color, "The thumb.");
+control_colour!(
+    SliderScope,
+    active_track,
+    active_track_color,
+    "The part of the track up to the thumb."
+);
+
+impl SliderScope {
+    /// The two ends. Compose's `valueRange`.
+    pub fn range(mut self, min: f32, max: f32) -> Self {
+        self.min = min;
+        self.max = max;
+        self
+    }
+
+    /// Stops between the ends; zero is continuous.
+    pub fn steps(mut self, steps: u32) -> Self {
+        self.steps = steps;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// The filled part of the track and the thumb.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    pub fn on_change(mut self, handler: impl FnMut(f32) + 'static) -> Self {
+        self.on_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (color, value, min, max, steps, enabled) = (
+            self.color,
+            self.value,
+            self.min,
+            self.max,
+            self.steps,
+            self.enabled,
+        );
+        let accessible_name = self.accessible_name.take();
+        let look = self.look;
+        let handler = match self.on_change.take() {
+            Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                handler(value as f32)
+            }))),
+            None => value_handler(None),
+        };
+        emit(
+            widget_key("compose_rust::ui::Slider"),
+            WidgetKind::Slider,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("color", super::paint(color)));
+                attrs.push(("value", OwnedAttr::Float(f64::from(value))));
+                attrs.push(("min", OwnedAttr::Float(f64::from(min))));
+                attrs.push(("max", OwnedAttr::Float(f64::from(max))));
+                attrs.push(("steps", OwnedAttr::Int(i64::from(steps))));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                push_accessible_name(accessible_name, attrs);
+                look.push(attrs);
+            },
+            vec![("onchange", handler)],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(SliderScope);
+
+/// A `ProgressIndicator` and its builder.
+pub struct ProgressIndicatorScope {
+    modifier: Modifier,
+    value: f32,
+    determinate: bool,
+    circular: bool,
+    done: bool,
+}
+
+/// How far along something is, as a fraction. Compose's `LinearProgressIndicator(progress)`.
+pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
+    ProgressIndicatorScope {
+        modifier: Modifier::new(),
+        value,
+        determinate: true,
+        circular: false,
+        done: false,
+    }
+}
+
+/// Work in progress of no known length.
+pub fn IndeterminateProgressIndicator() -> ProgressIndicatorScope {
+    ProgressIndicator(0.0).determinate(false)
+}
+
+impl ProgressIndicatorScope {
+    pub fn determinate(mut self, determinate: bool) -> Self {
+        self.determinate = determinate;
+        self
+    }
+
+    /// The circular form rather than the linear one.
+    pub fn circular(mut self, circular: bool) -> Self {
+        self.circular = circular;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (value, determinate, circular) = (self.value, self.determinate, self.circular);
+        emit(
+            widget_key("compose_rust::ui::ProgressIndicator"),
+            WidgetKind::ProgressIndicator,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("value", OwnedAttr::Float(f64::from(value))));
+                attrs.push(("determinate", OwnedAttr::Bool(determinate)));
+                attrs.push(("circular", OwnedAttr::Bool(circular)));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+composed_on_drop!(ProgressIndicatorScope);
+
+/// A `Divider` and its builder.
+pub struct DividerScope {
+    modifier: Modifier,
+    vertical: bool,
+    done: bool,
+}
+
+/// A line between two things. Compose's `HorizontalDivider`; `vertical` makes it the other.
+pub fn Divider() -> DividerScope {
+    DividerScope {
+        modifier: Modifier::new(),
+        vertical: false,
+        done: false,
+    }
+}
+
+/// A hairline between two rows of a grouped list, in the design system's quiet edge or
+/// the given colour. The same node as `Divider().modifier(Modifier.background(color))`.
+pub fn Separator(color: Option<Paint>) -> DividerScope {
+    Divider().modifier(Modifier::new().background_if(color))
+}
+
+impl DividerScope {
+    pub fn vertical(mut self, vertical: bool) -> Self {
+        self.vertical = vertical;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let vertical = self.vertical;
+        emit(
+            widget_key("compose_rust::ui::Divider"),
+            WidgetKind::Divider,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("vertical", OwnedAttr::Bool(vertical)));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+composed_on_drop!(DividerScope);
+
+// ----- pictures -------------------------------------------------------------------------
+
+/// An `Image` or an `Icon` and its builder.
+pub struct AssetScope {
+    modifier: Modifier,
+    widget: WidgetKind,
+    asset_id: u32,
+    color: Option<Paint>,
+    done: bool,
+}
+
+/// A registered asset drawn as a picture. Compose's `Image`.
+pub fn Image(asset_id: u32) -> AssetScope {
+    AssetScope {
+        modifier: Modifier::new(),
+        widget: WidgetKind::Image,
+        asset_id,
+        color: None,
+        done: false,
+    }
+}
+
+/// A registered icon, tinted. Compose's `Icon`.
+pub fn Icon(asset_id: u32) -> AssetScope {
+    AssetScope {
+        modifier: Modifier::new(),
+        widget: WidgetKind::Icon,
+        asset_id,
+        color: None,
+        done: false,
+    }
+}
+
+impl AssetScope {
+    /// The tint. An icon only; an image ignores it, as the rsx widget has no such property.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (widget, asset_id, color) = (self.widget, self.asset_id, self.color);
+        let key = if widget == WidgetKind::Icon {
+            widget_key("compose_rust::ui::Icon")
+        } else {
+            widget_key("compose_rust::ui::Image")
+        };
+        emit(
+            key,
+            widget,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("asset", OwnedAttr::Int(i64::from(asset_id))));
+                if widget == WidgetKind::Icon {
+                    attrs.push(("color", paint_or_zero(color)));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+composed_on_drop!(AssetScope);
+
+/// A `Canvas` and its builder.
+pub struct CanvasScope {
+    modifier: Modifier,
+    commands: DrawList,
+    view_box: Option<(f32, f32)>,
+    done: bool,
+}
+
+/// Pixels the widget vocabulary cannot produce. Compose's `Canvas`, with the drawing as a
+/// value rather than a callback: drawing code cannot cross into the Renderer, and an equal
+/// list costs no record.
+pub fn Canvas(commands: DrawList) -> CanvasScope {
+    let view_box = commands.view_box();
+    CanvasScope {
+        modifier: Modifier::new(),
+        commands,
+        view_box,
+        done: false,
+    }
+}
+
+impl CanvasScope {
+    /// Scales the command list's coordinates from `(width, height)` to the `Canvas`'s
+    /// measured width and height. Stroke widths stay in dp.
+    pub fn view_box(mut self, width: f32, height: f32) -> Self {
+        self.view_box = Some((width, height));
+        self
+    }
+
+    /// Scales the command list's coordinates as `0.0..=1.0` fractions of the `Canvas`'s
+    /// measured width and height. Stroke widths stay in dp.
+    pub fn fractional(self) -> Self {
+        self.view_box(1.0, 1.0)
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let commands = std::mem::take(&mut self.commands);
+        let view_box = self.view_box;
+        emit(
+            widget_key("compose_rust::ui::Canvas"),
+            WidgetKind::Canvas,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("commands", OwnedAttr::Draw(commands)));
+                if let Some((width, height)) = view_box {
+                    attrs.push(("min", OwnedAttr::Float(f64::from(width))));
+                    attrs.push(("max", OwnedAttr::Float(f64::from(height))));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+composed_on_drop!(CanvasScope);
+
+// ----- pickers ----------------------------------------------------------------------------
+
+/// A `DatePicker` and its builder.
+pub struct DatePickerScope {
+    modifier: Modifier,
+    value: i64,
+    min: Option<i64>,
+    max: Option<i64>,
+    enabled: bool,
+    on_change: Option<Box<dyn FnMut(i64)>>,
+    done: bool,
+}
+
+/// A date, as whole days since 1970-01-01. How it is picked is the design system's.
+pub fn DatePicker(value: i64) -> DatePickerScope {
+    DatePickerScope {
+        modifier: Modifier::new(),
+        value,
+        min: None,
+        max: None,
+        enabled: true,
+        on_change: None,
+        done: false,
+    }
+}
+
+impl DatePickerScope {
+    pub fn min(mut self, days: i64) -> Self {
+        self.min = Some(days);
+        self
+    }
+
+    pub fn max(mut self, days: i64) -> Self {
+        self.max = Some(days);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn on_change(mut self, handler: impl FnMut(i64) + 'static) -> Self {
+        self.on_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
+        let handler = match self.on_change.take() {
+            Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                handler(value as i64)
+            }))),
+            None => value_handler(None),
+        };
+        emit(
+            widget_key("compose_rust::ui::DatePicker"),
+            WidgetKind::DatePicker,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("value", OwnedAttr::Int(value)));
+                attrs.push(("min", OwnedAttr::Int(min.unwrap_or(i64::MIN))));
+                attrs.push(("max", OwnedAttr::Int(max.unwrap_or(i64::MAX))));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+            },
+            vec![("onchange", handler)],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(DatePickerScope);
+
+const MINUTES_IN_A_DAY: u32 = 24 * 60;
+
+/// A `TimePicker` and its builder.
+pub struct TimePickerScope {
+    modifier: Modifier,
+    value: u32,
+    min: Option<u32>,
+    max: Option<u32>,
+    enabled: bool,
+    on_change: Option<Box<dyn FnMut(u32)>>,
+    done: bool,
+}
+
+/// A time of day, as minutes since midnight.
+pub fn TimePicker(value: u32) -> TimePickerScope {
+    TimePickerScope {
+        modifier: Modifier::new(),
+        value,
+        min: None,
+        max: None,
+        enabled: true,
+        on_change: None,
+        done: false,
+    }
+}
+
+impl TimePickerScope {
+    pub fn min(mut self, minutes: u32) -> Self {
+        self.min = Some(minutes);
+        self
+    }
+
+    pub fn max(mut self, minutes: u32) -> Self {
+        self.max = Some(minutes);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    pub fn on_change(mut self, handler: impl FnMut(u32) + 'static) -> Self {
+        self.on_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
+        let handler = match self.on_change.take() {
+            Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                handler((value as i64).clamp(0, i64::from(MINUTES_IN_A_DAY - 1)) as u32)
+            }))),
+            None => value_handler(None),
+        };
+        emit(
+            widget_key("compose_rust::ui::TimePicker"),
+            WidgetKind::TimePicker,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("value", OwnedAttr::Int(i64::from(value))));
+                attrs.push(("min", OwnedAttr::Int(i64::from(min.unwrap_or(0)))));
+                attrs.push((
+                    "max",
+                    OwnedAttr::Int(i64::from(max.unwrap_or(MINUTES_IN_A_DAY - 1))),
+                ));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+            },
+            vec![("onchange", handler)],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(TimePickerScope);
+
+/// A `Dropdown` and its builder.
+pub struct DropdownScope {
+    modifier: Modifier,
+    selected_index: usize,
+    enabled: bool,
+    closed: bool,
+    bare: bool,
+    on_change: Option<Box<dyn FnMut(usize)>>,
+    done: bool,
+}
+
+/// One choice out of a list; each child is one option.
+pub fn Dropdown(selected_index: usize) -> DropdownScope {
+    DropdownScope {
+        modifier: Modifier::new(),
+        selected_index,
+        enabled: true,
+        closed: false,
+        bare: false,
+        on_change: None,
+        done: false,
+    }
+}
+
+/// A compact closed-field selector that always rests as a single line and opens its
+/// options in a popup below the field on every design system.
+pub fn Select(selected_index: usize) -> DropdownScope {
+    Dropdown(selected_index).closed(true)
+}
+
+impl DropdownScope {
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Keeps the control as a closed single-line field that opens a popup menu on click,
+    /// even on design systems whose default picker presentation is a wheel.
+    pub fn closed(mut self, closed: bool) -> Self {
+        self.closed = closed;
+        self
+    }
+
+    pub fn on_change(mut self, handler: impl FnMut(usize) + 'static) -> Self {
+        self.on_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Draws the closed field without the design system's frame: no fill, line, corner
+    /// clip, inner padding, minimum height or focus line. For a select that sits inside a
+    /// box which already draws its own frame. A `background` or `border` given on the node
+    /// is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
+        let bare = self.bare;
+        let handler = match self.on_change.take() {
+            Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                handler((value as i64).max(0) as usize)
+            }))),
+            None => value_handler(None),
+        };
+        emit(
+            widget_key("compose_rust::ui::Dropdown"),
+            WidgetKind::Dropdown,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                if closed {
+                    attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
+                }
+            },
+            vec![("onchange", handler)],
+            content,
+        );
+    }
+}
+
+container!(DropdownScope);
+
+/// A `MenuItem` and its builder.
+pub struct MenuItemScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    selected: bool,
+    enabled: bool,
+    color: Option<Paint>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A single row in a `Menu` or action list: left-aligned label, optional leading icon,
+/// and optional selected state.
+pub fn MenuItem(text: impl Into<String>) -> MenuItemScope {
+    MenuItemScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        selected: false,
+        enabled: true,
+        color: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl MenuItemScope {
+    /// Leading semantic icon for this menu row.
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Marks this row as the currently selected option.
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Overrides the row's label and icon colour (for example, a destructive action).
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// Conditional colour override.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
+        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        emit(
+            widget_key("compose_rust::ui::MenuItem"),
+            WidgetKind::Button,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("variant", role_or_zero(Some(ButtonVariant::Text))));
+                attrs.push(("text_align", role_or_zero(Some(TextAlign::Start))));
+                attrs.push(("checked", OwnedAttr::Bool(selected)));
+                attrs.push(("color", super::paint(color)));
+            },
+            listeners,
+            content,
+        );
+    }
+}
+
+composed_on_drop!(MenuItemScope);
+
+// ----- surfaces that come and go ----------------------------------------------------------
+
+/// A `Dialog` or a `Sheet` and its builder: `open` seeds the Renderer's own open state,
+/// and `on_dismiss` says once that the user asked to close it.
+pub struct ModalScope {
+    modifier: Modifier,
+    widget: WidgetKind,
+    open: bool,
+    scrim: Option<Paint>,
+    max_height_fraction: Option<f32>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A modal. Compose's `Dialog`, kept in the tree and opened by `open`, so its enter and
+/// exit belong to the Renderer.
+pub fn Dialog(open: bool) -> ModalScope {
+    ModalScope {
+        modifier: Modifier::new(),
+        widget: WidgetKind::Dialog,
+        open,
+        scrim: None,
+        max_height_fraction: None,
+        on_dismiss: None,
+        done: false,
+    }
+}
+
+/// A surface that slides in from the edge the Renderer chooses. Compose's
+/// `ModalBottomSheet`, without a promise about which edge.
+pub fn Sheet(open: bool) -> ModalScope {
+    ModalScope {
+        modifier: Modifier::new(),
+        widget: WidgetKind::Sheet,
+        open,
+        scrim: None,
+        max_height_fraction: None,
+        on_dismiss: None,
+        done: false,
+    }
+}
+
+impl ModalScope {
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sets the modal scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
+        self
+    }
+
+    /// The tallest the sheet grows, as a fraction of the window's height, above 0 and at
+    /// most 1.
+    ///
+    /// Below it the sheet is as tall as its content; content taller than that stops the
+    /// sheet at the fraction and scrolls inside it. A fraction above 1 is taken as 1, and
+    /// one that is not above 0 is not sent, which leaves the height to the design system
+    /// as it is without this call. A `Dialog` sizes itself to its content and does not
+    /// take it.
+    pub fn max_height_fraction(mut self, fraction: f32) -> Self {
+        self.max_height_fraction = (fraction > 0.0).then(|| fraction.min(1.0));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (widget, open) = (self.widget, self.open);
+        let max_height_fraction = self
+            .max_height_fraction
+            .filter(|_| widget == WidgetKind::Sheet);
+        let key = if widget == WidgetKind::Dialog {
+            widget_key("compose_rust::ui::Dialog")
+        } else {
+            widget_key("compose_rust::ui::Sheet")
+        };
+        let scrim = self.scrim;
+        emit(
+            key,
+            widget,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
+                if let Some(fraction) = max_height_fraction {
+                    attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
+                }
+            },
+            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            content,
+        );
+    }
+}
+
+container!(ModalScope);
+
+/// A `Menu` and its builder.
+pub struct MenuScope<'a> {
+    modifier: Modifier,
+    expanded: bool,
+    scrim: Option<Paint>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    anchor: Option<Box<dyn FnOnce() + 'a>>,
+    done: bool,
+}
+
+/// A popup hanging off its anchor. Compose's `DropdownMenu`, with the anchor said rather
+/// than positioned: the Renderer places the popup.
+pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
+    MenuScope {
+        modifier: Modifier::new(),
+        expanded,
+        scrim: None,
+        on_dismiss: None,
+        anchor: None,
+        done: false,
+    }
+}
+
+impl<'a> MenuScope<'a> {
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Sets the popup scrim colour, overriding the design system default.
+    pub fn scrim(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim = Some(paint.into());
+        self
+    }
+
+    /// The widget the menu hangs off. It is the first child on the wire.
+    pub fn anchor(mut self, anchor: impl FnOnce() + 'a) -> Self {
+        self.anchor = Some(std::boxed::Box::new(anchor));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let expanded = self.expanded;
+        let anchor = self.anchor.take();
+        let scrim = self.scrim;
+        emit(
+            widget_key("compose_rust::ui::Menu"),
+            WidgetKind::Menu,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("open", OwnedAttr::Bool(expanded)));
+                if let Some(scrim) = scrim {
+                    attrs.push(("scrim", super::paint(Some(scrim))));
+                }
+            },
+            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            || {
+                if let Some(anchor) = anchor {
+                    let _anchor =
+                        crate::runtime::group_guard(widget_key("compose_rust::ui::Menu::anchor"));
+                    anchor();
+                }
+                let _entries =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Menu::entries"));
+                content();
+            },
+        );
+    }
+}
+
+container!(MenuScope<'a>);
+
+/// A `Popover` and its builder.
+pub struct PopoverScope<'a> {
+    modifier: Modifier,
+    open: bool,
+    placement: Option<PopoverPlacement>,
+    align: Option<PopoverAlign>,
+    offset: Option<f32>,
+    scrim: bool,
+    scrim_color: Option<Paint>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    anchor: Option<Box<dyn FnOnce() + 'a>>,
+    done: bool,
+}
+
+/// A floating box of any content attached to its anchor.
+///
+/// The anchor is always drawn. The content is drawn only while `open` is true, and `open`
+/// is the application's: pressing outside the box or pressing Escape calls `on_dismiss`
+/// once and changes nothing, so the handler is where the application closes it or keeps
+/// it open to ask about unsaved work.
+///
+/// The Renderer places the box. It opens on the side `placement` names, lined up with the
+/// edge `align` names, and it moves to the opposite side or slides along the edge when it
+/// would otherwise leave the window.
+///
+/// `modifier` belongs to the floating box, not to the anchor: a shape, a border, a shadow
+/// or a material given there replaces the design system's for this box.
+pub fn Popover<'a>(open: bool) -> PopoverScope<'a> {
+    PopoverScope {
+        modifier: Modifier::new(),
+        open,
+        placement: None,
+        align: None,
+        offset: None,
+        scrim: false,
+        scrim_color: None,
+        on_dismiss: None,
+        anchor: None,
+        done: false,
+    }
+}
+
+impl<'a> PopoverScope<'a> {
+    /// Called once when the user presses outside the box or presses Escape.
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The side of the anchor the box opens on. `Bottom` when it is not said.
+    pub fn placement(mut self, placement: PopoverPlacement) -> Self {
+        self.placement = Some(placement);
+        self
+    }
+
+    /// The edge of the anchor the box lines up with. `Start` when it is not said.
+    pub fn align(mut self, align: PopoverAlign) -> Self {
+        self.align = Some(align);
+        self
+    }
+
+    /// The gap between the anchor and the box, in dp. The design system's gap when it is
+    /// not said.
+    pub fn offset(mut self, dp: f32) -> Self {
+        self.offset = Some(dp);
+        self
+    }
+
+    /// Whether the window behind the box is dimmed while it is open. It is not, unless
+    /// asked.
+    pub fn scrim(mut self, scrim: bool) -> Self {
+        self.scrim = scrim;
+        self
+    }
+
+    /// Dims the window behind the box with this colour instead of the design system's.
+    pub fn scrim_color(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim_color = Some(paint.into());
+        self
+    }
+
+    /// The widget the box is attached to. It is the first child on the wire.
+    pub fn anchor(mut self, anchor: impl FnOnce() + 'a) -> Self {
+        self.anchor = Some(std::boxed::Box::new(anchor));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let open = self.open;
+        let (placement, align, offset) = (self.placement, self.align, self.offset);
+        let (scrim, scrim_color) = (self.scrim, self.scrim_color);
+        let anchor = self.anchor.take();
+        emit(
+            widget_key("compose_rust::ui::Popover"),
+            WidgetKind::Popover,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(placement) = placement {
+                    attrs.push(("placement", role_or_zero(Some(placement))));
+                }
+                if let Some(align) = align {
+                    attrs.push(("align", role_or_zero(Some(align))));
+                }
+                if let Some(offset) = offset {
+                    attrs.push(("offset_dp", OwnedAttr::Float(f64::from(offset))));
+                }
+                if let Some(color) = scrim_color {
+                    attrs.push(("scrim", super::paint(Some(color))));
+                } else if scrim {
+                    attrs.push(("scrim", OwnedAttr::Bool(true)));
+                }
+            },
+            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            || {
+                if let Some(anchor) = anchor {
+                    let _anchor = crate::runtime::group_guard(widget_key(
+                        "compose_rust::ui::Popover::anchor",
+                    ));
+                    anchor();
+                }
+                let _content =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Popover::content"));
+                content();
+            },
+        );
+    }
+}
+
+container!(PopoverScope<'a>);
+
+/// A `Tabs` and its builder.
+pub struct TabsScope {
+    modifier: Modifier,
+    color: Option<Paint>,
+    selected_index: usize,
+    done: bool,
+}
+
+/// A row of tabs; each child is one tab, and a tap is that child's own click. Compose's
+/// `TabRow`.
+pub fn Tabs(selected_index: usize) -> TabsScope {
+    TabsScope {
+        modifier: Modifier::new(),
+        color: None,
+        selected_index,
+        done: false,
+    }
+}
+
+impl TabsScope {
+    /// The mark that shows which tab is selected.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (color, selected_index) = (self.color, self.selected_index);
+        emit(
+            widget_key("compose_rust::ui::Tabs"),
+            WidgetKind::Tabs,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("color", super::paint(color)));
+                attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(TabsScope);
+
+/// A `TopAppBar` and its builder.
+pub struct TopAppBarScope {
+    modifier: Modifier,
+    title: String,
+    done: bool,
+}
+
+/// The bar across the top of a screen; its children are its content. Compose's
+/// `TopAppBar`, with the title a property so the Renderer can find it.
+pub fn TopAppBar() -> TopAppBarScope {
+    TopAppBarScope {
+        modifier: Modifier::new(),
+        title: String::new(),
+        done: false,
+    }
+}
+
+impl TopAppBarScope {
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let title = std::mem::take(&mut self.title);
+        emit(
+            widget_key("compose_rust::ui::TopAppBar"),
+            WidgetKind::TopAppBar,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(title)));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(TopAppBarScope);
+
+/// A `Tooltip` and its builder.
+pub struct TooltipScope {
+    modifier: Modifier,
+    text: String,
+    done: bool,
+}
+
+/// An explanation attached to its child, which assistive technology reads too. Compose's
+/// `TooltipBox`.
+pub fn Tooltip(text: impl Into<String>) -> TooltipScope {
+    TooltipScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        done: false,
+    }
+}
+
+impl TooltipScope {
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        emit(
+            widget_key("compose_rust::ui::Tooltip"),
+            WidgetKind::Tooltip,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(TooltipScope);
+
+// ----- frames and navigation --------------------------------------------------------------
+
+/// Composes one slot of a frame: a ScaffoldSlot node holding `content`, in a group of its
+/// own so that a slot coming and going leaves the others where they were.
+fn slot(role: SlotRole, key: u64, content: impl FnOnce()) {
+    emit(
+        key,
+        WidgetKind::ScaffoldSlot,
+        |attrs| attrs.push(("slot", OwnedAttr::Int(i64::from(u16::from(role))))),
+        Vec::new(),
+        content,
+    );
+}
+
+type Slot<'a> = Option<Box<dyn FnOnce() + 'a>>;
+
+/// A `Scaffold` and its builder.
+pub struct ScaffoldScope<'a> {
+    modifier: Modifier,
+    top_bar: Slot<'a>,
+    bottom_bar: Slot<'a>,
+    floating_action: Slot<'a>,
+    done: bool,
+}
+
+/// The screen's frame: which slots it has filled, and the page. Compose's `Scaffold`.
+/// What each slot becomes on this platform at this width is the Renderer's decision.
+///
+/// The Modifier carries the two things a frame takes: `background` and `material`.
+pub fn Scaffold<'a>() -> ScaffoldScope<'a> {
+    ScaffoldScope {
+        modifier: Modifier::new(),
+        top_bar: None,
+        bottom_bar: None,
+        floating_action: None,
+        done: false,
+    }
+}
+
+impl<'a> ScaffoldScope<'a> {
+    pub fn top_bar(mut self, bar: impl FnOnce() + 'a) -> Self {
+        self.top_bar = Some(std::boxed::Box::new(bar));
+        self
+    }
+
+    pub fn bottom_bar(mut self, bar: impl FnOnce() + 'a) -> Self {
+        self.bottom_bar = Some(std::boxed::Box::new(bar));
+        self
+    }
+
+    pub fn floating_action(mut self, action: impl FnOnce() + 'a) -> Self {
+        self.floating_action = Some(std::boxed::Box::new(action));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (top_bar, bottom_bar, floating_action) = (
+            self.top_bar.take(),
+            self.bottom_bar.take(),
+            self.floating_action.take(),
+        );
+        emit(
+            widget_key("compose_rust::ui::Scaffold"),
+            WidgetKind::Scaffold,
+            |attrs| push_modifiers(&modifier, Mods::Scaffold, attrs),
+            Vec::new(),
+            || {
+                if let Some(bar) = top_bar {
+                    slot(
+                        SlotRole::TopBar,
+                        widget_key("compose_rust::ui::Scaffold::top_bar"),
+                        bar,
+                    );
+                }
+                if let Some(bar) = bottom_bar {
+                    slot(
+                        SlotRole::BottomBar,
+                        widget_key("compose_rust::ui::Scaffold::bottom_bar"),
+                        bar,
+                    );
+                }
+                if let Some(action) = floating_action {
+                    slot(
+                        SlotRole::FloatingAction,
+                        widget_key("compose_rust::ui::Scaffold::floating_action"),
+                        action,
+                    );
+                }
+                slot(
+                    SlotRole::Content,
+                    widget_key("compose_rust::ui::Scaffold::content"),
+                    content,
+                );
+            },
+        );
+    }
+}
+
+container!(ScaffoldScope<'a>);
+
+/// A `Navigation` and its builder.
+pub struct NavigationScope<'a> {
+    modifier: Modifier,
+    selected_index: usize,
+    compact: CompactNavigation,
+    head: Slot<'a>,
+    foot: Slot<'a>,
+    done: bool,
+}
+
+/// A set of destinations and the screen they lead to. The children that are
+/// `NavigationItem`s are the destinations; whether they are a bar, a rail or a drawer is
+/// the Renderer's choice. Compose's `NavigationSuiteScaffold`.
+pub fn Navigation<'a>(selected_index: usize) -> NavigationScope<'a> {
+    NavigationScope {
+        modifier: Modifier::new(),
+        selected_index,
+        compact: CompactNavigation::Default,
+        head: None,
+        foot: None,
+        done: false,
+    }
+}
+
+impl<'a> NavigationScope<'a> {
+    /// What the destinations become in a compact window.
+    ///
+    /// Without it the design system answers, which is a bottom bar on most of them. An
+    /// application whose own reference draws a compact window differently says so here:
+    /// `Sidebar` puts the sidebar away behind a toggle on every design system, and `None`
+    /// leaves the destinations off a compact window so the screen can reach them its own
+    /// way. Medium and Expanded windows keep the design system's rail and drawer whatever
+    /// this says, and the screen still never asks how wide the window is.
+    pub fn compact(mut self, compact: CompactNavigation) -> Self {
+        self.compact = compact;
+        self
+    }
+
+    /// What sits above the destinations in a strip.
+    pub fn head(mut self, head: impl FnOnce() + 'a) -> Self {
+        self.head = Some(std::boxed::Box::new(head));
+        self
+    }
+
+    /// What sits below them.
+    pub fn foot(mut self, foot: impl FnOnce() + 'a) -> Self {
+        self.foot = Some(std::boxed::Box::new(foot));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let selected_index = self.selected_index;
+        let compact = self.compact;
+        let (head, foot) = (self.head.take(), self.foot.take());
+        emit(
+            widget_key("compose_rust::ui::Navigation"),
+            WidgetKind::Navigation,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
+                // No choice is the default, and the default is not sent: a navigation that
+                // says nothing travels exactly as it did before there was a choice.
+                if compact != CompactNavigation::Default {
+                    attrs.push((
+                        "compact_navigation",
+                        OwnedAttr::Int(i64::from(u16::from(compact))),
+                    ));
+                }
+            },
+            Vec::new(),
+            || {
+                if let Some(head) = head {
+                    slot(
+                        SlotRole::TopBar,
+                        widget_key("compose_rust::ui::Navigation::head"),
+                        head,
+                    );
+                }
+                if let Some(foot) = foot {
+                    slot(
+                        SlotRole::BottomBar,
+                        widget_key("compose_rust::ui::Navigation::foot"),
+                        foot,
+                    );
+                }
+                let _destinations = crate::runtime::group_guard(widget_key(
+                    "compose_rust::ui::Navigation::content",
+                ));
+                content();
+            },
+        );
+    }
+}
+
+container!(NavigationScope<'a>);
+
+/// A `NavigationItem` and its builder.
+pub struct NavigationItemScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    color: Option<Paint>,
+    enabled: bool,
+    section: Option<String>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// One destination inside a `Navigation`. Compose's `NavigationSuiteItem`.
+pub fn NavigationItem(text: impl Into<String>) -> NavigationItemScope {
+    NavigationItemScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        color: None,
+        enabled: true,
+        section: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl NavigationItemScope {
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// The named group of the strip this destination belongs to.
+    pub fn section(mut self, section: impl Into<String>) -> Self {
+        self.section = Some(section.into());
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let section = self.section.take();
+        let (icon, color, enabled) = (self.icon, self.color, self.enabled);
+        emit(
+            widget_key("compose_rust::ui::NavigationItem"),
+            WidgetKind::NavigationItem,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("color", super::paint(color)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                attrs.push(("section", optional_text(section)));
+            },
+            vec![("onclick", unit(self.on_click.take()))],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(NavigationItemScope);
+
+// ----- small things ---------------------------------------------------------------------
+
+/// A `FileDropTarget` and its builder.
+pub struct FileDropTargetScope {
+    modifier: Modifier,
+    alignment: Option<Alignment>,
+    on_files_entered: Option<Box<dyn FnMut()>>,
+    on_files_dropped: Option<Box<dyn FnMut(FileDrop)>>,
+    done: bool,
+}
+
+/// A place files may be dropped. Desktop only in effect.
+pub fn FileDropTarget() -> FileDropTargetScope {
+    FileDropTargetScope {
+        modifier: Modifier::new(),
+        alignment: None,
+        on_files_entered: None,
+        on_files_dropped: None,
+        done: false,
+    }
+}
+
+impl FileDropTargetScope {
+    pub fn alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = Some(alignment);
+        self
+    }
+
+    pub fn on_files_entered(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_files_entered = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    pub fn on_files_dropped(mut self, handler: impl FnMut(FileDrop) + 'static) -> Self {
+        self.on_files_dropped = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let alignment = self.alignment;
+        let dropped: EventCallback = match self.on_files_dropped.take() {
+            Some(handler) => EventCallback::Files(Rc::new(RefCell::new(handler))),
+            None => EventCallback::Files(Rc::new(RefCell::new(|_: FileDrop| {}))),
+        };
+        emit(
+            widget_key("compose_rust::ui::FileDropTarget"),
+            WidgetKind::FileDropTarget,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("alignment", super::role(alignment)));
+            },
+            vec![
+                ("onfilesentered", unit(self.on_files_entered.take())),
+                ("onfilesdropped", dropped),
+            ],
+            content,
+        );
+    }
+}
+
+container!(FileDropTargetScope);
+
+/// A `Chip` and its builder.
+pub struct ChipScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    selected: bool,
+    enabled: bool,
+    max_lines: Option<u32>,
+    overflow: Option<TextOverflow>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A small token that is chosen or filters. Compose's `FilterChip`.
+pub fn Chip(text: impl Into<String>) -> ChipScope {
+    ChipScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        selected: false,
+        enabled: true,
+        max_lines: None,
+        overflow: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl ChipScope {
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// How many lines the label may take. A label is one line unless this says more, so a
+    /// chip label is one line unless this says more.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = Some(lines);
+        self
+    }
+
+    /// What happens to a label longer than its lines.
+    pub fn overflow(mut self, overflow: TextOverflow) -> Self {
+        self.overflow = Some(overflow);
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let (max_lines, overflow) = (self.max_lines, self.overflow);
+        let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
+        emit(
+            widget_key("compose_rust::ui::Chip"),
+            WidgetKind::Chip,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Chip, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+                attrs.push(("checked", OwnedAttr::Bool(selected)));
+                attrs.push(("enabled", OwnedAttr::Bool(enabled)));
+                lines_and_overflow(max_lines, overflow, attrs);
+            },
+            vec![("onclick", unit(self.on_click.take()))],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(ChipScope);
+
+/// A `FloatingAction` and its builder.
+pub struct FloatingActionScope {
+    modifier: Modifier,
+    text: String,
+    icon: Option<IconRole>,
+    on_click: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// The one action a screen is about. Compose's `ExtendedFloatingActionButton`; where it
+/// goes is the design system's answer.
+pub fn FloatingAction(text: impl Into<String>) -> FloatingActionScope {
+    FloatingActionScope {
+        modifier: Modifier::new(),
+        text: text.into(),
+        icon: None,
+        on_click: None,
+        done: false,
+    }
+}
+
+impl FloatingActionScope {
+    pub fn icon(mut self, icon: IconRole) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    pub fn on_click(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_click = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = std::mem::take(&mut self.text);
+        let icon = self.icon;
+        emit(
+            widget_key("compose_rust::ui::FloatingAction"),
+            WidgetKind::FloatingAction,
+            |attrs| {
+                push_modifiers(&modifier, Mods::None, attrs);
+                attrs.push(("text", OwnedAttr::Text(text)));
+                attrs.push(("icon", super::role(icon)));
+            },
+            vec![("onclick", unit(self.on_click.take()))],
+            content,
+        );
+    }
+}
+
+composed_on_drop!(FloatingActionScope);
+
+/// A `Badge` and its builder.
+pub struct BadgeScope {
+    modifier: Modifier,
+    value: Option<u32>,
+    text: Option<String>,
+    color: Option<ColorRole>,
+    done: bool,
+}
+
+/// A count, a word or a dot, on its child or on its own. Compose's `BadgedBox` and `Badge`.
+pub fn Badge() -> BadgeScope {
+    BadgeScope {
+        modifier: Modifier::new(),
+        value: None,
+        text: None,
+        color: None,
+        done: false,
+    }
+}
+
+impl BadgeScope {
+    /// How many.
+    pub fn value(mut self, value: u32) -> Self {
+        self.value = Some(value);
+        self
+    }
+
+    /// One short word, shown where a count would be.
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.text = Some(text.into());
+        self
+    }
+
+    /// The role the mark is filled with; the error role where it is not given.
+    pub fn color(mut self, role: ColorRole) -> Self {
+        self.color = Some(role);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let text = self.text.take();
+        let (value, color) = (self.value, self.color);
+        emit(
+            widget_key("compose_rust::ui::Badge"),
+            WidgetKind::Badge,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push((
+                    "count",
+                    value.map_or(OwnedAttr::None, |value| OwnedAttr::Int(i64::from(value))),
+                ));
+                attrs.push(("text", optional_text(text)));
+                attrs.push(("color", super::paint(color.map(Paint::Role))));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(BadgeScope);
+
+/// A `SplitPane` and its builder.
+pub struct SplitPaneScope {
+    modifier: Modifier,
+    value: Option<f32>,
+    min: Option<f32>,
+    max: Option<f32>,
+    collapsible: bool,
+    collapse_below: Option<f32>,
+    selected_index: usize,
+    label: Option<String>,
+    on_change: Option<Box<dyn FnMut(f32)>>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A side pane and a body with a divider the user drags. Exactly two children, side pane
+/// first. The drag is reported once, when it ends.
+pub fn SplitPane() -> SplitPaneScope {
+    SplitPaneScope {
+        modifier: Modifier::new(),
+        value: None,
+        min: None,
+        max: None,
+        collapsible: false,
+        collapse_below: None,
+        selected_index: 0,
+        label: None,
+        on_change: None,
+        on_dismiss: None,
+        done: false,
+    }
+}
+
+impl SplitPaneScope {
+    /// The side pane's width in dp, or 0 to open it folded.
+    pub fn value(mut self, dp: f32) -> Self {
+        self.value = Some(dp);
+        self
+    }
+
+    pub fn min(mut self, dp: f32) -> Self {
+        self.min = Some(dp);
+        self
+    }
+
+    pub fn max(mut self, dp: f32) -> Self {
+        self.max = Some(dp);
+        self
+    }
+
+    pub fn collapsible(mut self, collapsible: bool) -> Self {
+        self.collapsible = collapsible;
+        self
+    }
+
+    /// The split pane's own width in dp below which it shows one pane at a time, the one
+    /// `selected_index` names. At or above it the panes are never stacked, and the design
+    /// system still decides between two columns and a side pane laid over the body.
+    ///
+    /// Without it the line is the size class's: stacked below 600 dp. 0 is the same as not
+    /// calling this. The width is measured on the Renderer, so crossing the line sends the
+    /// Host nothing. A negative or non-finite width is reported as a protocol error and
+    /// the split pane is drawn as if it had none.
+    pub fn collapse_below(mut self, dp: f32) -> Self {
+        self.collapse_below = Some(dp);
+        self
+    }
+
+    /// Which pane shows when only one fits: 0 the side pane, 1 the body.
+    pub fn selected_index(mut self, index: usize) -> Self {
+        self.selected_index = index;
+        self
+    }
+
+    /// What a screen reader calls the divider.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    pub fn on_change(mut self, handler: impl FnMut(f32) + 'static) -> Self {
+        self.on_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let label = self.label.take();
+        let (value, min, max, collapsible, collapse_below, selected_index) = (
+            self.value,
+            self.min,
+            self.max,
+            self.collapsible,
+            self.collapse_below,
+            self.selected_index,
+        );
+        let change = match self.on_change.take() {
+            Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                handler(value as f32)
+            }))),
+            None => value_handler(None),
+        };
+        let as_float = |value: Option<f32>| {
+            value.map_or(OwnedAttr::None, |value| OwnedAttr::Float(f64::from(value)))
+        };
+        emit(
+            widget_key("compose_rust::ui::SplitPane"),
+            WidgetKind::SplitPane,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("value", as_float(value)));
+                attrs.push(("min", as_float(min)));
+                attrs.push(("max", as_float(max)));
+                attrs.push(("collapsible", OwnedAttr::Bool(collapsible)));
+                attrs.push(("collapse_below", as_float(collapse_below)));
+                attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
+                attrs.push(("text", optional_text(label)));
+            },
+            vec![
+                ("onchange", change),
+                ("ondismiss", unit(self.on_dismiss.take())),
+            ],
+            content,
+        );
+    }
+}
+
+container!(SplitPaneScope);
+
+/// The worked extension widget: Material 3's determinate linear progress indicator.
+pub struct LinearProgressIndicatorScope {
+    modifier: Modifier,
+    progress: f32,
+    done: bool,
+}
+
+/// The extension widget the schema carries as its example.
+pub fn LinearProgressIndicator(progress: f32) -> LinearProgressIndicatorScope {
+    LinearProgressIndicatorScope {
+        modifier: Modifier::new(),
+        progress,
+        done: false,
+    }
+}
+
+impl LinearProgressIndicatorScope {
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let progress = self.progress;
+        emit(
+            widget_key("compose_rust::ui::LinearProgressIndicator"),
+            WidgetKind::LinearProgressIndicator,
+            |attrs| {
+                push_modifiers(&modifier, Mods::None, attrs);
+                attrs.push(("progress", OwnedAttr::Float(f64::from(progress))));
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+composed_on_drop!(LinearProgressIndicatorScope);
+
+// ----- windows --------------------------------------------------------------------
+
+/// A `Window` and its builder.
+pub struct WindowScope {
+    on_close_request: Option<Box<dyn FnMut()>>,
+    title: Option<String>,
+    size: Option<(f32, f32)>,
+    min_size: Option<(f32, f32)>,
+    resizable: Option<bool>,
+    report_size: Option<bool>,
+    chrome: Option<crate::schema::Chrome>,
+    title_bar: Option<crate::schema::TitleBar>,
+    icon: Option<u32>,
+    position: Option<(f32, f32)>,
+    restore_key: Option<String>,
+    zoom_level: Option<i8>,
+    drag_from_pointer: Option<crate::windows::DragFromPointer>,
+    theme: Option<crate::schema::Theme>,
+    on_focus_changed: Option<Box<dyn FnMut(bool)>>,
+    on_moved: Option<Box<dyn FnMut(crate::windows::WindowFrame)>>,
+    on_drag: Option<Box<dyn FnMut(crate::windows::WindowDragEvent)>>,
+    on_unavailable: Option<Box<dyn FnMut()>>,
+    on_closed: Option<Box<dyn FnMut()>>,
+    done: bool,
+}
+
+/// A platform window, a child of the root, whose children are the window's content. Compose
+/// Desktop's `Window`. The application has to be launched with
+/// [`LaunchBuilder::windows`](crate::LaunchBuilder::windows).
+///
+/// `on_close_request` is called when the user asks to close the window. It does not close
+/// it: the window closes when the application stops composing this `Window`, which is
+/// where a dialog that asks about unsaved work goes.
+///
+/// ```ignore
+/// Window(move || open.set(false)).title("Notes").size(900.0, 600.0).content(|| {
+///     Text("Hello");
+/// });
+/// ```
+pub fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {
+    WindowScope {
+        on_close_request: Some(std::boxed::Box::new(on_close_request)),
+        title: None,
+        size: None,
+        min_size: None,
+        resizable: None,
+        report_size: None,
+        chrome: None,
+        title_bar: None,
+        icon: None,
+        position: None,
+        restore_key: None,
+        zoom_level: None,
+        drag_from_pointer: None,
+        theme: None,
+        on_focus_changed: None,
+        on_moved: None,
+        on_drag: None,
+        on_unavailable: None,
+        on_closed: None,
+        done: false,
+    }
+}
+
+impl Drop for WindowScope {
+    fn drop(&mut self) {
+        // A panic is already unwinding the composition, and composing on the way out would
+        // only risk a second one.
+        if !self.done && !std::thread::panicking() {
+            self.done = true;
+            self.compose(|| {});
+        }
+    }
+}
+
+/// A window handler as the callback the runtime delivers events to.
+fn window_callback(handler: impl FnMut(crate::windows::WindowEvent) + 'static) -> EventCallback {
+    EventCallback::Window(Rc::new(RefCell::new(handler)))
+}
+
+impl WindowScope {
+    /// What the window calls itself.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// The size the window opens at, in dp. A later change resizes it.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        self.size = Some((width, height));
+        self
+    }
+
+    /// The smallest size the user can make it, in dp.
+    pub fn min_size(mut self, width: f32, height: f32) -> Self {
+        self.min_size = Some((width, height));
+        self
+    }
+
+    pub fn resizable(mut self, resizable: bool) -> Self {
+        self.resizable = Some(resizable);
+        self
+    }
+
+    /// Asks to be told every time the window's width or height, rounded to whole dp,
+    /// changes. Without it the size is reported only when its class or the safe area
+    /// changes. Turn it on only for a window that lays out by its exact size: each
+    /// whole-dp change while the user drags an edge costs one call into the Host.
+    pub fn report_size(mut self, report: bool) -> Self {
+        self.report_size = Some(report);
+        self
+    }
+
+    /// Who draws the caption.
+    pub fn chrome(mut self, chrome: crate::schema::Chrome) -> Self {
+        self.chrome = Some(chrome);
+        self
+    }
+
+    /// Which of the two title bars the window has.
+    pub fn title_bar(mut self, title_bar: crate::schema::TitleBar) -> Self {
+        self.title_bar = Some(title_bar);
+        self
+    }
+
+    /// The window's icon, as the id of a registered asset. Without one it wears the
+    /// application's.
+    pub fn icon(mut self, asset_id: u32) -> Self {
+        self.icon = Some(asset_id);
+        self
+    }
+
+    /// Where the window sits, in screen dp from the top left of the main screen. Changing
+    /// it moves the window; the position the user chose is not given back. Without it the
+    /// platform places the window.
+    pub fn position(mut self, x: f32, y: f32) -> Self {
+        self.position = Some((x, y));
+        self
+    }
+
+    /// The application's stable name for the window, which matches a window the system
+    /// brings back to the node that describes it.
+    pub fn restore_key(mut self, key: impl Into<String>) -> Self {
+        self.restore_key = Some(key.into());
+        self
+    }
+
+    /// The window's own application zoom level, kept inside its range.
+    pub fn zoom_level(mut self, level: i8) -> Self {
+        self.zoom_level = Some(crate::zoom::clamp_level(level));
+        self
+    }
+
+    /// Opens the window under a pointer that is held down and follows it until it is let
+    /// go. Read when the window opens and not again.
+    pub fn drag_from_pointer(mut self, drag: crate::windows::DragFromPointer) -> Self {
+        self.drag_from_pointer = Some(drag);
+        self
+    }
+
+    /// A theme for this window over the application's.
+    pub fn theme(mut self, theme: crate::schema::Theme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
+    /// The window became the key window or stopped being it.
+    pub fn on_focus_changed(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_focus_changed = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The window's outer frame moved or changed size.
+    pub fn on_moved(mut self, handler: impl FnMut(crate::windows::WindowFrame) + 'static) -> Self {
+        self.on_moved = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The window is being dragged out of a tab, and how that ended.
+    pub fn on_drag(
+        mut self,
+        handler: impl FnMut(crate::windows::WindowDragEvent) + 'static,
+    ) -> Self {
+        self.on_drag = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The platform could not open this window. Tell the user, or put the tab back.
+    pub fn on_unavailable(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_unavailable = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The system closed the window without asking. Stop composing it.
+    pub fn on_closed(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_closed = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Composes this window with `content` as its children.
+    pub fn content(mut self, content: impl FnOnce()) {
+        self.done = true;
+        self.compose(content);
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        use crate::windows::WindowEvent;
+        let pair = |value: (f32, f32)| {
+            let mut bytes = Vec::with_capacity(8);
+            bytes.extend_from_slice(&value.0.to_bits().to_le_bytes());
+            bytes.extend_from_slice(&value.1.to_bits().to_le_bytes());
+            OwnedAttr::Bytes(bytes)
+        };
+        // Only what was said is written. A property left out is not a property sent as
+        // nothing, and one that was said before and is not now is taken away.
+        let mut properties: Attrs = Vec::new();
+        if let Some(title) = self.title.take() {
+            properties.push(("window_title", OwnedAttr::Text(title)));
+        }
+        if let Some(size) = self.size {
+            properties.push(("window_size", pair(size)));
+        }
+        if let Some(size) = self.min_size {
+            properties.push(("window_min_size", pair(size)));
+        }
+        if let Some(resizable) = self.resizable {
+            properties.push(("window_resizable", OwnedAttr::Bool(resizable)));
+        }
+        if let Some(report) = self.report_size {
+            properties.push(("report_size", OwnedAttr::Bool(report)));
+        }
+        if let Some(chrome) = self.chrome {
+            properties.push(("window_chrome", OwnedAttr::Int(i64::from(chrome as u16))));
+        }
+        if let Some(title_bar) = self.title_bar {
+            properties.push((
+                "window_title_bar",
+                OwnedAttr::Int(i64::from(title_bar as u16)),
+            ));
+        }
+        if let Some(icon) = self.icon {
+            properties.push(("window_icon", OwnedAttr::Int(i64::from(icon))));
+        }
+        if let Some(position) = self.position {
+            properties.push(("window_position", pair(position)));
+        }
+        if let Some(key) = self.restore_key.take() {
+            properties.push(("window_restore_key", OwnedAttr::Text(key)));
+        }
+        if let Some(level) = self.zoom_level {
+            properties.push(("window_zoom_level", OwnedAttr::Int(i64::from(level))));
+        }
+        if let Some(drag) = self.drag_from_pointer {
+            properties.push(("drag_from_pointer", OwnedAttr::Bytes(drag.to_bytes())));
+        }
+
+        let mut listeners: Vec<(&'static str, EventCallback)> = Vec::new();
+        let mut close = self.on_close_request.take();
+        listeners.push((
+            "onwindowclose",
+            window_callback(move |event| {
+                if let (WindowEvent::CloseRequested, Some(handler)) = (event, close.as_mut()) {
+                    handler();
+                }
+            }),
+        ));
+        if let Some(mut handler) = self.on_focus_changed.take() {
+            listeners.push((
+                "onwindowfocus",
+                window_callback(move |event| {
+                    if let WindowEvent::FocusChanged { focused } = event {
+                        handler(focused);
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_moved.take() {
+            listeners.push((
+                "onwindowmoved",
+                window_callback(move |event| {
+                    if let WindowEvent::Moved {
+                        x,
+                        y,
+                        width,
+                        height,
+                    } = event
+                    {
+                        handler(crate::windows::WindowFrame {
+                            x,
+                            y,
+                            width,
+                            height,
+                        });
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_drag.take() {
+            listeners.push((
+                "onwindowdrag",
+                window_callback(move |event| {
+                    if let WindowEvent::Drag {
+                        phase,
+                        screen_x,
+                        screen_y,
+                        over_window,
+                    } = event
+                    {
+                        handler(crate::windows::WindowDragEvent {
+                            phase,
+                            screen_x,
+                            screen_y,
+                            over_window,
+                        });
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_unavailable.take() {
+            listeners.push((
+                "onwindowunavailable",
+                window_callback(move |event| {
+                    if event == WindowEvent::Unavailable {
+                        handler();
+                    }
+                }),
+            ));
+        }
+        if let Some(mut handler) = self.on_closed.take() {
+            listeners.push((
+                "onwindowclosed",
+                window_callback(move |event| {
+                    if event == WindowEvent::Closed {
+                        handler();
+                    }
+                }),
+            ));
+        }
+
+        let theme = self.theme.take();
+        emit(
+            widget_key("compose_rust::ui::Window"),
+            WidgetKind::Window,
+            |attrs| attrs.append(&mut properties),
+            listeners,
+            move || {
+                // The group has its node by now, so the window is known.
+                if let (Some(theme), Some(window)) = (theme, crate::windows::current_window()) {
+                    window.set_theme(theme);
+                }
+                content();
+            },
+        );
+    }
+}
