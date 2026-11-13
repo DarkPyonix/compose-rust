@@ -104,6 +104,8 @@ internal fun Node.textStyle(theme: ResolvedTheme, defaultRole: TypeRole = TypeRo
             TextAlign.Center -> ComposeTextAlign.Center
             TextAlign.End -> ComposeTextAlign.End
             TextAlign.Justify -> ComposeTextAlign.Justify
+            TextAlign.Left -> ComposeTextAlign.Left
+            TextAlign.Right -> ComposeTextAlign.Right
             null -> ComposeTextAlign.Unspecified
         },
     )

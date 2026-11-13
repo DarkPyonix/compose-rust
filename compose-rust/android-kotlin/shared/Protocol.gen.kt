@@ -32,7 +32,7 @@ enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Ima
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
-enum class TextAlign { Start, Center, End, Justify }
+enum class TextAlign { Start, Center, End, Justify, Left, Right }
 
 enum class TextOverflow { Clip, Ellipsis, Visible }
 
@@ -1801,7 +1801,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -7185122591292367094L
+    const val SCHEMA_HASH: Long = 7634867733493667174L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3410,6 +3410,8 @@ object Protocol {
         2 -> TextAlign.Center
         3 -> TextAlign.End
         4 -> TextAlign.Justify
+        5 -> TextAlign.Left
+        6 -> TextAlign.Right
         else -> throw ProtocolException("unknown TextAlign tag $tag", offset)
     }
 
