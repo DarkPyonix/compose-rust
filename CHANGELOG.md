@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Long tokens break inside under `KeepAll`, and fields take a word break
+
+`Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).
+
 ### SVG pictures draw on Android
 
 Android has no SVG reader of its own, so every `AssetKind::Svg` registration was reported as unreadable (protocol error 7) and drew an empty box. The Android renderer now reads SVG itself, following the rules Skia draws by on the desktop and iOS, so the same file draws the same picture on every platform. It reads shapes, groups, `use`, fills and strokes with their opacities, dashes, caps and joins, transforms, `viewBox` and `preserveAspectRatio`, linear and radial gradients, patterns and clip paths. It does not read `text`, `image`, `mask`, `filter`, `marker` or `<style>` sheets ([#567](https://github.com/DarkPyonix/compose-rust/issues/567)).
