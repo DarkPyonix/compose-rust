@@ -207,6 +207,10 @@ pub enum EventPayloadType {
     /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
     /// record.
     ScrollChanged,
+    /// The handle a window's platform views are made against: the handle as a `u64`, the
+    /// kind of handle as a `u16`, a reserved `u16`, and the window's backing scale as an
+    /// `f32`. A fixed 32-byte record.
+    NativeViewParent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -219,14 +223,14 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,native_visible,on_native_view_focus;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,AttachNativeView,FocusNativeView"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -395,6 +399,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::IoAnswer => 31,
                 EventPayloadType::FileHandles => 32,
                 EventPayloadType::ScrollChanged => 33,
+                EventPayloadType::NativeViewParent => 34,
             }],
         );
         index += 1;
@@ -605,6 +610,13 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // inside the window by flipping it to the other side or sliding it along the edge.
     // 46 is held for a widget on another branch.
     Popover = 47,
+    // A place in the window for a platform view the Host made: an `NSView`, an `HWND`, an
+    // X11 window or an Android `View`. The Renderer places it over the node's rectangle,
+    // cuts it to what its ancestors and the overlays above it leave showing, and hands
+    // keyboard focus to it and back. It never makes, links or destroys one. It takes no
+    // children and has no size of its own: its modifiers and its parent's constraints size
+    // it, and what the modifiers draw shows only where the view does not cover the node.
+    NativeView = 48,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -3532,6 +3544,14 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // block, so it takes the number after the last one in use: 169 to 184 are held by
     // properties other requirements have numbered.
     OnScrollChanged = 186,
+    // A `NativeView`'s two properties. 187 to 189 are held by properties other work has
+    // numbered.
+    //
+    // Whether the platform view shows, a boolean. Absent is yes. A hidden view stays in the
+    // window with its state, so showing it again shows the same page.
+    NativeVisible = 190,
+    // The handler that hears the platform view take and lose keyboard focus.
+    OnNativeViewFocus = 191,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3872,6 +3892,68 @@ pub enum EventPayload<'a> {
         viewport_width_px: f64,
         viewport_height_px: f64,
     },
+    /// The handle a window's platform views are made against, sent for each window once a
+    /// `NativeView` is in it, again when the handle or the backing scale changes, and with
+    /// a zero handle when the window closes. The node is the `Window` node, or 0 for the
+    /// single window. Delivered to the Host itself, with no handler.
+    NativeViewParent {
+        handle: NativeHandle,
+        kind: NativeParentKind,
+        /// The window's backing scale: how many pixels make one point.
+        scale: f32,
+    },
+    /// A `NativeView`'s platform view took keyboard focus (`true`) or lost it, reported to
+    /// the node's `OnNativeViewFocus` handler.
+    NativeViewFocus {
+        focused: bool,
+    },
+}
+
+/// A platform view, or the window it is made in, as the platform names it: an `NSView*`
+/// or `UIView*` pointer, an `HWND` or an X11 window id. 0 is no view. The Renderer only places the view; whoever made it still owns it
+/// and destroys it.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativeHandle(pub u64);
+
+impl NativeHandle {
+    /// No view: attaching it takes the node's view away.
+    pub const NONE: NativeHandle = NativeHandle(0);
+
+    /// Whether this names no view.
+    pub const fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// What kind of handle a window gives its platform views to be made against.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum NativeParentKind {
+    /// The `NSView*` of a macOS window's content.
+    AppKit = 1,
+    /// A Windows top-level `HWND`.
+    Win32 = 2,
+    /// An X11 window id.
+    X11 = 3,
+    /// An Android view.
+    Android = 4,
+    /// The `UIView*` of an iOS window's content.
+    UIKit = 5,
+}
+
+impl TryFrom<u16> for NativeParentKind {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, ()> {
+        match value {
+            1 => Ok(Self::AppKit),
+            2 => Ok(Self::Win32),
+            3 => Ok(Self::X11),
+            4 => Ok(Self::Android),
+            5 => Ok(Self::UIKit),
+            _ => Err(()),
+        }
+    }
 }
 
 /// A rectangle in physical pixels, for [`ScrollTarget`].
@@ -4238,6 +4320,19 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "ScrollChanged",
         tag: 60,
         payload: EventPayloadType::ScrollChanged,
+    },
+    // The handle a window's platform views are made against, addressed to the Host itself.
+    EventSchema {
+        name: "NativeViewParent",
+        tag: 61,
+        payload: EventPayloadType::NativeViewParent,
+    },
+    // A platform view took or lost keyboard focus. One word and its padding, the shape the
+    // code editor's focus report has.
+    EventSchema {
+        name: "NativeViewFocus",
+        tag: 62,
+        payload: EventPayloadType::CodeFocus,
     },
     // 51 to 53 are numbered for events that are not here yet. Both of these carry one
     // `f64` of physical pixels, the shape `ValueChanged` has.

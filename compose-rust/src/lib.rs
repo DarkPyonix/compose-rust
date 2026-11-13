@@ -40,6 +40,7 @@ pub mod highlight;
 pub mod input;
 pub mod measure;
 pub mod message;
+pub mod native_view;
 pub mod notification;
 pub mod palette;
 pub mod picked_file;
@@ -104,6 +105,7 @@ pub use schema::{
     ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
+pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::ThemeHandle;
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};

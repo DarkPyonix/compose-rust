@@ -277,6 +277,24 @@ impl Batch {
         });
     }
 
+    /// Writes one request to put the platform view `handle` in the place of the
+    /// `NativeView` node `node_id`. A view the node already had is taken out first, and
+    /// `NativeHandle::NONE` takes the node's view out and puts nothing in.
+    ///
+    /// The view stays the caller's. The Renderer places, clips and focuses it and never
+    /// destroys it; once a batch that took it out has been applied, the caller destroys it.
+    /// Make the view against the handle `NativeViewParent` reported for the node's window.
+    pub fn attach_native_view(&mut self, node_id: u32, handle: crate::schema::NativeHandle) {
+        self.write(Mutation::AttachNativeView { node_id, handle });
+    }
+
+    /// Writes one request to give keyboard focus to the platform view of the `NativeView`
+    /// node `node_id` (`focus` true), or to hand it back to the scene (false). What the
+    /// focus did is reported to the node's focus handler.
+    pub fn focus_native_view(&mut self, node_id: u32, focus: bool) {
+        self.write(Mutation::FocusNativeView { node_id, focus });
+    }
+
     /// Writes one file dialog request. Like a notification it names no node: the dialog is
     /// not in the tree, and `window` only says which window it is modal for.
     pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {

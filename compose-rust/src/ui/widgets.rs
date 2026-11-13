@@ -2670,6 +2670,109 @@ impl<'a> PopoverScope<'a> {
 
 container!(PopoverScope<'a>);
 
+// ----- platform views -------------------------------------------------------------------
+
+/// A `NativeView` and its builder.
+pub struct NativeViewScope {
+    modifier: Modifier,
+    handle: crate::schema::NativeHandle,
+    visible: bool,
+    on_focus_change: Option<Box<dyn FnMut(bool)>>,
+    done: bool,
+}
+
+/// A place in the window for a platform view the application made: a web view, a video
+/// surface or a map, as an `NSView`, an `HWND` or an X11 window.
+///
+/// Make the view against the handle the window reported
+/// (`compose_rust::native_view::native_parent`), then hand it over here. The Renderer
+/// puts it over this node's rectangle and keeps it there as the layout moves and scrolls,
+/// cuts it to what the node's ancestors and any menu, popover or dialog drawn above it
+/// leave showing, and hands keyboard focus to it and back. It never destroys the view:
+/// once the node is gone, or `NativeHandle::NONE` has replaced the handle, and the batch
+/// saying so has been applied, the view is the application's to destroy.
+///
+/// The node has no size of its own. Give it one with its modifier (a size, a fill, a
+/// weight); what the modifier draws shows only where the view does not cover it.
+pub fn NativeView(handle: crate::schema::NativeHandle) -> NativeViewScope {
+    NativeViewScope {
+        modifier: Modifier::new(),
+        handle,
+        visible: true,
+        on_focus_change: None,
+        done: false,
+    }
+}
+
+impl NativeViewScope {
+    /// Whether the view shows. A hidden view stays in the window with everything it holds,
+    /// so showing it again shows the same page; only removing the node takes it out.
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
+    /// Hears the view take keyboard focus (`true`) and lose it (`false`): a click in it, a
+    /// focus request, the window going to the background and coming back.
+    pub fn on_focus_change(mut self, handler: impl FnMut(bool) + 'static) -> Self {
+        self.on_focus_change = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    fn compose(&mut self, _content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let visible = self.visible;
+        let handle = self.handle;
+        let mut listeners = Vec::new();
+        if let Some(mut handler) = self.on_focus_change.take() {
+            listeners.push((
+                "onnativeviewfocus",
+                EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
+                    handler(value != 0.0)
+                }))),
+            ));
+        }
+        let _group = crate::runtime::group_guard(widget_key("compose_rust::ui::NativeView"));
+        // The node and the handle last written for it. The handle is a command rather than
+        // a property, so it goes out only when it changed or the node is new.
+        let sent: Rc<std::cell::Cell<(u32, u64)>> =
+            crate::runtime::remember(|| Rc::new(std::cell::Cell::new((0, 0))));
+        super::emit_node(
+            WidgetKind::NativeView,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                if !visible {
+                    attrs.push(("native_visible", OwnedAttr::Bool(false)));
+                }
+            },
+            listeners,
+            // A NativeView takes no children: the content is the place to write the
+            // command, because it runs with the node's id at hand.
+            || {
+                crate::runtime::with_composer(|composer| {
+                    let Some(node) = composer.node_stack.last().map(|context| context.parent)
+                    else {
+                        return;
+                    };
+                    let (sent_node, sent_handle) = sent.get();
+                    // A new node with no view needs nothing written: it has none yet.
+                    let unchanged = if sent_node == node {
+                        sent_handle == handle.0
+                    } else {
+                        handle.is_none()
+                    };
+                    if !unchanged {
+                        composer.writer.batch_mut().attach_native_view(node, handle);
+                    }
+                    sent.set((node, handle.0));
+                });
+            },
+        );
+    }
+}
+
+composed_on_drop!(NativeViewScope);
+
 /// A `Tabs` and its builder.
 pub struct TabsScope {
     modifier: Modifier,

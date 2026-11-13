@@ -636,6 +636,25 @@ sealed interface Mutation {
         val rectWidthPx: Double,
         val rectHeightPx: Double,
     ) : Mutation
+
+    /**
+     * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
+     * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
+     * takes the node's view out. The view is the Host's: it is never destroyed here.
+     */
+    data class AttachNativeView(val nodeId: Int, val handle: Long) : Mutation
+
+    /** Gives keyboard focus to the platform view of [nodeId] ([focus] true), or back to the scene. */
+    data class FocusNativeView(val nodeId: Int, val focus: Boolean) : Mutation
+}
+
+/** The words of the platform view records: the kinds of window handle a view is made against. */
+object NativeViewWire {
+    const val PARENT_APPKIT = 1
+    const val PARENT_WIN32 = 2
+    const val PARENT_X11 = 3
+    const val PARENT_ANDROID = 4
+    const val PARENT_UIKIT = 5
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -764,6 +783,11 @@ object ScrollWire {
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
             ),
+            // The kind is one of the `NativeViewWire.PARENT_*` values; the scale is the
+            // window's backing scale.
+            EventPayloadType::NativeViewParent => output.push_str(
+                ", val handle: Long, val kind: Int, val scale: kotlin.Float",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -840,6 +864,8 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_ATTACH_NATIVE_VIEW = 37
+    private const val TAG_FOCUS_NATIVE_VIEW = 38
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1083,6 +1109,34 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_ATTACH_NATIVE_VIEW -> {
+                        requireRecordLength(length, 24, offset)
+                        // A word between the node and the handle and one after it, both
+                        // reserved: a record that sets either is one the sides disagree on.
+                        for (reserved in intArrayOf(offset + 8, offset + 20)) {
+                            if (readU32(batch, base, available, reserved) != 0L) {
+                                throw ProtocolException("reserved word is not zero", reserved)
+                            }
+                        }
+                        Mutation.AttachNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            handle = readU64(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_FOCUS_NATIVE_VIEW -> {
+                        requireRecordLength(length, 16, offset)
+                        val focus = readU32(batch, base, available, offset + 8)
+                        if (focus != 0L && focus != 1L) {
+                            throw ProtocolException("invalid focus word $focus", offset + 8)
+                        }
+                        if (readU32(batch, base, available, offset + 12) != 0L) {
+                            throw ProtocolException("reserved word is not zero", offset + 12)
+                        }
+                        Mutation.FocusNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            focus = focus == 1L,
                         )
                     }
                     TAG_SET_WINDOW -> {
@@ -1388,7 +1442,9 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None | EventPayloadType::ScrollChanged => {
+            EventPayloadType::None
+            | EventPayloadType::ScrollChanged
+            | EventPayloadType::NativeViewParent => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1488,6 +1544,8 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // The handle, the kind and a reserved half word, then the scale.
+            EventPayloadType::NativeViewParent => 32,
         };
         writeln!(
             output,
@@ -1817,6 +1875,14 @@ object Protocol {
                 output.push_str("                    out.putDouble(event.maxYPx)\n");
                 output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
                 output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::NativeViewParent => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putLong(event.handle)\n");
+                output.push_str("                    out.putShort(event.kind.toShort())\n");
+                output.push_str("                    out.putShort(0)\n");
+                output.push_str("                    out.putFloat(event.scale)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::FileHandles => {
@@ -3628,6 +3694,31 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 9,
             modifier: Modifier::CornerCurve { smoothing: 0.6 },
         },
+        // A platform view's place, hidden, with a focus handler, then a view put in it and
+        // focus given to it. After every older record, so none of them moves. The handle
+        // fills both halves of its `u64`, so a reader that takes a word cannot pass.
+        Mutation::Create {
+            node_id: 22,
+            widget: WidgetKind::NativeView,
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::NativeVisible,
+            value: PropertyValue::Bool(false),
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::OnNativeViewFocus,
+            value: PropertyValue::Integer(301),
+        },
+        Mutation::AttachNativeView {
+            node_id: 22,
+            handle: crate::schema::NativeHandle(NATIVE_VIEW_VECTOR_HANDLE),
+        },
+        Mutation::FocusNativeView {
+            node_id: 22,
+            focus: true,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3635,6 +3726,11 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     }
     Ok(encoder.finish()?.to_vec())
 }
+
+/// The platform view handle the mutation vector attaches and the window handle the event
+/// vector reports: both halves of the `u64` set.
+pub const NATIVE_VIEW_VECTOR_HANDLE: u64 = 0x0000_7f8a_1234_5670;
+pub const NATIVE_PARENT_VECTOR_HANDLE: u64 = 0x0000_6000_0abc_def0;
 
 /// The matrix the 3D transform vector carries: sixteen different values, so a value read
 /// from the wrong half of the wrong word cannot pass.
@@ -4012,6 +4108,21 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // The window a platform view is made in, and that view taking focus.
+        HostEvent {
+            node_id: 20,
+            handler_id: 0,
+            payload: EventPayload::NativeViewParent {
+                handle: crate::schema::NativeHandle(NATIVE_PARENT_VECTOR_HANDLE),
+                kind: crate::schema::NativeParentKind::AppKit,
+                scale: 2.0,
+            },
+        },
+        HostEvent {
+            node_id: 22,
+            handler_id: 301,
+            payload: EventPayload::NativeViewFocus { focused: true },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4031,7 +4142,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 120,
+    "recordCount": 125,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4053,7 +4164,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4096,7 +4207,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "NativeViewParent", "offset": 1439, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1471, "length": 24, "nodeId": 22, "handlerId": 301, "focused": true }}
     ]
   }}
 }}
