@@ -38,19 +38,21 @@ fun main() {
         dev.darkpyonix.composerust.ui.platform.readWebClipboardText(clipboard)
     }
     // The user's files: the browser's pickers, and the handles they give, behind the same
-    // dialog and file requests every platform answers. The event buffer does not grow, so an
-    // answer longer than it is refused whole instead of cut.
+    // dialog and file requests every platform answers. The event buffer grows as far as the
+    // largest one the Host lends, so an answer longer than that is refused whole instead of
+    // cut.
     val files = dev.darkpyonix.composerust.ui.platform.WebFiles()
     dev.darkpyonix.composerust.ui.platform.FileDialogs.platform = files
     dev.darkpyonix.composerust.ui.platform.FileCalls.platform = files
     dev.darkpyonix.composerust.ui.platform.FileDialogs.maxEventBytes =
-        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_BYTES
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES
     // The application's storage is the browser's here, so this side carries the Host's
     // storage requests out, in IndexedDB. An answer travels in the event buffer, so one
-    // larger than it holds is reported as too large rather than cut short.
+    // larger than the largest buffer the Host lends is reported as too large rather than
+    // cut short.
     dev.darkpyonix.composerust.ui.platform.Storage.platform = dev.darkpyonix.composerust.ui.platform.WebStorage()
     dev.darkpyonix.composerust.ui.platform.Storage.maxAnswerBytes =
-        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_BYTES - IO_ANSWER_RECORD_BYTES
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES - IO_ANSWER_RECORD_BYTES
     // The browser's own answer to the media query a page would ask.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
         if (prefersReducedMotion()) {

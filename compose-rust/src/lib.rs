@@ -51,6 +51,8 @@ pub mod storage;
 pub mod theme;
 pub mod tokens;
 pub mod ui;
+#[doc(hidden)]
+pub mod web_event_buffer;
 pub mod window;
 pub mod windows;
 mod writer;

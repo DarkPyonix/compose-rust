@@ -23,10 +23,12 @@ import dev.darkpyonix.composerust.ui.platform.UnsupportedFileCalls
 import dev.darkpyonix.composerust.ui.platform.UnsupportedFileDialogs
 import kotlin.coroutines.startCoroutine
 import kotlin.test.AfterTest
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+
+/** What the web renderer sets as its largest event: the largest buffer its Host lends. */
+private const val WEB_MAX_EVENT_BYTES = 64 * 1024 * 1024
 
 private val immediately: (suspend () -> Unit) -> Unit = { operation ->
     operation.startCoroutine(kotlin.coroutines.Continuation(kotlin.coroutines.EmptyCoroutineContext) { })
@@ -233,9 +235,10 @@ class WebFileCallTest {
     }
 
     /**
-     * Until an event can be longer than the web's 4096 byte buffer, an answer that would be is
-     * not cut short: a choice is unavailable and a read is too large, one answer each, and the
-     * handles of a choice that was not delivered are let go of.
+     * An answer longer than the largest event the connection can carry is not cut short: a
+     * choice is unavailable and a read is too large, one answer each, and the handles of a
+     * choice that was not delivered are let go of. The limit here is the web's first buffer,
+     * which is what the web carried before its buffer could grow, so the case is small.
      */
     @Test
     fun fr72_web_an_answer_over_the_event_buffer_fails_whole() {
@@ -259,25 +262,29 @@ class WebFileCallTest {
         assertEquals(0x8000_0041.toInt() to "io Ok 4064", connection.answers().last())
     }
 
-    /** Waits for events over the event buffer to reach the Host (#583). */
-    @Ignore
+    /**
+     * The web's event buffer grows to the largest one its Host lends, and that is the limit
+     * the web sets, so an answer far over the first 4096 bytes arrives whole.
+     */
     @Test
     fun fr72_web_a_long_name_list_arrives_whole() {
         val names = (1..500).map { HeldFile("파일 $it.txt", false) }
         val files = FakeWebFiles { FileDialogOutcome.Handles(FileDelivery.Handle, 1000, names) }
-        val (host, connection) = hostWith(files, maxEventBytes = 4096)
+        val (host, connection) = hostWith(files, maxEventBytes = WEB_MAX_EVENT_BYTES)
         host.table.apply(dialog(1))
         host.frame()
         val chosen = connection.events.filterIsInstance<HostEvent.FileHandles>().single()
         assertEquals(names.map { it.name }, chosen.names.split('\u0000'))
     }
 
-    /** Waits for events over the event buffer to reach the Host (#583). */
-    @Ignore
+    /**
+     * The web's event buffer grows to the largest one its Host lends, and that is the limit
+     * the web sets, so an answer far over the first 4096 bytes arrives whole.
+     */
     @Test
     fun fr72_web_reads_a_file_larger_than_the_event_buffer() {
         val files = FakeWebFiles { FileDialogOutcome.Cancelled }
-        val (host, connection) = hostWith(files, maxEventBytes = 4096)
+        val (host, connection) = hostWith(files, maxEventBytes = WEB_MAX_EVENT_BYTES)
         val big = files.hold("big.bin", bytes = ByteArray(1024 * 1024) { it.toByte() })
         host.table.apply(call(0x8000_0050.toInt(), FileOp.Read, big))
         host.frame()
