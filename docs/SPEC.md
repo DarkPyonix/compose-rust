@@ -2691,6 +2691,8 @@ Notification::new("세션이 끝났습니다")
 23. 스니펫 세션(이슈 #556, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 명령 `InsertSnippet { version, range, snippet }`(명령 태그 40). 스니펫은 VS Code 문법의 부분집합입니다: `$1`, `${1:자리 글자}`, `${1|선택,지|}`, `$0`, `\\$` 이스케이프. 편집기는 범위를 스니펫의 글자로 바꾸고 세션을 엽니다. Tab과 Shift+Tab이 탭 정지 사이를 오가고, 같은 번호의 자리는 함께 고쳐지며(미러), 선택지 자리는 목록을 엽니다. `$0`에 닿거나 Escape를 누르거나 캐럿이 세션 밖으로 나가면 끝납니다. 삽입은 실행 취소 한 단계이고, 바뀐 글자는 보통의 `CodeChanged`로 갑니다.
     1. `fn ${1:name}(${2:args}) {$0}` 삽입 뒤 캐럿이 `name`을 고른 상태이고, Tab이 `args`로, 다시 Tab이 `$0`로 가며 세션이 끝납니다(fr38_snippet_tab_stops).
     2. 같은 번호 두 자리 중 하나를 고치면 다른 하나도 같은 글자가 됩니다(fr38_snippet_mirrors_edit_together).
+24. 보기 영역(이슈 #543, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `ViewZones`(속성 태그 199): 레코드 열 `{ after_line, height_lines: f32, text }`. 영역은 그 줄 뒤에 글자가 아닌 행을 끼웁니다(diff의 빈 맞춤 줄). 캐럿, 선택, 복사가 건너뛰고, 편집을 따라 움직이며(앞에 줄을 끼우면 아래로), 보이는 범위 이벤트는 모델 줄로 보고합니다. `text`가 있으면 흐린 글자로 그립니다.
+    1. 3번째 줄 뒤 2줄 높이 영역이 그 높이만큼 4번째 줄을 아래로 밀고, 아래 화살표가 영역을 건너뛰고, 앞에 줄을 끼우면 영역이 따라갑니다(fr38_view_zones_push_lines_and_are_skipped).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
