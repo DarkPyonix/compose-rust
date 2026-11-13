@@ -28,17 +28,24 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.SheetEdge
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
-import dev.darkpyonix.composerust.runtime.LocalKeyboardInset
+import dev.darkpyonix.composerust.runtime.LocalSystemBars
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
+import dev.darkpyonix.composerust.runtime.platformKeyboardInset
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
@@ -54,15 +61,86 @@ private val HANDLE_LENGTH = 32.dp
 private val HANDLE_THICKNESS = 4.dp
 
 /**
- * Called inside the window a sheet or a dialog is drawn in, before anything else in it.
+ * The window a sheet or a dialog is drawn in: it covers the application's whole window, and
+ * the overlay's scrim fills it.
  *
- * A hook because only a platform whose overlays are windows of their own can tell such a
- * window not to be moved by the keyboard: Android shrinks a focusable one to the space
- * above the keyboard, which left the scrim covering only part of the screen. The renderer
- * moves the overlay's surface itself (see [LocalKeyboardInset]). Where nobody installs
- * one, this does nothing.
+ * [onDismissRequest] is what the window calls when it is asked to close by something other
+ * than Back, and [onBack] is the overlay's answer to Back. Everything inside is [content].
+ *
+ * The default is a popup the size of the window, placed at its corner. A hook because that
+ * is not true everywhere: Android measures a popup against the parent window's visible
+ * frame, which leaves out the gesture bar and the keyboard, so the scrim stopped short of
+ * the bottom of the screen and, with the keyboard up, the whole overlay was only as tall as
+ * the space above it. Android installs a full screen window of its own instead.
  */
-var platformOverlayWindow: @Composable () -> Unit = {}
+var platformModalOverlayWindow: @Composable (
+    onDismissRequest: () -> Unit,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit,
+) -> Unit = { onDismissRequest, _, content ->
+    Popup(
+        popupPositionProvider = ModalOverlayPositionProvider,
+        properties = ModalOverlayProperties,
+        onDismissRequest = onDismissRequest,
+        content = content,
+    )
+}
+
+/**
+ * Where the default overlay popup goes: at the corner of the application's window, whatever
+ * node opened it.
+ *
+ * The overlay's scrim covers the whole window, so its window has to start where the
+ * application's does. Centring it on the node that opened it is only the same thing while
+ * the popup is exactly as big as the window, and a popup that came out shorter (as Android's
+ * did) then started part way down and left the top of the window undimmed.
+ */
+internal object ModalOverlayPositionProvider : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset.Zero
+}
+
+/**
+ * The default overlay popup's properties: focusable, so the fields inside take the keyboard,
+ * and Back left to the renderer (see [ModalOverlayFocus]) rather than closing the popup
+ * behind its back.
+ */
+internal val ModalOverlayProperties = PopupProperties(
+    focusable = true,
+    dismissOnBackPress = false,
+)
+
+/**
+ * How much of the overlay's own window the keyboard covers.
+ *
+ * Read inside the overlay's window, not taken from the page's. The two are the same where
+ * the overlay is as big as the application's window, which is what every platform aims
+ * for. Where it is not, the page's figure is wrong for the overlay: Android once gave the
+ * overlay a window that already ended at the keyboard, and lifting the sheet by the page's
+ * keyboard inset on top of that collapsed it to its drag handle.
+ */
+@Composable
+internal fun overlayKeyboardInset(): Dp = platformKeyboardInset().coerceAtLeast(0.dp)
+
+/**
+ * How tall a sheet along the bottom edge is, in a window [window] tall.
+ *
+ * The design system asks for a share of the window ([fraction]), and the keyboard does not
+ * change what it asked for: the sheet keeps its height and moves up above the keyboard. Only
+ * when the space between the keyboard and the status bar ([top]) is smaller than that does
+ * it give way, and then it takes all of that space rather than running under either. Taking
+ * the keyboard off the height before the share was applied made the sheet shrink every time
+ * the keyboard opened.
+ */
+internal fun bottomSheetHeight(window: Dp, fraction: Float, keyboard: Dp, top: Dp): Dp {
+    val asked = window * fraction
+    if (keyboard <= 0.dp) return asked
+    return minOf(asked, window - keyboard - top).coerceAtLeast(0.dp)
+}
 
 /**
  * A temporary surface that comes in from an edge of the window.
@@ -157,16 +235,11 @@ internal fun HostSheet(
         Modifier.padding(style.padding)
     }
 
-    Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-        onDismissRequest = close,
-    ) {
-        platformOverlayWindow()
+    platformModalOverlayWindow(close, onEscape) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
-        val keyboard = LocalKeyboardInset.current
+        val keyboard = overlayKeyboardInset()
         Box(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
@@ -179,8 +252,29 @@ internal fun HostSheet(
                 .pointerInput(Unit) { detectTapGestures { close() } },
             contentAlignment = if (bottom) Alignment.BottomCenter else Alignment.CenterEnd,
         ) {
+            val top = LocalSystemBars.current.top
+            // A sheet along the bottom is given its height here, against the whole window
+            // and before the keyboard is taken off, so the keyboard moves it rather than
+            // shrinking it. The keyboard's strip is part of what is measured here and is
+            // left empty by the padding below.
+            val tall = if (bottom) {
+                Modifier.layout { measurable, constraints ->
+                    if (!constraints.hasBoundedHeight) {
+                        val placeable = measurable.measure(constraints)
+                        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                    }
+                    val window = constraints.maxHeight.toDp()
+                    val height = (bottomSheetHeight(window, style.heightFraction, keyboard, top) + keyboard)
+                        .roundToPx()
+                        .coerceIn(constraints.minHeight, constraints.maxHeight)
+                    val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                }
+            } else {
+                Modifier
+            }
             val sized = if (bottom) {
-                Modifier.fillMaxWidth().fillMaxHeight(style.heightFraction)
+                Modifier.fillMaxWidth().fillMaxHeight()
             } else {
                 Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
             }
@@ -190,6 +284,7 @@ internal fun HostSheet(
             // Modifiers the Host put on the node, which belong inside its surface.
             Box(
                 Modifier
+                    .then(tall)
                     .then(aboveKeyboard)
                     .testTag(sheetTestTag(node.id))
                     .modalOverlaySurface(node.id, surfaceRequester)

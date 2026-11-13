@@ -223,19 +223,17 @@ internal fun HostDialog(
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-        onDismissRequest = {
+    platformModalOverlayWindow(
+        {
             open.set(false)
             dismiss(node, dispatcher)
         },
+        onEscape,
     ) {
-        platformOverlayWindow()
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         // The scrim covers the whole window; the dialog is centred in what the keyboard
         // leaves, so a field inside it is not under the keyboard.
-        val keyboard = dev.darkpyonix.composerust.runtime.LocalKeyboardInset.current
+        val keyboard = overlayKeyboardInset()
         Box(
             Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
