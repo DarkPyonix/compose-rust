@@ -16,6 +16,7 @@ import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -964,6 +965,21 @@ class NodeTable {
                     TableError.UNSUPPORTED_PROPERTY,
                     "image ${node.id} was given content scale $tag, which is not Fit (1), " +
                         "Crop (2) or FillBounds (3); it is drawn as Fit",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
+        if (mutation.property == PropertyKind.TextAlign) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
+                // A tag this side has no alignment for. Guessing one would put the text on
+                // a side nobody asked for, so it is dropped and the text takes its default.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "node ${node.id} was given text alignment tag $tag, which is not one of " +
+                        "${TextAlign.entries.joinToString()} (1 to ${TextAlign.entries.size}); " +
+                        "the text takes its default alignment",
                 )
                 node.props.remove(mutation.property)
                 return
