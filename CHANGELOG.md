@@ -47,6 +47,10 @@ On macOS, iOS, Linux and Windows the values are files under the platform's data 
 
 A node that does not call `on_pointer` carries no pointer input, as before.
 
+### Continuous corners with `Modifier.corner_curve`
+
+`Modifier.corner_curve(smoothing)` draws a node's rounded corners with continuous curvature, the way Figma's corner smoothing does: 0 is the plain circular arc, 1 the longest curve, and 0.6 the look of iOS. The radius still comes from `corner_radius`, `corner_radii` or `shape_role`, and the background, border, shadow, clip and press feedback all follow the same outline, in every design system. A value outside 0..=1 is drawn as the nearer end ([#294](https://github.com/DarkPyonix/compose-rust/issues/294)). It is a new modifier, `CornerCurve` (wire tag 35), so the schema hash changes and a renderer and a crate from before this change no longer agree.
+
 ## v0.0.7
 
 ### Native file open and save dialogs

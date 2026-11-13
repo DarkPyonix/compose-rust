@@ -1061,6 +1061,7 @@ sealed interface Modifier {
     data class WindowDrag(val enabled: Boolean) : Modifier
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
     data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
+    data class CornerCurve(val smoothing: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1527,7 +1528,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6140727414475670603L
+    const val SCHEMA_HASH: Long = 3060218940695887805L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3411,6 +3412,7 @@ object Protocol {
         32 -> 0
         33 -> 0
         34 -> 0
+        35 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -3450,6 +3452,7 @@ object Protocol {
             32 -> Modifier.WindowDrag(flag(first, offset))
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
+            35 -> Modifier.CornerCurve(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

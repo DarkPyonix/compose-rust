@@ -454,6 +454,13 @@ class ProtocolVectorsTest {
         assertTrue(patched, "the vector carries a file dialog request")
     }
 
+    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    @Test
+    fun fr50_corner_curve_round_trips() {
+        val last = decodeVector("mutations.bin").last()
+        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+    }
+
     /**
      * The web's file records: the operation and the release in the batch decode to what the
      * Host wrote, and the two answers encode to the bytes the Host decodes. An operation this
@@ -569,6 +576,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
         )
@@ -587,7 +595,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..8).toList(), onBox.map { it.index })
+        assertEquals((0..9).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -604,7 +612,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28, 35 to 28),
             lengths,
         )
     }

@@ -304,6 +304,7 @@ pub struct Modifier {
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
+    corner_curve: Option<f32>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     elevation: Option<f32>,
@@ -348,6 +349,7 @@ impl Modifier {
             shape_role: None,
             corner_radius: None,
             corner_radii: None,
+            corner_curve: None,
             border_width: None,
             border_color: None,
             elevation: None,
@@ -563,6 +565,17 @@ impl Modifier {
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// How the node's rounded corners curve, from 0 (a circular arc, the default) to 1.
+    /// Above 0 the curve eases in from each side with continuously changing curvature, as
+    /// Figma's corner smoothing does; 0.6 is the look of iOS. The radius stays whatever
+    /// `corner_radius`, `corner_radii` or `shape_role` made it, and the background, border,
+    /// shadow and clip all follow the same curve. A value outside 0..=1 is taken as the
+    /// nearer end, and NaN as 0.
+    pub fn corner_curve(mut self, smoothing: f32) -> Self {
+        self.corner_curve = Some(crate::schema::corner_smoothing(smoothing));
         self
     }
 
@@ -821,6 +834,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             )
         }),
     );
+    push(false, "corner_curve", float(modifier.corner_curve));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,

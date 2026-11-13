@@ -3566,6 +3566,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             flags: crate::schema::scroll_into_view_flags::ANIMATE,
             rect: crate::schema::Rect::new(0.0, 8.0, 40.0, 24.5),
         },
+        // Last, so every byte before it is where it was.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 9,
+            modifier: Modifier::CornerCurve { smoothing: 0.6 },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
