@@ -214,8 +214,23 @@ fun interface DropTargets {
 
     companion object {
         val None = DropTargets { _, _, _ -> null }
+
+        /**
+         * [Registered] for a window system that measures the screen in dp, where a window's
+         * scene is laid out in pixels (macOS, where a dp is a point and a Retina screen has two
+         * pixels to it). [pixelsPerDp] is how many scene pixels of the window of a `Window`
+         * node make one dp of its content; the point is scaled by it before the layout is asked.
+         */
+        fun registered(pixelsPerDp: (windowId: Int) -> Float): DropTargets = DropTargets { windowId, x, y ->
+            val scale = pixelsPerDp(windowId)
+            Registered.targetAt(windowId, x * scale, y * scale)
+        }
     }
 
+    /**
+     * Answers from where each subscribed node said it was laid out. The point is in the pixels
+     * the scene is laid out in; the answer's point is in the node's own dp.
+     */
     object Registered : DropTargets {
         override fun targetAt(windowId: Int, x: Float, y: Float): DropTarget? =
             WindowDropTargets.find(windowId, x, y)?.let { (id, local) ->

@@ -1019,6 +1019,7 @@ import androidx.compose.ui.platform.ComposeView
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.ui.platform.AndroidNotifications
 import dev.darkpyonix.composerust.ui.platform.ComposeRustRuntime
+import dev.darkpyonix.composerust.ui.platform.installStorageLocation
 import dev.darkpyonix.composerust.ui.platform.installSystemChrome
 import dev.darkpyonix.composerust.ui.platform.installZoomLevelStore
 
@@ -1037,6 +1038,9 @@ class MainActivity : ComponentActivity() {{
         installSystemChrome(this)
         // Where the application's zoom level is kept between runs: its own preferences.
         installZoomLevelStore(this)
+        // Where the application's storage lives: its own files directory, which only a
+        // Context knows, so the Host hears it from here.
+        installStorageLocation(this)
         super.onCreate(savedInstanceState)
         ComposeRustRuntime.load("{library}")
         // Before the Host: a press on a notification that started this process is in the

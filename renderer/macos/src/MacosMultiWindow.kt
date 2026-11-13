@@ -107,7 +107,14 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     (FileDialogs.platform as? MacosFileDialogPlatform)?.rootWindow = {
         keyOrFirstWindow(windows.windows.mapNotNull { (it as? MacosPlatformWindow)?.nativeWindow })
     }
-    val manager = WindowManager(host, windows, onExit = { stopApplicationLoop() })
+    // A dragged window finds the nodes of the other windows that asked to hear it from where
+    // each scene laid them out. The screen is measured in points and a scene in pixels.
+    val manager = WindowManager(
+        host,
+        windows,
+        onExit = { stopApplicationLoop() },
+        dropTargets = DropTargets.registered(windows::contentScale),
+    )
     manager.attach()
     // The windows the application had open when it was last quit come back, when the system
     // is set to keep windows across a quit: each is asked for by its restore key, and the
