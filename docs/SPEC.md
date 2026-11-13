@@ -1689,6 +1689,11 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
 6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
+**Android의 뒤로 가기**(이슈 #559, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). Android의 뒤로 가기(시스템 Back 제스처와 버튼)는 Escape와 같은 규칙을 따릅니다. 맨 위의 열린 `Dialog`, `Sheet`, `Popover` 하나에 `OnDismiss`를 한 번 보내고, `Open`은 Host가 바꿉니다. 열린 오버레이가 없으면 Back은 지금처럼 앱(또는 탐색)에 갑니다. IME 조합 중이면 먼저 조합을 끝내는 것도 Escape와 같습니다.
+
+- 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
+- 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.

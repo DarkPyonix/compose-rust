@@ -60,13 +60,18 @@ import androidx.compose.runtime.CompositionLocalProvider
  * held focus before each one opened.
  *
  * Escape asks to close only the topmost open overlay, and only after whatever holds focus
- * inside it has declined the key. When the overlay closes, focus returns to the control that
- * had it before the overlay opened.
+ * inside it has declined the key. Android's back gesture and button take the same path, so
+ * a back closes the same overlay Escape would. When the overlay closes, focus returns to the
+ * control that had it before the overlay opened.
  */
 class OverlayFocusStack {
     private class Entry(val nodeId: Int, var onEscape: () -> Unit, val opener: FocusRequester?)
 
     private val entries = mutableListOf<Entry>()
+    private var openCount by mutableStateOf(0)
+
+    /** Whether any overlay is open, read in composition so a platform back hook follows it. */
+    val hasOpen: Boolean get() = openCount > 0
     private var currentFocused: FocusRequester? = null
 
     internal fun noteFocused(requester: FocusRequester, focused: Boolean) {
@@ -81,6 +86,7 @@ class OverlayFocusStack {
         entries.removeAll { it.nodeId == nodeId }
         val opener = currentFocused
         entries += Entry(nodeId, onEscape, opener)
+        openCount = entries.size
         return opener
     }
 
@@ -92,6 +98,7 @@ class OverlayFocusStack {
         val index = entries.indexOfFirst { it.nodeId == nodeId }
         if (index < 0) return
         val removed = entries.removeAt(index)
+        openCount = entries.size
         val target = if (entries.isEmpty()) removed.opener else null
         if (target != null) {
             try {
@@ -103,7 +110,18 @@ class OverlayFocusStack {
     }
 
     internal fun handleEscape(event: KeyEvent, fromNodeId: Int? = null): Boolean {
-        if (event.type != KeyEventType.KeyDown || event.key != Key.Escape) return false
+        if (event.type != KeyEventType.KeyDown) return false
+        // Android delivers its back button as Key.Back to a focused overlay window, which
+        // never reaches the Activity's back dispatcher. A desktop keyboard has no such key.
+        if (event.key != Key.Escape && event.key != Key.Back) return false
+        return handleBack(fromNodeId)
+    }
+
+    /**
+     * Asks the topmost open overlay to close, as Escape does. Returns false, leaving the
+     * back to the app, when no overlay is open.
+     */
+    fun handleBack(fromNodeId: Int? = null): Boolean {
         val top = entries.lastOrNull() ?: return false
         if (fromNodeId != null && top.nodeId != fromNodeId) return false
         top.onEscape()

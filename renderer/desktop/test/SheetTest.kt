@@ -23,6 +23,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.foundation.platformBackHandler
 import dev.darkpyonix.composerust.foundation.sheetScrimTestTag
 import dev.darkpyonix.composerust.foundation.sheetTestTag
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -36,6 +37,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
@@ -215,6 +217,103 @@ class SheetTest {
         assertEquals(listOf(HostEvent.Clicked(dialog, handler)), dismissals)
         // The Host did not send Open=false, so the Dialog stays open.
         onNodeWithTag(nodeTestTag(label)).assertTextEquals("unsaved changes")
+    }
+
+    /**
+     * Android's back reaches the renderer through the platform back hook. The test installs
+     * one that records what the window registered, which is the same call Android's
+     * BackHandler receives, and presses back by invoking it.
+     */
+    private class RecordedBack {
+        var enabled = false
+        var onBack: () -> Unit = {}
+    }
+
+    private fun <T> withRecordedBack(block: (RecordedBack) -> T): T {
+        val previous = platformBackHandler
+        val recorded = RecordedBack()
+        // The window's own hook is the last one registered without a split pane on screen.
+        platformBackHandler = { enabled, onBack ->
+            recorded.enabled = enabled
+            recorded.onBack = onBack
+        }
+        try {
+            return block(recorded)
+        } finally {
+            platformBackHandler = previous
+        }
+    }
+
+    /**
+     * With a Dialog open over an open Sheet, one back dismisses only the Dialog; once the
+     * Host closes it, the next back dismisses the Sheet.
+     */
+    @Test
+    fun fr21_android_back_dismisses_the_topmost_overlay_once() = withRecordedBack { back ->
+        runComposeUiTest {
+            val dialog = 3
+            val dialogText = 4
+            val dialogHandler = 66L
+            val connection = FakeHostConnection(
+                sheetBatch(open = true) + listOf(
+                    Mutation.Create(dialog, WidgetKind.Dialog),
+                    Mutation.SetProp(dialog, PropertyKind.Open, PropertyValue.Bool(true)),
+                    Mutation.SetProp(dialog, PropertyKind.OnDismiss, PropertyValue.Integer(dialogHandler)),
+                    Mutation.Create(dialogText, WidgetKind.Text),
+                    Mutation.SetProp(dialogText, PropertyKind.Text, PropertyValue.Text("discard?")),
+                    Mutation.Insert(dialog, dialogText, 0),
+                    Mutation.Insert(SHEET, dialog, 1),
+                ),
+            )
+            // The Host honours the Dialog's dismissal and leaves the Sheet to the next back.
+            connection.respondWith { event ->
+                if (event == HostEvent.Clicked(dialog, dialogHandler)) {
+                    HostResponse(listOf(Mutation.SetProp(dialog, PropertyKind.Open, PropertyValue.Bool(false))))
+                } else {
+                    HostResponse()
+                }
+            }
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(dialogText)).assertTextEquals("discard?")
+            assertTrue(back.enabled, "back is claimed while an overlay is open")
+
+            runOnIdle { back.onBack() }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.Clicked(dialog, dialogHandler)),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+            )
+            onNodeWithTag(nodeTestTag(CONTENT)).assertTextEquals("filter by")
+            assertTrue(back.enabled, "the Sheet is still open")
+
+            runOnIdle { back.onBack() }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.Clicked(dialog, dialogHandler), HostEvent.Clicked(SHEET, DISMISS_HANDLER)),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+            )
+        }
+    }
+
+    /** With no overlay open, the window does not claim back, so it stays the app's. */
+    @Test
+    fun fr21_android_back_without_overlay_passes_through() = withRecordedBack { back ->
+        runComposeUiTest {
+            val connection = FakeHostConnection(sheetBatch(open = false))
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            assertEquals(false, back.enabled)
+            assertTrue(connection.events.filterIsInstance<HostEvent.Clicked>().isEmpty())
+        }
     }
 
     /**
