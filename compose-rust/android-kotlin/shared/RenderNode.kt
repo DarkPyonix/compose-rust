@@ -101,6 +101,7 @@ import dev.darkpyonix.composerust.foundation.FloatingActionArea
 import dev.darkpyonix.composerust.foundation.HostBadge
 import dev.darkpyonix.composerust.foundation.HostButton
 import dev.darkpyonix.composerust.foundation.HostChip
+import dev.darkpyonix.composerust.foundation.RadioGroupOrLayout
 import dev.darkpyonix.composerust.foundation.HostCodeEditor
 import dev.darkpyonix.composerust.foundation.HostFloatingAction
 import dev.darkpyonix.composerust.foundation.HostLazyGrid
@@ -386,11 +387,11 @@ fun RenderNode(
     val glass = node.isMadeOfGlass(theme)
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
-            WidgetKind.Column, WidgetKind.Row -> {
+            WidgetKind.Column, WidgetKind.Row -> RadioGroupOrLayout(node, table, dispatcher, modifier) { laidOut ->
                 val horizontal = node.widget == WidgetKind.Row
                 val sizedModifier = if (node.usesIntrinsicCrossAxis(table)) {
-                    if (horizontal) modifier.height(IntrinsicSize.Min) else modifier.width(IntrinsicSize.Min)
-                } else modifier
+                    if (horizontal) laidOut.height(IntrinsicSize.Min) else laidOut.width(IntrinsicSize.Min)
+                } else laidOut
                 val weights = node.children.map { table.node(it)?.modifiers?.weightOf() }
                 val intrinsicSafe = node.children.map { child -> !table.hasScrollingDescendant(child) }
                 if (weights.any { it != null }) {

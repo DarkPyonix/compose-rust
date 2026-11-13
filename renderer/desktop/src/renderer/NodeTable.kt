@@ -1131,11 +1131,17 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
 
+                // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
                 PropertyKind.CheckColor,
-                -> widget == WidgetKind.Checkbox
+                -> widget == WidgetKind.Checkbox || widget == WidgetKind.RadioButton
 
-                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
+                    widget == WidgetKind.Checkbox ||
+                    widget == WidgetKind.RadioButton
+
+                // A linear layout gathers the radio buttons inside it into one group.
+                PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
