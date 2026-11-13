@@ -156,6 +156,8 @@ enum class PopoverAlign { Start, Center, End }
 
 enum class ContentScale { Fit, Crop, FillBounds }
 
+enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
+
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
  * size, weight and font are its own. Present and zero; an absent property is the
@@ -1234,6 +1236,7 @@ sealed interface Modifier {
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
     data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
     data class CornerCurve(val smoothing: kotlin.Float) : Modifier
+    data class BackgroundBrush(val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float, val paint: Paint, val repeat: dev.darkpyonix.composerust.protocol.BackgroundRepeat, val tile_width: kotlin.Float, val tile_height: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1803,7 +1806,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6051066336842403271L
+    const val SCHEMA_HASH: Long = -2164202028680561429L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3944,6 +3947,14 @@ object Protocol {
         else -> throw ProtocolException("unknown ContentScale tag $tag", offset)
     }
 
+    private fun backgroundRepeat(tag: Int, offset: Int): BackgroundRepeat = when (tag) {
+        1 -> BackgroundRepeat.NoRepeat
+        2 -> BackgroundRepeat.Repeat
+        3 -> BackgroundRepeat.RepeatX
+        4 -> BackgroundRepeat.RepeatY
+        else -> throw ProtocolException("unknown BackgroundRepeat tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -4003,6 +4014,7 @@ object Protocol {
         33 -> 0
         34 -> 0
         35 -> 0
+        28 -> 3
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4043,6 +4055,7 @@ object Protocol {
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
             35 -> Modifier.CornerCurve(kotlin.Float.fromBits(first.toInt()))
+            28 -> Modifier.BackgroundBrush(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), paint(readU64(batch, base, available, at + 16), offset), backgroundRepeat(readU64(batch, base, available, at + 24).toInt(), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
