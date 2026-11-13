@@ -159,6 +159,7 @@ fn every_modifier() -> Vec<Modifier> {
             state: 0b0110,
         },
         Modifier::CornerCurve { smoothing: 0.6 },
+        Modifier::MinTouchTarget { size: 44.0 },
     ]
 }
 

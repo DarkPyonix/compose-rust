@@ -3529,6 +3529,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
+        Modifier::MinTouchTarget { size } => (36, two_words(float_word(*size), 0)),
         Modifier::Transform {
             a,
             b,
@@ -3773,6 +3774,9 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         // the nearer end of 0..=1.
         35 => Ok(Modifier::CornerCurve {
             smoothing: unpack_low(first),
+        }),
+        36 => Ok(Modifier::MinTouchTarget {
+            size: unpack_low(first),
         }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
