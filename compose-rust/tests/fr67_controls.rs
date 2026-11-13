@@ -257,3 +257,49 @@ fn fr67_radio_group_and_radio_look_round_trip() {
         ]
     );
 }
+
+#[Composable]
+fn SmallThumb() {
+    Column().content(|| {
+        Slider(0.5).thumb_size(12.0);
+        Slider(0.5);
+    });
+}
+
+/// A slider sends its thumb's diameter only when it was given one, as property 202, and
+/// the value comes back from the encoded batch as the f32 it was written with.
+#[test]
+fn fr67_slider_thumb_size() {
+    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{PropertyKind, WidgetKind};
+
+    assert_eq!(PropertyKind::ThumbSize as u16, 202);
+    assert_eq!(PropertyKind::try_from(202), Ok(PropertyKind::ThumbSize));
+
+    let mut host = ComposeHost::with_content(SmallThumb);
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    let mutations = decode_batch(&batch).expect("the batch decodes");
+    let sliders: Vec<u32> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::Create {
+                node_id,
+                widget: WidgetKind::Slider,
+            } => Some(*node_id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sliders.len(), 2);
+    let sizes: Vec<_> = mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::ThumbSize,
+                value,
+            } => Some((*node_id, value.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sizes, [(sliders[0], PropertyValue::Float(12.0))]);
+}
