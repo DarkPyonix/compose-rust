@@ -129,7 +129,7 @@ jobs:
           sudo apt-get install -y build-essential pkg-config unzip xvfb xauth \
             libx11-dev libxext-dev libxrandr-dev libgl1-mesa-dev libglu1-mesa-dev \
             libfontconfig1-dev libfreetype-dev \
-            openbox xdotool x11-utils imagemagick
+            openbox xdotool x11-utils imagemagick picom weston xwayland
 
       - name: Restore the patched Compose
         id: compose-cache
@@ -320,6 +320,49 @@ jobs:
         with:
           name: resize-metrics-linux-kn
           path: ${{ runner.temp }}/resize-metrics/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: The drawing keeps up with the right edge under a compositing manager
+        # The same measurement with picom compositing the screen (xrender backend, no GPU), so
+        # a frame the compositor presents late shows up as lag. The bound stays 0 px.
+        if: always() && matrix.module == 'linux'
+        env:
+          LIVE_RESIZE_WM: picom-openbox
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics-picom"
+          xvfb-run -a -s '-screen 0 1280x1024x24' ./.github/scripts/linux-live-resize.sh "$out" \
+            compose-rust/tests/fixtures/consumer/target/release/consumer --launch | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the Linux resize logs under a compositing manager
+        if: always() && matrix.module == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-linux-kn-picom
+          path: ${{ runner.temp }}/resize-metrics-picom/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: The drawing keeps up with the right edge under Xwayland
+        # The application as an X client of Xwayland under headless weston. weston does not see
+        # xdotool's input, so the script resizes with xdotool windowsize and captures the window
+        # itself. The bound stays 0 px.
+        if: always() && matrix.module == 'linux'
+        env:
+          LIVE_RESIZE_WM: xwayland
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/resize-metrics-xwayland"
+          ./.github/scripts/linux-live-resize.sh "$out" \
+            compose-rust/tests/fixtures/consumer/target/release/consumer --launch | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the Linux resize logs under Xwayland
+        if: always() && matrix.module == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-metrics-linux-kn-xwayland
+          path: ${{ runner.temp }}/resize-metrics-xwayland/
           if-no-files-found: ignore
           retention-days: 14
 

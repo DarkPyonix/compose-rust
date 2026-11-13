@@ -17,11 +17,22 @@
 # moment, so the default tolerance is 0 px. A sample is kept only if the window's geometry was
 # the same before and after the capture; one that raced the manager measures nothing.
 #
-# Needs an X display (run it under xvfb-run), openbox, xdotool, xwininfo and ImageMagick.
+# LIVE_RESIZE_WM picks the window manager the window is measured under:
+#   openbox         openbox alone, no compositing (the default).
+#   picom-openbox   openbox with picom compositing the screen through its xrender backend, which
+#                   needs no GPU. What is captured is what picom presented, so a frame picom shows
+#                   late counts as lag.
+#   xwayland        weston on its headless backend with Xwayland; the application is an X client
+#                   of that Xwayland. XTEST input from xdotool reaches the X server but not
+#                   weston's input, so weston never sees a drag: the edge is moved with
+#                   xdotool windowsize instead, one step at a time. Rootless Xwayland's root window
+#                   holds no picture of the screen, so each capture is of the window itself.
+# Every mode except xwayland needs an X display (run it under xvfb-run); xwayland makes its own.
+# Needs xdotool, xwininfo and ImageMagick, and openbox, picom or weston and Xwayland for the mode.
 #
 # Usage: linux-live-resize.sh <output directory> <application> [application arguments...]
-# Environment: LIVE_RESIZE_TOLERANCE_PX (default 0), LIVE_RESIZE_STEPS (default 20),
-#              LIVE_RESIZE_STEP_PX (default 15).
+# Environment: LIVE_RESIZE_WM (default openbox), LIVE_RESIZE_TOLERANCE_PX (default 0),
+#              LIVE_RESIZE_STEPS (default 20), LIVE_RESIZE_STEP_PX (default 15).
 set -uo pipefail
 out="$1"
 shift
@@ -33,20 +44,59 @@ mkdir -p "$out"
 log="$out/linux-live-resize.log"
 : > "$log"
 
-[[ -n "${DISPLAY:-}" ]] || { echo "FAIL no X display; run this under xvfb-run" >&2; exit 1; }
-for tool in openbox xdotool xwininfo import convert identify od; do
+mode="${LIVE_RESIZE_WM:-openbox}"
+case "$mode" in
+    openbox) needs=(openbox) ;;
+    picom-openbox) needs=(openbox picom) ;;
+    xwayland) needs=(weston Xwayland) ;;
+    *) echo "FAIL unknown LIVE_RESIZE_WM=$mode (openbox, picom-openbox or xwayland)" >&2; exit 1 ;;
+esac
+[[ "$mode" == xwayland || -n "${DISPLAY:-}" ]] || { echo "FAIL no X display; run this under xvfb-run" >&2; exit 1; }
+for tool in "${needs[@]}" xdotool xwininfo import convert identify od; do
     command -v "$tool" > /dev/null || { echo "FAIL $tool is not installed" >&2; exit 1; }
 done
 
-openbox --sm-disable > "$out/openbox.log" 2>&1 &
-wm=$!
+pids=()
+case "$mode" in
+    openbox | picom-openbox)
+        openbox --sm-disable > "$out/openbox.log" 2>&1 &
+        pids+=($!)
+        if [[ "$mode" == picom-openbox ]]; then
+            sleep 1
+            picom --backend xrender --no-vsync > "$out/picom.log" 2>&1 &
+            pids+=($!)
+            sleep 1
+            kill -0 "${pids[1]}" 2> /dev/null || { echo "FAIL picom did not start (see $out/picom.log)" >&2; exit 1; }
+        fi
+        ;;
+    xwayland)
+        export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$out/xdg-runtime}"
+        mkdir -p "$XDG_RUNTIME_DIR"
+        chmod 700 "$XDG_RUNTIME_DIR"
+        weston --backend=headless --xwayland --width=1280 --height=1024 --socket=live-resize-0 \
+            > "$out/weston.log" 2>&1 &
+        pids+=($!)
+        # weston starts Xwayland on the first free display and says which one in its log.
+        DISPLAY=""
+        for _ in $(seq 40); do
+            DISPLAY="$(grep -o 'xserver listening on display :[0-9]*' "$out/weston.log" | head -1 | grep -o ':[0-9]*$')"
+            [[ -n "$DISPLAY" ]] && break
+            kill -0 "${pids[0]}" 2> /dev/null || break
+            sleep 0.5
+        done
+        [[ -n "$DISPLAY" ]] || { echo "FAIL weston did not start Xwayland (see $out/weston.log)" >&2; exit 1; }
+        export DISPLAY
+        unset WAYLAND_DISPLAY
+        ;;
+esac
+echo "linux-live-resize mode=$mode display=$DISPLAY" | tee -a "$log"
 DXC_EDGE_MARK=1 "$@" > "$out/application.log" 2>&1 &
 app=$!
 cleanup() {
     xdotool keyup alt mouseup 3 2> /dev/null || true
-    kill "$app" "$wm" 2> /dev/null || true
+    kill "$app" "${pids[@]}" 2> /dev/null || true
     sleep 1
-    kill -9 "$app" "$wm" 2> /dev/null || true
+    kill -9 "$app" "${pids[@]}" 2> /dev/null || true
 }
 trap cleanup EXIT
 
@@ -76,9 +126,14 @@ geometry() {
         END { print x, y, w, h }'
 }
 
-# Captures the window's client area from the screen into the file "$5".
+# Captures the window's client area from the screen into the file "$5". Under Xwayland the
+# root window is empty, so it reads the window's own contents.
 capture() {
-    import -silent -window root -crop "${3}x${4}+${1}+${2}" +repage "$5" 2> /dev/null
+    if [[ "$mode" == xwayland ]]; then
+        import -silent -window "$window" "$5" 2> /dev/null
+    else
+        import -silent -window root -crop "${3}x${4}+${1}+${2}" +repage "$5" 2> /dev/null
+    fi
 }
 
 # Reads the middle row of a capture "$1" of a window "$2" pixels wide and prints the lag in
@@ -125,8 +180,8 @@ fi
 # Grab in the right middle of the window, where openbox resizes the right edge.
 grab_x=$((x0 + w0 * 9 / 10))
 grab_y=$((y0 + h0 / 2))
-xdotool mousemove "$grab_x" "$grab_y" keydown alt mousedown 3
-sleep 0.3
+[[ "$mode" == xwayland ]] || { xdotool mousemove "$grab_x" "$grab_y" keydown alt mousedown 3; sleep 0.3; }
+set_w=$w0
 samples=0
 worst=0
 over=0
@@ -136,7 +191,12 @@ narrowest=0
 for direction in 1 -1; do
     for i in $(seq "$steps"); do
         grab_x=$((grab_x + direction * step_px))
-        xdotool mousemove "$grab_x" "$grab_y"
+        set_w=$((set_w + direction * step_px))
+        if [[ "$mode" == xwayland ]]; then
+            xdotool windowsize "$window" "$set_w" "$h0"
+        else
+            xdotool mousemove "$grab_x" "$grab_y"
+        fi
         before="$(geometry)"
         read -r x y w h <<< "$before"
         capture "$x" "$y" "$w" "$h" "$shot"
@@ -163,15 +223,15 @@ for direction in 1 -1; do
         ((lag > tolerance)) && over=$((over + 1))
     done
 done
-xdotool mouseup 3 keyup alt
+[[ "$mode" == xwayland ]] || xdotool mouseup 3 keyup alt
 read -r _ _ w_end _ < <(geometry)
 rm -f "$shot"
-echo "linux-live-resize done samples=$samples worst_lag_px=$worst over_tolerance=$over missing=$missing" | tee -a "$log"
+echo "linux-live-resize done mode=$mode samples=$samples worst_lag_px=$worst over_tolerance=$over missing=$missing" | tee -a "$log"
 
 red=0
 if ((samples == 0)); then echo "FAIL no sample survived; the drag never settled long enough to capture"; red=1; fi
 if ((samples > 0 && widest == narrowest)); then echo "FAIL the drag did not change the window's width; it measured nothing"; red=1; fi
 if ((missing > 0)); then echo "FAIL $missing captures had no edge mark: a frame of another size or no frame was on the screen (see worst.png)"; red=1; fi
 if ((over > 0)); then echo "FAIL $over of $samples steps lagged by more than $tolerance px (worst $worst px, see worst.png)"; red=1; fi
-((red == 0)) && echo "ok    $samples steps, worst lag $worst px (tolerance $tolerance px), final width $w_end"
+((red == 0)) && echo "ok    $mode: $samples steps, worst lag $worst px (tolerance $tolerance px), final width $w_end"
 exit "$red"
