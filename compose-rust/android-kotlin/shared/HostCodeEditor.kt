@@ -13,6 +13,7 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorLook
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodeEditorSurface
 import dev.darkpyonix.composerust.foundation.code.EditorOutput
+import dev.darkpyonix.composerust.foundation.code.EditorScroll
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -20,6 +21,7 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.textStyle
 
 /**
@@ -39,6 +41,7 @@ internal fun HostCodeEditor(
     modifier: Modifier,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    table: NodeTable,
 ) {
     val model = node.code ?: return
     val tabWidth = (node.property(PropertyKind.TabWidth) as? PropertyValue.Integer)?.value
@@ -75,8 +78,33 @@ internal fun HostCodeEditor(
         )
     }
     val focusRequest = node.focusRequestRevision
-    CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest)
+    CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest) { scrolling ->
+        // The editor scrolls down its document by an offset it keeps itself and along its
+        // lines by an ordinary scroll state. Both take the Host's scroll requests and
+        // both are in the report.
+        HostScroll(
+            node,
+            table,
+            remember(scrolling) {
+                OffsetScrollSurface(
+                    x = scrolling.horizontal?.axis(),
+                    y = scrolling.vertical.axis(scrolling.viewportHeight),
+                    mainVertical = true,
+                )
+            },
+        )
+    }
 }
+
+/** The editor's own offset down its document, as an axis a scroll request can move. */
+private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
+    state = scrollable,
+    value = { offset },
+    max = { max },
+    viewport = viewport,
+    measured = { viewport() > 0 },
+    jump = { target -> scrollTo(target) },
+)
 
 /** What the design system says an editor looks like here, resolved to plain values. */
 internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): CodeEditorLook {
