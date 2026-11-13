@@ -11,8 +11,9 @@
 //! leaks anything to satisfy the lifetime.
 
 use crate::palette::Palette;
-use crate::schema::{ColorScheme, DesignSystem, Theme};
+use crate::schema::{ColorScheme, DesignSystem, SystemColorScheme, Theme};
 use std::cell::{Cell, RefCell};
+use std::sync::Arc;
 
 thread_local! {
     /// The theme the Host is running with, as the application last asked for it.
@@ -117,4 +118,89 @@ impl ThemeHandle {
     pub fn set_color_scheme(&self, scheme: ColorScheme) {
         set_theme(current_theme().with_color_scheme(scheme));
     }
+}
+
+struct SchemeSubscriber {
+    id: u64,
+    notify: Arc<dyn Fn() + Send + Sync>,
+}
+
+thread_local! {
+    /// The system appearance as the Renderer last reported it. Unknown until the first
+    /// report, which the Renderer makes before its first frame.
+    static SYSTEM_SCHEME: Cell<Option<SystemColorScheme>> = const { Cell::new(None) };
+    static SCHEME_SUBSCRIBERS: RefCell<Vec<SchemeSubscriber>> = const { RefCell::new(Vec::new()) };
+    static NEXT_SCHEME_SUBSCRIBER: Cell<u64> = const { Cell::new(1) };
+}
+
+/// Whether the system appearance is light or dark, as the Renderer last reported it, or
+/// `None` before its first report.
+///
+/// This is the system's setting whatever the theme asks for. An application that draws
+/// something of its own, such as an HTML page answering `prefers-color-scheme`, reads it
+/// here; native widgets already follow the theme without it.
+pub fn system_color_scheme() -> Option<SystemColorScheme> {
+    SYSTEM_SCHEME.with(Cell::get)
+}
+
+/// The scheme the theme is drawn in: the theme's own choice when it names one, and the
+/// system's when it follows the system. `None` only while it follows a system that has not
+/// been reported yet.
+pub fn resolved_color_scheme() -> Option<SystemColorScheme> {
+    match current_theme().color_scheme {
+        ColorScheme::Light => Some(SystemColorScheme::Light),
+        ColorScheme::Dark => Some(SystemColorScheme::Dark),
+        ColorScheme::FollowSystem => system_color_scheme(),
+    }
+}
+
+/// Records the Renderer's report and wakes the readers. Returns whether any was woken.
+///
+/// A report of the value already held wakes nobody, so a reader is never told the same
+/// thing twice even if the Renderer were to repeat itself.
+pub(crate) fn publish_system_color_scheme(scheme: SystemColorScheme) -> bool {
+    if SYSTEM_SCHEME.with(Cell::get) == Some(scheme) {
+        return false;
+    }
+    SYSTEM_SCHEME.with(|current| current.set(Some(scheme)));
+    // Copied out first, because a reader may subscribe or drop its subscription.
+    let readers: Vec<Arc<dyn Fn() + Send + Sync>> = SCHEME_SUBSCRIBERS
+        .with_borrow(|subscribers| subscribers.iter().map(|s| s.notify.clone()).collect());
+    for notify in &readers {
+        notify();
+    }
+    !readers.is_empty()
+}
+
+/// A registration for changes of the system appearance, ended by dropping it.
+pub struct SystemColorSchemeSubscription {
+    id: u64,
+}
+
+/// Registers `notify` to be called each time the system appearance changes. A runtime's
+/// hook for the scheme holds one for as long as the reader it wakes is alive.
+pub fn subscribe_system_color_scheme(
+    notify: Arc<dyn Fn() + Send + Sync>,
+) -> SystemColorSchemeSubscription {
+    let id = NEXT_SCHEME_SUBSCRIBER.with(|next| {
+        let id = next.get();
+        next.set(id + 1);
+        id
+    });
+    SCHEME_SUBSCRIBERS
+        .with_borrow_mut(|subscribers| subscribers.push(SchemeSubscriber { id, notify }));
+    SystemColorSchemeSubscription { id }
+}
+
+impl Drop for SystemColorSchemeSubscription {
+    fn drop(&mut self) {
+        SCHEME_SUBSCRIBERS.with_borrow_mut(|subscribers| subscribers.retain(|s| s.id != self.id));
+    }
+}
+
+/// Forgets the reported appearance and every reader. Used between tests.
+#[doc(hidden)]
+pub fn reset_system_color_scheme() {
+    SYSTEM_SCHEME.with(|current| current.set(None));
+    SCHEME_SUBSCRIBERS.with_borrow_mut(Vec::clear);
 }

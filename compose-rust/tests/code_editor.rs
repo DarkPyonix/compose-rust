@@ -1566,8 +1566,8 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1659);
-    assert_eq!(&events[1623..], wire.as_slice());
+    assert_eq!(events.len(), 1679);
+    assert_eq!(&events[1623..1659], wire.as_slice());
 }
 
 /// An empty group is no request at all, so nothing is written for it.

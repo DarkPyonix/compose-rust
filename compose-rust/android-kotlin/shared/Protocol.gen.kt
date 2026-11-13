@@ -98,6 +98,8 @@ enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
 
+enum class SystemColorScheme { Light, Dark }
+
 enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
 
 enum class Severity { Error, Warning, Information, Hint }
@@ -1710,13 +1712,14 @@ sealed interface HostEvent {
     data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
+    data class ColorSchemeChanged(override val nodeId: Int, override val handlerId: Long, val scheme: SystemColorScheme) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8655406154913947235L
+    const val SCHEMA_HASH: Long = 7684578970083352678L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2359,6 +2362,7 @@ object Protocol {
                 is HostEvent.CaretRect -> null
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
+                is HostEvent.ColorSchemeChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2416,6 +2420,7 @@ object Protocol {
                 is HostEvent.CaretRect -> 40
                 is HostEvent.PositionRect -> 40
                 is HostEvent.CodePointer -> 80
+                is HostEvent.ColorSchemeChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2477,6 +2482,7 @@ object Protocol {
                 is HostEvent.CaretRect -> 64
                 is HostEvent.PositionRect -> 65
                 is HostEvent.CodePointer -> 66
+                is HostEvent.ColorSchemeChanged -> 52
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2744,6 +2750,9 @@ object Protocol {
                     out.putLong(event.timestampNanos)
                     out.putInt(event.line)
                     out.putInt(event.column)
+                }
+                is HostEvent.ColorSchemeChanged -> {
+                    out.putInt(systemColorSchemeTag(event.scheme))
                 }
             }
             if (text != null) out.put(text)
@@ -3073,6 +3082,11 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun systemColorSchemeTag(value: SystemColorScheme): Int = when (value) {
+        SystemColorScheme.Light -> 0
+        SystemColorScheme.Dark -> 1
     }
 
     private fun pointerKindTag(value: PointerKind): Int = when (value) {
@@ -3546,6 +3560,12 @@ object Protocol {
         2 -> ReducedMotion.On
         3 -> ReducedMotion.Unknown
         else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
+    }
+
+    private fun systemColorScheme(tag: Int, offset: Int): SystemColorScheme = when (tag) {
+        0 -> SystemColorScheme.Light
+        1 -> SystemColorScheme.Dark
+        else -> throw ProtocolException("unknown SystemColorScheme tag $tag", offset)
     }
 
     private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {

@@ -515,8 +515,10 @@ const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 const EVENT_CODE_EDIT_GROUP_RESULT: u16 = 51;
 /// `CodeEditGroupResult` in full: the 16 byte header and five words.
 const CODE_EDIT_GROUP_RESULT_LEN: usize = 36;
-// 52 and 53 are numbered for events that are not here yet. 54 and 55 are the code editor's
-// row height and scroll offset, each one `f64` of physical pixels.
+// 52 is the system's light or dark appearance, one `u32` after the header. 53 is numbered
+// for an event that is not here yet. 54 and 55 are the code editor's row height and scroll
+// offset, each one `f64` of physical pixels.
+const EVENT_COLOR_SCHEME_CHANGED: u16 = 52;
 const EVENT_CODE_METRICS: u16 = 54;
 const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
@@ -753,6 +755,16 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                     raw.min(u32::from(u16::MAX)) as u16,
                 ))?;
             crate::schema::EventPayload::ReducedMotionChanged(state)
+        }
+        EVENT_COLOR_SCHEME_CHANGED if record_len == 20 => {
+            let raw = read_u32(bytes, 16)?;
+            let scheme = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::SystemColorScheme::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::ColorSchemeChanged(scheme)
         }
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
@@ -1126,6 +1138,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_ANIMATION
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
+        | EVENT_COLOR_SCHEME_CHANGED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1380,6 +1393,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::ColorSchemeChanged(scheme) = event.payload {
+        output.extend_from_slice(&EVENT_COLOR_SCHEME_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(scheme)).to_le_bytes());
         return Ok(());
     }
     match event.payload {
@@ -1843,6 +1864,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
+        | crate::schema::EventPayload::ColorSchemeChanged(_)
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());

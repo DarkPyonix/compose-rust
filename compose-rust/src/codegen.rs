@@ -762,6 +762,7 @@ object ScrollWire {
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -1554,6 +1555,7 @@ object Protocol {
             | EventPayloadType::Decoration
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
+            | EventPayloadType::ColorScheme
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1602,6 +1604,7 @@ object Protocol {
             EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            EventPayloadType::ColorScheme => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1820,6 +1823,13 @@ object Protocol {
             EventPayloadType::ReducedMotion => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::ColorScheme => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str(
+                    "                    out.putInt(systemColorSchemeTag(event.scheme))\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::Pointer | EventPayloadType::CodePointer => {
@@ -2245,6 +2255,11 @@ object Protocol {
             "reducedMotionTag",
             "ReducedMotion",
             crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+        (
+            "systemColorSchemeTag",
+            "SystemColorScheme",
+            crate::schema::SYSTEM_COLOR_SCHEME_SCHEMA,
         ),
         (
             "pointerKindTag",
@@ -4379,6 +4394,12 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 index: 2,
             },
         },
+        // The system appearance turning dark, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ColorSchemeChanged(crate::schema::SystemColorScheme::Dark),
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4468,7 +4489,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
       {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
       {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
-      {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }}
+      {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
+      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }}
     ]
   }}
 }}

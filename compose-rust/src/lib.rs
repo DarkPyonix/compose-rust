@@ -107,10 +107,13 @@ pub use schema::{
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
-    ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
+    ReducedMotion, StepPosition, SystemColorScheme, Timing, TransformFunction,
+    TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
-pub use theme::ThemeHandle;
+pub use theme::{
+    ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
+};
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};
 pub use windows::{

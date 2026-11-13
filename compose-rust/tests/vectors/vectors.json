@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "8655406154913947235",
+  "schemaHashUnsigned": "7684578970083352678",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -75,7 +75,8 @@
       { "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 },
       { "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 },
       { "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 },
-      { "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }
+      { "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 },
+      { "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }
     ]
   }
 }
