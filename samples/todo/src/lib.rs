@@ -122,6 +122,10 @@ fn about_panel(total: usize, fill: Rc<dyn Fn()>, close: Rc<dyn Fn()>) {
         });
 }
 
+/// One run of cards on the list: the heading over it, when the view holds more than one
+/// kind of task, the rows it shows, and their keys.
+type Run = (Option<&'static str>, Rc<Vec<usize>>, Rc<Vec<String>>);
+
 /// The composer at the head of the list in a window with room for it: one grouped strip
 /// whose field grows with the window.
 #[Composable]
@@ -617,7 +621,7 @@ pub fn app() {
         } else {
             // A card for each task, as the reference draws them, under a heading for each
             // kind when the view holds both.
-            let runs: Vec<(Option<&'static str>, Rc<Vec<usize>>, Rc<Vec<String>>)> = sections
+            let runs: Vec<Run> = sections
                 .iter()
                 .zip(keys.iter())
                 .map(|(section, keys)| {
