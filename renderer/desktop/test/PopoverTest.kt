@@ -378,7 +378,8 @@ class PopoverTest {
 
     /**
      * An anchor in the bottom right corner has its popover above it and inside the right
-     * edge, and still has after the window shrinks under it.
+     * edge, and still has after the window shrinks under it and after it grows past the
+     * size it opened in.
      */
     @Test
     fun fr77_popover_follows_resize() = runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
@@ -402,6 +403,12 @@ class PopoverTest {
         mainClock.advanceTimeByFrame()
         waitForIdle()
         check(500, 400)
+
+        scene.size = IntSize(900, 700)
+        waitForIdle()
+        mainClock.advanceTimeByFrame()
+        waitForIdle()
+        check(900, 700)
     }
 
     /** A scrim is drawn only when the node asked for one, and covers the window. */
