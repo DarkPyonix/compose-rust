@@ -101,7 +101,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -528,6 +531,17 @@ class ProtocolVectorsTest {
                 ),
             ),
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetOverlayTokens>(),
+        )
+    }
+
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
         )
     }
 

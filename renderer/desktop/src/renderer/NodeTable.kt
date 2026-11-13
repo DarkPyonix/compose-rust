@@ -1386,6 +1386,9 @@ class NodeTable {
                 PropertyKind.Asset ->
                     widget == WidgetKind.Image || widget == WidgetKind.Icon
 
+                // A picture drawn as an icon, in the icon's colour.
+                PropertyKind.IconAsset -> widget == WidgetKind.Icon
+
                 // The pickers carry a value and the ends of the range it may take, in the
                 // widget's own unit; a slider carries a position between the same two
                 // ends. Nothing here says how the value should be reached.

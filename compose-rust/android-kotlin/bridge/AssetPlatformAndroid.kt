@@ -90,3 +90,9 @@ internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): Fo
 
 /** Draws the document into the whole of the current drawing area. */
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) = drawSvgDocument(document)
+
+/**
+ * Draws the document scaled to the whole of the current drawing area, whatever size its
+ * root declares, the way an icon slot draws a picture.
+ */
+internal fun DrawScope.drawVectorDocumentFitted(document: VectorDocument) = document.draw(this, fit = true)
