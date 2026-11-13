@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Today's date and the local time
+
+`compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).
+
 ### Word wrap in the code editor
 
 The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
