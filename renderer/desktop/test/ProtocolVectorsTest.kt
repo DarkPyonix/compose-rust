@@ -140,6 +140,7 @@ class ProtocolVectorsTest {
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
+                is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -912,6 +913,9 @@ class ProtocolVectorsTest {
             683 to HostEvent.EditorFocusChanged(12, 25L, true),
             707 to HostEvent.FoldChanged(12, 26L, 0, true),
             731 to HostEvent.CompositionChanged(12, 27L, true),
+            // The row height and the scroll offset, after everything that was here before.
+            1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -920,7 +924,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1391, bytes.size)
+        assertEquals(1439, bytes.size)
     }
 
     /**
@@ -941,6 +945,10 @@ class ProtocolVectorsTest {
         assertEquals(
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetScrollOffset(12, 1234.5)),
+            mutations.filterIsInstance<Mutation.SetScrollOffset>(),
         )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()

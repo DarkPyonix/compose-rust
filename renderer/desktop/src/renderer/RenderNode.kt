@@ -563,7 +563,7 @@ fun RenderNode(
             // The document is the editor's own: its text, caret, selection and history live in
             // the node's model, and the Host hears each committed change. Drawn outside a
             // selectable region around it, because selecting inside an editor is the editor's.
-            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme, table) }
+            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme, table, table.assets) }
 
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine

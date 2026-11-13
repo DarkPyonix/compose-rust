@@ -98,9 +98,10 @@ fn fr80_scroll_records_round_trip_through_the_protocol_vectors() {
     let written = batch.finish().expect("the batch encodes").to_vec();
     assert_eq!(scroll_records(&written), expected);
 
-    // The report is the last record of the event vector, byte for byte.
-    assert_eq!(EVENTS.len(), REPORT_AT + REPORT_LEN);
-    let bytes = &EVENTS[REPORT_AT..];
+    // The report sits at its place in the event vector, byte for byte. Records added after
+    // it leave it where it is.
+    assert!(EVENTS.len() >= REPORT_AT + REPORT_LEN);
+    let bytes = &EVENTS[REPORT_AT..REPORT_AT + REPORT_LEN];
     assert_eq!(
         decode_event(bytes).expect("the report decodes"),
         vector_report()

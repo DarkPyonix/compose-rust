@@ -493,6 +493,12 @@ class NodeTable {
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)
             }
+            // The offset waits in the model for the surface, which owns the scroll position
+            // and knows how far the document lets it go.
+            is Mutation.SetScrollOffset -> codeNode(mutation.nodeId, "SetScrollOffset")?.let { (node, code) ->
+                code.hostScrollTo(mutation.offsetPx)
+                collectCode(node)
+            }
 
             // Requests too: the scroll position is this side's. Each is checked here and
             // waits on the node for the container, which keeps it in range, may animate it,
@@ -751,6 +757,32 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            // Read where the editor is drawn. Here it is only checked, so that a record
+            // that cannot be read is said once, when it arrives.
+            PropertyKind.CodeEditorColors -> {
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    val records = CodeEditorRecords.decodeCodeEditorColors(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "colours on node ${node.id}: $message")
+                    }
+                    if (records.size > 1) {
+                        fail(
+                            TableError.INVALID_CODE_EDIT,
+                            "colours on node ${node.id}: ${records.size} records where an editor has one",
+                        )
+                    }
+                }
+                return
+            }
+            // Whether there is anyone to tell. The model reports only what is heard, and
+            // the next frame's drain carries what a new listener has yet to hear.
+            PropertyKind.OnCodeMetrics -> {
+                code.hearsLineHeight = value is PropertyValue.Integer
+                return
+            }
+            PropertyKind.OnCodeScrolled -> {
+                code.hearsScroll = value is PropertyValue.Integer
+                return
+            }
             else -> return
         }
         collectCode(node)
@@ -1136,6 +1168,17 @@ class NodeTable {
                 -> widget == WidgetKind.Text ||
                     widget == WidgetKind.Button ||
                     widget == WidgetKind.TextField ||
+                    // An editor takes the rung of the type ladder, the size and the row
+                    // height. Its ink is the design system's or a colour run's, and it
+                    // neither aligns nor cuts off its lines.
+                    (
+                        widget == WidgetKind.CodeEditor &&
+                            (
+                                property == PropertyKind.TypeRole ||
+                                    property == PropertyKind.FontSize ||
+                                    property == PropertyKind.LineHeight
+                                )
+                        ) ||
                     // A chip's label takes a line limit and an overflow, as a button's does.
                     (
                         widget == WidgetKind.Chip &&
@@ -1310,7 +1353,11 @@ class NodeTable {
                 // break, its tab stops, sizes the system's font scale leaves alone, and
                 // whether it wraps at all. A Text, and its own list of fonts on a TextField
                 // A control's label is set by the design system.
-                PropertyKind.Font -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+                PropertyKind.Font ->
+                    widget == WidgetKind.Text ||
+                        widget == WidgetKind.TextField ||
+                        // An editor set in the application's own monospace list.
+                        widget == WidgetKind.CodeEditor
 
                 PropertyKind.SpanFonts,
                 PropertyKind.WordBreak,
@@ -1357,6 +1404,15 @@ class NodeTable {
                 PropertyKind.OnVisibleRangeChange,
                 PropertyKind.OnEditorFocusChange,
                 PropertyKind.OnFoldChange,
+                // Whether it draws line numbers, how its gutter is spaced, the colours of
+                // its own parts, and the handlers of its row height and scroll offset.
+                PropertyKind.LineNumbers,
+                PropertyKind.GutterMinWidthDp,
+                PropertyKind.GutterPaddingDp,
+                PropertyKind.TextInsetDp,
+                PropertyKind.CodeEditorColors,
+                PropertyKind.OnCodeMetrics,
+                PropertyKind.OnCodeScrolled,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
