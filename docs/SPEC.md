@@ -5029,6 +5029,17 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 
 ## 4. 경계 프로토콜
 
+### FR-84 오늘 날짜와 지역 시각 (`Agreed`, 이슈 #630, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember와 샘플(todo의 오늘 날짜 머리, 지난 일과 오늘과 다가올 일 묶음, 오늘과 내일과 다음 주 일정). 화면이 사용자의 시간대로 오늘 날짜를 읽을 방법이 어느 플랫폼에서도 없습니다.
+
+- `compose_rust::time::today() -> LocalDate { year, month, day, weekday }`와 `now_local() -> LocalDateTime`(사용자의 시간대). 데스크톱, iOS, Android는 OS의 시간대를, 웹은 브라우저의 시간대를 씁니다. Host가 직접 읽으므로 경계 함수와 와이어는 늘지 않습니다(웹은 JS `Date`).
+- 날짜가 바뀌면(자정, 또는 사용자가 시간대를 바꾸면) `subscribe_date_change(notify)`가 한 번 깨웁니다.
+
+수용 기준:
+1. 시간대를 고정한 시험 환경에서 `today()`가 그 시간대의 날짜와 요일이고, UTC와 날짜가 다른 시각에도 그 시간대의 날짜입니다(fr84_today_in_the_user_time_zone).
+2. 자정을 넘기면 날짜 변경 알림이 한 번 옵니다(fr84_date_change_wakes_once).
+
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
 
 **검증 방식에 관하여(2026-09-22):** 이 항목에는 `pr1_`로 시작하는 테스트가 없습니다. 없어도 되는 종류입니다. 여기 적힌 것은 기능이 아니라 구조에 관한 금지이고("큐를 두지 않는다"), 구조는 그것을 어겼을 때 다른 데서 깨지는 방식으로 지켜집니다. 동기 반환값은 `dispatch_event`의 반환을 확인하는 테스트들이, 호출 비용은 `boundary_call_cost.rs`가 지키고 있습니다.
