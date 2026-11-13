@@ -3,10 +3,10 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CodeChange, CodeRange, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN,
-    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
-    GutterDecorations, Position, RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan,
-    SyntaxSpans, byte_offset,
+    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CodeChange, CodeEditorColors, CodeRange,
+    DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN, FOLD_RECORD, Fold, Folds,
+    GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position,
+    RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -46,6 +46,10 @@ enum Record {
         node_id: u32,
         start_line: u32,
         collapsed: bool,
+    },
+    SetScrollOffset {
+        node_id: u32,
+        offset_px: f64,
     },
     Other,
 }
@@ -134,6 +138,9 @@ fn records(batch: &[u8]) -> Vec<Record> {
                 start_line,
                 collapsed,
             },
+            Mutation::SetScrollOffset { node_id, offset_px } => {
+                Record::SetScrollOffset { node_id, offset_px }
+            }
             _ => Record::Other,
         })
         .collect()
@@ -820,4 +827,203 @@ fn fr38_gutter_decorations_follow_edits_and_activate_on_the_wire() {
     // A press on a mark comes back as the activation of the id the application gave it.
     let (length, _) = round_trip(EventPayload::DecorationActivated { decoration: 90 });
     assert_eq!(length, 24);
+}
+
+/// The look properties, the two listeners, the two events and the scroll command keep the
+/// numbers they were given, after the ones other work has taken.
+#[test]
+fn fr38_editor_look_and_scroll_keep_their_assigned_tags() {
+    assert_eq!(PropertyKind::LineNumbers as u16, 178);
+    assert_eq!(PropertyKind::GutterMinWidthDp as u16, 179);
+    assert_eq!(PropertyKind::GutterPaddingDp as u16, 180);
+    assert_eq!(PropertyKind::TextInsetDp as u16, 181);
+    assert_eq!(PropertyKind::CodeEditorColors as u16, 182);
+    assert_eq!(PropertyKind::OnCodeMetrics as u16, 183);
+    assert_eq!(PropertyKind::OnCodeScrolled as u16, 184);
+    assert_eq!(event_tag("CodeMetrics"), 54);
+    assert_eq!(event_tag("CodeScrolled"), 55);
+    // A front end names a property the way the schema descriptor spells it.
+    assert_eq!(
+        PropertyKind::from_name("gutter_min_width_dp"),
+        Ok(PropertyKind::GutterMinWidthDp)
+    );
+    assert_eq!(
+        PropertyKind::from_name("code_editor_colors"),
+        Ok(PropertyKind::CodeEditorColors)
+    );
+}
+
+/// The type and the row height an application gives an editor travel as the properties a
+/// `Text` uses, and the gutter's as the editor's own, each with the value it was given.
+#[test]
+fn fr38_editor_type_and_line_height_round_trip_as_properties() {
+    let props = [
+        (PropertyKind::FontSize, PropertyValue::Float(13.0)),
+        (PropertyKind::LineHeight, PropertyValue::Float(20.0)),
+        (PropertyKind::LineNumbers, PropertyValue::Bool(false)),
+        (PropertyKind::GutterMinWidthDp, PropertyValue::Float(56.0)),
+        (PropertyKind::GutterPaddingDp, PropertyValue::Float(12.0)),
+        (PropertyKind::TextInsetDp, PropertyValue::Float(4.0)),
+    ];
+    let mut encoder = BatchEncoder::default();
+    for (property, value) in props.iter().cloned() {
+        encoder
+            .encode(&Mutation::SetProp {
+                node_id: 2,
+                property,
+                value,
+            })
+            .unwrap();
+    }
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![
+            Record::Prop(2, PropertyKind::FontSize, Value::Float(13.0)),
+            Record::Prop(2, PropertyKind::LineHeight, Value::Float(20.0)),
+            Record::Prop(2, PropertyKind::LineNumbers, Value::Bool(false)),
+            Record::Prop(2, PropertyKind::GutterMinWidthDp, Value::Float(56.0)),
+            Record::Prop(2, PropertyKind::GutterPaddingDp, Value::Float(12.0)),
+            Record::Prop(2, PropertyKind::TextInsetDp, Value::Float(4.0)),
+        ]
+    );
+}
+
+/// The colour record is twelve bytes, one role in each of five halves and a reserved pair,
+/// at the offsets the schema the Renderer's decoder is written from gives. A slot nobody
+/// set is zero, which is how it stays the design system's.
+#[test]
+fn fr38_editor_colors_override_the_design_system_on_the_wire() {
+    let colors = CodeEditorColors::new()
+        .container(ColorRole::Surface)
+        .gutter(ColorRole::Background)
+        .current_line_number(ColorRole::Primary);
+    let bytes = colors.to_bytes();
+    assert_eq!(bytes.len(), CODE_EDITOR_COLORS_LEN);
+    assert_eq!(CODE_EDITOR_COLORS_RECORD.length as usize, bytes.len());
+    for field in CODE_EDITOR_COLORS_RECORD.fields {
+        let at = field.offset as usize;
+        let value = u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+        let expected = match field.name {
+            "container" => ColorRole::Surface as u16,
+            "gutter" => ColorRole::Background as u16,
+            "lineNumber" => 0,
+            "currentLineNumber" => ColorRole::Primary as u16,
+            "currentLine" => 0,
+            other => panic!("the colour schema has a field this test does not know: {other}"),
+        };
+        assert_eq!(value, expected, "{}", field.name);
+        assert_eq!(
+            field.ty,
+            RecordFieldType::Role {
+                name: "ColorRole",
+                optional: true
+            }
+        );
+    }
+    assert_eq!(&bytes[10..], &[0, 0]);
+    assert_eq!(CodeEditorColors::from_bytes(&bytes), Some(colors));
+    assert!(CodeEditorColors::new().is_empty());
+    assert!(!colors.is_empty());
+
+    // A role this side does not know, or a record cut short, is refused whole.
+    let mut unknown = bytes;
+    unknown[0..2].copy_from_slice(&u16::MAX.to_le_bytes());
+    assert_eq!(CodeEditorColors::from_bytes(&unknown), None);
+    assert_eq!(CodeEditorColors::from_bytes(&bytes[..10]), None);
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::CodeEditorColors,
+            value: PropertyValue::Bytes(&bytes),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::CodeEditorColors,
+            Value::Bytes(bytes.to_vec())
+        )]
+    );
+}
+
+/// The row height comes back as one `f64` of pixels in a 24 byte record, with the fraction
+/// a density that is not a whole number leaves.
+#[test]
+fn fr38_editor_reports_line_height_on_the_wire() {
+    let (length, decoded) = round_trip(EventPayload::CodeMetrics {
+        line_height_px: 32.5,
+    });
+    assert_eq!(length, 24);
+    assert_eq!(
+        decoded.payload,
+        EventPayload::CodeMetrics {
+            line_height_px: 32.5
+        }
+    );
+
+    // A record of another length under the same tag is refused, not read short.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::CodeMetrics {
+                line_height_px: 20.0,
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[54, 0, 24, 0]);
+    wire[2] = 20;
+    assert_eq!(
+        decode_event(&wire[..20]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+}
+
+/// What one editor reports as its scroll offset is, bit for bit, what the command gives
+/// another: the event and the command carry the same `f64` of pixels.
+#[test]
+fn fr38_editor_scroll_offset_round_trips_on_the_wire() {
+    let offset_px = 123_456.75;
+    let (length, decoded) = round_trip(EventPayload::CodeScrolled { offset_px });
+    assert_eq!(length, 24);
+    let EventPayload::CodeScrolled {
+        offset_px: reported,
+    } = decoded.payload
+    else {
+        panic!("a scroll event decoded as {:?}", decoded.payload);
+    };
+
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.set_scroll_offset(4, reported);
+    let bytes = batch.finish().unwrap().to_vec();
+    // The command is tag 30 and 16 bytes with its header.
+    assert_eq!(&bytes[12..16], &[30, 0, 16, 0]);
+    assert_eq!(
+        records(&bytes),
+        vec![Record::SetScrollOffset {
+            node_id: 4,
+            offset_px
+        }]
+    );
+
+    // Cut short, the record is refused rather than read as a smaller offset.
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetScrollOffset {
+            node_id: 4,
+            offset_px: 1.0,
+        })
+        .unwrap();
+    let mut short = encoder.finish().unwrap().to_vec();
+    short[14] = 12;
+    assert!(decode_batch(&short).is_err());
 }

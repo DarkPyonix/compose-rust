@@ -1689,6 +1689,11 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
 6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
+**Android의 뒤로 가기**(이슈 #559, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). Android의 뒤로 가기(시스템 Back 제스처와 버튼)는 Escape와 같은 규칙을 따릅니다. 맨 위의 열린 `Dialog`, `Sheet`, `Popover` 하나에 `OnDismiss`를 한 번 보내고, `Open`은 Host가 바꿉니다. 열린 오버레이가 없으면 Back은 지금처럼 앱(또는 탐색)에 갑니다. IME 조합 중이면 먼저 조합을 끝내는 것도 Escape와 같습니다.
+
+- 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
+- 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -2105,6 +2110,7 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 - Windows와 Linux는 각자의 답이 있을 때까지 FR-23.3의 흐림으로 남습니다. 창 뒤를 비추지 못하는 것과 흐리지 못하는 것은 다른 이야기이고, 뒤쪽은 이미 할 수 있습니다.
 - 14.1의 규칙은 그대로입니다. 이것이 켜졌을 때에만 "창 뒤를 비춘다"고 말할 수 있고, 켜지지 않은 환경에서 그렇게 주장하지 않습니다.
 - 수용 기준: macOS에서 이 재질을 쓴 창이 뒤에 있는 창을 실제로 비춥니다(스크린샷을 데스크톱 배경만 바꿔 두 번 찍어 픽셀이 달라지는 것으로 확인합니다). 재질을 쓰지 않은 창은 지금과 같은 경로로 뜨고 `NSVisualEffectView`가 만들어지지 않습니다. 이 기능이 없는 플랫폼에서 같은 선언이 흐림으로 그려집니다.
+- 수용 기준 [leader, provisional, 2026-11-13]: 창의 모양(appearance)은 테마가 정한 명암(`ColorScheme`)을 따르고, 그래서 재질도 그 명암으로 그려집니다. `Light`이면 시스템이 어두워도 밝은 모양이고(`fr29_light_theme_on_a_dark_system_draws_a_light_material`), `Dark`이면 시스템이 밝아도 어두운 모양입니다(`fr29_dark_theme_on_a_light_system_draws_a_dark_material`). `FollowSystem`이면 창이 자기 모양을 갖지 않으므로 시스템 명암이 바뀌는 대로 바로 따라갑니다(`fr14_follow_system_tracks_the_system_live`). 테마의 명암과 시스템이 다를 때 반투명한 크롬이 반대 명암의 재질 위에 놓여 화면이 회색으로 뜨는 일을 막기 위한 기준입니다.
 
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
@@ -2162,6 +2168,65 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
    제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
 2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
 3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+
+#### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
+
+[leader, provisional, 2026-11-13] 소유자의 위임을 받은 리더의 결정입니다.
+
+`TopAppBar`의 동작이 막대에 다 들어가지 않으면, 들어가지 않는 동작은 막대가 직접 그리는
+"더 보기" 메뉴로 옮겨 갑니다. 지금은 막대의 자식이 Compose `Row`에 놓이고, `Row`는 앞의
+자식에게 먼저 폭을 줍니다. 그래서 뒤쪽 동작이 폭 0으로 눌리거나 잘리고, 그 동작에 닿을
+방법이 없습니다. 420dp의 macOS 창에서 notepad의 막대가 "File"을 빈 알약으로 그리고 "Format"과
+"Save"를 아예 그리지 않았습니다. 동작 하나를 조용히 잃는 막대는 애플리케이션이 쓴 것을 그리지
+않은 것입니다.
+
+- **뒤쪽 동작이 무엇인지.** 막대의 자식 중 맨 끝에서부터 이어지는 `Button`과 `Menu` 노드의
+  연속이 뒤쪽 동작입니다. `Weight` 수정자가 있는 자식과, `Button`도 `Menu`도 아닌 자식이 그
+  연속을 끊습니다. 그 앞의 자식(뒤로 버튼, 막대 안의 `Text`, 가중치를 받은 여백, 애플리케이션이
+  넣은 `Row`나 `Box`)과 `title` 속성의 제목은 앞쪽 내용이며 지금처럼 자리를 지킵니다.
+- **우선순위는 선언 순서입니다.** 스키마에는 동작의 우선순위를 말하는 속성이 없고, 이 항목도
+  그것을 더하지 않습니다. 먼저 선언한 동작이 가장 오래 막대에 남고, 폭이 줄면 마지막에 선언한
+  동작부터 메뉴로 갑니다. 메뉴 안의 순서도 선언 순서입니다. 끝까지 남겨야 하는 동작은 먼저
+  씁니다.
+- **막대는 동작을 자르지 않습니다.** 각 동작은 자기 고유 폭으로 잽니다. 앞쪽 내용이 쓰고 남은
+  폭에 고유 폭 그대로 들어가는 앞부분만 막대에 그리고, 나머지는 빠짐없이 메뉴에 넣습니다.
+  막대 위의 동작은 폭이 0이거나 잘린 채 그려지지 않습니다.
+- **넘침 버튼.** 넘친 동작이 하나라도 있을 때에만 막대에 남은 동작들 뒤에 넘침 버튼 하나가
+  섭니다. 그림은 디자인 시스템의 `IconRole::More`이고, 모양은 그 디자인 시스템의 글자 없는
+  `Text` 버튼과 같습니다. 접근성 이름은 "More actions"입니다. 넘침 버튼의 폭도
+  남은 폭 안에서 셉니다.
+- **메뉴는 `Menu`의 팝업과 같습니다.** 넘침 버튼을 누르면 그 아래에 메뉴가 열리고, 모양과
+  자리 규칙은 `Menu`의 팝업과 같습니다(FR-15.2.3). 넘친 동작은 메뉴 안에서 같은 노드로 그려지며,
+  고르면 그 노드 자신의 `Clicked`가 그 노드의 id와 핸들러로 갑니다. 한 노드는 한 번에 한 곳(막대
+  또는 메뉴)에만 그려집니다. 항목을 고르면 메뉴가 닫힙니다. 넘친 것이 `Menu`이면 그 앵커를 눌러도
+  막대의 메뉴는 닫히지 않습니다. 그 `Menu`가 자기 팝업을 열어야 하기 때문입니다.
+- **모든 막대 경로에서 같습니다.** 띠로 그리는 막대(창 캡션을 겸하는 막대 포함, FR-19.2),
+  제목을 창 가운데 두는 막대(FR-15.2의 제목 정렬), 떠 있는 캡슐로 그리는 막대(Liquid Glass)가
+  모두 이 규칙을 따릅니다. 떠 있는 막대에서 넘침 버튼은 바로 앞의 일반 동작과 같은 캡슐에
+  들어갑니다. 인터프리터는 데스크톱, iOS, Android, 웹이 같은 파일이므로 플랫폼마다 따로 두지
+  않습니다.
+- **와이어는 바뀌지 않습니다.** 무엇이 넘쳤는지는 폭에 달린 Renderer의 상태이고(D5), Host는
+  그것을 알 필요가 없습니다. 경계 진입점, 위젯 태그, 속성 태그, 이벤트 태그가 모두 그대로입니다.
+
+수용 기준:
+
+1. 동작 다섯 개를 단 막대를 좁은 폭으로 그리면 마지막에 선언한 동작들이 막대에 없고 넘침
+   버튼이 있으며, 넘침 버튼을 누르면 그 동작들이 선언 순서대로 메뉴에 나옵니다. 막대에 남은
+   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다
+   (`fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu`).
+2. 메뉴의 동작을 누르면 그 노드의 `Clicked`가 그 노드의 id와 핸들러로 한 번 가고, 메뉴가
+   닫힙니다(`fr30_3_an_overflowed_action_is_still_invokable`).
+3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
+   (`fr30_3_nothing_overflows_when_there_is_room`).
+4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
+   (`fr30_3_leading_content_keeps_its_place`).
+6. 넘침 버튼의 접근성 이름이 "More actions"입니다
+   (`fr30_3_the_overflow_button_has_an_accessible_name`).
+7. 1과 3이 창 캡션을 겸하는 막대(캡션 높이와 창 버튼 폭이 있는 창), GNOME의 가운데 제목 막대,
+   Liquid Glass의 떠 있는 막대에서도 성립합니다
+   (`fr30_3_every_bar_path_overflows_the_same_way`).
 
 ### FR-31 Scaffold (`Draft`)
 
@@ -5030,6 +5095,7 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
+- **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
 - **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
 - **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
@@ -5038,6 +5104,8 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입�
   3. forwarder의 호출당 비용을 실측해 기록합니다.
   4. M0 화면이 데스크톱과 같은 Rust 소스로 브라우저에 뜨고, 클릭이 Rust에 도달하며, Rust의 상태 변경이 화면에 반영됩니다.
   5. 생성된 Kotlin 선언, 생성된 forwarder, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
+  6. Web에서 64KiB `ClipboardText`, 32KiB `TextChanged`, 1MiB `IoAnswer`가 그대로 Host에 도착합니다(pr6_an_event_larger_than_the_lent_buffer_arrives_whole). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)
+  7. 64MiB를 넘는 이벤트는 거절되고 아무것도 보내지 않습니다(pr6_an_event_past_the_ceiling_is_refused).
 
 **검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
 

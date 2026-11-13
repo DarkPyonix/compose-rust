@@ -774,17 +774,17 @@ private const val GWL_STYLE = -16
 private const val RESIZE_FRAME = 0x00040000L or 0x00010000L
 
 private const val NO_RESIZABLE_CALL =
-    "the window layer linked into this renderer has no dxc_native_window_set_resizable, so Resizable " +
-        "cannot change on an open window; the Compose fork commit the build pins has to define it"
+    "dxc_native_window_set_resizable answered that it changed nothing, so Resizable did not " +
+        "change on the open window"
 
 private const val NO_COLOR_SCHEME_CALL =
-    "the window layer linked into this renderer has no dxc_native_window_set_color_scheme, so a window's " +
-        "own color scheme does not reach the system's caption; the Compose fork commit the build pins has to define it"
+    "dxc_native_window_set_color_scheme answered that the desktop window manager did not take the " +
+        "scheme, so the window's own color scheme did not reach the system's caption"
 
 private fun captionName(dark: Boolean?): String = when (dark) {
     true -> "dark"
     false -> "light"
-    null -> "something the window layer cannot report"
+    null -> "not set by any scheme yet"
 }
 
 private fun theme(scheme: ColorScheme) = Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, false)

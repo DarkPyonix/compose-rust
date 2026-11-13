@@ -204,9 +204,8 @@ internal class WindowsPlatformWindow(
     }
 
     /**
-     * True when the last change of Resizable did not reach the window, because the window
-     * layer linked into this renderer has no call for it. The window then keeps the frame it
-     * opened with.
+     * True when the last change of Resizable did not reach the window. The window then keeps
+     * the frame it had.
      */
     var resizableRefused = false
         private set
@@ -219,7 +218,6 @@ internal class WindowsPlatformWindow(
         if (closed) return
         window.select()
         resizableRefused = !setWindowResizable(resizable)
-        if (resizableRefused) reportUnsupportedOnce("whether a reader can resize it")
     }
 
     /** The color scheme the window was last told: its own theme's, or the application's. */
@@ -227,8 +225,8 @@ internal class WindowsPlatformWindow(
         private set
 
     /**
-     * True when the last color scheme did not reach the system's caption, because the window
-     * layer linked into this renderer has no call for it. The scene is not affected.
+     * True when the last color scheme did not reach the system's caption, because the desktop
+     * window manager did not take it. The scene is not affected.
      */
     var colorSchemeRefused = false
         private set
@@ -249,14 +247,9 @@ internal class WindowsPlatformWindow(
                 ColorScheme.Dark -> 2
             },
         )
-        // Said only for a scheme somebody chose: a window that follows the system loses nothing
-        // it was asked for.
-        if (colorSchemeRefused && scheme != ColorScheme.FollowSystem) {
-            reportUnsupportedOnce("the color scheme of the system's caption")
-        }
     }
 
-    /** Whether the system draws this window's caption dark now, or null where the window layer cannot say. */
+    /** Whether the system draws this window's caption dark now, or null before a scheme has been applied. */
     fun captionDark(): Boolean? {
         if (closed) return null
         window.select()
@@ -453,17 +446,6 @@ internal class WindowsPlatformWindow(
             null
         }
     }
-}
-
-private val reportedUnsupported = HashSet<String>()
-
-/** Says once for the process that a change to an open window has no call in the linked window layer. */
-private fun reportUnsupportedOnce(what: String) {
-    if (!reportedUnsupported.add(what)) return
-    java.lang.System.err.println(
-        "compose-rust: the window layer this renderer was built with cannot set $what of a window " +
-            "after it is created. The window keeps what it was created with.",
-    )
 }
 
 /** True once the selected window has been destroyed. */

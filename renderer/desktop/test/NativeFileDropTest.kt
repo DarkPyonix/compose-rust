@@ -85,4 +85,27 @@ class NativeFileDropTest {
         assertEquals(listOf("/a", "/b"), splitDroppedPaths("/a\u0000\u0000/b"))
         assertTrue(splitDroppedPaths("").isEmpty())
     }
+
+    /**
+     * The Windows Kotlin/Native window hands its file events over whole: the place in x and
+     * y, and the paths in the text with NUL between them.
+     */
+    @Test
+    fun fr27_windows_window_file_events_reach_the_target_under_them() {
+        NativeFileDrops.register(1, Rect(0f, 0f, 100f, 100f), entered = 7L, dropped = 8L, dispatcher)
+        fun event(kind: Int, text: String = "") = WindowEvent(
+            kind = kind, x = 5f, y = 5f, buttons = 0, modifiers = 0,
+            keyCode = 0, codePoint = 0, text = text,
+        )
+        assertTrue(routeFileDrop(event(WindowEvent.FILES_ENTERED)))
+        assertTrue(routeFileDrop(event(WindowEvent.FILES_DROPPED, "C:\\a b.txt\u0000C:\\c.txt")))
+        assertFalse(routeFileDrop(event(WindowEvent.POINTER_DOWN)), "a press is not a file event")
+        assertEquals(
+            listOf<HostEvent>(
+                HostEvent.FilesEntered(1, 7L),
+                HostEvent.FilesDropped(1, 8L, "C:\\a b.txt\u0000C:\\c.txt"),
+            ),
+            heard,
+        )
+    }
 }

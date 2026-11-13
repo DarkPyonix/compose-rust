@@ -141,6 +141,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
+    // How those corners curve, or null for plain arcs (or the design system's own curve).
+    // The background, border, shadow, clip and press feedback all draw the same outline.
+    val curve = cornerCurve()
     // The first opacity, background, transform and border of a node are where an animation the
     // Renderer plays on it is drawn. They read the animated value in the draw phase, so
     // the animation never recomposes or remeasures the node.
@@ -204,6 +207,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.PressFeedback -> chain
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
+            // Read through `shape` and `curve` above: it bends the corners the other
+            // modifiers draw, and on its own draws nothing.
+            is ProtocolModifier.CornerCurve -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
                 if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
@@ -290,7 +296,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 } else {
                     val holder = if (!borderSeen) animated?.invoke() else null
                     borderSeen = true
-                    chain.borderEach(value, brushes.map { it!! }, corners, holder)
+                    chain.borderEach(value, brushes.map { it!! }, corners, curve ?: 0f, holder)
                 }
             }
 
@@ -299,13 +305,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // with no overflow rule rounds the decoration and leaves the content alone.
             is ProtocolModifier.CornerEach -> chain
             is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
-                chain.boxShadow(value, brush, corners, shape)
+                chain.boxShadow(value, brush, corners, shape, curve ?: 0f)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
             // where it has none.
             is ProtocolModifier.Clip ->
-                if (value.enabled) chain.clip(corners ?: shape) else chain
+                if (value.enabled) chain.clip(corners?.withCornerCurve(curve) ?: shape) else chain
 
             // CSS `transform`: drawn through layers, so the layout is untouched and a
             // pointer is tested against the shape that is drawn.
@@ -479,8 +485,14 @@ private fun Modifier.reportUnknownBrush(
     return this
 }
 
-/** The shape this node's clip, border and background all use. */
-internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
+/**
+ * The shape this node's clip, border, background, shadow and press feedback all use: its
+ * radii, with its corners curved the way its `CornerCurve` says when it has one.
+ */
+internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape =
+    resolvedBaseShape(theme).withCornerCurve(cornerCurve())
+
+private fun List<ProtocolModifier>.resolvedBaseShape(theme: ResolvedTheme): Shape {
     for (index in indices.reversed()) {
         when (val value = this[index]) {
             // A radius the Host wrote as a number is a circular arc of that many dp in every
@@ -579,7 +591,9 @@ private fun shadowOutline(
     shape: Shape,
 ): ShadowOutline {
     if (corners != null) return ShadowOutline(corners.roundRect(size, density), null)
-    return when (val outline = shape.createOutline(size, direction, density)) {
+    // A curved corner is read through the radii it curves, so the spread can grow them.
+    val plain = (shape as? CornerCurveShape)?.base ?: shape
+    return when (val outline = plain.createOutline(size, direction, density)) {
         is Outline.Rounded -> ShadowOutline(outline.roundRect, null)
         is Outline.Rectangle -> ShadowOutline(RoundRect(outline.rect), null)
         is Outline.Generic -> ShadowOutline(RoundRect(outline.path.getBounds()), outline.path)
@@ -601,6 +615,8 @@ private fun Modifier.borderEach(
     value: ProtocolModifier.BorderEach,
     brushes: List<Brush>,
     corners: CornerEachShape?,
+    /** How the corners curve; 0 for circular arcs, as CSS draws them. */
+    smoothing: Float,
     /** Where an animation of the border's colour writes the colour every side shows. */
     holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
 ): Modifier = drawWithCache {
@@ -635,8 +651,8 @@ private fun Modifier.borderEach(
     )
     val ring = Path.combine(
         PathOperation.Difference,
-        Path().apply { addRoundRect(outer) },
-        Path().apply { addRoundRect(inner) },
+        if (smoothing > 0f) cornerCurvePath(outer, smoothing) else Path().apply { addRoundRect(outer) },
+        if (smoothing > 0f) cornerCurvePath(inner, smoothing) else Path().apply { addRoundRect(inner) },
     )
     val middleX = width / 2f
     val middleY = height / 2f
@@ -706,6 +722,8 @@ private fun Modifier.boxShadow(
     brush: Brush,
     corners: CornerEachShape?,
     shape: Shape,
+    /** How the outline's corners curve; 0 for circular arcs. */
+    smoothing: Float = 0f,
 ): Modifier = drawWithCache {
     val spread = value.spread.dp.toPx()
     val blur = value.blur.dp.toPx().coerceAtLeast(0f)
@@ -713,7 +731,10 @@ private fun Modifier.boxShadow(
     val dy = value.y.dp.toPx()
     val cast = shadowOutline(size, this, layoutDirection, corners, shape)
     val box = cast.box
-    val boxPath = cast.exact ?: Path().apply { addRoundRect(box) }
+    val boxPath = when {
+        smoothing > 0f -> cornerCurvePath(box, smoothing)
+        else -> cast.exact ?: Path().apply { addRoundRect(box) }
+    }
     val shadowWidth = size.width + 2f * spread
     val shadowHeight = size.height + 2f * spread
     if (shadowWidth <= 0f || shadowHeight <= 0f) {
@@ -732,7 +753,11 @@ private fun Modifier.boxShadow(
         bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
         bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
     )
-    val shapePath = if (spread == 0f && cast.exact != null) cast.exact else Path().apply { addRoundRect(grownBox) }
+    val shapePath = when {
+        smoothing > 0f -> cornerCurvePath(grownBox, smoothing)
+        spread == 0f && cast.exact != null -> cast.exact
+        else -> Path().apply { addRoundRect(grownBox) }
+    }
     if (blur == 0f) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {

@@ -140,6 +140,7 @@ class ProtocolVectorsTest {
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
+                is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -265,6 +266,23 @@ class ProtocolVectorsTest {
         )
         assertEquals(51, length)
         assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
+    }
+
+    /** The wrapping row and its five layout properties, decoded from the bytes the Host wrote. */
+    @Test
+    fun fr76_the_flow_row_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(21, WidgetKind.FlowRow) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.SetProp(21, PropertyKind.HorizontalSpacing, PropertyValue.Float(8f)),
+                Mutation.SetProp(21, PropertyKind.VerticalSpacing, PropertyValue.Float(12f)),
+                Mutation.SetProp(21, PropertyKind.HorizontalAlignment, PropertyValue.Integer(2)),
+                Mutation.SetProp(21, PropertyKind.VerticalAlignment, PropertyValue.Integer(3)),
+                Mutation.SetProp(21, PropertyKind.MaxItemsInEachRow, PropertyValue.Integer(3)),
+            ),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 21 },
+        )
     }
 
     /**
@@ -454,6 +472,13 @@ class ProtocolVectorsTest {
         assertTrue(patched, "the vector carries a file dialog request")
     }
 
+    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    @Test
+    fun fr50_corner_curve_round_trips() {
+        val last = decodeVector("mutations.bin").last()
+        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+    }
+
     /**
      * The web's file records: the operation and the release in the batch decode to what the
      * Host wrote, and the two answers encode to the bytes the Host decodes. An operation this
@@ -569,6 +594,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
         )
@@ -587,7 +613,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..8).toList(), onBox.map { it.index })
+        assertEquals((0..9).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -604,7 +630,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28, 35 to 28),
             lengths,
         )
     }
@@ -887,6 +913,9 @@ class ProtocolVectorsTest {
             683 to HostEvent.EditorFocusChanged(12, 25L, true),
             707 to HostEvent.FoldChanged(12, 26L, 0, true),
             731 to HostEvent.CompositionChanged(12, 27L, true),
+            // The row height and the scroll offset, after everything that was here before.
+            1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -895,7 +924,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1391, bytes.size)
+        assertEquals(1439, bytes.size)
     }
 
     /**
@@ -916,6 +945,10 @@ class ProtocolVectorsTest {
         assertEquals(
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetScrollOffset(12, 1234.5)),
+            mutations.filterIsInstance<Mutation.SetScrollOffset>(),
         )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
