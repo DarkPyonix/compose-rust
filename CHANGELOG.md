@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.0.8
+
+### Typing on macOS inserts each character once
+
+On the Kotlin/Native macOS window every typed character was inserted twice ("abc" became "aabbcc", and Korean jamo doubled before composing), because the key event carried the letter while the input method committed it as well. The window pin now includes the Compose fork fix: a key that also goes to the input method reaches Compose without its letter, and Command shortcuts keep theirs ([#563](https://github.com/DarkPyonix/compose-rust/issues/563)).
+
+### A node hears its size motion settle
+
+`on_motion_finished(|finished| ...)` on a container or a `TextField` runs once when the node's size, moving under `Modifier::motion`, reaches its target, with the size it settled at in `MotionFinished { width_dp, height_dp }`. A run that a newer size interrupts is not reported, only the one that settles; the first layout and a layout at the same size report nothing, and neither does a node removed while it moves. Under reduced motion the size changes in one frame and the report comes in that frame, so a screen that waits for a collapse before it takes a child out does not wait forever. In `rsx!` the listener is `onmotionfinished`. It is one new handler property, `OnMotionFinished` (193), and one `MotionFinished` event (tag 63, 24 bytes). A node with no handler sends nothing new and its modifier chain is unchanged ([#315](https://github.com/DarkPyonix/compose-rust/issues/315)).
 
 ### Font features: tabular figures for timers and tables
 
