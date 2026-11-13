@@ -10,9 +10,10 @@ use crate::schema::{
     NOTIFICATION_PERMISSION_SCHEMA, NotificationImportance, NotificationPermission,
     NotificationPresentation, PROPERTY_SCHEMA, PROTOCOL_VERSION, Paint, PropertyKind,
     ROLE_ENUM_SCHEMA, SCHEMA_HASH, Selection, ShapeRole, SpaceRole, Theme, WEB_BATCH_BYTES,
-    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_HOST_GLOBAL,
-    WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
-    WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA, WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_HOST_GLOBAL, WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_MODULE_GLOBAL, WEB_RENDERER_IMPORT_MODULE,
+    WEB_RUST_REGION_BASE, WEB_START_SYMBOL, WIDGET_SCHEMA, WINDOW_HEIGHT_CLASS_SCHEMA,
+    WINDOW_SIZE_CLASS_SCHEMA, WidgetKind,
 };
 use crate::schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEvents, ColorInterpolation, FillMode,
@@ -551,6 +552,12 @@ sealed interface Mutation {
     data class ReadClipboard(val request: Int) : Mutation
 
     /**
+     * Scrolls a code editor so that [offsetPx] physical pixels of its document are above
+     * the top of its view. The same unit the `CodeScrolled` event reports.
+     */
+    data class SetScrollOffset(val nodeId: Int, val offsetPx: Double) : Mutation
+
+    /**
      * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
      * it, list a folder, or find the child called [name] (making a file of that name when
      * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
@@ -827,6 +834,7 @@ object Protocol {
     private const val TAG_SET_OVERLAY_TOKENS = 27
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_SET_SCROLL_OFFSET = 30
     private const val TAG_STORAGE_CALL = 32
     private const val TAG_FILE_CALL = 33
     private const val TAG_RELEASE_FILE_HANDLE = 34
@@ -1219,6 +1227,13 @@ object Protocol {
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU32(batch, base, available, offset + 8).toInt(),
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
+                    TAG_SET_SCROLL_OFFSET -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetScrollOffset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            kotlin.Double.fromBits(readU64(batch, base, available, offset + 8)),
                         )
                     }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
@@ -3566,6 +3581,53 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             flags: crate::schema::scroll_into_view_flags::ANIMATE,
             rect: crate::schema::Rect::new(0.0, 8.0, 40.0, 24.5),
         },
+        // A wrapping row with every one of its layout properties, appended after every
+        // older record so none of them moves.
+        Mutation::Create {
+            node_id: 21,
+            widget: WidgetKind::FlowRow,
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalSpacing,
+            value: PropertyValue::Float(8.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalSpacing,
+            value: PropertyValue::Float(12.0),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::HorizontalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::HorizontalAlignment::Center as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::VerticalAlignment,
+            value: PropertyValue::Integer(i64::from(
+                crate::schema::VerticalAlignment::Bottom as u16,
+            )),
+        },
+        Mutation::SetProp {
+            node_id: 21,
+            property: PropertyKind::MaxItemsInEachRow,
+            value: PropertyValue::Integer(3),
+        },
+        // The code editor's scroll command, after everything that was here before it. The
+        // offset has a fraction so that a reader of the wrong width cannot pass.
+        Mutation::SetScrollOffset {
+            node_id: 12,
+            offset_px: 1234.5,
+        },
+        // Last, so every byte before it is where it was.
+        Mutation::SetModifier {
+            node_id: 8,
+            index: 9,
+            modifier: Modifier::CornerCurve { smoothing: 0.6 },
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3938,6 +4000,18 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 viewport_height_px: 300.0,
             },
         },
+        HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeMetrics {
+                line_height_px: 40.0,
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 29,
+            payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3957,7 +4031,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 112,
+    "recordCount": 120,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -3979,7 +4053,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-nine independently decodable event records concatenated in schema order",
+    "description": "Forty-two independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4020,7 +4094,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
       {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
-      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }}
+      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
+      {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
     ]
   }}
 }}
@@ -4369,11 +4445,11 @@ object SpanRecords {
 /// that record's problem rather than the batch's.
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
-        DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD, RecordFieldType, RecordSchema,
-        SYNTAX_SPAN_RECORD,
+        CODE_EDITOR_COLORS_RECORD, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
+        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD,
     };
 
-    let records: [(RecordSchema, &str, &str); 4] = [
+    let records: [(RecordSchema, &str, &str); 5] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -4401,6 +4477,11 @@ fn write_code_editor_records(output: &mut String) {
             "One mark beside a line number of a code editor. The line is in the document at \
              `version`; `glyph` is a Unicode scalar value, used when the kind is a glyph. \
              `id` is the application's own name for it, zero where it cannot be pressed.",
+        ),
+        (
+            CODE_EDITOR_COLORS_RECORD,
+            "decodeCodeEditorColors",
+            "The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour.",
         ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
@@ -4446,6 +4527,7 @@ object CodeEditorRecords {
             "DecorationRecord" => "DECORATION_LENGTH",
             "FoldRecord" => "FOLD_LENGTH",
             "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
+            "CodeEditorColorsRecord" => "CODE_EDITOR_COLORS_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -4624,6 +4706,7 @@ object CodeEditorRecords {
         SYNTAX_SPAN_RECORD,
         FOLD_RECORD,
         GUTTER_DECORATION_RECORD,
+        CODE_EDITOR_COLORS_RECORD,
     ]
     .iter()
     .flat_map(|schema| schema.fields.iter())
@@ -5766,7 +5849,23 @@ pub fn generate_web_bridge_kotlin() -> String {
     .unwrap();
     writeln!(
         output,
-        "/** How much room there is to encode one event into. */\nconst val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+        "/**\n \
+         * How much room there is to encode one event into, before any has needed more.\n \
+         *\n \
+         * An event that does not fit is encoded into a larger buffer the Host lends instead.\n \
+         */\n\
+         const val EVENT_BUFFER_BYTES: Int = {WEB_EVENT_BUFFER_BYTES}\n"
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "/**\n \
+         * The largest event buffer the Host lends.\n \
+         *\n \
+         * The buffer doubles from [EVENT_BUFFER_BYTES] until an event fits and stops here. An\n \
+         * event larger than this is refused, never cut short.\n \
+         */\n\
+         const val EVENT_BUFFER_MAX_BYTES: Int = {WEB_EVENT_BUFFER_MAX_BYTES}\n"
     )
     .unwrap();
 
@@ -5792,6 +5891,21 @@ pub fn generate_web_bridge_kotlin() -> String {
         )
         .unwrap();
     }
+
+    writeln!(
+        output,
+        "/**\n \
+         * Borrows an event buffer of at least `minLength` bytes from the Host, for an event that\n \
+         * does not fit in the one this side has. The Host keeps it until the next call, so\n \
+         * this side goes on encoding into it. Zero means the Host refused.\n \
+         *\n \
+         * Setup, like starting the Host, rather than a boundary operation: it is called only\n \
+         * when an event outgrows the buffer, which steady state never does.\n \
+         */\n\
+         @JsFun(\"(minLength) => globalThis.{WEB_HOST_GLOBAL}.{WEB_LEND_EVENT_BUFFER_SYMBOL}(minLength)\")\n\
+         external fun hostLendEventBuffer(minLength: Int): Int\n"
+    )
+    .unwrap();
 
     output.push_str(
         INSTALL_HOST_KOTLIN
@@ -5905,6 +6019,7 @@ use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
+use crate::web_event_buffer::{LentEventBuffer, region_address};
 use crate::{LaunchBuilder, LoopMode, Runtime};
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
@@ -6029,6 +6144,43 @@ fn lent(address: u32) -> bool {
     for op in BOUNDARY_SCHEMA {
         write!(output, "{}", wasm_shim(op)).unwrap();
     }
+
+    writeln!(
+        output,
+        r#"thread_local! {{
+    /// The larger event buffer, once an event has outgrown the one in [`BLOCK`].
+    ///
+    /// Kept here rather than in the block because its size is only known when an event
+    /// needs it, and kept until the next request because the Renderer goes on encoding into
+    /// it. A browser tab is one thread, so the thread's own copy is the only one.
+    static LENT_EVENT_BUFFER: std::cell::RefCell<LentEventBuffer> =
+        const {{ std::cell::RefCell::new(LentEventBuffer::new()) }};
+}}
+
+/// Lends the Renderer an event buffer of at least `min_len` bytes and answers with its
+/// address, or zero when the request is refused.
+///
+/// The Renderer calls this only when an event does not fit in the buffer it has, doubling
+/// what it asks for each time up to {max} bytes, and keeps encoding into what it gets.
+/// The buffer stays where it is until the next call, so a request it already satisfies
+/// answers with the same address and allocates nothing. Zero is the answer for a request
+/// past the ceiling, for memory that cannot be had, and for an address outside this
+/// module's region, which the Renderer would have to refuse anyway. A refused request
+/// leaves the buffer lent before it in place.
+///
+/// This is setup, like `{start}`, and not a boundary operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn {lend}(min_len: u32) -> u32 {{
+    LENT_EVENT_BUFFER
+        .with_borrow_mut(|buffer| buffer.lend(min_len))
+        .map_or(0, |pointer| region_address(pointer.cast_const()))
+}}
+"#,
+        max = WEB_EVENT_BUFFER_MAX_BYTES,
+        start = WEB_START_SYMBOL,
+        lend = WEB_LEND_EVENT_BUFFER_SYMBOL,
+    )
+    .unwrap();
 
     writeln!(
         output,

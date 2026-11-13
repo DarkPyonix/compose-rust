@@ -51,6 +51,8 @@ pub mod storage;
 pub mod theme;
 pub mod tokens;
 pub mod ui;
+#[doc(hidden)]
+pub mod web_event_buffer;
 pub mod window;
 pub mod windows;
 mod writer;
@@ -68,9 +70,9 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Fold, FoldChange,
-    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
-    SyntaxSpans, VisibleRange,
+    CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeScroll, Decoration,
+    Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration, GutterDecorations,
+    Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans, VisibleRange,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -92,9 +94,9 @@ pub use schema::{
     ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole,
-    Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind,
-    WindowHeightClass, WindowSizeClass, WordBreak,
+    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
+    Selection, SemanticsRole, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

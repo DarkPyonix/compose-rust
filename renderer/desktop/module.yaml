@@ -42,11 +42,12 @@ dependencies:
   # Annotations and C interop types for @CEntryPoint. Supplied by the native-image
   # builder at image build time, so it is not bundled into the jar.
   - org.graalvm.sdk:nativeimage:25.0.1: compile-only
-  # What every window decides the same way, and the AppKit and X11 windows of the native
-  # image path. The Windows window is still this module's own.
+  # What every window decides the same way, and the AppKit, X11 and Win32 windows of the
+  # native image path.
   - org.thisisthepy.compose.window:common:1.11.1-ext.2
   - org.thisisthepy.compose.window:graalvm-macos:1.11.1-ext.2
   - org.thisisthepy.compose.window:graalvm-linux:1.11.1-ext.2
+  - org.thisisthepy.compose.window:graalvm-windows:1.11.1-ext.2
 
 test-dependencies:
   - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.2

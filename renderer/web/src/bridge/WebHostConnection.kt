@@ -6,6 +6,7 @@ import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LoopMode
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Protocol
+import dev.darkpyonix.composerust.protocol.ProtocolException
 import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.RendererMeasure
@@ -30,6 +31,11 @@ import kotlin.wasm.unsafe.withScopedMemoryAllocator
  * because `kotlin.wasm.unsafe` only hands out addresses that are valid inside the scope that
  * asked for them, and the view over the Host's half of the memory is made once and remade
  * only when the arena outgrows it.
+ *
+ * The event buffer starts as the 4 KiB one in the block the Host lent at startup. An event
+ * that does not fit, a pasted document or a large answer from the browser's storage, is
+ * encoded into a larger buffer the Host lends on request, and that one is kept, so only the
+ * event that outgrew the buffer allocates.
  */
 class WebHostConnection private constructor(block: Int) : HostConnection {
     /** Where a call reports what it did. Little-endian, like everything on the wire. */
@@ -37,12 +43,15 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         ByteBuffer.wrapPointer(pointerAt(block), BATCH_BYTES).order(ByteOrder.LITTLE_ENDIAN)
 
     /** Where one event is encoded before the call that carries it. */
-    private val eventBuffer: ByteBuffer =
-        ByteBuffer.wrapPointer(pointerAt(block + EVENT_BUFFER_OFFSET), EVENT_BUFFER_BYTES)
-            .order(ByteOrder.LITTLE_ENDIAN)
+    private val events: GrowingEventBuffer<LentBuffer> = lentEventBuffer(
+        first = block + EVENT_BUFFER_OFFSET,
+        lend = { bytes -> hostLendEventBuffer(bytes) },
+        view = { address, bytes ->
+            ByteBuffer.wrapPointer(pointerAt(address), bytes).order(ByteOrder.LITTLE_ENDIAN)
+        },
+    )
 
     private val outAddress = block
-    private val eventAddress = block + EVENT_BUFFER_OFFSET
 
     /**
      * The address of the record a call reports into, for the test that times a call.
@@ -57,18 +66,18 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
     private var regionEnd = 0
 
     override fun init(onMutation: (Mutation) -> Unit) {
-        eventBuffer.clear()
         // The page owns the loop here, which is what the handshake has to say before the
         // Host decides whether to run one.
-        val length = Protocol.handshake(eventBuffer, LoopMode.Platform)
-        checkStatus(hostInit(eventAddress, length, outAddress), "init")
+        val length = Protocol.handshake(events.cleared(), LoopMode.Platform)
+        checkStatus(hostInit(events.backing.address, length, outAddress), "init")
         readBatch(onMutation)
     }
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
-        eventBuffer.clear()
-        val length = Protocol.encodeEvent(event, eventBuffer)
-        checkStatus(hostDispatchEvent(eventAddress, length, outAddress), "dispatch_event")
+        // An event too large for every buffer the Host would lend is refused here, before
+        // anything is sent, rather than cut short.
+        val length = events.encode(event)
+        checkStatus(hostDispatchEvent(events.backing.address, length, outAddress), "dispatch_event")
         val result = out.getLong(BATCH_RESULT_OFFSET)
         readBatch(onMutation)
         return result
@@ -184,15 +193,6 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         }
 
         /**
-         * Names an address in the shared memory.
-         *
-         * `Pointer`'s constructor is internal to the standard library, so an address the
-         * allocator did not hand out cannot be named directly. The way in is arithmetic
-         * from one it did: `plus` is unsigned, so it reaches below the allocation as well as
-         * above it. The anchor is only ever used as a base, never read or written, so it
-         * does not matter that its scope has closed by then.
-         */
-        /**
          * Answers a measure call over the Host's two buffers, where they lie in the shared
          * memory. Both have to be in the Host's region: an address below it is this
          * module's own allocator's, and reading or writing there would not crash, it would
@@ -211,6 +211,53 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
             )
         }
 
+        /**
+         * The event buffer a connection encodes into: [first] until an event does not fit,
+         * then whatever the Host lends through [lend], doubling up to [maxBytes], which is
+         * [EVENT_BUFFER_MAX_BYTES] for every real connection.
+         *
+         * The Host keeps a buffer it lent until the next request, so the grown one is kept
+         * here too and steady state asks for nothing. A refusal, an answer of zero or of an
+         * address below the Host's region, refuses the event with the encoder's own
+         * [ProtocolException] and leaves the buffer as it was, so the next event still has
+         * somewhere to go. [view] names the memory at an address, which only the real
+         * connection can do; a test hands it memory of its own.
+         */
+        internal fun lentEventBuffer(
+            first: Int,
+            lend: (Int) -> Int,
+            view: (address: Int, bytes: Int) -> ByteBuffer,
+            maxBytes: Int = EVENT_BUFFER_MAX_BYTES,
+        ): GrowingEventBuffer<LentBuffer> = GrowingEventBuffer(
+            EVENT_BUFFER_BYTES,
+            maxBytes,
+            allocate = { bytes ->
+                if (bytes <= EVENT_BUFFER_BYTES) {
+                    LentBuffer(first, bytes)
+                } else {
+                    val address = lend(bytes)
+                    if (address < RUST_REGION_BASE) {
+                        throw ProtocolException(
+                            "the Host would not lend an event buffer of $bytes bytes " +
+                                "(it answered $address), so the event is not sent",
+                            0,
+                        )
+                    }
+                    LentBuffer(address, bytes)
+                }
+            },
+            view = { lent -> view(lent.address, lent.bytes) },
+        )
+
+        /**
+         * Names an address in the shared memory.
+         *
+         * `Pointer`'s constructor is internal to the standard library, so an address the
+         * allocator did not hand out cannot be named directly. The way in is arithmetic
+         * from one it did: `plus` is unsigned, so it reaches below the allocation as well as
+         * above it. The anchor is only ever used as a base, never read or written, so it
+         * does not matter that its scope has closed by then.
+         */
         private fun pointerAt(address: Int): Pointer =
             withScopedMemoryAllocator { allocator ->
                 val anchor = allocator.allocate(PROBE_BYTES)
@@ -222,6 +269,9 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         private const val PROBE_BYTES = 4
     }
 }
+
+/** An event buffer the Host lent: where it starts in the shared memory, and how long it is. */
+internal class LentBuffer(val address: Int, val bytes: Int)
 
 /** A boundary call that returned a non-zero status. Reported, never fatal. */
 class HostCallException(message: String) : RuntimeException(message)

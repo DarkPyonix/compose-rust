@@ -351,7 +351,7 @@ $NativeImageArgs = @(
     # there to be anywhere to write it. A class initialised at run time makes its
     # CEntryPointLiteral after the build is over, and what it then hands the window is a
     # null address, which is a drag that draws nothing and says nothing about why.
-    "--initialize-at-build-time=dev.darkpyonix.composerust.ui.platform.Win32DrawCallback",
+    "--initialize-at-build-time=org.thisisthepy.compose.window.graalvm.windows.Win32DrawCallback",
     # The toolkit switched off where the fork's desktop code and this renderer would name it:
     # no toolkit window (ToolkitWindow), no java.awt in Compose's desktop code (the fork's
     # ExtendedAwt and skiko's AwtSwitch), and the window's own clipboard.

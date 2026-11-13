@@ -136,9 +136,40 @@ class WebStorageTest {
     }
 
     /**
-     * The event buffer holds 4096 bytes today, so a larger value read comes back as one
-     * too-large answer carrying its length. Once the web can carry larger events, the same
-     * read returns the value.
+     * The web renderer lets an answer be as long as the largest event buffer its Host lends,
+     * so a value far over the first 4096 bytes reads back whole.
+     */
+    @Test
+    fun fr79_web_reads_a_value_larger_than_the_event_buffer(): Promise<JsAny?> {
+        val store = "test.fr79.larger.${runName()}"
+        val previous = Storage.maxAnswerBytes
+        Storage.maxAnswerBytes = EVENT_BUFFER_MAX_BYTES - 32
+        val length = 1024 * 1024
+        val value = ByteArray(length) { (it % 251).toByte() }
+        return sequence(
+            { next ->
+                op(store, StorageOp.Write, "large", value) { answer ->
+                    expect(answer.status == IoStatus.Ok) { "the write answered ${answer.status}" }
+                    next()
+                }
+            },
+            { next ->
+                op(store, StorageOp.Read, "large") { answer ->
+                    Storage.maxAnswerBytes = previous
+                    expect(answer.status == IoStatus.Ok) { "the read answered ${answer.status}" }
+                    expect(answer.data.contentEquals(value)) {
+                        "the read gave back ${answer.data.size} bytes, not the $length written"
+                    }
+                    next()
+                }
+            },
+        )
+    }
+
+    /**
+     * An answer longer than the limit comes back as one too-large answer carrying its
+     * length. The limit here is the first event buffer, which is what the web carried before
+     * its buffer could grow, so the case stays small.
      */
     @Test
     fun fr79_web_an_answer_over_the_event_buffer_is_too_large(): Promise<JsAny?> {

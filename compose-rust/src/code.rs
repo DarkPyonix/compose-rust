@@ -176,6 +176,35 @@ pub const GUTTER_DECORATION_RECORD: RecordSchema = RecordSchema {
     ],
 };
 
+/// Bytes of a code editor's colour record.
+pub const CODE_EDITOR_COLORS_LEN: usize = 12;
+
+const fn optional_color(name: &'static str, offset: u16) -> RecordField {
+    field(
+        name,
+        offset,
+        RecordFieldType::Role {
+            name: "ColorRole",
+            optional: true,
+        },
+    )
+}
+
+/// The colours an application gives an editor: a role for the container, the gutter, a
+/// line number, the current line's number and the current line. Zero leaves that part to
+/// the design system. Bytes 10 and 11 are reserved and written as zero.
+pub const CODE_EDITOR_COLORS_RECORD: RecordSchema = RecordSchema {
+    name: "CodeEditorColorsRecord",
+    length: CODE_EDITOR_COLORS_LEN as u16,
+    fields: &[
+        optional_color("container", 0),
+        optional_color("gutter", 2),
+        optional_color("lineNumber", 4),
+        optional_color("currentLineNumber", 6),
+        optional_color("currentLine", 8),
+    ],
+};
+
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
     let mut index = 0;
     while index < bytes.len() {
@@ -975,4 +1004,121 @@ pub struct FoldChange {
     /// The line the stretch starts on.
     pub start_line: u32,
     pub collapsed: bool,
+}
+
+/// The colours of an editor's own parts, each a role of the theme.
+///
+/// A part that is not named keeps the colour the design system gives it, so an application
+/// can set the container and the gutter and leave the rest. Roles and never literals: the
+/// colours follow the theme from light to dark like every other colour here.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CodeEditorColors {
+    /// What the text sits on.
+    pub container: Option<ColorRole>,
+    /// What the line numbers sit on.
+    pub gutter: Option<ColorRole>,
+    pub line_number: Option<ColorRole>,
+    /// The number of the line the caret is on.
+    pub current_line_number: Option<ColorRole>,
+    /// The band behind the line the caret is on.
+    pub current_line: Option<ColorRole>,
+}
+
+impl CodeEditorColors {
+    /// Every part left to the design system.
+    pub const fn new() -> Self {
+        Self {
+            container: None,
+            gutter: None,
+            line_number: None,
+            current_line_number: None,
+            current_line: None,
+        }
+    }
+
+    pub const fn container(mut self, role: ColorRole) -> Self {
+        self.container = Some(role);
+        self
+    }
+
+    pub const fn gutter(mut self, role: ColorRole) -> Self {
+        self.gutter = Some(role);
+        self
+    }
+
+    pub const fn line_number(mut self, role: ColorRole) -> Self {
+        self.line_number = Some(role);
+        self
+    }
+
+    pub const fn current_line_number(mut self, role: ColorRole) -> Self {
+        self.current_line_number = Some(role);
+        self
+    }
+
+    pub const fn current_line(mut self, role: ColorRole) -> Self {
+        self.current_line = Some(role);
+        self
+    }
+
+    /// Whether every part is left to the design system, in which case there is nothing to
+    /// send.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::new()
+    }
+
+    /// The record as it travels in the `CodeEditorColors` property.
+    pub fn to_bytes(&self) -> [u8; CODE_EDITOR_COLORS_LEN] {
+        let mut bytes = [0_u8; CODE_EDITOR_COLORS_LEN];
+        let slots = [
+            self.container,
+            self.gutter,
+            self.line_number,
+            self.current_line_number,
+            self.current_line,
+        ];
+        for (index, slot) in slots.into_iter().enumerate() {
+            let tag = slot.map_or(0, |role| role as u16);
+            bytes[index * 2..index * 2 + 2].copy_from_slice(&tag.to_le_bytes());
+        }
+        bytes
+    }
+
+    /// The record read back. `None` where the bytes are not one whole record or name a
+    /// role this side does not know, which is what the Renderer refuses too.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != CODE_EDITOR_COLORS_LEN {
+            return None;
+        }
+        let slot = |index: usize| -> Option<Option<ColorRole>> {
+            match half(bytes, index * 2) {
+                0 => Some(None),
+                tag => ColorRole::try_from(tag).ok().map(Some),
+            }
+        };
+        Some(Self {
+            container: slot(0)?,
+            gutter: slot(1)?,
+            line_number: slot(2)?,
+            current_line_number: slot(3)?,
+            current_line: slot(4)?,
+        })
+    }
+}
+
+/// How an editor's rows are drawn, as the Renderer measured them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CodeMetrics {
+    /// The height of one row in physical pixels. Every row of an editor has this height,
+    /// so line `n` starts `n` times this far down when nothing is folded and no lens sits
+    /// above a line.
+    pub line_height_px: f64,
+}
+
+/// How far an editor is scrolled.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CodeScroll {
+    /// The physical pixels of the document above the top of the view. The unit
+    /// `Batch::set_scroll_offset` takes.
+    pub offset_px: f64,
 }
