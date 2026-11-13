@@ -2678,6 +2678,9 @@ Notification::new("세션이 끝났습니다")
 19. 캐럿과 위치 사각형(이슈 #553, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기가 캐럿 사각형을 이벤트 `CaretRect`(이벤트 태그 64: `line`, `column`, `x`, `y`, `width`, `height`, 창 dp, 스크롤과 확대 반영)로 캐럿이 움직이거나 스크롤될 때 프레임당 최대 한 번 보냅니다. 핸들러 속성 `OnCaretRect`(속성 태그 195)가 있을 때만 보냅니다. Host는 편집기 핸들의 위치 질의(명령 `QueryPositionRect`, 명령 태그 39: `request`, `line`, `column`)를 보내고 이벤트 `PositionRect`(이벤트 태그 65: `request`, 사각형 또는 "없음")로 답을 받습니다. 보이지 않는 위치는 "없음"입니다. 제안 목록, 매개변수 힌트, 이름 바꾸기 상자, 호버를 캐럿이나 위치에 붙이는 데 씁니다.
     1. 3번째 줄 5번째 열에 캐럿을 두면 캐럿 사각형이 그 글자의 그려진 위치와 1dp 안에서 같고, 스크롤하면 새 위치가 한 번 옵니다(fr38_editor_reports_the_caret_rect).
     2. 위치 질의는 보이는 위치에 사각형을, 보이지 않는 위치에 "없음"을 한 번 답합니다(fr38_editor_answers_position_rects).
+20. 키 미리보기(이슈 #554, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기에 `on_key_preview`(핸들러 속성 `OnKeyPreview`, 속성 태그 196)가 있습니다. 편집기가 키를 처리하기 전에 `KeyDown`(12.1과 같은 레코드: code, text, 수정자, repeat)이 Host로 가고, 핸들러가 소비하면(FR-12의 동기 반환값) 편집기는 그 키를 처리하지 않습니다. IME 조합 중에는 보내지 않습니다(12.1의 규칙). 제안 목록이 열린 동안 위, 아래, Enter, Tab, Escape와 F12, F2, Ctrl+Space, Ctrl/Cmd+. 같은 명령 키를 Host가 가져가는 데 씁니다.
+    1. 미리보기 핸들러가 Down을 소비하면 캐럿이 움직이지 않고, 소비하지 않으면 지금처럼 움직입니다(fr38_editor_key_preview_consumes_keys).
+    2. IME 조합 중에는 미리보기가 가지 않습니다(fr38_editor_key_preview_skips_composition).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
