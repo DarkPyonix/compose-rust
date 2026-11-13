@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
@@ -21,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -63,6 +65,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.MinimapSide
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -128,6 +131,9 @@ private class DrawnState(
     var coordinates: LayoutCoordinates? = null
     var rows: RowMap = RowMap.of(model)
     var scroll: EditorScroll? = null
+
+    /** How far right of the editor's own left edge this part of it starts: a minimap on the left. */
+    var originX = 0f
 
     /** Where the text area starts, after the gutter, and how many pixels make a dp. */
     var gutterWidth = 0f
@@ -328,7 +334,9 @@ private class DrawnState(
         return answered || model.caretUntold
     }
 
-    override fun positionAt(x: Float, y: Float): CodePosition? {
+    override fun positionAt(viewX: Float, y: Float): CodePosition? {
+        // Asked in the editor's own coordinates, which a minimap on the left moves this part of.
+        val x = viewX - originX
         if (x < textLeft) return null
         val row = ((y + (scroll?.offset ?: 0)) / rowPx).toInt()
         if (y + (scroll?.offset ?: 0) < 0f || row >= rows.totalRows) return null
@@ -402,6 +410,8 @@ private fun DrawnSurface(
     state.gutterWidth = gutterWidth
     state.density = density.density
     state.caretWidthPx = with(density) { 1.5.dp.toPx() }
+    val (minimapLeft, minimapRight) = density.minimapInsetsPx(look)
+    state.originX = minimapLeft.toFloat()
     // What the caret report and the waiting queries found is sent from a coroutine rather
     // than from inside the draw pass that found it.
     val scope = rememberCoroutineScope()
@@ -463,6 +473,10 @@ private fun DrawnSurface(
                 // The viewport's size, never the document's: the lines on screen are drawn at
                 // their rows less the offset, and the extent is only a number.
                 .fillMaxSize()
+                .padding(
+                    start = with(density) { minimapLeft.toDp() },
+                    end = with(density) { minimapRight.toDp() },
+                )
                 .scrollable(vertical.scrollable, Orientation.Vertical)
                 .onGloballyPositioned {
                     state.coordinates = it
@@ -543,6 +557,19 @@ private fun DrawnSurface(
                     reportPlaces()
                 },
         )
+        if (look.minimapSide != null) {
+            Minimap(
+                model,
+                rows,
+                look,
+                vertical,
+                viewportHeight,
+                rowPx,
+                Modifier
+                    .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
+                    .scrollable(vertical.scrollable, Orientation.Vertical),
+            )
+        }
     }
 }
 

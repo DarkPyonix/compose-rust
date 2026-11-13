@@ -26,6 +26,7 @@ import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.MinimapSide
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -34,6 +35,7 @@ import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
 
 /**
@@ -84,6 +86,7 @@ internal fun HostCodeEditor(
         node.property(PropertyKind.GutterPaddingDp),
         node.property(PropertyKind.TextInsetDp),
         node.bytes(PropertyKind.CodeEditorColors),
+        node.property(PropertyKind.Minimap),
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
@@ -253,6 +256,7 @@ internal fun codeEditorLook(
         fontFallback = fontChain?.let { chain -> { text: String -> chain.spans(text) } },
         lineBackground = { role -> diffTint(role, theme, strong = false) },
         rangeBackground = { role -> diffTint(role, theme, strong = true) },
+        minimapSide = node.role(PropertyKind.Minimap, MinimapSide.entries.toTypedArray()),
     )
 }
 

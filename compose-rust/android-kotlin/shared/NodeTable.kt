@@ -1538,6 +1538,8 @@ class NodeTable {
                 // The handler of its pointer events with the text under them. The kinds it
                 // hears are the node's `PointerKinds`, below.
                 PropertyKind.OnCodePointer,
+                // Whether it draws a minimap, and on which side.
+                PropertyKind.Minimap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

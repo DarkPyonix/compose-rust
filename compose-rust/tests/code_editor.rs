@@ -1637,3 +1637,31 @@ fn fr38_a_broken_group_record_is_a_protocol_error_on_the_wire() {
     trailing.push(b'!');
     assert_eq!(decode_edit_group(&trailing), None);
 }
+
+/// The minimap side travels as a `MinimapSide` tag on property 201, the right side as 1 and
+/// the left as 2. `Off` is 0, the tag an editor that never sets it is read as.
+#[test]
+fn fr38_minimap_side_travels_as_a_tag() {
+    use compose_rust::MinimapSide;
+    assert_eq!(PropertyKind::Minimap as u16, 201);
+    assert_eq!(PropertyKind::from_name("minimap"), Ok(PropertyKind::Minimap));
+    assert_eq!(u16::from(MinimapSide::Off), 0);
+    assert_eq!(u16::from(MinimapSide::Right), 1);
+    assert_eq!(u16::from(MinimapSide::Left), 2);
+    assert_eq!(MinimapSide::try_from(2), Ok(MinimapSide::Left));
+    assert_eq!(MinimapSide::from_name("right"), Ok(MinimapSide::Right));
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Minimap,
+            value: PropertyValue::Integer(i64::from(u16::from(MinimapSide::Left))),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(2, PropertyKind::Minimap, Value::Integer(2))]
+    );
+}

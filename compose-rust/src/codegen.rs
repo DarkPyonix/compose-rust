@@ -3942,6 +3942,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             base_version: 1,
             edits: &edit_group,
         },
+        // The editor's minimap, on the right.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::Minimap,
+            value: PropertyValue::Integer(i64::from(u16::from(crate::schema::MinimapSide::Right))),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4419,7 +4425,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 124,
+    "recordCount": 125,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
