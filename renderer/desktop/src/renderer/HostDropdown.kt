@@ -270,7 +270,8 @@ private fun OpeningList(
                             .clip(popupShape)
                             .background(style.container, popupShape)
                             .border(style.borderWidth, style.borderColor, popupShape)
-                            .then(popupPadding),
+                            .then(popupPadding)
+                            .menuWidth(),
                     ) {
                         options.forEachIndexed { index, childId ->
                             key(childId) {
