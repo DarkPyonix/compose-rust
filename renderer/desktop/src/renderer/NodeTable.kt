@@ -1247,6 +1247,7 @@ class NodeTable {
                 -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+                PropertyKind.ThumbSize -> widget == WidgetKind.Slider
 
                 // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,

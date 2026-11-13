@@ -15,6 +15,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -112,6 +120,17 @@ internal object Material3ControlWidgets : ControlWidgets {
         look: ControlLook,
     ) {
         val primary = named ?: theme.color(ColorRole.Primary)
+        val colors = SliderDefaults.colors(
+            thumbColor = look.thumb ?: primary,
+            activeTrackColor = look.activeTrack ?: primary,
+            inactiveTrackColor = look.track ?: theme.color(ColorRole.SurfaceVariant),
+        )
+        val interactions = remember { MutableInteractionSource() }
+        // A thumb the application sized is the library's own thumb at that size, round. It is
+        // drawn inside a box the size of Material's own handle, because the library lays the
+        // slider out around its thumb: the slider keeps its height and the area that takes a
+        // press, and the track keeps its gap, whatever size the thumb is drawn at.
+        val thumbSize = look.thumbSize
         Slider(
             value = value,
             onValueChange = onChange,
@@ -119,11 +138,23 @@ internal object Material3ControlWidgets : ControlWidgets {
             enabled = enabled,
             valueRange = range,
             steps = steps,
-            colors = SliderDefaults.colors(
-                thumbColor = look.thumb ?: primary,
-                activeTrackColor = look.activeTrack ?: primary,
-                inactiveTrackColor = look.track ?: theme.color(ColorRole.SurfaceVariant),
-            ),
+            colors = colors,
+            interactionSource = interactions,
+            thumb = {
+                if (thumbSize == null) {
+                    SliderDefaults.Thumb(interactionSource = interactions, colors = colors, enabled = enabled)
+                } else {
+                    Box(Modifier.size(MATERIAL_HANDLE), contentAlignment = Alignment.Center) {
+                        SliderDefaults.Thumb(
+                            interactionSource = interactions,
+                            modifier = Modifier.requiredSize(thumbSize),
+                            colors = colors,
+                            enabled = enabled,
+                            thumbSize = DpSize(thumbSize, thumbSize),
+                        )
+                    }
+                }
+            },
         )
     }
 
@@ -180,3 +211,6 @@ internal object Material3ControlWidgets : ControlWidgets {
         }
     }
 }
+
+/** The size Material 3 lays its slider handle out at: a bar 4 dp wide and 44 dp tall. */
+private val MATERIAL_HANDLE = DpSize(4.dp, 44.dp)
