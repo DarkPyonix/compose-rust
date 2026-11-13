@@ -774,8 +774,18 @@ impl NodeWriter {
         // the text in its default role. An unset role arrives as nothing and stays unsent,
         // and one that is cleared sends nothing once, which drops the property rather than
         // turning the text into text with no role.
+        //
+        // Letter spacing has the same problem: CSS `letter-spacing: 0` is a real 0, drawn
+        // with no extra spacing, where an unset spacing takes the role's. So its unset value
+        // is NaN (or nothing), and an explicit 0 is written like any other value.
         let neutral = if property == PropertyKind::TypeRole {
             matches!(value, PropertyValue::None)
+        } else if property == PropertyKind::LetterSpacing {
+            match value {
+                PropertyValue::None => true,
+                PropertyValue::Float(value) => value.is_nan(),
+                _ => false,
+            }
         } else {
             matches!(
                 value,
