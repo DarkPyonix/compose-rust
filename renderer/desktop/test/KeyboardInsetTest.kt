@@ -14,6 +14,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -350,10 +351,13 @@ class KeyboardInsetTest {
             waitForIdle()
             val after = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
             val field = onNodeWithTag(nodeTestTag(FIELD)).getBoundsInRoot()
+            // The overlay's window is the whole test window, which is not the content's
+            // size, so the keyboard's top edge is measured from the scrim's bottom.
+            val scrim = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
 
             assertTrue(before.height.value > 0f, "the sheet has no height before the keyboard opens")
             assertNear(before.height, after.height, "the sheet's height with the keyboard up")
-            assertNear(HEIGHT - KEYBOARD, after.bottom, "the sheet's bottom edge")
+            assertNear(scrim.bottom - KEYBOARD, after.bottom, "the sheet's bottom edge")
             assertTrue(
                 field.top.value >= after.top.value - 1f && field.bottom.value <= after.bottom.value + 1f,
                 "the field at $field is not inside the sheet at $after",
