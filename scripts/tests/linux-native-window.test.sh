@@ -219,7 +219,8 @@ configure="$(sed -n '/ConfigureNotify -> {/,/^            Expose ->/p' "$window"
 # event and expects the frame drawn before the call returns; the renderer's window draws it.
 grep -Fq 'resized()' <<< "$configure" ||
     fail "the window records a new size without asking for the frame for it, so the edge moves before the content does"
-grep -Fq 'measured = WindowMeasurement(width, height, DENSITY)' <<< "$configure" ||
+# The scale is the display's (Xft.dpi), not a constant, since the window follows HiDPI.
+grep -Fq 'measured = WindowMeasurement(width, height, scale)' <<< "$configure" ||
     fail "the window no longer takes the new size from the configure event"
 resize_branch="$(sed -n '/override fun onEvent(event: WindowEvent) {/,/^    }/p' "$host_window")"
 grep -Fq 'WindowEvent.RESIZE' <<< "$resize_branch" && grep -Fq 'frames.draw()' <<< "$resize_branch" ||
