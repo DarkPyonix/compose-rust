@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
+import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.FontRef
@@ -376,7 +377,7 @@ internal fun resolveFontChain(
             }
         }
     }
-    if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
+    if (members.isEmpty()) members += FontChain.Member(platformSansSerifFamily, null)
     return FontChain(members)
 }
 
@@ -435,7 +436,7 @@ internal fun ignoredFontsProblem(input: TextInput): String? {
 /** Which installed family each generic name is, which is the platform's answer. */
 internal fun genericFontFamily(family: GenericFamily): FontFamily = when (family) {
     GenericFamily.SystemUi -> platformUiFamily
-    GenericFamily.SansSerif -> FontFamily.SansSerif
+    GenericFamily.SansSerif -> platformSansSerifFamily
     GenericFamily.Serif -> FontFamily.Serif
     GenericFamily.Monospace -> FontFamily.Monospace
 }
