@@ -96,12 +96,12 @@ pub(crate) fn font_feature_attr(features: &[FontFeature]) -> OwnedAttr {
     {
         let kept = KEPT.read().unwrap_or_else(|p| p.into_inner());
         if let Some(found) = kept.iter().find(|list| **list == bytes) {
-            return OwnedAttr::Blob(*found);
+            return OwnedAttr::Blob(found);
         }
     }
     let mut kept = KEPT.write().unwrap_or_else(|p| p.into_inner());
     if let Some(found) = kept.iter().find(|list| **list == bytes) {
-        return OwnedAttr::Blob(*found);
+        return OwnedAttr::Blob(found);
     }
     if kept.len() >= MAX_KEPT_LISTS {
         return OwnedAttr::Bytes(bytes.to_vec());
