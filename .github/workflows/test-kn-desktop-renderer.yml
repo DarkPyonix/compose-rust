@@ -326,7 +326,7 @@ jobs:
       - name: The drawing keeps up with the right edge under a compositing manager
         # The same measurement with picom compositing the screen (xrender backend, no GPU), so
         # a frame the compositor presents late shows up as lag. The bound stays 0 px.
-        if: always() && matrix.module == 'linux'
+        if: ${{ !cancelled() && matrix.module == 'linux' }}
         env:
           LIVE_RESIZE_WM: picom-openbox
         run: |
@@ -348,7 +348,7 @@ jobs:
         # The application as an X client of Xwayland under headless weston. weston does not see
         # xdotool's input, so the script resizes with xdotool windowsize and captures the window
         # itself. The bound stays 0 px.
-        if: always() && matrix.module == 'linux'
+        if: ${{ !cancelled() && matrix.module == 'linux' }}
         env:
           LIVE_RESIZE_WM: xwayland
         run: |
