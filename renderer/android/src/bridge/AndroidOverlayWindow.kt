@@ -1,86 +1,73 @@
 package dev.darkpyonix.composerust.ui.platform
 
-import android.content.Context
-import android.os.Build
-import android.view.View
+import android.view.Window
 import android.view.WindowManager
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
-import dev.darkpyonix.composerust.foundation.platformOverlayWindow
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import dev.darkpyonix.composerust.foundation.platformModalOverlayWindow
 
 /**
- * Keeps the keyboard from moving the window a sheet or a dialog is drawn in.
+ * Draws a sheet or a dialog in a window that covers the whole screen.
  *
- * On Android each of them is a window of its own, and a focusable window with nothing said
- * about the keyboard is shrunk to the space above it. The scrim inside it then covered only
- * that space and was centred on the screen, so it started part way down and left the top
- * of the screen undimmed. Told to leave the window alone, the scrim keeps covering the
- * whole screen and the renderer lifts the sheet's own surface above the keyboard by the
- * inset the application's window reports.
+ * Compose's popup, which the other platforms use, is measured against the parent window's
+ * visible frame on Android. That frame leaves out the gesture bar and the on-screen
+ * keyboard, so the scrim stopped above the gesture bar, and with the keyboard up the whole
+ * overlay was only as tall as the space above it. The renderer then lifted the sheet by the
+ * keyboard a second time inside that window and the sheet collapsed to its drag handle.
+ * No popup property changes what the popup is measured against.
  *
- * The window itself is as big as the application's and sits at its corner, which the
- * renderer asks the popup for (`ModalOverlayProperties`, `ModalOverlayPositionProvider`);
- * this is only what the popup has no property for.
+ * A dialog window does what the popup cannot. Not fitting the system windows and not held to
+ * the platform's dialog width, it is laid out edge to edge and, with content that fills it,
+ * as big as the screen, status bar, gesture bar and camera cutout included. Its size does
+ * not change with the keyboard: the keyboard is reported to the window as an inset, which
+ * the renderer reads inside it and lifts only the overlay's surface by.
  *
- * The layout parameters are the popup's own object, the one it hands back to the window
- * manager whenever it moves, so the setting stays through every later update. The content
- * can be composed before the popup's window is added, so a view that is not attached yet
- * is told when it is.
+ * Back reaches the overlay either way: as a key the renderer's own handler takes, or, where
+ * the system sends Back to the window's back dispatcher instead, through the dialog's
+ * dismissal, which is the same answer.
  */
 internal fun installAndroidOverlayWindow() {
-    platformOverlayWindow = {
-        val view = LocalView.current
-        SideEffect {
-            if (view.isAttachedToWindow) {
-                leaveForTheKeyboard(view)
-            } else {
-                view.addOnAttachStateChangeListener(
-                    object : View.OnAttachStateChangeListener {
-                        override fun onViewAttachedToWindow(attached: View) {
-                            attached.removeOnAttachStateChangeListener(this)
-                            leaveForTheKeyboard(attached)
-                        }
-
-                        override fun onViewDetachedFromWindow(detached: View) = Unit
-                    },
-                )
-            }
+    platformModalOverlayWindow = { _, onBack, content ->
+        Dialog(
+            onDismissRequest = onBack,
+            properties = DialogProperties(
+                dismissOnBackPress = true,
+                // The scrim covers the whole window and answers a press itself.
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+            SideEffect { window?.let(::coverTheScreen) }
+            content()
         }
     }
 }
 
 /**
- * Sets the window holding [view] to be neither resized nor panned for the keyboard, and to
- * reach into a display cutout the way the application's own window does.
+ * What the dialog window has no property for.
  *
- * The application's window is edge to edge and so runs under the camera cutout. An overlay
- * window left with the default cutout mode can be kept out of it, which leaves a strip along
- * that edge that the scrim does not dim.
+ * The scrim is the renderer's, in the design system's colour, so the platform's own dim
+ * behind a dialog goes; left on, it darkens the scrim a second time. The window appears
+ * as the popup did, without the platform's dialog animation. It fills the screen whatever
+ * its content measured, and it is neither resized nor panned for the keyboard: the dialog
+ * asks for that itself from Android 12, and asks to be resized before it.
  */
-private fun leaveForTheKeyboard(view: View) {
-    val root = view.rootView
-    val params = root.layoutParams as? WindowManager.LayoutParams ?: return
-    var changed = false
-    val adjust = params.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST
+private fun coverTheScreen(window: Window) {
+    window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+    window.setDimAmount(0f)
+    window.setWindowAnimations(0)
+    window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+    val mode = window.attributes.softInputMode
+    val adjust = mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST
     if (adjust != WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING) {
-        params.softInputMode =
-            (params.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-        changed = true
+        window.setSoftInputMode(
+            (mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING,
+        )
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        // The same modes enableEdgeToEdge gives the application's window.
-        val cutout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-        } else {
-            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        if (params.layoutInDisplayCutoutMode != cutout) {
-            params.layoutInDisplayCutoutMode = cutout
-            changed = true
-        }
-    }
-    if (!changed) return
-    val manager = view.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    manager.updateViewLayout(root, params)
 }

@@ -1,10 +1,15 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -19,10 +24,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import dev.darkpyonix.composerust.foundation.ModalOverlayPositionProvider
-import dev.darkpyonix.composerust.foundation.ModalOverlayProperties
 import dev.darkpyonix.composerust.foundation.bottomSheetHeight
 import dev.darkpyonix.composerust.foundation.dialogTestTag
+import dev.darkpyonix.composerust.foundation.platformModalOverlayWindow
 import dev.darkpyonix.composerust.foundation.sheetScrimTestTag
 import dev.darkpyonix.composerust.foundation.sheetTestTag
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -46,7 +53,6 @@ import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val PAGE = 1
@@ -63,6 +69,12 @@ private val HEIGHT = 800.dp
 
 /** About what a phone keyboard covers in portrait. */
 private val KEYBOARD = 300.dp
+
+/**
+ * The keyboard as an overlay's own window reports it, where a test gives the overlay a
+ * window of its own. Null everywhere else, where the faked keyboard is the one reported.
+ */
+private val LocalOverlayKeyboard = compositionLocalOf<Dp?> { null }
 
 /** A clock above and a gesture bar below. */
 private val PHONE = SystemBars(top = 24.dp, bottom = 48.dp)
@@ -389,19 +401,65 @@ class KeyboardInsetTest {
     }
 
     /**
-     * A sheet's or a dialog's window is measured against the whole window.
+     * A sheet is lifted by as much of the keyboard as covers its own window, not by what
+     * covers the page.
      *
-     * Android measures and places a clipped popup inside the parent window's visible frame,
-     * which leaves out the status bar, the gesture bar and the keyboard. That is what put
-     * the top of the todo sheet's scrim below the status bar and made its window only as
-     * tall as the space above the keyboard. A desktop popup has no such frame, so this is
-     * checked on the properties the Android popup reads rather than on a layout.
+     * Android put the todo sheet in a window that already ended at the keyboard's top edge,
+     * so none of the keyboard was over it. The sheet was lifted by the page's keyboard inset
+     * all the same, a second time, and collapsed to its drag handle. This puts the sheet in
+     * a window shaped like that one: as tall as the space above the keyboard, reporting no
+     * keyboard of its own, while the page's window reports the keyboard.
      */
     @Test
-    fun fr19_a_modal_overlay_window_is_not_clipped_to_the_visible_frame() {
-        assertFalse(ModalOverlayProperties.clippingEnabled, "the overlay is measured against the visible frame")
-        assertTrue(ModalOverlayProperties.focusable, "a field in the overlay cannot take the keyboard")
-        assertFalse(ModalOverlayProperties.dismissOnBackPress, "Back closes the overlay behind the renderer's back")
+    fun fr19_a_sheet_is_lifted_only_by_the_keyboard_over_its_own_window() {
+        val previousInset = platformKeyboardInset
+        val previousWindow = platformModalOverlayWindow
+        val aboveKeyboard = 468.dp
+        platformKeyboardInset = { LocalOverlayKeyboard.current ?: KEYBOARD }
+        platformModalOverlayWindow = { onDismissRequest, _, content ->
+            Popup(
+                alignment = Alignment.TopStart,
+                properties = PopupProperties(focusable = true),
+                onDismissRequest = onDismissRequest,
+            ) {
+                CompositionLocalProvider(LocalOverlayKeyboard provides 0.dp) {
+                    Box(Modifier.fillMaxWidth().height(aboveKeyboard)) { content() }
+                }
+            }
+        }
+        try {
+            runComposeUiTest {
+                setContent {
+                    CompositionLocalProvider(
+                        LocalFrameRequests provides frames,
+                        LocalDensity provides Density(1f),
+                    ) {
+                        ComposeRustContent(
+                            rememberComposeRustHost(FakeHostConnection(SHEET_TREE)),
+                            Modifier.requiredSize(WIDTH, HEIGHT),
+                        )
+                    }
+                }
+                waitForIdle()
+                val scrim = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                val field = onNodeWithTag(nodeTestTag(FIELD)).getBoundsInRoot()
+
+                assertNear(aboveKeyboard, scrim.height, "the overlay window's height")
+                assertNear(scrim.bottom, sheet.bottom, "the sheet's bottom edge in a window the keyboard does not cover")
+                assertTrue(
+                    sheet.height.value >= aboveKeyboard.value * 0.4f,
+                    "the sheet is ${sheet.height} tall in a window of $aboveKeyboard",
+                )
+                assertTrue(
+                    field.top.value >= sheet.top.value - 1f && field.bottom.value <= sheet.bottom.value + 1f,
+                    "the field at $field is not inside the sheet at $sheet",
+                )
+            }
+        } finally {
+            platformKeyboardInset = previousInset
+            platformModalOverlayWindow = previousWindow
+        }
     }
 
     /**
