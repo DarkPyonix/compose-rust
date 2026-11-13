@@ -13,8 +13,10 @@
 //   2. It compiles the Host. Compiling needs no imports.
 //   3. The Renderer's module is instantiated with its boundary imports bound to the
 //      trampoline's functions, which is what creates the memory.
-//   4. The Renderer's `main` instantiates the Host on that memory, synchronously, because
-//      the module was already compiled in step 2, and puts the Host's exports in the table.
+//   4. The Renderer's `main` instantiates the Host on that memory and puts the Host's
+//      exports in the table. The instantiation is asynchronous, because a browser refuses
+//      to instantiate a module over 8MB synchronously on its main thread; the Renderer
+//      starts drawing once it has settled.
 //
 // JavaScript wires the modules together here and is not on any call afterwards. Step 4
 // needs the memory and the Renderer's own exports, and only the Renderer's module can name
