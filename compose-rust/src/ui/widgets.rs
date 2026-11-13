@@ -19,7 +19,7 @@ use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
     HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
     Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
@@ -1906,6 +1906,7 @@ pub struct SliderScope {
     enabled: bool,
     accessible_name: Option<String>,
     look: ControlLook,
+    thumb_size: Option<f32>,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1923,6 +1924,7 @@ pub fn Slider(value: f32) -> SliderScope {
         enabled: true,
         accessible_name: None,
         look: ControlLook::default(),
+        thumb_size: None,
         on_change: None,
         done: false,
     }
@@ -1968,6 +1970,14 @@ impl SliderScope {
         self
     }
 
+    /// The thumb's diameter in dp. Without it the design system picks the size. The track
+    /// and the area that takes a press do not change with it, so a small thumb is still
+    /// easy to grab.
+    pub fn thumb_size(mut self, dp: f32) -> Self {
+        self.thumb_size = Some(dp);
+        self
+    }
+
     pub fn on_change(mut self, handler: impl FnMut(f32) + 'static) -> Self {
         self.on_change = Some(std::boxed::Box::new(handler));
         self
@@ -1975,6 +1985,7 @@ impl SliderScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
+        let thumb_size = self.thumb_size;
         let (color, value, min, max, steps, enabled) = (
             self.color,
             self.value,
@@ -2004,6 +2015,9 @@ impl SliderScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 push_accessible_name(accessible_name, attrs);
                 look.push(attrs);
+                if let Some(dp) = thumb_size {
+                    attrs.push(("thumb_size", OwnedAttr::Float(f64::from(dp))));
+                }
             },
             vec![("onchange", handler)],
             content,
@@ -2124,6 +2138,7 @@ pub struct AssetScope {
     widget: WidgetKind,
     asset_id: u32,
     color: Option<Paint>,
+    content_scale: Option<ContentScale>,
     done: bool,
 }
 
@@ -2134,6 +2149,7 @@ pub fn Image(asset_id: u32) -> AssetScope {
         widget: WidgetKind::Image,
         asset_id,
         color: None,
+        content_scale: None,
         done: false,
     }
 }
@@ -2145,6 +2161,7 @@ pub fn Icon(asset_id: u32) -> AssetScope {
         widget: WidgetKind::Icon,
         asset_id,
         color: None,
+        content_scale: None,
         done: false,
     }
 }
@@ -2156,9 +2173,20 @@ impl AssetScope {
         self
     }
 
+    /// How the picture is laid into its box. An image only; an icon takes its design
+    /// system's optical size instead.
+    ///
+    /// Not calling it draws `ContentScale::Fit`, the whole picture in its own proportions.
+    /// `ContentScale::FillBounds` stretches it to the box, as CSS `object-fit: fill` does.
+    pub fn content_scale(mut self, scale: ContentScale) -> Self {
+        self.content_scale = Some(scale);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, asset_id, color) = (self.widget, self.asset_id, self.color);
+        let content_scale = self.content_scale;
         let key = if widget == WidgetKind::Icon {
             widget_key("compose_rust::ui::Icon")
         } else {
@@ -2172,6 +2200,11 @@ impl AssetScope {
                 attrs.push(("asset", OwnedAttr::Int(i64::from(asset_id))));
                 if widget == WidgetKind::Icon {
                     attrs.push(("color", paint_or_zero(color)));
+                }
+                // A picture that never chose is not sent a choice, so it reaches the
+                // Renderer exactly as it did before there was one.
+                if let (WidgetKind::Image, Some(scale)) = (widget, content_scale) {
+                    attrs.push(("content_scale", OwnedAttr::Int(i64::from(u16::from(scale)))));
                 }
             },
             Vec::new(),

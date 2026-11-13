@@ -11,10 +11,12 @@ import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -953,6 +955,36 @@ class NodeTable {
                 return
             }
         }
+        if (mutation.property == PropertyKind.ContentScale) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..ContentScale.entries.size.toLong()) {
+                // A scale this renderer does not know is a newer or a broken Host. The
+                // picture is drawn the way one that never chose is, whole and in its own
+                // proportions, rather than guessed at.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "image ${node.id} was given content scale $tag, which is not Fit (1), " +
+                        "Crop (2) or FillBounds (3); it is drawn as Fit",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
+        if (mutation.property == PropertyKind.TextAlign) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
+                // A tag this side has no alignment for. Guessing one would put the text on
+                // a side nobody asked for, so it is dropped and the text takes its default.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "node ${node.id} was given text alignment tag $tag, which is not one of " +
+                        "${TextAlign.entries.joinToString()} (1 to ${TextAlign.entries.size}); " +
+                        "the text takes its default alignment",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
@@ -987,6 +1019,17 @@ class NodeTable {
             return
         }
         val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.BackgroundBrush && !(modifier.tile_width > 0f && modifier.tile_height > 0f)) {
+            // A step that is not a size has no copies to place: a repeat would never end and
+            // a single copy has no tile to be. The modifier is refused and the slot keeps
+            // what it held.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "BackgroundBrush modifier on node ${mutation.nodeId} repeats every " +
+                    "${modifier.tile_width} by ${modifier.tile_height} dp; both must be more than zero",
+            )
+            return
+        }
         if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
             // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
             // would announce a control as something it is not, so the modifier is refused
@@ -1215,6 +1258,7 @@ class NodeTable {
                 -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+                PropertyKind.ThumbSize -> widget == WidgetKind.Slider
 
                 // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
@@ -1646,6 +1690,10 @@ class NodeTable {
 
                 // The tallest a sheet grows. A dialog sizes itself to its content.
                 PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
+
+                // How a picture is laid into its box. An icon takes its design system's
+                // optical size, so only an image has a box to lay it into.
+                PropertyKind.ContentScale -> widget == WidgetKind.Image
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
