@@ -18,7 +18,7 @@ fn fr7_generated_kotlin_matches_schema() {
     assert!(generated.contains("27 -> PropertyKind.Progress"));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown widget tag $tag\""));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown property tag $tag\""));
-    assert!(generated.contains("enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }"));
+    assert!(generated.contains("enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }"));
     assert!(generated.contains(
         "data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent"
     ));
