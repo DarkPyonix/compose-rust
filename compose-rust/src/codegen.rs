@@ -3629,6 +3629,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // The width a split pane stacks below, with a fraction so that a value read from
+        // the wrong half of the record cannot pass.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::CollapseBelow,
+            value: PropertyValue::Float(720.5),
+        },
         // The overlay tokens with every field set to its own value, the transient
         // message's two at the end of the record, before the record that stays last.
         Mutation::SetOverlayTokens(

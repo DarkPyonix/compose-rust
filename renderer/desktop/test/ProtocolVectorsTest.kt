@@ -287,6 +287,19 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The width a split pane stacks below decodes to the float the Host wrote, under the tag
+     * after the split pane's `Collapsible`.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_round_trips() {
+        assertEquals(
+            listOf(Mutation.SetProp(2, PropertyKind.CollapseBelow, PropertyValue.Float(720.5f))),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+                .filter { it.property == PropertyKind.CollapseBelow },
+        )
+    }
+
+    /**
      * The storage request and both events, read from and encoded to the bytes the Host
      * wrote: a request, an operation and three references; two words and a reference to the
      * bytes; and one string reference.

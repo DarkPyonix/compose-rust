@@ -3411,6 +3411,7 @@ pub struct SplitPaneScope {
     min: Option<f32>,
     max: Option<f32>,
     collapsible: bool,
+    collapse_below: Option<f32>,
     selected_index: usize,
     label: Option<String>,
     on_change: Option<Box<dyn FnMut(f32)>>,
@@ -3427,6 +3428,7 @@ pub fn SplitPane() -> SplitPaneScope {
         min: None,
         max: None,
         collapsible: false,
+        collapse_below: None,
         selected_index: 0,
         label: None,
         on_change: None,
@@ -3457,6 +3459,19 @@ impl SplitPaneScope {
         self
     }
 
+    /// The split pane's own width in dp below which it shows one pane at a time, the one
+    /// `selected_index` names. At or above it the panes are never stacked, and the design
+    /// system still decides between two columns and a side pane laid over the body.
+    ///
+    /// Without it the line is the size class's: stacked below 600 dp. 0 is the same as not
+    /// calling this. The width is measured on the Renderer, so crossing the line sends the
+    /// Host nothing. A negative or non-finite width is reported as a protocol error and
+    /// the split pane is drawn as if it had none.
+    pub fn collapse_below(mut self, dp: f32) -> Self {
+        self.collapse_below = Some(dp);
+        self
+    }
+
     /// Which pane shows when only one fits: 0 the side pane, 1 the body.
     pub fn selected_index(mut self, index: usize) -> Self {
         self.selected_index = index;
@@ -3482,11 +3497,12 @@ impl SplitPaneScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let label = self.label.take();
-        let (value, min, max, collapsible, selected_index) = (
+        let (value, min, max, collapsible, collapse_below, selected_index) = (
             self.value,
             self.min,
             self.max,
             self.collapsible,
+            self.collapse_below,
             self.selected_index,
         );
         let change = match self.on_change.take() {
@@ -3507,6 +3523,7 @@ impl SplitPaneScope {
                 attrs.push(("min", as_float(min)));
                 attrs.push(("max", as_float(max)));
                 attrs.push(("collapsible", OwnedAttr::Bool(collapsible)));
+                attrs.push(("collapse_below", as_float(collapse_below)));
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("text", optional_text(label)));
             },
