@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.ui.node
 
 import android.graphics.BitmapFactory
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -90,3 +91,6 @@ internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): Fo
 
 /** Draws the document into the whole of the current drawing area. */
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) = drawSvgDocument(document)
+
+/** The size the document says it is in its own units, or null where it says none. */
+internal fun vectorIntrinsicSize(document: VectorDocument): Size? = document.intrinsicSize
