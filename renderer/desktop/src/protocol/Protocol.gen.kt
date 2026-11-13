@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, MaxHeightFraction, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Snap, MaxHeightFraction, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -123,6 +123,8 @@ enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
 enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
 enum class CompactNavigation { Sidebar, None }
+
+enum class Snap { ItemStart }
 
 enum class StorageOp { Read, Write, Remove, Keys }
 
@@ -1591,7 +1593,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 3656562368380844974L
+    const val SCHEMA_HASH: Long = -5141307034944019668L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2715,6 +2717,7 @@ object Protocol {
         184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
+        188 -> PropertyKind.Snap
         189 -> PropertyKind.MaxHeightFraction
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
@@ -3417,6 +3420,11 @@ object Protocol {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
         else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
+    }
+
+    private fun snap(tag: Int, offset: Int): Snap = when (tag) {
+        1 -> Snap.ItemStart
+        else -> throw ProtocolException("unknown Snap tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {

@@ -220,7 +220,7 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,max_height_fraction;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,snap,max_height_fraction;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
@@ -1573,6 +1573,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: COMPACT_NAVIGATION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "Snap",
+        variants: SNAP_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "StorageOp",
         variants: STORAGE_OP_SCHEMA,
     },
@@ -1694,6 +1698,21 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     None = 2,
 } unlisted {
     Default = 0,
+});
+
+// Where a scroll container comes to rest once a drag or a fling ends.
+//
+// `None` is free scrolling: the container stops wherever the drag or the fling left it. It
+// travels as tag 0, which is the same as not sending the property, so it is not in the
+// schema table.
+//
+// `ItemStart` stops with the start edge of the nearest direct child on the start of the
+// visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
+// does.
+define_wire_enum!(SNAP_SCHEMA, Snap {
+    ItemStart = 1,
+} unlisted {
+    None = 0,
 });
 
 // How the application uses windows. `Single` is every application until now: the
@@ -3556,10 +3575,13 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // block, so it takes the number after the last one in use: 169 to 184 are held by
     // properties other requirements have numbered.
     OnScrollChanged = 186,
+    // Where a `ScrollRow` or `ScrollColumn` comes to rest, as a `Snap` tag. Absent or 0 is
+    // free scrolling. 187 is held by a property on another branch.
+    Snap = 188,
     // The tallest a `Sheet` grows, as an `f32` fraction of the window's height above 0 and
     // at most 1. Below it the sheet is as tall as its content; at it the content scrolls.
-    // Absent leaves the height to the design system. 187 and 188 are held by properties on
-    // other branches.
+    // Absent leaves the height to the design system. 187 is held by a property on another
+    // branch.
     MaxHeightFraction = 189,
 });
 
