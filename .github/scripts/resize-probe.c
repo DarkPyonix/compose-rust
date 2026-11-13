@@ -494,9 +494,18 @@ static void calibrate_markers(void) {
     for (int r = 0; r < MARKER_ROWS; r++) {
         scan_line(0, marker_row_y[r], scan_box.left, scan_box.right, &rows[r]);
         if (!row_has_markers(&rows[r])) {
-            say("markers: none at rest on row y=%d (window %d..%d, left marker %d..%d, right marker %d..%d)",
-                marker_row_y[r], rows[r].first, rows[r].last, rows[r].lead0, rows[r].lead1, rows[r].trail0,
-                rows[r].trail1);
+            /* Both scans finding the same run means there is one green run on the row, and
+             * which end of the window it is nearer tells which marker is missing. */
+            if (rows[r].lead0 >= 0 && rows[r].lead0 == rows[r].trail0) {
+                int nearer_left = rows[r].lead0 - rows[r].first <= rows[r].last - rows[r].trail1;
+                say("markers: only one at rest on row y=%d, at x=%d..%d (window %d..%d): the %s marker is missing",
+                    marker_row_y[r], rows[r].lead0, rows[r].lead1, rows[r].first, rows[r].last,
+                    nearer_left ? "right" : "left");
+            } else {
+                say("markers: none at rest on row y=%d (window %d..%d, left marker %d..%d, right marker %d..%d)",
+                    marker_row_y[r], rows[r].first, rows[r].last, rows[r].lead0, rows[r].lead1, rows[r].trail0,
+                    rows[r].trail1);
+            }
             return;
         }
         rest_lead_gap[r] = rows[r].lead0 - rows[r].first;
