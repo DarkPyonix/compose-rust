@@ -20,6 +20,7 @@ import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.ime
@@ -334,6 +335,25 @@ fun rememberComposeRustHost(connection: HostConnection): ComposeRustHost {
 fun rememberStartedComposeRustHost(host: ComposeRustHost): ComposeRustHost {
     DisposableEffect(host) { onDispose { host.shutdown() } }
     return host
+}
+
+/**
+ * The content of one real window: [ComposeRustContent] filling the whole window.
+ *
+ * What [ComposeRustContent] measures is what the Host is told the window's size is, and a
+ * Compose root wraps its content unless asked to fill. A window whose tree is one line of
+ * text would then report one line of text. Every platform window draws through this, so
+ * none of them can forget the fill; a caller embedding the content in a larger Compose
+ * layout calls [ComposeRustContent] and sizes it itself.
+ */
+@Composable
+fun WindowContent(
+    host: ComposeRustHost,
+    modifier: Modifier = Modifier,
+    caption: WindowCaption = WindowCaption.None,
+    windowNodeId: Int = 0,
+) {
+    ComposeRustContent(host, Modifier.fillMaxSize().then(modifier), caption, windowNodeId)
 }
 
 /**

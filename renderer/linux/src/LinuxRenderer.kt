@@ -1,6 +1,6 @@
 package dev.darkpyonix.composerust.ui.platform
 
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import kotlinx.cinterop.ByteVar
@@ -84,7 +84,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // The bus is read on this thread every turn, because there is no other thread to read it
     // on and nothing else would notice a press arriving while the window is idle.
     window.onTurn = { host.table.notifications.pump() }
-    window.setContent { ComposeRustContent(host) }
+    window.setContent { WindowContent(host) }
     try {
         window.run()
     } finally {
@@ -107,7 +107,7 @@ private fun runWindows(
     main: FrameDispatcher,
     opened: (LinuxWindowBackend) -> Unit,
 ): Int {
-    val backend = LinuxWindowBackend(main) { nodeId -> { ComposeRustContent(host, windowNodeId = nodeId) } }
+    val backend = LinuxWindowBackend(main) { nodeId -> { WindowContent(host, windowNodeId = nodeId) } }
     opened(backend)
     val manager = WindowManager(host, backend, onExit = backend::requestExit, dropTargets = DropTargets.Registered)
     val frames = CoroutineScope(main + Job())
