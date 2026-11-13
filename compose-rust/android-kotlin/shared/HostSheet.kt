@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.layout
+import dev.darkpyonix.composerust.ui.floatProp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -28,7 +32,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -226,6 +229,10 @@ internal fun HostSheet(
         Modifier
     }
 
+    val maxHeight = node.floatProp(PropertyKind.MaxHeightFraction)
+        ?.takeIf { it > 0f && !it.isNaN() }
+        ?.coerceAtMost(1f)
+
     val explicitSheetPad = theme.overlay?.sheetPadding
     val sheetPadding = if (node.setsOwnPadding()) {
         Modifier
@@ -257,26 +264,42 @@ internal fun HostSheet(
             // and before the keyboard is taken off, so the keyboard moves it rather than
             // shrinking it. The keyboard's strip is part of what is measured here and is
             // left empty by the padding below.
-            val tall = if (bottom) {
+            //
+            // Where the application gave the sheet a tallest height, that share of the
+            // window is a ceiling rather than a height: the sheet is as tall as its content
+            // up to it, and the content scrolls past it. The keyboard still moves it rather
+            // than shrinking it, on either edge.
+            val tall = if (bottom || maxHeight != null) {
                 Modifier.layout { measurable, constraints ->
                     if (!constraints.hasBoundedHeight) {
                         val placeable = measurable.measure(constraints)
                         return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                     }
                     val window = constraints.maxHeight.toDp()
-                    val height = (bottomSheetHeight(window, style.heightFraction, keyboard, top) + keyboard)
+                    val sheet = when {
+                        bottom -> bottomSheetHeight(window, maxHeight ?: style.heightFraction, keyboard, top)
+                        else -> window * maxHeight!!
+                    }
+                    val height = (sheet + keyboard)
                         .roundToPx()
                         .coerceIn(constraints.minHeight, constraints.maxHeight)
-                    val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+                    val placeable = measurable.measure(
+                        if (maxHeight == null) {
+                            constraints.copy(minHeight = height, maxHeight = height)
+                        } else {
+                            constraints.copy(minHeight = 0, maxHeight = height)
+                        },
+                    )
                     layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                 }
             } else {
                 Modifier
             }
-            val sized = if (bottom) {
-                Modifier.fillMaxWidth().fillMaxHeight()
-            } else {
-                Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
+            val sized = when {
+                maxHeight != null && bottom -> Modifier.fillMaxWidth()
+                maxHeight != null -> Modifier.fillMaxWidth(style.widthFraction)
+                bottom -> Modifier.fillMaxWidth().fillMaxHeight()
+                else -> Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
             }
             val aboveKeyboard = Modifier.padding(bottom = keyboard)
             // Two boxes rather than one: the outer is the sheet itself, which is what is
@@ -325,14 +348,32 @@ internal fun HostSheet(
                             )
                         }
                     }
-                    node.children.forEach { childId ->
-                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    if (maxHeight == null) {
+                        node.children.forEach { childId ->
+                            key(childId) { RenderNode(childId, table, dispatcher) }
+                        }
+                    } else {
+                        // The handle stays put and only what the application put in the
+                        // sheet scrolls.
+                        Column(
+                            Modifier
+                                .testTag(sheetContentTestTag(node.id))
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            node.children.forEach { childId ->
+                                key(childId) { RenderNode(childId, table, dispatcher) }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/** Test tag of the scrolling content of a sheet that has a tallest height. */
+fun sheetContentTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet-content"
 
 /** Test tag of the sheet's own surface, which is its own window, not part of the tree. */
 fun sheetTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet"

@@ -1464,6 +1464,9 @@ class NodeTable {
                 // by item through their own state and do not take it.
                 PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
 
+                // The tallest a sheet grows. A dialog sizes itself to its content.
+                PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
+
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
                 PropertyKind.Progress -> widget == WidgetKind.LinearProgressIndicator
