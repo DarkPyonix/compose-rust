@@ -590,7 +590,7 @@ class MacosMultiWindowTest {
     @Test
     fun fr33_macos_right_click_puts_up_one_menu_and_it_is_compose_s() {
         NSApplication.sharedApplication()
-        val backend = MacosWindowBackend { _, _, _, _ -> {} }
+        val backend = MacosWindowBackend(scene = { _, _, _, _ -> {} })
         val window = assertNotNull(backend.open(config(1), Recorder())) as MacosPlatformWindow
         try {
             // The text field's NSMenu comes from Compose; the window adding its own would be two.
@@ -605,7 +605,7 @@ class MacosMultiWindowTest {
     @Test
     fun fr19_macos_window_minimum_size_reaches_content_min_size() {
         NSApplication.sharedApplication()
-        val backend = MacosWindowBackend { _, _, _, _ -> {} }
+        val backend = MacosWindowBackend(scene = { _, _, _, _ -> {} })
         val window = assertNotNull(backend.open(config(1, minWidth = 240f, minHeight = 150f), Recorder()))
         try {
             window.native().contentMinSize.useContents {
@@ -641,6 +641,7 @@ class MacosMultiWindowTest {
         assertEquals(0, bytes[5])
         assertEquals(0, bytes[6])
         assertEquals(128, bytes[7])
+    }
 
     @Test
     fun fr53_macos_window_requested_matches_restore_key() {
