@@ -95,14 +95,14 @@ pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
-    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EditGroupStatus, EventPayload,
-    GenericFamily, GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole,
-    MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
-    PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH, Selection,
-    SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode,
-    TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
+    ColorRole, ColorScheme, CompactNavigation, ContentScale, DecorationKind, DesignSystem,
+    EditGroupStatus, EventPayload, GenericFamily, GutterDecorationKind, HoverPhase, IconRole, Key,
+    LoopMode, MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
+    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
+    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

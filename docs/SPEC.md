@@ -160,6 +160,8 @@ Host 측 규칙:
 1. 새 키마다 태그가 위 값이고 인코딩 후 디코딩해도 같습니다(fr12_named_keys_are_appended_and_round_trip).
 2. Renderer가 Compose의 해당 키를 각 이름으로 보냅니다(fr12_named_keys_map_to_their_protocol_key).
 
+**기능 키와 메뉴 키**(이슈 #717, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Key`에 `F1`부터 `F12`(15부터 26)와 `ContextMenu`(27)를 덧붙입니다(추가 전용). Renderer는 Compose의 해당 키를 그 이름으로 보냅니다. Shift+F10은 Shift 수정자를 가진 `F10`입니다. 수용 기준: F2, F12, Shift+F10, Menu 키가 각각 그 이름과 수정자로 옵니다(fr12_function_and_context_menu_keys).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**
@@ -4174,6 +4176,8 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 색과 크기를 준 컨트롤에서 그 속성을 제거하면(제거 전달 뒤) 측정 크기와 색이 디자인 시스템 기본값으로 돌아옵니다. 시험 이름은 `fr67_`로 시작합니다.
 
 **RadioButton의 색과 크기, 라디오 묶음**(이슈 #545, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `RadioButton`에 `ring_color`, `dot_color`, `size(side)`가 있습니다. Checkbox와 같은 방식으로 기존 `ContainerColor`, `CheckColor`, `ControlSize` 속성을 씁니다. 지정하지 않으면 디자인 시스템이 그립니다(일곱 시스템 모두). `Column`과 `Row`의 `radio_group(true)`(속성 `RadioGroup`, 속성 태그 198, bool)는 그 노드에 접근성 역할 radiogroup을 주고, 그 안의 RadioButton들은 탭 정지 하나(선택된 것, 없으면 첫째)를 나누며 위, 아래, 왼쪽, 오른쪽 화살표가 선택을 옮깁니다. 옮기면 그 버튼의 `on_click`이 한 번 가고, 선택 상태는 Host가 정합니다. 수용 기준: 세 버튼 묶음에서 Tab은 묶음에 한 번만 멈추고, 아래 화살표가 다음 버튼의 클릭을 한 번 보내며 포커스를 옮깁니다(fr67_radio_group_arrow_keys_move_the_selection). `ring_color`를 준 버튼의 고리 픽셀이 그 색입니다(fr67_radio_button_colours).
+
+**Slider 손잡이 크기**(이슈 #718, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Slider::thumb_size(dp)`(속성 `ThumbSize`, 속성 태그 202, f32). 지정하지 않으면 디자인 시스템의 크기입니다. 트랙 높이와 누르는 영역은 바뀌지 않습니다(누르는 영역은 최소 44dp를 지킵니다). 수용 기준: `thumb_size(12)`인 슬라이더의 손잡이 지름이 12dp이고, 손잡이를 끌면 값이 바뀝니다(fr67_slider_thumb_size).
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
