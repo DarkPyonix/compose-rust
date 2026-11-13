@@ -107,7 +107,6 @@ Where work exists, it sits in an open pull request or a branch.
 
 | Item | Status | Issue | Work in progress |
 |---|---|---|---|
-| Direct Kotlin to Rust calls on the web, replacing the JavaScript forwarder | partial | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
 | 3D transforms | planned | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | none |
 | HTML text properties and the measure call | partial | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | branch `feat/measure-call` |
 | OS text size and app zoom | partial | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77) (OS text size on the desktop only) |

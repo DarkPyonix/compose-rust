@@ -100,7 +100,6 @@ fn main() {
 
 | 항목 | 상태 | 이슈 | 진행 중인 작업 |
 |---|---|---|---|
-| 웹에서 JavaScript 포워더 대신 Kotlin에서 Rust로 직결 호출 | 부분 | [#54](https://github.com/DarkPyonix/compose-rust/issues/54) | [#84](https://github.com/DarkPyonix/compose-rust/pull/84) |
 | 3D 변환 | 계획 | [#105](https://github.com/DarkPyonix/compose-rust/issues/105) | 없음 |
 | HTML 텍스트 속성과 측정 호출 | 부분 | [#106](https://github.com/DarkPyonix/compose-rust/issues/106) | `feat/measure-call` 브랜치 |
 | OS 글자 크기와 앱 확대 | 부분 | [#68](https://github.com/DarkPyonix/compose-rust/issues/68) | [#77](https://github.com/DarkPyonix/compose-rust/pull/77)(데스크톱의 OS 글자 크기만) |

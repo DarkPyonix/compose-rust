@@ -5292,13 +5292,13 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Agreed`)
+### PR-6 Web 경계 (`Done`)
 
 Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연결합니다. `LoopMode::Platform`입니다.
 
 **소유자 결정(2026-09-19): "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해".** 경계 호출은 어느 방향으로도 JS를 거치지 않습니다. 2026-09-20 실험이 Wasm 테이블을 거치는 `call_indirect` 트램펄린으로 이것이 가능함을 보였고, 2026-10-03 재측정(#54, PR #75, `experiments/web-interop/trampoline/`)이 같은 결과를 냈습니다. 이 항목과 INTENT가 한동안 "브라우저에서는 직접 바인딩과 메모리 공유를 함께 가질 수 없다"고 적고 있었던 것은 승인 없이 들어간 서술이었고, 사실도 아니었습니다.
 
-상태는 `Agreed`입니다. 코드젠을 트램펄린으로 바꾸는 작업(#54 (d))이 CI에서 확인되면 `Done`이 됩니다.
+상태는 `Done`입니다. 트램펄린 코드젠(#54 (d), #84)에서 수용 기준 1-7을 2026-11-13에 확인했습니다. 아래 "트램펄린 경로의 검증"을 보십시오.
 
 - **메모리: Kotlin이 소유합니다.** Kotlin/Wasm 모듈은 항상 자기 메모리를 정의해 export하며, 외부 메모리를 import하는 경로가 없습니다. 따라서 Rust가 `--import-memory`로 그 메모리를 가져다 씁니다. PR-4의 arena는 양쪽이 제자리에서 읽습니다. 복사는 없습니다.
 - **함수 호출: Renderer에서 Host로 가는 호출은 wasm 트램펄린을 거쳐 직접 갑니다.** 코드젠이 경계 함수마다 `call_indirect` 함수 하나를 담은 작은 wasm 모듈(트램펄린)을 만듭니다. 트램펄린은 `WebAssembly.Table` 하나를 import하고, Kotlin은 경계 함수마다 `@WasmImport`로 트램펄린의 export에 묶입니다. 호출은 wasm `call` 하나와 `call_indirect` 하나이며, 그 사이에 JS 프레임은 없습니다.
@@ -5329,6 +5329,13 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연�
   5. 생성된 Kotlin 선언, 생성된 트램펄린과 로더, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
   6. Web에서 64KiB `ClipboardText`, 32KiB `TextChanged`, 1MiB `IoAnswer`가 그대로 Host에 도착합니다(pr6_an_event_larger_than_the_lent_buffer_arrives_whole). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)
   7. 64MiB를 넘는 이벤트는 거절되고 아무것도 보내지 않습니다(pr6_an_event_past_the_ceiling_is_refused).
+
+**트램펄린 경로의 검증 (2026-11-13, #84, Apple silicon Mac, HeadlessChrome 149)**
+
+- 코드젠이 경계 Kotlin 선언을 모두 `@WasmImport`로 만들고 `@JsFun`은 `installHost` 하나만 남습니다. 생성 파일은 다시 생성해도 바뀌지 않습니다(`compose-rust/tests/web_boundary.rs` 19건 통과, 수용 기준 3, 5).
+- `renderer/web/scripts/test-boundary.sh`(`WebBoundaryTest`)를 세 번 돌려 모두 통과했습니다. 공유 메모리에서 제자리 읽기(기준 1), 클릭이 Host에 닿고 상태 변경이 돌아옴(기준 2, 4), 빌려준 버퍼보다 큰 이벤트(기준 6), 상한을 넘는 이벤트 거절(기준 7)입니다.
+- 경계 호출 비용(기준 3): **4.00 / 4.14 / 3.89 ns/call**(200만 회 호출 7세트의 최선값, 3회 측정), 같은 루프를 모듈 안에서 돌린 값 0.40 ns입니다. JS forwarder의 12.15~12.75 ns보다 약 3배 빠릅니다.
+- PR #75의 독립 측정(`experiments/web-interop/trampoline/`, Chrome for Testing 149 headless, 7회 중앙값): Kotlin에서 Rust로 6.94 ns(JS 경유 27.06 ns), Rust에서 Kotlin으로 2.33 ns(JS 경유 20.62 ns)입니다.
 
 아래는 JS forwarder를 쓰던 이전 경로의 검증 기록입니다. 수용 기준 1, 2, 4는 그 경로에서 충족되었고 메모리와 인스턴스화 순서는 바뀌지 않았지만, 호출 경로가 바뀌었으므로 트램펄린 코드젠에서 다시 확인합니다(#54).
 
