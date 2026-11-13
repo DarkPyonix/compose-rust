@@ -1973,10 +1973,14 @@ mod tests {
                     "at {width} dp a glyph in the bar has no name"
                 );
             }
+            // Some actions also stand elsewhere: in a wide window the list of documents has
+            // its own New at its head. Reachable from the bar means one of them is in it.
             for label in [NEW, MORE, SAVE, "Open", "Save as", "Format"] {
-                let (button, _) = editor.button(label);
                 assert!(
-                    editor.ancestors(button).contains(&bar),
+                    editor
+                        .buttons_named(label)
+                        .iter()
+                        .any(|button| editor.ancestors(*button).contains(&bar)),
                     "at {width} dp {label} cannot be reached from the bar"
                 );
             }
