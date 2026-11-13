@@ -219,7 +219,7 @@ class FontFeatureTest {
             errors.map { it.code },
             errors.map { it.message }.toString(),
         )
-        assertEquals(21, TableError.INVALID_FONT_FEATURES)
+        assertEquals(24, TableError.INVALID_FONT_FEATURES)
         // The process lives on and each text is drawn, without features.
         for (index in 0 until 3) {
             assertNull(host.table.node(FIRST + index)?.fontFeatures)

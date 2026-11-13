@@ -4,7 +4,7 @@
 
 ### Font features: tabular figures for timers and tables
 
-`Text::font_feature_settings(&[FontFeature])` and `TextField::font_feature_settings(&[FontFeature])` ask the font for OpenType features, such as `FontFeature::TABULAR_NUMS` for digits of one width, so a number that changes does not move the digits beside it. They are taken with or without a type role, because a feature picks a form the font already has rather than another font. The list travels as the new property 192 (`FontFeatureSettings`, 8-byte records, at most 16), and a node that does not call it sends exactly what it sent before. The Renderer makes Compose's `fontFeatureSettings` string once when the list arrives; a list it cannot read is protocol error 21 and the text is drawn without features. A font without the feature draws as it would have.
+`Text::font_feature_settings(&[FontFeature])` and `TextField::font_feature_settings(&[FontFeature])` ask the font for OpenType features, such as `FontFeature::TABULAR_NUMS` for digits of one width, so a number that changes does not move the digits beside it. They are taken with or without a type role, because a feature picks a form the font already has rather than another font. The list travels as the new property 192 (`FontFeatureSettings`, 8-byte records, at most 16), and a node that does not call it sends exactly what it sent before. The Renderer makes Compose's `fontFeatureSettings` string once when the list arrives; a list it cannot read is protocol error 24 and the text is drawn without features. A font without the feature draws as it would have.
 
 ### A split pane chooses the width it stacks below
 
