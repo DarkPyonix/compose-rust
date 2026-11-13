@@ -196,7 +196,7 @@ internal fun HostDialog(
     if (!open.value) return
     val style = theme.rules.container(ContainerRole.Dialog, theme)
     val scrim = node.paintProp(PropertyKind.Scrim)?.let { theme.color(it) }
-        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it.toULong()) }
+        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it) }
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
