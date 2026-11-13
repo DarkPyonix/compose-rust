@@ -290,17 +290,23 @@ internal fun HostPopover(
  * It is a popup of its own, below the content's, and takes no input: the content's popup
  * is the one that hears a press outside itself, so a press on the scrim is a press outside
  * the content and is reported once, by that popup.
+ *
+ * The popup is there for as long as the popover is open, empty until a scrim is asked for.
+ * Popups stack in the order they are made, so one made when the Host turns the scrim on
+ * for a popover that is already open would sit above the content, dim it and take the
+ * presses meant to dismiss it. An empty popup has no size, draws nothing and hears nothing.
  */
 @Composable
 private fun PopoverScrim(node: Node, theme: ResolvedTheme) {
     val named = node.paintProp(PropertyKind.Scrim)
-    if (named == null && !node.flag(PropertyKind.Scrim, default = false)) return
-    val color = named?.let { theme.color(it) }
-        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { Color(it) }
-        // A menu's own scrim is clear, because a menu covers nothing. The one a dialog
-        // dims the window with is the design system's answer to "dim the window".
-        ?: theme.rules.container(ContainerRole.Dialog, theme).scrim
+    val asked = named != null || node.flag(PropertyKind.Scrim, default = false)
     Popup(alignment = Alignment.TopStart, properties = PopupProperties(focusable = false)) {
+        if (!asked) return@Popup
+        val color = named?.let { theme.color(it) }
+            ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { Color(it) }
+            // A menu's own scrim is clear, because a menu covers nothing. The one a dialog
+            // dims the window with is the design system's answer to "dim the window".
+            ?: theme.rules.container(ContainerRole.Dialog, theme).scrim
         Box(Modifier.fillMaxSize().background(color).testTag(popoverScrimTestTag(node.id)))
     }
 }
