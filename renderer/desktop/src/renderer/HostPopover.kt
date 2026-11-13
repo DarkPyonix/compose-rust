@@ -156,13 +156,24 @@ private fun acrossSide(anchorNear: Int, anchorFar: Int, size: Int, align: Popove
 private fun shiftInside(position: Int, size: Int, window: Int, margin: Int): Int =
     position.coerceAtMost(window - margin - size).coerceAtLeast(margin)
 
-/** [popoverPosition] as the position provider Compose's `Popup` asks. */
+/**
+ * [popoverPosition] as the position provider Compose's `Popup` asks.
+ *
+ * The window it places by is the one its content was last measured against ([measuredIn]),
+ * when there is one. A popup is measured against the window as it is now, every time the
+ * window changes size. The size the popup hands this provider is read from the window's
+ * description when the popup is composed, and a window that does not announce a change of
+ * size leaves that reading at the size the popover opened in.
+ */
 internal data class PopoverPositionProvider(
     val placement: PopoverPlacement,
     val align: PopoverAlign,
     val offset: Int,
     val margin: Int,
 ) : PopupPositionProvider {
+    /** The window the content was last measured against, or null before the first measure. */
+    var measuredIn: IntSize? = null
+
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,
@@ -170,7 +181,7 @@ internal data class PopoverPositionProvider(
         popupContentSize: IntSize,
     ): IntOffset = popoverPosition(
         anchor = anchorBounds,
-        window = windowSize,
+        window = measuredIn ?: windowSize,
         content = popupContentSize,
         placement = placement,
         align = align,
@@ -186,8 +197,17 @@ internal data class PopoverPositionProvider(
  * A popup is measured against the window it is shown in, so the incoming maximum is the
  * window's size. Content smaller than that keeps the size it asked for.
  */
-private fun Modifier.popoverSizeLimit(margin: Dp): Modifier = layout { measurable, constraints ->
+private fun Modifier.popoverSizeLimit(
+    margin: Dp,
+    /** Told the window this was measured against, before the popup asks where to go. */
+    provider: PopoverPositionProvider,
+): Modifier = layout { measurable, constraints ->
     val edge = margin.roundToPx()
+    provider.measuredIn = if (constraints.hasBoundedWidth && constraints.hasBoundedHeight) {
+        IntSize(constraints.maxWidth, constraints.maxHeight)
+    } else {
+        null
+    }
     val limit = popoverMaxContent(
         IntSize(
             if (constraints.hasBoundedWidth) constraints.maxWidth else Constraints.Infinity,
@@ -302,8 +322,12 @@ private fun PopoverContent(
         ?: PopoverPlacement.Bottom
     val align = node.role(PropertyKind.Align, PopoverAlign.entries.toTypedArray())
         ?: PopoverAlign.Start
-    val provider = with(density) {
-        PopoverPositionProvider(placement, align, offset.roundToPx(), margin.roundToPx())
+    val offsetPx = with(density) { offset.roundToPx() }
+    val marginPx = with(density) { margin.roundToPx() }
+    // One provider for as long as the rule is the same, so the one the popup asks is the
+    // one the content tells the window it was measured against.
+    val provider = remember(placement, align, offsetPx, marginPx) {
+        PopoverPositionProvider(placement, align, offsetPx, marginPx)
     }
     // The surface is a popup's: the same fill, corner, height and padding a menu takes
     // from the design system and from the application's overlay tokens. A material the
@@ -323,7 +347,10 @@ private fun PopoverContent(
         popupPositionProvider = provider,
         // Escape is not the popup's to act on: the overlay stack gives it to the topmost
         // overlay only, after whatever holds focus inside has declined it.
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
+        // The position rule already keeps the box inside the window. The popup's own
+        // clipping is left off because it clips to the window size it read when it was
+        // composed, which after the window has grown is the smaller, older one.
+        properties = PopupProperties(focusable = true, dismissOnBackPress = false, clippingEnabled = false),
         onDismissRequest = onDismiss,
     ) {
         // Registered before the overlay's own focus effect so that it is undone after it:
@@ -343,7 +370,7 @@ private fun PopoverContent(
         CompositionLocalProvider(LocalGlassBackdrop provides null) {
             Column(
                 Modifier
-                    .popoverSizeLimit(margin)
+                    .popoverSizeLimit(margin, provider)
                     .then(modifier)
                     .modalOverlaySurface(node.id, surfaceRequester)
                     // A group that floats over the page, not a dialog: nothing behind it
