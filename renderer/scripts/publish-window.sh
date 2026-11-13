@@ -32,7 +32,7 @@ modules=(common)
 # published it has (build-compose.sh, or the compose-fork-desktop artifact in CI). A
 # Kotlin/Native build needs none of the three, and would fail resolving scene's Compose.
 if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]]; then
-    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux)
+    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux graalvm/graalvm-windows)
 fi
 # native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
 # build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.
