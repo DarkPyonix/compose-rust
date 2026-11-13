@@ -46,6 +46,10 @@ class LiveDecoration(
     val text: String,
 )
 
+/** Whether this is one of the two tints drawn behind the text. */
+val LiveDecoration.isBackground: Boolean
+    get() = kind == DecorationKind.LineBackground || kind == DecorationKind.RangeBackground
+
 /**
  * One stretch of lines that can be folded, as it stands in the current version of the
  * document. Folding keeps [startLine] and hides the lines after it up to [endLine].
@@ -90,6 +94,15 @@ class RevealRequest(val start: CodePosition, val end: CodePosition, val align: R
  */
 class ScrollRequest(val offsetPx: Int)
 
+/**
+ * A rectangle on screen in the dp of the window's content: the editor's scroll and the
+ * window's zoom are already in it.
+ */
+data class CodeRectDp(val x: Float, val y: Float, val width: Float, val height: Float)
+
+/** Where the caret is drawn: the place it stands at and its rectangle. */
+data class CaretReport(val position: CodePosition, val rect: CodeRectDp)
+
 /** One colour run of the syntax as it stands in the current version of the document. */
 class LiveSpan(var start: CodePosition, var end: CodePosition, val paint: Paint)
 
@@ -127,6 +140,12 @@ sealed interface EditorOutput {
 
     /** How far the view is scrolled, in pixels. Steps between two reports are one report. */
     class Scrolled(val offsetPx: Int) : EditorOutput
+
+    /** Where the caret is drawn. Moves between two reports are one report. */
+    class Caret(val report: CaretReport) : EditorOutput
+
+    /** The answer to the Host's position query [request]: a rectangle, or null where none is on screen. */
+    class PositionAnswer(val request: Int, val rect: CodeRectDp?) : EditorOutput
 
     /** The reader folded or unfolded the stretch that starts on [startLine]. */
     class FoldToggled(val startLine: Int, val collapsed: Boolean) : EditorOutput
@@ -216,6 +235,27 @@ class CodeEditorModel(
     var hearsLineHeight = false
     var hearsScroll = false
 
+    /**
+     * Where the caret is drawn, as the surface last said and as the Host was last told, and
+     * whether the Host listens. Like the row height, what nobody listens for is not counted
+     * as told.
+     */
+    private var pendingCaret: CaretReport? = null
+    private var reportedCaret: CaretReport? = null
+    var hearsCaretRect = false
+
+    /**
+     * How the surface that draws the editor finds a position on screen, or null before it
+     * has been drawn. It answers null for a position that is not on screen.
+     */
+    var locator: ((CodePosition) -> CodeRectDp?)? = null
+
+    /** The Host's position queries that arrived before the editor was drawn, in order. */
+    private val waitingQueries = ArrayList<Pair<Int, CodePosition>>()
+
+    /** Whether a query is waiting for the surface to be drawn. */
+    val hasWaitingQueries: Boolean get() = waitingQueries.isNotEmpty()
+
     private var focused = false
     private var composing = false
 
@@ -298,6 +338,7 @@ class CodeEditorModel(
         if (document.contentEquals(text)) return false
         document.reset(text)
         decorationList.clear()
+        backgroundsPresent = false
         spanList.clear()
         longestSpanLines = 0
         undoStack.clear()
@@ -316,6 +357,28 @@ class CodeEditorModel(
     fun setDecorations(records: List<DecorationRecord>) {
         decorationList.clear()
         for (record in records) {
+            if (record.kind == DecorationKind.LineBackground) {
+                // Whole lines, the first to the last, kept as the start of each. They are
+                // followed to where they are now as lines, the way a gutter mark's line is.
+                val color = record.color ?: run {
+                    output += EditorOutput.Error(
+                        "a line background on lines ${record.startLine} to ${record.endLine} names no colour",
+                    )
+                    continue
+                }
+                val (first, last) = followLines(record.version, record.startLine, record.endLine, "a line background")
+                    ?: continue
+                decorationList += LiveDecoration(
+                    record.kind,
+                    null,
+                    color,
+                    CodePosition(first, 0),
+                    CodePosition(last, 0),
+                    record.id,
+                    "",
+                )
+                continue
+            }
             val range = follow(record.version, record.startLine, record.startColumn, record.endLine, record.endColumn)
                 ?: continue
             val (start, end) = range
@@ -338,10 +401,24 @@ class CodeEditorModel(
                 )
                 DecorationKind.HoverAnchor ->
                     LiveDecoration(record.kind, null, null, start, end, record.id, "")
+                // Taken above.
+                DecorationKind.LineBackground -> continue
+                DecorationKind.RangeBackground -> {
+                    val color = record.color ?: run {
+                        output += EditorOutput.Error("a range background from $start to $end names no colour")
+                        continue
+                    }
+                    LiveDecoration(record.kind, null, color, start, end, record.id, "")
+                }
             }
         }
+        backgroundsPresent = decorationList.any { it.isBackground }
         overlayRevision += 1
     }
+
+    /** Whether any decoration is a line or a range background, so a frame without one skips them. */
+    var backgroundsPresent = false
+        private set
 
     /** Replaces every colour run with the Host's new list. */
     fun setSyntaxSpans(records: List<SyntaxSpanRecord>) {
@@ -506,6 +583,18 @@ class CodeEditorModel(
             (position < it.end || (it.start == it.end && position == it.start))
     }
 
+    /** The line background of [line], the last one sent where several cover it, or null. */
+    fun lineBackgroundAt(line: Int): LiveDecoration? {
+        if (!backgroundsPresent) return null
+        for (index in decorationList.indices.reversed()) {
+            val decoration = decorationList[index]
+            if (decoration.kind == DecorationKind.LineBackground && decoration.start.line <= line && line <= decoration.end.line) {
+                return decoration
+            }
+        }
+        return null
+    }
+
     /** The lenses, grouped by the line they sit above, in line order. */
     fun lensesByLine(): List<Pair<Int, List<LiveDecoration>>> = decorationList
         .filter { it.kind == DecorationKind.CodeLens }
@@ -573,6 +662,65 @@ class CodeEditorModel(
             reportedScroll = pendingScroll
             output += EditorOutput.Scrolled(pendingScroll)
         }
+        val caret = pendingCaret
+        if (hearsCaretRect && caret != null && caret != reportedCaret) {
+            reportedCaret = caret
+            output += EditorOutput.Caret(caret)
+        }
+    }
+
+    /**
+     * The surface says where it draws the caret. Said whenever it draws, reported only when
+     * it is not what the Host was last told, and at most once per drain.
+     */
+    fun reportCaretRect(report: CaretReport) {
+        pendingCaret = report
+    }
+
+    /** Whether the caret has moved since the Host was told, and the Host listens. */
+    val caretUntold: Boolean get() = hearsCaretRect && pendingCaret != null && pendingCaret != reportedCaret
+
+    /**
+     * The Host asks where a caret at a position would be drawn. Answered at once where the
+     * editor has been drawn, and as soon as it is otherwise. A place that is not in the
+     * document is not on screen.
+     */
+    fun hostQueryPosition(request: Int, line: Int, column: Int) {
+        val position = CodePosition(line, column)
+        if (line < 0 || column < 0 || !document.isValid(position)) {
+            output += EditorOutput.PositionAnswer(request, null)
+            return
+        }
+        val find = locator
+        if (find == null) {
+            waitingQueries += request to position
+            return
+        }
+        output += EditorOutput.PositionAnswer(request, find(position))
+    }
+
+    /** Answers the queries that waited for the surface, now that it can find a position. */
+    fun answerWaitingQueries() {
+        val find = locator ?: return
+        if (waitingQueries.isEmpty()) return
+        for ((request, position) in waitingQueries.toList()) {
+            output += EditorOutput.PositionAnswer(
+                request,
+                if (document.isValid(position)) find(position) else null,
+            )
+        }
+        waitingQueries.clear()
+    }
+
+    /**
+     * The requests of every query still waiting, which the editor will never answer now
+     * because it is going away, and none waiting any more.
+     */
+    fun abandonQueries(): List<Int> {
+        if (waitingQueries.isEmpty()) return emptyList()
+        val requests = waitingQueries.map { it.first }
+        waitingQueries.clear()
+        return requests
     }
 
     /** A position moved to the nearest place the document has, never between a pair's halves. */
@@ -1051,6 +1199,23 @@ class CodeEditorModel(
             val iterator = decorationList.iterator()
             while (iterator.hasNext()) {
                 val decoration = iterator.next()
+                if (decoration.kind == DecorationKind.LineBackground) {
+                    // Lines rather than a stretch of text: a line typed in front of them
+                    // pushes them down, and they go only when every one of them is deleted.
+                    val lines = CodeDocument.mapRange(
+                        CodePosition(decoration.start.line, 0),
+                        CodePosition(decoration.end.line + 1, 0),
+                        change,
+                    )
+                    val last = lines?.let { if (it.second.column == 0) it.second.line - 1 else it.second.line }
+                    if (lines == null || last == null || last < lines.first.line) {
+                        iterator.remove()
+                    } else {
+                        decoration.start = CodePosition(lines.first.line, 0)
+                        decoration.end = CodePosition(minOf(last, document.lineCount - 1), 0)
+                    }
+                    continue
+                }
                 val range = CodeDocument.mapRange(decoration.start, decoration.end, change)
                 if (range == null) {
                     iterator.remove()

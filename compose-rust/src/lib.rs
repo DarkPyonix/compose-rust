@@ -71,9 +71,10 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeScroll, Decoration,
-    Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration, GutterDecorations,
-    Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans, VisibleRange,
+    CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
+    CodeRect, CodeScroll, Decoration, Decorations, EditRejected, Fold, FoldChange, Folds,
+    GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
+    SyntaxSpans, VisibleRange,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -97,10 +98,11 @@ pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
     ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
-    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
+    PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH, Selection,
+    SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode,
+    TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

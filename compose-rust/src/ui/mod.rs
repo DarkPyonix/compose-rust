@@ -41,9 +41,9 @@ pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme,
     CompactNavigation, DesignSystem, HorizontalAlignment, IconRole, Key, MaterialRole,
-    MessageDuration, MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole,
-    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
-    WindowHeightClass, WindowSizeClass,
+    MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical, MotionRole, Paint,
+    PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole, TextAlign,
+    TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};

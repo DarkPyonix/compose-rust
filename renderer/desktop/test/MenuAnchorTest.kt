@@ -6,8 +6,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpRect
@@ -22,10 +28,12 @@ import dev.darkpyonix.composerust.protocol.Alignment
 import dev.darkpyonix.composerust.protocol.ButtonVariant
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -76,6 +84,56 @@ private fun menuBatch(corner: Alignment) = listOf(
     Mutation.Insert(MENU, ANCHOR, 0),
 ) + entry(4, 1, "Open") + entry(5, 2, "Save as") + entry(6, 3, "Format") +
     listOf(Mutation.Insert(FRAME, MENU, 0))
+
+private val KEY_ENTRIES = listOf(4, 5, 6)
+private const val SEPARATOR = 7
+private fun clickHandler(id: Int) = 100L + id
+
+/**
+ * An open menu of three pressable rows, [selected] marked as the chosen one, and [lead]
+ * entries that cannot take focus ahead of them (a divider). [semanticsSelected] marks the
+ * chosen row through a `Semantics` modifier instead of the row's own checked property.
+ */
+private fun keyboardBatch(
+    selected: Int?,
+    lead: Boolean = false,
+    semanticsSelected: Boolean = false,
+): List<Mutation> = buildList {
+    add(Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false)))
+    add(Mutation.Create(FRAME, WidgetKind.Box))
+    add(Mutation.SetModifier(FRAME, 0, ProtocolModifier.FillMaxWidth))
+    add(Mutation.SetModifier(FRAME, 1, ProtocolModifier.FillMaxHeight))
+    add(Mutation.Create(MENU, WidgetKind.Menu))
+    add(Mutation.SetProp(MENU, PropertyKind.Open, PropertyValue.Bool(true)))
+    add(Mutation.Create(ANCHOR, WidgetKind.Button))
+    add(Mutation.SetProp(ANCHOR, PropertyKind.Text, PropertyValue.Text("More")))
+    add(Mutation.SetProp(ANCHOR, PropertyKind.Variant, tag(ButtonVariant.Text)))
+    add(Mutation.SetProp(ANCHOR, PropertyKind.OnClick, PropertyValue.Integer(clickHandler(ANCHOR))))
+    add(Mutation.Insert(MENU, ANCHOR, 0))
+    var index = 1
+    if (lead) {
+        add(Mutation.Create(SEPARATOR, WidgetKind.Divider))
+        add(Mutation.Insert(MENU, SEPARATOR, index++))
+    }
+    listOf("Open", "Save as", "Format").forEachIndexed { i, label ->
+        val id = KEY_ENTRIES[i]
+        add(Mutation.Create(id, WidgetKind.Button))
+        add(Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text(label)))
+        add(Mutation.SetProp(id, PropertyKind.Variant, tag(ButtonVariant.Text)))
+        add(Mutation.SetProp(id, PropertyKind.OnClick, PropertyValue.Integer(clickHandler(id))))
+        add(Mutation.SetModifier(id, 0, ProtocolModifier.FillMaxWidth))
+        if (id == selected) {
+            if (semanticsSelected) {
+                // The selected field of the state word: two bits from bit 2, "on" is 2.
+                add(Mutation.SetModifier(id, 1, ProtocolModifier.Semantics(SemanticsRole.MenuItem, 2 shl 2)))
+            } else {
+                add(Mutation.SetProp(id, PropertyKind.Checked, PropertyValue.Bool(true)))
+            }
+        }
+        add(Mutation.Insert(MENU, id, index++))
+    }
+    add(Mutation.Insert(FRAME, MENU, 0))
+}
 
 @OptIn(ExperimentalTestApi::class)
 class MenuAnchorTest {
@@ -165,6 +223,137 @@ class MenuAnchorTest {
             IntOffset(48, 56),
             at(IntRect(48, 24, 96, 56), LayoutDirection.Rtl),
             "right to left with no room before the anchor: left edges together",
+        )
+    }
+
+    // ----- the keyboard ------------------------------------------------------------------
+
+    private fun ComposeUiTest.showKeyboardMenu(connection: FakeHostConnection) {
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
+            }
+        }
+        waitForIdle()
+        mainClock.advanceTimeByFrame()
+        waitForIdle()
+    }
+
+    /** Presses [key] in the menu's popup, which is the topmost window. */
+    private fun ComposeUiTest.press(key: Key) {
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(key) }
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.assertFocused(id: Int, what: String) {
+        try {
+            onNodeWithTag(nodeTestTag(id)).assertIsFocused()
+        } catch (failure: AssertionError) {
+            throw AssertionError("$what: entry $id does not have focus", failure)
+        }
+    }
+
+    /**
+     * Of three entries, the second is selected: opening puts focus on it, Down twice goes
+     * round to the first, and Enter is that entry's click, once. No key reaches the Host.
+     */
+    @Test
+    fun fr64_menu_arrow_keys_move_focus() = runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+        val connection = FakeHostConnection(keyboardBatch(selected = KEY_ENTRIES[1]))
+        showKeyboardMenu(connection)
+        assertFocused(KEY_ENTRIES[1], "on open, the selected entry")
+
+        press(Key.DirectionDown)
+        assertFocused(KEY_ENTRIES[2], "after one Down")
+        press(Key.DirectionDown)
+        assertFocused(KEY_ENTRIES[0], "after a second Down, round to the first")
+        press(Key.DirectionUp)
+        assertFocused(KEY_ENTRIES[2], "Up from the first goes round to the last")
+        press(Key.DirectionDown)
+        assertFocused(KEY_ENTRIES[0], "and Down comes back")
+
+        press(Key.Enter)
+        val clicks = connection.events.filterIsInstance<HostEvent.Clicked>()
+        assertEquals(
+            listOf(HostEvent.Clicked(KEY_ENTRIES[0], clickHandler(KEY_ENTRIES[0]))),
+            clicks,
+            "Enter is one click of the focused entry",
+        )
+        assertTrue(
+            connection.events.none { it is HostEvent.KeyDown || it is HostEvent.KeyUp },
+            "a menu's keys reached the Host: ${connection.events}",
+        )
+    }
+
+    /** Space is the focused entry's press too. */
+    @Test
+    fun fr64_menu_space_presses_the_focused_entry() = runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+        val connection = FakeHostConnection(keyboardBatch(selected = KEY_ENTRIES[2]))
+        showKeyboardMenu(connection)
+        press(Key.Spacebar)
+        assertEquals(
+            listOf(HostEvent.Clicked(KEY_ENTRIES[2], clickHandler(KEY_ENTRIES[2]))),
+            connection.events.filterIsInstance<HostEvent.Clicked>(),
+            "Space is one click of the focused entry",
+        )
+    }
+
+    /** Home and End go to the first and the last entry, from wherever focus is. */
+    @Test
+    fun fr64_menu_home_and_end_go_to_the_ends() = runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+        showKeyboardMenu(FakeHostConnection(keyboardBatch(selected = KEY_ENTRIES[1])))
+        press(Key.MoveEnd)
+        assertFocused(KEY_ENTRIES[2], "End")
+        press(Key.MoveHome)
+        assertFocused(KEY_ENTRIES[0], "Home")
+        press(Key.MoveHome)
+        assertFocused(KEY_ENTRIES[0], "Home at the first stays there")
+    }
+
+    /**
+     * With nothing selected, focus goes to the first entry that can take it. A divider ahead
+     * of it is passed over, by the arrows and by Home as well.
+     */
+    @Test
+    fun fr64_menu_with_no_selection_focuses_the_first_entry() =
+        runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+            showKeyboardMenu(FakeHostConnection(keyboardBatch(selected = null, lead = true)))
+            assertFocused(KEY_ENTRIES[0], "on open with nothing selected, the first focusable entry")
+            press(Key.DirectionUp)
+            assertFocused(KEY_ENTRIES[2], "Up past the divider goes round to the last")
+            press(Key.DirectionDown)
+            assertFocused(KEY_ENTRIES[0], "Down past the end skips the divider")
+            press(Key.MoveEnd)
+            press(Key.MoveHome)
+            assertFocused(KEY_ENTRIES[0], "Home skips the divider")
+        }
+
+    /** A row marked selected through its `Semantics` modifier is the one focused on open. */
+    @Test
+    fun fr64_menu_focuses_a_row_selected_through_semantics() =
+        runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+            showKeyboardMenu(FakeHostConnection(keyboardBatch(selected = KEY_ENTRIES[2], semanticsSelected = true)))
+            assertFocused(KEY_ENTRIES[2], "on open, the entry the Semantics modifier selects")
+        }
+
+    /** Escape closes the menu and gives focus back to its anchor. */
+    @Test
+    fun fr64_menu_escape_returns_focus_to_the_anchor() = runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+        val connection = FakeHostConnection(keyboardBatch(selected = KEY_ENTRIES[1]))
+        showKeyboardMenu(connection)
+        assertFocused(KEY_ENTRIES[1], "on open")
+        press(Key.Escape)
+        assertTrue(
+            onAllNodes(androidx.compose.ui.test.hasTestTag(menuPopupTestTag(MENU))).fetchSemanticsNodes().isEmpty(),
+            "Escape left the menu open",
+        )
+        onNodeWithTag(nodeTestTag(ANCHOR)).assertIsFocused()
+        assertTrue(
+            connection.events.none { it is HostEvent.Clicked },
+            "Escape pressed an entry: ${connection.events}",
         )
     }
 }

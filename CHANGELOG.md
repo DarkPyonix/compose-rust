@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.0.9
+
+### `user-select` is honoured
+
+A node with `UserSelect::None` and everything under it now takes no part in text selection, so double-clicking a tab or a button label inside a selection region selects nothing, while its controls still click. `UserSelect::Text` opens a selection region, and `UserSelect::All` selects the whole node with one press and copies it with the copy shortcut. Text inside an HTML region is selectable by default, as in a browser: a page that does not want that sends `user-select: none` ([#724](https://github.com/DarkPyonix/compose-rust/pull/724)).
+
+### Radio button colours and size, and radio groups
+
+`RadioButton` takes `ring_color`, `dot_color` and `size(side)`, sent as the `ContainerColor`, `CheckColor` and `ControlSize` properties a `Checkbox` uses. The ring is drawn in its colour selected or not, and where the design system fills a selected button the fill takes it too; the dot scales with the size. A button that names none of them is drawn by the design system as before, in all seven. `Column::radio_group(true)` and `Row::radio_group(true)` send the new `RadioGroup` property (tag 198): the layout is a radio group to assistive technology, Tab stops at it once (on the selected button, or the first), and the arrow keys move focus along its buttons, wrapping at the ends, reporting each button they land on once as a click would. The selection stays the application's ([#545](https://github.com/DarkPyonix/compose-rust/issues/545)).
+
+### Where a transient message is drawn
+
+`Message::with_placement(MessagePlacement { vertical, horizontal })` puts a message along the top or the bottom edge, at its start, centre or end, and `Message::with_offset(dp)` sets how far it is from that edge. Both are measured from inside the safe area and the application's bars: a message at the bottom sits above a bottom tab bar and the gesture bar, and one at the top below the top bar the page opens with and the window's caption. A message that names neither is where the design system has always put it. The `ShowMessage` record grows from 32 to 40 bytes: the two placement tags take the old padding word and the next, and the offset follows as an `f32` (NaN for none), so the schema hash moves ([#577](https://github.com/DarkPyonix/compose-rust/issues/577)).
+
+### Line and range backgrounds in the code editor
+
+Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).
+
+### Code editor pointer events with the text under them
+
+A `CodeEditor` with the new `OnCodePointer` handler property (tag 197) and a `PointerKinds` mask sends its pointer events in a `CodePointer` event (tag 66): the 72 byte `Pointer` record of a node's pointer event, then the line and the column of the character under the pointer, or none over the gutter, past the end of a line or below the last one. The kinds, the buttons, the modifiers, the click count, the capture, a move a frame and the consumption rules are a node's pointer event's, and a `Down` the handler consumes does not move the caret. Cmd or Ctrl and a click goes to a definition this way, and Cmd or Ctrl and a hover underlines a word ([#555](https://github.com/DarkPyonix/compose-rust/issues/555)).
+
+### The Host hears the code editor's keys first
+
+A `CodeEditor` with the new `OnKeyPreview` handler property (tag 196) offers every key press to the Host before it handles the key itself, as the `KeyDown` record a key handler hears. A press the handler consumes, through the same synchronous result as any key handler, is not the editor's: Down does not move the caret and Enter inserts no line. Nothing is offered while an input method is composing. A suggestion list takes Up, Down, Enter, Tab and Escape this way while it is open, and an application takes its own commands such as F12, F2, Ctrl+Space or Ctrl/Cmd+. ([#554](https://github.com/DarkPyonix/compose-rust/issues/554)).
+
+### Where the code editor's caret is, and where any position is
+
+A `CodeEditor` with the new `OnCaretRect` handler property (tag 195) reports where it draws its caret in a `CaretRect` event (tag 64): the line, the column and a rectangle in the window's dp, with the editor's scroll and the window's zoom already in it. It is sent when the caret moves or the view scrolls, at most once a frame. `Batch::query_position_rect(node, request, position)` asks where a caret at any other position would be drawn, in a `QueryPositionRect` command (tag 39), and `compose_rust::code::position_query(callback)` gives the request its number. Every query gets exactly one `PositionRect` event (tag 65) back: the rectangle, or `None` where the position is not on screen, is not in the document, or the editor is gone. A suggestion list, a parameter hint, a rename box or a hover card is placed with them ([#553](https://github.com/DarkPyonix/compose-rust/issues/553)).
+
 ## v0.0.8
 
 ### Typing on macOS inserts each character once

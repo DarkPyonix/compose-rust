@@ -442,6 +442,9 @@ class NodeTable {
                 mutation.text,
                 mutation.action,
                 mutation.duration,
+                mutation.vertical,
+                mutation.horizontal,
+                mutation.offsetDp,
             )
 
             // Outside the window altogether. The centre decides what the window's own state
@@ -511,6 +514,18 @@ class NodeTable {
             is Mutation.SetScrollOffset -> codeNode(mutation.nodeId, "SetScrollOffset")?.let { (node, code) ->
                 code.hostScrollTo(mutation.offsetPx)
                 collectCode(node)
+            }
+            // A question, answered exactly once: by the editor where it can find the
+            // position, and here, with nothing on screen, where there is no editor to ask.
+            is Mutation.QueryPositionRect -> {
+                val found = codeNode(mutation.nodeId, "QueryPositionRect")
+                if (found == null) {
+                    outbox += HostEvent.PositionRect(mutation.nodeId, 0L, mutation.request, false, 0f, 0f, 0f, 0f)
+                } else {
+                    val (node, code) = found
+                    code.hostQueryPosition(mutation.request, mutation.line, mutation.column)
+                    collectCode(node)
+                }
             }
 
             // Requests too: the scroll position is this side's. Each is checked here and
@@ -796,6 +811,10 @@ class NodeTable {
                 code.hearsScroll = value is PropertyValue.Integer
                 return
             }
+            PropertyKind.OnCaretRect -> {
+                code.hearsCaretRect = value is PropertyValue.Integer
+                return
+            }
             else -> return
         }
         collectCode(node)
@@ -988,7 +1007,13 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
-        codeNodes.remove(nodeId)
+        if (codeNodes.remove(nodeId) != null) {
+            // A query the editor had not answered yet is answered now, with nothing on
+            // screen: it never will be otherwise.
+            for (request in node.code?.abandonQueries().orEmpty()) {
+                outbox += HostEvent.PositionRect(nodeId, 0L, request, false, 0f, 0f, 0f, 0f)
+            }
+        }
         node.scroll?.let(scrolls::forget)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1106,11 +1131,17 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
 
+                // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
                 PropertyKind.CheckColor,
-                -> widget == WidgetKind.Checkbox
+                -> widget == WidgetKind.Checkbox || widget == WidgetKind.RadioButton
 
-                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
+                    widget == WidgetKind.Checkbox ||
+                    widget == WidgetKind.RadioButton
+
+                // A linear layout gathers the radio buttons inside it into one group.
+                PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
@@ -1152,7 +1183,9 @@ class NodeTable {
                     widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.SelectionContainer ||
                     widget == WidgetKind.Spacer ||
-                    widget == WidgetKind.AbsoluteBox
+                    widget == WidgetKind.AbsoluteBox ||
+                    // An editor's own pointer events take the same mask of kinds.
+                    (widget == WidgetKind.CodeEditor && property == PropertyKind.PointerKinds)
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -1462,6 +1495,13 @@ class NodeTable {
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
+                // The handler told where the caret is drawn, and the one offered keys
+                // before the editor handles them.
+                PropertyKind.OnCaretRect,
+                PropertyKind.OnKeyPreview,
+                // The handler of its pointer events with the text under them. The kinds it
+                // hears are the node's `PointerKinds`, below.
+                PropertyKind.OnCodePointer,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
