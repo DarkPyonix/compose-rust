@@ -19,6 +19,7 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.sizeOf
 import kotlinx.cinterop.toCPointer
 import kotlinx.cinterop.usePinned
+import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.PixelGeometry
 import platform.windows.BITMAPINFO
 import platform.windows.BITMAPINFOHEADER
@@ -100,6 +101,13 @@ private class Win32HiDpiWindow(private val window: Win32Window) : HiDpiWindow {
     override val geometry: PixelGeometry get() = PixelGeometry.RGB_H
 
     override fun capture(): HiDpiImage? = captureClient(window.handle)
+
+    override val referenceSurface: HiDpiSurface = object : HiDpiSurface {
+        override val path: String get() = "the window's Direct3D context"
+
+        override fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? =
+            window.drawOnContext(width, height, paint)
+    }
 
     override fun platformChecks(scale: Float): List<HiDpiVerdict> =
         listOf(fr82_windows_process_is_per_monitor_v2_before_the_first_window(window.handle, scale))

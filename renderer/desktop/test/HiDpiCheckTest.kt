@@ -3,20 +3,29 @@ package dev.darkpyonix.composerust.test
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.ui.platform.HiDpiImage
 import dev.darkpyonix.composerust.ui.platform.HiDpiScene
+import dev.darkpyonix.composerust.ui.platform.HiDpiSurface
 import dev.darkpyonix.composerust.ui.platform.MAX_GLYPH_EDGE
+import dev.darkpyonix.composerust.ui.platform.RasterHiDpiSurface
 import dev.darkpyonix.composerust.ui.platform.curvedEdgeWidths
 import dev.darkpyonix.composerust.ui.platform.difference
+import dev.darkpyonix.composerust.ui.platform.drawHiDpiScene
 import dev.darkpyonix.composerust.ui.platform.glyphEdgeWidth
+import dev.darkpyonix.composerust.ui.platform.hiDpiReferenceSurface
 import dev.darkpyonix.composerust.ui.platform.oneDpLineProblem
 import dev.darkpyonix.composerust.ui.platform.renderHiDpiScene
 import dev.darkpyonix.composerust.ui.platform.stretched
 import kotlin.math.roundToInt
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import org.jetbrains.skia.Canvas
+import org.jetbrains.skia.PixelGeometry
 
 /**
  * The measurements the renderer's HiDPI check makes of its own window (HiDpiCheck.kt), made here
@@ -61,6 +70,36 @@ class HiDpiCheckTest {
     }
 
     @Test
+    fun fr82_reference_is_drawn_on_the_window_gpu_surface_and_on_the_cpu_only_without_one() {
+        val gpu = Recording(RasterHiDpiSurface(), "a GPU surface")
+        assertSame(gpu, hiDpiReferenceSurface(gpu, PixelGeometry.RGB_H), "a window with a GPU surface draws the reference on it")
+        val fallback = hiDpiReferenceSurface(null, PixelGeometry.RGB_H)
+        assertIs<RasterHiDpiSurface>(fallback, "a window without one draws the reference on the CPU")
+        assertTrue("raster" in fallback.path, "the check's line says the CPU drew it: ${fallback.path}")
+    }
+
+    @Test
+    fun fr82_reference_and_its_stretched_control_go_through_the_surface_they_are_given() {
+        val scale = 1.25f
+        val width = (HiDpiScene.WIDTH_DP * scale).roundToInt()
+        val height = (HiDpiScene.HEIGHT_DP * scale).roundToInt()
+        val surface = Recording(RasterHiDpiSurface(), "a recording surface")
+        val reference = assertNotNull(drawHiDpiScene(surface, Density(scale), width, height), "the scene drawn on a surface that draws is read back")
+        assertNotNull(drawHiDpiScene(surface, Density(1f), HiDpiScene.WIDTH_DP, HiDpiScene.HEIGHT_DP), "the 1x control is read back too")
+        assertEquals(
+            listOf(width to height, HiDpiScene.WIDTH_DP to HiDpiScene.HEIGHT_DP),
+            surface.sizes,
+            "the reference at the window's size and the 1x control at its size in dp were both drawn on the surface",
+        )
+        assertContentEquals(scene(scale).pixels, reference.pixels, "the scene on a raster surface is the scene renderHiDpiScene draws")
+        val failing = object : HiDpiSurface {
+            override val path = "a surface that cannot be read"
+            override fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? = null
+        }
+        assertNull(drawHiDpiScene(failing, Density(scale), width, height), "a surface that cannot be read gives no reference")
+    }
+
+    @Test
     fun fr82_curved_edge_check_sees_antialiasing_and_its_absence() {
         for (scale in listOf(1f, 1.25f, 1.5f, 2f)) {
             val widths = curvedEdgeWidths(scene(scale), scale)
@@ -95,6 +134,16 @@ class HiDpiCheckTest {
         val shifted = HiDpiImage(100, 100, IntArray(10_000) { 0xFFFDFDFD.toInt() })
         assertFalse(difference(white, shifted)!!.matches, "a picture 2 levels off everywhere has a mean over 1")
         assertNull(difference(white, HiDpiImage(1, 1, IntArray(1) { WHITE })), "pictures of two sizes are not compared")
+    }
+
+    /** A surface that draws on [inner] and remembers the size of each drawing. */
+    private class Recording(private val inner: HiDpiSurface, override val path: String) : HiDpiSurface {
+        val sizes = mutableListOf<Pair<Int, Int>>()
+
+        override fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? {
+            sizes += width to height
+            return inner.draw(width, height, paint)
+        }
     }
 
     /** Every pixel made black or white at the half way level: what an edge without antialiasing looks like. */

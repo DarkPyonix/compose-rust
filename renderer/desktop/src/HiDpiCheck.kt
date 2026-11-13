@@ -208,6 +208,68 @@ internal fun readCanvas(canvas: Canvas, width: Int, height: Int): HiDpiImage? {
 }
 
 /**
+ * Where the check draws the scene it compares the screen with. The reference has to go through
+ * the same rasteriser as the window's frames: a GPU backend and Skia's CPU backend antialias the
+ * same edge a level or two apart, which is enough to fail a comparison as tight as this one.
+ */
+internal interface HiDpiSurface {
+    /** How the check's line names this surface, so a reader knows which rasteriser drew the reference. */
+    val path: String
+
+    /**
+     * Draws [paint] onto a surface [width] by [height] pixels and reads those pixels back, or
+     * answers null where the surface could not be made or read.
+     */
+    fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage?
+}
+
+/**
+ * Skia's CPU backend, with the window's pixel geometry so text is antialiased the way it is
+ * there. What the check draws the reference with only where the window has no GPU context.
+ */
+internal class RasterHiDpiSurface(private val geometry: PixelGeometry = PixelGeometry.RGB_H) : HiDpiSurface {
+    override val path: String get() = "raster (the window has no GPU context)"
+
+    override fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? {
+        val surface = Surface.makeRaster(bgra(width, height), width * 4, SurfaceProps(geometry))
+        try {
+            paint(surface.canvas)
+            return readSurface(surface, width, height)
+        } finally {
+            surface.close()
+        }
+    }
+}
+
+/** The window's own GPU surface where it has one, and the CPU backend otherwise. */
+internal fun hiDpiReferenceSurface(window: HiDpiSurface?, geometry: PixelGeometry): HiDpiSurface =
+    window ?: RasterHiDpiSurface(geometry)
+
+/**
+ * The marker scene as Compose draws it off the screen at [density], [width] by [height] pixels,
+ * on [surface]: a scene of its own, not the window's, drawn once and read back. Null where the
+ * surface could not draw it.
+ */
+internal fun drawHiDpiScene(surface: HiDpiSurface, density: Density, width: Int, height: Int): HiDpiImage? {
+    val scene = CanvasLayersComposeScene(
+        density = density,
+        size = IntSize(width, height),
+        coroutineContext = Dispatchers.Unconfined,
+    )
+    try {
+        scene.setContent { HiDpiMarkerScene() }
+        return surface.draw(width, height) { canvas ->
+            // The scene paints every pixel white first; this only keeps whatever the surface held
+            // before out of a corner the scene might leave.
+            canvas.clear(0xFFFFFFFF.toInt())
+            scene.render(canvas.asComposeCanvas(), 0L)
+        }
+    } finally {
+        scene.close()
+    }
+}
+
+/**
  * The marker scene as Compose draws it off the screen at [density], [width] by [height] pixels,
  * with Skia's raster backend: what `ImageComposeScene` would give. The pixel geometry is the
  * window's, so text is drawn with the same antialiasing it gets there.
@@ -217,21 +279,8 @@ internal fun renderHiDpiScene(
     width: Int,
     height: Int,
     geometry: PixelGeometry = PixelGeometry.RGB_H,
-): HiDpiImage {
-    val surface = Surface.makeRaster(bgra(width, height), width * 4, SurfaceProps(geometry))
-    val scene = CanvasLayersComposeScene(
-        density = density,
-        size = IntSize(width, height),
-        coroutineContext = Dispatchers.Unconfined,
-    )
-    try {
-        scene.setContent { HiDpiMarkerScene() }
-        scene.render(surface.canvas.asComposeCanvas(), 0L)
-        return checkNotNull(readSurface(surface, width, height)) { "the offscreen scene could not be read back" }
-    } finally {
-        scene.close()
-        surface.close()
-    }
+): HiDpiImage = checkNotNull(drawHiDpiScene(RasterHiDpiSurface(geometry), density, width, height)) {
+    "the offscreen scene could not be read back"
 }
 
 /**
@@ -491,6 +540,13 @@ internal interface HiDpiWindow {
     /** The pixel geometry the window's surface draws text with. */
     val geometry: PixelGeometry
 
+    /**
+     * A surface on the window's own GPU context, made with the same props as its frames, for the
+     * reference scene. Null where the window draws without a GPU context, and the reference is
+     * drawn on the CPU instead.
+     */
+    val referenceSurface: HiDpiSurface? get() = null
+
     /** Checks only this platform has, at [scale]. */
     fun platformChecks(scale: Float): List<HiDpiVerdict> = emptyList()
 }
@@ -618,9 +674,15 @@ private fun fr82_fractional_scale_matches_offscreen_compose(
     val name = "fr82_fractional_scale_matches_offscreen_compose"
     if (capture == null) return HiDpiVerdict(name, false, "the screen could not be read")
     val density = window.density
-    val reference = renderHiDpiScene(density, client.width, client.height, window.geometry)
+    val surface = hiDpiReferenceSurface(window.referenceSurface, window.geometry)
+    val drawnOn = "reference drawn on ${surface.path}"
+    val reference = drawHiDpiScene(surface, density, client.width, client.height)
+        ?: return HiDpiVerdict(name, false, "$drawnOn: the scene at ${two(density.density)} could not be drawn and read back")
     val dp = dpSize(client, scale)
-    val oneX = renderHiDpiScene(Density(1f, density.fontScale), dp.width, dp.height, window.geometry)
+    // The control goes through the same surface, so the only thing it differs from the
+    // reference in is the stretch.
+    val oneX = drawHiDpiScene(surface, Density(1f, density.fontScale), dp.width, dp.height)
+        ?: return HiDpiVerdict(name, false, "$drawnOn: the scene at 1.00 could not be drawn and read back")
     val stretch = stretched(oneX, client.width, client.height)
     val against = difference(capture, reference)
         ?: return HiDpiVerdict(name, false, "the capture is ${capture.width}x${capture.height}, the client ${client.width}x${client.height}")
@@ -630,7 +692,7 @@ private fun fr82_fractional_scale_matches_offscreen_compose(
     return HiDpiVerdict(
         name,
         against.matches && !againstStretch.matches,
-        "screen against Compose at ${two(density.density)}: $against; " +
+        "$drawnOn; screen against Compose at ${two(density.density)}: $against; " +
             "against 1x stretched (must differ): $againstStretch" +
             (drawn?.let { "; drawn frame against Compose: $it" } ?: ""),
     )

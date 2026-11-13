@@ -19,6 +19,7 @@ import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.value
+import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.PixelGeometry
 import org.thisisthepy.compose.window.WindowConfig
 import org.thisisthepy.compose.window.X11Scale
@@ -107,6 +108,28 @@ private class LinuxHiDpiWindow(private val window: LinuxWindow, private val prob
     override val geometry: PixelGeometry get() = PixelGeometry.RGB_H
 
     override fun capture(): HiDpiImage? = probe.capture()
+
+    override val referenceSurface: HiDpiSurface = WindowBackBuffer(window)
+}
+
+/**
+ * The window's own back buffer, drawn through its own GLX context and Skia context with the
+ * props its frames use, and never presented: the screen keeps the frame it has, and the window's
+ * next frame paints over what the reference left. The fork's window keeps its Skia context to
+ * itself, and a second Skia context on the same GL context would fight it over GL state, so the
+ * reference borrows the one draw call the window gives its own frames.
+ */
+private class WindowBackBuffer(private val window: LinuxWindow) : HiDpiSurface {
+    override val path: String get() = "the window's GL context (its back buffer, not presented)"
+
+    override fun draw(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? {
+        var image: HiDpiImage? = null
+        val drew = window.x11.draw(width, height) { canvas ->
+            paint(canvas)
+            image = readCanvas(canvas, width, height)
+        }
+        return if (drew) image else null
+    }
 }
 
 /** The check's own view of the window, on a connection of its own. */

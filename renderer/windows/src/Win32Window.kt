@@ -25,8 +25,12 @@ import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlin.math.roundToInt
 import org.jetbrains.skia.BackendRenderTarget
+import org.jetbrains.skia.Canvas
+import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorSpace
+import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.DirectContext
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.PixelGeometry
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.SurfaceColorFormat
@@ -198,6 +202,29 @@ internal class Win32Window private constructor(
 
     /** The density the scene is drawn at now. */
     internal val sceneDensity: Density get() = scene.density
+
+    /**
+     * Draws [paint] into a texture of [width] by [height] pixels on this window's own Direct3D
+     * context, in the swapchain's colour type, colour space, origin and pixel geometry, and
+     * reads it back; null where the texture could not be made or read. For the check that
+     * compares the screen with Compose drawn off the screen, which has to draw that reference
+     * with the rasteriser the window's frames use (`HiDpiCheck.kt`).
+     */
+    internal fun drawOnContext(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? {
+        if (gone || width <= 0 || height <= 0) return null
+        select()
+        val info = ImageInfo(width, height, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
+        val surface = runCatching {
+            Surface.makeRenderTarget(context, false, info, 0, SurfaceOrigin.TOP_LEFT, SurfaceProps(PixelGeometry.RGB_H))
+        }.getOrNull() ?: return null
+        try {
+            paint(surface.canvas)
+            surface.flushAndSubmit(true)
+            return readSurface(surface, width, height)
+        } finally {
+            surface.close()
+        }
+    }
 
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent(content)
