@@ -515,7 +515,7 @@ fun designShowcaseRecords(theme: Theme): List<Mutation> {
         line = ColorRole.DiffAddedContainer,
     )
 
-    // A code editor with each of its four decorations and its syntax painted in the code
+    // A code editor with each of its decorations and its syntax painted in the code
     // colour roles, so the same document comes out in each system's own editor palette.
     text(root, slot++, "code editor", TypeRole.Headline, ColorRole.OnSurfaceVariant)
     val editorCode = codeShowcase()
@@ -608,6 +608,8 @@ private fun codeShowcase(): CodeShowcase {
         // The line a diff added, and the words in it that changed.
         Spec(5, 0, intArrayOf(2, 0, 2, 0), 0L, "", ColorRole.DiffAdded.ordinal + 1),
         Spec(6, 0, runOf(2, "Hello"), 0L, "", ColorRole.DiffAdded.ordinal + 1),
+        // Who last changed the signature, after its end.
+        Spec(7, 0, intArrayOf(1, 0, 1, 0), 0L, "You, 2 days ago", ColorRole.OnSurfaceVariant.ordinal + 1),
     )
     val texts = specs.map { it.text.toByteArray(Charsets.UTF_8) }
     val recordsLength = specs.size * 44

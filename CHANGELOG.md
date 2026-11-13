@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Text after the end of a line in the code editor
+
+A decoration kind is appended: `Decoration::after_line(version, line, text, role)` (kind 7) draws muted text after the last character of a line, in the role given, the way an editor shows who last changed a line. It is not text: it cannot be selected or copied, the caret and End stop in front of it, a pointer over it is over no character, and it follows its line through the reader's edits. A copy from the code editor is now always the document's own text, on both paths, and never what the field shows of lenses, suggestions or view zones ([#528](https://github.com/DarkPyonix/compose-rust/issues/528)).
+
 ### Word wrap in the code editor
 
 The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.

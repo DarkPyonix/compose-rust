@@ -988,6 +988,7 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
                 DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
                 DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.AfterLine, null, ColorRole.OnSurfaceVariant, 1, 0, 1, 0, 0L, "You, 2 days ago"),
             ),
             decorations,
         )
