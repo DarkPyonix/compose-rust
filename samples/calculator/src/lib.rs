@@ -1,9 +1,13 @@
 //! A working desktop calculator, clone coded from the Windows, macOS and Deepin ones, with
 //! the tape every desk calculator that had a printer used to have.
 //!
-//! The three references are one declaration under three design systems. What they share is
-//! the shape: the number at the foot of a reading area, a row of memory keys, and four
-//! columns of keys along the bottom.
+//! The three references share a shape: what is being worked out and what it comes to,
+//! right aligned at the foot of a reading area, and keys four across along the bottom of
+//! the window. What they do not share is the keys. Windows clears with `C` and `CE` and has
+//! a row of functions, macOS clears with `AC` and has no memory keys, and Deepin has a
+//! bracket key where the others have a sign key. Those are different calculators rather
+//! than one calculator restyled, so each design system gets the pad of the reference drawn
+//! in it, and the systems without a reference get a plain one.
 //!
 //! Written with compose-rust's own API: state lives in `mutable_state_of`, screens are
 //! `#[Composable]` functions, and a widget is a statement. No Kotlin and no protocol types.
@@ -14,38 +18,122 @@
 
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
+use compose_rust::window::WindowSize;
 use std::rc::Rc;
 
 mod engine;
 
-use engine::Calculator;
+use engine::{ALL_CLEAR, BRACKET, CLEAR_ENTRY, Calculator, RECIPROCAL, SQUARE, SQUARE_ROOT};
 
-/// The key grid, top to bottom and left to right.
-const ROWS: [[&str; 4]; 5] = [
-    ["C", "\u{232b}", "%", "\u{00f7}"],
-    ["7", "8", "9", "\u{00d7}"],
-    ["4", "5", "6", "\u{2212}"],
+const BACKSPACE: &str = "\u{232b}";
+const DIVIDE: &str = "\u{00f7}";
+const MULTIPLY: &str = "\u{00d7}";
+const MINUS: &str = "\u{2212}";
+const SIGN: &str = "\u{00b1}";
+
+/// Windows 11's standard pad: six rows, the top two of them functions.
+const WINDOWS_PAD: &[[&str; 4]] = &[
+    ["%", CLEAR_ENTRY, "C", BACKSPACE],
+    [RECIPROCAL, SQUARE, SQUARE_ROOT, DIVIDE],
+    ["7", "8", "9", MULTIPLY],
+    ["4", "5", "6", MINUS],
     ["1", "2", "3", "+"],
-    ["\u{00b1}", "0", ".", "="],
+    [SIGN, "0", ".", "="],
 ];
 
-/// Apple's pad: erase and clear everything in the top row, and no memory keys.
-const APPLE_ROWS: [[&str; 4]; 5] = [
-    ["\u{232b}", "AC", "%", "\u{00f7}"],
-    ["7", "8", "9", "\u{00d7}"],
-    ["4", "5", "6", "\u{2212}"],
+/// The macOS pad: erase and clear everything in the top row, and no memory keys.
+const APPLE_PAD: &[[&str; 4]] = &[
+    [BACKSPACE, ALL_CLEAR, "%", DIVIDE],
+    ["7", "8", "9", MULTIPLY],
+    ["4", "5", "6", MINUS],
     ["1", "2", "3", "+"],
-    ["\u{00b1}", "0", ".", "="],
+    [SIGN, "0", ".", "="],
 ];
 
-/// Equals is the accent, operators the operator role, function keys outlined, and digits
-/// the quiet filled keys most of the pad is made of.
-fn variant_for(label: &str) -> ButtonVariant {
-    match label {
-        "=" => ButtonVariant::Filled,
-        "\u{00f7}" | "\u{00d7}" | "\u{2212}" | "+" => ButtonVariant::Operator,
-        "C" | "\u{232b}" | "%" | "\u{00b1}" => ButtonVariant::Outlined,
-        _ => ButtonVariant::Tonal,
+/// Deepin's pad: a bracket key at the foot where the others have a sign key.
+const DEEPIN_PAD: &[[&str; 4]] = &[
+    ["C", "%", BACKSPACE, DIVIDE],
+    ["7", "8", "9", MULTIPLY],
+    ["4", "5", "6", MINUS],
+    ["1", "2", "3", "+"],
+    ["0", ".", BRACKET, "="],
+];
+
+/// The pad of the systems no reference is drawn in: the keys all three references agree
+/// on, in the order most calculators put them.
+const PLAIN_PAD: &[[&str; 4]] = &[
+    ["C", BACKSPACE, "%", DIVIDE],
+    ["7", "8", "9", MULTIPLY],
+    ["4", "5", "6", MINUS],
+    ["1", "2", "3", "+"],
+    [SIGN, "0", ".", "="],
+];
+
+/// What is left of a pad once its function keys stand in a column of their own: the
+/// digits and the arithmetic, four rows of four, the way a desk calculator lays them out.
+const DESK_GRID: [[&str; 4]; 4] = [
+    ["7", "8", "9", DIVIDE],
+    ["4", "5", "6", MULTIPLY],
+    ["1", "2", "3", MINUS],
+    ["0", ".", "=", "+"],
+];
+
+/// Which reference a design system is drawn after.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reference {
+    /// Windows 11's calculator, under Fluent 2.
+    Windows,
+    /// The macOS calculator, under Liquid Glass and Cupertino.
+    Apple,
+    /// Deepin's calculator.
+    Deepin,
+    /// Material 3, GNOME and Breeze, which no reference is drawn in.
+    Plain,
+}
+
+impl Reference {
+    /// The one thing a role cannot answer: which calculator this platform has.
+    fn of(system: DesignSystem) -> Self {
+        match system {
+            DesignSystem::Fluent => Self::Windows,
+            DesignSystem::Cupertino | DesignSystem::LiquidGlass => Self::Apple,
+            DesignSystem::Deepin => Self::Deepin,
+            _ => Self::Plain,
+        }
+    }
+
+    fn pad(self) -> &'static [[&'static str; 4]] {
+        match self {
+            Self::Windows => WINDOWS_PAD,
+            Self::Apple => APPLE_PAD,
+            Self::Deepin => DEEPIN_PAD,
+            Self::Plain => PLAIN_PAD,
+        }
+    }
+
+    /// The Windows and the Deepin references print a row of memory keys under the
+    /// reading area. The macOS one does not, and a system with no reference has nothing
+    /// to copy one from.
+    fn has_memory_row(self) -> bool {
+        matches!(self, Self::Windows | Self::Deepin)
+    }
+
+    /// Windows prints the memory keys as words with no key around them, Deepin as small
+    /// filled keys.
+    fn memory_variant(self) -> ButtonVariant {
+        match self {
+            Self::Deepin => ButtonVariant::Tonal,
+            _ => ButtonVariant::Text,
+        }
+    }
+
+    /// The macOS reference prints what is being worked out at a little over half the
+    /// size of the answer. Windows prints it small and grey.
+    fn expression_role(self) -> TypeRole {
+        match self {
+            Self::Apple => TypeRole::Title,
+            _ => TypeRole::Caption,
+        }
     }
 }
 
@@ -57,22 +145,83 @@ fn is_content_key(label: &str) -> bool {
     )
 }
 
-/// The label ink for a key, or `None` to let the variant decide.
+fn is_operator(label: &str) -> bool {
+    matches!(label, DIVIDE | MULTIPLY | MINUS | "+")
+}
+
+/// The keys that do something to the entry rather than enter it or combine it: clearing,
+/// erasing, the sign, the percentage, Windows' functions and Deepin's bracket.
+fn is_function_key(label: &str) -> bool {
+    !is_content_key(label) && !is_operator(label) && label != "="
+}
+
+/// A pad's function keys, in the order the pad prints them.
+fn function_keys(pad: &[[&'static str; 4]]) -> Vec<&'static str> {
+    pad.iter()
+        .flatten()
+        .copied()
+        .filter(|label| is_function_key(label))
+        .collect()
+}
+
+/// Equals is the accent, operators the operator role, and every other key the quiet
+/// filled key most of the pad is made of. All three references fill the function keys
+/// too: none of them draws a key as an outline.
+fn variant_for(label: &str) -> ButtonVariant {
+    if label == "=" {
+        ButtonVariant::Filled
+    } else if is_operator(label) {
+        ButtonVariant::Operator
+    } else {
+        ButtonVariant::Tonal
+    }
+}
+
+/// The label ink for a key, or `None` to let the variant decide. The neutral keys print
+/// their label in the page's ink in every reference, where some systems' tonal key would
+/// print it in the accent.
 fn color_for(label: &str) -> Option<Paint> {
-    is_content_key(label).then_some(Paint::Role(ColorRole::OnSurface))
+    (variant_for(label) == ButtonVariant::Tonal).then_some(Paint::Role(ColorRole::OnSurface))
 }
 
 /// What a key press does, whichever key it was.
 type Press = Rc<dyn Fn(&'static str)>;
 
-/// The keypad, in the shape this platform's calculator has.
+/// How many rows the wide keypad has: the four of `DESK_GRID`, which the function
+/// columns match.
+const WIDE_ROWS: usize = DESK_GRID.len();
+
+/// The shape of the keypad, in keys: rows down and columns across.
+fn keypad_shape(reference: Reference, wide: bool) -> (usize, usize) {
+    if wide {
+        let functions = function_keys(reference.pad()).len();
+        (
+            WIDE_ROWS,
+            DESK_GRID[0].len() + functions.div_ceil(WIDE_ROWS),
+        )
+    } else {
+        (reference.pad().len(), reference.pad()[0].len())
+    }
+}
+
+/// One key of the pad.
+fn pad_key(label: &'static str, modifier: Modifier, press: Press) {
+    Button(label)
+        .modifier(modifier)
+        .variant(variant_for(label))
+        .kind(ButtonKind::ActionKey)
+        .color_if(color_for(label))
+        .on_click(move || press(label));
+}
+
+/// Rows of keys, each row sharing the height and each key sharing its row.
 #[Composable]
-fn keypad(apple: bool, press: Press) {
+fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, press: Press) {
     Column()
-        .modifier(Modifier.fill_max_width().fill_max_height())
+        .modifier(Modifier.weight(weight).fill_max_height())
         .space_role(SpaceRole::Xs)
         .content(|| {
-            for (index, row) in if apple { APPLE_ROWS } else { ROWS }.iter().enumerate() {
+            for (index, row) in rows.iter().enumerate() {
                 key(format!("row-{index}"), || {
                     Row()
                         .modifier(Modifier.fill_max_width().weight(1.0))
@@ -81,11 +230,7 @@ fn keypad(apple: bool, press: Press) {
                             for label in row.iter().copied() {
                                 let press = Rc::clone(&press);
                                 key(label, || {
-                                    Button(label)
-                                        .modifier(Modifier.weight(1.0).fill_max_height())
-                                        .variant(variant_for(label))
-                                        .color_if(color_for(label))
-                                        .on_click(move || press(label));
+                                    pad_key(label, Modifier.weight(1.0).fill_max_height(), press);
                                 });
                             }
                         });
@@ -94,9 +239,57 @@ fn keypad(apple: bool, press: Press) {
         });
 }
 
+/// The keypad, in the shape this platform's calculator has.
+///
+/// Narrow, it is the reference's own pad: the function keys share rows with the
+/// operators. Wide, the function keys stand in columns of their own beside a grid of
+/// digits and arithmetic, which is how a calculator uses a wider window without
+/// stretching every key across it.
+#[Composable]
+fn keypad(reference: Reference, wide: bool, press: Press) {
+    Row()
+        .modifier(Modifier.fill_max_width().fill_max_height())
+        .space_role(SpaceRole::Xs)
+        .content(|| {
+            if wide {
+                let functions = function_keys(reference.pad());
+                for (index, column) in functions.chunks(WIDE_ROWS).enumerate() {
+                    key(format!("functions-{index}"), || {
+                        Column()
+                            .modifier(Modifier.weight(1.0).fill_max_height())
+                            .space_role(SpaceRole::Xs)
+                            .content(|| {
+                                for label in column.iter().copied() {
+                                    let press = Rc::clone(&press);
+                                    key(label, || {
+                                        pad_key(
+                                            label,
+                                            Modifier.weight(1.0).fill_max_width(),
+                                            press,
+                                        );
+                                    });
+                                }
+                            });
+                    });
+                }
+                key_rows(
+                    DESK_GRID.to_vec(),
+                    DESK_GRID[0].len() as f32,
+                    Rc::clone(&press),
+                );
+            } else {
+                key_rows(
+                    reference.pad().to_vec(),
+                    reference.pad()[0].len() as f32,
+                    Rc::clone(&press),
+                );
+            }
+        });
+}
+
 /// The memory keys, as the row the Windows and Deepin references give them.
 #[Composable]
-fn memory_row(memory_set: bool, press: Press) {
+fn memory_row(reference: Reference, memory_set: bool, press: Press) {
     Row()
         .modifier(Modifier.fill_max_width())
         .space_role(SpaceRole::Xs)
@@ -107,11 +300,10 @@ fn memory_row(memory_set: bool, press: Press) {
                 key(label, || {
                     Button(label)
                         .modifier(Modifier.weight(1.0))
-                        .variant(ButtonVariant::Text)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        // Recalling and clearing act on what is stored, so they are dead
-                        // keys until something is.
-                        .enabled(memory_set || !matches!(label, "MC" | "MR"))
+                        .variant(reference.memory_variant())
+                        // Recalling, clearing and listing act on what is stored, so they
+                        // are dead keys until something is. Both references grey them.
+                        .enabled(memory_set || !matches!(label, "MC" | "MR" | "M\u{25be}"))
                         .on_click(move || press(label));
                 });
             }
@@ -120,7 +312,7 @@ fn memory_row(memory_set: bool, press: Press) {
 
 /// The readout: what is being worked out, and what it comes to.
 #[Composable]
-fn readout(status: String, display: String) {
+fn readout(reference: Reference, status: String, display: String) {
     Box().modifier(Modifier.fill_max_width()).content(|| {
         Column()
             .modifier(Modifier.fill_max_width())
@@ -131,7 +323,7 @@ fn readout(status: String, display: String) {
                     Text(status.clone())
                         .modifier(Modifier.fill_max_width())
                         .text_align(TextAlign::End)
-                        .type_role(TypeRole::Caption)
+                        .type_role(reference.expression_role())
                         .color(Paint::Role(ColorRole::OnSurfaceVariant))
                         .max_lines(1)
                         .overflow(TextOverflow::Ellipsis);
@@ -215,7 +407,9 @@ fn tape(entries: Vec<TapeEntry>, recall: Rc<dyn Fn(f64)>, clear: Rc<dyn Fn()>) {
         });
 }
 
-/// How the reading area and the keypad share the instrument's height.
+/// How the reading area and the keypad share the instrument's height while the keys are
+/// under finger size: the keypad three times the reading area, which is the proportion
+/// of the Windows and Deepin references (macOS is nearer two and a half).
 const READING_SHARE: f32 = 1.0;
 const KEYPAD_SHARE: f32 = 3.0;
 
@@ -223,15 +417,59 @@ const KEYPAD_SHARE: f32 = 3.0;
 const INSTRUMENT_SHARE: f32 = 3.0;
 const TAPE_SHARE: f32 = 2.0;
 
+/// The largest a key grows, either way, in dp.
+///
+/// A key is pressed with one fingertip. An adult fingertip is 16 to 20 mm across, and a
+/// dp is a 160th of an inch, so 112 dp is 17.8 mm: a key past this is wider than the
+/// thing pressing it, and the window's extra room is better spent on the reading area.
+/// No reference grows its keys past it either: the Windows, Deepin and macOS keys are all
+/// smaller at their default window sizes.
+const KEY_MAX_DP: f32 = 112.0;
+
+/// How the instrument is laid out in a window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Proportions {
+    /// The keypad's share of the height against `READING_SHARE`.
+    keypad_share: f32,
+    /// The instrument's width, or `None` to fill the window.
+    width: Option<f32>,
+}
+
+/// Holds the keys under `KEY_MAX_DP` in both directions.
+///
+/// The height is worked out from the window's, which is more than the instrument gets
+/// once the bar is drawn, so a key comes out a little under the cap rather than over it.
+/// The width outside a phone-shaped window is the narrowest the instrument can be in its
+/// size class, so it never overflows a window that is still in that class.
+fn proportions(window: WindowSize, rows: usize, columns: usize) -> Proportions {
+    let tallest = rows as f32 * KEY_MAX_DP;
+    let keypad_share = if window.height_dp > tallest {
+        (tallest / (window.height_dp - tallest)).min(KEYPAD_SHARE)
+    } else {
+        KEYPAD_SHARE
+    };
+
+    let widest = columns as f32 * KEY_MAX_DP;
+    let width = if window.is_compact() {
+        (window.width_dp > widest).then_some(widest)
+    } else if window.is_medium() {
+        Some(widest.min(WindowSizeClass::MEDIUM_MIN_WIDTH_DP))
+    } else {
+        let room = WindowSizeClass::EXPANDED_MIN_WIDTH_DP * INSTRUMENT_SHARE
+            / (INSTRUMENT_SHARE + TAPE_SHARE);
+        Some(widest.min(room))
+    };
+    Proportions {
+        keypad_share,
+        width,
+    }
+}
+
 /// The calculator.
 #[Composable]
 pub fn app() {
     let window = current_window_size();
-    // The one thing a role cannot answer: Apple's calculator has different keys.
-    let apple = matches!(
-        current_design_system(),
-        DesignSystem::Cupertino | DesignSystem::LiquidGlass
-    );
+    let reference = Reference::of(current_design_system());
     let calculator =
         remember(|| mutable_state_of_with_policy(Calculator::new(), never_equal_policy()));
     let entries = remember(|| mutable_state_of(Vec::<TapeEntry>::new()));
@@ -241,7 +479,10 @@ pub fn app() {
     let (display, status, memory_set) =
         calculator.with(|state| (state.display(), state.status(), state.memory_set()));
     let tape_beside = window.is_expanded();
-    let pad_width = (!window.is_compact()).then_some(WindowSizeClass::MEDIUM_MIN_WIDTH_DP);
+    // Anything wider than a phone takes the function keys out of the grid.
+    let wide = !window.is_compact();
+    let (rows, columns) = keypad_shape(reference, wide);
+    let layout = proportions(window, rows, columns);
 
     // One key press, whichever key it was. The tape is written here rather than in the
     // engine, because a tape is a thing the application keeps.
@@ -298,18 +539,24 @@ pub fn app() {
     Scaffold()
         .top_bar(|| {
             TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
-                Button("")
-                    .icon(IconRole::Menu)
-                    .variant(ButtonVariant::Text)
-                    .on_click(|| {});
-                if apple {
-                    Spacer().modifier(Modifier.weight(1.0));
-                } else {
-                    Text("Standard")
-                        .type_role(TypeRole::Title)
-                        .modifier(Modifier.weight(1.0));
+                // Each reference's own bar. Windows has its navigation button and the
+                // mode's name; macOS has the sidebar the tape lives in; Deepin keeps its
+                // menu in the window's title bar and puts nothing above the reading area.
+                if reference == Reference::Windows {
+                    Button("")
+                        .icon(IconRole::Menu)
+                        .variant(ButtonVariant::Text)
+                        .on_click(|| {});
+                    Text("Standard").type_role(TypeRole::Title);
+                } else if reference == Reference::Apple && !tape_beside {
+                    let open = tape_open;
+                    Button("")
+                        .icon(IconRole::Sidebar)
+                        .variant(ButtonVariant::Text)
+                        .on_click(move || open.set(true));
                 }
-                if !tape_beside {
+                Spacer().modifier(Modifier.weight(1.0));
+                if reference != Reference::Apple && !tape_beside {
                     let open = tape_open;
                     Button("")
                         .icon(IconRole::History)
@@ -329,24 +576,30 @@ pub fn app() {
                             Column()
                                 .modifier(
                                     Modifier
-                                        .fill_max_width_if(pad_width.is_none())
-                                        .width_if(pad_width)
+                                        .fill_max_width_if(layout.width.is_none())
+                                        .width_if(layout.width)
                                         .fill_max_height()
                                         .padding_role(SpaceRole::Md),
                                 )
                                 .space_role(SpaceRole::Md)
                                 .content(|| {
+                                    // The reading area takes what the keys leave, and
+                                    // the keys sit on the bottom edge of the window.
                                     Box()
                                         .modifier(Modifier.fill_max_width().weight(READING_SHARE))
                                         .alignment(Alignment::BottomCenter)
-                                        .content(|| readout(status.clone(), display.clone()));
-                                    if !apple {
-                                        memory_row(memory_set, Rc::clone(&press));
+                                        .content(|| {
+                                            readout(reference, status.clone(), display.clone())
+                                        });
+                                    if reference.has_memory_row() {
+                                        memory_row(reference, memory_set, Rc::clone(&press));
                                     }
                                     Box()
-                                        .modifier(Modifier.fill_max_width().weight(KEYPAD_SHARE))
+                                        .modifier(
+                                            Modifier.fill_max_width().weight(layout.keypad_share),
+                                        )
                                         .alignment(Alignment::BottomCenter)
-                                        .content(|| keypad(apple, Rc::clone(&press)));
+                                        .content(|| keypad(reference, wide, Rc::clone(&press)));
                                 });
                         });
                     if tape_beside {
@@ -386,10 +639,13 @@ pub fn launch() {
 /// How this sample is configured, in one place because three entry points need it.
 ///
 /// A calculator is a tall narrow window on all three of the machines this is a rebuild of:
-/// the keys are a grid four across, and a wider window stretches a key rather than giving
-/// one back.
+/// the keys are a grid four across. A wider window takes the function keys out of the
+/// grid and puts the tape beside the keys, and past that it goes to the reading area
+/// rather than to bigger keys.
 fn launch_builder() -> LaunchBuilder {
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.calculator")
         .with_theme(compose_rust::demo_theme())
         .with_window(
             compose_rust::schema::Window::new()
@@ -412,7 +668,9 @@ mod tests {
     use super::*;
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
+    use compose_rust::schema::Modifier as Wire;
     use compose_rust::schema::{EventPayload, MessageDuration, PropertyKind, TypeRole, WidgetKind};
+    use sample_frames::SYSTEMS;
     use std::collections::HashMap;
 
     /// Whether a label belongs to the keypad rather than to the rest of the screen.
@@ -422,109 +680,376 @@ mod tests {
     /// keys is how a keypad test starts failing for a reason that has nothing to do with
     /// the keypad.
     fn is_key(label: &str) -> bool {
-        ROWS.iter().flatten().any(|key| *key == label)
+        [WINDOWS_PAD, APPLE_PAD, DEEPIN_PAD, PLAIN_PAD]
+            .iter()
+            .flat_map(|pad| pad.iter().flatten())
+            .chain(DESK_GRID.iter().flatten())
+            .any(|key| *key == label)
     }
 
-    /// The key labels the screen holds, in the order the keypad declares them, after the
-    /// Renderer reports a window of the given width.
-    fn keys_at(width_dp: f32) -> Vec<String> {
-        let mut labels = Screen::at(width_dp).button_labels();
-        labels.retain(|label| is_key(label));
-        labels
-    }
-
-    fn collect_button_labels(batch: &[u8]) -> Vec<String> {
-        let mutations = decode_batch(batch).expect("the batch did not decode");
-        let buttons: Vec<u32> = mutations
-            .iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::Create {
-                    node_id,
-                    widget: WidgetKind::Button,
-                } => Some(*node_id),
-                _ => None,
-            })
-            .collect();
-        mutations
-            .iter()
-            .filter_map(|mutation| match mutation {
-                Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String(text),
-                } if buttons.contains(node_id) => Some((*text).to_owned()),
-                _ => None,
-            })
+    fn rows_of(rows: &[[&str; 4]]) -> Vec<Vec<String>> {
+        rows.iter()
+            .map(|row| row.iter().map(|label| (*label).to_owned()).collect())
             .collect()
     }
 
-    /// The two pads are two calculators, not one calculator painted twice.
+    /// The groups of keys the wide keypad should hold: the pad's function keys in columns
+    /// of four, then the desk grid's rows.
+    fn wide_groups(reference: Reference) -> Vec<Vec<String>> {
+        function_keys(reference.pad())
+            .chunks(WIDE_ROWS)
+            .map(|column| column.iter().map(|label| (*label).to_owned()).collect())
+            .chain(rows_of(&DESK_GRID))
+            .collect()
+    }
+
+    /// The windows the layout tests look through: the three the recordings use, and
+    /// taller and wider ones, which is where a key that keeps growing shows.
+    const WINDOWS: [(f32, f32); 8] = [
+        (420.0, 780.0),
+        (420.0, 1600.0),
+        (560.0, 780.0),
+        (760.0, 780.0),
+        (760.0, 1600.0),
+        (1180.0, 780.0),
+        (1180.0, 1600.0),
+        (2400.0, 1600.0),
+    ];
+
+    /// Each reference's own pad, at a phone's width.
     ///
-    /// Apple's has no `C` and no memory keys on its face; the top row erases, clears
-    /// everything, takes a percentage and divides. Windows' clears with `C` and carries
-    /// six memory keys. If these two ever hold the same labels, the branch that chooses
-    /// between them has stopped meaning anything and the screen has quietly become one
-    /// screen again.
+    /// Windows clears with `CE` and `C` and has a row of functions, macOS clears with `AC`
+    /// and has no `C`, and Deepin has a bracket key where the others have a sign. If two of
+    /// these ever hold the same keys, the branch that chooses between them has stopped
+    /// meaning anything and the screen has quietly become one screen again.
     #[test]
-    fn fr32_the_apple_pad_is_not_the_windows_pad() {
-        assert_ne!(APPLE_ROWS, ROWS);
-        assert_eq!(APPLE_ROWS[0], ["\u{232b}", "AC", "%", "\u{00f7}"]);
-        assert_eq!(ROWS[0], ["C", "\u{232b}", "%", "\u{00f7}"]);
+    fn fr22_each_reference_has_its_own_pad() {
+        assert_eq!(WINDOWS_PAD[0], ["%", "CE", "C", "\u{232b}"]);
+        assert_eq!(
+            WINDOWS_PAD[1],
+            ["1/x", "x\u{00b2}", "\u{00b2}\u{221a}x", "\u{00f7}"]
+        );
+        assert_eq!(WINDOWS_PAD[5], ["\u{00b1}", "0", ".", "="]);
+        assert_eq!(APPLE_PAD[0], ["\u{232b}", "AC", "%", "\u{00f7}"]);
         assert!(
-            !APPLE_ROWS.iter().flatten().any(|label| *label == "C"),
+            !APPLE_PAD.iter().flatten().any(|label| *label == "C"),
             "Apple's calculator clears with AC and has no C",
         );
-        // The digits, the point and the arithmetic are the same instrument in both.
-        for row in 1..5 {
-            assert_eq!(APPLE_ROWS[row], ROWS[row]);
+        assert_eq!(DEEPIN_PAD[0], ["C", "%", "\u{232b}", "\u{00f7}"]);
+        assert_eq!(DEEPIN_PAD[4], ["0", ".", "( )", "="]);
+        assert!(
+            !DEEPIN_PAD
+                .iter()
+                .flatten()
+                .any(|label| *label == "\u{00b1}"),
+            "Deepin's calculator has no sign key",
+        );
+
+        for system in SYSTEMS {
+            let reference = Reference::of(system);
+            let screen = Screen::with(system, 420.0, 780.0);
+            assert_eq!(
+                screen.key_groups(),
+                rows_of(reference.pad()),
+                "{system:?} does not draw the {reference:?} pad",
+            );
+        }
+        assert_eq!(Reference::of(DesignSystem::Fluent), Reference::Windows);
+        assert_eq!(Reference::of(DesignSystem::LiquidGlass), Reference::Apple);
+        assert_eq!(Reference::of(DesignSystem::Cupertino), Reference::Apple);
+        assert_eq!(Reference::of(DesignSystem::Deepin), Reference::Deepin);
+    }
+
+    /// Every key is pressed with something behind it. None of the three references draws
+    /// a key as an outline: the function keys are filled like the digits, `AC` included,
+    /// and every key is drawn in the system's own calculator-key shape.
+    #[test]
+    fn fr22_every_key_is_a_filled_key() {
+        for system in SYSTEMS {
+            for width in [420.0, 760.0] {
+                let screen = Screen::with(system, width, 780.0);
+                let keys = screen.keys();
+                assert!(!keys.is_empty(), "{system:?} at {width} has no keys");
+                for (node, label) in keys {
+                    let variant = screen.variants.get(&node).copied();
+                    let expected = if label == "=" {
+                        ButtonVariant::Filled
+                    } else if is_operator(&label) {
+                        ButtonVariant::Operator
+                    } else {
+                        ButtonVariant::Tonal
+                    };
+                    assert_eq!(
+                        variant,
+                        Some(expected as i64),
+                        "{label} under {system:?} at {width} is not a {expected:?} key",
+                    );
+                    assert_eq!(
+                        screen.kinds.get(&node).copied(),
+                        Some(ButtonKind::ActionKey as i64),
+                        "{label} under {system:?} is not drawn as a calculator key",
+                    );
+                }
+            }
+        }
+        let apple = Screen::with(DesignSystem::LiquidGlass, 420.0, 780.0);
+        assert_eq!(
+            apple.variant_of("AC"),
+            apple.variant_of("%"),
+            "AC is styled apart from the keys beside it",
+        );
+    }
+
+    /// Fluent fills only equals with the accent, while macOS fills every operator and
+    /// Deepin draws them as accent glyphs. The pad says `Operator` for the four of them
+    /// and `Filled` for equals under every system, and the system draws the difference.
+    #[test]
+    fn fr22_equals_is_the_only_accent_key_on_fluent() {
+        let fluent = Screen::with(DesignSystem::Fluent, 420.0, 780.0);
+        assert_eq!(
+            fluent.labels_with_variant(ButtonVariant::Filled),
+            vec!["=".to_owned()],
+            "Fluent fills equals and nothing else with the accent",
+        );
+        for system in [
+            DesignSystem::Cupertino,
+            DesignSystem::LiquidGlass,
+            DesignSystem::Fluent,
+            DesignSystem::Deepin,
+        ] {
+            let screen = Screen::with(system, 420.0, 780.0);
+            let mut operators = screen.labels_with_variant(ButtonVariant::Operator);
+            operators.sort();
+            let mut expected: Vec<String> = [DIVIDE, MULTIPLY, MINUS, "+"]
+                .iter()
+                .map(|label| (*label).to_owned())
+                .collect();
+            expected.sort();
+            assert_eq!(operators, expected, "{system:?} operators");
+            assert_eq!(screen.variant_of("="), Some(ButtonVariant::Filled as i64));
         }
     }
 
     /// The reference screen reads from the top down: what is being worked out, what it
-    /// comes to, the memory keys, then the pad. This asserts the order the screen is
-    /// declared in, because a memory row under the keypad would be a different screen.
+    /// comes to, the memory keys where the reference has them, then the pad. Windows and
+    /// Deepin print a memory row; macOS does not, and the systems without a reference
+    /// have nothing to copy one from.
     #[test]
-    fn fr22_the_memory_row_stands_between_the_reading_area_and_the_keys() {
-        compose_rust::window::reset_window_size();
-        let mut host = ComposeHost::new(app);
-        let batch = host.rebuild().expect("the first frame failed to encode");
-        let labels = collect_button_labels(batch);
-        compose_rust::window::reset_window_size();
+    fn fr22_the_memory_row_stands_only_where_the_reference_has_one() {
+        for system in SYSTEMS {
+            let screen = Screen::with(system, 420.0, 780.0);
+            let labels = screen.button_labels();
+            let memory_at = labels
+                .iter()
+                .position(|label| label == engine::MEMORY_KEYS[0]);
+            if !matches!(system, DesignSystem::Fluent | DesignSystem::Deepin) {
+                assert_eq!(memory_at, None, "{system:?} has a memory row");
+                continue;
+            }
+            let memory_at = memory_at.unwrap_or_else(|| panic!("{system:?} has no memory row"));
+            assert_eq!(
+                &labels[memory_at..memory_at + engine::MEMORY_KEYS.len()],
+                engine::MEMORY_KEYS,
+                "the memory keys are not the row the reference prints"
+            );
 
-        let memory_at = labels
-            .iter()
-            .position(|label| label == engine::MEMORY_KEYS[0])
-            .expect("the screen has no memory row");
-        assert_eq!(
-            &labels[memory_at..memory_at + engine::MEMORY_KEYS.len()],
-            engine::MEMORY_KEYS,
-            "the memory keys are not the row the reference prints"
-        );
+            let instrument = screen.instrument();
+            let row = screen.parents[&screen.button("MC")];
+            assert_eq!(
+                screen.children[&instrument.column],
+                vec![instrument.reading, row, instrument.keypad],
+                "under {system:?} the memory row does not stand between the reading area \
+                 and the keys",
+            );
+        }
+    }
 
-        let first_key = labels
-            .iter()
-            .position(|label| label == ROWS[0][0])
-            .expect("the screen has no keypad");
+    /// The memory keys do what they say on the screen, not only in the engine, and the
+    /// ones that act on what is stored are dead until something is.
+    #[test]
+    fn fr22_the_memory_keys_store_and_recall_on_screen() {
+        for system in [DesignSystem::Fluent, DesignSystem::Deepin] {
+            let mut screen = Screen::with(system, 420.0, 780.0);
+            assert!(!screen.enabled("MR"), "MR is live with nothing stored");
+            for label in ["4", "2", "MS", "C"] {
+                screen.press(label);
+            }
+            assert_eq!(screen.display(), "0");
+            assert!(screen.enabled("MR"), "MR is dead with 42 stored");
+            screen.press("MR");
+            assert_eq!(
+                screen.display(),
+                "42",
+                "{system:?} did not recall the memory"
+            );
+        }
+    }
+
+    /// Each reference's bar, and not Windows' bar under every system.
+    #[test]
+    fn fr22_the_top_bar_is_the_references_bar() {
+        let fluent = Screen::with(DesignSystem::Fluent, 420.0, 780.0);
+        assert!(fluent.has_icon_button(IconRole::Menu));
+        assert!(fluent.stands_outside_a_sheet(WidgetKind::Text, "Standard"));
+        assert!(fluent.has_icon_button(IconRole::History));
+
+        for system in [DesignSystem::Cupertino, DesignSystem::LiquidGlass] {
+            let apple = Screen::with(system, 420.0, 780.0);
+            assert!(apple.has_icon_button(IconRole::Sidebar), "{system:?}");
+            assert!(!apple.has_icon_button(IconRole::Menu), "{system:?}");
+            assert!(!apple.has_icon_button(IconRole::History), "{system:?}");
+            assert!(!apple.stands_outside_a_sheet(WidgetKind::Text, "Standard"));
+        }
+
+        for system in [
+            DesignSystem::Deepin,
+            DesignSystem::Material3,
+            DesignSystem::Gnome,
+            DesignSystem::Breeze,
+        ] {
+            let screen = Screen::with(system, 420.0, 780.0);
+            assert!(!screen.has_icon_button(IconRole::Menu), "{system:?}");
+            assert!(!screen.has_icon_button(IconRole::Sidebar), "{system:?}");
+            assert!(
+                !screen.stands_outside_a_sheet(WidgetKind::Text, "Standard"),
+                "{system:?}"
+            );
+            // A phone still needs a way to the tape.
+            assert!(screen.has_icon_button(IconRole::History), "{system:?}");
+        }
+
+        // Beside the keys, the tape needs no button to open it.
+        for system in SYSTEMS {
+            let wide = Screen::with(system, 1200.0, 780.0);
+            assert!(!wide.has_icon_button(IconRole::History), "{system:?}");
+            assert!(!wide.has_icon_button(IconRole::Sidebar), "{system:?}");
+        }
+    }
+
+    /// The macOS calculator keeps its tape in the sidebar its bar button opens.
+    #[test]
+    fn fr22_the_apple_sidebar_button_opens_the_tape() {
+        let mut screen = Screen::with(DesignSystem::LiquidGlass, 420.0, 780.0);
         assert!(
-            memory_at < first_key,
-            "the memory row is declared after the keypad, so it is drawn under it"
+            !screen.sheet_open(),
+            "the tape is open before anything asked"
+        );
+        assert!(screen.press_icon(IconRole::Sidebar));
+        assert!(
+            screen.sheet_open(),
+            "the sidebar button did not open the tape"
         );
     }
 
     /// A phone keypad and a desk keypad are different keypads, not the same one scaled.
-    /// Narrow, the four function keys share the top row with an operator. Wide, they are a
-    /// column of their own and the grid is four rows of digits.
+    /// Narrow, the function keys share rows with the operators. Wide, they are columns of
+    /// their own beside a grid of digits and arithmetic, and the keys are the same keys.
     #[test]
-    fn fr20_the_keypad_is_one_shape_and_the_tape_is_what_moves() {
-        let narrow = keys_at(420.0);
-        assert_eq!(narrow.first().map(String::as_str), Some("C"));
-        assert_eq!(narrow.len(), 20);
+    fn fr22_wider_windows_take_the_function_keys_out_of_the_grid() {
+        for system in SYSTEMS {
+            let reference = Reference::of(system);
+            let narrow = Screen::with(system, 420.0, 780.0).key_groups();
+            assert_eq!(narrow, rows_of(reference.pad()), "{system:?}");
+            assert!(
+                narrow.iter().any(|row| {
+                    row.iter().any(|label| is_function_key(label))
+                        && row.iter().any(|label| is_operator(label))
+                }),
+                "{system:?}: narrow, a function key shares a row with an operator",
+            );
 
-        // The same twenty keys in the same order. All three references keep four columns
-        // however wide the window is; what a wider window buys is somewhere to put the
-        // tape.
-        assert_eq!(keys_at(900.0), narrow);
-        assert_eq!(keys_at(1200.0), narrow);
+            for width in [760.0, 1180.0] {
+                let wide = Screen::with(system, width, 780.0).key_groups();
+                assert_eq!(wide, wide_groups(reference), "{system:?} at {width}");
+                for group in &wide {
+                    let functions = group.iter().filter(|label| is_function_key(label)).count();
+                    assert!(
+                        functions == 0 || functions == group.len(),
+                        "{system:?} at {width}: {group:?} mixes function keys into the grid",
+                    );
+                }
+                let mut narrow_keys: Vec<&String> = narrow.iter().flatten().collect();
+                let mut wide_keys: Vec<&String> = wide.iter().flatten().collect();
+                narrow_keys.sort();
+                wide_keys.sort();
+                assert_eq!(
+                    narrow_keys, wide_keys,
+                    "{system:?}: the keys changed with the shape"
+                );
+            }
+        }
+    }
+
+    /// The keypad sits on the bottom edge and the reading area takes the rest, in the
+    /// references' proportion: the keypad two to three times the reading area.
+    #[test]
+    fn fr22_the_keypad_takes_two_to_three_times_the_reading_area() {
+        for system in SYSTEMS {
+            let screen = Screen::with(system, 420.0, 780.0);
+            let instrument = screen.instrument();
+            let ratio = instrument.keypad_weight / instrument.reading_weight;
+            assert!(
+                (2.0..=3.0).contains(&ratio),
+                "{system:?}: the keypad is {ratio} times the reading area",
+            );
+            assert_eq!(
+                screen.children[&instrument.column].first(),
+                Some(&instrument.reading),
+                "{system:?}: the reading area is not at the top",
+            );
+            assert_eq!(
+                screen.children[&instrument.column].last(),
+                Some(&instrument.keypad),
+                "{system:?}: the keypad is not on the bottom edge",
+            );
+        }
+    }
+
+    /// Keys stop growing at finger size however large the window gets. Past that the room
+    /// goes to the reading area, and across it the instrument stops widening.
+    ///
+    /// The height bound is the keypad's share of the whole window, which is more than the
+    /// keypad gets once the bar is drawn, so a key passing this is a key that is too big.
+    #[test]
+    fn fr22_keys_stop_growing_at_finger_size() {
+        for system in SYSTEMS {
+            let reference = Reference::of(system);
+            for (width, height) in WINDOWS {
+                let screen = Screen::with(system, width, height);
+                let wide = width >= WindowSizeClass::MEDIUM_MIN_WIDTH_DP;
+                let (rows, columns) = keypad_shape(reference, wide);
+                assert_eq!(
+                    screen.keys().len(),
+                    rows * columns,
+                    "{system:?} at {width}: the keypad is not {rows} by {columns}",
+                );
+
+                let instrument = screen.instrument();
+                let share = instrument.keypad_weight
+                    / (instrument.keypad_weight + instrument.reading_weight);
+                let key_height = share * height / rows as f32;
+                assert!(
+                    key_height <= KEY_MAX_DP + 0.01,
+                    "{system:?} at {width}x{height}: keys are {key_height} dp tall",
+                );
+
+                let across = match instrument.width {
+                    Some(held) => held,
+                    None => {
+                        assert!(
+                            !wide,
+                            "{system:?} at {width}: a wide instrument is not held"
+                        );
+                        width
+                    }
+                };
+                let key_width = across / columns as f32;
+                assert!(
+                    key_width <= KEY_MAX_DP + 0.01,
+                    "{system:?} at {width}x{height}: keys are {key_width} dp wide",
+                );
+            }
+        }
     }
 
     /// The tape stands beside the keypad where there is room and arrives from an edge
@@ -555,14 +1080,14 @@ mod tests {
 
     #[test]
     fn every_key_has_a_variant_and_an_action() {
-        let mut calculator = Calculator::new();
-        for row in ROWS {
-            for label in row {
+        for pad in [WINDOWS_PAD, APPLE_PAD, DEEPIN_PAD, PLAIN_PAD] {
+            let mut calculator = Calculator::new();
+            for label in pad.iter().flatten().copied() {
                 let _ = variant_for(label);
                 calculator.press(label);
             }
+            assert!(!calculator.display().is_empty());
         }
-        assert!(!calculator.display().is_empty());
     }
 
     #[test]
@@ -605,6 +1130,46 @@ mod tests {
         assert_eq!(engine::format_number(1.0 / 3.0), "0.333333333333");
     }
 
+    /// Tells the Host which design system the Renderer resolved, before the screen under
+    /// test is built.
+    ///
+    /// A Host learns its design system from the Renderer, once, after its first frame. A
+    /// screen built first and told afterwards is built twice, and the second build creates
+    /// what the first did not have in an order that is not the order the screen declares
+    /// it. The answer is kept for the thread, so a throwaway Host takes it and the screen
+    /// built next starts from it.
+    fn resolve_design_system(system: DesignSystem) {
+        fn nothing() {}
+        compose_rust::design::reset_design_system();
+        let mut primer = ComposeHost::new(nothing);
+        primer.rebuild().expect("an empty screen failed to encode");
+        let mut event = Vec::new();
+        encode_event(
+            &HostEvent {
+                node_id: 0,
+                handler_id: 0,
+                payload: EventPayload::DesignSystemResolved(system),
+            },
+            &mut event,
+        )
+        .expect("the design system did not encode");
+        primer
+            .dispatch_event(&event)
+            .expect("the design system did not reach the Host");
+    }
+
+    /// Where the instrument's parts sit in the tree, and what it was given.
+    struct Instrument {
+        /// The column holding the reading area, the memory row and the keypad.
+        column: u32,
+        reading: u32,
+        keypad: u32,
+        reading_weight: f32,
+        keypad_weight: f32,
+        /// The width the column is held to, or `None` when it fills the window.
+        width: Option<f32>,
+    }
+
     /// The real screen, driven the way the Renderer drives it: an encoded event naming the
     /// button's own handler, and the display read back out of the frame that came of it.
     /// Calling the engine directly would skip everything that can actually break between a
@@ -630,23 +1195,46 @@ mod tests {
         /// the way the Renderer's node table does. Without it a tape line that has been
         /// thrown away is still there as far as this harness can tell.
         parents: HashMap<u32, u32>,
-        display: u32,
+        /// Node to its children, in the order the Renderer lays them out.
+        children: HashMap<u32, Vec<u32>>,
+        /// The type role of every text that carries one.
+        type_roles: HashMap<u32, i64>,
+        /// The variant and the kind of every button that names them.
+        variants: HashMap<u32, i64>,
+        kinds: HashMap<u32, i64>,
+        enabled: HashMap<u32, bool>,
+        /// Whether each sheet is open.
+        opens: HashMap<u32, bool>,
+        /// Each node's modifiers, by the slot they were set in.
+        modifiers: HashMap<(u32, u16), Wire>,
         /// Every message the screen has said, in order, with its action label.
         messages: Vec<(String, String)>,
         event: Vec<u8>,
     }
 
     impl Screen {
+        /// The screen under the design system a Host assumes before it is told one.
         fn new() -> Self {
+            compose_rust::design::reset_design_system();
+            Self::start(ComposeHost::new(app))
+        }
+
+        fn start(host: ComposeHost) -> Self {
             let mut screen = Self {
-                host: ComposeHost::new(app),
+                host,
                 texts: HashMap::new(),
                 widgets: HashMap::new(),
                 buttons: Vec::new(),
                 icons: HashMap::new(),
                 clicks: HashMap::new(),
                 parents: HashMap::new(),
-                display: 0,
+                children: HashMap::new(),
+                type_roles: HashMap::new(),
+                variants: HashMap::new(),
+                kinds: HashMap::new(),
+                enabled: HashMap::new(),
+                opens: HashMap::new(),
+                modifiers: HashMap::new(),
                 messages: Vec::new(),
                 event: Vec::new(),
             };
@@ -655,19 +1243,22 @@ mod tests {
                 .rebuild()
                 .expect("the first frame failed to encode")
                 .to_vec();
-            let display_roles = screen.absorb(&first);
-            assert_eq!(
-                display_roles.len(),
-                1,
-                "the screen should have exactly one display sized text"
-            );
-            screen.display = display_roles[0];
+            screen.absorb(&first);
+            let _ = screen.display_node();
             screen
         }
 
-        /// Applies one batch and returns the nodes in it that are set at the display rung.
-        fn absorb(&mut self, batch: &[u8]) -> Vec<u32> {
-            let mut display_roles = Vec::new();
+        /// The screen under `system`, in a window of this size.
+        fn with(system: DesignSystem, width_dp: f32, height_dp: f32) -> Self {
+            compose_rust::window::reset_window_size();
+            resolve_design_system(system);
+            let mut screen = Self::start(ComposeHost::with_theme(app, Theme::unified(system)));
+            screen.resize(width_dp, height_dp);
+            screen
+        }
+
+        /// Applies one batch to the tables.
+        fn absorb(&mut self, batch: &[u8]) {
             for mutation in decode_batch(batch).expect("the frame did not decode") {
                 match mutation {
                     Mutation::Create { node_id, widget } => {
@@ -677,16 +1268,29 @@ mod tests {
                         }
                     }
                     Mutation::Insert {
-                        parent_id, node_id, ..
+                        parent_id,
+                        node_id,
+                        index,
                     }
                     | Mutation::Move {
-                        parent_id, node_id, ..
-                    } => {
-                        self.parents.insert(node_id, parent_id);
-                    }
+                        parent_id,
+                        node_id,
+                        index,
+                    } => self.place(parent_id, node_id, index),
                     Mutation::Remove { node_id } => self.forget(node_id),
                     Mutation::ShowMessage { text, action, .. } => {
                         self.messages.push((text.to_owned(), action.to_owned()));
+                    }
+                    Mutation::SetModifier {
+                        node_id,
+                        index,
+                        modifier,
+                    } => {
+                        if modifier == Wire::Empty {
+                            self.modifiers.remove(&(node_id, index));
+                        } else {
+                            self.modifiers.insert((node_id, index), modifier);
+                        }
                     }
                     Mutation::SetProp {
                         node_id,
@@ -705,35 +1309,78 @@ mod tests {
                         (PropertyKind::Icon, PropertyValue::Integer(role)) => {
                             self.icons.insert(node_id, role as u8);
                         }
-                        (PropertyKind::TypeRole, PropertyValue::Integer(role))
-                            if role == i64::from(TypeRole::Display as u8) =>
-                        {
-                            display_roles.push(node_id);
+                        (PropertyKind::TypeRole, PropertyValue::Integer(role)) => {
+                            self.type_roles.insert(node_id, role);
+                        }
+                        (PropertyKind::Variant, PropertyValue::Integer(variant)) => {
+                            self.variants.insert(node_id, variant);
+                        }
+                        (PropertyKind::ButtonKind, PropertyValue::Integer(kind)) => {
+                            self.kinds.insert(node_id, kind);
+                        }
+                        (PropertyKind::Enabled, PropertyValue::Bool(enabled)) => {
+                            self.enabled.insert(node_id, enabled);
+                        }
+                        (PropertyKind::Open, PropertyValue::Bool(open)) => {
+                            self.opens.insert(node_id, open);
                         }
                         _ => {}
                     },
                     _ => {}
                 }
             }
-            display_roles
+        }
+
+        /// Puts a node under a parent at a position, taking it out of wherever it was.
+        fn place(&mut self, parent: u32, node: u32, index: u32) {
+            if let Some(previous) = self.parents.insert(node, parent) {
+                if let Some(siblings) = self.children.get_mut(&previous) {
+                    siblings.retain(|found| *found != node);
+                }
+            }
+            let siblings = self.children.entry(parent).or_default();
+            let at = (index as usize).min(siblings.len());
+            siblings.insert(at, node);
         }
 
         /// Drops a node and everything under it.
         fn forget(&mut self, node_id: u32) {
-            let children: Vec<u32> = self
-                .parents
-                .iter()
-                .filter(|(_, parent)| **parent == node_id)
-                .map(|(child, _)| *child)
-                .collect();
-            for child in children {
+            for child in self.children.remove(&node_id).unwrap_or_default() {
                 self.forget(child);
+            }
+            if let Some(parent) = self.parents.remove(&node_id) {
+                if let Some(siblings) = self.children.get_mut(&parent) {
+                    siblings.retain(|found| *found != node_id);
+                }
             }
             self.texts.remove(&node_id);
             self.clicks.remove(&node_id);
-            self.parents.remove(&node_id);
             self.widgets.remove(&node_id);
+            self.icons.remove(&node_id);
+            self.type_roles.remove(&node_id);
+            self.variants.remove(&node_id);
+            self.kinds.remove(&node_id);
+            self.enabled.remove(&node_id);
+            self.opens.remove(&node_id);
+            self.modifiers.retain(|(node, _), _| *node != node_id);
             self.buttons.retain(|found| *found != node_id);
+        }
+
+        /// Reports a window of this size, the way the Renderer does.
+        fn resize(&mut self, width_dp: f32, height_dp: f32) {
+            self.dispatch(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
+                    width_dp,
+                    height_dp,
+                    class: WindowSizeClass::from_width_dp(width_dp),
+                    height_class: WindowHeightClass::from_height_dp(height_dp),
+                    safe_area_top: 0.0,
+                    safe_area_leading: 0.0,
+                    safe_area_trailing: 0.0,
+                },
+            );
         }
 
         /// The screen after the Renderer reports a window of this width.
@@ -744,19 +1391,7 @@ mod tests {
         fn at(width_dp: f32) -> Self {
             compose_rust::window::reset_window_size();
             let mut screen = Self::new();
-            screen.dispatch(
-                0,
-                0,
-                EventPayload::WindowSizeChanged {
-                    width_dp,
-                    height_dp: 800.0,
-                    class: WindowSizeClass::from_width_dp(width_dp),
-                    height_class: WindowHeightClass::from_height_dp(800.0),
-                    safe_area_top: 0.0,
-                    safe_area_leading: 0.0,
-                    safe_area_trailing: 0.0,
-                },
-            );
+            screen.resize(width_dp, 800.0);
             compose_rust::window::reset_window_size();
             screen
         }
@@ -769,11 +1404,149 @@ mod tests {
                 .collect()
         }
 
+        /// The keys on screen, each with its node.
+        fn keys(&self) -> Vec<(u32, String)> {
+            self.buttons
+                .iter()
+                .filter_map(|node| {
+                    let label = self.texts.get(node)?;
+                    is_key(label).then(|| (*node, label.clone()))
+                })
+                .collect()
+        }
+
+        /// The button showing this label.
+        fn button(&self, label: &str) -> u32 {
+            self.buttons
+                .iter()
+                .copied()
+                .find(|node| self.texts.get(node).map(String::as_str) == Some(label))
+                .unwrap_or_else(|| panic!("the screen has no button labelled {label}"))
+        }
+
+        fn variant_of(&self, label: &str) -> Option<i64> {
+            self.variants.get(&self.button(label)).copied()
+        }
+
+        fn enabled(&self, label: &str) -> bool {
+            self.enabled
+                .get(&self.button(label))
+                .copied()
+                .unwrap_or(true)
+        }
+
+        /// The labels of the buttons drawn in this variant, in the order they are declared.
+        fn labels_with_variant(&self, variant: ButtonVariant) -> Vec<String> {
+            self.buttons
+                .iter()
+                .filter(|node| self.variants.get(node) == Some(&(variant as i64)))
+                .filter_map(|node| self.texts.get(node).cloned())
+                .collect()
+        }
+
+        /// Whether any sheet is open.
+        fn sheet_open(&self) -> bool {
+            self.opens
+                .iter()
+                .any(|(node, open)| *open && self.widgets.get(node) == Some(&WidgetKind::Sheet))
+        }
+
+        /// The node and every node above it, nearest first.
+        fn ancestors(&self, node: u32) -> Vec<u32> {
+            let mut chain = vec![node];
+            while let Some(parent) = self.parents.get(chain.last().expect("never empty")) {
+                chain.push(*parent);
+            }
+            chain
+        }
+
+        /// The instrument: the column the display and the keys share, the reading area and
+        /// the keypad it holds, and the weights and width they were given.
+        fn instrument(&self) -> Instrument {
+            let key = self.ancestors(self.button("7"));
+            let display = self.ancestors(self.display_node());
+            let at = key
+                .iter()
+                .position(|node| display.contains(node))
+                .expect("the keys and the display share no container");
+            let column = key[at];
+            let keypad = key[at - 1];
+            let reading = display[display.iter().position(|node| *node == column).unwrap() - 1];
+            let weight = |node: u32| {
+                self.modifiers
+                    .iter()
+                    .find_map(|((owner, _), modifier)| match modifier {
+                        Wire::Weight(weight) if *owner == node => Some(*weight),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("node {node} has no weight"))
+            };
+            let width = self
+                .modifiers
+                .iter()
+                .find_map(|((owner, _), modifier)| match modifier {
+                    Wire::Width(width) if *owner == column => Some(*width),
+                    _ => None,
+                });
+            Instrument {
+                column,
+                reading,
+                keypad,
+                reading_weight: weight(reading),
+                keypad_weight: weight(keypad),
+                width,
+            }
+        }
+
+        /// The keys as the keypad groups them, top to bottom and left to right: each row
+        /// of a phone's pad, or each function column and then each grid row of a wide one.
+        fn key_groups(&self) -> Vec<Vec<String>> {
+            let mut groups = Vec::new();
+            self.collect_groups(self.instrument().keypad, &mut groups);
+            groups
+        }
+
+        fn collect_groups(&self, node: u32, groups: &mut Vec<Vec<String>>) {
+            let Some(children) = self.children.get(&node) else {
+                return;
+            };
+            let labels: Vec<String> = children
+                .iter()
+                .filter_map(|child| {
+                    let label = self.texts.get(child)?;
+                    (self.widgets.get(child) == Some(&WidgetKind::Button) && is_key(label))
+                        .then(|| label.clone())
+                })
+                .collect();
+            if !labels.is_empty() && labels.len() == children.len() {
+                groups.push(labels);
+                return;
+            }
+            for child in children {
+                self.collect_groups(*child, groups);
+            }
+        }
+
         /// Whether a button carrying this icon stands on the screen.
         fn has_icon_button(&self, role: IconRole) -> bool {
             self.buttons
                 .iter()
                 .any(|node| self.icons.get(node) == Some(&(role as u8)))
+        }
+
+        /// Presses the button carrying this icon, and says whether there was one.
+        fn press_icon(&mut self, role: IconRole) -> bool {
+            let Some(node_id) = self
+                .buttons
+                .iter()
+                .copied()
+                .find(|node| self.icons.get(node) == Some(&(role as u8)))
+            else {
+                return false;
+            };
+            let handler = self.clicks[&node_id];
+            self.dispatch(node_id, handler, EventPayload::Clicked);
+            true
         }
 
         /// Whether anything of this kind carrying this text stands on the screen itself
@@ -841,9 +1614,27 @@ mod tests {
             self.dispatch(node_id, handler, EventPayload::Clicked);
         }
 
+        /// The one text set at the display rung.
+        fn display_node(&self) -> u32 {
+            let found: Vec<u32> = self
+                .type_roles
+                .iter()
+                .filter(|(node, role)| {
+                    **role == i64::from(TypeRole::Display as u8) && self.widgets.contains_key(node)
+                })
+                .map(|(node, _)| *node)
+                .collect();
+            assert_eq!(
+                found.len(),
+                1,
+                "the screen should have exactly one display sized text"
+            );
+            found[0]
+        }
+
         fn display(&self) -> &str {
             self.texts
-                .get(&self.display)
+                .get(&self.display_node())
                 .map(String::as_str)
                 .expect("the display carries no text")
         }

@@ -1,6 +1,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import dev.darkpyonix.composerust.protocol.HostEvent
+import java.lang.System
 
 /** Where a clipboard write goes. In an application it is Compose's clipboard. */
 fun interface ClipboardSink {

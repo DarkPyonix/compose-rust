@@ -1,6 +1,7 @@
 //! How the day felt, what is worrying you, and the faces that stand for both.
 
-use compose_rust::ui::{Color, ColorRole, DrawList, DrawListBuilder, Paint, TypeRole};
+use crate::palette;
+use compose_rust::ui::{DrawList, DrawListBuilder, Paint, TypeRole};
 
 /// The four answers to "how do you feel today".
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,14 +15,19 @@ pub enum Mood {
 impl Mood {
     pub const STRIP: [Mood; 4] = [Mood::Sad, Mood::Calm, Mood::Happy, Mood::Angry];
 
-    /// The drawing of this feeling's face.
-    pub fn picture(self) -> &'static [u8] {
-        FACES[match self {
+    /// Where this feeling sits along the strip.
+    pub fn index(self) -> usize {
+        match self {
             Mood::Sad => 0,
             Mood::Calm => 1,
             Mood::Happy => 2,
             Mood::Angry => 3,
-        }]
+        }
+    }
+
+    /// The drawing of this feeling's face.
+    pub fn picture(self) -> &'static [u8] {
+        FACES[self.index()]
     }
 
     pub fn label(self) -> &'static str {
@@ -33,26 +39,30 @@ impl Mood {
         }
     }
 
-    /// The fill a mood is drawn in, and the ink that reads on it.
-    ///
-    /// Roles, not literals. The reference's pink and mint are one app's brand; what
-    /// survives into a design system is that four feelings need four fills that are
-    /// relatives of one another, are quiet enough to hold a drawn face, and each come with
-    /// an ink that stays readable. That is the accent containers, plus the one fill the
-    /// vocabulary already had for something going wrong.
-    /// The fill this feeling is drawn in, and the ink that reads on it.
+    /// The fill this feeling's chosen answer is drawn in, and the ink that reads on it.
     ///
     /// Literals, from the sample's own palette. The reference names four pastels and no
     /// design system holds them: asking for a container role instead would give whichever
-    /// system is active its own tint, and the answer in this screen is the colour.
-    pub fn pair(self) -> (Color, Color) {
+    /// system is active its own tint, and the answer on this screen is the colour. The
+    /// fill is the disc the face is drawn on, so the chosen answer and the face agree.
+    pub fn pair(self) -> (Paint, Paint) {
         let fill = match self {
-            Mood::Sad => crate::palette::POWDER,
-            Mood::Calm => crate::palette::MINT,
-            Mood::Happy => crate::palette::PINK,
-            Mood::Angry => crate::palette::CORAL,
+            Mood::Sad => palette::POWDER,
+            Mood::Calm => palette::MINT,
+            Mood::Happy => palette::PINK,
+            Mood::Angry => palette::CORAL,
         };
-        (fill, crate::palette::ON_MOOD)
+        (fill, palette::ON_LIGHT)
+    }
+
+    /// The panel the face stands on: a paler tint of its disc, as in the reference.
+    pub fn panel(self) -> Paint {
+        match self {
+            Mood::Sad => palette::POWDER_PANEL,
+            Mood::Calm => palette::MINT_PANEL,
+            Mood::Happy => palette::PINK_PANEL,
+            Mood::Angry => palette::CORAL_PANEL,
+        }
     }
 }
 
@@ -64,10 +74,8 @@ impl Mood {
 /// is a face the way a rectangle is a garment.
 ///
 /// So each face is an original drawing, registered once and drawn by id. Each one carries
-/// its own disc and its own near-black ink, which is what lets it sit on the feeling's
-/// panel in either colour scheme: the disc is light and the lines on it are dark whatever
-/// is behind them, so the face reads on a pale panel and on a dark one without the drawing
-/// having to know which it is.
+/// its own disc and its own near-black ink, so the face reads on its panel without the
+/// drawing having to know what is behind it.
 pub static FACES: [&[u8]; 4] = [
     include_bytes!("../assets/face-sad.svg"),
     include_bytes!("../assets/face-calm.svg"),
@@ -89,49 +97,55 @@ pub const WORRIES: [&str; 10] = [
     "Other",
 ];
 
+/// The answer that is drawn as an outline until it is chosen, as the reference draws it:
+/// it stands for everything the other nine do not say.
+pub const OPEN_WORRY: &str = "Other";
+
 /// A guided session.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Session {
     pub title: &'static str,
     pub minutes: u32,
     pub when: &'static str,
-    /// Which of the three tints the session's card takes.
+    /// Which feeling's tint the session's swatch takes in the library.
     pub mood: Mood,
 }
 
+/// The sessions. The first two are the pair of cards at the top of the listening screen
+/// and the rest are "Special for you", in the reference's order and with its titles.
 pub const SESSIONS: [Session; 6] = [
     Session {
-        title: "Emotional balance",
+        title: "Emotional Balance",
         minutes: 15,
         when: "Anytime",
         mood: Mood::Calm,
     },
     Session {
-        title: "Calm relaxation",
+        title: "Calm Relaxation",
         minutes: 12,
         when: "Evening",
         mood: Mood::Sad,
     },
     Session {
-        title: "Morning gratitude",
+        title: "Morning Gratitude",
         minutes: 5,
         when: "Morning",
         mood: Mood::Happy,
     },
     Session {
-        title: "Serenity before sleep",
+        title: "Serenity Before Sleep",
         minutes: 10,
         when: "Evening",
         mood: Mood::Calm,
     },
     Session {
-        title: "Letting go of anger",
+        title: "Letting Go of Anger",
         minutes: 8,
         when: "Anytime",
-        mood: Mood::Sad,
+        mood: Mood::Angry,
     },
     Session {
-        title: "Breathing room",
+        title: "Breathing Room",
         minutes: 3,
         when: "Anytime",
         mood: Mood::Happy,
@@ -145,23 +159,34 @@ pub const SESSIONS: [Session; 6] = [
 /// out costs nothing, while not doing it at all put Sunday off the end of the chart.
 const DAY_HALF_WIDTH: f32 = 11.0;
 
-/// The week's readings, nought to one, for the line on the profile.
-pub const WEEK: [(&str, f32); 7] = [
-    ("Mon", 0.35),
-    ("Tue", 0.5),
-    ("Wed", 0.42),
-    ("Thu", 0.7),
-    ("Fri", 0.62),
-    ("Sat", 0.86),
-    ("Sun", 0.78),
+/// About what one letter comes to at the caption rung, in dp. The same guess as above,
+/// used to size the bubble a feeling's name is written in.
+const LETTER_WIDTH: f32 = 6.5;
+
+/// The week's readings, nought to one, for the line on the profile, and the feeling the
+/// reference writes in a bubble over two of them.
+pub const WEEK: [(&str, f32, Option<Mood>); 7] = [
+    ("Mon", 0.2, None),
+    ("Tue", 0.3, None),
+    ("Wed", 0.62, None),
+    ("Thu", 0.72, Some(Mood::Calm)),
+    ("Fri", 0.6, None),
+    ("Sat", 0.45, None),
+    ("Sun", 0.82, Some(Mood::Happy)),
 ];
 
-/// The week as a line, with a day written under each reading.
+/// The week as a line, with a day written under each reading and a bubble naming the
+/// feeling over the two the reference names.
+///
+/// The line is the reference's cyan, from the palette. The reference runs it from cyan to
+/// pink and fills the area under it with the same gradient; a draw command resolves its
+/// paint to one colour and there is no filled path, so neither can be drawn yet
+/// (compose-rust issues #584 and #308). The line is drawn in the colour it mostly is.
 ///
 /// A polyline would be one record, and a polyline's points live in a registered asset that
 /// application code has no way to register, so the line is drawn as segments. Seven
 /// readings is six of them.
-pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> DrawList {
+pub fn week_line(width: f32, height: f32) -> DrawList {
     let label_band = height * 0.22;
     let plot = height - label_band;
     let baseline = plot + label_band * 0.62;
@@ -169,36 +194,66 @@ pub fn week_line(width: f32, height: f32, ink: ColorRole, mark: ColorRole) -> Dr
     // A `TextAt` is placed by the left end of its string, and a draw list has no way to
     // measure a string: there is no font here, only a rung of the ladder that the Renderer
     // resolves. So the day is inset by half of what three caption letters come to, which
-    // centres it closely enough and, more importantly, keeps the last day inside the box.
-    // Placed at the slot's middle the whole row sat half a slot to the right and Sunday
-    // was drawn past the edge and clipped to its first letter.
+    // centres it closely enough and keeps the last day inside the box. Placed at the
+    // slot's middle the whole row sat half a slot to the right and Sunday was clipped.
     let label_inset = (slot / 2.0 - DAY_HALF_WIDTH).max(0.0);
-    // The rightmost label is the one that can leave the box, and leaving it is not a few
-    // dp out of place: the Renderer clips at the canvas edge, so Sunday came out as "Su".
-    // Its left end is pulled back to where a three letter word still ends inside.
     let last_label_start = (width - DAY_HALF_WIDTH * 2.0).max(0.0);
     let x_of = |index: usize| index as f32 * slot + slot / 2.0;
-    let y_of = |value: f32| plot - value.clamp(0.0, 1.0) * (plot * 0.86) - plot * 0.07;
+    // The top of the plot is kept clear for the bubbles, which sit above their reading.
+    let y_of = |value: f32| plot - value.clamp(0.0, 1.0) * (plot * 0.62) - plot * 0.07;
 
-    let mut list = DrawListBuilder::with_capacity(WEEK.len() * 3, WEEK.len() * 4);
+    let mut list = DrawListBuilder::with_capacity(WEEK.len() * 5, WEEK.len() * 8);
     for index in 1..WEEK.len() {
         list = list.line(
-            Paint::Role(ink),
+            palette::CYAN,
             x_of(index - 1),
             y_of(WEEK[index - 1].1),
             x_of(index),
             y_of(WEEK[index].1),
-            2.0,
+            3.0,
         );
     }
-    for (index, (day, value)) in WEEK.iter().enumerate() {
+    for (index, (day, value, named)) in WEEK.iter().enumerate() {
+        list = list.text_at(
+            palette::MUTED,
+            day,
+            (index as f32 * slot + label_inset).min(last_label_start),
+            baseline,
+            TypeRole::Caption,
+        );
+        let Some(mood) = named else {
+            continue;
+        };
+        // The bubble: a white pill over the reading, a dot in the feeling's colour, and
+        // its name. Pulled back inside the box when the reading is the last one.
+        let (x, y) = (x_of(index), y_of(*value));
+        let bubble_height = 22.0;
+        let bubble_width = 22.0 + mood.label().len() as f32 * LETTER_WIDTH;
+        let left = (x - bubble_width / 2.0).clamp(0.0, (width - bubble_width).max(0.0));
+        let top = (y - bubble_height - 8.0).max(0.0);
         list = list
-            .circle(Paint::Role(mark), x_of(index), y_of(*value), 3.0, 0.0)
+            .circle(palette::CYAN, x, y, 4.0, 0.0)
+            .round_rect(
+                palette::INK,
+                left,
+                top,
+                bubble_width,
+                bubble_height,
+                bubble_height / 2.0,
+                0.0,
+            )
+            .circle(
+                mood.pair().0,
+                left + 11.0,
+                top + bubble_height / 2.0,
+                3.5,
+                0.0,
+            )
             .text_at(
-                Paint::Role(ink),
-                day,
-                (index as f32 * slot + label_inset).min(last_label_start),
-                baseline,
+                palette::ON_LIGHT,
+                mood.label(),
+                left + 18.0,
+                top + bubble_height * 0.7,
                 TypeRole::Caption,
             );
     }
@@ -227,11 +282,12 @@ mod tests {
         }
     }
 
-    /// Four feelings, four fills. Two moods sharing one fill is a picker where two
-    /// answers look like the same answer.
+    /// Four feelings, four fills and four panels. Two moods sharing one is a picker where
+    /// two answers look like the same answer.
     #[test]
     fn fr13_no_two_moods_share_a_fill() {
         for (index, first) in Mood::STRIP.iter().enumerate() {
+            assert_eq!(first.index(), index, "{} is out of place", first.label());
             for second in &Mood::STRIP[index + 1..] {
                 assert_ne!(
                     first.pair().0,
@@ -240,27 +296,60 @@ mod tests {
                     first.label(),
                     second.label()
                 );
+                assert_ne!(
+                    first.panel(),
+                    second.panel(),
+                    "{} and {} stand on one panel",
+                    first.label(),
+                    second.label()
+                );
             }
         }
     }
 
-    /// Every colour in the week's line is a role. The faces are pictures and carry their
-    /// own, which is what makes them pictures; everything a draw list says is a role.
+    /// Every colour in the week is the reference's, from the palette, and the line itself
+    /// is the cyan. Named for what it defends: the line was drawn in `Primary` and
+    /// `OnSurfaceVariant`, which under Cupertino is the system blue and its grey.
     #[test]
-    fn fr13_nothing_drawn_here_carries_a_literal_colour() {
-        let drawings = [week_line(
-            300.0,
-            160.0,
-            ColorRole::OnSurface,
-            ColorRole::Primary,
-        )];
-        for drawing in drawings {
-            for command in drawing.decode().expect("a drawing did not decode") {
-                assert!(
-                    matches!(command.paint(), Paint::Role(_)),
-                    "{command:?} is painted with something other than a role"
-                );
+    fn fr22_the_week_is_drawn_in_the_reference_colours() {
+        let commands = week_line(300.0, 160.0)
+            .decode()
+            .expect("the week did not decode");
+        for command in &commands {
+            assert!(
+                matches!(command.paint(), Paint::Literal(_)),
+                "{command:?} is painted with something other than the palette"
+            );
+        }
+        for command in &commands {
+            if let DrawCommand::Line { paint, .. } = command {
+                assert_eq!(*paint, palette::CYAN, "the week's line is not the cyan");
             }
+        }
+    }
+
+    /// The two feelings the reference names over the week are written there.
+    #[test]
+    fn fr22_the_week_names_the_feelings_the_reference_names() {
+        let list = week_line(300.0, 160.0);
+        let commands = list.decode().expect("the week did not decode");
+        let written: Vec<&str> = commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::TextAt {
+                    text_offset,
+                    text_length,
+                    ..
+                } => list.text_at(*text_offset, *text_length).ok(),
+                _ => None,
+            })
+            .collect();
+        for mood in [Mood::Calm, Mood::Happy] {
+            assert!(
+                written.contains(&mood.label()),
+                "the week does not say {}",
+                mood.label()
+            );
         }
     }
 
@@ -270,13 +359,18 @@ mod tests {
     #[test]
     fn fr16_the_last_day_is_written_inside_the_chart() {
         let width = 300.0;
-        let commands = week_line(width, 160.0, ColorRole::OnSurface, ColorRole::Primary)
+        let commands = week_line(width, 160.0)
             .decode()
             .expect("the week did not decode");
         let days: Vec<f32> = commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::TextAt { x, .. } => Some(*x),
+                DrawCommand::TextAt {
+                    x,
+                    type_role: TypeRole::Caption,
+                    paint,
+                    ..
+                } if *paint == palette::MUTED => Some(*x),
                 _ => None,
             })
             .collect();
@@ -293,7 +387,7 @@ mod tests {
     /// gap in it that reads as missing data.
     #[test]
     fn fr16_the_week_joins_every_reading_to_the_next() {
-        let commands = week_line(300.0, 160.0, ColorRole::OnSurface, ColorRole::Primary)
+        let commands = week_line(300.0, 160.0)
             .decode()
             .expect("the week did not decode");
         assert_eq!(

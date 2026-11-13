@@ -492,6 +492,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // What a frame is, wherever the ask comes from. The loop below is one caller and the
     // window's own resize handling is the other, and they draw the same frame.
     var nanos = 0L
+    val frameTime = WindowFrameTime()
     var painted = false
     var drew = false
     Win32Frames.paint = {
@@ -507,7 +508,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         // as the AppKit and X11 windows do: it runs here, once a frame, not on Swing's queue.
         FrameMainDispatcher.runPending()
         work.runPending()
-        nanos += FRAME_NANOS
+        nanos = frameTime.next()
         val begun = System.nanoTime()
         LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
         val at = if (window.rasterFrame()) drawRasterFrame(window, scene, nanos, textScale) else drawFrame(window, context, scene, nanos, textScale)
@@ -696,4 +697,3 @@ private fun drawRasterFrame(window: Win32NativeWindow, scene: ComposeScene, nano
 }
 
 private const val FRAME_SECONDS = 0.016
-private const val FRAME_NANOS = 16_000_000L

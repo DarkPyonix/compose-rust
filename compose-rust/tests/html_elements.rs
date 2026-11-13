@@ -430,7 +430,7 @@ fn fr42_changing_one_modifier_is_one_record() {
 fn fr19_9_window_drag_modifier_round_trips() {
     for enabled in [false, true] {
         let mutation = set_modifier(Modifier::WindowDrag(enabled));
-        let bytes = encode(&[mutation.clone()]);
+        let bytes = encode(std::slice::from_ref(&mutation));
         assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 32);
         assert_eq!(decode_batch(&bytes), Ok(vec![mutation]));
     }

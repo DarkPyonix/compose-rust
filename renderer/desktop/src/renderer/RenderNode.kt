@@ -1,5 +1,12 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import dev.darkpyonix.composerust.foundation.HostScroll
+import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
+import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -207,19 +214,18 @@ fun RenderNode(
     // composition to protect; everything else routes keys here.
     val keyDownHandler = node.handler(PropertyKind.OnKeyDown)
     val keyUpHandler = node.handler(PropertyKind.OnKeyUp)
-    val keyed = if ((keyDownHandler == null && keyUpHandler == null) ||
-        node.widget == WidgetKind.TextField
-    ) {
-        profiled
-    } else {
-        // Plain containers and text are not focus targets on their own, so a node that
-        // listens for keys is made one, ahead of its modifiers like the handlers. Without it
-        // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
-        // Widgets that are controls bring their own focus handling and are left alone.
-        val focusTarget = node.widget in KeyFocusTargets
+    val listensForKeys = (keyDownHandler != null || keyUpHandler != null) &&
+        node.widget != WidgetKind.TextField
+    val keyed = if (listensForKeys) {
         profiled.hostKeyEvents(nodeId, keyDownHandler, keyUpHandler, dispatcher)
-            .let { if (focusTarget) it.focusable() else it }
+    } else {
+        profiled
     }
+    // Plain containers and text are not focus targets on their own, so a node that
+    // listens for keys is made one, ahead of its modifiers like the handlers. Without it
+    // Tab never reaches the node and a DOM element with tabindex and onkeydown is dead.
+    // Widgets that are controls bring their own focus handling and are left alone.
+    val keyFocusTarget = listensForKeys && node.widget in KeyFocusTargets
     // A node that subscribed to pointer events listens for them. One that did not carries
     // nothing for them at all.
     val pointerEvents = if (node.subscribesToPointer()) {
@@ -248,7 +254,11 @@ fun RenderNode(
     // Ahead of the node's own modifiers. A requester moves focus to the first focus target
     // after it, and a node that can be pressed has that target among its modifiers: placed
     // after them, the requester missed the node and reached for its children instead.
-    val requested = if (focusRequester == null) keyed else keyed.focusRequester(focusRequester)
+    // It is also ahead of the focus target a key listener is given, and behind the key
+    // handlers. That target is then the one a request focuses, so the node keeps a single
+    // focus target that reports it is focused and whose keys pass the node's handlers.
+    val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
+        .let { if (keyFocusTarget) it.focusable() else it }
     val chain = requested
         .then(
             node.modifiers.toComposeModifier(
@@ -299,6 +309,7 @@ fun RenderNode(
     // A container nothing else made a focus target becomes one here, so the requester above
     // has somewhere to send focus.
     val focusableModifier = if (focusRequester != null &&
+        !keyFocusTarget &&
         clickHandler == null &&
         node.widget in CLICKABLE_CONTAINERS &&
         node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
@@ -325,7 +336,13 @@ fun RenderNode(
         val bounds = coordinates.boundsInWindow()
         WindowDropTargets.update(windowId, nodeId, bounds.left, bounds.top, bounds.right, bounds.bottom, density, depth)
     } else focusableModifier
-    val modifier = platformFileDrop(dropModifier, node, dispatcher)
+    val dropTarget = platformFileDrop(dropModifier, node, dispatcher)
+    // Where the node is drawn, recorded only while a scroll request needs to know.
+    val modifier = if (node.placementWanted) {
+        dropTarget.onPlaced { coordinates -> node.placement = coordinates }
+    } else {
+        dropTarget
+    }
     // A layout made of glass tells what is inside it so. A field in a glass bar is part of
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
@@ -410,7 +427,7 @@ fun RenderNode(
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 Column(
-                    modifier = modifier.verticalScroll(scrollState),
+                    modifier = modifier.hostScroll(node, table, scrollState, vertical = true).verticalScroll(scrollState),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
                 ) { Children(node, table, dispatcher) }
@@ -423,7 +440,7 @@ fun RenderNode(
             WidgetKind.ScrollRow -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
                 Row(
-                    modifier = modifier.horizontalScroll(scrollState),
+                    modifier = modifier.hostScroll(node, table, scrollState, vertical = false).horizontalScroll(scrollState),
                     horizontalArrangement = node.horizontalArrangement(theme),
                     verticalAlignment = node.verticalAlignment(),
                 ) { Children(node, table, dispatcher) }
@@ -528,7 +545,7 @@ fun RenderNode(
             // The document is the editor's own: its text, caret, selection and history live in
             // the node's model, and the Host hears each committed change. Drawn outside a
             // selectable region around it, because selecting inside an editor is the editor's.
-            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme) }
+            WidgetKind.CodeEditor -> Unselectable { HostCodeEditor(node, modifier, dispatcher, theme, table) }
 
             // Children laid where the Host already put them, each at its own `Offset`. Nothing
             // here arranges, aligns or sizes one child by another: the Host's layout engine
@@ -820,13 +837,10 @@ private fun rememberHostScrollState(node: Node, dispatcher: EventDispatcher): Sc
     val revision = (node.property(PropertyKind.Count) as? PropertyValue.Integer)?.value ?: 0L
     if (revision > 0L) {
         LaunchedEffect(node.id, revision, density) {
-            val targetDp = node.number(PropertyKind.Value) ?: 0f
-            val targetPx = with(density) { targetDp.coerceAtLeast(0f).dp.toPx() }.roundToInt()
-            if (node.flag(PropertyKind.Determinate, default = false)) {
-                state.animateScrollTo(targetPx)
-            } else {
-                state.scrollTo(targetPx)
-            }
+            // A move that came in a batch with scroll requests has its place among them
+            // and is applied there, once.
+            if (node.scroll?.statedRevision == revision) return@LaunchedEffect
+            node.statedScroll(state, density)
         }
     }
     val handlerId = node.handler(PropertyKind.OnRangeRequested)
@@ -850,6 +864,52 @@ private fun rememberHostScrollState(node: Node, dispatcher: EventDispatcher): Sc
         }
     }
     return state
+}
+
+/**
+ * Applies the move a scroll container's own properties ask for: to `Value` dp, animated
+ * where `Determinate` says so. An animation counts as this side's own movement, so a
+ * scroll request that arrives while it runs replaces it instead of being taken for the
+ * user's hand.
+ */
+private suspend fun Node.statedScroll(state: ScrollState, density: androidx.compose.ui.unit.Density) {
+    val targetDp = number(PropertyKind.Value) ?: 0f
+    val targetPx = with(density) { targetDp.coerceAtLeast(0f).dp.toPx() }.roundToInt()
+    if (flag(PropertyKind.Determinate, default = false)) {
+        val port = scroll
+        port?.let { it.ownMotion++ }
+        try {
+            state.animateScrollTo(targetPx)
+        } finally {
+            port?.let { it.ownMotion-- }
+        }
+    } else {
+        state.scrollTo(targetPx)
+    }
+}
+
+/**
+ * Wires a `ScrollColumn` or `ScrollRow` to the Host's scroll requests and to its scroll
+ * report. The size of the viewport across the scrolling axis is measured only for a node
+ * that has a handler to report it to.
+ */
+@Composable
+private fun Modifier.hostScroll(node: Node, table: NodeTable, state: ScrollState, vertical: Boolean): Modifier {
+    val density by rememberUpdatedState(LocalDensity.current)
+    val cross = remember(node.id) { mutableIntStateOf(0) }
+    val surface = remember(node.id, state, vertical) {
+        val axis = state.axis()
+        OffsetScrollSurface(
+            x = if (vertical) null else axis,
+            y = if (vertical) axis else null,
+            mainVertical = vertical,
+            cross = { cross.intValue },
+            statedMove = { node.statedScroll(state, density) },
+        )
+    }
+    HostScroll(node, table, surface)
+    if (node.handler(PropertyKind.OnScrollChanged) == null) return this
+    return onSizeChanged { size -> cross.intValue = if (vertical) size.width else size.height }
 }
 
 /**

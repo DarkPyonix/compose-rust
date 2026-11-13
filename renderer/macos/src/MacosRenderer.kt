@@ -172,7 +172,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
-        ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
+        ?: !IdleSoakSetting.requested()
     window.leaveRightClickMenuToCompose()
     @Suppress("DEPRECATION")
     window.setContent {

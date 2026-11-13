@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- The account's picture at the foot of the sidebar. The reference has a photograph
+       there, which is a picture of a person rather than a colour of the interface, so it
+       is a picture here too: a head and shoulders on a round ground, drawn at whatever
+       size the design system gives an icon. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#A8C7FA"/>
+      <stop offset="1" stop-color="#D3BBF5"/>
+    </linearGradient>
+    <clipPath id="round">
+      <circle cx="24" cy="24" r="24"/>
+    </clipPath>
+  </defs>
+  <circle cx="24" cy="24" r="24" fill="url(#ground)"/>
+  <g clip-path="url(#round)" fill="#FFFFFF" fill-opacity="0.92">
+    <circle cx="24" cy="19" r="8.5"/>
+    <path d="M6 48 C6 36 14 30.5 24 30.5 C34 30.5 42 36 42 48 Z"/>
+  </g>
+</svg>
