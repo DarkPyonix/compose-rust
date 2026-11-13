@@ -509,6 +509,11 @@ const EVENT_CARET_RECT: u16 = 64;
 const EVENT_POSITION_RECT: u16 = 65;
 /// `CaretRect` and `PositionRect` in full: the 16 byte header, two words and four `f32`.
 const CODE_RECT_EVENT_LEN: usize = 40;
+// 66 is a pointer over a code editor: the pointer record and the place in the text under it.
+const EVENT_CODE_POINTER: u16 = 66;
+const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
+/// The line and the column of a pointer that is over no character.
+const NO_CODE_POSITION: u32 = u32::MAX;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -990,6 +995,53 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_CARET_RECT | EVENT_POSITION_RECT => {
             return Err(ProtocolError::InvalidRecordLength);
         }
+        EVENT_CODE_POINTER if record_len == CODE_POINTER_LEN => {
+            let crate::schema::EventPayload::Pointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+            } = decode_pointer(bytes)?
+            else {
+                unreachable!("decode_pointer reads a pointer record");
+            };
+            let line = read_u32(bytes, POINTER_RECORD_LEN)?;
+            let column = read_u32(bytes, POINTER_RECORD_LEN + 4)?;
+            let position = match (line, column) {
+                (NO_CODE_POSITION, NO_CODE_POSITION) => None,
+                // One half of "nowhere" is a record the two sides disagree on.
+                (NO_CODE_POSITION, _) | (_, NO_CODE_POSITION) => {
+                    return Err(ProtocolError::InvalidValueKind(u16::MAX));
+                }
+                (line, column) => Some(crate::code::Position::new(line, column)),
+            };
+            crate::schema::EventPayload::CodePointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+                position,
+            }
+        }
+        EVENT_CODE_POINTER => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1211,6 +1263,55 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&delta_y.to_bits().to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(delta_mode)).to_le_bytes());
         output.extend_from_slice(&timestamp_nanos.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::CodePointer {
+        kind,
+        pointer_id,
+        pointer_type,
+        x,
+        y,
+        buttons,
+        button,
+        modifiers,
+        click_count,
+        delta_x,
+        delta_y,
+        delta_mode,
+        timestamp_nanos,
+        position,
+    } = event.payload
+    {
+        // The pointer record as a `Pointer` event writes it, under this tag and length.
+        encode_event(
+            &HostEvent {
+                node_id: event.node_id,
+                handler_id: event.handler_id,
+                payload: crate::schema::EventPayload::Pointer {
+                    kind,
+                    pointer_id,
+                    pointer_type,
+                    x,
+                    y,
+                    buttons,
+                    button,
+                    modifiers,
+                    click_count,
+                    delta_x,
+                    delta_y,
+                    delta_mode,
+                    timestamp_nanos,
+                },
+            },
+            output,
+        )?;
+        output[0..2].copy_from_slice(&EVENT_CODE_POINTER.to_le_bytes());
+        output[2..4].copy_from_slice(&(CODE_POINTER_LEN as u16).to_le_bytes());
+        let (line, column) = position.map_or((NO_CODE_POSITION, NO_CODE_POSITION), |at| {
+            (at.line, at.column)
+        });
+        output.extend_from_slice(&line.to_le_bytes());
+        output.extend_from_slice(&column.to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
@@ -1635,7 +1736,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::FileHandles { .. }
         | crate::schema::EventPayload::ScrollChanged { .. }
         | crate::schema::EventPayload::CaretRect { .. }
-        | crate::schema::EventPayload::PositionRect { .. } => unreachable!(),
+        | crate::schema::EventPayload::PositionRect { .. }
+        | crate::schema::EventPayload::CodePointer { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)

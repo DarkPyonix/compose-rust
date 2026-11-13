@@ -1,11 +1,13 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.click
@@ -15,6 +17,7 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.foundation.code.CODE_EDITOR_FIELD_TAG
 import dev.darkpyonix.composerust.foundation.code.CodeEditorPath
@@ -22,12 +25,14 @@ import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.code.defaultCodeEditorPath
 import dev.darkpyonix.composerust.foundation.code.installDrawnCodeEditor
 import dev.darkpyonix.composerust.foundation.codeEditorKeyPreview
+import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Key as ProtocolKey
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
@@ -41,6 +46,7 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import kotlin.math.abs
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -50,6 +56,7 @@ import kotlin.test.assertTrue
 
 private const val EDITOR = 2
 private const val ON_PREVIEW = 81L
+private const val ON_CODE_POINTER = 91L
 
 /** An editor alone on the page, 300 by 160 dp, with the records the test adds after it. */
 private fun page(text: String, vararg extra: Mutation): List<Mutation> = buildList {
@@ -80,8 +87,10 @@ class CodeEditorInputHooksTest {
     private fun ComposeUiTest.show(connection: FakeHostConnection): () -> ComposeRustHost {
         lateinit var host: ComposeRustHost
         setContent {
-            host = rememberComposeRustHost(connection)
-            ComposeRustContent(host)
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                host = rememberComposeRustHost(connection)
+                ComposeRustContent(host)
+            }
         }
         waitForIdle()
         return { host }
@@ -182,5 +191,95 @@ class CodeEditorInputHooksTest {
         table.apply(Mutation.SetProp(EDITOR, PropertyKind.OnKeyPreview, PropertyValue.None))
         assertFalse(preview(down, false))
         assertEquals(3, sent.size)
+    }
+
+    /**
+     * Criterion 21.1. Cmd and a click on the `b` of `beta` reaches the Host once, as a
+     * press of the primary button with Meta held and the line and column of that letter,
+     * and a press the Host consumed leaves the caret where it was. Let go, the same click
+     * moves the caret there, and a press over the gutter is over no character.
+     */
+    @Test
+    fun fr38_editor_pointer_reports_text_position() {
+        installDrawnCodeEditor()
+        for (path in listOf(CodeEditorPath.Windowed, CodeEditorPath.Drawn)) {
+            defaultCodeEditorPath = path
+            hostPlatformOverride = HostPlatform.MacOs
+            runComposeUiTest {
+                var take = true
+                val connection = FakeHostConnection(
+                    page(
+                        "let alpha = 1;\nlet beta = alpha + 1;\n",
+                        Mutation.SetProp(EDITOR, PropertyKind.OnCodePointer, PropertyValue.Integer(ON_CODE_POINTER)),
+                        Mutation.SetProp(
+                            EDITOR,
+                            PropertyKind.PointerKinds,
+                            PropertyValue.Integer(pointerKindBit(PointerKind.Down).toLong()),
+                        ),
+                        // Where the `b` of `beta` is, which is where the test clicks.
+                        Mutation.QueryPositionRect(EDITOR, 1, 1, 4),
+                    ),
+                )
+                connection.respondWith { event ->
+                    if (event is HostEvent.CodePointer && take) HostResponse(result = 1) else HostResponse()
+                }
+                val host = show(connection)
+                assertEquals(emptyList(), connection.events.filterIsInstance<HostEvent.ProtocolError>(), "$path")
+                fun caret() = host().table.node(EDITOR)!!.code!!.selection
+                fun pointers() = connection.nodeEvents.filterIsInstance<HostEvent.CodePointer>()
+                val letter = connection.nodeEvents.filterIsInstance<HostEvent.PositionRect>().single()
+                assertTrue(letter.found, "$path")
+                val editor = onNodeWithTag(nodeTestTag(EDITOR))
+                val origin = editor.fetchSemanticsNode().positionInRoot
+                val point = Offset(letter.x + 2f - origin.x, letter.y + letter.height / 2f - origin.y)
+
+                editor.performKeyInput { keyDown(Key.MetaLeft) }
+                editor.performMouseInput {
+                    moveTo(point)
+                    press()
+                    release()
+                }
+                editor.performKeyInput { keyUp(Key.MetaLeft) }
+                waitForIdle()
+                val down = pointers().single()
+                assertEquals(EDITOR, down.nodeId)
+                assertEquals(ON_CODE_POINTER, down.handlerId)
+                assertEquals(PointerKind.Down, down.kind)
+                assertEquals(1 to 4, down.line to down.column, "$path: the press is over the b of beta")
+                assertEquals(8, down.modifiers and 8, "$path: Meta is held")
+                assertEquals(0, down.modifiers and 2, "$path: Ctrl is not")
+                assertEquals(1, down.button)
+                assertEquals(1, down.clickCount)
+                assertTrue(abs(point.x - down.x) <= 0.6f && abs(point.y - down.y) <= 0.6f, "$path: at $point, sent $down")
+                assertTrue(caret().collapsed && caret().caret == CodePosition(0, 0), "$path: a consumed press moved the caret to ${caret()}")
+
+                // The Host lets the same click go: the caret goes to the letter, as it always did.
+                take = false
+                mainClock.advanceTimeBy(2_000)
+                editor.performMouseInput {
+                    moveTo(point)
+                    press()
+                    release()
+                }
+                waitForIdle()
+                assertEquals(2, pointers().size, "$path")
+                assertEquals(0, pointers().last().modifiers, "$path")
+                assertEquals(CodePosition(1, 4), caret().caret, "$path: a press the Host let go did not move the caret")
+
+                // Over the gutter there is no character.
+                mainClock.advanceTimeBy(2_000)
+                editor.performMouseInput {
+                    moveTo(Offset(2f, point.y))
+                    press()
+                    release()
+                }
+                waitForIdle()
+                assertEquals(-1 to -1, pointers().last().let { it.line to it.column }, "$path")
+            }
+        }
+        assertTrue(NodeTable.supportsProperty(WidgetKind.CodeEditor, PropertyKind.OnCodePointer))
+        assertTrue(NodeTable.supportsProperty(WidgetKind.CodeEditor, PropertyKind.PointerKinds))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.CodeEditor, PropertyKind.OnPointer))
+        assertFalse(NodeTable.supportsProperty(WidgetKind.TextField, PropertyKind.OnCodePointer))
     }
 }

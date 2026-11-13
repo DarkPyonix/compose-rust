@@ -951,6 +951,12 @@ class ProtocolVectorsTest {
             // Where the caret is drawn and the answer to the position query, after them.
             1439 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
             1479 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
+            // A Cmd-click over the second line, with the place in the text under it.
+            1519 to HostEvent.CodePointer(
+                12, 31L, dev.darkpyonix.composerust.protocol.PointerKind.Down, 1,
+                dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
+                dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
+            ),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -959,7 +965,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1519, bytes.size)
+        assertEquals(1599, bytes.size)
     }
 
     /**

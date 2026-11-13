@@ -789,6 +789,11 @@ object ScrollWire {
             EventPayloadType::CodePositionRect => output.push_str(
                 ", val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
             ),
+            // The pointer's fields, then the character under it: -1 and -1 where it is over
+            // none.
+            EventPayloadType::CodePointer => output.push_str(
+                ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -1428,7 +1433,8 @@ object Protocol {
             EventPayloadType::None
             | EventPayloadType::ScrollChanged
             | EventPayloadType::CodeCaretRect
-            | EventPayloadType::CodePositionRect => {
+            | EventPayloadType::CodePositionRect
+            | EventPayloadType::CodePointer => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1530,6 +1536,8 @@ object Protocol {
             EventPayloadType::ScrollChanged => 72,
             // Two words and four floats.
             EventPayloadType::CodeCaretRect | EventPayloadType::CodePositionRect => 40,
+            // The pointer record and two words.
+            EventPayloadType::CodePointer => 80,
         };
         writeln!(
             output,
@@ -1716,7 +1724,7 @@ object Protocol {
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
-            EventPayloadType::Pointer => {
+            EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
                 output.push_str("                    out.putInt(event.pointerId)\n");
@@ -1735,6 +1743,10 @@ object Protocol {
                     "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
                 );
                 output.push_str("                    out.putLong(event.timestampNanos)\n");
+                if event.payload == EventPayloadType::CodePointer {
+                    output.push_str("                    out.putInt(event.line)\n");
+                    output.push_str("                    out.putInt(event.column)\n");
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeSelection => {
@@ -4120,6 +4132,27 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 rect: Some(crate::code::CodeRect::new(88.75, 64.25, 2.0, 20.0)),
             },
         },
+        // A Cmd-click over the emoji's column on the editor's second line.
+        HostEvent {
+            node_id: 12,
+            handler_id: 31,
+            payload: EventPayload::CodePointer {
+                kind: crate::schema::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: crate::schema::PointerType::Mouse,
+                x: 96.5,
+                y: 30.25,
+                buttons: 1,
+                button: 1,
+                modifiers: 8,
+                click_count: 1,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: crate::schema::WheelDeltaMode::Pixel,
+                timestamp_nanos: 123_456_789_000,
+                position: Some(crate::code::Position::new(1, 13)),
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4161,7 +4194,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-four independently decodable event records concatenated in schema order",
+    "description": "Forty-five independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4206,7 +4239,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
       {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
       {{ "type": "CaretRect", "offset": 1439, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "PositionRect", "offset": 1479, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }}
+      {{ "type": "PositionRect", "offset": 1479, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "CodePointer", "offset": 1519, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }}
     ]
   }}
 }}

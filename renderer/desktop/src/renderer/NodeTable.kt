@@ -1133,7 +1133,9 @@ class NodeTable {
                     widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.SelectionContainer ||
                     widget == WidgetKind.Spacer ||
-                    widget == WidgetKind.AbsoluteBox
+                    widget == WidgetKind.AbsoluteBox ||
+                    // An editor's own pointer events take the same mask of kinds.
+                    (widget == WidgetKind.CodeEditor && property == PropertyKind.PointerKinds)
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -1442,6 +1444,9 @@ class NodeTable {
                 // before the editor handles them.
                 PropertyKind.OnCaretRect,
                 PropertyKind.OnKeyPreview,
+                // The handler of its pointer events with the text under them. The kinds it
+                // hears are the node's `PointerKinds`, below.
+                PropertyKind.OnCodePointer,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

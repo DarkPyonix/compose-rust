@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Code editor pointer events with the text under them
+
+A `CodeEditor` with the new `OnCodePointer` handler property (tag 197) and a `PointerKinds` mask sends its pointer events in a `CodePointer` event (tag 66): the 72 byte `Pointer` record of a node's pointer event, then the line and the column of the character under the pointer, or none over the gutter, past the end of a line or below the last one. The kinds, the buttons, the modifiers, the click count, the capture, a move a frame and the consumption rules are a node's pointer event's, and a `Down` the handler consumes does not move the caret. Cmd or Ctrl and a click goes to a definition this way, and Cmd or Ctrl and a hover underlines a word ([#555](https://github.com/DarkPyonix/compose-rust/issues/555)).
+
 ### The Host hears the code editor's keys first
 
 A `CodeEditor` with the new `OnKeyPreview` handler property (tag 196) offers every key press to the Host before it handles the key itself, as the `KeyDown` record a key handler hears. A press the handler consumes, through the same synchronous result as any key handler, is not the editor's: Down does not move the caret and Enter inserts no line. Nothing is offered while an input method is composing. A suggestion list takes Up, Down, Enter, Tab and Escape this way while it is open, and an application takes its own commands such as F12, F2, Ctrl+Space or Ctrl/Cmd+. ([#554](https://github.com/DarkPyonix/compose-rust/issues/554)).

@@ -60,6 +60,7 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -109,7 +110,7 @@ private class DrawnState(
     val model: CodeEditorModel,
     var look: CodeEditorLook,
     var callbacks: CodeEditorCallbacks,
-) : DrawnInputTarget {
+) : DrawnInputTarget, CodePointerTarget {
     /** The platform clipboard, set on every composition. */
     lateinit var clipboard: ClipboardManager
 
@@ -326,6 +327,21 @@ private class DrawnState(
         return answered || model.caretUntold
     }
 
+    override fun positionAt(x: Float, y: Float): CodePosition? {
+        if (x < textLeft) return null
+        val row = ((y + (scroll?.offset ?: 0)) / rowPx).toInt()
+        if (y + (scroll?.offset ?: 0) < 0f || row >= rows.totalRows) return null
+        val line = rows.lineAtRow(row)
+        // A lens above the line, and the rows a suggestion of several lines adds below it,
+        // are not the document's text.
+        if (row != rows.textRow(line)) return null
+        val view = view(line)
+        val local = x - textLeft
+        // Past the end of the line, the pointer is over no character.
+        if (local > view.layout.size.width) return null
+        return CodePosition(line, view.column(local))
+    }
+
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
         val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
         val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
@@ -433,6 +449,9 @@ private fun DrawnSurface(
     Box(
         modifier
             .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+            // Outside the box that takes presses, so the Host hears a press before the
+            // caret moves for it.
+            .then(callbacks.codePointer(state))
             .changeSemantics(model, look)
             .background(look.container)
             .clipToBounds()
@@ -466,6 +485,8 @@ private fun DrawnSurface(
                             when (event.type) {
                                 PointerEventType.Press -> {
                                     focus.requestFocus()
+                                    // A press the Host took is not the editor's: the caret stays.
+                                    if (change.isConsumed) continue
                                     val (position, onLens) = state.positionAt(change.position)
                                     if (change.position.x < gutterWidth) {
                                         pressGutter(

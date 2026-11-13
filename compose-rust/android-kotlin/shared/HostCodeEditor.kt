@@ -112,6 +112,16 @@ internal fun HostCodeEditor(
                 }
             },
             onKeyPreview = keyPreview,
+            // The Host's pointer events over the editor go through the same router as every
+            // other node's, so a press the editor does not consume goes on to the nearest
+            // subscribed node around it.
+            codePointer = { target ->
+                if (node.subscribesToCodePointer()) {
+                    codePointerEvents(node, table.pointers, currentDispatcher, target)
+                } else {
+                    Modifier
+                }
+            },
         )
     }
     // A listener attached after the editor was drawn has the row height and the offset

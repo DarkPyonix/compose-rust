@@ -1247,3 +1247,60 @@ pub(crate) fn deliver_position_rect(request: u32, answer: PositionAnswer) -> boo
 pub fn reset_position_queries() {
     POSITION_QUERIES.with_borrow_mut(Vec::clear);
 }
+
+/// A pointer event over a code editor, with the place in the text under the pointer.
+///
+/// Everything a node's pointer event says, under the same rules: the kinds the editor
+/// subscribes to with `PointerKinds`, the buttons, the modifiers, the click count, a `Move`
+/// at most once a frame, and a press held by the editor until it is released. Consuming a
+/// `Down` keeps the caret where it was, which is what Cmd or Ctrl and a click needs to go to
+/// a definition without moving the reader's caret.
+#[derive(Clone, Debug)]
+pub struct CodePointer {
+    pub event: crate::PointerEvent,
+    /// The character under the pointer, or None where it is over none: the gutter, past the
+    /// end of a line, or below the last one.
+    pub position: Option<Position>,
+}
+
+impl CodePointer {
+    /// The event out of a `CodePointer` payload, or None for any other.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match *payload {
+            crate::schema::EventPayload::CodePointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+                position,
+            } => Some(Self {
+                event: crate::PointerEvent::new(
+                    kind,
+                    pointer_id,
+                    pointer_type,
+                    x,
+                    y,
+                    buttons,
+                    button,
+                    modifiers,
+                    click_count,
+                    delta_x,
+                    delta_y,
+                    delta_mode,
+                    timestamp_nanos,
+                ),
+                position,
+            }),
+            _ => None,
+        }
+    }
+}

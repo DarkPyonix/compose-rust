@@ -87,6 +87,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
@@ -290,6 +291,11 @@ class CodeEditorCallbacks(
      * here, releases too, so a held key's repeats can be told from its first press.
      */
     val onKeyPreview: (event: KeyEvent, composing: Boolean) -> Boolean = { _, _ -> false },
+    /**
+     * What the editor's view carries for the Host's pointer events over it, given what is
+     * under a point of the view. Nothing where the Host does not listen.
+     */
+    val codePointer: @Composable (CodePointerTarget) -> Modifier = { Modifier },
 )
 
 /** Test tag of the field a field surface types into. */
@@ -932,13 +938,14 @@ internal fun caretOnScreen(rect: Rect, viewport: LayoutCoordinates?, textLeft: F
  * and from the layout callbacks, where the field's text layout and its place on screen are
  * the ones the reader sees.
  */
-internal class FieldPlaces(private val window: FieldWindow) {
+internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget {
     /** The field itself, where its text layout's coordinates start. */
     var field: LayoutCoordinates? = null
 
     /** The editor's view: everything the reader can see of it. */
     var viewport: LayoutCoordinates? = null
     var layout: (() -> TextLayoutResult?)? = null
+    var gutterWidthPx = 0f
     var textLeftPx = 0f
     var density = 1f
 
@@ -966,6 +973,22 @@ internal class FieldPlaces(private val window: FieldWindow) {
         if (ghost != null && ghost.start == position && ghost.text.isNotEmpty()) shown -= ghost.text.length
         val cursor = result.getCursorRect(shown.coerceIn(0, result.layoutInput.text.length))
         return Rect(coordinates.localToRoot(Offset(cursor.left, cursor.top)), Size(caretWidthPx, cursor.height))
+    }
+
+    override fun positionAt(x: Float, y: Float): CodePosition? {
+        if (x < gutterWidthPx) return null
+        val view = viewport?.takeIf { it.isAttached } ?: return null
+        val coordinates = field?.takeIf { it.isAttached } ?: return null
+        val result = layout?.invoke() ?: return null
+        val point = coordinates.localPositionOf(view, Offset(x, y))
+        if (point.x < 0f || point.y < 0f || point.y >= result.size.height) return null
+        // Past the end of the line it is on, the pointer is over no character.
+        val line = result.getLineForVerticalPosition(point.y)
+        if (point.x > result.getLineRight(line)) return null
+        val (offset, insertion) = window.toFieldOffset(result.getOffsetForPosition(point))
+        // A lens row and a suggestion are shown, not the document's text.
+        if (insertion != null) return null
+        return window.toDoc(offset)
     }
 
     /**
@@ -1093,6 +1116,7 @@ private fun FieldSurface(
     // Where the caret is drawn and where a position is, read after layout. What they find
     // is sent from a coroutine rather than from inside the pass that found it.
     val places = remember(window) { FieldPlaces(window).also { it.layout = { layoutHolder[0]?.invoke() } } }
+    places.gutterWidthPx = gutterWidthPx.toFloat()
     places.textLeftPx = (gutterWidthPx + textInsetPx).toFloat()
     places.density = density.density
     places.caretWidthPx = with(density) { 2.dp.toPx() }
@@ -1111,6 +1135,9 @@ private fun FieldSurface(
         Box(
             modifier
                 .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+                // Outside the field, so the Host hears a press before the field moves the
+                // caret for it, and over the gutter as well as the text.
+                .then(callbacks.codePointer(places))
                 .changeSemantics(model, look)
                 .background(look.container)
                 .clipToBounds()
@@ -1231,7 +1258,8 @@ private fun FieldSurface(
                                             val change = event.changes.firstOrNull() ?: continue
                                             val result = layoutHolder[0]?.invoke()
                                             when (event.type) {
-                                                PointerEventType.Press -> {
+                                                // A press the Host took is not the editor's.
+                                                PointerEventType.Press -> if (!change.isConsumed) {
                                                     val lens = result?.let {
                                                         lensAt(window, it, change.position)
                                                     }

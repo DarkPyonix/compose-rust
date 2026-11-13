@@ -4,10 +4,10 @@
 
 use compose_rust::code::{
     CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange, CodeEditorColors,
-    CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN,
-    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
-    GutterDecorations, Position, PositionAnswer, RecordFieldType, SYNTAX_SPAN_LEN,
-    SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, position_query,
+    CodePointer, CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations,
+    FOLD_LEN, FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD,
+    GutterDecoration, GutterDecorations, Position, PositionAnswer, RecordFieldType,
+    SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, position_query,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -1247,4 +1247,134 @@ fn fr38_editor_key_preview_keeps_its_tag_and_the_key_down_record() {
             ..
         }
     ));
+}
+
+fn code_pointer(
+    kind: compose_rust::PointerKind,
+    position: Option<Position>,
+) -> EventPayload<'static> {
+    EventPayload::CodePointer {
+        kind,
+        pointer_id: 1,
+        pointer_type: compose_rust::PointerType::Mouse,
+        x: 96.5,
+        y: 30.25,
+        buttons: 1,
+        button: 1,
+        modifiers: 8,
+        click_count: 1,
+        delta_x: 0.0,
+        delta_y: 0.0,
+        delta_mode: compose_rust::WheelDeltaMode::Pixel,
+        timestamp_nanos: 123_456_789_000,
+        position,
+    }
+}
+
+/// A pointer over the editor is the 72 byte pointer record and the line and the column
+/// under it, 80 bytes under its own tag, and both halves of the place are `u32::MAX` where
+/// it is over no character. Read back, it is a pointer event with the place beside it.
+#[test]
+fn fr38_editor_pointer_reports_text_position_on_the_wire() {
+    assert_eq!(PropertyKind::OnCodePointer as u16, 197);
+    assert_eq!(event_tag("CodePointer"), 66);
+    assert_eq!(
+        PropertyKind::from_name("on_code_pointer"),
+        Ok(PropertyKind::OnCodePointer)
+    );
+
+    let over = code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13)));
+    let (length, decoded) = round_trip(over.clone());
+    assert_eq!(length, 80);
+    let read = CodePointer::from_payload(&decoded.payload).expect("a code pointer");
+    assert_eq!(read.position, Some(Position::new(1, 13)));
+    assert_eq!(read.event.kind(), compose_rust::PointerKind::Down);
+    assert!(read.event.meta_key());
+    assert!(!read.event.ctrl_key());
+    assert_eq!(read.event.click_count(), 1);
+    assert_eq!(read.event.x(), 96.5);
+    assert!(CodePointer::from_payload(&EventPayload::CodeSaveRequested { version: 0 }).is_none());
+
+    // The first 72 bytes are what a pointer event of the same fields writes.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: over,
+        },
+        &mut wire,
+    )
+    .unwrap();
+    let mut pointer = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::Pointer {
+                kind: compose_rust::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: compose_rust::PointerType::Mouse,
+                x: 96.5,
+                y: 30.25,
+                buttons: 1,
+                button: 1,
+                modifiers: 8,
+                click_count: 1,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: compose_rust::WheelDeltaMode::Pixel,
+                timestamp_nanos: 123_456_789_000,
+            },
+        },
+        &mut pointer,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[66, 0, 80, 0]);
+    assert_eq!(&wire[4..72], &pointer[4..72]);
+    assert_eq!(&wire[72..80], &[1, 0, 0, 0, 13, 0, 0, 0]);
+
+    // Over no character.
+    let (length, decoded) = round_trip(code_pointer(compose_rust::PointerKind::Move, None));
+    assert_eq!(length, 80);
+    assert_eq!(
+        CodePointer::from_payload(&decoded.payload)
+            .unwrap()
+            .position,
+        None
+    );
+    let mut nowhere = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: code_pointer(compose_rust::PointerKind::Move, None),
+        },
+        &mut nowhere,
+    )
+    .unwrap();
+    assert_eq!(&nowhere[72..80], &[0xff; 8]);
+    // Half of nowhere is a record the two sides disagree on, and a short one is refused.
+    nowhere[72..76].copy_from_slice(&0_u32.to_le_bytes());
+    assert!(decode_event(&nowhere).is_err());
+    wire[2] = 72;
+    assert_eq!(
+        decode_event(&wire[..72]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    // The vector both sides test against holds it after the position answer.
+    let vectors = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors");
+    let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
+    let mut expected = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 12,
+            handler_id: 31,
+            payload: code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13))),
+        },
+        &mut expected,
+    )
+    .unwrap();
+    assert_eq!(&events[1519..1599], expected.as_slice());
 }

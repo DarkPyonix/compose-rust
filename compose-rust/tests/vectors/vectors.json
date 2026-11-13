@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "17959311565728655732",
+  "schemaHashUnsigned": "10031041034248201123",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -27,7 +27,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Forty-four independently decodable event records concatenated in schema order",
+    "description": "Forty-five independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -72,7 +72,8 @@
       { "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 },
       { "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 },
       { "type": "CaretRect", "offset": 1439, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 },
-      { "type": "PositionRect", "offset": 1479, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }
+      { "type": "PositionRect", "offset": 1479, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 },
+      { "type": "CodePointer", "offset": 1519, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }
     ]
   }
 }

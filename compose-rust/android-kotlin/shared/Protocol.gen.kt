@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Snap, MaxHeightFraction, OnCaretRect, OnKeyPreview, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Snap, MaxHeightFraction, OnCaretRect, OnKeyPreview, OnCodePointer, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -1600,13 +1600,14 @@ sealed interface HostEvent {
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -487432507980895884L
+    const val SCHEMA_HASH: Long = -8415703039461350493L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2196,6 +2197,7 @@ object Protocol {
                 is HostEvent.CodeScrolled -> null
                 is HostEvent.CaretRect -> null
                 is HostEvent.PositionRect -> null
+                is HostEvent.CodePointer -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2250,6 +2252,7 @@ object Protocol {
                 is HostEvent.CodeScrolled -> 24
                 is HostEvent.CaretRect -> 40
                 is HostEvent.PositionRect -> 40
+                is HostEvent.CodePointer -> 80
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2308,6 +2311,7 @@ object Protocol {
                 is HostEvent.CodeScrolled -> 55
                 is HostEvent.CaretRect -> 64
                 is HostEvent.PositionRect -> 65
+                is HostEvent.CodePointer -> 66
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2548,6 +2552,23 @@ object Protocol {
                     out.putFloat(if (event.found) event.width else 0f)
                     out.putFloat(if (event.found) event.height else 0f)
                 }
+                is HostEvent.CodePointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2766,6 +2787,7 @@ object Protocol {
         189 -> PropertyKind.MaxHeightFraction
         195 -> PropertyKind.OnCaretRect
         196 -> PropertyKind.OnKeyPreview
+        197 -> PropertyKind.OnCodePointer
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
