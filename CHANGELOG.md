@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.0.10
+
+v0.0.8 and v0.0.9 were tagged but published no renderer: the Windows GraalVM renderer failed to link, so their releases carry no assets. v0.0.10 is the first release with everything listed under v0.0.9 and v0.0.8 below.
+
+### The Windows GraalVM renderer links again
+
+The window pin of v0.0.8 made the renderer call the macOS window's appearance setter and the Linux window's text factor on every desktop, but only macOS and Linux defined them, so the Windows native image failed to link with two unresolved names. Each is now defined, doing nothing, on the desktops that have no such window, and the symbol check counts both ([#730](https://github.com/DarkPyonix/compose-rust/pull/730)).
 
 ### Text with no type role reaches the Renderer
 
