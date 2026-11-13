@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -69,6 +70,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
@@ -1484,7 +1486,19 @@ private fun FieldSurface(
                                                     val lens = result?.let {
                                                         lensAt(window, it, change.position)
                                                     }
-                                                    if (lens != null) {
+                                                    // Alt and a press adds a caret there and
+                                                    // leaves the others where they are.
+                                                    val added = if (event.keyboardModifiers.isAltPressed && lens == null) {
+                                                        result?.let { positionAt(window, it, change.position) }
+                                                    } else {
+                                                        null
+                                                    }
+                                                    if (added != null) {
+                                                        change.consume()
+                                                        window.syncUserEdit()
+                                                        window.model.addCaret(added)
+                                                        callbacks.onOutput()
+                                                    } else if (lens != null) {
                                                         change.consume()
                                                         window.model.activate(lens)
                                                         callbacks.onOutput()
@@ -1676,6 +1690,20 @@ private fun handleKey(
             window.selectAll()
             return true
         }
+        // The next place the selected text is, as another selection.
+        command && event.key == Key.D && !event.isShiftPressed && !event.isAltPressed -> {
+            window.syncUserEdit()
+            if (model.addNextMatch()) window.applyHostSelection()
+            callbacks.onOutput()
+            return true
+        }
+        // A caret on the line above or below the others.
+        command && event.isAltPressed && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            window.syncUserEdit()
+            model.addCaretVertically(down = event.key == Key.DirectionDown)
+            callbacks.onOutput()
+            return true
+        }
         // A snippet's list of choices takes the keys that move through it, pick from it and
         // close it; Tab and Shift+Tab step through the snippet's stops; Escape closes the
         // list, then ends the snippet, then drops the extra selections.
@@ -1710,6 +1738,14 @@ private fun handleKey(
             if (model.ghostText == null) return false
             model.dismissGhostText()
             return true
+        }
+        // The field moves its own caret; the others move the same way here, and the field
+        // goes on to move its own.
+        model.secondary.isNotEmpty() && !command && caretMove(event.key) != null -> {
+            model.moveSecondary(caretMove(event.key)!!, event.isShiftPressed)
+            if (!(model.viewZones.isNotEmpty() && (event.key == Key.DirectionUp || event.key == Key.DirectionDown))) return false
+            val result = layout() ?: return false
+            return moveOverRows(window, result, down = event.key == Key.DirectionDown, extend = event.isShiftPressed)
         }
         // The field moves between the rows it shows, and a view zone's rows are among them:
         // where there are zones the caret is moved here, past them.
@@ -1759,6 +1795,17 @@ private fun moveOverRows(window: FieldWindow, layout: TextLayoutResult, down: Bo
         selection = if (extend) TextRange(current.start, target) else TextRange(target)
     }
     return true
+}
+
+/** How a key moves a caret, or null where it does not. */
+internal fun caretMove(key: Key): CodeEditorModel.CaretMove? = when (key) {
+    Key.DirectionLeft -> CodeEditorModel.CaretMove.Left
+    Key.DirectionRight -> CodeEditorModel.CaretMove.Right
+    Key.DirectionUp -> CodeEditorModel.CaretMove.Up
+    Key.DirectionDown -> CodeEditorModel.CaretMove.Down
+    Key.MoveHome -> CodeEditorModel.CaretMove.Home
+    Key.MoveEnd -> CodeEditorModel.CaretMove.End
+    else -> null
 }
 
 /** Whether a key press puts text in rather than moving or commanding. */

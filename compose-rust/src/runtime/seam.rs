@@ -447,6 +447,29 @@ impl Batch {
         });
     }
 
+    /// Writes one request to set every selection of a code editor, each an anchor and an
+    /// active end in the document as it stood at `base_version`, the first the primary one.
+    /// The Renderer moves every end past what the reader typed since, and drops the request,
+    /// with a protocol error, where an end is not a place in the document or the list is
+    /// empty. Typing, deleting and pasting then happen at every selection as one step, and
+    /// Escape goes back to the primary one.
+    pub fn set_selections(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        selections: &[(crate::code::Position, crate::code::Position)],
+    ) {
+        let mut blob = std::mem::take(&mut self.edit_group);
+        blob.clear();
+        crate::code::encode_selections(selections, &mut blob);
+        self.write(Mutation::SetSelections {
+            node_id,
+            base_version,
+            selections: &blob,
+        });
+        self.edit_group = blob;
+    }
+
     /// Writes one request to replace `range` of a code editor's document, as it stood at
     /// `base_version`, with `snippet`, and to open its tab stops.
     ///

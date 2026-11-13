@@ -147,6 +147,7 @@ class ProtocolVectorsTest {
                 is Mutation.QueryPositionRect -> mutation.nodeId !in created
                 is Mutation.EditCodeGroup -> mutation.nodeId !in created
                 is Mutation.InsertSnippet -> mutation.nodeId !in created
+                is Mutation.SetSelections -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -855,7 +856,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1679, bytes.size)
+        assertEquals(1755, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1040,6 +1041,9 @@ class ProtocolVectorsTest {
             1623 to HostEvent.CodeEditGroupResult(
                 12, 32L, 8, dev.darkpyonix.composerust.protocol.EditGroupStatus.Applied, 1, 3, 2,
             ),
+            // Every selection of the editor, a caret last and a selection made backwards in
+            // the middle, the four numbers of each behind the record.
+            1679 to HostEvent.SelectionsChanged(12, 33L, 4, intArrayOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0)),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -1048,7 +1052,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1679, bytes.size)
+        assertEquals(1755, bytes.size)
     }
 
     /**
@@ -1063,7 +1067,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1679, bytes.size)
+        assertEquals(1755, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1133,6 +1137,14 @@ class ProtocolVectorsTest {
         assertEquals(
             PropertyValue.Integer(32L),
             props.single { it.property == PropertyKind.OnEditGroupResult }.value,
+        )
+        // Three selections, the second made backwards.
+        val selections = mutations.filterIsInstance<Mutation.SetSelections>().single()
+        assertEquals(listOf(12, 1), listOf(selections.nodeId, selections.baseVersion))
+        val words = ByteBuffer.wrap(selections.selections).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            listOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0),
+            (0 until selections.selections.size / 4).map { words.getInt(it * 4) },
         )
         // The snippet over the closing brace, every character of it as the Rust side wrote it.
         assertEquals(

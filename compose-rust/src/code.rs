@@ -1150,6 +1150,67 @@ pub fn escape_snippet_text(text: &str) -> String {
     escaped
 }
 
+/// Bytes of one selection in a list of them: the anchor's line and column, then the active
+/// end's.
+pub const SELECTION_LEN: usize = 16;
+
+/// Encodes selections the way `SetSelections` and `SelectionsChanged` carry them, each an
+/// anchor and an active end, appending to `out`.
+pub fn encode_selections(selections: &[(Position, Position)], out: &mut Vec<u8>) {
+    out.reserve(selections.len() * SELECTION_LEN);
+    for (anchor, active) in selections {
+        put_u32(out, anchor.line);
+        put_u32(out, anchor.column);
+        put_u32(out, active.line);
+        put_u32(out, active.column);
+    }
+}
+
+/// Reads back the selections [`encode_selections`] wrote, or None where the bytes are not
+/// whole selections.
+pub fn decode_selections(bytes: &[u8]) -> Option<Vec<(Position, Position)>> {
+    if bytes.len() % SELECTION_LEN != 0 {
+        return None;
+    }
+    Some(
+        bytes
+            .chunks_exact(SELECTION_LEN)
+            .map(|record| {
+                (
+                    Position::new(word(record, 0), word(record, 4)),
+                    Position::new(word(record, 8), word(record, 12)),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Every selection of a code editor, as the Renderer reported it: sent while there is more
+/// than one, and once more when it comes back to one. The first is the primary selection,
+/// the one `SelectionChange` goes on reporting by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectionsChange {
+    pub version: u32,
+    /// Each an anchor and an active end.
+    pub selections: Vec<(Position, Position)>,
+}
+
+impl SelectionsChange {
+    /// The selections a `SelectionsChanged` event carries, or None for any other event.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match payload {
+            crate::schema::EventPayload::SelectionsChanged {
+                version,
+                selections,
+            } => Some(Self {
+                version: *version,
+                selections: decode_selections(selections)?,
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// The selection of a code editor, as the Renderer reported it.
 ///
 /// `anchor` is where the selection started and `active` where the caret is, so a selection

@@ -344,6 +344,19 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
                     selection.caret.column,
                 )
             }
+            // Every selection, as anchor and active pairs, to the same listener as the
+            // primary one.
+            is EditorOutput.SelectionsMoved -> {
+                val handler = handler(PropertyKind.OnSelectionChange) ?: continue
+                val values = IntArray(output.selections.size * 4)
+                for ((index, selection) in output.selections.withIndex()) {
+                    values[index * 4] = selection.anchor.line
+                    values[index * 4 + 1] = selection.anchor.column
+                    values[index * 4 + 2] = selection.caret.line
+                    values[index * 4 + 3] = selection.caret.column
+                }
+                events += HostEvent.SelectionsChanged(id, handler, output.version, values)
+            }
             is EditorOutput.VisibleRange -> {
                 val handler = handler(PropertyKind.OnVisibleRangeChange) ?: continue
                 events += HostEvent.VisibleRangeChanged(id, handler, output.version, output.first, output.last)

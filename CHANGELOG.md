@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Multiple cursors in the code editor
+
+The code editor holds several selections at once. Alt and a press adds a caret, Cmd or Ctrl and D adds the next place the selected text is (selecting the word at the caret first), and Alt with Cmd or Ctrl and Up or Down adds a caret on the line above or below. Typing, deleting and pasting happen at every selection as one undo step, the arrows move them all, and Escape goes back to the primary one. `Batch::set_selections(node_id, base_version, &[(anchor, active)])` sends a `SetSelections` command (tag 41, 20 bytes and 16 bytes per selection), and the editor's selection listener hears a `SelectionsChanged` event (tag 67, 28 bytes and 16 bytes per selection, read by `code::SelectionsChange::from_payload`) while there is more than one selection and once more when it comes back to one. `SelectionChanged` goes on reporting the primary selection alone.
+
 ### Snippets in the code editor
 
 `Batch::insert_snippet(node_id, base_version, range, snippet)` sends an `InsertSnippet` command (tag 40, 36 bytes: the node, the base version, the range and the snippet's reference) that replaces the range with a snippet in a subset of VS Code's syntax: `$1`, `${1:placeholder}`, `${1|one,two|}`, `$0` and `\$`. The caret selects the first stop, Tab and Shift+Tab move between the stops, places with the same number change together, and a stop with choices opens a list that the arrows, Enter and a press pick from. The session ends at `$0`, on Escape, or when the caret leaves the snippet. The insertion is one undo step and reaches the Host as ordinary `CodeChanged` events. `code::escape_snippet_text` escapes plain text for a snippet.

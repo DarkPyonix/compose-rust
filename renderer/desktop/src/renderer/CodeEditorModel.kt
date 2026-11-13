@@ -139,6 +139,12 @@ sealed interface EditorOutput {
      */
     class SelectionMoved(val version: Int, val selection: CodeSelection) : EditorOutput
 
+    /**
+     * Every selection, the primary first, where there is more than one or there were until
+     * now. Moves between two reports are one report.
+     */
+    class SelectionsMoved(val version: Int, val selections: List<CodeSelection>) : EditorOutput
+
     /** The lines on screen changed. Folded lines are not counted. */
     class VisibleRange(val version: Int, val first: Int, val last: Int) : EditorOutput
 
@@ -255,6 +261,9 @@ class CodeEditorModel(
     /** The selection changed since it was last compared with what the Host was told. */
     private var selectionDirty = false
     private var reportedSelection = CodeSelection.at(CodePosition.Zero)
+
+    /** Every selection as the Host was last told, where it was told about more than one. */
+    private var reportedSelections: List<CodeSelection> = listOf(CodeSelection.at(CodePosition.Zero))
 
     /** The lines on screen, as the surface last said, and as the Host was last told. */
     private var pendingVisible: Pair<Int, Int>? = null
@@ -832,6 +841,13 @@ class CodeEditorModel(
                 reportedSelection = current
                 output += EditorOutput.SelectionMoved(document.version, current)
             }
+            // The whole list goes only while there is more than one selection, and once more
+            // when it comes back to one, so an editor with one caret sends what it always did.
+            val all = if (secondary.isEmpty()) listOf(current) else selections.map(::snapped)
+            if (all != reportedSelections && (all.size > 1 || reportedSelections.size > 1)) {
+                output += EditorOutput.SelectionsMoved(document.version, all)
+            }
+            reportedSelections = all
         }
         val visible = pendingVisible
         if (visible != null) {
@@ -1474,6 +1490,158 @@ class CodeEditorModel(
         if (secondary.isEmpty()) return false
         secondary = emptyList()
         return true
+    }
+
+    // The reader's extra carets: added by a press, by the next match, or on the lines above
+    // and below, and set by the Host.
+
+    /**
+     * Selections the Host asked for, the first of them the primary one, each a run of four
+     * numbers (anchor line, anchor column, active line, active column) written against
+     * [baseVersion]. Every end is moved past what the reader typed since. An end that is not
+     * a place in the document, or no selections at all, drops the command and is reported.
+     */
+    fun hostSetSelections(baseVersion: Int, values: IntArray) {
+        if (values.isEmpty() || values.size % 4 != 0) {
+            output += EditorOutput.Error("a list of selections has ${values.size / 4} whole selections in it")
+            return
+        }
+        val moved = ArrayList<CodeSelection>(values.size / 4)
+        for (index in 0 until values.size / 4) {
+            val anchor = CodePosition(values[index * 4], values[index * 4 + 1])
+            val active = CodePosition(values[index * 4 + 2], values[index * 4 + 3])
+            val (from, to) = moveAlong(baseVersion, "a selection", anchor, active, Bias.After, Bias.After) ?: return
+            if (!document.isValid(from) || !document.isValid(to)) {
+                output += EditorOutput.Error("the selection $anchor to $active is outside the document")
+                return
+            }
+            if (moved.none { it.start == minOf(from, to) && it.end == maxOf(from, to) }) moved += CodeSelection(from, to)
+        }
+        dismissGhostText()
+        selection = moved.first()
+        secondary = moved.drop(1)
+        hostSelection += 1
+    }
+
+    /** A caret added where the reader pressed with Alt held. One where a caret already is goes instead. */
+    fun addCaret(position: CodePosition) {
+        if (!document.isValid(position)) return
+        val existing = secondary.indexOfFirst { it.collapsed && it.caret == position }
+        when {
+            existing >= 0 -> secondary = secondary.filterIndexed { index, _ -> index != existing }
+            selection.collapsed && selection.caret == position -> {
+                if (secondary.isEmpty()) return
+                selection = secondary.first()
+                secondary = secondary.drop(1)
+            }
+            else -> secondary = secondary + CodeSelection.at(position)
+        }
+    }
+
+    /** The word around [position], or null where it is in none. */
+    fun wordAt(position: CodePosition): Pair<CodePosition, CodePosition>? {
+        val text = document.line(position.line)
+        fun isWord(character: Char) = character.isLetterOrDigit() || character == '_'
+        var start = position.column
+        var end = position.column
+        while (start > 0 && isWord(text[start - 1])) start -= 1
+        while (end < text.length && isWord(text[end])) end += 1
+        if (start == end) return null
+        return CodePosition(position.line, start) to CodePosition(position.line, end)
+    }
+
+    /**
+     * Cmd or Ctrl and D: with nothing selected, the word at the caret is selected; then each
+     * press adds a selection on the next place the same text is, after the selection added
+     * last and round the end of the document, passing over places already selected.
+     * Returns whether anything changed.
+     */
+    fun addNextMatch(): Boolean {
+        val last = secondary.lastOrNull() ?: selection
+        if (last.collapsed) {
+            if (secondary.isNotEmpty()) return false
+            val (start, end) = wordAt(selection.caret) ?: return false
+            selection = CodeSelection(start, end)
+            hostSelection += 1
+            return true
+        }
+        val wanted = document.textBetween(last.start, last.end)
+        val whole = document.text()
+        fun offsetOf(position: CodePosition): Int {
+            var offset = 0
+            for (line in 0 until position.line) offset += document.line(line).length + document.lineBreak(line).length
+            return offset + position.column
+        }
+        fun positionOf(offset: Int): CodePosition {
+            var rest = offset
+            var line = 0
+            while (line < document.lineCount - 1) {
+                val length = document.line(line).length + document.lineBreak(line).length
+                if (rest < length) break
+                rest -= length
+                line += 1
+            }
+            return CodePosition(line, minOf(rest, document.line(line).length))
+        }
+        val taken = selections.map { offsetOf(it.start) to offsetOf(it.end) }
+        var from = offsetOf(last.end)
+        repeat(2) {
+            var at = whole.indexOf(wanted, from)
+            while (at >= 0) {
+                val end = at + wanted.length
+                if (taken.none { (start, stop) -> at < stop && start < end }) {
+                    secondary = secondary + CodeSelection(positionOf(at), positionOf(end))
+                    return true
+                }
+                at = whole.indexOf(wanted, at + 1)
+            }
+            from = 0
+        }
+        return false
+    }
+
+    /**
+     * Alt and Cmd or Ctrl with Up or Down: a caret on the line above the topmost selection,
+     * or below the bottommost, at the same column where the line is that long. Returns
+     * whether there was such a line.
+     */
+    fun addCaretVertically(down: Boolean): Boolean {
+        val edge = if (down) selections.maxBy { it.caret } else selections.minBy { it.caret }
+        val target = edge.caret.line + if (down) 1 else -1
+        if (target < 0 || target >= document.lineCount) return false
+        val line = nearestVisible(target, down)
+        if (line == edge.caret.line || line < 0 || line >= document.lineCount) return false
+        secondary = secondary + CodeSelection.at(CodePosition(line, minOf(edge.caret.column, document.line(line).length)))
+        return true
+    }
+
+    /** Where a caret goes for a key that moves it, said without a picture of the text. */
+    enum class CaretMove { Left, Right, Up, Down, Home, End }
+
+    /**
+     * [selection] moved by [move] the way the keys move a caret: a selection that is not
+     * collapsed goes to its own edge for Left and Right, and [extend] keeps the anchor.
+     */
+    fun moved(selection: CodeSelection, move: CaretMove, extend: Boolean): CodeSelection {
+        val caret = selection.caret
+        val target = when (move) {
+            CaretMove.Left -> if (!extend && !selection.collapsed) selection.start else stepBack(caret, 1)
+            CaretMove.Right -> if (!extend && !selection.collapsed) selection.end else stepForward(caret, 1)
+            CaretMove.Up, CaretMove.Down -> {
+                val down = move == CaretMove.Down
+                val line = nearestVisible((caret.line + if (down) 1 else -1).coerceIn(0, document.lineCount - 1), down)
+                CodePosition(line, minOf(caret.column, document.line(line).length))
+            }
+            CaretMove.Home -> CodePosition(caret.line, 0)
+            CaretMove.End -> CodePosition(caret.line, document.line(caret.line).length)
+        }
+        return CodeSelection(if (extend) selection.anchor else target, target)
+    }
+
+    /** Moves every selection past the primary one by [move]. The primary is its surface's to move. */
+    fun moveSecondary(move: CaretMove, extend: Boolean) {
+        if (secondary.isEmpty()) return
+        secondary = secondary.map { moved(it, move, extend) }
     }
 
     // Snippet sessions.

@@ -1613,6 +1613,24 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
      * Replaces a range of the code editor [nodeId]'s document, as it stood at
      * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
      * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
@@ -1764,13 +1782,24 @@ sealed interface HostEvent {
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
     data class ColorSchemeChanged(override val nodeId: Int, override val handlerId: Long, val scheme: SystemColorScheme) : HostEvent
+    data class SelectionsChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val selections: IntArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SelectionsChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    version == other.version && selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()
+
+        override fun toString(): String =
+            "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
+    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8415738101792524869L
+    const val SCHEMA_HASH: Long = 2471233714079813159L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1812,6 +1841,7 @@ object Protocol {
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -2096,6 +2126,14 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
                     }
                     TAG_INSERT_SNIPPET -> {
                         requireRecordLength(length, 36, offset)
@@ -2427,6 +2465,7 @@ object Protocol {
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
+                is HostEvent.SelectionsChanged -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also { buffer -> for (value in event.selections) buffer.putInt(value) }.array()
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2485,6 +2524,7 @@ object Protocol {
                 is HostEvent.PositionRect -> 40
                 is HostEvent.CodePointer -> 80
                 is HostEvent.ColorSchemeChanged -> 20
+                is HostEvent.SelectionsChanged -> 28
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2547,6 +2587,7 @@ object Protocol {
                 is HostEvent.PositionRect -> 65
                 is HostEvent.CodePointer -> 66
                 is HostEvent.ColorSchemeChanged -> 52
+                is HostEvent.SelectionsChanged -> 67
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2817,6 +2858,10 @@ object Protocol {
                 }
                 is HostEvent.ColorSchemeChanged -> {
                     out.putInt(systemColorSchemeTag(event.scheme))
+                }
+                is HostEvent.SelectionsChanged -> {
+                    out.putInt(event.version)
+                    writeStringReference(out, recordLength, text!!)
                 }
             }
             if (text != null) out.put(text)

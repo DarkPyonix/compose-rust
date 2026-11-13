@@ -1569,7 +1569,7 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1679);
+    assert_eq!(events.len(), 1755);
     assert_eq!(&events[1623..1659], wire.as_slice());
 }
 
@@ -1774,5 +1774,95 @@ fn fr38_insert_snippet_round_trips_on_the_wire() {
     assert_eq!(
         compose_rust::code::escape_snippet_text("a$1}\\b"),
         "a\\$1\\}\\\\b"
+    );
+}
+
+/// Every selection travels both ways as 16-byte records, the primary first: `SetSelections`
+/// is a 20-byte record with tag 41, and `SelectionsChanged` a 28-byte record with tag 67,
+/// each with the selections behind it. A selection made backwards keeps its anchor after its
+/// active end.
+#[test]
+fn fr38_selections_round_trip_on_the_wire() {
+    use compose_rust::code::{
+        SELECTION_LEN, SelectionsChange, decode_selections, encode_selections,
+    };
+    let event = EVENT_SCHEMA
+        .iter()
+        .find(|event| event.name == "SelectionsChanged")
+        .expect("SelectionsChanged is in the event schema");
+    assert_eq!(event.tag, 67);
+    assert_eq!(SELECTION_LEN, 16);
+
+    let selections = [
+        (Position::new(0, 3), Position::new(0, 7)),
+        (Position::new(1, 12), Position::new(1, 8)),
+        (Position::new(2, 0), Position::new(2, 0)),
+    ];
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.set_selections(12, 4, &selections);
+    let bytes = batch.finish().unwrap().to_vec();
+    assert_eq!(&bytes[12..16], &[41, 0, 20, 0]);
+    let decoded = decode_batch(&bytes).unwrap();
+    let [
+        Mutation::SetSelections {
+            node_id: 12,
+            base_version: 4,
+            selections: sent,
+        },
+    ] = decoded.as_slice()
+    else {
+        panic!("one SetSelections record: {decoded:?}");
+    };
+    assert_eq!(decode_selections(sent), Some(selections.to_vec()));
+    let mut short = bytes.clone();
+    short[14] = 16;
+    assert_eq!(
+        decode_batch(&short),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+
+    let mut blob = Vec::new();
+    encode_selections(&selections, &mut blob);
+    let (length, decoded) = round_trip(EventPayload::SelectionsChanged {
+        version: 9,
+        selections: &blob,
+    });
+    assert_eq!(length, 28 + 3 * SELECTION_LEN);
+    assert_eq!(
+        SelectionsChange::from_payload(&decoded.payload),
+        Some(SelectionsChange {
+            version: 9,
+            selections: selections.to_vec(),
+        })
+    );
+    // Bytes that are not whole selections are refused, on the wire and when read.
+    assert_eq!(decode_selections(&blob[..20]), None);
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::SelectionsChanged {
+                version: 9,
+                selections: &blob[..20],
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidRecordLength));
+
+    // The event vector ends with the selections of the mutation vector's editor.
+    let events = include_bytes!("vectors/events.bin");
+    assert_eq!(events.len(), 1755);
+    let last = decode_event(&events[1679..]).unwrap();
+    assert_eq!((last.node_id, last.handler_id), (12, 33));
+    assert_eq!(
+        SelectionsChange::from_payload(&last.payload),
+        Some(SelectionsChange {
+            version: 4,
+            selections: selections.to_vec(),
+        })
     );
 }

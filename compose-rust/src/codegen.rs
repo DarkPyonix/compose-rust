@@ -649,6 +649,24 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
      * Replaces a range of the code editor [nodeId]'s document, as it stood at
      * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
      * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
@@ -850,11 +868,23 @@ object ScrollWire {
             EventPayloadType::CodeEditGroupResult => output.push_str(
                 ", val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int",
             ),
+            // Four numbers per selection: anchor line, anchor column, active line, active
+            // column, the primary selection first.
+            EventPayloadType::CodeSelections => {
+                output.push_str(", val version: Int, val selections: IntArray")
+            }
             EventPayloadType::CodePointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
             ),
         }
-        if event.payload == EventPayloadType::IoAnswer {
+        if event.payload == EventPayloadType::CodeSelections {
+            writeln!(
+                output,
+                ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    version == other.version && selections.contentEquals(other.selections))\n\n        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${{selections.toList()}})\"\n    }}",
+                name = event.name
+            )
+            .unwrap();
+        } else if event.payload == EventPayloadType::IoAnswer {
             writeln!(
                 output,
                 ") : HostEvent {{\n        override fun equals(other: Any?): Boolean =\n            this === other ||\n                (other is {name} && nodeId == other.nodeId && handlerId == other.handlerId &&\n                    request == other.request && status == other.status && data.contentEquals(other.data))\n\n        override fun hashCode(): Int = (request * 31 + status.hashCode()) * 31 + data.contentHashCode()\n\n        override fun toString(): String =\n            \"{name}(request=$request, status=$status, length=${{data.size}})\"\n    }}",
@@ -932,6 +962,7 @@ object Protocol {
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1216,6 +1247,14 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
                     }
                     TAG_INSERT_SNIPPET -> {
                         requireRecordLength(length, 36, offset)
@@ -1565,6 +1604,15 @@ object Protocol {
                 )
                 .unwrap();
             }
+            // The selections as little-endian words behind the record.
+            EventPayloadType::CodeSelections => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also {{ buffer -> for (value in event.selections) buffer.putInt(value) }}.array()",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::CodeChange => {
                 writeln!(
                     output,
@@ -1668,6 +1716,8 @@ object Protocol {
             EventPayloadType::CodePointer => 80,
             // Five words.
             EventPayloadType::CodeEditGroupResult => 36,
+            // The version, then the selections' reference.
+            EventPayloadType::CodeSelections => 28,
         };
         writeln!(
             output,
@@ -1884,6 +1934,14 @@ object Protocol {
                     output.push_str("                    out.putInt(event.line)\n");
                     output.push_str("                    out.putInt(event.column)\n");
                 }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeSelections => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.version)\n");
+                output.push_str(
+                    "                    writeStringReference(out, recordLength, text!!)\n",
+                );
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeEditGroupResult => {
@@ -3024,6 +3082,27 @@ fn code_fold_vector() -> crate::code::Folds {
     crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
 }
 
+/// The selections of the mutation vector's `SetSelections`.
+pub const CODE_SELECTIONS_VECTOR: &[(u32, u32, u32, u32)] =
+    &[(0, 3, 0, 7), (1, 12, 1, 8), (2, 0, 2, 0)];
+
+fn code_selections_vector() -> Vec<u8> {
+    let selections: Vec<_> = CODE_SELECTIONS_VECTOR
+        .iter()
+        .map(
+            |&(anchor_line, anchor_column, active_line, active_column)| {
+                (
+                    crate::code::Position::new(anchor_line, anchor_column),
+                    crate::code::Position::new(active_line, active_column),
+                )
+            },
+        )
+        .collect();
+    let mut bytes = Vec::new();
+    crate::code::encode_selections(&selections, &mut bytes);
+    bytes
+}
+
 /// Two view zones, one of them with text that is not ASCII and one half a row high.
 fn code_view_zone_vector() -> crate::code::ViewZones {
     use crate::code::ViewZone;
@@ -3192,6 +3271,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
     let edit_group = code_edit_group_vector()?;
     let view_zones = code_view_zone_vector();
+    let code_selections = code_selections_vector();
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3990,6 +4070,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Minimap,
             value: PropertyValue::Integer(i64::from(u16::from(crate::schema::MinimapSide::Right))),
         },
+        // Three selections of the editor, the second made backwards, so a reader that takes
+        // the anchor for the active end or reads a record of the wrong length sees others.
+        Mutation::SetSelections {
+            node_id: 12,
+            base_version: 1,
+            selections: &code_selections,
+        },
         // A snippet over the editor's closing brace, with a placeholder, a mirror of it, a
         // choice, an escaped dollar sign and a final stop, so a reader that drops a byte of
         // the text or reads the range from the wrong place reads another snippet.
@@ -4048,6 +4135,7 @@ pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
+    let selections = code_selections_vector();
     let events = [
         HostEvent {
             node_id: 7,
@@ -4468,6 +4556,16 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 0,
             payload: EventPayload::ColorSchemeChanged(crate::schema::SystemColorScheme::Dark),
         },
+        // Every selection of the editor the mutation vector set, a caret and a selection made
+        // backwards, to its selection listener.
+        HostEvent {
+            node_id: 12,
+            handler_id: 33,
+            payload: EventPayload::SelectionsChanged {
+                version: 4,
+                selections: &selections,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4487,7 +4585,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 127,
+    "recordCount": 128,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4509,7 +4607,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-seven independently decodable event records concatenated in schema order",
+    "description": "Forty-nine independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4558,7 +4656,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
       {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
       {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
-      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }}
+      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
+      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }}
     ]
   }}
 }}

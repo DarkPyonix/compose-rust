@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -45,6 +46,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -536,6 +538,12 @@ private fun DrawnSurface(
                                             model.activate(lens)
                                             callbacks.onOutput()
                                         }
+                                    } else if (event.keyboardModifiers.isAltPressed) {
+                                        // Alt and a press adds a caret there and leaves the
+                                        // others where they are.
+                                        state.composing = ""
+                                        model.addCaret(position)
+                                        state.moved()
                                     } else {
                                         state.composing = ""
                                         val anchor = if (event.keyboardModifiers.isShiftPressed) model.selection.anchor else position
@@ -739,6 +747,8 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
     val shift = event.isShiftPressed
     fun move(to: CodePosition) {
         model.selection = CodeSelection(if (shift) selection.anchor else to, to)
+        // The other carets move the same way.
+        caretMove(event.key)?.let { model.moveSecondary(it, shift) }
         model.dismissGhostText()
         state.moved()
     }
@@ -778,6 +788,17 @@ private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
         }
         command && event.key == Key.A -> {
             model.selection = CodeSelection(CodePosition.Zero, document.end)
+            model.dropSecondary()
+            state.moved()
+        }
+        // The next place the selected text is, as another selection.
+        command && event.key == Key.D && !shift && !event.isAltPressed -> {
+            model.addNextMatch()
+            state.moved()
+        }
+        // A caret on the line above or below the others.
+        command && event.isAltPressed && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.addCaretVertically(down = event.key == Key.DirectionDown)
             state.moved()
         }
         command && (event.key == Key.C || event.key == Key.X) -> {

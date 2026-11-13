@@ -507,6 +507,27 @@ class NodeTable {
                 )
                 collectCode(node)
             }
+            // Every selection the Host asked for, the first the primary one. A list that is
+            // not whole selections is reported here; the editor refuses one that names a
+            // place the document does not have.
+            is Mutation.SetSelections -> codeNode(mutation.nodeId, "SetSelections")?.let { (node, code) ->
+                val bytes = mutation.selections
+                if (bytes.isEmpty() || bytes.size % 16 != 0) {
+                    fail(
+                        TableError.INVALID_CODE_EDIT,
+                        "SetSelections on node ${node.id}: ${bytes.size} bytes are not whole selections of 16",
+                    )
+                } else {
+                    val values = IntArray(bytes.size / 4) { index ->
+                        (bytes[index * 4].toInt() and 0xff) or
+                            ((bytes[index * 4 + 1].toInt() and 0xff) shl 8) or
+                            ((bytes[index * 4 + 2].toInt() and 0xff) shl 16) or
+                            ((bytes[index * 4 + 3].toInt() and 0xff) shl 24)
+                    }
+                    code.hostSetSelections(mutation.baseVersion, values)
+                    collectCode(node)
+                }
+            }
             // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
             // or whose range the reader has typed over, is reported and dropped.
             is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
