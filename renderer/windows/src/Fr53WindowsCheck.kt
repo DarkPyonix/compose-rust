@@ -90,6 +90,8 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
     val checks = FR53_WINDOWS_CHECK_NAMES.zip(bodies)
     var passed = true
     for ((name, body) in checks) {
+        // Said before the check runs, so a check that never returns is named in the log.
+        System.err.println("compose-rust: $name: start")
         try {
             body()
             System.err.println("compose-rust: $name: ok")

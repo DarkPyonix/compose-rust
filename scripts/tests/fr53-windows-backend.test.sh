@@ -79,8 +79,10 @@ grep -Fq 'dropTargets = dropTargets' "$src/WindowsMultiWindow.kt" ||
     fail "the multi-window loop builds its window manager without drop targets, so a dragged window finds no node"
 grep -Fq 'DropTargets.Registered.targetAt(' "$src/WindowsWindowBackend.kt" ||
     fail "the Windows backend does not answer drop targets from the nodes the scenes registered"
-grep -Fq 'cancelCapture = { backend.cancelPointerCapture() }' "$src/WindowsMultiWindow.kt" ||
+grep -Fq 'backend.cancelPointerCapture()' "$src/WindowsMultiWindow.kt" ||
     fail "a tear-off does not end the pointer capture of the window the pointer went down in"
+grep -Fq 'host.table.pointers.cancelPointer(pointerId)' "$src/WindowsMultiWindow.kt" ||
+    fail "a tear-off does not send the node that held the pointer its Cancel"
 grep -Fq 'scene.cancelPointerInput()' "$src/Win32Window.kt" ||
     fail "a window never tells its scene that the held pointer's gesture was cancelled"
 
