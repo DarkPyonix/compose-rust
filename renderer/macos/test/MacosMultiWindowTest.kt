@@ -668,6 +668,7 @@ class MacosMultiWindowTest {
         assertEquals(null, IdleSoakSetting.parse("soon"))
         assertEquals(12, IdleSoakSetting.parse(" 12 "))
         IdleSoakSetting.resetForTest()
+    }
 
     /**
      * The whole path of a dragged window on macOS: the Host's `DragFromPointer`, two real
@@ -689,9 +690,9 @@ class MacosMultiWindowTest {
         )
         val host = ComposeRustHost(connection)
         host.start(FrameRequestSource())
-        val backend = MacosWindowBackend { config, _, _ ->
+        val backend = MacosWindowBackend(scene = { config, _, _, _ ->
             { ComposeRustContent(host, windowNodeId = config.nodeId) }
-        }
+        })
         // The button is held from the start, away from the window.
         var pointer = ScreenPointer(60f, 620f, true)
         backend.pointer = { pointer }
@@ -806,10 +807,11 @@ class MacosMultiWindowTest {
         val host = ComposeRustHost(connection)
         host.start(FrameRequestSource())
         val scenes = HashMap<Int, MacosWindow>()
-        val backend = MacosWindowBackend { config, window, _ ->
+        val backend = MacosWindowBackend(scene = { config, window, _, _ ->
             scenes[config.nodeId] = window
-            return@MacosWindowBackend { ComposeRustContent(host, windowNodeId = config.nodeId) }
-        }
+            val content: @androidx.compose.runtime.Composable () -> Unit = { ComposeRustContent(host, windowNodeId = config.nodeId) }
+            content
+        })
         var pointer = ScreenPointer(60f, 620f, false)
         backend.pointer = { pointer }
         val targets = DropTargets.registered(backend::contentScale)
