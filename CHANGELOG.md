@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Compose fork moved to 1.11.1-ext.3
+
+The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.
+
 ### Word wrap in the code editor
 
 The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
