@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.layout.layout
+import dev.darkpyonix.composerust.ui.floatProp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -148,6 +152,10 @@ internal fun HostSheet(
         Modifier
     }
 
+    val maxHeight = node.floatProp(PropertyKind.MaxHeightFraction)
+        ?.takeIf { it > 0f && !it.isNaN() }
+        ?.coerceAtMost(1f)
+
     val explicitSheetPad = theme.overlay?.sheetPadding
     val sheetPadding = if (node.setsOwnPadding()) {
         Modifier
@@ -179,10 +187,16 @@ internal fun HostSheet(
                 .pointerInput(Unit) { detectTapGestures { close() } },
             contentAlignment = if (bottom) Alignment.BottomCenter else Alignment.CenterEnd,
         ) {
-            val sized = if (bottom) {
-                Modifier.fillMaxWidth().fillMaxHeight(style.heightFraction)
-            } else {
-                Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
+            // Where the application gave the sheet a tallest height, the sheet is as tall as
+            // its content up to that share of the window, and the content scrolls past it.
+            // Otherwise the design system's own size applies on both edges.
+            val window = remember(node.id) { WindowHeight() }
+            val sized = when {
+                maxHeight != null && bottom ->
+                    Modifier.fillMaxWidth().atMostOfWindow(window, maxHeight)
+                maxHeight != null -> Modifier.fillMaxWidth(style.widthFraction).atMostOfWindow(window, maxHeight)
+                bottom -> Modifier.fillMaxWidth().fillMaxHeight(style.heightFraction)
+                else -> Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
             }
             val aboveKeyboard = Modifier.padding(bottom = keyboard)
             // Two boxes rather than one: the outer is the sheet itself, which is what is
@@ -190,6 +204,7 @@ internal fun HostSheet(
             // Modifiers the Host put on the node, which belong inside its surface.
             Box(
                 Modifier
+                    .then(if (maxHeight == null) Modifier else window.measured)
                     .then(aboveKeyboard)
                     .testTag(sheetTestTag(node.id))
                     .modalOverlaySurface(node.id, surfaceRequester)
@@ -230,14 +245,59 @@ internal fun HostSheet(
                             )
                         }
                     }
-                    node.children.forEach { childId ->
-                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    if (maxHeight == null) {
+                        node.children.forEach { childId ->
+                            key(childId) { RenderNode(childId, table, dispatcher) }
+                        }
+                    } else {
+                        // The handle stays put and only what the application put in the
+                        // sheet scrolls.
+                        Column(
+                            Modifier
+                                .testTag(sheetContentTestTag(node.id))
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            node.children.forEach { childId ->
+                                key(childId) { RenderNode(childId, table, dispatcher) }
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+/**
+ * The height of the window a sheet is drawn in, read while the sheet is measured.
+ *
+ * [measured] sits outside the keyboard's padding, so the share is of the whole window
+ * rather than of what the keyboard leaves. The sheet's own size is measured inside it in
+ * the same pass, so a plain field is enough and no state changes between frames.
+ */
+private class WindowHeight {
+    var px: Int = 0
+
+    val measured: Modifier = Modifier.layout { measurable, constraints ->
+        px = if (constraints.hasBoundedHeight) constraints.maxHeight else 0
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+}
+
+/** As tall as the content, and no taller than [fraction] of the window [window] measured. */
+private fun Modifier.atMostOfWindow(window: WindowHeight, fraction: Float): Modifier =
+    layout { measurable, constraints ->
+        val cap = if (window.px > 0) (window.px * fraction).roundToInt() else constraints.maxHeight
+        val placeable = measurable.measure(
+            constraints.copy(minHeight = 0, maxHeight = cap.coerceAtMost(constraints.maxHeight)),
+        )
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
+
+/** Test tag of the scrolling content of a sheet that has a tallest height. */
+fun sheetContentTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet-content"
 
 /** Test tag of the sheet's own surface, which is its own window, not part of the tree. */
 fun sheetTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet"
