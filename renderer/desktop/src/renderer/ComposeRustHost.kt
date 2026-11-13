@@ -154,6 +154,15 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
 
     /** Dispatches synchronously and returns the Host's consumption result. */
     override fun dispatch(event: HostEvent): Boolean {
+        // A report goes the way the errors found in a batch go, best effort, so a Host that
+        // refuses it leaves the report itself to be printed. Sent like any other event, a
+        // refused report became a second, empty error: "dispatch_event returned -1", with
+        // the missing picture or the font it was about lost. The Rust Host refuses every
+        // report, so each picture Android could not decode cost its real message.
+        if (event is HostEvent.ProtocolError) {
+            report(event)
+            return false
+        }
         var result = 0L
         applyTransaction { apply -> result = connection.dispatchEvent(event, apply) }
         return result != 0L
@@ -231,25 +240,34 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // report exists to prevent, so the report is best effort and the original error is
         // what gets printed.
         protocolErrors.forEach { error ->
-            try {
-                connection.dispatchEvent(
-                    HostEvent.ProtocolError(
-                        nodeId = NodeTable.ROOT_ID,
-                        handlerId = 0,
-                        code = error.code,
-                        message = error.message,
-                    ),
-                ) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
-            } catch (report: Throwable) {
-                if (report is InterruptedException) throw report
-                onProtocolError(error)
-            }
+            report(
+                HostEvent.ProtocolError(
+                    nodeId = NodeTable.ROOT_ID,
+                    handlerId = 0,
+                    code = error.code,
+                    message = error.message,
+                ),
+            )
         }
         // What a code editor did with an edit the batch asked of it: the change it made, or
         // the refusal. After the batch for the same reason as the errors above, and each in
         // its own call, because the Host answers each one with a batch of its own.
         editorEvents.forEach { event -> dispatch(event) }
         afterBatch?.invoke()
+    }
+
+    /**
+     * Hands one protocol error to the Host, and prints it when the Host will not take it.
+     *
+     * Never inside a batch's transaction, so the Host is never re-entered mid-batch.
+     */
+    private fun report(event: HostEvent.ProtocolError) {
+        try {
+            connection.dispatchEvent(event) { mutation -> Snapshot.withMutableSnapshot { table.apply(mutation) } }
+        } catch (refused: Throwable) {
+            if (refused is InterruptedException) throw refused
+            onProtocolError(TableError(event.code, event.message))
+        }
     }
 
     private companion object {
