@@ -10,7 +10,7 @@ enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyC
 
 enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, Progress }
 
-enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
+enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -32,7 +32,7 @@ enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Ima
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
-enum class TextAlign { Start, Center, End, Justify }
+enum class TextAlign { Start, Center, End, Justify, Left, Right }
 
 enum class TextOverflow { Clip, Ellipsis, Visible }
 
@@ -906,7 +906,7 @@ object CodeEditorRecords {
 
     private fun readViewZoneRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): ViewZoneRecord? {
         val afterLine = buffer.getInt(offset + 0)
-        val heightLines = buffer.getFloat(offset + 4)
+        val heightLines = kotlin.Float.fromBits(buffer.getInt(offset + 4))
         val text = textOf(bytes, buffer.getInt(offset + 8), buffer.getInt(offset + 12)) ?: run { onError("record $index names text outside the list"); return null }
         return ViewZoneRecord(afterLine, heightLines, text)
     }
@@ -1801,7 +1801,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -7185122591292367094L
+    const val SCHEMA_HASH: Long = -2799223989932024366L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2467,7 +2467,7 @@ object Protocol {
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
-                is HostEvent.SelectionsChanged -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also { buffer -> for (value in event.selections) buffer.putInt(value) }.array()
+                is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -3111,6 +3111,19 @@ object Protocol {
         Key.End -> 12
         Key.PageUp -> 13
         Key.PageDown -> 14
+        Key.F1 -> 15
+        Key.F2 -> 16
+        Key.F3 -> 17
+        Key.F4 -> 18
+        Key.F5 -> 19
+        Key.F6 -> 20
+        Key.F7 -> 21
+        Key.F8 -> 22
+        Key.F9 -> 23
+        Key.F10 -> 24
+        Key.F11 -> 25
+        Key.F12 -> 26
+        Key.ContextMenu -> 27
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {
@@ -3410,6 +3423,8 @@ object Protocol {
         2 -> TextAlign.Center
         3 -> TextAlign.End
         4 -> TextAlign.Justify
+        5 -> TextAlign.Left
+        6 -> TextAlign.Right
         else -> throw ProtocolException("unknown TextAlign tag $tag", offset)
     }
 

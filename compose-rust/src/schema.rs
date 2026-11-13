@@ -678,6 +678,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -978,11 +992,15 @@ define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     Xxl = 7,
 });
 
+// `Start` and `End` follow the writing direction and swap in right-to-left text. `Left`
+// and `Right` are physical, as CSS `text-align: left|right` is, and never swap.
 define_wire_enum!(TEXT_ALIGN_SCHEMA, TextAlign {
     Start = 1,
     Center = 2,
     End = 3,
     Justify = 4,
+    Left = 5,
+    Right = 6,
 });
 
 define_wire_enum!(TEXT_OVERFLOW_SCHEMA, TextOverflow {
