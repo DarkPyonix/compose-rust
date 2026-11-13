@@ -66,6 +66,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -261,11 +262,20 @@ internal fun HostTopAppBar(
 ) {
     val style = theme.rules.container(ContainerRole.TopAppBar, theme)
     val caption = LocalWindowCaption.current
+    // The bar says how tall it is, so a message placed along the top of the window can
+    // start below it. Only the height: whether this bar is the one across the top of the
+    // window is the page's question, answered where the message is drawn.
+    val insets = table.insets
+    val density = LocalDensity.current
+    DisposableEffect(insets, node.id) { onDispose { insets.topBar(node.id, null) } }
+    val measured = modifier.onSizeChanged { size ->
+        insets.topBar(node.id, with(density) { size.height.toDp() })
+    }
     if (style.floats) {
-        FloatingTopAppBar(node, modifier, table, dispatcher, theme, style)
+        FloatingTopAppBar(node, measured, table, dispatcher, theme, style)
         return
     }
-    Column(modifier) {
+    Column(measured) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,6 +32,8 @@ import dev.darkpyonix.composerust.design.fontSize
 import androidx.compose.ui.text.TextStyle
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.MessageDuration
+import dev.darkpyonix.composerust.protocol.MessageHorizontal
+import dev.darkpyonix.composerust.protocol.MessageVertical
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import kotlinx.coroutines.delay
 
@@ -40,6 +43,9 @@ import kotlinx.coroutines.delay
  * `serial` is this side's own number rather than anything from the wire: two identical
  * messages are two messages, and the composable that shows one has to be able to tell that
  * the second is not the first still on screen.
+ *
+ * `vertical` and `horizontal` are where the Host asked for it to be drawn, and `offsetDp`
+ * how far from that edge. Null leaves each to the design system.
  */
 data class HostMessage(
     val serial: Long,
@@ -47,6 +53,9 @@ data class HostMessage(
     val text: String,
     val action: String,
     val duration: MessageDuration,
+    val vertical: MessageVertical? = null,
+    val horizontal: MessageHorizontal? = null,
+    val offsetDp: Float? = null,
 )
 
 /**
@@ -70,12 +79,20 @@ class MessageQueue {
     /** How many messages are waiting, including the one on screen. */
     val size: Int get() = waiting.size
 
-    fun post(handlerId: Long, text: String, action: String, duration: MessageDuration) {
+    fun post(
+        handlerId: Long,
+        text: String,
+        action: String,
+        duration: MessageDuration,
+        vertical: MessageVertical? = null,
+        horizontal: MessageHorizontal? = null,
+        offsetDp: Float? = null,
+    ) {
         if (waiting.size >= CAPACITY) {
             // Index 1 rather than 0: the one at the front is being read.
             waiting.removeAt(if (waiting.size > 1) 1 else 0)
         }
-        waiting.add(HostMessage(nextSerial++, handlerId, text, action, duration))
+        waiting.add(HostMessage(nextSerial++, handlerId, text, action, duration, vertical, horizontal, offsetDp))
     }
 
     /** Takes the message off the front, if it is still the one at the front. */
@@ -93,15 +110,113 @@ class MessageQueue {
 }
 
 /**
- * How much of the window's bottom edge the screen's own chrome is using.
+ * How much of the window's edges the screen's own chrome is using.
  *
  * A message is drawn over everything, because it is not in the tree, and a message drawn
  * over the destinations would hide the thing the user needs next. The navigation says how
- * tall its bar is while it is drawing one, and the message keeps clear of it.
+ * tall its bar is while it is drawing one, and the message keeps clear of it. Each top bar
+ * says how tall it is, so a message the application placed along the top can keep clear
+ * of the one the page opens with.
  */
 class ChromeInsets {
     var bottom: Dp by mutableStateOf(0.dp)
         internal set
+
+    /** How tall each top bar on screen is, by node. */
+    private val topBars = mutableStateMapOf<Int, Dp>()
+
+    /** How tall the top bar `nodeId` is, or zero when there is no such bar on screen. */
+    fun topBarHeight(nodeId: Int): Dp = topBars[nodeId] ?: 0.dp
+
+    internal fun topBar(nodeId: Int, height: Dp?) {
+        if (height == null) {
+            topBars.remove(nodeId)
+        } else if (topBars[nodeId] != height) {
+            topBars[nodeId] = height
+        }
+    }
+}
+
+/**
+ * The strips of the window nothing should be drawn under, and the bar the page opens with.
+ *
+ * `top` is the window's caption and a phone's status bar, `bottom` a gesture bar or the
+ * keyboard. `pageTop` is where the page starts, and `topBar` the node id of the top bar it
+ * opens with, or 0 when it opens with none: that bar runs from `pageTop` down by its own
+ * height, and a message along the top starts below it.
+ */
+data class MessageSafeArea(
+    val top: Dp = 0.dp,
+    val bottom: Dp = 0.dp,
+    val pageTop: Dp = 0.dp,
+    val topBar: Int = 0,
+)
+
+/** Where a message sits once the Host's request and the design system's answer are put together. */
+private data class MessageFrame(
+    val alignment: Alignment,
+    val start: Dp,
+    val top: Dp,
+    val end: Dp,
+    val bottom: Dp,
+)
+
+/**
+ * The padding and alignment of the box a message is drawn in.
+ *
+ * A message that asks for nothing is where it always was: the design system's place, its
+ * inset from the edges, and clear of the bar along the bottom. One that asks for a place
+ * or an offset is measured from inside the safe area and the application's bars instead,
+ * so a message at the top is below the top bar and one at the bottom above the tab bar,
+ * whichever of the two the application chose.
+ */
+private fun messageFrame(
+    message: HostMessage,
+    style: dev.darkpyonix.composerust.design.MessageStyle,
+    insets: ChromeInsets,
+    safeArea: MessageSafeArea,
+): MessageFrame {
+    if (message.vertical == null && message.offsetDp == null) {
+        val alignment = when (style.placement) {
+            MessagePlacement.BottomStart -> Alignment.BottomStart
+            MessagePlacement.BottomCenter -> Alignment.BottomCenter
+            MessagePlacement.TopCenter -> Alignment.TopCenter
+            MessagePlacement.TopEnd -> Alignment.TopEnd
+        }
+        // A message along the bottom edge keeps clear of whatever chrome is already there;
+        // one along the top has nothing to keep clear of.
+        val bottom = if (style.placement.atTop) style.inset else style.inset + insets.bottom
+        return MessageFrame(alignment, style.inset, style.inset, style.inset, bottom)
+    }
+    val vertical = message.vertical ?: if (style.placement.atTop) MessageVertical.Top else MessageVertical.Bottom
+    val horizontal = message.horizontal ?: when (style.placement) {
+        MessagePlacement.BottomStart -> MessageHorizontal.Start
+        MessagePlacement.BottomCenter, MessagePlacement.TopCenter -> MessageHorizontal.Center
+        MessagePlacement.TopEnd -> MessageHorizontal.End
+    }
+    val alignment = when (vertical) {
+        MessageVertical.Top -> when (horizontal) {
+            MessageHorizontal.Start -> Alignment.TopStart
+            MessageHorizontal.Center -> Alignment.TopCenter
+            MessageHorizontal.End -> Alignment.TopEnd
+        }
+        MessageVertical.Bottom -> when (horizontal) {
+            MessageHorizontal.Start -> Alignment.BottomStart
+            MessageHorizontal.Center -> Alignment.BottomCenter
+            MessageHorizontal.End -> Alignment.BottomEnd
+        }
+    }
+    // Never a negative padding: a padding below zero throws from inside layout.
+    val edge = (message.offsetDp?.dp ?: style.inset).coerceAtLeast(0.dp)
+    val barBottom = if (safeArea.topBar == 0) 0.dp else safeArea.pageTop + insets.topBarHeight(safeArea.topBar)
+    val topClear = maxOf(safeArea.top, barBottom).coerceAtLeast(0.dp)
+    val bottomClear = maxOf(safeArea.bottom, insets.bottom).coerceAtLeast(0.dp)
+    return when (vertical) {
+        MessageVertical.Top ->
+            MessageFrame(alignment, style.inset, topClear + edge, style.inset, bottomClear + style.inset)
+        MessageVertical.Bottom ->
+            MessageFrame(alignment, style.inset, topClear + style.inset, style.inset, bottomClear + edge)
+    }
 }
 
 /**
@@ -117,6 +232,7 @@ internal fun HostMessages(
     insets: ChromeInsets,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
+    safeArea: MessageSafeArea = MessageSafeArea(),
 ) {
     val message = queue.current ?: return
     val style = theme.rules.message(theme)
@@ -129,12 +245,7 @@ internal fun HostMessages(
         delay(millis.toLong())
         queue.dismiss(message)
     }
-    val alignment = when (style.placement) {
-        MessagePlacement.BottomStart -> Alignment.BottomStart
-        MessagePlacement.BottomCenter -> Alignment.BottomCenter
-        MessagePlacement.TopCenter -> Alignment.TopCenter
-        MessagePlacement.TopEnd -> Alignment.TopEnd
-    }
+    val frame = messageFrame(message, style, insets, safeArea)
     // The application's overlay tokens, where it set them, take the place of the design
     // system's corner and lift. A message is not a node, so this is the only way to give it
     // either. Zero, or no tokens at all, keeps the design system's message as it is, with
@@ -148,20 +259,18 @@ internal fun HostMessages(
     } else {
         Modifier
     }
-    // A message along the bottom edge keeps clear of whatever chrome is already there;
-    // one along the top has nothing to keep clear of.
-    val bottomInset = if (style.placement.atTop) style.inset else style.inset + insets.bottom
     Box(
         Modifier.fillMaxSize().padding(
-            start = style.inset,
-            top = style.inset,
-            end = style.inset,
-            bottom = bottomInset,
+            start = frame.start,
+            top = frame.top,
+            end = frame.end,
+            bottom = frame.bottom,
         ),
-        contentAlignment = alignment,
+        contentAlignment = frame.alignment,
     ) {
         Row(
             Modifier
+                .testTag(MESSAGE_CONTAINER_TEST_TAG)
                 .then(lift)
                 .clip(shape)
                 .background(style.container)
@@ -207,6 +316,9 @@ internal fun HostMessages(
 
 /** Test tag of the sentence on screen. There is at most one. */
 const val MESSAGE_TEST_TAG: String = "dioxus-message"
+
+/** Test tag of the surface the message is drawn on, which is what its place is measured by. */
+const val MESSAGE_CONTAINER_TEST_TAG: String = "compose-message-container"
 
 /** Test tag of the message's action label, where it has one. */
 const val MESSAGE_ACTION_TEST_TAG: String = "compose-message-action"

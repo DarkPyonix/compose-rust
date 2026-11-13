@@ -243,7 +243,9 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
-    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius"
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius;",
+    // The fields of the message record in wire order, appended to in the same way.
+    "showmessage=handler_id,text,action,duration,vertical,horizontal,offset_dp"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -1087,6 +1089,34 @@ define_wire_enum!(MESSAGE_DURATION_SCHEMA, MessageDuration {
     Long = 2,
 });
 
+// The edge a transient message is drawn along, where the application chose one. Tag 0 on the
+// wire is "the design system's place", which is what a message that names no placement
+// gets, so neither enum lists it.
+define_wire_enum!(MESSAGE_VERTICAL_SCHEMA, MessageVertical {
+    Top = 1,
+    Bottom = 2,
+});
+
+// Where along that edge the message sits. Start and End follow the layout direction, the
+// same way a `Row`'s do.
+define_wire_enum!(MESSAGE_HORIZONTAL_SCHEMA, MessageHorizontal {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+/// Where a transient message is drawn, for an application that wants a place other than
+/// the design system's.
+///
+/// Wherever it is, the message stays clear of the safe area and of the application's own
+/// bars: a message at the bottom sits above a bottom tab bar, and one at the top below the
+/// top bar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessagePlacement {
+    pub vertical: MessageVertical,
+    pub horizontal: MessageHorizontal,
+}
+
 // How much a notification matters. Closed for the same reason a message's duration is: what
 // it is worth in sound, in an Android channel's importance or in getting through Do Not
 // Disturb is the platform's answer, so the Host has no way to send a sound file or a
@@ -1453,6 +1483,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "MessageDuration",
         variants: MESSAGE_DURATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MessageVertical",
+        variants: MESSAGE_VERTICAL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MessageHorizontal",
+        variants: MESSAGE_HORIZONTAL_SCHEMA,
     },
     RoleEnumSchema {
         name: "Chrome",

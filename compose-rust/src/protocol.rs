@@ -2,10 +2,11 @@
 
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
-    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
-    WidgetKind, modifier_extra_words,
+    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, MessageHorizontal,
+    MessagePlacement, MessageVertical, Modifier, MotionRole, NotificationImportance,
+    NotificationPermission, NotificationPresentation, Paint, PropertyKind, SEMANTICS_STATE_MASK,
+    Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    modifier_extra_words,
 };
 use core::fmt;
 
@@ -185,11 +186,18 @@ pub enum Mutation<'a> {
     ///
     /// `handler_id` is what the action label reports when it is pressed, or 0 when the
     /// message has no action, in which case `action` is empty too.
+    ///
+    /// `placement` and `offset_dp` are where the application asked for it to be drawn,
+    /// and `None` leaves each to the design system. On the wire an absent placement is two
+    /// zero tags and an absent offset is a NaN, so a record written before they existed
+    /// reads as a message with neither.
     ShowMessage {
         handler_id: u64,
         text: &'a str,
         action: &'a str,
         duration: MessageDuration,
+        placement: Option<MessagePlacement>,
+        offset_dp: Option<f32>,
     },
     /// Asks the platform to show one notification outside the window.
     ///
@@ -407,6 +415,9 @@ pub enum ProtocolError {
     InvalidTheme(u16),
     InvalidAssetKind(u16),
     InvalidMessageDuration(u16),
+    /// A message placement tag this decoder does not know, or a placement with one of its
+    /// two halves missing.
+    InvalidMessagePlacement(u16),
     /// A notification importance or presentation this decoder does not know.
     InvalidNotification(u16),
     InvalidStringRange,
@@ -1972,13 +1983,20 @@ impl BatchEncoder {
                 text,
                 action,
                 duration,
+                placement,
+                offset_dp,
             } => {
-                self.begin_record(TAG_SHOW_MESSAGE, 28);
+                self.begin_record(TAG_SHOW_MESSAGE, 36);
                 self.put_u64(*handler_id);
                 self.put_string_ref(text)?;
                 self.put_string_ref(action)?;
                 self.put_u16(*duration as u16);
+                // The two placement tags take the word that used to be padding, so a
+                // record without a placement keeps the bytes it always had there.
+                self.put_u16(placement.map_or(0, |placement| placement.vertical as u16));
+                self.put_u16(placement.map_or(0, |placement| placement.horizontal as u16));
                 self.put_u16(0);
+                self.put_u32(offset_dp.unwrap_or(f32::NAN).to_bits());
             }
             Mutation::EditCode {
                 node_id,
@@ -2808,14 +2826,31 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_RELEASE_ASSET if len == 8 => Mutation::ReleaseAsset {
                 asset_id: read_u32(bytes, payload)?,
             },
-            TAG_SHOW_MESSAGE if len == 32 => {
+            TAG_SHOW_MESSAGE if len == 40 => {
                 let raw_duration = read_u16(bytes, payload + 24)?;
+                let raw_vertical = read_u16(bytes, payload + 26)?;
+                let raw_horizontal = read_u16(bytes, payload + 28)?;
+                let placement = match (raw_vertical, raw_horizontal) {
+                    (0, 0) => None,
+                    (0, raw) | (raw, 0) => {
+                        return Err(ProtocolError::InvalidMessagePlacement(raw));
+                    }
+                    (vertical, horizontal) => Some(MessagePlacement {
+                        vertical: MessageVertical::try_from(vertical)
+                            .map_err(|()| ProtocolError::InvalidMessagePlacement(vertical))?,
+                        horizontal: MessageHorizontal::try_from(horizontal)
+                            .map_err(|()| ProtocolError::InvalidMessagePlacement(horizontal))?,
+                    }),
+                };
+                let offset = f32::from_bits(read_u32(bytes, payload + 32)?);
                 Mutation::ShowMessage {
                     handler_id: read_u64(bytes, payload)?,
                     text: read_string(bytes, payload + 8, records_len)?,
                     action: read_string(bytes, payload + 16, records_len)?,
                     duration: MessageDuration::try_from(raw_duration)
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
+                    placement,
+                    offset_dp: (!offset.is_nan()).then_some(offset),
                 }
             }
             TAG_EDIT_CODE if len == 40 => Mutation::EditCode {
@@ -4237,6 +4272,79 @@ mod tests {
             ]
         );
         assert_eq!(decode_batch(bytes).unwrap(), mutations);
+    }
+
+    /// A message's placement and offset ride in the record after the fields it always had,
+    /// which stay at their offsets, and a message that names neither still reads as one
+    /// with neither.
+    #[test]
+    fn fr21_message_placement_round_trips() {
+        let placed = Mutation::ShowMessage {
+            handler_id: 9,
+            text: "Copied",
+            action: "",
+            duration: MessageDuration::Short,
+            placement: Some(MessagePlacement {
+                vertical: MessageVertical::Bottom,
+                horizontal: MessageHorizontal::Center,
+            }),
+            offset_dp: Some(96.0),
+        };
+        let unplaced = Mutation::ShowMessage {
+            handler_id: 0,
+            text: "Saved",
+            action: "",
+            duration: MessageDuration::Long,
+            placement: None,
+            offset_dp: None,
+        };
+        let top_end = Mutation::ShowMessage {
+            handler_id: 0,
+            text: "Synced",
+            action: "",
+            duration: MessageDuration::Short,
+            placement: Some(MessagePlacement {
+                vertical: MessageVertical::Top,
+                horizontal: MessageHorizontal::End,
+            }),
+            offset_dp: None,
+        };
+        let mutations = [placed, unplaced, top_end];
+        let mut encoder = BatchEncoder::default();
+        for mutation in &mutations {
+            encoder.encode(mutation).unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
+        let record = ENVELOPE_LEN;
+        assert_eq!(read_u16(bytes, record).unwrap(), TAG_SHOW_MESSAGE);
+        assert_eq!(read_u16(bytes, record + 2).unwrap(), 40);
+        // The old fields where they always were: the handler, the duration.
+        assert_eq!(read_u64(bytes, record + 4).unwrap(), 9);
+        assert_eq!(read_u16(bytes, record + 28).unwrap(), 1);
+        // Then the vertical and the horizontal tag, and the offset as an f32.
+        assert_eq!(read_u16(bytes, record + 30).unwrap(), 2);
+        assert_eq!(read_u16(bytes, record + 32).unwrap(), 2);
+        assert_eq!(f32::from_bits(read_u32(bytes, record + 36).unwrap()), 96.0);
+        // No placement is two zero tags, no offset a NaN.
+        let second = record + 40;
+        assert_eq!(read_u16(bytes, second + 30).unwrap(), 0);
+        assert_eq!(read_u16(bytes, second + 32).unwrap(), 0);
+        assert!(f32::from_bits(read_u32(bytes, second + 36).unwrap()).is_nan());
+        assert_eq!(decode_batch(bytes).unwrap(), mutations);
+
+        // A placement with one half missing, or a tag this side does not know, is an
+        // error rather than a guess.
+        for (offset, raw) in [(30, 0_u16), (32, 0), (30, 7), (32, 9)] {
+            let mut broken = bytes.to_vec();
+            broken[record + offset..record + offset + 2].copy_from_slice(&raw.to_le_bytes());
+            assert!(
+                matches!(
+                    decode_batch(&broken),
+                    Err(ProtocolError::InvalidMessagePlacement(_))
+                ),
+                "offset {offset} set to {raw} must be refused"
+            );
+        }
     }
 
     /// An importance or a presentation this side does not know is an error, never a guess
