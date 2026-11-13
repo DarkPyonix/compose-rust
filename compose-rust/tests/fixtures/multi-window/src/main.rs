@@ -5,6 +5,9 @@
 //! every click, keystroke, focus change and close prints an `event:` line. The process ends
 //! when the last window closes. README.md beside this says what to check.
 //!
+//! `--windows N` opens N windows at the start instead of two, from 1 to 3, for the idle and
+//! memory measurement in `scripts/parity/macos-windows.sh`.
+//!
 //! `--check` runs the same windows without a person, for `scripts/check-windows-consumer.sh`:
 //! it waits until both windows are laid out, writes the shared state, closes the second
 //! window, closes the first, and exits 0 only if the renderer loop then ended by itself with
@@ -71,7 +74,18 @@ fn watch() {
     });
 }
 
+/// The number after `--windows`, for a measurement run that opens one or three windows.
+fn windows_asked() -> Option<u32> {
+    let arguments: Vec<String> = std::env::args().collect();
+    let at = arguments.iter().position(|argument| argument == "--windows")?;
+    let count = arguments.get(at + 1)?.parse::<u32>().ok()?;
+    (1..=app::MAX_WINDOWS as u32).contains(&count).then_some(count)
+}
+
 fn main() {
+    if let Some(count) = windows_asked() {
+        app::WINDOWS.store(count, Ordering::SeqCst);
+    }
     let builder = LaunchBuilder::new()
         .windows()
         .on_last_window_closed(LastWindowClosed::Exit);

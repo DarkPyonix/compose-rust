@@ -551,6 +551,37 @@ sealed interface Mutation {
     data class ReadClipboard(val request: Int) : Mutation
 
     /**
+     * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
+     * it, list a folder, or find the child called [name] (making a file of that name when
+     * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
+     * listing or a child that was found by a `FileHandles`. [data] is the user's file, so it
+     * is never written to a log.
+     */
+    data class FileCall(
+        val request: Int,
+        val op: FileOp,
+        val create: Boolean,
+        val handle: Int,
+        val name: String,
+        val data: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is FileCall && request == other.request && op == other.op &&
+                    create == other.create && handle == other.handle && name == other.name &&
+                    data.contentEquals(other.data))
+
+        override fun hashCode(): Int =
+            ((request * 31 + op.hashCode()) * 31 + handle) * 31 + data.contentHashCode()
+
+        override fun toString(): String =
+            "FileCall(request=$request, op=$op, create=$create, handle=$handle, length=${data.size})"
+    }
+
+    /** The Host names [handle] nowhere any more; the file behind it may be let go of. */
+    data class ReleaseFileHandle(val handle: Int) : Mutation
+
+    /**
      * Asks for one operation on the application's storage, which the Renderer carries out
      * where it is the side that can reach it (a browser's IndexedDB). Answered exactly once,
      * later, by an `IoAnswer` event carrying [request]. [store] is the application
@@ -565,6 +596,63 @@ sealed interface Mutation {
         val key: String,
         val data: BatchBytes,
     ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to go to an offset in physical pixels. [flags] is
+     * the wire word ([ScrollWire.TO_ANIMATE], [ScrollWire.TO_X], [ScrollWire.TO_Y]): an
+     * axis whose bit is off is not touched. [item] is the lazy list item the offset is
+     * measured from and 0 elsewhere. The fields are as sent; the node table checks them.
+     */
+    data class ScrollTo(
+        val nodeId: Int,
+        val item: Int,
+        val flags: Int,
+        val xPx: Double,
+        val yPx: Double,
+    ) : Mutation
+
+    /**
+     * Asks the scroll container [nodeId] to bring a rectangle into view. [targetKind] is one
+     * of the `ScrollWire.TARGET_*` values and says what the rectangle is measured from;
+     * [alignX] and [alignY] are `ScrollWire.ALIGN_*` values. The fields are as sent; the
+     * node table checks them.
+     */
+    data class ScrollIntoView(
+        val nodeId: Int,
+        val target: Int,
+        val targetKind: Int,
+        val alignX: Int,
+        val alignY: Int,
+        val flags: Int,
+        val rectXPx: Double,
+        val rectYPx: Double,
+        val rectWidthPx: Double,
+        val rectHeightPx: Double,
+    ) : Mutation
+}
+
+/** The words of the scroll records: flag bits, target kinds and alignments. */
+object ScrollWire {
+    const val TO_ANIMATE = 1
+    const val TO_X = 2
+    const val TO_Y = 4
+    const val TO_KNOWN = TO_ANIMATE or TO_X or TO_Y
+
+    const val TARGET_CONTENT = 0
+    const val TARGET_NODE = 1
+    const val TARGET_ITEM = 2
+
+    const val ALIGN_KEEP = 0
+    const val ALIGN_START = 1
+    const val ALIGN_CENTER = 2
+    const val ALIGN_END = 3
+    const val ALIGN_NEAREST = 4
+
+    const val INTO_VIEW_ANIMATE = 1
+
+    const val CHANGED_SETTLED = 1
+    const val CHANGED_CAN_SCROLL_BACKWARD = 2
+    const val CHANGED_CAN_SCROLL_FORWARD = 4
 }
 
 "#,
@@ -656,11 +744,19 @@ sealed interface Mutation {
             EventPayloadType::ClipboardText => output.push_str(
                 ", val request: Int, val status: Int, val length: Int, val text: String",
             ),
-            // What an input or output request handed back: a value read, keys joined by NUL,
-            // or nothing. Never in `toString`, because it is the application's data.
+            // What an input or output request handed back: a value or a file read, keys joined
+            // by NUL, or nothing. Never in `toString`, because it is the application's data.
             EventPayloadType::IoAnswer => {
                 output.push_str(", val request: Int, val status: IoStatus, val data: ByteArray")
             }
+            // The names are NUL separated; the kinds are one letter per name, `f` or `d`.
+            EventPayloadType::FileHandles => output.push_str(
+                ", val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String",
+            ),
+            // Every length is in physical pixels. The flags are the `ScrollWire.CHANGED_*` bits.
+            EventPayloadType::ScrollChanged => output.push_str(
+                ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -732,6 +828,10 @@ object Protocol {
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
     private const val TAG_STORAGE_CALL = 32
+    private const val TAG_FILE_CALL = 33
+    private const val TAG_RELEASE_FILE_HANDLE = 34
+    private const val TAG_SCROLL_TO = 35
+    private const val TAG_SCROLL_INTO_VIEW = 36
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -931,6 +1031,50 @@ object Protocol {
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             readByteView(batch, base, available, offset + 28),
+                        )
+                    }
+                    TAG_FILE_CALL -> {
+                        requireRecordLength(length, 32, offset)
+                        val create = readU16(batch, base, available, offset + 10)
+                        if (create > 1) {
+                            throw ProtocolException("invalid create flag $create", offset + 10)
+                        }
+                        Mutation.FileCall(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            fileOp(readU16(batch, base, available, offset + 8), offset + 8),
+                            create == 1,
+                            readU32(batch, base, available, offset + 12).toInt(),
+                            readString(batch, base, available, offset + 16),
+                            readBytes(batch, base, available, offset + 24),
+                        )
+                    }
+                    TAG_RELEASE_FILE_HANDLE -> {
+                        requireRecordLength(length, 8, offset)
+                        Mutation.ReleaseFileHandle(readU32(batch, base, available, offset + 4).toInt())
+                    }
+                    TAG_SCROLL_TO -> {
+                        requireRecordLength(length, 32, offset)
+                        Mutation.ScrollTo(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            item = readU32(batch, base, available, offset + 8).toInt(),
+                            flags = readU32(batch, base, available, offset + 12).toInt(),
+                            xPx = Double.fromBits(readU64(batch, base, available, offset + 16)),
+                            yPx = Double.fromBits(readU64(batch, base, available, offset + 24)),
+                        )
+                    }
+                    TAG_SCROLL_INTO_VIEW -> {
+                        requireRecordLength(length, 52, offset)
+                        Mutation.ScrollIntoView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            target = readU32(batch, base, available, offset + 8).toInt(),
+                            targetKind = readU16(batch, base, available, offset + 12),
+                            alignX = readU16(batch, base, available, offset + 14),
+                            alignY = readU16(batch, base, available, offset + 16),
+                            flags = readU16(batch, base, available, offset + 18),
+                            rectXPx = Double.fromBits(readU64(batch, base, available, offset + 20)),
+                            rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
+                            rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
+                            rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
                         )
                     }
                     TAG_SET_WINDOW -> {
@@ -1220,7 +1364,16 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None => {
+            // Both strings ride after the record, the names first and the kinds after them.
+            EventPayloadType::FileHandles => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)",
+                    event.name
+                )
+                .unwrap();
+            }
+            EventPayloadType::None | EventPayloadType::ScrollChanged => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1316,6 +1469,10 @@ object Protocol {
             EventPayloadType::ClipboardText => 36,
             // The request and the status, then the data's reference.
             EventPayloadType::IoAnswer => 32,
+            // Five words, then the names' and the kinds' references.
+            EventPayloadType::FileHandles => 52,
+            // The item and the flags, then six doubles.
+            EventPayloadType::ScrollChanged => 72,
         };
         writeln!(
             output,
@@ -1626,18 +1783,49 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
-            EventPayloadType::WindowRequest => {
+            EventPayloadType::IoAnswer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(ioStatusTag(event.status))\n");
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
                 output.push_str("                }\n");
             }
-            EventPayloadType::IoAnswer => {
+            EventPayloadType::ScrollChanged => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.item)\n");
+                output.push_str("                    out.putInt(event.flags)\n");
+                output.push_str("                    out.putDouble(event.xPx)\n");
+                output.push_str("                    out.putDouble(event.yPx)\n");
+                output.push_str("                    out.putDouble(event.maxXPx)\n");
+                output.push_str("                    out.putDouble(event.maxYPx)\n");
+                output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
+                output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::FileHandles => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.request)\n");
-                output.push_str("                    out.putInt(ioStatusTag(event.status))\n");
+                output.push_str(
+                    "                    out.putInt(fileDialogStatusTag(event.status))\n",
+                );
+                output.push_str("                    out.putInt(event.filter)\n");
+                output
+                    .push_str("                    out.putInt(fileDeliveryTag(event.delivery))\n");
+                output.push_str("                    out.putInt(event.firstHandle)\n");
+                output.push_str(
+                    "                    val namesLength = event.names.toByteArray(StandardCharsets.UTF_8).size\n",
+                );
+                output.push_str("                    out.putInt(recordLength)\n");
+                output.push_str("                    out.putInt(namesLength)\n");
+                output.push_str("                    out.putInt(recordLength + namesLength)\n");
+                output.push_str("                    out.putInt(text!!.size - namesLength)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::WindowRequest => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
@@ -1810,18 +1998,26 @@ object Protocol {
         .unwrap();
     }
     output.push_str("    }\n\n");
-    // An input or output request's status travels out as well: the Renderer is the side
-    // that carried the request out.
-    output.push_str("    private fun ioStatusTag(status: IoStatus): Int = when (status) {\n");
-    for variant in crate::schema::IO_STATUS_SCHEMA {
+    // How a file reached the Renderer, and how a request for bytes ended: the Renderer is
+    // the side that learns both.
+    for (function, name, variants) in [
+        (
+            "fileDeliveryTag",
+            "FileDelivery",
+            crate::schema::FILE_DELIVERY_SCHEMA,
+        ),
+        ("ioStatusTag", "IoStatus", crate::schema::IO_STATUS_SCHEMA),
+    ] {
         writeln!(
             output,
-            "        IoStatus.{} -> {}",
-            variant.name, variant.tag
+            "    private fun {function}(value: {name}): Int = when (value) {{"
         )
         .unwrap();
+        for variant in variants {
+            writeln!(output, "        {name}.{} -> {}", variant.name, variant.tag).unwrap();
+        }
+        output.push_str("    }\n\n");
     }
-    output.push_str("    }\n\n");
     // The enums the Renderer writes into animation events and the motion setting.
     for (function, name, variants) in [
         (
@@ -3333,6 +3529,43 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             key: "tasks.tsv",
             data: "1\t0\t할 일\0".as_bytes(),
         },
+        // A write to a file the Renderer holds handle 3 for, with bytes that are not text.
+        Mutation::FileCall {
+            request: 0x8000_0011,
+            op: crate::schema::FileOp::Write,
+            create: false,
+            handle: 3,
+            name: "",
+            data: &[0x00, 0xff, 0x7f, 0x80],
+        },
+        // The child of a folder by a Korean name, made when it is not there.
+        Mutation::FileCall {
+            request: 0x8000_0012,
+            op: crate::schema::FileOp::Child,
+            create: true,
+            handle: 4,
+            name: "새 문서.txt",
+            data: &[],
+        },
+        Mutation::ReleaseFileHandle { handle: 3 },
+        // The two scroll requests: an animated jump along y measured from item 3 of a lazy
+        // list, and a descendant node brought to the nearest edge.
+        Mutation::ScrollTo {
+            node_id: 10,
+            item: 3,
+            flags: crate::schema::scroll_to_flags::ANIMATE | crate::schema::scroll_to_flags::Y,
+            x_px: 0.0,
+            y_px: 120.5,
+        },
+        Mutation::ScrollIntoView {
+            node_id: 10,
+            target: 12,
+            target_kind: crate::schema::scroll_target_kind::NODE,
+            align_x: crate::schema::ScrollAlign::Keep as u16,
+            align_y: crate::schema::ScrollAlign::Nearest as u16,
+            flags: crate::schema::scroll_into_view_flags::ANIMATE,
+            rect: crate::schema::Rect::new(0.0, 8.0, 40.0, 24.5),
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3663,9 +3896,47 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
         HostEvent {
             node_id: 0,
             handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request: 0x8000_0011,
+                status: crate::schema::IoStatus::Ok,
+                data: &[0x00, 0xff, 0x7f, 0x80],
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::FileHandles {
+                request: 7,
+                status: crate::schema::FileDialogStatus::Chosen,
+                filter: 1,
+                delivery: crate::schema::FileDelivery::Handle,
+                first_handle: 3,
+                names: "문서.txt\0사진",
+                kinds: "fd",
+            },
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
             payload: EventPayload::StorageLocation(
                 "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
             ),
+        },
+        HostEvent {
+            node_id: 10,
+            handler_id: 21,
+            payload: EventPayload::ScrollChanged {
+                item: 3,
+                settled: true,
+                can_scroll_backward: true,
+                can_scroll_forward: false,
+                x_px: 0.0,
+                y_px: 700.5,
+                max_x_px: 0.0,
+                max_y_px: -1.0,
+                viewport_width_px: 320.0,
+                viewport_height_px: 300.0,
+            },
         },
     ];
     let mut output = Vec::new();
@@ -3686,14 +3957,14 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 107,
+    "recordCount": 112,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
       {{ "role": "SyntaxKeyword", "scheme": "Light", "argb": "80112233" }}
     ],
     "spanRecordLength": 36,
-    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv"],
+    "strings": ["안녕", "compose", " token", "필터", "New", "삭제했습니다", "Undo", "session/7", "세션이 끝났습니다", "테스트 214개 통과", "세션", "열기", "", "session/7", "fn main() {{\n    let 한 = \"😀\";\n}}\n", "mut ", "문서", "보조 창", "ws/1:2", "tab/3", "파일 고르기", "/home/한글", "보고서.txt", "이미지\u0000png,jpg\u0000문서\u0000pdf,txt", "초대 링크", "dev.darkpyonix.composerust.samples.todo", "tasks.tsv", "", "새 문서.txt"],
     "assets": [{{ "assetId": 5, "kind": "Png", "bytes": "89504e47" }}]
   }},
   "transform3d": {{
@@ -3708,7 +3979,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-four independently decodable event records concatenated in schema order",
+    "description": "Thirty-nine independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3746,7 +4017,10 @@ pub fn generate_vector_description() -> String {
       {{ "type": "FileDialogResult", "offset": 969, "length": 73, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "paths": "/Users/한글/문서.txt\u0000/tmp/a b.png" }},
       {{ "type": "ClipboardText", "offset": 1042, "length": 51, "nodeId": 0, "handlerId": 0, "request": 9, "status": 1, "textLength": 15, "text": "한글\n줄 🙂" }},
       {{ "type": "IoAnswer", "offset": 1093, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" }},
-      {{ "type": "StorageLocation", "offset": 1130, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }}
+      {{ "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" }},
+      {{ "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" }},
+      {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
+      {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }}
     ]
   }}
 }}

@@ -17,6 +17,7 @@ import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.HostConnection
+import dev.darkpyonix.composerust.runtime.WindowDropTargets
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.platform.ApplicationListener
@@ -74,8 +75,14 @@ private class MwWindow(
 
     val pendingFrameWaiters: Int get() = frameWaiters.size
 
+    var adoptedBy: Int? = null
+
     override fun setListener(listener: PlatformWindowListener) {
         this.sink = listener
+    }
+
+    override fun adoptedBy(nodeId: Int) {
+        adoptedBy = nodeId
     }
 
     override fun setTitle(title: String) {
@@ -720,6 +727,7 @@ class MultiWindowTest {
         }
         h.backend.application!!.onWindowRequested("ws:1", system)
         assertFalse(system.closed)
+        assertEquals(8, system.adoptedBy, "the window is told which node it now draws")
         assertEquals("Restored", system.shownTitle)
         assertEquals(listOf(1, 8), h.manager.openWindows)
 
@@ -730,6 +738,23 @@ class MultiWindowTest {
         h.backend.application!!.onWindowRequested("gone", stray)
         assertTrue(stray.closed)
         assertEquals(listOf(1, 8), h.manager.openWindows)
+    }
+
+    @Test
+    fun fr53_drop_targets_scale_a_point_in_dp_to_the_pixels_of_the_layout() {
+        // A node laid out at (40..240, 60..160) pixels of a scene that draws two pixels to a dp.
+        WindowDropTargets.update(7, 70, 40f, 60f, 240f, 160f, 2f, 1)
+        try {
+            val targets = DropTargets.registered { windowId -> if (windowId == 7) 2f else 1f }
+            // (25, 40) dp is pixel (50, 80): 10 by 20 pixels into the node, which is 5 by 10 dp.
+            assertEquals(DropTarget(70, 5f, 10f), targets.targetAt(7, 25f, 40f))
+            // Read as pixels the same point is left of the node, so the scale is what found it.
+            assertNull(DropTargets.Registered.targetAt(7, 25f, 40f))
+            assertNull(targets.targetAt(7, 10f, 10f))
+            assertNull(targets.targetAt(8, 25f, 40f), "another window's layout does not answer")
+        } finally {
+            WindowDropTargets.remove(7, 70)
+        }
     }
 
     @Test

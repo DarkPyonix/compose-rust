@@ -212,7 +212,7 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
     // The vectors the Kotlin side reads carry the same records.
     let events = include_bytes!("vectors/events.bin");
     assert_eq!(decode_event(&events[1093..1130]).unwrap(), answer);
-    assert_eq!(decode_event(&events[1130..1212]).unwrap(), location);
+    assert_eq!(decode_event(&events[1237..1319]).unwrap(), location);
     let mutations = include_bytes!("vectors/mutations.bin");
     let calls: Vec<Mutation<'_>> = decode_batch(mutations)
         .unwrap()

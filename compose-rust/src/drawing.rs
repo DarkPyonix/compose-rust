@@ -654,6 +654,9 @@ impl DrawListBuilder {
         })
     }
 
+    /// Draws `text` at the type role's size with its top-left corner at (`x`, `y`). The
+    /// point is the top of the line, not its baseline, so text placed near a canvas's
+    /// bottom edge needs the role's whole line height above that edge.
     pub fn text_at(
         mut self,
         paint: Paint,

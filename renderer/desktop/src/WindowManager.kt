@@ -46,8 +46,12 @@ class WindowManager(
     /** Ends the renderer loop with status 0. Called once, after the batch that removed the last window. */
     private val onExit: () -> Unit,
     private val dropTargets: DropTargets = DropTargets.None,
-    /** Ends the capture a node holds on [pointerId] when a window is torn off under it (46.2). */
-    private val cancelCapture: (pointerId: Int) -> Unit = {},
+    /**
+     * Ends the capture a node holds on [pointerId] when a window is torn off under it: the
+     * node is told with a Cancel and hears no more of that press. The Host's nodes of every
+     * window are routed by the one table, so this is the same on every platform.
+     */
+    private val cancelCapture: (pointerId: Int) -> Unit = { pointerId -> host.table.pointers.cancelPointer(pointerId) },
 ) {
     private val table get() = host.table
 
@@ -160,6 +164,7 @@ class WindowManager(
             match.taken = true
             entry.platform = adopted
             adopted.setListener(entry)
+            adopted.adoptedBy(id)
             // The window exists already; everything the node says is news to it.
             entry.applied = WindowSpec.Blank
             return
