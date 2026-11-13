@@ -1849,6 +1849,8 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 
 **시트의 최대 높이**(이슈 #445, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Sheet`에 `max_height_fraction(f32)`(창 높이에 대한 비율, 0보다 크고 1 이하)이 있습니다. 내용이 작으면 시트는 내용 높이이고, 크면 그 비율에서 멈추고 안이 스크롤됩니다. Ember 목업은 0.85입니다. 속성 하나를 보내고, 부르지 않으면 지금과 같습니다. 수용 기준: 창 높이 800dp에서 `max_height_fraction(0.85)`인 시트에 1000dp 내용을 넣으면 시트 높이가 680dp이고 내용이 스크롤되며, 200dp 내용이면 시트 높이가 내용 높이입니다(fr21_sheet_max_height_fraction).
 
+**일시 메시지의 자리**(이슈 #577, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Message::with_placement(MessagePlacement { vertical: Top | Bottom, horizontal: Start | Center | End })`와 `with_offset(dp)`(가장자리에서 떨어지는 거리)가 있습니다. 기본은 지금과 같은 디자인 시스템의 자리입니다. 안전 영역과 앱의 막대(하단 탭 막대, 상단 막대)를 피합니다. `ShowMessage` 레코드에 칸이 더해져 스키마 해시가 움직입니다. 수용 기준: `Bottom`과 `Center`에 offset 96인 메시지가 아래쪽 안전 영역에서 96dp 위, 가로 가운데에 그려지고(fr21_message_placement_bottom_center), `Top`과 `End`가 오른쪽 위에 그려집니다(fr21_message_placement_top_end). 지정하지 않은 메시지는 지금과 같은 자리입니다.
+
 ### FR-22 샘플 애플리케이션의 참조 구현 (`Agreed`)
 
 #### 22.6 데스크톱 샘플 배포 번들 (`Draft`)
