@@ -4548,8 +4548,8 @@ pub mod storage {
 13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
 14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
 15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
-16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
-17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web. 이 시험은 Web Renderer처럼 답하는 저장소를 둔 채 Host를 새로 만들어 다시 불러오기를 확인합니다. `samples-web` 페이지를 Playwright로 다시 부르는 CI 확인은 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session).
 18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
 
 ### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
