@@ -4282,7 +4282,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 파일 연산은 새 명령 `FileCall`(명령 태그 33)입니다. 머리, `request: u32`, `op: u16`(`Read=1`, `Write=2`, `Entries=3`, `Child=4`), `create: u16`, `handle: u32`, 문자열 `name`(`Child`에서만), 바이트 `data`(`Write`에서만)입니다. `Read`와 `Write`의 답은 FR-79의 `IoAnswer`(57)입니다.
 - `delivery`, `op`, `kinds`의 글자는 닫힌 열거형이고, 모르는 값은 `ProtocolError`입니다.
 - 모르는 핸들은 `ProtocolError`가 아니라 `IoAnswer`의 `NotFound`입니다. 핸들은 페이지가 다시 불리면 사라지는데, 그것은 앱의 잘못이 아니기 때문입니다.
-- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 없는 `TooLarge` 하나가 됩니다(FR-79.5). 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
+- **4 KiB를 넘는 `FileHandles`와 `IoAnswer`는 이슈 #583에 달려 있습니다.** Web의 이벤트 버퍼는 지금 4096바이트로 고정이고, 그보다 큰 이벤트를 나르는 규칙은 #583이 정합니다. #583이 들어오기 전에는 이름 목록이 버퍼에 들어가지 않는 `FileHandles`는 `Unavailable`인 `FileDialogResult` 하나가 되고(72.2의 "일부만 보내지 않음"), 버퍼를 넘는 읽기는 값 대신 그 파일의 길이를 4바이트 little-endian으로 실은 `TooLarge` 답 하나가 됩니다. FR-79.5와 같은 `IoAnswer`이고 같은 규칙입니다 [leader, provisional, 2026-11-13]. 그래서 Web의 긴 경로 목록과 큰 읽기는 #583이 들어와야 `Done`입니다(72.7 기준 21).
 - 이 절이 더하는 것은 명령 둘(33, 34), 이벤트 하나(58), 열거 둘입니다. 기존 태그와 레코드는 바뀌지 않습니다.
 
 
@@ -4549,8 +4549,8 @@ pub mod storage {
 13. Android에서 `StorageLocation`이 오기 전에 시작된 읽기가 그 이벤트 뒤에 끝나고, 그 경로 아래의 파일을 씁니다(시험 이름 fr79_android_storage_waits_for_its_location, 미구현).
 14. Web: 같은 출처의 두 앱 식별자가 서로의 키를 보지 않습니다(시험 이름 fr79_web_identifiers_do_not_share_keys, 미구현). 할당량을 넘긴 쓰기가 `QuotaExceeded`이고 예외가 아닙니다(시험 이름 fr79_web_quota_is_reported_not_thrown, 미구현). Chromium에서 CI로 돌립니다.
 15. Web: 4 KiB를 넘는 값(1 MiB)이 읽힙니다(시험 이름 fr79_web_reads_a_value_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 이 항목이 `Done`이 되지 않습니다.** #583 전에는 같은 읽기가 79.5대로 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr79_web_an_answer_over_the_event_buffer_is_too_large, 미구현).
-16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web, 미구현).
-17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session, 미구현).
+16. todo의 목록이 다시 불러온 페이지에 남아 있습니다. CI가 `samples-web`의 todo 페이지에서 할 일을 더하고 페이지를 다시 불러 확인합니다(시험 이름 fr79_todo_list_survives_a_reload_on_the_web. 이 시험은 Web Renderer처럼 답하는 저장소를 둔 채 Host를 새로 만들어 다시 불러오기를 확인합니다. `samples-web` 페이지를 Playwright로 다시 부르는 CI 확인은 미구현).
+17. notepad의 세션(열린 문서의 이름, 글, 저장되지 않음 표시)이 네이티브에서는 다시 실행한 뒤, Web에서는 다시 불러온 페이지에서 되살아납니다(시험 이름 fr79_notepad_restores_its_session).
 18. 수동, Firefox와 Safari에서 14, 16, 17을 한 번씩 확인하고 기록합니다.
 
 ### FR-80 스크롤 컨테이너의 스크롤 명령과 스크롤 보고 (`Draft`, [리더, 잠정 2026-11-13], 이슈 #591)
