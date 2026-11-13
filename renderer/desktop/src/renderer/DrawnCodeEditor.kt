@@ -268,7 +268,7 @@ private class DrawnState(
     override fun caretRectInRoot(): Rect {
         val caret = model.selection.caret
         val x = textLeft + view(caret.line).caretX(caret.column)
-        val y = rows.textRow(caret.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
+        val y = rows.textTopPx(caret.line, rowPx).toFloat() - (scroll?.offset ?: 0)
         val origin = coordinates?.localToRoot(Offset(x, y)) ?: Offset(x, y)
         return Rect(origin, Size(1f, rowPx.toFloat()))
     }
@@ -295,7 +295,7 @@ private class DrawnState(
         val column = position.column.coerceIn(0, view.caretAt.size - 1)
         val shown = view.caretAt[column] + if (composed) composing.length else 0
         val x = textLeft + view.layout.getHorizontalPosition(shown, true)
-        val y = rows.textRow(position.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
+        val y = rows.textTopPx(position.line, rowPx).toFloat() - (scroll?.offset ?: 0)
         return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
     }
 
@@ -338,12 +338,12 @@ private class DrawnState(
         // Asked in the editor's own coordinates, which a minimap on the left moves this part of.
         val x = viewX - originX
         if (x < textLeft) return null
-        val row = ((y + (scroll?.offset ?: 0)) / rowPx).toInt()
-        if (y + (scroll?.offset ?: 0) < 0f || row >= rows.totalRows) return null
-        val line = rows.lineAtRow(row)
-        // A lens above the line, and the rows a suggestion of several lines adds below it,
-        // are not the document's text.
-        if (row != rows.textRow(line)) return null
+        val at = (y + (scroll?.offset ?: 0)).toInt()
+        if (y + (scroll?.offset ?: 0) < 0f || at >= rows.totalPx(rowPx)) return null
+        val line = rows.lineAtPx(at, rowPx)
+        // A lens above the line, the rows a suggestion of several lines adds below it and a
+        // view zone after it are not the document's text.
+        if (rows.textRowAtPx(line, at, rowPx) < 0) return null
         val view = view(line)
         val local = x - textLeft
         // Past the end of the line, the pointer is over no character.
@@ -352,9 +352,9 @@ private class DrawnState(
     }
 
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
-        val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
-        val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
-        val onLens = rows.hasLens(line) && row == rows.rowTop(line)
+        val at = (point.y + (scroll?.offset ?: 0)).toInt().coerceAtLeast(0)
+        val line = rows.lineAtPx(at, rowPx).coerceIn(0, model.document.lineCount - 1)
+        val onLens = rows.hasLens(line) && at < rows.textTopPx(line, rowPx)
         return CodePosition(line, view(line).column(point.x - textLeft)) to onLens
     }
 
@@ -397,7 +397,7 @@ private fun DrawnSurface(
     model.overlayRevision
     val rows = RowMap.of(model)
     state.rows = rows
-    val extent = rows.totalRows * rowPx - viewportHeight
+    val extent = rows.totalPx(rowPx) - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
@@ -454,7 +454,7 @@ private fun DrawnSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
     }
 
     Box(
@@ -587,8 +587,8 @@ private fun DrawScope.drawLines(
     val model = state.model
     val look = state.look
     val rowPx = state.rowPx.toFloat()
-    val first = rows.lineAtRow((scroll / rowPx).toInt())
-    val last = min(rows.lineCount - 1, rows.lineAtRow(((scroll + viewportHeight) / rowPx).toInt() + 1))
+    val first = rows.lineAtPx(scroll, state.rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + state.rowPx, state.rowPx))
     val selection = model.selection
     drawRect(look.gutter, Offset(0f, scroll.toFloat()), Size(gutterWidth, viewportHeight.toFloat()))
     if (look.lineNumbers && look.gutterDivider.alpha > 0f) {
@@ -600,7 +600,7 @@ private fun DrawScope.drawLines(
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val view = state.view(line)
-        val top = rows.textRow(line) * rowPx
+        val top = rows.textTopPx(line, state.rowPx).toFloat()
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
             drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx))
         }
@@ -668,6 +668,16 @@ private fun DrawScope.drawLines(
             state.style,
             look,
         )
+    }
+    // The view zones after the lines on screen: room that is not text, its text dimmed.
+    for (index in 0 until rows.zoneCount) {
+        val line = rows.zoneLine(index)
+        if (line < first || line > last) continue
+        val text = rows.zoneText(index).substringBefore('\n')
+        if (text.isEmpty()) continue
+        val top = rows.zoneTopPx(index, state.rowPx).toFloat()
+        val label = state.measurer!!.measure(text, state.style.copy(color = look.lens), softWrap = false)
+        drawText(label, topLeft = Offset(state.textLeft, top + (rowPx - label.size.height) / 2))
     }
 }
 

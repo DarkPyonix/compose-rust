@@ -16,6 +16,7 @@ import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.Severity
 import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
+import dev.darkpyonix.composerust.protocol.ViewZoneRecord
 import kotlin.time.TimeSource
 import kotlin.math.roundToInt
 
@@ -86,6 +87,13 @@ fun LiveGutterMark.changeMark(): ChangeMark? {
         else -> null
     }
 }
+
+/**
+ * Room after a line that is not text, the way a diff leaves blank rows to line its two sides
+ * up: [heightLines] rows high, with [text] drawn dimmed in it. It follows its line through
+ * edits, and the caret, the selection and a copy pass over it.
+ */
+class LiveViewZone(var afterLine: Int, val heightLines: Float, val text: String)
 
 /** A range the Host asked to have brought into view. A new request is a new object. */
 class RevealRequest(val start: CodePosition, val end: CodePosition, val align: RevealAlign)
@@ -306,6 +314,7 @@ class CodeEditorModel(
 
     private val decorationList = ArrayList<LiveDecoration>()
     private val spanList = ArrayList<LiveSpan>()
+    private val zoneList = ArrayList<LiveViewZone>()
 
     /** How many lines the longest colour run covers, so a window can find runs that start above it. */
     private var longestSpanLines = 0
@@ -318,6 +327,9 @@ class CodeEditorModel(
     val folds: List<LiveFold> get() = foldList
     val gutterMarks: List<LiveGutterMark> get() = gutterList
     val spans: List<LiveSpan> get() = spanList
+
+    /** The view zones, in the order the Host sent them. */
+    val viewZones: List<LiveViewZone> get() = zoneList
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
@@ -363,6 +375,7 @@ class CodeEditorModel(
         redoStack.clear()
         foldList.clear()
         gutterList.clear()
+        zoneList.clear()
         gutterStamp += 1
         foldStamp += 1
         selection = CodeSelection.at(CodePosition.Zero)
@@ -963,6 +976,35 @@ class CodeEditorModel(
         foldsChanged()
     }
 
+    /**
+     * Replaces every view zone with the Host's new list. A zone is read against the document
+     * as it is now. One after a line the document does not have, or with a height that is not
+     * a number above zero, is reported and left out.
+     */
+    fun setViewZones(records: List<ViewZoneRecord>) {
+        zoneList.clear()
+        for (record in records) {
+            if (record.afterLine < 0 || record.afterLine >= document.lineCount) {
+                output += EditorOutput.Error(
+                    "a view zone follows line ${record.afterLine}, and the document has ${document.lineCount} lines",
+                )
+                continue
+            }
+            if (!(record.heightLines > 0f) || record.heightLines.isInfinite()) {
+                output += EditorOutput.Error("a view zone after line ${record.afterLine} is ${record.heightLines} lines high")
+                continue
+            }
+            zoneList += LiveViewZone(record.afterLine, record.heightLines, record.text)
+        }
+        overlayRevision += 1
+    }
+
+    /**
+     * The rows long lines wrap onto, as running totals for a row map, or null where nothing
+     * wraps.
+     */
+    fun wrapPrefix(): IntArray? = null
+
     /** Replaces every mark beside the line numbers with the Host's new list. */
     fun setGutterDecorations(records: List<GutterDecorationRecord>) {
         gutterList.clear()
@@ -1431,6 +1473,16 @@ class CodeEditorModel(
                 }
             }
             foldStamp += 1
+            moved = true
+        }
+        if (zoneList.isNotEmpty()) {
+            // A zone stays after its line: a line typed in front of it moves it down, typing on
+            // its line leaves it, and where its line is deleted it goes to the line the
+            // deletion closed up on.
+            for (zone in zoneList) {
+                zone.afterLine = CodeDocument.map(CodePosition(zone.afterLine, 0), change, Bias.After).line
+                    .coerceIn(0, document.lineCount - 1)
+            }
             moved = true
         }
         if (gutterList.isNotEmpty()) {

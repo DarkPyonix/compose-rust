@@ -48,6 +48,8 @@ pub enum RecordFieldType {
     Paint,
     /// A `u32` that is 0 or 1. Any other value makes the record unreadable.
     Flag,
+    /// An `f32`, little-endian like every other field.
+    F32,
     /// An `(offset, length)` pair of `u32` naming UTF-8 bytes behind the records, measured
     /// from the start of the blob, the way a `Canvas` names the text it draws.
     Text,
@@ -211,6 +213,21 @@ pub const CODE_EDITOR_COLORS_RECORD: RecordSchema = RecordSchema {
     ],
 };
 
+/// Bytes of one view zone record.
+pub const VIEW_ZONE_LEN: usize = 16;
+
+/// One view zone: the line it follows, its height in rows and the text it shows dimmed, which
+/// lies behind the records like a decoration's.
+pub const VIEW_ZONE_RECORD: RecordSchema = RecordSchema {
+    name: "ViewZoneRecord",
+    length: VIEW_ZONE_LEN as u16,
+    fields: &[
+        field("afterLine", 0, RecordFieldType::U32),
+        field("heightLines", 4, RecordFieldType::F32),
+        field("text", 8, RecordFieldType::Text),
+    ],
+};
+
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
     let mut index = 0;
     while index < bytes.len() {
@@ -241,6 +258,7 @@ pub(crate) const fn hash_record_schema(mut hash: u64, schema: RecordSchema) -> u
             RecordFieldType::Paint => hash_bytes(hash, &[4]),
             RecordFieldType::Text => hash_bytes(hash, &[5]),
             RecordFieldType::Flag => hash_bytes(hash, &[6]),
+            RecordFieldType::F32 => hash_bytes(hash, &[7]),
         };
         index += 1;
     }
@@ -997,6 +1015,124 @@ impl GutterDecorations {
                 })
             })
             .collect()
+    }
+}
+
+/// Room after a line that is not text: the blank rows a diff leaves on one side to line it up
+/// with the other, or a note between two lines.
+///
+/// `after_line` is the line it follows in the document as it is when the list arrives, from
+/// zero. The zone then follows that line through the reader's edits. `height_lines` is how
+/// tall it is in rows, and need not be whole. The caret, a selection and a copy pass over it,
+/// and the lines on screen are reported as the document's own lines. `text`, where there is
+/// any, is drawn dimmed on its first row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewZone {
+    pub after_line: u32,
+    pub height_lines: f32,
+    pub text: String,
+}
+
+impl ViewZone {
+    pub fn new(after_line: u32, height_lines: f32) -> Self {
+        Self {
+            after_line,
+            height_lines,
+            text: String::new(),
+        }
+    }
+
+    /// Shows `text`, dimmed, in the zone.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+}
+
+/// The view zones of one editor, encoded and ready to travel.
+///
+/// Records first and the text they show after them, the way decorations travel.
+#[derive(Clone, Default, PartialEq)]
+pub struct ViewZones {
+    bytes: Option<Rc<[u8]>>,
+}
+
+impl std::fmt::Debug for ViewZones {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ViewZones")
+            .field("zones", &self.zones().len())
+            .finish()
+    }
+}
+
+impl ViewZones {
+    pub fn new(zones: impl IntoIterator<Item = ViewZone>) -> Self {
+        let zones: Vec<ViewZone> = zones.into_iter().collect();
+        let records_len = zones.len() * VIEW_ZONE_LEN;
+        let mut bytes = Vec::with_capacity(records_len);
+        let mut texts = Vec::new();
+        for zone in &zones {
+            put_u32(&mut bytes, zone.after_line);
+            put_u32(&mut bytes, zone.height_lines.to_bits());
+            // An empty text points at the end of the records, as a decoration's does.
+            put_u32(&mut bytes, (records_len + texts.len()) as u32);
+            put_u32(&mut bytes, zone.text.len() as u32);
+            texts.extend_from_slice(zone.text.as_bytes());
+        }
+        bytes.extend_from_slice(&texts);
+        Self::from_bytes(bytes)
+    }
+
+    /// Adopts an already encoded list, which is what the protocol vectors carry.
+    pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
+        let bytes = bytes.into();
+        Self {
+            bytes: (!bytes.is_empty()).then_some(bytes),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_deref().unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_none()
+    }
+
+    /// The zones this list holds, read back. A record whose text is not in the list, or is
+    /// not UTF-8, is skipped, which is what the Renderer does with it too.
+    pub fn zones(&self) -> Vec<ViewZone> {
+        let bytes = self.as_bytes();
+        let mut end = bytes.len();
+        let mut at = 0;
+        let mut found = Vec::new();
+        while at + VIEW_ZONE_LEN <= end {
+            let record = &bytes[at..at + VIEW_ZONE_LEN];
+            at += VIEW_ZONE_LEN;
+            let text_offset = word(record, 8) as usize;
+            let text_len = word(record, 12) as usize;
+            if text_len > 0 {
+                end = end.min(text_offset);
+            }
+            let text = if text_len == 0 {
+                String::new()
+            } else {
+                match bytes
+                    .get(text_offset..text_offset + text_len)
+                    .and_then(|run| std::str::from_utf8(run).ok())
+                {
+                    Some(text) => text.to_owned(),
+                    None => continue,
+                }
+            };
+            found.push(ViewZone {
+                after_line: word(record, 0),
+                height_lines: f32::from_bits(word(record, 4)),
+                text,
+            });
+        }
+        found
     }
 }
 

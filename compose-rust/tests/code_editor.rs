@@ -376,7 +376,10 @@ fn fr38_the_record_schema_is_the_layout_the_encoder_writes() {
         };
         let width = match field.ty {
             RecordFieldType::Role { .. } => 2,
-            RecordFieldType::U32 | RecordFieldType::Flag | RecordFieldType::Text => 4,
+            RecordFieldType::U32
+            | RecordFieldType::Flag
+            | RecordFieldType::Text
+            | RecordFieldType::F32 => 4,
             RecordFieldType::U64 | RecordFieldType::Paint => 8,
         };
         assert_eq!(read(field.offset, width), expected, "{}", field.name);
@@ -1644,7 +1647,10 @@ fn fr38_a_broken_group_record_is_a_protocol_error_on_the_wire() {
 fn fr38_minimap_side_travels_as_a_tag() {
     use compose_rust::MinimapSide;
     assert_eq!(PropertyKind::Minimap as u16, 201);
-    assert_eq!(PropertyKind::from_name("minimap"), Ok(PropertyKind::Minimap));
+    assert_eq!(
+        PropertyKind::from_name("minimap"),
+        Ok(PropertyKind::Minimap)
+    );
     assert_eq!(u16::from(MinimapSide::Off), 0);
     assert_eq!(u16::from(MinimapSide::Right), 1);
     assert_eq!(u16::from(MinimapSide::Left), 2);
@@ -1663,5 +1669,69 @@ fn fr38_minimap_side_travels_as_a_tag() {
     assert_eq!(
         records(&batch),
         vec![Record::Prop(2, PropertyKind::Minimap, Value::Integer(2))]
+    );
+}
+
+/// View zones travel as 16-byte records on property 199: the line, the height as an `f32`
+/// and a reference to the text behind the records, at the offsets the schema the Renderer's
+/// decoder is written from gives. A height that is not whole stays what it was.
+#[test]
+fn fr38_view_zones_round_trip_on_the_wire() {
+    use compose_rust::code::{VIEW_ZONE_LEN, VIEW_ZONE_RECORD, ViewZone, ViewZones};
+    assert_eq!(PropertyKind::ViewZones as u16, 199);
+    assert_eq!(
+        PropertyKind::from_name("view_zones"),
+        Ok(PropertyKind::ViewZones)
+    );
+    assert_eq!(VIEW_ZONE_LEN, 16);
+    assert_eq!(usize::from(VIEW_ZONE_RECORD.length), VIEW_ZONE_LEN);
+
+    let zones = ViewZones::new([
+        ViewZone::new(2, 2.0).with_text("removed 한"),
+        ViewZone::new(7, 0.5),
+    ]);
+    let bytes = zones.as_bytes();
+    assert_eq!(bytes.len(), 2 * VIEW_ZONE_LEN + "removed 한".len());
+    for field in VIEW_ZONE_RECORD.fields {
+        let at = usize::from(field.offset);
+        let value = u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
+        match field.name {
+            "afterLine" => assert_eq!(value, 2),
+            "heightLines" => {
+                assert_eq!(field.ty, RecordFieldType::F32);
+                assert_eq!(f32::from_bits(value), 2.0);
+            }
+            "text" => {
+                assert_eq!(field.ty, RecordFieldType::Text);
+                assert_eq!(value as usize, 2 * VIEW_ZONE_LEN);
+            }
+            other => panic!("the view zone schema has a field this test does not know: {other}"),
+        }
+    }
+    assert_eq!(
+        zones.zones(),
+        vec![
+            ViewZone::new(2, 2.0).with_text("removed 한"),
+            ViewZone::new(7, 0.5)
+        ]
+    );
+    assert!(ViewZones::new([]).is_empty());
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ViewZones,
+            value: PropertyValue::Bytes(bytes),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::ViewZones,
+            Value::Bytes(bytes.to_vec())
+        )]
     );
 }

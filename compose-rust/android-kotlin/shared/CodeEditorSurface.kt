@@ -246,11 +246,10 @@ internal fun scrollToRequest(
     model: CodeEditorModel,
     vertical: EditorScroll,
     request: ScrollRequest,
-    totalRows: Int,
-    rowPx: Int,
+    totalPx: Int,
     viewportHeight: Int,
 ) {
-    vertical.max = totalRows * rowPx - viewportHeight
+    vertical.max = totalPx - viewportHeight
     vertical.scrollTo(request.offsetPx)
     model.scrollDone(request)
 }
@@ -365,8 +364,10 @@ class EditorScrolling internal constructor(
 
 /**
  * Where each line's rows are, counting the rows a lens above a line and a suggestion of
- * several lines add. Every row is the same height, because code does not wrap and every line
- * is set in the same face.
+ * several lines add, the rows a long line wraps onto, and the room a view zone takes after
+ * its line. Every row is the same height, because every line is set in the same face; a view
+ * zone is the one thing that need not be a whole number of rows, so it is counted in pixels
+ * on top of the rows.
  */
 internal class RowMap(
     val lineCount: Int,
@@ -375,6 +376,20 @@ internal class RowMap(
     private val ghostRows: Int,
     /** The lines a fold hides, as pairs of first and last line, in order and not overlapping. */
     private val hidden: IntArray = IntArray(0),
+    /**
+     * The rows each line takes past its first where long lines wrap, as running totals: entry
+     * `i` counts the lines before line `i`, and a hidden line counts none. Null where nothing
+     * wraps.
+     */
+    private val wrapPrefix: IntArray? = null,
+    /** The line each view zone follows, one entry per zone, in order. */
+    private val zoneLines: IntArray = IntArray(0),
+    /** Each zone's height, in rows. */
+    private val zoneHeights: FloatArray = FloatArray(0),
+    /** The dimmed text each zone shows. */
+    private val zoneTexts: Array<String> = emptyArray(),
+    /** Whether a zone takes whole rows, for a path that can only show whole rows. */
+    private val wholeZoneRows: Boolean = false,
 ) {
     private val hiddenRanges = hidden.size / 2
 
@@ -385,7 +400,9 @@ internal class RowMap(
         }
     }
 
-    val totalRows: Int = lineCount - hiddenPrefix[hiddenRanges] + lensLines.size + ghostRows
+    private val wrapTotal = wrapPrefix?.get(lineCount) ?: 0
+
+    val totalRows: Int = lineCount - hiddenPrefix[hiddenRanges] + lensLines.size + ghostRows + wrapTotal
 
     private fun lensesBefore(line: Int): Int {
         var low = 0
@@ -429,9 +446,18 @@ internal class RowMap(
         return index < lensLines.size && lensLines[index] == line
     }
 
+    /** How many rows [line]'s own text takes: one, and more where it wraps. */
+    fun rowsOf(line: Int): Int {
+        val prefix = wrapPrefix ?: return 1
+        if (line < 0 || line >= lineCount) return 1
+        return 1 + prefix[line + 1] - prefix[line]
+    }
+
     /** The first row that belongs to [line], its lens if it has one. A hidden line has no row of its own. */
-    fun rowTop(line: Int): Int =
-        line - hiddenBefore(line) + lensesBefore(line) + if (ghostLine in 0 until line) ghostRows else 0
+    fun rowTop(line: Int): Int {
+        val wrapped = wrapPrefix?.get(line.coerceIn(0, lineCount)) ?: 0
+        return line - hiddenBefore(line) + lensesBefore(line) + wrapped + if (ghostLine in 0 until line) ghostRows else 0
+    }
 
     /** The row [line]'s own text starts on. */
     fun textRow(line: Int): Int = rowTop(line) + if (hasLens(line)) 1 else 0
@@ -450,17 +476,105 @@ internal class RowMap(
         return if (range >= 0) max(0, hidden[range * 2] - 1) else low
     }
 
+    // The view zones, which take pixels rather than rows.
+
+    /** How many view zones there are, and the line each follows, its height and its text. */
+    val zoneCount: Int get() = zoneLines.size
+    fun zoneLine(index: Int): Int = zoneLines[index]
+    fun zoneText(index: Int): String = zoneTexts[index]
+
+    /** The pixels zone [index] takes where a row is [rowPx] tall: at least one. */
+    fun zoneHeightPx(index: Int, rowPx: Int): Int {
+        val height = zoneHeights[index]
+        return if (wholeZoneRows) max(1, height.roundToInt()) * rowPx else max(1, (height * rowPx).roundToInt())
+    }
+
+    private var zonePrefixRow = -1
+    private var zonePrefix = IntArray(1)
+
+    /** The pixels of the zones before zone `i`, for a row [rowPx] tall. */
+    private fun zonePrefix(rowPx: Int): IntArray {
+        if (zonePrefixRow == rowPx) return zonePrefix
+        val prefix = IntArray(zoneLines.size + 1)
+        for (index in zoneLines.indices) prefix[index + 1] = prefix[index] + zoneHeightPx(index, rowPx)
+        zonePrefix = prefix
+        zonePrefixRow = rowPx
+        return prefix
+    }
+
+    /** The pixels the zones after lines before [line] take. */
+    fun zonesBeforePx(line: Int, rowPx: Int): Int {
+        if (zoneLines.isEmpty()) return 0
+        var low = 0
+        var high = zoneLines.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (zoneLines[middle] < line) low = middle + 1 else high = middle
+        }
+        return zonePrefix(rowPx)[low]
+    }
+
+    /** The whole height of the document, its zones included. */
+    fun totalPx(rowPx: Int): Int = totalRows * rowPx + if (zoneLines.isEmpty()) 0 else zonePrefix(rowPx)[zoneLines.size]
+
+    /** Where [line]'s first row starts, its lens if it has one, in pixels from the top of the document. */
+    fun lineTopPx(line: Int, rowPx: Int): Int = rowTop(line) * rowPx + zonesBeforePx(line, rowPx)
+
+    /** Where [line]'s own text starts. */
+    fun textTopPx(line: Int, rowPx: Int): Int = textRow(line) * rowPx + zonesBeforePx(line, rowPx)
+
+    /** Where zone [index] starts: after its line's rows and any suggestion rows below it, and the zones before it. */
+    fun zoneTopPx(index: Int, rowPx: Int): Int {
+        val line = zoneLines[index]
+        val rows = textRow(line) + rowsOf(line) + if (ghostLine == line) ghostRows else 0
+        return rows * rowPx + zonePrefix(rowPx)[index]
+    }
+
+    /**
+     * The line a point [y] pixels down the document belongs to, never one a fold hides. A
+     * point in a zone belongs to the line the zone follows.
+     */
+    fun lineAtPx(y: Int, rowPx: Int): Int {
+        if (zoneLines.isEmpty()) return lineAtRow(if (y < 0) -1 else y / rowPx)
+        var low = 0
+        var high = lineCount - 1
+        while (low < high) {
+            val middle = (low + high + 1) ushr 1
+            if (lineTopPx(middle, rowPx) <= y) low = middle else high = middle - 1
+        }
+        val range = hiddenRangeOf(low)
+        return if (range >= 0) max(0, hidden[range * 2] - 1) else low
+    }
+
+    /**
+     * Which of [line]'s own rows a point [y] pixels down the document is on, or -1 where it is
+     * not on one: on its lens, on a suggestion's rows, or in a zone after it.
+     */
+    fun textRowAtPx(line: Int, y: Int, rowPx: Int): Int {
+        val offset = y - textTopPx(line, rowPx)
+        if (offset < 0) return -1
+        val row = offset / rowPx
+        return if (row < rowsOf(line)) row else -1
+    }
+
     companion object {
-        fun of(model: CodeEditorModel): RowMap {
+        fun of(model: CodeEditorModel, wholeZoneRows: Boolean = false): RowMap {
             val hidden = model.hiddenLines()
             val lenses = model.lensesByLine().map { it.first }.filter { line -> !model.isHidden(line) }.toIntArray()
             val ghost = model.ghostText?.takeIf { !model.isHidden(it.start.line) }
+            // A zone after a line a fold hides is folded away with it.
+            val zones = model.viewZones.filter { !model.isHidden(it.afterLine) }.sortedBy { it.afterLine }
             return RowMap(
                 model.document.lineCount,
                 lenses,
                 ghost?.start?.line ?: -1,
                 ghost?.text?.count { it == '\n' } ?: 0,
                 hidden,
+                model.wrapPrefix(),
+                IntArray(zones.size) { zones[it].afterLine },
+                FloatArray(zones.size) { zones[it].heightLines },
+                Array(zones.size) { zones[it].text },
+                wholeZoneRows,
             )
         }
     }
@@ -476,6 +590,11 @@ internal class Insertion(
     val style: SpanStyle?,
     /** The lenses a lens row shows, for pressing them. */
     val lenses: List<LiveDecoration>? = null,
+    /**
+     * Whether this is a view zone: rows shown after the end of a line, which a caret at the
+     * end of that line stays in front of.
+     */
+    val zone: Boolean = false,
 )
 
 /**
@@ -680,7 +799,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             if (shown < shownStart) break
             val shownEnd = shownStart + insertion.text.length
             if (shown < shownEnd) {
-                return insertion.offset to insertion.takeIf { it.covers == 0 || it.lenses != null }
+                return insertion.offset to insertion.takeIf { it.covers == 0 || it.lenses != null || it.zone }
             }
             // A stretch a fold hides shows as nothing, so the place where it was is one place:
             // the end of the line that stays.
@@ -697,7 +816,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         var delta = 0
         for (insertion in insertions) {
             if (insertion.offset > offset) break
-            if (insertion.offset == offset && (asEnd || insertion.covers > 0)) break
+            if (insertion.offset == offset && (asEnd || insertion.covers > 0 || insertion.zone)) break
             if (insertion.text.isEmpty() && insertion.covers > 0 && offset < insertion.offset + insertion.covers) {
                 // Inside text a fold hides: nothing of it is shown, so it is where the fold is.
                 return insertion.offset + delta
@@ -811,6 +930,37 @@ internal class EditorDisplay(
                 insertions += Insertion(at, 0, ghost.text, SpanStyle(color = ink.copy(alpha = look.ghostTextAlpha)))
             }
         }
+        // A view zone is rows after the end of its line, shown and never part of the text: as
+        // many whole rows as it is high, its text dimmed on the first of them. The zones after
+        // one line are one stretch, put in place of the line's own break, so that every row of
+        // it starts inside what is only shown and the next line starts where it ends. After a
+        // line a fold starts on, they go after the lines the fold hides.
+        if (model.viewZones.isNotEmpty()) {
+            val zoneStyle = SpanStyle(color = look.lens)
+            val byLine = model.viewZones
+                .filter { it.afterLine in start until end && !model.isHidden(it.afterLine) }
+                .groupBy { it.afterLine }
+            for ((line, zones) in byLine) {
+                var last = line
+                while (last + 1 < end && model.isHidden(last + 1)) last += 1
+                val body = StringBuilder()
+                for (zone in zones) {
+                    val rows = max(1, zone.heightLines.roundToInt())
+                    for (row in 0 until rows) {
+                        // A row with nothing in it still holds a space, so that it starts on a
+                        // character that is only shown.
+                        body.append('\n').append(if (row == 0) zone.text.substringBefore('\n').ifEmpty { " " } else " ")
+                    }
+                }
+                val at = lineEnd(last - start)
+                if (last - start + 1 < starts.size) {
+                    body.append('\n')
+                    insertions += Insertion(at, 1, body.toString(), zoneStyle, zone = true)
+                } else {
+                    insertions += Insertion(at, 0, body.toString(), zoneStyle, zone = true)
+                }
+            }
+        }
         // Tabs advance to the next stop, counted from the start of their own line.
         var column = 0
         var lineIndex = 0
@@ -833,8 +983,9 @@ internal class EditorDisplay(
             }
         }
         // Lens rows and suggestions go in front of the text at the same offset, and a tab
-        // after both.
-        insertions.sortWith(compareBy<Insertion> { it.offset }.thenBy { it.covers })
+        // after both. A zone goes after a suggestion at the end of its line, and in front of
+        // the lines a fold cuts out after it.
+        insertions.sortWith(compareBy<Insertion> { it.offset }.thenBy { it.covers }.thenBy { it.zone })
         window.insertions = insertions
         for (index in insertions.indices.reversed()) {
             val insertion = insertions[index]
@@ -1085,7 +1236,8 @@ private fun FieldSurface(
     // Read here so the row map and the gutter follow every change of text and overlay.
     val contentRevision = model.contentRevision
     val overlayRevision = model.overlayRevision
-    val rows = remember(contentRevision, overlayRevision) { RowMap.of(model) }
+    // A view zone shows as whole rows of the field's own text, so it is counted as whole rows.
+    val rows = remember(contentRevision, overlayRevision) { RowMap.of(model, wholeZoneRows = true) }
     val lineCount = rows.lineCount
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
@@ -1101,8 +1253,7 @@ private fun FieldSurface(
 
     LaunchedEffect(window.scrollToCaret) {
         if (window.scrollToCaret == 0) return@LaunchedEffect
-        val caretRow = RowMap.of(model).textRow(model.selection.caret.line)
-        val top = caretRow * rowPx
+        val top = RowMap.of(model, wholeZoneRows = true).textTopPx(model.selection.caret.line, rowPx)
         if (top < vertical.offset || top + rowPx > vertical.offset + viewportHeight) {
             vertical.scrollTo(top - viewportHeight / 2)
         }
@@ -1122,8 +1273,8 @@ private fun FieldSurface(
         if (reveal == null) return@LaunchedEffect
         // The effect can start before the pass that sets the limit has run, and a scroll
         // clamped to the old limit of 0 would go nowhere.
-        vertical.max = rows.totalRows * rowPx - viewportHeight
-        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
+        vertical.max = rows.totalPx(rowPx) - viewportHeight
+        scrollToReveal(RowMap.of(model, wholeZoneRows = true), vertical, reveal, rowPx, viewportHeight)
         model.revealDone(reveal)
         callbacks.onOutput()
     }
@@ -1134,7 +1285,7 @@ private fun FieldSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
     }
 
     val hover = remember { HoverTracker() }
@@ -1182,7 +1333,7 @@ private fun FieldSurface(
                 },
         ) {
             // The extent the offset may run to. A number, never a measured height.
-            val extent = rows.totalRows * rowPx - viewportHeight
+            val extent = rows.totalPx(rowPx) - viewportHeight
             SideEffect { vertical.max = extent }
             Row(
                 Modifier
@@ -1267,7 +1418,7 @@ private fun FieldSurface(
                                     )
                                     val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
                                     layout(placeable.width + textInsetPx, height) {
-                                        placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
+                                        placeable.place(textInsetPx, rows.lineTopPx(window.start, rowPx) - vertical.offset)
                                     }
                                 }
                                 .onGloballyPositioned { coordinates ->
@@ -1285,7 +1436,7 @@ private fun FieldSurface(
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
                                     callbacks.onKeyPreview(event, window.state.composition != null) ||
-                                        handleKey(event, window, look, callbacks)
+                                        handleKey(event, window, look, callbacks) { layoutHolder[0]?.invoke() }
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
@@ -1374,8 +1525,8 @@ private fun Sync(
     window.presses
     window.model.contentRevision
     val scroll = vertical.offset
-    val firstVisible = rows.lineAtRow(scroll / rowPx)
-    val lastVisible = rows.lineAtRow((scroll + max(viewportHeight, rowPx)) / rowPx)
+    val firstVisible = rows.lineAtPx(scroll, rowPx)
+    val lastVisible = rows.lineAtPx(scroll + max(viewportHeight, rowPx), rowPx)
     val composing = window.state.composition != null
     SideEffect {
         // The start of a composition is said before anything else this pass does; its end
@@ -1396,8 +1547,8 @@ private fun Sync(
 
 /** Tells the model which lines the view shows, folded lines left out. */
 internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, viewportHeight: Int, rowPx: Int) {
-    val lastRow = min(rows.totalRows - 1, (scroll + viewportHeight - 1) / rowPx)
-    model.reportVisibleRange(rows.lineAtRow(scroll / rowPx), rows.lineAtRow(max(0, lastRow)))
+    val bottom = min(rows.totalPx(rowPx) - 1, scroll + viewportHeight - 1)
+    model.reportVisibleRange(rows.lineAtPx(scroll, rowPx), rows.lineAtPx(max(0, bottom), rowPx))
 }
 
 /** Scrolls so that the range the Host named is on screen, the way it asked. */
@@ -1408,8 +1559,8 @@ internal fun scrollToReveal(
     rowPx: Int,
     viewportHeight: Int,
 ) {
-    val top = rows.textRow(request.start.line) * rowPx
-    val bottom = (rows.textRow(request.end.line) + 1) * rowPx
+    val top = rows.textTopPx(request.start.line, rowPx)
+    val bottom = rows.textTopPx(request.end.line, rowPx) + rowPx
     when (request.align) {
         RevealAlign.Nearest -> when {
             top < vertical.offset || bottom - top > viewportHeight -> vertical.scrollTo(top)
@@ -1434,11 +1585,12 @@ internal fun pressGutter(
     markColumn: Int,
     foldColumn: Int,
 ) {
-    val row = ((point.y + scroll) / rowPx).toInt()
-    if (row < 0 || row >= rows.totalRows) return
-    val line = rows.lineAtRow(row)
-    // A lens sits in the row above its line, and the gutter has nothing to say there.
-    if (rows.hasLens(line) && row == rows.rowTop(line)) return
+    val y = (point.y + scroll).toInt()
+    if (point.y + scroll < 0f || y >= rows.totalPx(rowPx)) return
+    val line = rows.lineAtPx(y, rowPx)
+    // A lens sits in the row above its line, a wrapped line goes on below its first row and a
+    // view zone after it, and the gutter has nothing to say on any of them.
+    if (rows.textRowAtPx(line, y, rowPx) != 0) return
     if (foldColumn > 0 && point.x >= gutterWidth - foldColumn) {
         model.toggleFold(line)
     } else if (markColumn > 0 && point.x < markColumn) {
@@ -1452,6 +1604,7 @@ private fun handleKey(
     window: FieldWindow,
     look: CodeEditorLook,
     callbacks: CodeEditorCallbacks,
+    layout: () -> TextLayoutResult?,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     // Nothing is intercepted while an input method composes: its keys are its own.
@@ -1493,6 +1646,13 @@ private fun handleKey(
             model.dismissGhostText()
             return true
         }
+        // The field moves between the rows it shows, and a view zone's rows are among them:
+        // where there are zones the caret is moved here, past them.
+        (event.key == Key.DirectionUp || event.key == Key.DirectionDown) && !command &&
+            model.viewZones.isNotEmpty() -> {
+            val result = layout() ?: return false
+            return moveOverRows(window, result, down = event.key == Key.DirectionDown, extend = event.isShiftPressed)
+        }
         event.key == Key.Tab && !event.isShiftPressed && !command -> {
             window.syncUserEdit()
             val ghost = model.ghostText
@@ -1507,6 +1667,33 @@ private fun handleKey(
         }
     }
     return false
+}
+
+/**
+ * Moves the field's caret one row of the document's text up or down, keeping its distance
+ * from the left, over the rows that are shown and are not text: a lens and a view zone.
+ * Answers false where there is no such row on that side of the caret in the field, and the
+ * field moves as it would on its own.
+ */
+private fun moveOverRows(window: FieldWindow, layout: TextLayoutResult, down: Boolean, extend: Boolean): Boolean {
+    val current = window.state.selection
+    val length = layout.layoutInput.text.length
+    val shown = window.toShown(current.end, asEnd = false).coerceIn(0, length)
+    val x = layout.getHorizontalPosition(shown, true)
+    var row = layout.getLineForOffset(shown)
+    val step = if (down) 1 else -1
+    while (true) {
+        row += step
+        if (row < 0 || row >= layout.lineCount) return false
+        val (_, insertion) = window.toFieldOffset(layout.getLineStart(row))
+        if (insertion == null) break
+    }
+    val y = (layout.getLineTop(row) + layout.getLineBottom(row)) / 2f
+    val (target, _) = window.toFieldOffset(layout.getOffsetForPosition(Offset(x, y)))
+    window.state.edit {
+        selection = if (extend) TextRange(current.start, target) else TextRange(target)
+    }
+    return true
 }
 
 /** Whether a key press puts text in rather than moving or commanding. */
@@ -1640,15 +1827,15 @@ internal fun DrawScope.drawLineBackgrounds(
 ) {
     model.overlayRevision
     if (!model.backgroundsPresent) return
-    val first = rows.lineAtRow(scroll / rowPx)
-    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    val first = rows.lineAtPx(scroll, rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + rowPx, rowPx))
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val background = model.lineBackgroundAt(line) ?: continue
         val color = look.lineBackground(background.color ?: continue)
         if (color == Color.Unspecified || color.alpha == 0f) continue
-        val top = rows.textRow(line) * rowPx.toFloat()
-        drawRect(color, Offset(left, top), Size(size.width - left, rowPx.toFloat()))
+        val top = rows.textTopPx(line, rowPx).toFloat()
+        drawRect(color, Offset(left, top), Size(size.width - left, rows.rowsOf(line) * rowPx.toFloat()))
     }
 }
 
@@ -1658,16 +1845,17 @@ private fun DrawScope.drawCurrentLine(window: FieldWindow, rows: RowMap, rowPx: 
     val selection = window.state.selection
     if (window.caretOutside || !selection.collapsed) return
     val line = window.toDoc(selection.end).line
-    val top = rows.textRow(line) * rowPx.toFloat()
+    val top = rows.textTopPx(line, rowPx).toFloat()
+    val height = rows.rowsOf(line) * rowPx.toFloat()
     if (look.currentLine.alpha > 0f) {
-        drawRect(look.currentLine, Offset(0f, top), Size(size.width, rowPx.toFloat()))
+        drawRect(look.currentLine, Offset(0f, top), Size(size.width, height))
     }
     if (look.currentLineBorder.alpha > 0f) {
         val stroke = 1.dp.toPx()
         drawRect(
             look.currentLineBorder,
             Offset(stroke / 2, top + stroke / 2),
-            Size(size.width - stroke, rowPx - stroke),
+            Size(size.width - stroke, height - stroke),
             style = Stroke(stroke),
         )
     }
@@ -1696,14 +1884,14 @@ private fun DrawScope.drawGutter(
     window.model.overlayRevision
     val selection = window.state.selection
     val caretLine = if (window.caretOutside) -1 else window.toDoc(selection.end).line
-    val first = rows.lineAtRow(scroll / rowPx)
-    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    val first = rows.lineAtPx(scroll, rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + rowPx, rowPx))
     val padding = look.gutterPadding.toPx()
     val divider = gutterDividerPx(look)
     val changeColumn = changeColumnPx(window.model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
-        val top = rows.textRow(line) * rowPx.toFloat()
+        val top = rows.textTopPx(line, rowPx).toFloat()
         if (look.lineNumbers) {
             val label = (line + 1).toString()
             val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
@@ -1913,10 +2101,11 @@ internal fun Minimap(
                             else -> continue
                         }
                         change.consume()
-                        val scale = minimapScale(currentRows.totalRows, size.height.toFloat(), maxRowPx)
-                        val row = (change.position.y / scale).toInt().coerceIn(0, max(0, currentRows.totalRows - 1))
-                        vertical.max = currentRows.totalRows * currentRowPx - currentViewport
-                        vertical.scrollTo(row * currentRowPx + currentRowPx / 2 - currentViewport / 2)
+                        val total = currentRows.totalPx(currentRowPx)
+                        val scale = minimapScale(total, currentRowPx, size.height.toFloat(), maxRowPx)
+                        val at = (change.position.y / scale).toInt().coerceIn(0, max(0, total - 1))
+                        vertical.max = total - currentViewport
+                        vertical.scrollTo(at - currentViewport / 2)
                     }
                 }
             }
@@ -1931,9 +2120,15 @@ internal fun Minimap(
 /** The tallest a document row is drawn in the minimap. */
 private val MINIMAP_ROW_MAX = 2.dp
 
-/** The height one document row takes in a minimap [height] pixels tall. */
-internal fun minimapScale(totalRows: Int, height: Float, maxRowPx: Float): Float =
-    if (totalRows <= 0) maxRowPx else min(maxRowPx, height / totalRows)
+/**
+ * How many of a minimap's pixels one pixel of a document [totalPx] tall takes, in a minimap
+ * [height] pixels tall, where a row is [rowPx] in the editor and at most [maxRowPx] in the
+ * minimap.
+ */
+internal fun minimapScale(totalPx: Int, rowPx: Int, height: Float, maxRowPx: Float): Float {
+    val most = maxRowPx / max(1, rowPx)
+    return if (totalPx <= 0) most else min(most, height / totalPx)
+}
 
 private fun DrawScope.drawMinimap(
     model: CodeEditorModel,
@@ -1944,24 +2139,24 @@ private fun DrawScope.drawMinimap(
     rowPx: Int,
     maxRowPx: Float,
 ) {
-    val total = rows.totalRows
-    if (total <= 0) return
-    val scale = minimapScale(total, size.height, maxRowPx)
+    val total = rows.totalPx(rowPx)
+    if (total <= 0 || rowPx <= 0) return
+    val scale = minimapScale(total, rowPx, size.height, maxRowPx)
     val charWidth = max(1f, size.width / MINIMAP_COLUMNS)
     val ink = look.textStyle.color.let { if (it == Color.Unspecified) look.lineNumber else it }
     val textInk = ink.copy(alpha = ink.alpha * 0.45f)
-    val band = max(1f, scale)
+    val band = max(1f, rowPx * scale)
     val barHeight = max(1f, band * 0.75f)
     val contentHeight = total * scale
     // One document row per pixel band: where several rows share a band, the first one is drawn.
     var y = 0f
     var lastLine = -1
     while (y < contentHeight && y < size.height) {
-        val row = (y / scale).toInt().coerceIn(0, total - 1)
-        val line = rows.lineAtRow(row)
-        if (line != lastLine && rows.textRow(line) <= row) {
+        val at = (y / scale).toInt().coerceIn(0, total - 1)
+        val line = rows.lineAtPx(at, rowPx)
+        if (line != lastLine && rows.textTopPx(line, rowPx) <= at) {
             lastLine = line
-            val top = rows.textRow(line) * scale
+            val top = rows.textTopPx(line, rowPx) * scale
             model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
                 ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
                 ?.let { drawRect(it.copy(alpha = min(1f, it.alpha * 2f)), Offset(0f, top), Size(size.width, band)) }
@@ -2007,7 +2202,7 @@ private fun DrawScope.drawMinimap(
                     val from = if (line == decoration.start.line) displayColumn(text, decoration.start.column, look.tabWidth) else 0
                     val to = if (line == decoration.end.line) displayColumn(text, decoration.end.column, look.tabWidth)
                     else displayColumn(text, text.length, look.tabWidth)
-                    val top = rows.textRow(line) * scale
+                    val top = rows.textTopPx(line, rowPx) * scale
                     val width = max(charWidth, (min(to, MINIMAP_COLUMNS) - min(from, MINIMAP_COLUMNS)) * charWidth)
                     drawRect(color.copy(alpha = min(1f, color.alpha * 2.5f)), Offset(min(from, MINIMAP_COLUMNS) * charWidth, top), Size(width, band))
                 }
@@ -2015,7 +2210,7 @@ private fun DrawScope.drawMinimap(
             DecorationKind.Underline -> {
                 if (decoration.start.line >= model.document.lineCount || rows.isHidden(decoration.start.line)) continue
                 val (color, _) = look.underline(decoration)
-                val top = rows.textRow(decoration.start.line) * scale
+                val top = rows.textTopPx(decoration.start.line, rowPx) * scale
                 val mark = max(2f, charWidth * 3f)
                 val x = if (look.minimapSide == MinimapSide.Left) 0f else size.width - mark
                 drawRect(color, Offset(x, top), Size(mark, max(2f, band)))
@@ -2025,8 +2220,8 @@ private fun DrawScope.drawMinimap(
     }
     // The part of the document that is on screen.
     if (rowPx > 0 && viewportHeight > 0 && look.minimapSlider.alpha > 0f) {
-        val top = scroll / rowPx.toFloat() * scale
-        val height = max(2f, viewportHeight / rowPx.toFloat() * scale)
+        val top = scroll * scale
+        val height = max(2f, viewportHeight * scale)
         drawRect(look.minimapSlider, Offset(0f, top), Size(size.width, height))
     }
 }

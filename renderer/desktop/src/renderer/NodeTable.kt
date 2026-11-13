@@ -819,6 +819,13 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            PropertyKind.ViewZones -> code.setViewZones(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeViewZones(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "view zones on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
             // Read where the editor is drawn. Here it is only checked, so that a record
             // that cannot be read is said once, when it arrives.
             PropertyKind.CodeEditorColors -> {
@@ -1538,8 +1545,9 @@ class NodeTable {
                 // The handler of its pointer events with the text under them. The kinds it
                 // hears are the node's `PointerKinds`, below.
                 PropertyKind.OnCodePointer,
-                // Whether it draws a minimap, and on which side.
+                // Whether it draws a minimap, and on which side, and its view zones.
                 PropertyKind.Minimap,
+                PropertyKind.ViewZones,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

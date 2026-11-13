@@ -2992,6 +2992,15 @@ fn code_fold_vector() -> crate::code::Folds {
     crate::code::Folds::new([Fold::new(0, 0, 2), Fold::new(0, 1, 3).collapsed()])
 }
 
+/// Two view zones, one of them with text that is not ASCII and one half a row high.
+fn code_view_zone_vector() -> crate::code::ViewZones {
+    use crate::code::ViewZone;
+    crate::code::ViewZones::new([
+        ViewZone::new(0, 2.0).with_text("− 2줄"),
+        ViewZone::new(1, 0.5),
+    ])
+}
+
 fn code_gutter_vector() -> crate::code::GutterDecorations {
     use crate::code::GutterDecoration;
     crate::code::GutterDecorations::new([
@@ -3150,6 +3159,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
     let edit_group = code_edit_group_vector()?;
+    let view_zones = code_view_zone_vector();
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3948,6 +3958,14 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::Minimap,
             value: PropertyValue::Integer(i64::from(u16::from(crate::schema::MinimapSide::Right))),
         },
+        // Its view zones: two rows after the first line with text in them, and a half-row
+        // after the second with none, so a reader that takes the height for a whole number
+        // or reads the text from the wrong place reads different zones.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::ViewZones,
+            value: PropertyValue::Bytes(view_zones.as_bytes()),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4425,7 +4443,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 125,
+    "recordCount": 126,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4846,10 +4864,10 @@ object SpanRecords {
 fn write_code_editor_records(output: &mut String) {
     use crate::code::{
         CODE_EDITOR_COLORS_RECORD, DECORATION_RECORD, FOLD_RECORD, GUTTER_DECORATION_RECORD,
-        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD,
+        RecordFieldType, RecordSchema, SYNTAX_SPAN_RECORD, VIEW_ZONE_RECORD,
     };
 
-    let records: [(RecordSchema, &str, &str); 5] = [
+    let records: [(RecordSchema, &str, &str); 6] = [
         (
             DECORATION_RECORD,
             "decodeDecorations",
@@ -4883,6 +4901,13 @@ fn write_code_editor_records(output: &mut String) {
             "decodeCodeEditorColors",
             "The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour.",
         ),
+        (
+            VIEW_ZONE_RECORD,
+            "decodeViewZones",
+            "Room after a line of a code editor that is not text, `heightLines` rows high, \
+             with `text` drawn dimmed in it. `afterLine` is in the document as it is when the \
+             list arrives.",
+        ),
     ];
     let kotlin_field_type = |ty: RecordFieldType| -> String {
         match ty {
@@ -4893,6 +4918,7 @@ fn write_code_editor_records(output: &mut String) {
             }
             RecordFieldType::Paint => "Paint".to_owned(),
             RecordFieldType::Flag => "Boolean".to_owned(),
+            RecordFieldType::F32 => "kotlin.Float".to_owned(),
             RecordFieldType::Text => "String".to_owned(),
         }
     };
@@ -4994,6 +5020,7 @@ object CodeEditorRecords {
             "FoldRecord" => "FOLD_LENGTH",
             "GutterDecorationRecord" => "GUTTER_DECORATION_LENGTH",
             "CodeEditorColorsRecord" => "CODE_EDITOR_COLORS_LENGTH",
+            "ViewZoneRecord" => "VIEW_ZONE_LENGTH",
             _ => "SYNTAX_SPAN_LENGTH",
         };
         writeln!(output, "    const val {constant} = {}\n", schema.length).unwrap();
@@ -5120,6 +5147,14 @@ object CodeEditorRecords {
                         output,
                         "        val {} = when (buffer.getInt(offset + {at})) {{ 0 -> false; 1 -> true; else -> run {{ onError(\"record $index has a {} that is neither 0 nor 1\"); return null }} }}",
                         field.name, field.name
+                    )
+                    .unwrap();
+                }
+                RecordFieldType::F32 => {
+                    writeln!(
+                        output,
+                        "        val {} = buffer.getFloat(offset + {at})",
+                        field.name
                     )
                     .unwrap();
                 }

@@ -1133,6 +1133,22 @@ class ProtocolVectorsTest {
             PropertyValue.Integer(32L),
             props.single { it.property == PropertyKind.OnEditGroupResult }.value,
         )
+        // The minimap on the right, and two view zones: the first with text that is not
+        // ASCII, the second half a row high.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.MinimapSide.Right.ordinal + 1).toLong()),
+            props.single { it.property == PropertyKind.Minimap }.value,
+        )
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(0, 2f, "\u2212 2\uC904"),
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(1, 0.5f, ""),
+            ),
+            CodeEditorRecords.decodeViewZones(
+                (props.single { it.property == PropertyKind.ViewZones }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
         assertEquals(
             listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
             CodeEditorRecords.decodeFolds(
