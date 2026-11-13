@@ -2,12 +2,15 @@ package dev.darkpyonix.composerust.foundation.code
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.gestures.Orientation
@@ -17,6 +20,7 @@ import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
 import androidx.compose.foundation.text.input.OutputTransformation
@@ -36,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -56,6 +61,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
@@ -64,6 +70,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
@@ -91,6 +98,8 @@ import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
+import dev.darkpyonix.composerust.protocol.MinimapSide
+import dev.darkpyonix.composerust.protocol.WordWrapMode
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import kotlinx.coroutines.delay
@@ -202,7 +211,42 @@ class CodeEditorLook(
     val lineBackground: (ColorRole) -> Color = { Color.Unspecified },
     /** The stronger tint a range background in a role is drawn with over its characters. */
     val rangeBackground: (ColorRole) -> Color = { Color.Unspecified },
+    /** The side the minimap is drawn on, or null where the editor draws none. */
+    val minimapSide: MinimapSide? = null,
+    /** How wide the minimap is. */
+    val minimapWidth: Dp = 72.dp,
+    /** The mark over the part of the document that is on screen, in the minimap. */
+    val minimapSlider: Color = lineNumber.copy(alpha = lineNumber.alpha * 0.22f),
+    /** Where long lines break onto the rows below, or null where they run past the edge. */
+    val wordWrap: WordWrapRule? = null,
 )
+
+/** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
+data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
+
+/**
+ * The columns lines break at under [rule], in a text area [widthPx] wide where a column is
+ * [columnPx] wide, or 0 where none break. The view's own width is at least one column.
+ */
+internal fun wrapColumnsFor(rule: WordWrapRule?, widthPx: Int, columnPx: Int): Int {
+    rule ?: return 0
+    val fit = if (columnPx > 0 && widthPx > 0) max(1, widthPx / columnPx) else 0
+    return when (rule.mode) {
+        WordWrapMode.Viewport -> fit
+        WordWrapMode.Column -> rule.columns
+        WordWrapMode.Bounded -> if (fit == 0) rule.columns else min(rule.columns, fit)
+    }
+}
+
+/** The room the minimap takes on the left of the text and on its right, in pixels. */
+internal fun Density.minimapInsetsPx(look: CodeEditorLook): Pair<Int, Int> {
+    val width = look.minimapWidth.roundToPx()
+    return when (look.minimapSide) {
+        MinimapSide.Left -> width to 0
+        MinimapSide.Right -> 0 to width
+        null -> 0 to 0
+    }
+}
 
 /**
  * The width of the line number column: the digits of the last line with the padding on both
@@ -227,11 +271,10 @@ internal fun scrollToRequest(
     model: CodeEditorModel,
     vertical: EditorScroll,
     request: ScrollRequest,
-    totalRows: Int,
-    rowPx: Int,
+    totalPx: Int,
     viewportHeight: Int,
 ) {
-    vertical.max = totalRows * rowPx - viewportHeight
+    vertical.max = totalPx - viewportHeight
     vertical.scrollTo(request.offsetPx)
     model.scrollDone(request)
 }
@@ -346,8 +389,10 @@ class EditorScrolling internal constructor(
 
 /**
  * Where each line's rows are, counting the rows a lens above a line and a suggestion of
- * several lines add. Every row is the same height, because code does not wrap and every line
- * is set in the same face.
+ * several lines add, the rows a long line wraps onto, and the room a view zone takes after
+ * its line. Every row is the same height, because every line is set in the same face; a view
+ * zone is the one thing that need not be a whole number of rows, so it is counted in pixels
+ * on top of the rows.
  */
 internal class RowMap(
     val lineCount: Int,
@@ -356,6 +401,20 @@ internal class RowMap(
     private val ghostRows: Int,
     /** The lines a fold hides, as pairs of first and last line, in order and not overlapping. */
     private val hidden: IntArray = IntArray(0),
+    /**
+     * The rows each line takes past its first where long lines wrap, as running totals: entry
+     * `i` counts the lines before line `i`, and a hidden line counts none. Null where nothing
+     * wraps.
+     */
+    private val wrapPrefix: IntArray? = null,
+    /** The line each view zone follows, one entry per zone, in order. */
+    private val zoneLines: IntArray = IntArray(0),
+    /** Each zone's height, in rows. */
+    private val zoneHeights: FloatArray = FloatArray(0),
+    /** The dimmed text each zone shows. */
+    private val zoneTexts: Array<String> = emptyArray(),
+    /** Whether a zone takes whole rows, for a path that can only show whole rows. */
+    private val wholeZoneRows: Boolean = false,
 ) {
     private val hiddenRanges = hidden.size / 2
 
@@ -366,7 +425,9 @@ internal class RowMap(
         }
     }
 
-    val totalRows: Int = lineCount - hiddenPrefix[hiddenRanges] + lensLines.size + ghostRows
+    private val wrapTotal = wrapPrefix?.get(lineCount) ?: 0
+
+    val totalRows: Int = lineCount - hiddenPrefix[hiddenRanges] + lensLines.size + ghostRows + wrapTotal
 
     private fun lensesBefore(line: Int): Int {
         var low = 0
@@ -410,9 +471,18 @@ internal class RowMap(
         return index < lensLines.size && lensLines[index] == line
     }
 
+    /** How many rows [line]'s own text takes: one, and more where it wraps. */
+    fun rowsOf(line: Int): Int {
+        val prefix = wrapPrefix ?: return 1
+        if (line < 0 || line >= lineCount) return 1
+        return 1 + prefix[line + 1] - prefix[line]
+    }
+
     /** The first row that belongs to [line], its lens if it has one. A hidden line has no row of its own. */
-    fun rowTop(line: Int): Int =
-        line - hiddenBefore(line) + lensesBefore(line) + if (ghostLine in 0 until line) ghostRows else 0
+    fun rowTop(line: Int): Int {
+        val wrapped = wrapPrefix?.get(line.coerceIn(0, lineCount)) ?: 0
+        return line - hiddenBefore(line) + lensesBefore(line) + wrapped + if (ghostLine in 0 until line) ghostRows else 0
+    }
 
     /** The row [line]'s own text starts on. */
     fun textRow(line: Int): Int = rowTop(line) + if (hasLens(line)) 1 else 0
@@ -431,17 +501,105 @@ internal class RowMap(
         return if (range >= 0) max(0, hidden[range * 2] - 1) else low
     }
 
+    // The view zones, which take pixels rather than rows.
+
+    /** How many view zones there are, and the line each follows, its height and its text. */
+    val zoneCount: Int get() = zoneLines.size
+    fun zoneLine(index: Int): Int = zoneLines[index]
+    fun zoneText(index: Int): String = zoneTexts[index]
+
+    /** The pixels zone [index] takes where a row is [rowPx] tall: at least one. */
+    fun zoneHeightPx(index: Int, rowPx: Int): Int {
+        val height = zoneHeights[index]
+        return if (wholeZoneRows) max(1, height.roundToInt()) * rowPx else max(1, (height * rowPx).roundToInt())
+    }
+
+    private var zonePrefixRow = -1
+    private var zonePrefix = IntArray(1)
+
+    /** The pixels of the zones before zone `i`, for a row [rowPx] tall. */
+    private fun zonePrefix(rowPx: Int): IntArray {
+        if (zonePrefixRow == rowPx) return zonePrefix
+        val prefix = IntArray(zoneLines.size + 1)
+        for (index in zoneLines.indices) prefix[index + 1] = prefix[index] + zoneHeightPx(index, rowPx)
+        zonePrefix = prefix
+        zonePrefixRow = rowPx
+        return prefix
+    }
+
+    /** The pixels the zones after lines before [line] take. */
+    fun zonesBeforePx(line: Int, rowPx: Int): Int {
+        if (zoneLines.isEmpty()) return 0
+        var low = 0
+        var high = zoneLines.size
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (zoneLines[middle] < line) low = middle + 1 else high = middle
+        }
+        return zonePrefix(rowPx)[low]
+    }
+
+    /** The whole height of the document, its zones included. */
+    fun totalPx(rowPx: Int): Int = totalRows * rowPx + if (zoneLines.isEmpty()) 0 else zonePrefix(rowPx)[zoneLines.size]
+
+    /** Where [line]'s first row starts, its lens if it has one, in pixels from the top of the document. */
+    fun lineTopPx(line: Int, rowPx: Int): Int = rowTop(line) * rowPx + zonesBeforePx(line, rowPx)
+
+    /** Where [line]'s own text starts. */
+    fun textTopPx(line: Int, rowPx: Int): Int = textRow(line) * rowPx + zonesBeforePx(line, rowPx)
+
+    /** Where zone [index] starts: after its line's rows and any suggestion rows below it, and the zones before it. */
+    fun zoneTopPx(index: Int, rowPx: Int): Int {
+        val line = zoneLines[index]
+        val rows = textRow(line) + rowsOf(line) + if (ghostLine == line) ghostRows else 0
+        return rows * rowPx + zonePrefix(rowPx)[index]
+    }
+
+    /**
+     * The line a point [y] pixels down the document belongs to, never one a fold hides. A
+     * point in a zone belongs to the line the zone follows.
+     */
+    fun lineAtPx(y: Int, rowPx: Int): Int {
+        if (zoneLines.isEmpty()) return lineAtRow(if (y < 0) -1 else y / rowPx)
+        var low = 0
+        var high = lineCount - 1
+        while (low < high) {
+            val middle = (low + high + 1) ushr 1
+            if (lineTopPx(middle, rowPx) <= y) low = middle else high = middle - 1
+        }
+        val range = hiddenRangeOf(low)
+        return if (range >= 0) max(0, hidden[range * 2] - 1) else low
+    }
+
+    /**
+     * Which of [line]'s own rows a point [y] pixels down the document is on, or -1 where it is
+     * not on one: on its lens, on a suggestion's rows, or in a zone after it.
+     */
+    fun textRowAtPx(line: Int, y: Int, rowPx: Int): Int {
+        val offset = y - textTopPx(line, rowPx)
+        if (offset < 0) return -1
+        val row = offset / rowPx
+        return if (row < rowsOf(line)) row else -1
+    }
+
     companion object {
-        fun of(model: CodeEditorModel): RowMap {
+        fun of(model: CodeEditorModel, wholeZoneRows: Boolean = false): RowMap {
             val hidden = model.hiddenLines()
             val lenses = model.lensesByLine().map { it.first }.filter { line -> !model.isHidden(line) }.toIntArray()
             val ghost = model.ghostText?.takeIf { !model.isHidden(it.start.line) }
+            // A zone after a line a fold hides is folded away with it.
+            val zones = model.viewZones.filter { !model.isHidden(it.afterLine) }.sortedBy { it.afterLine }
             return RowMap(
                 model.document.lineCount,
                 lenses,
                 ghost?.start?.line ?: -1,
                 ghost?.text?.count { it == '\n' } ?: 0,
                 hidden,
+                model.wrapPrefix(),
+                IntArray(zones.size) { zones[it].afterLine },
+                FloatArray(zones.size) { zones[it].heightLines },
+                Array(zones.size) { zones[it].text },
+                wholeZoneRows,
             )
         }
     }
@@ -457,6 +615,13 @@ internal class Insertion(
     val style: SpanStyle?,
     /** The lenses a lens row shows, for pressing them. */
     val lenses: List<LiveDecoration>? = null,
+    /**
+     * Whether this is a view zone: rows shown after the end of a line, which a caret at the
+     * end of that line stays in front of.
+     */
+    val zone: Boolean = false,
+    /** Whether this is where a long line breaks onto the next row: a break that is not text. */
+    val soft: Boolean = false,
 )
 
 /**
@@ -587,6 +752,18 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         var suffix = 0
         while (suffix < limit - prefix && old[old.length - 1 - suffix] == text[text.length - 1 - suffix]) suffix += 1
         if (suffix > 0 && old[old.length - suffix].isLowSurrogate() && old.length - suffix - 1 >= prefix) suffix -= 1
+        // Text typed beside the same text is found at the far end of the run, which is not
+        // always where the caret was. Where the caret now stands right after the typed text
+        // and the insertion can be read there as well, it is read there.
+        val typed = text.length - suffix - prefix
+        val caretNow = state.selection.takeIf { it.collapsed }?.end
+        if (old.length - suffix == prefix && caretNow != null && caretNow - typed in 0 until prefix) {
+            val at = caretNow - typed
+            if (text.regionMatches(0, old, 0, at) && text.regionMatches(at + typed, old, at, old.length - at)) {
+                suffix = old.length - at
+                prefix = at
+            }
+        }
         val startPosition = toDoc(prefix)
         val endPosition = toDoc(old.length - suffix)
         val inserted = text.subSequence(prefix, text.length - suffix).toString()
@@ -598,6 +775,16 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         committed = text.toString()
         lineStarts = lineStartsOf(committed)
         end = start + lineStarts.size
+        if (model.secondary.isNotEmpty()) {
+            // The field has one caret of its own. What the reader did at it is done at every
+            // other selection too, and the field is filled again from the model, which now
+            // holds all of it.
+            if (model.editLikePrimary(model.selection, startPosition, endPosition, inserted, origin)) {
+                load(start, end)
+                return true
+            }
+            model.dropSecondary()
+        }
         model.edit(startPosition, endPosition, inserted, origin)
         syncedRevision = model.contentRevision
         lastSelection = null
@@ -613,6 +800,8 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             seenPresses = presses
             caretOutside = false
             lastSelection = null
+            // A press puts the caret in one place: the other selections go.
+            model.dropSecondary()
         }
         if (selection == lastSelection || caretOutside) return
         lastSelection = selection
@@ -661,7 +850,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
             if (shown < shownStart) break
             val shownEnd = shownStart + insertion.text.length
             if (shown < shownEnd) {
-                return insertion.offset to insertion.takeIf { it.covers == 0 || it.lenses != null }
+                return insertion.offset to insertion.takeIf { (it.covers == 0 && !it.soft) || it.lenses != null || it.zone }
             }
             // A stretch a fold hides shows as nothing, so the place where it was is one place:
             // the end of the line that stays.
@@ -678,7 +867,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         var delta = 0
         for (insertion in insertions) {
             if (insertion.offset > offset) break
-            if (insertion.offset == offset && (asEnd || insertion.covers > 0)) break
+            if (insertion.offset == offset && (asEnd || insertion.covers > 0 || insertion.zone)) break
             if (insertion.text.isEmpty() && insertion.covers > 0 && offset < insertion.offset + insertion.covers) {
                 // Inside text a fold hides: nothing of it is shown, so it is where the fold is.
                 return insertion.offset + delta
@@ -792,6 +981,46 @@ internal class EditorDisplay(
                 insertions += Insertion(at, 0, ghost.text, SpanStyle(color = ink.copy(alpha = look.ghostTextAlpha)))
             }
         }
+        // A long line breaks onto the rows below where the model says, with a line break that
+        // is only shown, so the field's rows are the rows the gutter counts.
+        if (model.wrapColumns > 0) {
+            for (line in start until end) {
+                if (model.isHidden(line)) continue
+                val lineStart = starts[line - start]
+                for (column in model.wrapBreaksOf(line)) insertions += Insertion(lineStart + column, 0, "\n", null, soft = true)
+            }
+        }
+        // A view zone is rows after the end of its line, shown and never part of the text: as
+        // many whole rows as it is high, its text dimmed on the first of them. The zones after
+        // one line are one stretch, put in place of the line's own break, so that every row of
+        // it starts inside what is only shown and the next line starts where it ends. After a
+        // line a fold starts on, they go after the lines the fold hides.
+        if (model.viewZones.isNotEmpty()) {
+            val zoneStyle = SpanStyle(color = look.lens)
+            val byLine = model.viewZones
+                .filter { it.afterLine in start until end && !model.isHidden(it.afterLine) }
+                .groupBy { it.afterLine }
+            for ((line, zones) in byLine) {
+                var last = line
+                while (last + 1 < end && model.isHidden(last + 1)) last += 1
+                val body = StringBuilder()
+                for (zone in zones) {
+                    val rows = max(1, zone.heightLines.roundToInt())
+                    for (row in 0 until rows) {
+                        // A row with nothing in it still holds a space, so that it starts on a
+                        // character that is only shown.
+                        body.append('\n').append(if (row == 0) zone.text.substringBefore('\n').ifEmpty { " " } else " ")
+                    }
+                }
+                val at = lineEnd(last - start)
+                if (last - start + 1 < starts.size) {
+                    body.append('\n')
+                    insertions += Insertion(at, 1, body.toString(), zoneStyle, zone = true)
+                } else {
+                    insertions += Insertion(at, 0, body.toString(), zoneStyle, zone = true)
+                }
+            }
+        }
         // Tabs advance to the next stop, counted from the start of their own line.
         var column = 0
         var lineIndex = 0
@@ -814,8 +1043,9 @@ internal class EditorDisplay(
             }
         }
         // Lens rows and suggestions go in front of the text at the same offset, and a tab
-        // after both.
-        insertions.sortWith(compareBy<Insertion> { it.offset }.thenBy { it.covers })
+        // after both. A zone goes after a suggestion at the end of its line, and in front of
+        // the lines a fold cuts out after it.
+        insertions.sortWith(compareBy<Insertion> { it.offset }.thenBy { it.covers }.thenBy { it.zone })
         window.insertions = insertions
         for (index in insertions.indices.reversed()) {
             val insertion = insertions[index]
@@ -926,13 +1156,13 @@ internal fun Rect.toDp(density: Float): CodeRectDp =
  * [viewport], with its text starting [textLeft] pixels in: some of the row is inside the
  * view, and the caret is right of the gutter and not past the right edge.
  */
-internal fun caretOnScreen(rect: Rect, viewport: LayoutCoordinates?, textLeft: Float): Boolean {
+internal fun caretOnScreen(rect: Rect, viewport: LayoutCoordinates?, textLeft: Float, rightInset: Float = 0f): Boolean {
     val view = viewport?.takeIf { it.isAttached } ?: return false
     val origin = view.localToRoot(Offset.Zero)
     val top = origin.y
     val bottom = origin.y + view.size.height
     val left = origin.x + textLeft
-    val right = origin.x + view.size.width
+    val right = origin.x + view.size.width - rightInset
     // Half a pixel either way, for a caret that stands exactly on the gutter's edge.
     return rect.bottom > top && rect.top < bottom && rect.left >= left - 0.5f && rect.left <= right + 0.5f
 }
@@ -954,6 +1184,9 @@ internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget 
     var layout: (() -> TextLayoutResult?)? = null
     var gutterWidthPx = 0f
     var textLeftPx = 0f
+
+    /** What a minimap on the right takes off the text's width. */
+    var rightInsetPx = 0f
     var density = 1f
 
     /** The width the field draws its caret at. */
@@ -961,7 +1194,7 @@ internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget 
 
     /** The function the model finds positions with, the same one for as long as this lives. */
     val locate: (CodePosition) -> CodeRectDp? = { position ->
-        caretInRoot(position)?.takeIf { caretOnScreen(it, viewport, textLeftPx) }?.toDp(density)
+        caretInRoot(position)?.takeIf { caretOnScreen(it, viewport, textLeftPx, rightInsetPx) }?.toDp(density)
     }
 
     /**
@@ -980,6 +1213,13 @@ internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget 
         if (ghost != null && ghost.start == position && ghost.text.isNotEmpty()) shown -= ghost.text.length
         val cursor = result.getCursorRect(shown.coerceIn(0, result.layoutInput.text.length))
         return Rect(coordinates.localToRoot(Offset(cursor.left, cursor.top)), Size(caretWidthPx, cursor.height))
+    }
+
+    /** Where the primary caret is drawn in the editor's own pixels, or null where it is not on screen. */
+    fun caretInView(): Rect? {
+        val view = viewport?.takeIf { it.isAttached } ?: return null
+        val rect = caretInRoot(window.model.selection.caret)?.takeIf { caretOnScreen(it, viewport, textLeftPx, rightInsetPx) } ?: return null
+        return rect.translate(-view.localToRoot(Offset.Zero))
     }
 
     override fun positionAt(x: Float, y: Float): CodePosition? {
@@ -1063,7 +1303,8 @@ private fun FieldSurface(
     // Read here so the row map and the gutter follow every change of text and overlay.
     val contentRevision = model.contentRevision
     val overlayRevision = model.overlayRevision
-    val rows = remember(contentRevision, overlayRevision) { RowMap.of(model) }
+    // A view zone shows as whole rows of the field's own text, so it is counted as whole rows.
+    val rows = remember(contentRevision, overlayRevision) { RowMap.of(model, wholeZoneRows = true) }
     val lineCount = rows.lineCount
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
@@ -1079,8 +1320,7 @@ private fun FieldSurface(
 
     LaunchedEffect(window.scrollToCaret) {
         if (window.scrollToCaret == 0) return@LaunchedEffect
-        val caretRow = RowMap.of(model).textRow(model.selection.caret.line)
-        val top = caretRow * rowPx
+        val top = RowMap.of(model, wholeZoneRows = true).textTopPx(model.selection.caret.line, rowPx)
         if (top < vertical.offset || top + rowPx > vertical.offset + viewportHeight) {
             vertical.scrollTo(top - viewportHeight / 2)
         }
@@ -1100,8 +1340,8 @@ private fun FieldSurface(
         if (reveal == null) return@LaunchedEffect
         // The effect can start before the pass that sets the limit has run, and a scroll
         // clamped to the old limit of 0 would go nowhere.
-        vertical.max = rows.totalRows * rowPx - viewportHeight
-        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
+        vertical.max = rows.totalPx(rowPx) - viewportHeight
+        scrollToReveal(RowMap.of(model, wholeZoneRows = true), vertical, reveal, rowPx, viewportHeight)
         model.revealDone(reveal)
         callbacks.onOutput()
     }
@@ -1112,19 +1352,29 @@ private fun FieldSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalRows, rowPx, viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
     }
 
     val hover = remember { HoverTracker() }
     HoverReport(hover, look.hoverDelayMillis, callbacks)
 
     val textInsetPx = with(density) { look.textInset.roundToPx() }
+    val (minimapLeft, minimapRight) = density.minimapInsetsPx(look)
+    // Where long lines break, from the width the text has: the model is told after the frame,
+    // and the frame after it draws the rows.
+    val wrapColumns = wrapColumnsFor(
+        look.wordWrap,
+        viewportWidth - gutterWidthPx - textInsetPx - minimapLeft - minimapRight,
+        digitWidth,
+    )
+    SideEffect { model.setWrap(wrapColumns, look.tabWidth) }
 
     // Where the caret is drawn and where a position is, read after layout. What they find
     // is sent from a coroutine rather than from inside the pass that found it.
     val places = remember(window) { FieldPlaces(window).also { it.layout = { layoutHolder[0]?.invoke() } } }
-    places.gutterWidthPx = gutterWidthPx.toFloat()
-    places.textLeftPx = (gutterWidthPx + textInsetPx).toFloat()
+    places.gutterWidthPx = (minimapLeft + gutterWidthPx).toFloat()
+    places.textLeftPx = (minimapLeft + gutterWidthPx + textInsetPx).toFloat()
+    places.rightInsetPx = minimapRight.toFloat()
     places.density = density.density
     places.caretWidthPx = with(density) { 2.dp.toPx() }
     val scope = rememberCoroutineScope()
@@ -1158,11 +1408,15 @@ private fun FieldSurface(
                 },
         ) {
             // The extent the offset may run to. A number, never a measured height.
-            val extent = rows.totalRows * rowPx - viewportHeight
+            val extent = rows.totalPx(rowPx) - viewportHeight
             SideEffect { vertical.max = extent }
             Row(
                 Modifier
                     .fillMaxSize()
+                    .padding(
+                        start = with(density) { minimapLeft.toDp() },
+                        end = with(density) { minimapRight.toDp() },
+                    )
                     .scrollable(vertical.scrollable, Orientation.Vertical)
                     .drawBehind {
                         translate(top = -vertical.offset.toFloat()) {
@@ -1225,7 +1479,7 @@ private fun FieldSurface(
                         .fillMaxHeight()
                         .horizontalScroll(horizontal),
                 ) {
-                    val minWidthPx = (viewportWidth - gutterWidthPx - textInsetPx).coerceAtLeast(0)
+                    val minWidthPx = (viewportWidth - gutterWidthPx - textInsetPx - minimapLeft - minimapRight).coerceAtLeast(0)
                     run {
                         BasicTextField(
                             state = window.state,
@@ -1239,7 +1493,7 @@ private fun FieldSurface(
                                     )
                                     val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
                                     layout(placeable.width + textInsetPx, height) {
-                                        placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
+                                        placeable.place(textInsetPx, rows.lineTopPx(window.start, rowPx) - vertical.offset)
                                     }
                                 }
                                 .onGloballyPositioned { coordinates ->
@@ -1257,7 +1511,7 @@ private fun FieldSurface(
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
                                     callbacks.onKeyPreview(event, window.state.composition != null) ||
-                                        handleKey(event, window, look, callbacks)
+                                        handleKey(event, window, look, callbacks) { layoutHolder[0]?.invoke() }
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
@@ -1271,7 +1525,19 @@ private fun FieldSurface(
                                                     val lens = result?.let {
                                                         lensAt(window, it, change.position)
                                                     }
-                                                    if (lens != null) {
+                                                    // Alt and a press adds a caret there and
+                                                    // leaves the others where they are.
+                                                    val added = if (event.keyboardModifiers.isAltPressed && lens == null) {
+                                                        result?.let { positionAt(window, it, change.position) }
+                                                    } else {
+                                                        null
+                                                    }
+                                                    if (added != null) {
+                                                        change.consume()
+                                                        window.syncUserEdit()
+                                                        window.model.addCaret(added)
+                                                        callbacks.onOutput()
+                                                    } else if (lens != null) {
                                                         change.consume()
                                                         window.model.activate(lens)
                                                         callbacks.onOutput()
@@ -1307,6 +1573,20 @@ private fun FieldSurface(
                     }
                 }
             }
+            if (look.minimapSide != null) {
+                Minimap(
+                    model,
+                    rows,
+                    look,
+                    vertical,
+                    viewportHeight,
+                    rowPx,
+                    Modifier
+                        .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
+                        .scrollable(vertical.scrollable, Orientation.Vertical),
+                )
+            }
+            SnippetChoices(model, look, { places.caretInView() }) { callbacks.onOutput() }
         }
     }
 }
@@ -1333,8 +1613,8 @@ private fun Sync(
     window.presses
     window.model.contentRevision
     val scroll = vertical.offset
-    val firstVisible = rows.lineAtRow(scroll / rowPx)
-    val lastVisible = rows.lineAtRow((scroll + max(viewportHeight, rowPx)) / rowPx)
+    val firstVisible = rows.lineAtPx(scroll, rowPx)
+    val lastVisible = rows.lineAtPx(scroll + max(viewportHeight, rowPx), rowPx)
     val composing = window.state.composition != null
     SideEffect {
         // The start of a composition is said before anything else this pass does; its end
@@ -1355,8 +1635,8 @@ private fun Sync(
 
 /** Tells the model which lines the view shows, folded lines left out. */
 internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, viewportHeight: Int, rowPx: Int) {
-    val lastRow = min(rows.totalRows - 1, (scroll + viewportHeight - 1) / rowPx)
-    model.reportVisibleRange(rows.lineAtRow(scroll / rowPx), rows.lineAtRow(max(0, lastRow)))
+    val bottom = min(rows.totalPx(rowPx) - 1, scroll + viewportHeight - 1)
+    model.reportVisibleRange(rows.lineAtPx(scroll, rowPx), rows.lineAtPx(max(0, bottom), rowPx))
 }
 
 /** Scrolls so that the range the Host named is on screen, the way it asked. */
@@ -1367,8 +1647,8 @@ internal fun scrollToReveal(
     rowPx: Int,
     viewportHeight: Int,
 ) {
-    val top = rows.textRow(request.start.line) * rowPx
-    val bottom = (rows.textRow(request.end.line) + 1) * rowPx
+    val top = rows.textTopPx(request.start.line, rowPx)
+    val bottom = rows.textTopPx(request.end.line, rowPx) + rowPx
     when (request.align) {
         RevealAlign.Nearest -> when {
             top < vertical.offset || bottom - top > viewportHeight -> vertical.scrollTo(top)
@@ -1393,11 +1673,12 @@ internal fun pressGutter(
     markColumn: Int,
     foldColumn: Int,
 ) {
-    val row = ((point.y + scroll) / rowPx).toInt()
-    if (row < 0 || row >= rows.totalRows) return
-    val line = rows.lineAtRow(row)
-    // A lens sits in the row above its line, and the gutter has nothing to say there.
-    if (rows.hasLens(line) && row == rows.rowTop(line)) return
+    val y = (point.y + scroll).toInt()
+    if (point.y + scroll < 0f || y >= rows.totalPx(rowPx)) return
+    val line = rows.lineAtPx(y, rowPx)
+    // A lens sits in the row above its line, a wrapped line goes on below its first row and a
+    // view zone after it, and the gutter has nothing to say on any of them.
+    if (rows.textRowAtPx(line, y, rowPx) != 0) return
     if (foldColumn > 0 && point.x >= gutterWidth - foldColumn) {
         model.toggleFold(line)
     } else if (markColumn > 0 && point.x < markColumn) {
@@ -1411,6 +1692,7 @@ private fun handleKey(
     window: FieldWindow,
     look: CodeEditorLook,
     callbacks: CodeEditorCallbacks,
+    layout: () -> TextLayoutResult?,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     // Nothing is intercepted while an input method composes: its keys are its own.
@@ -1447,10 +1729,69 @@ private fun handleKey(
             window.selectAll()
             return true
         }
+        // The next place the selected text is, as another selection.
+        command && event.key == Key.D && !event.isShiftPressed && !event.isAltPressed -> {
+            window.syncUserEdit()
+            if (model.addNextMatch()) window.applyHostSelection()
+            callbacks.onOutput()
+            return true
+        }
+        // A caret on the line above or below the others.
+        command && event.isAltPressed && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            window.syncUserEdit()
+            model.addCaretVertically(down = event.key == Key.DirectionDown)
+            callbacks.onOutput()
+            return true
+        }
+        // A snippet's list of choices takes the keys that move through it, pick from it and
+        // close it; Tab and Shift+Tab step through the snippet's stops; Escape closes the
+        // list, then ends the snippet, then drops the extra selections.
+        model.snippetChoices != null && (event.key == Key.DirectionUp || event.key == Key.DirectionDown) -> {
+            model.moveChoice(if (event.key == Key.DirectionDown) 1 else -1)
+            return true
+        }
+        model.snippetChoices != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+            window.syncUserEdit()
+            model.pickChoice(model.choiceIndex)
+            window.applyHostSelection()
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Tab && !command && model.snippetActive -> {
+            window.syncUserEdit()
+            if (event.isShiftPressed) model.previousSnippetStop() else model.nextSnippetStop()
+            window.applyHostSelection()
+            window.scrollToCaret += 1
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Escape && (model.closeChoices() || model.endSnippet()) -> {
+            callbacks.onOutput()
+            return true
+        }
+        event.key == Key.Escape && model.dropSecondary() -> {
+            callbacks.onOutput()
+            return true
+        }
         event.key == Key.Escape -> {
             if (model.ghostText == null) return false
             model.dismissGhostText()
             return true
+        }
+        // The field moves its own caret; the others move the same way here, and the field
+        // goes on to move its own.
+        model.secondary.isNotEmpty() && !command && caretMove(event.key) != null -> {
+            model.moveSecondary(caretMove(event.key)!!, event.isShiftPressed)
+            if (!(model.viewZones.isNotEmpty() && (event.key == Key.DirectionUp || event.key == Key.DirectionDown))) return false
+            val result = layout() ?: return false
+            return moveOverRows(window, result, down = event.key == Key.DirectionDown, extend = event.isShiftPressed)
+        }
+        // The field moves between the rows it shows, and a view zone's rows are among them:
+        // where there are zones the caret is moved here, past them.
+        (event.key == Key.DirectionUp || event.key == Key.DirectionDown) && !command &&
+            model.viewZones.isNotEmpty() -> {
+            val result = layout() ?: return false
+            return moveOverRows(window, result, down = event.key == Key.DirectionDown, extend = event.isShiftPressed)
         }
         event.key == Key.Tab && !event.isShiftPressed && !command -> {
             window.syncUserEdit()
@@ -1466,6 +1807,44 @@ private fun handleKey(
         }
     }
     return false
+}
+
+/**
+ * Moves the field's caret one row of the document's text up or down, keeping its distance
+ * from the left, over the rows that are shown and are not text: a lens and a view zone.
+ * Answers false where there is no such row on that side of the caret in the field, and the
+ * field moves as it would on its own.
+ */
+private fun moveOverRows(window: FieldWindow, layout: TextLayoutResult, down: Boolean, extend: Boolean): Boolean {
+    val current = window.state.selection
+    val length = layout.layoutInput.text.length
+    val shown = window.toShown(current.end, asEnd = false).coerceIn(0, length)
+    val x = layout.getHorizontalPosition(shown, true)
+    var row = layout.getLineForOffset(shown)
+    val step = if (down) 1 else -1
+    while (true) {
+        row += step
+        if (row < 0 || row >= layout.lineCount) return false
+        val (_, insertion) = window.toFieldOffset(layout.getLineStart(row))
+        if (insertion == null) break
+    }
+    val y = (layout.getLineTop(row) + layout.getLineBottom(row)) / 2f
+    val (target, _) = window.toFieldOffset(layout.getOffsetForPosition(Offset(x, y)))
+    window.state.edit {
+        selection = if (extend) TextRange(current.start, target) else TextRange(target)
+    }
+    return true
+}
+
+/** How a key moves a caret, or null where it does not. */
+internal fun caretMove(key: Key): CodeEditorModel.CaretMove? = when (key) {
+    Key.DirectionLeft -> CodeEditorModel.CaretMove.Left
+    Key.DirectionRight -> CodeEditorModel.CaretMove.Right
+    Key.DirectionUp -> CodeEditorModel.CaretMove.Up
+    Key.DirectionDown -> CodeEditorModel.CaretMove.Down
+    Key.MoveHome -> CodeEditorModel.CaretMove.Home
+    Key.MoveEnd -> CodeEditorModel.CaretMove.End
+    else -> null
 }
 
 /** Whether a key press puts text in rather than moving or commanding. */
@@ -1599,15 +1978,15 @@ internal fun DrawScope.drawLineBackgrounds(
 ) {
     model.overlayRevision
     if (!model.backgroundsPresent) return
-    val first = rows.lineAtRow(scroll / rowPx)
-    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    val first = rows.lineAtPx(scroll, rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + rowPx, rowPx))
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val background = model.lineBackgroundAt(line) ?: continue
         val color = look.lineBackground(background.color ?: continue)
         if (color == Color.Unspecified || color.alpha == 0f) continue
-        val top = rows.textRow(line) * rowPx.toFloat()
-        drawRect(color, Offset(left, top), Size(size.width - left, rowPx.toFloat()))
+        val top = rows.textTopPx(line, rowPx).toFloat()
+        drawRect(color, Offset(left, top), Size(size.width - left, rows.rowsOf(line) * rowPx.toFloat()))
     }
 }
 
@@ -1617,16 +1996,17 @@ private fun DrawScope.drawCurrentLine(window: FieldWindow, rows: RowMap, rowPx: 
     val selection = window.state.selection
     if (window.caretOutside || !selection.collapsed) return
     val line = window.toDoc(selection.end).line
-    val top = rows.textRow(line) * rowPx.toFloat()
+    val top = rows.textTopPx(line, rowPx).toFloat()
+    val height = rows.rowsOf(line) * rowPx.toFloat()
     if (look.currentLine.alpha > 0f) {
-        drawRect(look.currentLine, Offset(0f, top), Size(size.width, rowPx.toFloat()))
+        drawRect(look.currentLine, Offset(0f, top), Size(size.width, height))
     }
     if (look.currentLineBorder.alpha > 0f) {
         val stroke = 1.dp.toPx()
         drawRect(
             look.currentLineBorder,
             Offset(stroke / 2, top + stroke / 2),
-            Size(size.width - stroke, rowPx - stroke),
+            Size(size.width - stroke, height - stroke),
             style = Stroke(stroke),
         )
     }
@@ -1655,14 +2035,14 @@ private fun DrawScope.drawGutter(
     window.model.overlayRevision
     val selection = window.state.selection
     val caretLine = if (window.caretOutside) -1 else window.toDoc(selection.end).line
-    val first = rows.lineAtRow(scroll / rowPx)
-    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    val first = rows.lineAtPx(scroll, rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + rowPx, rowPx))
     val padding = look.gutterPadding.toPx()
     val divider = gutterDividerPx(look)
     val changeColumn = changeColumnPx(window.model, look)
     for (line in first..last) {
         if (rows.isHidden(line)) continue
-        val top = rows.textRow(line) * rowPx.toFloat()
+        val top = rows.textTopPx(line, rowPx).toFloat()
         if (look.lineNumbers) {
             val label = (line + 1).toString()
             val color = if (line == caretLine) look.currentLineNumber else look.lineNumber
@@ -1737,6 +2117,8 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
     window.revision
     val textLength = layout.layoutInput.text.length
     if (model.backgroundsPresent) drawRangeBackgrounds(window, layout, look)
+    model.secondaryRevision
+    if (model.secondary.isNotEmpty()) drawSecondarySelections(window, layout, look)
     for (decoration in model.decorations) {
         if (decoration.kind != DecorationKind.Underline) continue
         if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
@@ -1758,6 +2140,35 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
             if (right - left < stroke * 4) right = left + (layout.getLineBottom(line) - layout.getLineTop(line)) / 2
             val y = layout.getLineBottom(line) - stroke * 1.5f
             drawUnderline(shape, color, left, right, y, stroke)
+        }
+    }
+}
+
+/**
+ * The selections past the primary one, which the field does not know about: a selection's
+ * tint over its characters, and a caret where it is collapsed, in the field's own
+ * coordinates.
+ */
+private fun DrawScope.drawSecondarySelections(window: FieldWindow, layout: TextLayoutResult, look: CodeEditorLook) {
+    val textLength = layout.layoutInput.text.length
+    for (selection in window.model.secondary) {
+        val from = window.toField(selection.start) ?: continue
+        val to = window.toField(selection.end) ?: continue
+        val shownFrom = window.toShown(from, asEnd = false).coerceIn(0, textLength)
+        val shownTo = window.toShown(to, asEnd = true).coerceIn(0, textLength)
+        if (shownFrom == shownTo) {
+            val caret = layout.getCursorRect(shownFrom)
+            drawRect(look.cursor, Offset(caret.left, caret.top), Size(2.dp.toPx(), caret.height))
+            continue
+        }
+        val firstLine = layout.getLineForOffset(shownFrom)
+        val lastLine = layout.getLineForOffset(shownTo)
+        for (line in firstLine..lastLine) {
+            val left = if (line == firstLine) layout.getHorizontalPosition(shownFrom, true) else layout.getLineLeft(line)
+            val right = if (line == lastLine) layout.getHorizontalPosition(shownTo, true) else layout.getLineRight(line)
+            if (right <= left) continue
+            val top = layout.getLineTop(line)
+            drawRect(look.selection, Offset(left, top), Size(right - left, layout.getLineBottom(line) - top))
         }
     }
 }
@@ -1813,6 +2224,238 @@ internal fun DrawScope.drawUnderline(shape: UnderlineShape, color: Color, left: 
                 up = !up
             }
             drawPath(path, color, style = Stroke(stroke))
+        }
+    }
+}
+
+/** Test tag of an editor's minimap. */
+const val CODE_EDITOR_MINIMAP_TAG = "code-editor-minimap"
+
+/** How many columns of a line the minimap shows: past them a line is cut off. */
+private const val MINIMAP_COLUMNS = 120
+
+/**
+ * The whole document shrunk into a strip beside the text, with the part on screen marked.
+ *
+ * Every row of the document gets the same share of the strip's height, never more than a
+ * couple of dp, so a short document is drawn at the top and a long one fills it. The strip is
+ * drawn one pixel band at a time rather than one line at a time, so a document of a hundred
+ * thousand lines costs what the strip's height costs. A press, or a drag, scrolls the editor
+ * so that the row under the pointer is in the middle of the view.
+ *
+ * The decorations that say where something is show here too: a line background across the
+ * strip, a range background over its characters, and an underline as a mark at the strip's
+ * outer edge in its colour.
+ */
+@Composable
+internal fun Minimap(
+    model: CodeEditorModel,
+    rows: RowMap,
+    look: CodeEditorLook,
+    vertical: EditorScroll,
+    viewportHeight: Int,
+    rowPx: Int,
+    modifier: Modifier = Modifier,
+) {
+    val currentRows by rememberUpdatedState(rows)
+    val currentViewport by rememberUpdatedState(viewportHeight)
+    val currentRowPx by rememberUpdatedState(rowPx)
+    val density = LocalDensity.current
+    val maxRowPx = with(density) { MINIMAP_ROW_MAX.toPx() }
+    Box(
+        modifier
+            .width(look.minimapWidth)
+            .fillMaxHeight()
+            .testTag(CODE_EDITOR_MINIMAP_TAG)
+            .pointerInput(vertical) {
+                awaitPointerEventScope {
+                    var dragging = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: continue
+                        when (event.type) {
+                            PointerEventType.Press -> dragging = true
+                            PointerEventType.Release -> {
+                                dragging = false
+                                continue
+                            }
+                            PointerEventType.Move -> if (!dragging || !change.pressed) continue
+                            else -> continue
+                        }
+                        change.consume()
+                        val total = currentRows.totalPx(currentRowPx)
+                        val scale = minimapScale(total, currentRowPx, size.height.toFloat(), maxRowPx)
+                        val at = (change.position.y / scale).toInt().coerceIn(0, max(0, total - 1))
+                        vertical.max = total - currentViewport
+                        vertical.scrollTo(at - currentViewport / 2)
+                    }
+                }
+            }
+            .drawBehind {
+                model.contentRevision
+                model.overlayRevision
+                drawMinimap(model, rows, look, vertical.offset, viewportHeight, rowPx, maxRowPx)
+            },
+    )
+}
+
+/** The tallest a document row is drawn in the minimap. */
+private val MINIMAP_ROW_MAX = 2.dp
+
+/**
+ * How many of a minimap's pixels one pixel of a document [totalPx] tall takes, in a minimap
+ * [height] pixels tall, where a row is [rowPx] in the editor and at most [maxRowPx] in the
+ * minimap.
+ */
+internal fun minimapScale(totalPx: Int, rowPx: Int, height: Float, maxRowPx: Float): Float {
+    val most = maxRowPx / max(1, rowPx)
+    return if (totalPx <= 0) most else min(most, height / totalPx)
+}
+
+private fun DrawScope.drawMinimap(
+    model: CodeEditorModel,
+    rows: RowMap,
+    look: CodeEditorLook,
+    scroll: Int,
+    viewportHeight: Int,
+    rowPx: Int,
+    maxRowPx: Float,
+) {
+    val total = rows.totalPx(rowPx)
+    if (total <= 0 || rowPx <= 0) return
+    val scale = minimapScale(total, rowPx, size.height, maxRowPx)
+    val charWidth = max(1f, size.width / MINIMAP_COLUMNS)
+    val ink = look.textStyle.color.let { if (it == Color.Unspecified) look.lineNumber else it }
+    val textInk = ink.copy(alpha = ink.alpha * 0.45f)
+    val band = max(1f, rowPx * scale)
+    val barHeight = max(1f, band * 0.75f)
+    val contentHeight = total * scale
+    // One document row per pixel band: where several rows share a band, the first one is drawn.
+    var y = 0f
+    var lastLine = -1
+    while (y < contentHeight && y < size.height) {
+        val at = (y / scale).toInt().coerceIn(0, total - 1)
+        val line = rows.lineAtPx(at, rowPx)
+        if (line != lastLine && rows.textTopPx(line, rowPx) <= at) {
+            lastLine = line
+            val top = rows.textTopPx(line, rowPx) * scale
+            model.lineBackgroundAt(line)?.color?.let(look.lineBackground)
+                ?.takeIf { it != Color.Unspecified && it.alpha > 0f }
+                ?.let { drawRect(it.copy(alpha = min(1f, it.alpha * 2f)), Offset(0f, top), Size(size.width, band)) }
+            val text = model.document.line(line)
+            var column = 0
+            var index = 0
+            var runStart = -1
+            while (index <= text.length && column <= MINIMAP_COLUMNS) {
+                val blank = index == text.length || text[index] == ' ' || text[index] == '\t'
+                if (blank && runStart >= 0) {
+                    drawRect(textInk, Offset(runStart * charWidth, top), Size((column - runStart) * charWidth, barHeight))
+                    runStart = -1
+                } else if (!blank && runStart < 0) {
+                    runStart = column
+                }
+                if (index < text.length) {
+                    column += if (text[index] == '\t') look.tabWidth - column % look.tabWidth else 1
+                }
+                index += 1
+            }
+            for (span in model.spansInLines(line, line + 1)) {
+                val from = if (span.start.line < line) 0 else displayColumn(text, span.start.column, look.tabWidth)
+                val to = if (span.end.line > line) displayColumn(text, text.length, look.tabWidth)
+                else displayColumn(text, span.end.column, look.tabWidth)
+                val start = min(from, MINIMAP_COLUMNS)
+                val end = min(to, MINIMAP_COLUMNS)
+                if (end <= start) continue
+                val color = look.paint(span.paint)
+                drawRect(color.copy(alpha = color.alpha * 0.6f), Offset(start * charWidth, top), Size((end - start) * charWidth, barHeight))
+            }
+        }
+        y += band
+    }
+    // Range backgrounds, such as what a search found, and the diagnostics, over the text.
+    for (decoration in model.decorations) {
+        when (decoration.kind) {
+            DecorationKind.RangeBackground -> {
+                val role = decoration.color ?: continue
+                val color = look.rangeBackground(role).takeIf { it != Color.Unspecified && it.alpha > 0f } ?: continue
+                for (line in decoration.start.line..decoration.end.line) {
+                    if (line >= model.document.lineCount || rows.isHidden(line)) continue
+                    val text = model.document.line(line)
+                    val from = if (line == decoration.start.line) displayColumn(text, decoration.start.column, look.tabWidth) else 0
+                    val to = if (line == decoration.end.line) displayColumn(text, decoration.end.column, look.tabWidth)
+                    else displayColumn(text, text.length, look.tabWidth)
+                    val top = rows.textTopPx(line, rowPx) * scale
+                    val width = max(charWidth, (min(to, MINIMAP_COLUMNS) - min(from, MINIMAP_COLUMNS)) * charWidth)
+                    drawRect(color.copy(alpha = min(1f, color.alpha * 2.5f)), Offset(min(from, MINIMAP_COLUMNS) * charWidth, top), Size(width, band))
+                }
+            }
+            DecorationKind.Underline -> {
+                if (decoration.start.line >= model.document.lineCount || rows.isHidden(decoration.start.line)) continue
+                val (color, _) = look.underline(decoration)
+                val top = rows.textTopPx(decoration.start.line, rowPx) * scale
+                val mark = max(2f, charWidth * 3f)
+                val x = if (look.minimapSide == MinimapSide.Left) 0f else size.width - mark
+                drawRect(color, Offset(x, top), Size(mark, max(2f, band)))
+            }
+            else -> {}
+        }
+    }
+    // The part of the document that is on screen.
+    if (rowPx > 0 && viewportHeight > 0 && look.minimapSlider.alpha > 0f) {
+        val top = scroll * scale
+        val height = max(2f, viewportHeight * scale)
+        drawRect(look.minimapSlider, Offset(0f, top), Size(size.width, height))
+    }
+}
+
+/** How many columns of the screen the first [column] UTF-16 units of [text] take, with tabs advanced to their stops. */
+internal fun displayColumn(text: String, column: Int, tabWidth: Int): Int {
+    var shown = 0
+    val end = min(column, text.length)
+    for (index in 0 until end) shown += if (text[index] == '\t') tabWidth - shown % tabWidth else 1
+    return shown
+}
+
+/** Test tag of the list a snippet's stop with choices opens. */
+const val CODE_EDITOR_CHOICES_TAG = "code-editor-snippet-choices"
+
+/**
+ * The list a snippet's stop with choices opens, under the caret: each choice in the editor's
+ * type, the marked one in the selection's tint. A press on one puts it in the stop.
+ * [caret] is where the caret is in the editor's own pixels, or null where it is not on screen.
+ */
+@Composable
+internal fun SnippetChoices(
+    model: CodeEditorModel,
+    look: CodeEditorLook,
+    caret: () -> Rect?,
+    onPicked: () -> Unit,
+) {
+    model.snippetRevision
+    val choices = model.snippetChoices ?: return
+    val at = caret() ?: return
+    val marked = model.choiceIndex
+    Column(
+        Modifier
+            .offset { IntOffset(at.left.roundToInt(), at.bottom.roundToInt()) }
+            .testTag(CODE_EDITOR_CHOICES_TAG)
+            .background(look.gutter)
+            .border(1.dp, look.lineNumber.copy(alpha = look.lineNumber.alpha * 0.4f)),
+    ) {
+        for ((index, choice) in choices.withIndex()) {
+            BasicText(
+                choice,
+                style = look.textStyle,
+                modifier = Modifier
+                    .background(if (index == marked) look.selection else Color.Transparent)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .pointerInput(model, index) {
+                        detectTapGestures {
+                            model.pickChoice(index)
+                            onPicked()
+                        }
+                    },
+            )
         }
     }
 }

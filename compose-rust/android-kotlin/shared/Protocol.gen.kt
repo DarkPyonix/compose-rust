@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -133,6 +133,10 @@ enum class EditGroupStatus { Applied, Rejected, Invalid, TooOld }
 enum class CompactNavigation { Sidebar, None }
 
 enum class Snap { ItemStart }
+
+enum class MinimapSide { Right, Left }
+
+enum class WordWrapMode { Viewport, Column, Bounded }
 
 enum class StorageOp { Read, Write, Remove, Keys }
 
@@ -644,6 +648,13 @@ data class CodeEditorColorsRecord(
     val currentLine: ColorRole?,
 )
 
+/** Room after a line of a code editor that is not text, `heightLines` rows high, with `text` drawn dimmed in it. `afterLine` is in the document as it is when the list arrives. */
+data class ViewZoneRecord(
+    val afterLine: Int,
+    val heightLines: kotlin.Float,
+    val text: String,
+)
+
 /**
  * One edit of a grouped edit: a range of the document as it stood at the group's base
  * version, and the text that replaces it.
@@ -872,6 +883,32 @@ object CodeEditorRecords {
         val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
         val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
         return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
+    }
+
+    const val VIEW_ZONE_LENGTH = 16
+
+    fun decodeViewZones(bytes: ByteArray, onError: (String) -> Unit): List<ViewZoneRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<ViewZoneRecord>(bytes.size / VIEW_ZONE_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + VIEW_ZONE_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 8)
+            val textLength = buffer.getInt(offset + 12)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readViewZoneRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += VIEW_ZONE_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readViewZoneRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): ViewZoneRecord? {
+        val afterLine = buffer.getInt(offset + 0)
+        val heightLines = buffer.getFloat(offset + 4)
+        val text = textOf(bytes, buffer.getInt(offset + 8), buffer.getInt(offset + 12)) ?: run { onError("record $index names text outside the list"); return null }
+        return ViewZoneRecord(afterLine, heightLines, text)
     }
 
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
@@ -1578,6 +1615,40 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
      * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
      * Answered once by a `PositionRect` event carrying [request].
      */
@@ -1713,13 +1784,24 @@ sealed interface HostEvent {
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
     data class ColorSchemeChanged(override val nodeId: Int, override val handlerId: Long, val scheme: SystemColorScheme) : HostEvent
+    data class SelectionsChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val selections: IntArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SelectionsChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    version == other.version && selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()
+
+        override fun toString(): String =
+            "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
+    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 7684578970083352678L
+    const val SCHEMA_HASH: Long = -7185122591292367094L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1760,6 +1842,8 @@ object Protocol {
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -2044,6 +2128,26 @@ object Protocol {
                             throw error
                         }
                         Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
+                        )
                     }
                     TAG_QUERY_POSITION_RECT -> {
                         requireRecordLength(length, 20, offset)
@@ -2363,6 +2467,7 @@ object Protocol {
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
+                is HostEvent.SelectionsChanged -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also { buffer -> for (value in event.selections) buffer.putInt(value) }.array()
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2421,6 +2526,7 @@ object Protocol {
                 is HostEvent.PositionRect -> 40
                 is HostEvent.CodePointer -> 80
                 is HostEvent.ColorSchemeChanged -> 20
+                is HostEvent.SelectionsChanged -> 28
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2483,6 +2589,7 @@ object Protocol {
                 is HostEvent.PositionRect -> 65
                 is HostEvent.CodePointer -> 66
                 is HostEvent.ColorSchemeChanged -> 52
+                is HostEvent.SelectionsChanged -> 67
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2754,6 +2861,10 @@ object Protocol {
                 is HostEvent.ColorSchemeChanged -> {
                     out.putInt(systemColorSchemeTag(event.scheme))
                 }
+                is HostEvent.SelectionsChanged -> {
+                    out.putInt(event.version)
+                    writeStringReference(out, recordLength, text!!)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2978,6 +3089,9 @@ object Protocol {
         196 -> PropertyKind.OnKeyPreview
         197 -> PropertyKind.OnCodePointer
         198 -> PropertyKind.RadioGroup
+        201 -> PropertyKind.Minimap
+        199 -> PropertyKind.ViewZones
+        200 -> PropertyKind.WordWrap
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3725,6 +3839,19 @@ object Protocol {
     private fun snap(tag: Int, offset: Int): Snap = when (tag) {
         1 -> Snap.ItemStart
         else -> throw ProtocolException("unknown Snap tag $tag", offset)
+    }
+
+    private fun minimapSide(tag: Int, offset: Int): MinimapSide = when (tag) {
+        1 -> MinimapSide.Right
+        2 -> MinimapSide.Left
+        else -> throw ProtocolException("unknown MinimapSide tag $tag", offset)
+    }
+
+    private fun wordWrapMode(tag: Int, offset: Int): WordWrapMode = when (tag) {
+        1 -> WordWrapMode.Viewport
+        2 -> WordWrapMode.Column
+        3 -> WordWrapMode.Bounded
+        else -> throw ProtocolException("unknown WordWrapMode tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {

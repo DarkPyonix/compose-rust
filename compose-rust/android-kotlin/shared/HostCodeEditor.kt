@@ -20,12 +20,15 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodeEditorSurface
 import dev.darkpyonix.composerust.foundation.code.EditorOutput
 import dev.darkpyonix.composerust.foundation.code.EditorScroll
+import dev.darkpyonix.composerust.foundation.code.WordWrapRule
 import dev.darkpyonix.composerust.protocol.CodeEditorColorsRecord
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.MinimapSide
+import dev.darkpyonix.composerust.protocol.WordWrapMode
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TypeRole
@@ -34,6 +37,7 @@ import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
 
 /**
@@ -84,6 +88,8 @@ internal fun HostCodeEditor(
         node.property(PropertyKind.GutterPaddingDp),
         node.property(PropertyKind.TextInsetDp),
         node.bytes(PropertyKind.CodeEditorColors),
+        node.property(PropertyKind.Minimap),
+        node.property(PropertyKind.WordWrap),
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
@@ -253,7 +259,28 @@ internal fun codeEditorLook(
         fontFallback = fontChain?.let { chain -> { text: String -> chain.spans(text) } },
         lineBackground = { role -> diffTint(role, theme, strong = false) },
         rangeBackground = { role -> diffTint(role, theme, strong = true) },
+        minimapSide = node.role(PropertyKind.Minimap, MinimapSide.entries.toTypedArray()),
+        wordWrap = node.wordWrap(),
     )
+}
+
+/**
+ * Where the application asked long lines to break: the `WordWrapMode` tag in the low 16 bits
+ * of the property and the columns above them. Null where it asked for none, or for a rule
+ * that is not one, which the table reported when it arrived.
+ */
+internal fun Node.wordWrap(): WordWrapRule? = (property(PropertyKind.WordWrap) as? PropertyValue.Integer)?.value?.let(::wordWrapRule)
+
+/** The rule an integer of the `WordWrap` property says, or null where it says none or is not one. */
+internal fun wordWrapRule(value: Long): WordWrapRule? {
+    if (value < 0) return null
+    val mode = WordWrapMode.entries.getOrNull((value and 0xffff).toInt() - 1) ?: return null
+    val columns = value shr 16
+    if (columns > Int.MAX_VALUE) return null
+    return when (mode) {
+        WordWrapMode.Viewport -> if (columns == 0L) WordWrapRule(mode, 0) else null
+        WordWrapMode.Column, WordWrapMode.Bounded -> if (columns > 0) WordWrapRule(mode, columns.toInt()) else null
+    }
 }
 
 /**
@@ -339,6 +366,19 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
                     selection.caret.line,
                     selection.caret.column,
                 )
+            }
+            // Every selection, as anchor and active pairs, to the same listener as the
+            // primary one.
+            is EditorOutput.SelectionsMoved -> {
+                val handler = handler(PropertyKind.OnSelectionChange) ?: continue
+                val values = IntArray(output.selections.size * 4)
+                for ((index, selection) in output.selections.withIndex()) {
+                    values[index * 4] = selection.anchor.line
+                    values[index * 4 + 1] = selection.anchor.column
+                    values[index * 4 + 2] = selection.caret.line
+                    values[index * 4 + 3] = selection.caret.column
+                }
+                events += HostEvent.SelectionsChanged(id, handler, output.version, values)
             }
             is EditorOutput.VisibleRange -> {
                 val handler = handler(PropertyKind.OnVisibleRangeChange) ?: continue

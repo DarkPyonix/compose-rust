@@ -48,6 +48,8 @@ pub enum RecordFieldType {
     Paint,
     /// A `u32` that is 0 or 1. Any other value makes the record unreadable.
     Flag,
+    /// An `f32`, little-endian like every other field.
+    F32,
     /// An `(offset, length)` pair of `u32` naming UTF-8 bytes behind the records, measured
     /// from the start of the blob, the way a `Canvas` names the text it draws.
     Text,
@@ -211,6 +213,21 @@ pub const CODE_EDITOR_COLORS_RECORD: RecordSchema = RecordSchema {
     ],
 };
 
+/// Bytes of one view zone record.
+pub const VIEW_ZONE_LEN: usize = 16;
+
+/// One view zone: the line it follows, its height in rows and the text it shows dimmed, which
+/// lies behind the records like a decoration's.
+pub const VIEW_ZONE_RECORD: RecordSchema = RecordSchema {
+    name: "ViewZoneRecord",
+    length: VIEW_ZONE_LEN as u16,
+    fields: &[
+        field("afterLine", 0, RecordFieldType::U32),
+        field("heightLines", 4, RecordFieldType::F32),
+        field("text", 8, RecordFieldType::Text),
+    ],
+};
+
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
     let mut index = 0;
     while index < bytes.len() {
@@ -241,6 +258,7 @@ pub(crate) const fn hash_record_schema(mut hash: u64, schema: RecordSchema) -> u
             RecordFieldType::Paint => hash_bytes(hash, &[4]),
             RecordFieldType::Text => hash_bytes(hash, &[5]),
             RecordFieldType::Flag => hash_bytes(hash, &[6]),
+            RecordFieldType::F32 => hash_bytes(hash, &[7]),
         };
         index += 1;
     }
@@ -997,6 +1015,252 @@ impl GutterDecorations {
                 })
             })
             .collect()
+    }
+}
+
+/// Room after a line that is not text: the blank rows a diff leaves on one side to line it up
+/// with the other, or a note between two lines.
+///
+/// `after_line` is the line it follows in the document as it is when the list arrives, from
+/// zero. The zone then follows that line through the reader's edits. `height_lines` is how
+/// tall it is in rows, and need not be whole. The caret, a selection and a copy pass over it,
+/// and the lines on screen are reported as the document's own lines. `text`, where there is
+/// any, is drawn dimmed on its first row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ViewZone {
+    pub after_line: u32,
+    pub height_lines: f32,
+    pub text: String,
+}
+
+impl ViewZone {
+    pub fn new(after_line: u32, height_lines: f32) -> Self {
+        Self {
+            after_line,
+            height_lines,
+            text: String::new(),
+        }
+    }
+
+    /// Shows `text`, dimmed, in the zone.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
+}
+
+/// The view zones of one editor, encoded and ready to travel.
+///
+/// Records first and the text they show after them, the way decorations travel.
+#[derive(Clone, Default, PartialEq)]
+pub struct ViewZones {
+    bytes: Option<Rc<[u8]>>,
+}
+
+impl std::fmt::Debug for ViewZones {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ViewZones")
+            .field("zones", &self.zones().len())
+            .finish()
+    }
+}
+
+impl ViewZones {
+    pub fn new(zones: impl IntoIterator<Item = ViewZone>) -> Self {
+        let zones: Vec<ViewZone> = zones.into_iter().collect();
+        let records_len = zones.len() * VIEW_ZONE_LEN;
+        let mut bytes = Vec::with_capacity(records_len);
+        let mut texts = Vec::new();
+        for zone in &zones {
+            put_u32(&mut bytes, zone.after_line);
+            put_u32(&mut bytes, zone.height_lines.to_bits());
+            // An empty text points at the end of the records, as a decoration's does.
+            put_u32(&mut bytes, (records_len + texts.len()) as u32);
+            put_u32(&mut bytes, zone.text.len() as u32);
+            texts.extend_from_slice(zone.text.as_bytes());
+        }
+        bytes.extend_from_slice(&texts);
+        Self::from_bytes(bytes)
+    }
+
+    /// Adopts an already encoded list, which is what the protocol vectors carry.
+    pub fn from_bytes(bytes: impl Into<Rc<[u8]>>) -> Self {
+        let bytes = bytes.into();
+        Self {
+            bytes: (!bytes.is_empty()).then_some(bytes),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.bytes.as_deref().unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_none()
+    }
+
+    /// The zones this list holds, read back. A record whose text is not in the list, or is
+    /// not UTF-8, is skipped, which is what the Renderer does with it too.
+    pub fn zones(&self) -> Vec<ViewZone> {
+        let bytes = self.as_bytes();
+        let mut end = bytes.len();
+        let mut at = 0;
+        let mut found = Vec::new();
+        while at + VIEW_ZONE_LEN <= end {
+            let record = &bytes[at..at + VIEW_ZONE_LEN];
+            at += VIEW_ZONE_LEN;
+            let text_offset = word(record, 8) as usize;
+            let text_len = word(record, 12) as usize;
+            if text_len > 0 {
+                end = end.min(text_offset);
+            }
+            let text = if text_len == 0 {
+                String::new()
+            } else {
+                match bytes
+                    .get(text_offset..text_offset + text_len)
+                    .and_then(|run| std::str::from_utf8(run).ok())
+                {
+                    Some(text) => text.to_owned(),
+                    None => continue,
+                }
+            };
+            found.push(ViewZone {
+                after_line: word(record, 0),
+                height_lines: f32::from_bits(word(record, 4)),
+                text,
+            });
+        }
+        found
+    }
+}
+
+/// `text` as snippet text that stands for itself: a backslash in front of every `$`, `}`
+/// and `\\`, so a name taken from the document cannot open a tab stop of its own when it is
+/// put inside a snippet.
+pub fn escape_snippet_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        if matches!(character, '$' | '}' | '\\') {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped
+}
+
+/// Where a code editor breaks a line too long for it onto the rows below.
+///
+/// A broken line is still one line of the document: its number is drawn on its first row
+/// only, Up, Down, Home and End follow the rows, and the lines on screen are reported as
+/// the document's own. A line breaks after the last space that fits, or where a word is
+/// longer than the row, at the column itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WordWrap {
+    /// No line breaks; a long line runs past the edge.
+    #[default]
+    Off,
+    /// At the edge of the view.
+    Viewport,
+    /// At this many columns, whatever the width of the view.
+    Column(u32),
+    /// At this many columns, or at the edge of the view where that comes first.
+    Bounded(u32),
+}
+
+impl WordWrap {
+    /// The integer the `WordWrap` property carries: the `WordWrapMode` tag in the low 16
+    /// bits and the column count above them.
+    pub fn to_value(self) -> i64 {
+        let (mode, columns) = match self {
+            Self::Off => (crate::schema::WordWrapMode::Off, 0),
+            Self::Viewport => (crate::schema::WordWrapMode::Viewport, 0),
+            Self::Column(columns) => (crate::schema::WordWrapMode::Column, columns),
+            Self::Bounded(columns) => (crate::schema::WordWrapMode::Bounded, columns),
+        };
+        i64::from(u16::from(mode)) | (i64::from(columns) << 16)
+    }
+
+    /// Reads back what [`WordWrap::to_value`] wrote, or None where the mode is not one, the
+    /// value is below zero, or a mode that counts columns counts none.
+    pub fn from_value(value: i64) -> Option<Self> {
+        let columns = u32::try_from(value >> 16).ok()?;
+        let mode = u16::try_from(value & 0xffff).ok()?;
+        match mode {
+            0 if columns == 0 => Some(Self::Off),
+            _ if mode == u16::from(crate::schema::WordWrapMode::Viewport) && columns == 0 => {
+                Some(Self::Viewport)
+            }
+            _ if mode == u16::from(crate::schema::WordWrapMode::Column) && columns > 0 => {
+                Some(Self::Column(columns))
+            }
+            _ if mode == u16::from(crate::schema::WordWrapMode::Bounded) && columns > 0 => {
+                Some(Self::Bounded(columns))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Bytes of one selection in a list of them: the anchor's line and column, then the active
+/// end's.
+pub const SELECTION_LEN: usize = 16;
+
+/// Encodes selections the way `SetSelections` and `SelectionsChanged` carry them, each an
+/// anchor and an active end, appending to `out`.
+pub fn encode_selections(selections: &[(Position, Position)], out: &mut Vec<u8>) {
+    out.reserve(selections.len() * SELECTION_LEN);
+    for (anchor, active) in selections {
+        put_u32(out, anchor.line);
+        put_u32(out, anchor.column);
+        put_u32(out, active.line);
+        put_u32(out, active.column);
+    }
+}
+
+/// Reads back the selections [`encode_selections`] wrote, or None where the bytes are not
+/// whole selections.
+pub fn decode_selections(bytes: &[u8]) -> Option<Vec<(Position, Position)>> {
+    if bytes.len() % SELECTION_LEN != 0 {
+        return None;
+    }
+    Some(
+        bytes
+            .chunks_exact(SELECTION_LEN)
+            .map(|record| {
+                (
+                    Position::new(word(record, 0), word(record, 4)),
+                    Position::new(word(record, 8), word(record, 12)),
+                )
+            })
+            .collect(),
+    )
+}
+
+/// Every selection of a code editor, as the Renderer reported it: sent while there is more
+/// than one, and once more when it comes back to one. The first is the primary selection,
+/// the one `SelectionChange` goes on reporting by itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectionsChange {
+    pub version: u32,
+    /// Each an anchor and an active end.
+    pub selections: Vec<(Position, Position)>,
+}
+
+impl SelectionsChange {
+    /// The selections a `SelectionsChanged` event carries, or None for any other event.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match payload {
+            crate::schema::EventPayload::SelectionsChanged {
+                version,
+                selections,
+            } => Some(Self {
+                version: *version,
+                selections: decode_selections(selections)?,
+            }),
+            _ => None,
+        }
     }
 }
 
