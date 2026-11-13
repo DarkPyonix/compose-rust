@@ -7,7 +7,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.runtime.LocalZoom
+import dev.darkpyonix.composerust.runtime.Zoom
+import dev.darkpyonix.composerust.runtime.composeZoomShortcut
+import dev.darkpyonix.composerust.runtime.zoomedDensity
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
@@ -31,7 +39,13 @@ import org.thisisthepy.compose.window.macos.MacosClipboardManager
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import platform.AppKit.NSApplication
+import platform.AppKit.NSApplicationWillTerminateNotification
+import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSOperationQueue
+import platform.Foundation.NSUserDefaults
 
 /**
  * The multi-window run of the macOS renderer (`SetWindow` mode `Windows`).
@@ -63,19 +77,31 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
     )
     val iconAsset = asked?.icon ?: 0
     val cursorBlink = System.getenv("DXC_CURSOR_BLINK")?.let { it != "0" }
-        ?: (System.getenv("DXC_IDLE_SOAK_SECONDS") == null)
+        ?: !IdleSoakSetting.requested()
 
-    val scene: MacosSceneContent = { config, window, frames ->
-        val nodeId = config.nodeId
+    // A `Window` node's own `Icon` is not drawn on macOS. AppKit gives a window no icon of its
+    // own: the title bar of a window that is not a document's shows none, and the Dock and the
+    // application switcher show one icon for the application. The application's icon
+    // (`SetWindow`'s) is the one that applies, to every window.
+    val scene: MacosSceneContent = { config, window, frames, slot ->
         val body: @Composable () -> Unit = {
             MacosWindowScene(
-                host, nodeId, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
+                host, slot, window, frames, dark, clipboard, clipboardManager, cursorBlink, dockIcon, iconAsset, config.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize,
             )
         }
         body
     }
     val windows = MacosWindowBackend(scene)
     backend = windows
+    // The start report and the parity run the single window has, here for the windows the
+    // nodes open: the report for the first one, the made-up input and the idle soak for the one
+    // `DXC_SYNTH_WINDOW` names (the first when unset).
+    val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom(System.getenv("DXC_SYNTH_WINDOW")))
+    windows.onOpened = { window ->
+        val duties = starts.next()
+        if (duties.startReport) reportWindowStart(window)
+        if (duties.parityRun) startParityRun(window)
+    }
     // A dialog on node 0 has no `Window` node of its own here, so it goes to the window in
     // use, or the first one open.
     (FileDialogs.platform as? MacosFileDialogPlatform)?.rootWindow = {
@@ -90,6 +116,18 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
         dropTargets = DropTargets.registered(windows::contentScale),
     )
     manager.attach()
+    // The windows the application had open when it was last quit come back, when the system
+    // is set to keep windows across a quit: each is asked for by its restore key, and the
+    // application answers with the node or the window is closed again.
+    val restore = WindowRestore(UserDefaultsRestoreKeys, keepsWindows = ::systemKeepsWindows)
+    for (key in restore.keysToRequest(openRestoreKeys(host))) windows.requestWindow(key)
+    // A quit with windows open is the one that remembers them. The loop ending because the
+    // last window went leaves nothing to bring back.
+    NSNotificationCenter.defaultCenter.addObserverForName(
+        name = NSApplicationWillTerminateNotification,
+        `object` = null,
+        queue = NSOperationQueue.mainQueue,
+    ) { _ -> restore.remember(openRestoreKeys(host)) }
     // A batch is one snapshot for every window: each is drawn again after it is applied, not
     // only the one whose frame carried it.
     host.afterBatch = {
@@ -111,8 +149,108 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
 
     application.activateIgnoringOtherApps(true)
     application.run()
+    restore.remember(emptyList())
     host.table.notifications.shutdown()
     return 0
+}
+
+/** The restore keys of the `Window` nodes at the root now, in order, without the empty ones. */
+internal fun openRestoreKeys(host: ComposeRustHost): List<String> =
+    host.table.roots.mapNotNull { id ->
+        host.table.node(id)
+            ?.takeIf { it.widget == WidgetKind.Window }
+            ?.text(PropertyKind.WindowRestoreKey)
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+/** Where the restore keys of the windows open at a quit are kept until the next start. */
+interface RestoreKeyStore {
+    fun load(): List<String>
+
+    fun save(keys: List<String>)
+}
+
+/**
+ * The windows a quit leaves to come back at the next start, by their restore keys.
+ *
+ * Only keys are kept. What a window showed is the application's to save and to put back when
+ * it answers the request, as it is on every platform that restores windows.
+ */
+internal class WindowRestore(
+    private val store: RestoreKeyStore,
+    private val keepsWindows: () -> Boolean,
+) {
+    /**
+     * The keys to ask the application for now: the ones the last quit left, less the ones a
+     * window the application already opened has. None when the system does not keep windows.
+     */
+    fun keysToRequest(present: Collection<String>): List<String> {
+        if (!keepsWindows()) return emptyList()
+        val have = present.toHashSet()
+        return store.load().filter { it.isNotEmpty() && it !in have }.distinct()
+    }
+
+    fun remember(open: List<String>) {
+        store.save(open.filter { it.isNotEmpty() }.distinct())
+    }
+}
+
+private const val RESTORE_KEYS_DEFAULT = "ComposeRustWindowRestoreKeys"
+
+/** The application's own defaults, which is where AppKit keeps what it restores too. */
+internal object UserDefaultsRestoreKeys : RestoreKeyStore {
+    override fun load(): List<String> =
+        NSUserDefaults.standardUserDefaults.stringArrayForKey(RESTORE_KEYS_DEFAULT)?.filterIsInstance<String>().orEmpty()
+
+    override fun save(keys: List<String>) {
+        NSUserDefaults.standardUserDefaults.setObject(keys, forKey = RESTORE_KEYS_DEFAULT)
+    }
+}
+
+/**
+ * Whether the system brings an application's windows back when it starts again: the setting
+ * "Close windows when quitting an application" turned off, which is `NSQuitAlwaysKeepsWindows`
+ * in the global defaults. That setting is on by default, so by default no window comes back.
+ */
+internal fun systemKeepsWindows(): Boolean =
+    NSUserDefaults.standardUserDefaults.boolForKey("NSQuitAlwaysKeepsWindows")
+
+/**
+ * Which of the windows a multi-window run opens carry the start report and the parity run.
+ *
+ * The report goes with the first window, as the single window prints it for its one. The parity
+ * run goes with the [parityWindow]th window opened, counted from 1 in opening order, because a
+ * script driving the run knows how many windows the application opens and in what order, and
+ * not the ids of their nodes. A window past the ones the run opens is never chosen, and then
+ * no parity run starts.
+ */
+internal class MultiWindowStarts(private val parityWindow: Int) {
+    data class Duties(val startReport: Boolean, val parityRun: Boolean)
+
+    private var opened = 0
+
+    /** What the window opened now carries. */
+    fun next(): Duties {
+        opened++
+        return Duties(startReport = opened == 1, parityRun = opened == parityWindow)
+    }
+
+    companion object {
+        /** The window `DXC_SYNTH_WINDOW` names, or the first for a value that is unset or not a positive number. */
+        fun parityWindowFrom(value: String?): Int = value?.trim()?.toIntOrNull()?.takeIf { it >= 1 } ?: 1
+    }
+}
+
+/** The lines the smoke runs read, for one window, in the words the single window uses. */
+internal fun reportWindowStart(window: MacosWindow) {
+    val opened = window.measure()
+    WindowStartReport.windowOpened(opened.width, opened.height, opened.scale)
+    WindowStartReport.sceneCreated(opened.width, opened.height, opened.scale)
+    val previous = window.onFrameDrawn
+    window.onFrameDrawn = { width, height ->
+        previous?.invoke(width, height)
+        WindowStartReport.frameDrawn(width, height)
+    }
 }
 
 /** What one window's scene draws: its `Window` node, and the clock it answers [PlatformWindow.awaitFrame] with. */
@@ -120,7 +258,7 @@ internal fun runWindows(application: NSApplication, host: ComposeRustHost, asked
 @Composable
 private fun MacosWindowScene(
     host: ComposeRustHost,
-    nodeId: Int,
+    slot: MacosWindowSlot,
     window: MacosWindow,
     frames: MacosSceneFrames,
     dark: MutableState<Boolean>,
@@ -131,8 +269,10 @@ private fun MacosWindowScene(
     iconAsset: Int,
     fullSize: Boolean,
 ) {
+    // A window the system made waits for the application's node and draws nothing until then.
+    if (slot.nodeId == 0) return
     CompositionLocalProvider(
-        LocalWindowNodeId provides nodeId,
+        LocalWindowNodeId provides slot.nodeId,
         LocalCursorBlinkEnabled provides cursorBlink,
         LocalSystemDarkObserver provides { dark.value },
         dev.darkpyonix.composerust.runtime.LocalWindowDrag provides {
@@ -156,16 +296,42 @@ private fun MacosWindowScene(
             }
         }
         val strip = window.caption.value
-        ComposeRustContent(
-            host,
-            caption = WindowCaption(
-                height = strip.height,
-                buttonsWidth = strip.buttonsWidth,
-                buttonsAtStart = strip.buttonsAtStart,
-                insetTop = strip.insetTop,
-                cornerRadius = strip.cornerRadius,
-                fullSize = fullSize,
-            ),
+        MacosWindowZoom(slot.zoom) { zoomKeys ->
+            ComposeRustContent(
+                host,
+                modifier = zoomKeys,
+                caption = WindowCaption(
+                    height = strip.height,
+                    buttonsWidth = strip.buttonsWidth,
+                    buttonsAtStart = strip.buttonsAtStart,
+                    insetTop = strip.insetTop,
+                    cornerRadius = strip.cornerRadius,
+                    fullSize = fullSize,
+                ),
+            )
+        }
+    }
+}
+
+/**
+ * Draws [content] at the window's own [zoom]: the scene's density times the level, and the
+ * system's text size as the font scale. [content] is handed the modifier that takes the zoom
+ * shortcuts (Command with plus, minus or zero) for this window, after the application has had
+ * the key. The content reports the zoom under the window's node, which is how a level change
+ * on one node reaches the Host as that node's `ZoomChanged` and no other's.
+ */
+@Composable
+fun MacosWindowZoom(zoom: Zoom, content: @Composable (zoomKeys: Modifier) -> Unit) {
+    val base = LocalDensity.current
+    SideEffect { zoom.followOs(base.fontScale) }
+    CompositionLocalProvider(
+        LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
+        LocalZoom provides zoom,
+    ) {
+        content(
+            Modifier.onKeyEvent { event ->
+                zoom.takeShortcut(composeZoomShortcut(event, apple = true), consumedByApplication = false)
+            },
         )
     }
 }

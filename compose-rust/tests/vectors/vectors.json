@@ -1,11 +1,11 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "662657579064863582",
+  "schemaHashUnsigned": "3060218940695887805",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 110,
+    "recordCount": 112,
     "palette": [
       { "role": "Primary", "scheme": "Light", "argb": "ffe8590c" },
       { "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" },
@@ -67,7 +67,8 @@
       { "type": "IoAnswer", "offset": 1093, "length": 37, "nodeId": 0, "handlerId": 0, "request": 11, "status": "Ok", "data": "eab09200ff" },
       { "type": "IoAnswer", "offset": 1130, "length": 36, "nodeId": 0, "handlerId": 0, "request": 2147483665, "status": "Ok", "data": "00ff7f80" },
       { "type": "FileHandles", "offset": 1166, "length": 71, "nodeId": 0, "handlerId": 0, "request": 7, "status": "Chosen", "filter": 1, "delivery": "Handle", "firstHandle": 3, "names": "문서.txt\u0000사진", "kinds": "fd" },
-      { "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }
+      { "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" },
+      { "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }
     ]
   }
 }
