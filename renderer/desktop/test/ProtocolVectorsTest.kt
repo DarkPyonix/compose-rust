@@ -28,6 +28,8 @@ import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.MessageDuration
+import dev.darkpyonix.composerust.protocol.MessageHorizontal
+import dev.darkpyonix.composerust.protocol.MessageVertical
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
@@ -172,6 +174,15 @@ class ProtocolVectorsTest {
                     text = "삭제했습니다",
                     action = "Undo",
                     duration = MessageDuration.Long,
+                ),
+                Mutation.ShowMessage(
+                    handlerId = 0L,
+                    text = "복사했습니다",
+                    action = "",
+                    duration = MessageDuration.Short,
+                    vertical = MessageVertical.Bottom,
+                    horizontal = MessageHorizontal.Center,
+                    offsetDp = 96f,
                 ),
             ),
             messages,

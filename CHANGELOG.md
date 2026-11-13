@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Where a transient message is drawn
+
+`Message::with_placement(MessagePlacement { vertical, horizontal })` puts a message along the top or the bottom edge, at its start, centre or end, and `Message::with_offset(dp)` sets how far it is from that edge. Both are measured from inside the safe area and the application's bars: a message at the bottom sits above a bottom tab bar and the gesture bar, and one at the top below the top bar the page opens with and the window's caption. A message that names neither is where the design system has always put it. The `ShowMessage` record grows from 32 to 40 bytes: the two placement tags take the old padding word and the next, and the offset follows as an `f32` (NaN for none), so the schema hash moves ([#577](https://github.com/DarkPyonix/compose-rust/issues/577)).
+
 ### Line and range backgrounds in the code editor
 
 Two decoration kinds are appended: `Decoration::line_background(version, line_start, line_end, role)` (kind 5) tints whole lines across the editor's width, past the end of each line, and `Decoration::range_background(version, range, role)` (kind 6) tints the characters of a range more strongly, which is how a diff view marks a changed line and the words in it that changed. `DiffAdded` and `DiffRemoved` are drawn with the design system's container tint for a line and its emphasis tint for a range; a `*Container` or `*Emphasis` role is drawn as it is, and any other role, `DiffModified` among them, as a light wash of its colour. Both follow the reader's edits like every other decoration: a line typed in front of a tinted line moves the tint down with it ([#542](https://github.com/DarkPyonix/compose-rust/issues/542)).

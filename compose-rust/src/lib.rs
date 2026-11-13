@@ -98,10 +98,11 @@ pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
     ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
-    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
-    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
+    PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH, Selection,
+    SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode,
+    TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
