@@ -23,6 +23,16 @@ import dev.darkpyonix.composerust.ui.platform.MacosApplicationDelegate
 import dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
 import dev.darkpyonix.composerust.ui.platform.MacosSceneFrames
 import dev.darkpyonix.composerust.ui.platform.MacosWindowBackend
+import dev.darkpyonix.composerust.ui.platform.IdleSoakSetting
+import dev.darkpyonix.composerust.ui.platform.KnIdleSoakReport
+import dev.darkpyonix.composerust.ui.platform.MultiWindowStarts
+import dev.darkpyonix.composerust.ui.platform.RestoreKeyStore
+import dev.darkpyonix.composerust.ui.platform.WindowRestore
+import dev.darkpyonix.composerust.ui.platform.MacosWindowZoom
+import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
+import dev.darkpyonix.composerust.runtime.Zoom
+import androidx.compose.runtime.CompositionLocalProvider
 import dev.darkpyonix.composerust.ui.platform.PlatformWindow
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowConfig
 import dev.darkpyonix.composerust.ui.platform.PlatformWindowListener
@@ -119,8 +129,12 @@ private class ScriptedHost(private val initial: List<Mutation>) : HostConnection
         initial.forEach(onMutation)
     }
 
+    /** What the application answers a `WindowRequested` with, by its key. */
+    val answers = mutableMapOf<String, List<Mutation>>()
+
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
         events += event
+        if (event is HostEvent.WindowRequested) answers[event.key]?.forEach(onMutation)
         if (event is HostEvent.Clicked) {
             val batch = next
             next = emptyList()
@@ -192,10 +206,25 @@ private fun cornerOfTarget(targets: DropTargets, windowId: Int, width: Int, heig
     return null
 }
 
-private class Harness(initial: List<Mutation>) {
+private class Harness(initial: List<Mutation>, withScenes: Boolean = false) {
     val connection = ScriptedHost(initial)
     val host = ComposeRustHost(connection)
-    val backend = MacosWindowBackend()
+    val backend = if (!withScenes) {
+        MacosWindowBackend()
+    } else {
+        // Each window draws its own node at its own zoom, as the renderer's windows do. The
+        // zoom is not saved, so one test's level is not the next one's start.
+        MacosWindowBackend(
+            scene = { _, _, _, slot ->
+                {
+                    CompositionLocalProvider(LocalWindowNodeId provides slot.nodeId) {
+                        MacosWindowZoom(slot.zoom) { keys -> ComposeRustContent(host, modifier = keys) }
+                    }
+                }
+            },
+            makeZoom = { Zoom() },
+        )
+    }
     var exits = 0
     val manager = WindowManager(host, backend, onExit = { exits++ })
 
@@ -470,6 +499,177 @@ class MacosMultiWindowTest {
         }
     }
 
+    @Test
+    fun fr53_macos_multi_window_start_report_goes_with_the_first_window() {
+        val starts = MultiWindowStarts(parityWindow = 1)
+        assertEquals(MultiWindowStarts.Duties(startReport = true, parityRun = true), starts.next())
+        assertEquals(MultiWindowStarts.Duties(startReport = false, parityRun = false), starts.next())
+        assertEquals(MultiWindowStarts.Duties(startReport = false, parityRun = false), starts.next())
+    }
+
+    @Test
+    fun fr53_macos_parity_run_goes_with_the_chosen_window() {
+        assertEquals(1, MultiWindowStarts.parityWindowFrom(null))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom(""))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom("0"))
+        assertEquals(1, MultiWindowStarts.parityWindowFrom("first"))
+        assertEquals(3, MultiWindowStarts.parityWindowFrom(" 3 "))
+        val starts = MultiWindowStarts(parityWindow = 2)
+        val duties = List(3) { starts.next() }
+        assertEquals(listOf(true, false, false), duties.map { it.startReport })
+        assertEquals(listOf(false, true, false), duties.map { it.parityRun })
+    }
+
+    @Test
+    fun fr53_macos_backend_tells_of_every_window_it_opens() {
+        NSApplication.sharedApplication()
+        val backend = MacosWindowBackend()
+        val opened = mutableListOf<platform.AppKit.NSWindow>()
+        backend.onOpened = { opened += it.window }
+        val a = assertNotNull(backend.open(config(1, "fr53 a"), Recorder()))
+        val b = assertNotNull(backend.open(config(2, "fr53 b"), Recorder()))
+        try {
+            assertEquals(listOf(a.native(), b.native()), opened)
+        } finally {
+            a.close()
+            b.close()
+            spin()
+        }
+    }
+
+    @Test
+    fun fr53_macos_zoom_is_per_window() {
+        NSApplication.sharedApplication()
+        val h = Harness(
+            listOf(setWindow()) +
+                windowNode(1, PropertyKind.WindowZoomLevel to PropertyValue.Integer(2L)) +
+                windowNode(2),
+            withScenes = true,
+        )
+        fun zoomOf(index: Int) = (h.backend.windows[index] as MacosPlatformWindow).zoom
+        fun reported(node: Int) = h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().filter { it.nodeId == node }
+        try {
+            assertEquals(listOf(1, 2), h.manager.openWindows)
+            assertEquals(2, zoomOf(0).level, "the level on node 1 is window 1's")
+            assertEquals(0, zoomOf(1).level, "window 2 asked for none and keeps its own")
+            spinUntil(turns = 100) { reported(1).isNotEmpty() && reported(2).isNotEmpty() }
+            assertEquals(2, reported(1).last().level)
+            assertEquals(0, reported(2).last().level)
+            assertTrue(
+                h.connection.events.filterIsInstance<HostEvent.ZoomChanged>().none { it.nodeId !in setOf(1, 2) },
+                "every ZoomChanged names the window's node",
+            )
+
+            // A level set on node 2 changes window 2 and leaves window 1 where it was.
+            h.batch(Mutation.SetProp(2, PropertyKind.WindowZoomLevel, PropertyValue.Integer(-1L)))
+            assertEquals(-1, zoomOf(1).level)
+            assertEquals(2, zoomOf(0).level)
+            spinUntil(turns = 100) { reported(2).last().level == -1 }
+            assertEquals(-1, reported(2).last().level)
+            assertTrue(reported(1).all { it.level == 2 }, "window 1 reported no other level")
+            assertTrue(reported(2).last().k < reported(1).last().k)
+        } finally {
+            h.close()
+        }
+    }
+
+    @Test
+    fun fr53_macos_window_requested_matches_restore_key() {
+        NSApplication.sharedApplication()
+        val h = Harness(listOf(setWindow(LastWindowClosed.KeepRunning)) + windowNode(1))
+        try {
+            // The application answers the key with a node of that key: the window the system
+            // made is that node's window, and no second one opens.
+            h.connection.answers["ws:1"] = windowNode(
+                8,
+                PropertyKind.WindowRestoreKey to PropertyValue.Text("ws:1"),
+                PropertyKind.WindowTitle to PropertyValue.Text("Restored"),
+            )
+            assertTrue(h.backend.requestWindow("ws:1"))
+            val requested = h.connection.events.filterIsInstance<HostEvent.WindowRequested>()
+            assertEquals(listOf("ws:1"), requested.map { it.key })
+            assertEquals(0, requested.single().nodeId, "the request goes to the root")
+            assertEquals(listOf(1, 8), h.manager.openWindows)
+            assertEquals(2, h.backend.windows.size)
+            val adopted = h.backend.windows[1] as MacosPlatformWindow
+            assertEquals(8, adopted.nodeId, "the window draws the node that answered")
+            assertEquals("Restored", adopted.nativeWindow.title)
+            assertTrue(adopted.nativeWindow.visible)
+
+            // A key the application does not answer leaves no window behind.
+            assertFalse(h.backend.requestWindow("gone"))
+            spin()
+            assertEquals(listOf(1, 8), h.manager.openWindows)
+            assertEquals(2, h.backend.windows.size)
+
+            // The new tab button asks with an empty key.
+            h.connection.answers[""] = windowNode(9)
+            MacosApplicationDelegate().newWindowForTab(h.backend.windows[0].native())
+            assertEquals("", h.connection.events.filterIsInstance<HostEvent.WindowRequested>().last().key)
+            assertEquals(listOf(1, 8, 9), h.manager.openWindows)
+            assertEquals(3, h.backend.windows.size)
+            assertTrue(h.connection.events.none { it is HostEvent.ProtocolError })
+        } finally {
+            h.close()
+        }
+    }
+
+    @Test
+    fun fr53_macos_restore_asks_for_the_windows_the_last_quit_left() {
+        val store = object : RestoreKeyStore {
+            var saved = listOf<String>()
+            override fun load() = saved
+            override fun save(keys: List<String>) {
+                saved = keys
+            }
+        }
+        var keeps = true
+        val restore = WindowRestore(store, keepsWindows = { keeps })
+        restore.remember(listOf("ws:1", "", "ws:2", "ws:1"))
+        assertEquals(listOf("ws:1", "ws:2"), store.saved, "empty and repeated keys are not kept")
+        assertEquals(listOf("ws:1"), restore.keysToRequest(listOf("ws:2")), "a window already open is not asked for again")
+        keeps = false
+        assertEquals(emptyList(), restore.keysToRequest(emptyList()), "a system set to close windows at a quit restores none")
+        restore.remember(emptyList())
+        keeps = true
+        assertEquals(emptyList(), restore.keysToRequest(emptyList()))
+    }
+
+    @Test
+    fun fr53_macos_idle_soak_ends_once_while_the_process_waits_to_quit() {
+        val second = 1_000_000_000L
+        val soak = KnIdleSoakReport(seconds = 30, openedAt = 0L)
+        assertFalse(soak.tick(1 * second), "the soak waits for the windows to settle first")
+        assertFalse(soak.tick(9 * second), "the soak starts here")
+        assertFalse(soak.tick(20 * second))
+        assertTrue(soak.tick(39 * second), "thirty seconds after the start the soak ends")
+        // The process lives a moment longer so a script can read its CPU time; the turns in
+        // that moment keep calling tick and must not end the soak, or print its end, again.
+        for (turn in 1..60) assertFalse(soak.tick(39 * second + turn * 16_000_000L))
+    }
+
+    @Test
+    fun fr53_macos_idle_soak_runs_once_for_the_selected_window() {
+        // Only the chosen window carries the soak, however many open.
+        val starts = MultiWindowStarts(MultiWindowStarts.parityWindowFrom("2"))
+        assertEquals(listOf(false, true, false), List(3) { starts.next().parityRun })
+
+        // The setting is read once and taken out of the environment, so the window library
+        // finds nothing to start a soak of its own with in any window.
+        IdleSoakSetting.resetForTest()
+        platform.posix.setenv("DXC_IDLE_SOAK_SECONDS", "30", 1)
+        assertEquals(30, IdleSoakSetting.seconds())
+        assertEquals(null, platform.posix.getenv("DXC_IDLE_SOAK_SECONDS"))
+        assertEquals(30, IdleSoakSetting.seconds())
+        assertTrue(IdleSoakSetting.requested())
+        IdleSoakSetting.resetForTest()
+        assertEquals(null, IdleSoakSetting.seconds())
+        assertEquals(null, IdleSoakSetting.parse("0"))
+        assertEquals(null, IdleSoakSetting.parse("soon"))
+        assertEquals(12, IdleSoakSetting.parse(" 12 "))
+        IdleSoakSetting.resetForTest()
+    }
+
     /**
      * The whole path of a dragged window on macOS: the Host's `DragFromPointer`, two real
      * NSWindows each drawing a real `Text` node that subscribed with `OnWindowDragOver` (where
@@ -490,9 +690,9 @@ class MacosMultiWindowTest {
         )
         val host = ComposeRustHost(connection)
         host.start(FrameRequestSource())
-        val backend = MacosWindowBackend { config, _, _ ->
+        val backend = MacosWindowBackend(scene = { config, _, _, _ ->
             { ComposeRustContent(host, windowNodeId = config.nodeId) }
-        }
+        })
         // The button is held from the start, away from the window.
         var pointer = ScreenPointer(60f, 620f, true)
         backend.pointer = { pointer }
@@ -607,10 +807,11 @@ class MacosMultiWindowTest {
         val host = ComposeRustHost(connection)
         host.start(FrameRequestSource())
         val scenes = HashMap<Int, MacosWindow>()
-        val backend = MacosWindowBackend { config, window, _ ->
+        val backend = MacosWindowBackend(scene = { config, window, _, _ ->
             scenes[config.nodeId] = window
-            return@MacosWindowBackend { ComposeRustContent(host, windowNodeId = config.nodeId) }
-        }
+            val content: @androidx.compose.runtime.Composable () -> Unit = { ComposeRustContent(host, windowNodeId = config.nodeId) }
+            content
+        })
         var pointer = ScreenPointer(60f, 620f, false)
         backend.pointer = { pointer }
         val targets = DropTargets.registered(backend::contentScale)
