@@ -11,6 +11,7 @@ import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -954,6 +955,21 @@ class NodeTable {
                 return
             }
         }
+        if (mutation.property == PropertyKind.ContentScale) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..ContentScale.entries.size.toLong()) {
+                // A scale this renderer does not know is a newer or a broken Host. The
+                // picture is drawn the way one that never chose is, whole and in its own
+                // proportions, rather than guessed at.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "image ${node.id} was given content scale $tag, which is not Fit (1), " +
+                        "Crop (2) or FillBounds (3); it is drawn as Fit",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.property == PropertyKind.TextAlign) {
             val tag = (mutation.value as? PropertyValue.Integer)?.value
             if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
@@ -1662,6 +1678,10 @@ class NodeTable {
 
                 // The tallest a sheet grows. A dialog sizes itself to its content.
                 PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
+
+                // How a picture is laid into its box. An icon takes its design system's
+                // optical size, so only an image has a box to lay it into.
+                PropertyKind.ContentScale -> widget == WidgetKind.Image
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
