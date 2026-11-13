@@ -832,6 +832,20 @@ class NodeTable {
             )
             return
         }
+        if (mutation.property == PropertyKind.CollapseBelow) {
+            val width = (mutation.value as? PropertyValue.Float)?.value
+            if (width != null && (!width.isFinite() || width < 0f)) {
+                // Not a width at all. The split pane is drawn as if it had none, so a bad
+                // value cannot leave it stacked or unstacked by accident.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "a split pane stacks below a width of zero or more dp, and node " +
+                        "${node.id} was given $width; it keeps its size class's own line",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
@@ -1484,6 +1498,16 @@ class NodeTable {
                 // What a set of destinations becomes in a compact window, where the
                 // application chose. Only a navigation has destinations to place.
                 PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
+
+                // The width below which a split pane shows one pane at a time.
+                PropertyKind.CollapseBelow -> widget == WidgetKind.SplitPane
+
+                // Where a plain scroll container comes to rest. The lazy containers scroll
+                // by item through their own state and do not take it.
+                PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
+
+                // The tallest a sheet grows. A dialog sizes itself to its content.
+                PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

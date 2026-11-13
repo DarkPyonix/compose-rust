@@ -97,7 +97,7 @@ pub use schema::{
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
     OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
