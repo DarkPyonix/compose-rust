@@ -1215,3 +1215,36 @@ fn fr38_editor_answers_position_rects_on_the_wire() {
         .is_err()
     );
 }
+
+/// The key preview is the editor's own handler property, past the caret's, and what it
+/// hears is the `KeyDown` record a key handler hears: the same 32 bytes and tag, so a Host
+/// reads a previewed key the way it reads any other and answers it with the same result.
+#[test]
+fn fr38_editor_key_preview_keeps_its_tag_and_the_key_down_record() {
+    assert_eq!(PropertyKind::OnKeyPreview as u16, 196);
+    assert_eq!(
+        PropertyKind::from_name("on_key_preview"),
+        Ok(PropertyKind::OnKeyPreview)
+    );
+    let (length, decoded) = round_trip(EventPayload::KeyDown {
+        key: compose_rust::Key::ArrowDown,
+        shift_key: false,
+        ctrl_key: true,
+        alt_key: false,
+        meta_key: false,
+        repeat: true,
+        code: 0x51,
+        text: "ArrowDown",
+    });
+    assert_eq!(length, 32 + "ArrowDown".len());
+    assert!(matches!(
+        decoded.payload,
+        EventPayload::KeyDown {
+            key: compose_rust::Key::ArrowDown,
+            ctrl_key: true,
+            repeat: true,
+            code: 0x51,
+            ..
+        }
+    ));
+}

@@ -6,6 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.design.HostPlatform
@@ -81,6 +84,7 @@ internal fun HostCodeEditor(
         node.bytes(PropertyKind.CodeEditorColors),
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
+    val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
             onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher) },
@@ -107,6 +111,7 @@ internal fun HostCodeEditor(
                     )
                 }
             },
+            onKeyPreview = keyPreview,
         )
     }
     // A listener attached after the editor was drawn has the row height and the offset
@@ -146,6 +151,26 @@ private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     measured = { viewport() > 0 },
     jump = { target -> scrollTo(target) },
 )
+
+/**
+ * What an editor offers the Host before it handles a key: the `KeyDown` record a key handler
+ * hears, sent to the node's `OnKeyPreview` handler, whose answer says whether the Host took
+ * the key. Nothing is sent while an input method composes, for a release, or where nothing
+ * listens. Every event passes through [held], so a repeat is marked as one.
+ */
+internal fun codeEditorKeyPreview(
+    node: Node,
+    dispatcher: () -> EventDispatcher,
+    held: HeldKeys = HeldKeys(),
+): (KeyEvent, Boolean) -> Boolean = { event, composing ->
+    val handler = node.handler(PropertyKind.OnKeyPreview)
+    if (handler == null) {
+        held.observe(event.type, event.key)
+        false
+    } else {
+        dispatchKeyDown(node.id, handler, event, composing, dispatcher(), held)
+    }
+}
 
 /** The colours the application gave this editor, or null where it gave none that can be read. */
 internal fun Node.codeEditorColors(): CodeEditorColorsRecord? =

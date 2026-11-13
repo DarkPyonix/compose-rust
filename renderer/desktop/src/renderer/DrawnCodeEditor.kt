@@ -608,6 +608,8 @@ private fun DrawScope.drawLines(
 
 /** The keys the drawn editor answers. Typed characters arrive here the way they reach a text field on the desktop. */
 private fun drawnKey(event: KeyEvent, state: DrawnState): Boolean {
+    // The Host hears the key first, and a key it takes is not the editor's.
+    if (state.callbacks.onKeyPreview(event, state.composing.isNotEmpty())) return true
     // While an input method composes, its keys are its own.
     if (state.composing.isNotEmpty()) return false
     val model = state.model

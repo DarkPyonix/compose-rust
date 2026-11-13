@@ -1438,8 +1438,10 @@ class NodeTable {
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
-                // The handler told where the caret is drawn.
+                // The handler told where the caret is drawn, and the one offered keys
+                // before the editor handles them.
                 PropertyKind.OnCaretRect,
+                PropertyKind.OnKeyPreview,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

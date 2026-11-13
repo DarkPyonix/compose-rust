@@ -283,6 +283,13 @@ class CodeEditorCallbacks(
      * or zero.
      */
     val onHover: (decoration: Long, position: CodePosition, rest: Boolean) -> Unit,
+    /**
+     * A key event, offered before the editor does anything with it. True means the Host
+     * took the key and the editor leaves it alone. [composing] says an input method is
+     * composing, which the Host is never offered a key during. Every event comes through
+     * here, releases too, so a held key's repeats can be told from its first press.
+     */
+    val onKeyPreview: (event: KeyEvent, composing: Boolean) -> Boolean = { _, _ -> false },
 )
 
 /** Test tag of the field a field surface types into. */
@@ -1212,7 +1219,10 @@ private fun FieldSurface(
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
                                 .onPreviewKeyEvent { event ->
-                                    handleKey(event, window, look, callbacks)
+                                    // The Host hears the key first, and a key it takes is
+                                    // not the editor's.
+                                    callbacks.onKeyPreview(event, window.state.composition != null) ||
+                                        handleKey(event, window, look, callbacks)
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
