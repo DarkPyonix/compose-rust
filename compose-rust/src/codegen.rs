@@ -658,6 +658,33 @@ sealed interface Mutation {
         val line: Int,
         val column: Int,
     ) : Mutation
+
+    /**
+     * Several edits the application asks of a code editor as one: replace every range in
+     * [edits] with its text, all of them or none, and answer with one
+     * `CodeEditGroupResult` carrying [requestId].
+     *
+     * [edits] is the blob as it came, read by `CodeEditorRecords.decodeEditGroup`. Every
+     * range in it is in the document as it stood at [baseVersion]. [malformed] is set, and
+     * [edits] empty, where the record itself could not be read but its head could: the
+     * decoder reports the protocol error, and the editor still owes the group its answer.
+     */
+    data class EditCodeGroup(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val edits: ByteArray,
+        val malformed: String? = null,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is EditCodeGroup && nodeId == other.nodeId && requestId == other.requestId &&
+                    baseVersion == other.baseVersion && edits.contentEquals(other.edits) &&
+                    malformed == other.malformed)
+
+        override fun hashCode(): Int =
+            ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
+    }
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -735,6 +762,7 @@ object ScrollWire {
                 ", val animationId: Int, val kind: AnimationEventKind, val property: AnimatedProperty, val slot: Int, val iteration: Int, val elapsedMs: kotlin.Float, val timeNanos: Long",
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
+            EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -801,6 +829,11 @@ object ScrollWire {
             ),
             // The pointer's fields, then the character under it: -1 and -1 where it is over
             // none.
+            // `currentVersion` is after the group's last change where it went in, and the
+            // document's version where it did not.
+            EventPayloadType::CodeEditGroupResult => output.push_str(
+                ", val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int",
+            ),
             EventPayloadType::CodePointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
             ),
@@ -872,6 +905,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_EDIT_CODE_GROUP = 28
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
     private const val TAG_SET_SCROLL_OFFSET = 30
@@ -1127,6 +1161,44 @@ object Protocol {
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
                         )
+                    }
+                    TAG_EDIT_CODE_GROUP -> {
+                        // A group that cannot be read is still answered. Where its head
+                        // can be, the node, the request and as much of the rest as is
+                        // there go to the editor first, so the result it owes follows the
+                        // protocol error this record raises.
+                        if (length != 24) {
+                            if (length >= 12) {
+                                onMutation(
+                                    Mutation.EditCodeGroup(
+                                        readU32(batch, base, available, offset + 4).toInt(),
+                                        readU32(batch, base, available, offset + 8).toInt(),
+                                        if (length >= 16) readU32(batch, base, available, offset + 12).toInt() else 0,
+                                        ByteArray(0),
+                                        malformed = "an EditCodeGroup record is $length bytes, not 24",
+                                    ),
+                                )
+                            }
+                            requireRecordLength(length, 24, offset)
+                        }
+                        val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                        val requestId = readU32(batch, base, available, offset + 8).toInt()
+                        val baseVersion = readU32(batch, base, available, offset + 12).toInt()
+                        val edits = try {
+                            readBytes(batch, base, available, offset + 16)
+                        } catch (error: ProtocolException) {
+                            onMutation(
+                                Mutation.EditCodeGroup(
+                                    nodeId,
+                                    requestId,
+                                    baseVersion,
+                                    ByteArray(0),
+                                    malformed = "an EditCodeGroup record names edits outside the batch",
+                                ),
+                            )
+                            throw error
+                        }
+                        Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
                     }
                     TAG_QUERY_POSITION_RECT -> {
                         requireRecordLength(length, 20, offset)
@@ -1455,7 +1527,8 @@ object Protocol {
             | EventPayloadType::ScrollChanged
             | EventPayloadType::CodeCaretRect
             | EventPayloadType::CodePositionRect
-            | EventPayloadType::CodePointer => {
+            | EventPayloadType::CodePointer
+            | EventPayloadType::CodeEditGroupResult => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1482,6 +1555,7 @@ object Protocol {
             | EventPayloadType::Decoration
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
+            | EventPayloadType::ColorScheme
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1530,6 +1604,7 @@ object Protocol {
             EventPayloadType::Decoration => 24,
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
+            EventPayloadType::ColorScheme => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1562,6 +1637,8 @@ object Protocol {
             EventPayloadType::CodeCaretRect | EventPayloadType::CodePositionRect => 40,
             // The pointer record and two words.
             EventPayloadType::CodePointer => 80,
+            // Five words.
+            EventPayloadType::CodeEditGroupResult => 36,
         };
         writeln!(
             output,
@@ -1748,6 +1825,13 @@ object Protocol {
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
+            EventPayloadType::ColorScheme => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str(
+                    "                    out.putInt(systemColorSchemeTag(event.scheme))\n",
+                );
+                output.push_str("                }\n");
+            }
             EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
@@ -1770,6 +1854,16 @@ object Protocol {
                 if event.payload == EventPayloadType::CodePointer {
                     output.push_str("                    out.putInt(event.line)\n");
                     output.push_str("                    out.putInt(event.column)\n");
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeEditGroupResult => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.requestId)\n");
+                output
+                    .push_str("                    out.putInt(editGroupStatusTag(event.status))\n");
+                for field in ["baseVersion", "currentVersion", "index"] {
+                    writeln!(output, "                    out.putInt(event.{field})").unwrap();
                 }
                 output.push_str("                }\n");
             }
@@ -2128,6 +2222,12 @@ object Protocol {
             crate::schema::FILE_DELIVERY_SCHEMA,
         ),
         ("ioStatusTag", "IoStatus", crate::schema::IO_STATUS_SCHEMA),
+        // What became of a grouped edit, which only the Renderer can know.
+        (
+            "editGroupStatusTag",
+            "EditGroupStatus",
+            crate::schema::EDIT_GROUP_STATUS_SCHEMA,
+        ),
     ] {
         writeln!(
             output,
@@ -2155,6 +2255,11 @@ object Protocol {
             "reducedMotionTag",
             "ReducedMotion",
             crate::schema::REDUCED_MOTION_SCHEMA,
+        ),
+        (
+            "systemColorSchemeTag",
+            "SystemColorScheme",
+            crate::schema::SYSTEM_COLOR_SCHEME_SCHEMA,
         ),
         (
             "pointerKindTag",
@@ -2833,6 +2938,28 @@ pub fn spans_vector() -> crate::spans::TextSpans {
 /// is one a byte count or a character count would get wrong.
 pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
 
+/// The grouped edit in the mutation vector, against [`CODE_VECTOR_TEXT`] after the vector's
+/// single edit put `mut ` in front of the name: the first word becomes `pub fn` and the
+/// emoji, a surrogate pair, becomes another one. Listed back to front, which a group may be.
+pub const CODE_EDIT_GROUP_VECTOR: &[(u32, u32, u32, u32, &str)] =
+    &[(1, 17, 1, 19, "🎉"), (0, 0, 0, 2, "pub fn")];
+
+fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
+    use crate::code::CodeRange;
+    let edits: Vec<(CodeRange, &str)> = CODE_EDIT_GROUP_VECTOR
+        .iter()
+        .map(|&(start_line, start_column, end_line, end_column, text)| {
+            (
+                CodeRange::of(start_line, start_column, end_line, end_column),
+                text,
+            )
+        })
+        .collect();
+    let mut bytes = Vec::new();
+    crate::code::encode_edit_group(&edits, &mut bytes)?;
+    Ok(bytes)
+}
+
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
 /// two backgrounds after them.
 fn code_decoration_vector() -> crate::code::Decorations {
@@ -3022,6 +3149,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let edit_group = code_edit_group_vector()?;
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3798,6 +3926,22 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::FontFeatureSettings,
             value: PropertyValue::Bytes(&font_features),
         },
+        // The code editor's grouped edit and the handler it answers, before the record
+        // that stays last: the first word of the document and the emoji, written against
+        // the version the single edit above produced, so a reader that takes a pair of
+        // UTF-16 units for one character, or counts text offsets from the wrong place,
+        // reads a different group.
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::OnEditGroupResult,
+            value: PropertyValue::Integer(32),
+        },
+        Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 8,
+            base_version: 1,
+            edits: &edit_group,
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4237,6 +4381,25 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 position: Some(crate::code::Position::new(1, 13)),
             },
         },
+        // What became of the grouped edit in the mutation vector: both of its edits went
+        // in, so the version moved two past the one it was written against.
+        HostEvent {
+            node_id: 12,
+            handler_id: 32,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: crate::schema::EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 3,
+                index: 2,
+            },
+        },
+        // The system appearance turning dark, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::ColorSchemeChanged(crate::schema::SystemColorScheme::Dark),
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4256,7 +4419,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 122,
+    "recordCount": 124,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4278,7 +4441,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-six independently decodable event records concatenated in schema order",
+    "description": "Forty-seven independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4325,7 +4488,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
       {{ "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
       {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
-      {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }}
+      {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
+      {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
+      {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }}
     ]
   }}
 }}
@@ -4742,13 +4907,79 @@ fn write_code_editor_records(output: &mut String) {
 
     output.push_str(
         r#"/**
+ * One edit of a grouped edit: a range of the document as it stood at the group's base
+ * version, and the text that replaces it.
+ */
+data class CodeEditRecord(
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val text: String,
+)
+
+/**
  * Reads the blobs a code editor carries.
  *
  * A record that cannot be read, a kind or a role this side does not know or a text that
  * points outside the blob, is reported through `onError` and left out. The rest of the list
- * is read regardless.
+ * is read regardless. A grouped edit is the exception: it goes in whole or not at all, so a
+ * blob with anything wrong in it is not read at all.
  */
 object CodeEditorRecords {
+    const val CODE_EDIT_LENGTH = 24
+
+    /**
+     * The edits of an `EditCodeGroup`, in the order they were sent, or null, with the
+     * reason given to [onError], where the blob is not one.
+     *
+     * The blob is a count, then one 24-byte record per edit (the range, then the text's
+     * offset and length), then the texts. A text's offset counts from the start of the
+     * texts. A count the blob is too short for, a text outside it or not UTF-8, or bytes
+     * after the last text make the blob unreadable.
+     */
+    fun decodeEditGroup(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditRecord>? {
+        if (bytes.size < 4) {
+            onError("a grouped edit is ${bytes.size} bytes, too short for its count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0).toLong() and 0xffff_ffffL
+        val textsStart = 4L + count * CODE_EDIT_LENGTH
+        if (textsStart > bytes.size) {
+            onError("a grouped edit says it has $count edits and is ${bytes.size} bytes")
+            return null
+        }
+        val edits = ArrayList<CodeEditRecord>(count.toInt())
+        var textsEnd = textsStart
+        for (index in 0 until count.toInt()) {
+            val at = 4 + index * CODE_EDIT_LENGTH
+            val start = textsStart + (buffer.getInt(at + 16).toLong() and 0xffff_ffffL)
+            val length = buffer.getInt(at + 20).toLong() and 0xffff_ffffL
+            if (start + length > bytes.size) {
+                onError("edit $index of a grouped edit names text outside it")
+                return null
+            }
+            val text = textOf(bytes, start.toInt(), length.toInt()) ?: run {
+                onError("edit $index of a grouped edit has text that is not UTF-8")
+                return null
+            }
+            textsEnd = maxOf(textsEnd, start + length)
+            edits += CodeEditRecord(
+                buffer.getInt(at),
+                buffer.getInt(at + 4),
+                buffer.getInt(at + 8),
+                buffer.getInt(at + 12),
+                text,
+            )
+        }
+        if (textsEnd != bytes.size.toLong()) {
+            onError("a grouped edit has ${bytes.size - textsEnd} bytes after its last text")
+            return null
+        }
+        return edits
+    }
+
 "#,
     );
     for (schema, function, _) in records {

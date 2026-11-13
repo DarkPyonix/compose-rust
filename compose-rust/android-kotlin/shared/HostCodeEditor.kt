@@ -395,6 +395,18 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
                 val handler = handler(PropertyKind.OnCompositionChange) ?: continue
                 events += HostEvent.CompositionChanged(id, handler, output.composing)
             }
+            is EditorOutput.GroupResult -> {
+                val handler = handler(PropertyKind.OnEditGroupResult) ?: continue
+                events += HostEvent.CodeEditGroupResult(
+                    id,
+                    handler,
+                    output.requestId,
+                    output.status,
+                    output.baseVersion,
+                    output.currentVersion,
+                    output.index,
+                )
+            }
             is EditorOutput.Error -> onError(output.message)
         }
     }

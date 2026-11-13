@@ -30,6 +30,9 @@ use std::task::{Context, Poll};
 pub struct Batch {
     encoder: BatchEncoder,
     error: Option<ProtocolError>,
+    /// Where a grouped edit is encoded before it is copied into the arena. Kept, so a warm
+    /// batch encodes one without allocating.
+    edit_group: Vec<u8>,
 }
 
 impl Default for Batch {
@@ -45,6 +48,7 @@ impl Batch {
         Self {
             encoder: BatchEncoder::with_capacity(16 * 1024, 4 * 1024, 256),
             error: None,
+            edit_group: Vec::new(),
         }
     }
 
@@ -330,6 +334,40 @@ impl Batch {
             end_column: range.end.column,
             text,
         });
+    }
+
+    /// Writes one grouped edit the application asked of a code editor: replace every range
+    /// in `edits` with its text, all of them or none.
+    ///
+    /// Every range is in the document as it stood at `base_version`, so an edit never moves
+    /// the ranges of the others, and the edits may be listed in any order. They must not
+    /// overlap; two insertions at the same place go in in the order they are listed. Where
+    /// the reader has typed since, the Renderer moves every range past what they typed, and
+    /// refuses the whole group where any range meets it. It answers the group with exactly
+    /// one `CodeEditGroupResult` carrying `request_id`, and the whole group undoes as one
+    /// step. A group with no edits writes nothing at all.
+    pub fn edit_group(
+        &mut self,
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: &[(crate::code::CodeRange, &str)],
+    ) {
+        if edits.is_empty() {
+            return;
+        }
+        let mut blob = std::mem::take(&mut self.edit_group);
+        blob.clear();
+        match crate::code::encode_edit_group(edits, &mut blob) {
+            Ok(()) => self.write(Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits: &blob,
+            }),
+            Err(error) => self.fail(error),
+        }
+        self.edit_group = blob;
     }
 
     /// Writes one request to put a code editor's selection between two places in the

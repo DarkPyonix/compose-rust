@@ -45,12 +45,15 @@ const TAG_SHOW_FILE_DIALOG: u16 = 26;
 const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 // 27 sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
-// 28 and 29 are numbered for commands that are not here yet.
+// 28 replaces several ranges of a code editor's document as one edit, all of them or none.
+const TAG_EDIT_CODE_GROUP: u16 = 28;
+/// `EditCodeGroup` in full: the 4 byte head, the node, the request, the base version and
+/// the reference to the edits.
+const EDIT_CODE_GROUP_LEN: usize = 24;
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
-// 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
-// code editor's grouped edit.
+// 29 puts plain text on the platform clipboard. Nothing answers it.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
 // answered by one `ClipboardText` event carrying the same request number.
@@ -400,6 +403,20 @@ pub enum Mutation<'a> {
         line: u32,
         column: u32,
     },
+    /// Replaces several ranges of a code editor's document, as it stood at `base_version`,
+    /// as one edit: all of them or none.
+    ///
+    /// `edits` is the blob [`crate::code::encode_edit_group`] writes. Every range is in the
+    /// document at `base_version`, so no edit moves another; they may come in any order and
+    /// must not overlap. The Renderer answers each group with exactly one
+    /// `CodeEditGroupResult` carrying `request_id`, after the `CodeChanged` events of the
+    /// changes it made, one per edit from the end of the document backwards.
+    EditCodeGroup {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: &'a [u8],
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -494,8 +511,14 @@ const EVENT_APPLICATION_REOPEN: u16 = 47;
 const EVENT_FOCUS_GAINED: u16 = 48;
 const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
-// 51 to 53 are numbered for events that are not here yet. 54 and 55 are the code editor's
-// row height and scroll offset, each one `f64` of physical pixels.
+// 51 says what became of a grouped edit of a code editor.
+const EVENT_CODE_EDIT_GROUP_RESULT: u16 = 51;
+/// `CodeEditGroupResult` in full: the 16 byte header and five words.
+const CODE_EDIT_GROUP_RESULT_LEN: usize = 36;
+// 52 is the system's light or dark appearance, one `u32` after the header. 53 is numbered
+// for an event that is not here yet. 54 and 55 are the code editor's row height and scroll
+// offset, each one `f64` of physical pixels.
+const EVENT_COLOR_SCHEME_CHANGED: u16 = 52;
 const EVENT_CODE_METRICS: u16 = 54;
 const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
@@ -733,6 +756,16 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 ))?;
             crate::schema::EventPayload::ReducedMotionChanged(state)
         }
+        EVENT_COLOR_SCHEME_CHANGED if record_len == 20 => {
+            let raw = read_u32(bytes, 16)?;
+            let scheme = u16::try_from(raw)
+                .ok()
+                .and_then(|tag| crate::schema::SystemColorScheme::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::ColorSchemeChanged(scheme)
+        }
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
             start_line: read_u32(bytes, 20)?,
@@ -882,6 +915,23 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CODE_EDIT_GROUP_RESULT if record_len == CODE_EDIT_GROUP_RESULT_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| crate::schema::EditGroupStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::CodeEditGroupResult {
+                request_id: read_u32(bytes, 16)?,
+                status,
+                base_version: read_u32(bytes, 24)?,
+                current_version: read_u32(bytes, 28)?,
+                index: read_u32(bytes, 32)?,
+            }
+        }
+        EVENT_CODE_EDIT_GROUP_RESULT => return Err(ProtocolError::InvalidRecordLength),
         EVENT_CLIPBOARD_TEXT if record_len == CLIPBOARD_TEXT_LEN => {
             crate::schema::EventPayload::ClipboardText {
                 request: read_u32(bytes, 16)?,
@@ -1088,6 +1138,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_ANIMATION
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
+        | EVENT_COLOR_SCHEME_CHANGED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1344,6 +1395,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&u32::from(u16::from(state)).to_le_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ColorSchemeChanged(scheme) = event.payload {
+        output.extend_from_slice(&EVENT_COLOR_SCHEME_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(scheme)).to_le_bytes());
+        return Ok(());
+    }
     match event.payload {
         crate::schema::EventPayload::CodeChanged {
             version,
@@ -1504,6 +1563,31 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             return Ok(());
         }
         _ => {}
+    }
+    if let crate::schema::EventPayload::CodeEditGroupResult {
+        request_id,
+        status,
+        base_version,
+        current_version,
+        index,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_CODE_EDIT_GROUP_RESULT,
+            CODE_EDIT_GROUP_RESULT_LEN as u16,
+            event,
+        );
+        for value in [
+            request_id,
+            u32::from(status as u16),
+            base_version,
+            current_version,
+            index,
+        ] {
+            output.extend_from_slice(&value.to_le_bytes());
+        }
+        return Ok(());
     }
     if let crate::schema::EventPayload::FileDialogResult {
         request,
@@ -1775,10 +1859,12 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
-        | crate::schema::EventPayload::CodePointer { .. } => unreachable!(),
+        | crate::schema::EventPayload::CodePointer { .. }
+        | crate::schema::EventPayload::CodeEditGroupResult { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
+        | crate::schema::EventPayload::ColorSchemeChanged(_)
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
@@ -2017,6 +2103,18 @@ impl BatchEncoder {
                 self.put_u32(*end_line);
                 self.put_u32(*end_column);
                 self.put_string_ref(text)?;
+            }
+            Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits,
+            } => {
+                self.begin_record(TAG_EDIT_CODE_GROUP, (EDIT_CODE_GROUP_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*request_id);
+                self.put_u32(*base_version);
+                self.put_bytes_ref(edits)?;
             }
             Mutation::SetSelection {
                 node_id,
@@ -2956,6 +3054,12 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 }
             }
             TAG_QUERY_POSITION_RECT => return Err(ProtocolError::InvalidRecordLength),
+            TAG_EDIT_CODE_GROUP if len == EDIT_CODE_GROUP_LEN => Mutation::EditCodeGroup {
+                node_id: read_u32(bytes, payload)?,
+                request_id: read_u32(bytes, payload + 4)?,
+                base_version: read_u32(bytes, payload + 8)?,
+                edits: read_bytes(bytes, payload + 12, records_len)?,
+            },
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
