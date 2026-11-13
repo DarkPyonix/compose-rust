@@ -103,11 +103,24 @@ class MacosWindowBackend(
     override val supportsMultipleWindows: Boolean get() = true
 
     private val live = ArrayList<MacosPlatformWindow>()
+    private val byNode = HashMap<Int, MacosPlatformWindow>()
     private var turns: NSTimer? = null
     private var turning = false
 
     /** The windows that are open now, in the order they were opened. */
     val windows: List<PlatformWindow> get() = live.toList()
+
+    /**
+     * Where the pointer is on the screen and whether its primary button is held. The system's
+     * own answer, except in a test, which has no pointer to move and scripts one here.
+     */
+    internal var pointer: () -> ScreenPointer? = ::systemPointerOnScreen
+
+    /**
+     * How many pixels of the scene of the window of [nodeId] make one screen point: the
+     * backing scale of the screen the window is on, and 1 for a node with no window open.
+     */
+    fun contentScale(nodeId: Int): Float = byNode[nodeId]?.backingScale ?: 1f
 
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
         NSApplication.sharedApplication()
@@ -144,8 +157,13 @@ class MacosWindowBackend(
         }
         // After setContent: it hands the window's close, focus and event hooks to the scene's
         // own host, which closes the window when asked. Here the application is the one to ask.
-        val window = MacosPlatformWindow(created, frames, listener) { gone -> live.remove(gone); stopTurnsWhenIdle() }
+        val window = MacosPlatformWindow(created, frames, listener, { pointer() }) { gone ->
+            live.remove(gone)
+            if (byNode[config.nodeId] === gone) byNode.remove(config.nodeId)
+            stopTurnsWhenIdle()
+        }
         live += window
+        byNode[config.nodeId] = window
         if (!config.resizable) window.setResizable(false)
         if (config.colorScheme != ColorScheme.FollowSystem) window.setColorScheme(config.colorScheme)
         startTurns()
@@ -192,6 +210,7 @@ internal class MacosPlatformWindow(
     private val window: MacosWindow,
     private val frames: MacosSceneFrames,
     private var sink: PlatformWindowListener,
+    private val pointer: () -> ScreenPointer? = ::systemPointerOnScreen,
     private val onClosed: (MacosPlatformWindow) -> Unit,
 ) : PlatformWindow {
     private val native: NSWindow get() = window.window
@@ -205,6 +224,9 @@ internal class MacosPlatformWindow(
 
     /** The AppKit window, for a test that acts on it as a user would. */
     val nativeWindow: NSWindow get() = native
+
+    /** How many pixels the window's scene draws for one screen point. */
+    val backingScale: Float get() = if (closed) 1f else native.backingScaleFactor.toFloat()
 
     /** Whether the window's accessibility tree is active for external readers. */
     val accessibilityActive: Boolean get() = window.accessibilityActive
@@ -297,11 +319,7 @@ internal class MacosPlatformWindow(
 
     override val isKey: Boolean get() = !closed && native.keyWindow
 
-    override fun pointerOnScreen(): ScreenPointer? {
-        val primaryHeight = primaryScreenHeight()
-        val at = NSEvent.mouseLocation.useContents { flipPoint(x, y, primaryHeight) }
-        return ScreenPointer(at.first.toFloat(), at.second.toFloat(), primaryButtonDown(NSEvent.pressedMouseButtons))
-    }
+    override fun pointerOnScreen(): ScreenPointer? = pointer()
 
     override fun followPointer(anchorX: Float, anchorY: Float): Boolean {
         if (closed || follow != null) return false
@@ -442,6 +460,13 @@ internal class MacosApplicationDelegate : NSObject(), NSApplicationDelegateProto
     }
 
     override fun applicationShouldTerminateAfterLastWindowClosed(sender: NSApplication): Boolean = false
+}
+
+/** Where the system says the pointer is, in the renderer's screen space, and whether its primary button is held. */
+internal fun systemPointerOnScreen(): ScreenPointer? {
+    val primaryHeight = primaryScreenHeight()
+    val at = NSEvent.mouseLocation.useContents { flipPoint(x, y, primaryHeight) }
+    return ScreenPointer(at.first.toFloat(), at.second.toFloat(), primaryButtonDown(NSEvent.pressedMouseButtons))
 }
 
 /** The height of the primary screen, the one with the menu bar, which is the first of `NSScreen.screens`. */

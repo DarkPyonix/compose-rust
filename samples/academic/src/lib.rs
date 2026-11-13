@@ -636,6 +636,8 @@ fn launch_builder() -> LaunchBuilder {
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.academic")
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
             compose_rust::schema::Window::new()

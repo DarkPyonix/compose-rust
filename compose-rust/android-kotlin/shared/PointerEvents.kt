@@ -443,7 +443,17 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
 
     private val capturePointers = LongArray(MAX_POINTERS)
     private val captureNodes = arrayOfNulls<HostPointerNode>(MAX_POINTERS)
+
+    /** Each held pointer as the Host knows it: the `pointer_id` its records carry. */
+    private val captureWireIds = IntArray(MAX_POINTERS)
     private var captures = 0
+
+    /**
+     * Pointers whose press a torn-off window took over ([cancelPointer]). The node that held
+     * one has had its Cancel, so nothing more of that press is sent.
+     */
+    private val takenPointers = LongArray(MAX_POINTERS)
+    private var takenCount = 0
 
     /** Nodes with a move or a wheel waiting for the frame, innermost first. */
     private val pending = ArrayList<HostPointerNode>()
@@ -549,6 +559,7 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
     }
 
     private fun route(top: Int, event: PointerEvent, change: PointerInputChange) {
+        if (takenCount > 0 && isTaken(change.id.value) && swallowTaken(top, event, change)) return
         when (event.type) {
             PointerEventType.Press -> press(top, event, change)
             PointerEventType.Release -> release(top, event, change)
@@ -675,7 +686,7 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
 
     private fun hover(entry: HostPointerNode, change: PointerInputChange, event: PointerEvent, inside: Boolean) {
         entry.wantInside = inside
-        if (captures > 0) {
+        if (captures > 0 || takenCount > 0) {
             // A press holds the pointer. Who it is over is told when the press ends.
             entry.remember(change, event)
             if (!unsettled.contains(entry)) unsettled.add(entry)
@@ -696,7 +707,7 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
 
     /** Tells the nodes the pointer entered or left during a press, now that it is over. */
     private fun settle() {
-        if (captures > 0 || unsettled.isEmpty()) return
+        if (captures > 0 || takenCount > 0 || unsettled.isEmpty()) return
         var index = 0
         while (index < unsettled.size) {
             val entry = unsettled[index++]
@@ -748,7 +759,9 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
         node.wheelPending = false
         node.wheelX = 0f
         node.wheelY = 0f
-        pending.remove(node)
+        // A Host that answers a held Move by tearing a window off cancels from inside the
+        // flush that sent it. The flush is walking the list and empties it when it is done.
+        if (!flushing) pending.remove(node)
         unsettled.remove(node)
         releaseCapturesOf(node)
         for (index in 0 until longPressDepth) {
@@ -770,6 +783,93 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
             if (node.wants(PointerKind.Leave)) node.send(PointerKind.Leave)
         }
         settle()
+    }
+
+    /**
+     * A window was torn off under a held pointer and follows it from here on: the node that
+     * holds [pointerId] (the id its records carry, 1 for the mouse) is told once with a
+     * Cancel, and its press and capture end. Answers whether a node held it.
+     *
+     * The window the press began in goes on hearing that press from the system, its drags and
+     * its release. None of it is sent: after the Cancel there is no press for a Move or an Up
+     * to belong to.
+     */
+    fun cancelPointer(pointerId: Int): Boolean {
+        for (index in 0 until captures) {
+            if (captureWireIds[index] != pointerId) continue
+            val node = captureNodes[index] ?: continue
+            if (takenCount == takenPointers.size) removeTakenAt(0)
+            takenPointers[takenCount++] = capturePointers[index]
+            cancel(node)
+            return true
+        }
+        return false
+    }
+
+    /**
+     * What is left of a press a torn-off window took over. Answers true when the event was
+     * part of that press and has been dropped, and false when the press turns out to be over
+     * already, so the event is routed as any other.
+     *
+     * Where the pointer is goes on being kept, and is told as an Enter or a Leave once the
+     * button is let go, as after any press.
+     */
+    private fun swallowTaken(top: Int, event: PointerEvent, change: PointerInputChange): Boolean {
+        val pointer = change.id.value
+        val released = event.type == PointerEventType.Release && !change.pressed
+        // A button that is up, or a press that begins, with no release heard in between: the
+        // release went somewhere this tree did not hear it. The press is over all the same.
+        if (!released && (!change.pressed || change.changedToDownIgnoreConsumed())) {
+            releaseTaken(pointer)
+            settle()
+            return false
+        }
+        for (index in top downTo 0) {
+            val entry = stack[index] ?: continue
+            val own = entry.changeFor(pointer) ?: continue
+            val seen = entry.current ?: event
+            when (seen.type) {
+                PointerEventType.Enter -> hover(entry, own, seen, inside = true)
+                PointerEventType.Exit -> hover(entry, own, seen, inside = false)
+                else -> entry.remember(own, seen)
+            }
+        }
+        seenButtons = buttonsOf(event, change)
+        if (!released) return true
+        releaseTaken(pointer)
+        if (longPressPointer == pointer) disarmLongPress()
+        for (index in top downTo 0) {
+            val entry = stack[index] ?: continue
+            if (entry.changeFor(pointer) == null) continue
+            if (entry.pressed > 0) entry.pressed--
+            if (entry.insideWhilePressed && entry.pressed == 0) {
+                entry.insideWhilePressed = false
+                entry.inside = false
+                entry.wantInside = false
+                if (entry.wants(PointerKind.Leave)) entry.send(PointerKind.Leave)
+            }
+        }
+        settle()
+        return true
+    }
+
+    private fun isTaken(pointer: Long): Boolean {
+        for (index in 0 until takenCount) if (takenPointers[index] == pointer) return true
+        return false
+    }
+
+    private fun releaseTaken(pointer: Long) {
+        for (index in 0 until takenCount) {
+            if (takenPointers[index] == pointer) {
+                removeTakenAt(index)
+                return
+            }
+        }
+    }
+
+    private fun removeTakenAt(at: Int) {
+        for (index in at until takenCount - 1) takenPointers[index] = takenPointers[index + 1]
+        takenCount--
     }
 
     private fun countPress(deepest: HostPointerNode, change: PointerInputChange, button: Int): Int {
@@ -863,6 +963,7 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
         if (captures == MAX_POINTERS) removeCaptureAt(0)
         capturePointers[captures] = pointer
         captureNodes[captures] = node
+        captureWireIds[captures] = node.lastPointerId
         captures++
     }
 
@@ -891,6 +992,7 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
         for (index in at until captures - 1) {
             capturePointers[index] = capturePointers[index + 1]
             captureNodes[index] = captureNodes[index + 1]
+            captureWireIds[index] = captureWireIds[index + 1]
         }
         captures--
         captureNodes[captures] = null
