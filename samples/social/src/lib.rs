@@ -1,9 +1,10 @@
 //! A meditation app: a course of the day, shelves of courses, and sleep stories.
 //!
-//! Every card in the reference carries a drawn illustration, and now so does every card
-//! here: three original drawings in `assets/`, one per accent family, registered once and
-//! drawn by id. The card behind an illustration, the title on it and the row it sits in
-//! are still roles, so only the artwork carries colours of its own.
+//! Every card in the reference carries a drawn illustration, and so does every card here:
+//! three original drawings in `assets/`, one per accent family, registered once and drawn
+//! by id. Everything around them, the page, the ink, the badges and the bar, is named in
+//! `palette`, because the reference has a cream page, a deep plum ink and a navy night
+//! page that no design system's roles would give it.
 //!
 //! Unified, naming Cupertino and light: the reference is a cream page carrying
 //! illustrated cards. `THEME` says both.
@@ -12,16 +13,55 @@ mod courses;
 mod palette;
 
 use compose_rust::runtime::*;
+use compose_rust::schema::AssetKind;
 use compose_rust::ui::*;
-use courses::{Course, Shelf, course, on, sessions_label};
+use courses::{Course, Palette, Shelf, Slot, course, meta_label, on, sessions_label};
+use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
 const PAGE_MEASURE: f32 = 420.0;
 
-/// How large each picture is. Numbers, because these are the proportions of a picture.
-const HERO: (f32, f32) = (388.0, 240.0);
-const WIDE: (f32, f32) = (388.0, 180.0);
-const TILE: (f32, f32) = (186.0, 120.0);
+/// How tall each picture is. Numbers, because these are the proportions of a picture.
+///
+/// The hero runs edge to edge across the top of the first page. A tile is landscape on
+/// the course shelves and portrait on the sleep shelf, which is how the reference tells
+/// a story from a course at a glance.
+const HERO: f32 = 300.0;
+const WIDE: f32 = 240.0;
+const TILE: f32 = 120.0;
+const PORTRAIT: f32 = 200.0;
+
+/// How round the bottom of the hero is. Its top runs under the status bar, so only the
+/// two corners that stand on the page are rounded.
+const HERO_CORNER: f32 = 32.0;
+
+/// The round badges a card opens by: small on a tile, larger on a wide card.
+const BADGE: f32 = 36.0;
+const BADGE_LARGE: f32 = 44.0;
+
+/// How much room a destination along the bottom takes to press.
+const ICON_TAP: f32 = 44.0;
+
+/// The mark on every badge that opens something.
+const PLAY: &str = "\u{25b6}";
+
+/// The mark on a button that goes back.
+const BACK: &str = "\u{2190}";
+
+/// The icons along the bottom, as the bytes each registration carries: the meaning's wire
+/// tag, little endian, and nothing else.
+///
+/// An icon is a meaning rather than a picture. The Renderer holds the artwork for every
+/// design system, so the sample never says what a house looks like.
+mod icon {
+    use compose_rust::ui::IconRole;
+
+    pub static TODAY: [u8; 2] = (IconRole::Home as u16).to_le_bytes();
+    pub static MEDITATE: [u8; 2] = (IconRole::List as u16).to_le_bytes();
+    /// A collection of stories. There is no meaning for sleep or for a story, and
+    /// `Library` is the one that says "many of these, to pick from".
+    pub static SLEEP: [u8; 2] = (IconRole::Library as u16).to_le_bytes();
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Destination {
@@ -37,6 +77,8 @@ impl Destination {
         Destination::Sleep,
     ];
 
+    /// What the destination is called. Nothing on screen says it: the bar is three bare
+    /// icons. It names the screen you arrive at and it is what a test asks for.
     fn label(self) -> &'static str {
         match self {
             Destination::Today => "Today",
@@ -45,11 +87,11 @@ impl Destination {
         }
     }
 
-    fn icon(self) -> IconRole {
+    fn icon(self) -> &'static [u8] {
         match self {
-            Destination::Today => IconRole::Home,
-            Destination::Meditate => IconRole::List,
-            Destination::Sleep => IconRole::Inbox,
+            Destination::Today => &icon::TODAY,
+            Destination::Meditate => &icon::MEDITATE,
+            Destination::Sleep => &icon::SLEEP,
         }
     }
 
@@ -61,196 +103,374 @@ impl Destination {
         }
     }
 
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
+    /// Whether the page is the night one. The reference sets the sleep stories on navy
+    /// and everything else on cream.
+    fn is_night(self) -> bool {
+        self == Destination::Sleep
+    }
+
+    /// The ground the page and the bar under it stand on.
+    fn ground(self) -> Paint {
+        if self.is_night() {
+            palette::NIGHT
+        } else {
+            palette::PAGE
+        }
     }
 }
 
 /// The drawing a course's cards carry, registered once however many cards draw it.
 fn scene(found: &Course) -> u32 {
-    compose_rust::asset::asset(compose_rust::schema::AssetKind::Svg, found.palette.scene())
+    compose_rust::asset::asset(AssetKind::Svg, found.palette.scene())
 }
 
-/// The round play badge a card opens by.
-fn play_badge(id: u32, opened: MutableState<Option<u32>>) {
-    Button("\u{25b6}")
-        .variant(ButtonVariant::Filled)
+/// The soft dark wash a caption sits on inside a picture: clear at the top, the page's
+/// plum at the bottom. Registered once; every later call names the same brush.
+fn scrim() -> Paint {
+    brush(Brush::vertical(vec![
+        Stop::new(0.0, palette::SCRIM_TOP),
+        Stop::new(1.0, palette::SCRIM_BOTTOM),
+    ]))
+}
+
+/// The fill of the badge on a wide card, which in the reference takes the card's own
+/// family: a deep green on the green card, the coral heart on the pink one.
+fn wide_badge(family: Palette) -> Paint {
+    match family {
+        Palette::First => palette::DEEP_SAGE,
+        Palette::Second => palette::ACCENT,
+        Palette::Third => palette::BADGE,
+    }
+}
+
+/// The round badge a card opens by.
+///
+/// A text button with a literal fill rather than a filled one. A filled button draws its
+/// own container in the design system's accent, which comes out as the theme's blue over
+/// a picture whose badges are dark circles.
+fn play_badge(id: u32, size: f32, fill: Paint, opened: MutableState<Option<u32>>) {
+    Button(PLAY)
+        .variant(ButtonVariant::Text)
+        .color(palette::ON_ART)
         .modifier(
             Modifier
-                .shape_role(ShapeRole::Full)
-                .background(Paint::Literal(palette::SCRIM_BADGE)),
+                .size(size, size)
+                .background(fill)
+                .shape_role(ShapeRole::Full),
         )
-        .color(Paint::Literal(palette::ON_ART))
         .on_click(move || opened.set(Some(id)));
 }
 
-/// A card whose picture fills it, with a band along the bottom carrying the title.
+/// A round button that goes back, on a fill of its own.
+fn back_button(fill: Paint, on_click: Rc<dyn Fn()>) {
+    Button(BACK)
+        .variant(ButtonVariant::Text)
+        .color(palette::ON_ART)
+        .modifier(
+            Modifier
+                .size(BADGE_LARGE, BADGE_LARGE)
+                .background(fill)
+                .shape_role(ShapeRole::Full),
+        )
+        .on_click(move || on_click());
+}
+
+/// The title and the meta written on a picture.
+fn caption_on_art(found: &'static Course) {
+    Text(found.title)
+        .type_role(TypeRole::Subtitle)
+        .color(palette::ON_ART)
+        .max_lines(2)
+        .overflow(TextOverflow::Ellipsis);
+    Text(meta_label(found).to_uppercase())
+        .type_role(TypeRole::Caption)
+        .color(palette::ON_ART_MUTED);
+}
+
+/// The picture across the top of the first page, edge to edge.
 ///
-/// The band is the part worth explaining. The title used to sit straight on the scene in
-/// the ink the scene's family promised, which worked while the scene was drawn from that
-/// family: a role's ink is guaranteed to read on that role's fill, and both sides of the
-/// promise were roles. An illustration carries its own colours, so there is no longer a
-/// fill for an ink to be guaranteed against, and the title came out dark blue over a mid
-/// green field. It is readable in the way something you can work out is readable.
-///
-/// A reading surface under it puts both sides of the promise back. The reference does the
-/// same thing with a gradient scrim, which is the same idea drawn more softly than a
-/// closed drawing vocabulary can say.
+/// Its caption sits inside the picture on a soft wash, with the badge in front of the
+/// title, which is what the reference does with its course of the day.
 #[Composable]
-fn hero_card(found: &'static Course, size: (f32, f32), opened: MutableState<Option<u32>>) {
+fn hero_card(found: &'static Course, opened: MutableState<Option<u32>>) {
     Box()
         .modifier(
             Modifier
                 .fill_max_width()
-                .height(size.1)
+                .height(HERO)
+                .corner_radii([0.0, 0.0, HERO_CORNER, HERO_CORNER])
+                .clip(true),
+        )
+        .alignment(Alignment::BottomStart)
+        .content(|| {
+            Image(scene(found)).modifier(Modifier.fill_max_size());
+            Box()
+                .modifier(
+                    Modifier
+                        .fill_max_width()
+                        .height(HERO / 2.0)
+                        .background(scrim()),
+                )
+                .content(|| {});
+            Row()
+                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    play_badge(found.id, BADGE_LARGE, palette::BADGE, opened);
+                    Column()
+                        .modifier(Modifier.weight(1.0))
+                        .content(|| caption_on_art(found));
+                });
+        });
+}
+
+/// A card given a whole row: the picture, and its caption written on it.
+///
+/// On the course shelves the caption is written on the picture with the badge at the
+/// far end, in the card's own family. On the sleep shelf the reference treats the wide
+/// card like the tiles around it: a badge on the picture and the title under it.
+#[Composable]
+fn wide_card(found: &'static Course, night: bool, opened: MutableState<Option<u32>>) {
+    if night {
+        story_card(found, WIDE, opened);
+        return;
+    }
+    Box()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .height(WIDE)
                 .shape_role(ShapeRole::Large),
         )
         .alignment(Alignment::BottomStart)
         .content(|| {
             Image(scene(found)).modifier(Modifier.fill_max_size());
-            // The caption sits inside the picture rather than in a strip under it, over
-            // a band of the page's own ink. That is what the reference does, and it is
-            // what makes the card one thing instead of a photograph with a label stuck
-            // to the bottom of it.
-            Row()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(Paint::Literal(palette::SCRIM))
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    play_badge(found.id, opened);
-                    Column().modifier(Modifier.weight(1.0)).content(|| {
-                        Text(found.title)
-                            .type_role(TypeRole::Subtitle)
-                            .color(Paint::Literal(palette::ON_ART))
-                            .max_lines(2)
-                            .overflow(TextOverflow::Ellipsis);
-                        Text(sessions_label(found).to_uppercase())
-                            .type_role(TypeRole::Caption)
-                            .color(Paint::Literal(palette::ON_ART_MUTED));
-                    });
-                });
-        });
-}
-
-/// A small card: the picture, then the title under it.
-#[Composable]
-fn tile_card(found: &'static Course, opened: MutableState<Option<u32>>) {
-    Column()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
-            // The badge is how a card opens, and where the reference puts it: a round
-            // play button standing on the illustration's lower left rather than a link
-            // underneath in the design system's accent.
             Box()
                 .modifier(
                     Modifier
                         .fill_max_width()
-                        .height(TILE.1)
-                        .shape_role(ShapeRole::Medium),
+                        .height(WIDE / 2.0)
+                        .background(scrim()),
                 )
-                .alignment(Alignment::BottomStart)
+                .content(|| {});
+            Row()
+                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
                 .content(|| {
-                    Image(scene(found)).modifier(Modifier.fill_max_size());
-                    play_badge(found.id, opened);
+                    Column()
+                        .modifier(Modifier.weight(1.0))
+                        .content(|| caption_on_art(found));
+                    play_badge(found.id, BADGE_LARGE, wide_badge(found.palette), opened);
                 });
-            // The meta reads above the title, uppercase and in the quiet green the
-            // reference uses for it. Under the title it would read as a footnote; above
-            // it, it is the label the card is filed under, which is what it is.
-            Text(sessions_label(found).to_uppercase())
-                .type_role(TypeRole::Caption)
-                .color(Paint::Literal(palette::META));
+        });
+}
+
+/// A picture with its badge in the lower left, at some height.
+fn picture_with_badge(found: &'static Course, height: f32, opened: MutableState<Option<u32>>) {
+    Box()
+        .modifier(
+            Modifier
+                .fill_max_width()
+                .height(height)
+                .shape_role(ShapeRole::Medium),
+        )
+        .alignment(Alignment::BottomStart)
+        .content(|| {
+            Image(scene(found)).modifier(Modifier.fill_max_size());
+            Box()
+                .modifier(Modifier.padding_role(SpaceRole::Sm))
+                .content(|| play_badge(found.id, BADGE, palette::BADGE, opened));
+        });
+}
+
+/// A story on the night page: the picture, then the title in white and the length under
+/// it, which is the order the reference uses there.
+#[Composable]
+fn story_card(found: &'static Course, height: f32, opened: MutableState<Option<u32>>) {
+    Column()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Xs)
+        .content(|| {
+            picture_with_badge(found, height, opened);
             Text(found.title)
                 .type_role(TypeRole::Body)
-                .color(Paint::Literal(palette::INK))
+                .color(palette::ON_ART)
+                .max_lines(2)
+                .overflow(TextOverflow::Ellipsis);
+            Text(meta_label(found).to_uppercase())
+                .type_role(TypeRole::Caption)
+                .color(palette::ON_ART_MUTED);
+        });
+}
+
+/// A course on a cream page: the picture, then the meta above the title.
+///
+/// The meta reads above the title, uppercase and in the quiet green the reference uses
+/// for it. Under the title it would read as a footnote; above it, it is the label the
+/// card is filed under, which is what it is.
+#[Composable]
+fn tile_card(found: &'static Course, night: bool, opened: MutableState<Option<u32>>) {
+    if night {
+        story_card(found, PORTRAIT, opened);
+        return;
+    }
+    Column()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Xs)
+        .content(|| {
+            picture_with_badge(found, TILE, opened);
+            Text(meta_label(found).to_uppercase())
+                .type_role(TypeRole::Caption)
+                .color(palette::META);
+            Text(found.title)
+                .type_role(TypeRole::Body)
+                .color(palette::INK)
                 .max_lines(2)
                 .overflow(TextOverflow::Ellipsis);
         });
 }
 
-/// A shelf of small cards, two to a row.
+/// A row of two small cards.
 ///
 /// Two, because there is no wrapping row in the vocabulary: a grid is rows of a fixed
 /// count and the code says how many rather than the layout working it out from the width.
 #[Composable]
-fn grid(items: Vec<&'static Course>, opened: MutableState<Option<u32>>) {
-    Column()
+fn tile_row(row: Vec<&'static Course>, night: bool, opened: MutableState<Option<u32>>) {
+    Row()
         .modifier(Modifier.fill_max_width())
         .space_role(SpaceRole::Md)
+        .alignment(Alignment::TopStart)
         .content(|| {
-            for (index, row) in items.chunks(2).enumerate() {
-                key(index, || {
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Md)
-                        .alignment(Alignment::TopStart)
-                        .content(|| {
-                            for found in row.iter().copied() {
-                                key(found.id, || {
-                                    Box()
-                                        .modifier(Modifier.weight(1.0))
-                                        .content(|| tile_card(found, opened));
-                                });
-                            }
-                            // An odd shelf leaves a gap rather than letting the last card
-                            // stretch to twice the width of its neighbours, which reads as
-                            // a different kind of card.
-                            if row.len() == 1 {
-                                Spacer().modifier(Modifier.weight(1.0));
-                            }
-                        });
+            for found in row.iter().copied() {
+                key(found.id, || {
+                    Box()
+                        .modifier(Modifier.weight(1.0))
+                        .content(|| tile_card(found, night, opened));
                 });
+            }
+            // An odd shelf leaves a gap rather than letting the last card stretch to
+            // twice the width of its neighbours, which reads as a different kind of card.
+            if row.len() == 1 {
+                Spacer().modifier(Modifier.weight(1.0));
             }
         });
 }
 
-/// The page a destination shows: a hero, then its shelf.
+/// What a shelf is drawn as: its cards in order, tiles gathered two to a row.
+enum Block {
+    Heading(&'static str),
+    Hero(&'static Course),
+    Tiles(Vec<&'static Course>),
+    Wide(&'static Course),
+}
+
+/// The shelf, cut into what is drawn.
+///
+/// Each course is placed once, where its slot says. The shelf used to take a hero, the
+/// rest as the grid, and the last again as the wide card, so the last course of every
+/// shelf was on screen twice.
+fn blocks(shelf: Shelf) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    for found in on(shelf) {
+        if let Some(heading) = found.heading {
+            blocks.push(Block::Heading(heading));
+        }
+        match found.slot {
+            Slot::Hero => blocks.push(Block::Hero(found)),
+            Slot::Wide => blocks.push(Block::Wide(found)),
+            Slot::Tile => match blocks.last_mut() {
+                Some(Block::Tiles(row)) if row.len() < 2 => row.push(found),
+                _ => blocks.push(Block::Tiles(vec![found])),
+            },
+        }
+    }
+    blocks
+}
+
+/// The headline at the top of a page, and the line under it if it has one.
+#[Composable]
+fn page_header(
+    destination: Destination,
+    pick: MutableState<Destination>,
+    heading: &'static str,
+    strapline: Option<&'static str>,
+) {
+    let night = destination.is_night();
+    let ink = if night { palette::ON_ART } else { palette::INK };
+    Row()
+        .modifier(Modifier.fill_max_width())
+        .space_role(SpaceRole::Md)
+        .alignment(Alignment::CenterStart)
+        .content(|| {
+            // The night page is one you arrive at from the others, and the reference
+            // gives it a round way back beside its title.
+            if night {
+                back_button(
+                    palette::NIGHT_RAISED,
+                    Rc::new(move || pick.set(Destination::Today)),
+                );
+            }
+            Column()
+                .modifier(Modifier.weight(1.0))
+                .space_role(SpaceRole::Xs)
+                .content(|| {
+                    Text(heading).type_role(TypeRole::Headline).color(ink);
+                    if let Some(strapline) = strapline {
+                        Text(strapline)
+                            .type_role(TypeRole::Body)
+                            .color(palette::MUTED);
+                    }
+                });
+        });
+}
+
+/// The page a destination shows, in the order the reference draws it.
 #[Composable]
 fn shelf_page(
     destination: Destination,
-    heading: &'static str,
-    strapline: &'static str,
+    pick: MutableState<Destination>,
     opened: MutableState<Option<u32>>,
 ) {
-    let items = on(destination.shelf());
-    let (hero, rest) = items.split_first().expect("every shelf has a course on it");
-    let (hero, rest, last) = (*hero, rest.to_vec(), items[items.len() - 1]);
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Xs)
-                .content(|| {
-                    Text(heading).type_role(TypeRole::Headline);
-                    Text(strapline)
-                        .type_role(TypeRole::Body)
-                        .color(Paint::Literal(palette::MUTED));
-                });
-
-            hero_card(hero, HERO, opened);
-
-            Text("Recommended for you")
-                .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
-            grid(rest, opened);
-
-            // The wide card the reference ends each shelf with: one course, given the
-            // whole width, because a shelf that is all the same size has no shape.
-            Text("Recommended category")
-                .type_role(TypeRole::Label)
-                .color(Paint::Literal(palette::MUTED));
-            hero_card(last, WIDE, opened);
-        });
+    let night = destination.is_night();
+    let blocks = blocks(destination.shelf());
+    // The first page has no headline: it opens on its hero, edge to edge, and the hero is
+    // outside the page's margins.
+    let header = match destination {
+        Destination::Today => None,
+        Destination::Meditate => {
+            Some(("Meditate", Some("Meditation for beginners and experienced")))
+        }
+        Destination::Sleep => Some(("Sleep stories", None)),
+    };
+    Column().modifier(Modifier.fill_max_width()).content(|| {
+        for block in &blocks {
+            if let Block::Hero(found) = block {
+                hero_card(found, opened);
+            }
+        }
+        Column()
+            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
+            .space_role(SpaceRole::Md)
+            .content(|| {
+                if let Some((heading, strapline)) = header {
+                    page_header(destination, pick, heading, strapline);
+                }
+                for (index, block) in blocks.iter().enumerate() {
+                    key(index, || match block {
+                        Block::Hero(_) => {}
+                        Block::Heading(text) => {
+                            Text(*text)
+                                .type_role(TypeRole::Subtitle)
+                                .color(palette::INK);
+                        }
+                        Block::Tiles(row) => tile_row(row.clone(), night, opened),
+                        Block::Wide(found) => wide_card(found, night, opened),
+                    });
+                }
+            });
+    });
 }
 
 /// One course opened: its picture, what it is, and its sessions.
@@ -258,22 +478,20 @@ fn shelf_page(
 fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
     let (strong, quiet, ink) = found.palette.roles();
     Column()
-        .modifier(Modifier.fill_max_size().background(Paint::Literal(quiet)))
+        .modifier(Modifier.fill_max_size().background(quiet))
         .content(|| {
             Box()
-                .modifier(Modifier.fill_max_width().height(HERO.1))
+                .modifier(Modifier.fill_max_width().height(HERO))
                 .alignment(Alignment::TopStart)
                 .content(|| {
                     Image(scene(found)).modifier(Modifier.fill_max_size());
-                    // Tonal rather than text, because this one sits on the illustration. A
-                    // tonal fill is the one variant that promises to stay clear of whatever
-                    // is behind it, which is what a control over a picture needs; a text
-                    // button takes a colour chosen to read on a role's fill, and the
-                    // picture is not that fill.
-                    let back = opened;
-                    Button("\u{2190}")
-                        .variant(ButtonVariant::Tonal)
-                        .on_click(move || back.set(None));
+                    // A round dark button on the picture, like every other control the
+                    // reference stands on an illustration.
+                    Box()
+                        .modifier(Modifier.padding_role(SpaceRole::Md))
+                        .content(|| {
+                            back_button(palette::BADGE, Rc::new(move || opened.set(None)));
+                        });
                 });
 
             Column()
@@ -281,16 +499,14 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                     Modifier
                         .fill_max_width()
                         .weight(1.0)
-                        .padding_role(SpaceRole::Md),
+                        .padding_role(SpaceRole::Lg),
                 )
                 .space_role(SpaceRole::Md)
                 .content(|| {
-                    Text(found.title)
-                        .type_role(TypeRole::Headline)
-                        .color(Paint::Literal(ink));
+                    Text(found.title).type_role(TypeRole::Headline).color(ink);
                     Text(sessions_label(found))
                         .type_role(TypeRole::Body)
-                        .color(Paint::Literal(ink));
+                        .color(palette::MUTED);
                     Column()
                         .modifier(Modifier.fill_max_width())
                         .space_role(SpaceRole::Sm)
@@ -301,7 +517,7 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                                         .modifier(
                                             Modifier
                                                 .fill_max_width()
-                                                .background(Paint::Literal(palette::CARD))
+                                                .background(palette::CARD)
                                                 .shape_role(ShapeRole::Medium)
                                                 .padding_role(SpaceRole::Md),
                                         )
@@ -310,22 +526,85 @@ fn course_page(found: &'static Course, opened: MutableState<Option<u32>>) {
                                         .content(|| {
                                             Text(format!("Session {number}"))
                                                 .type_role(TypeRole::Body)
+                                                .color(ink)
                                                 .modifier(Modifier.weight(1.0));
                                             Text(format!("{} min", found.minutes))
                                                 .type_role(TypeRole::Caption)
-                                                .color(Paint::Literal(palette::MUTED));
+                                                .color(palette::MUTED);
                                         });
                                 });
                             }
                         });
                     Spacer().modifier(Modifier.weight(1.0));
+                    // A text button on a literal fill, for the same reason the badges are:
+                    // a filled button would be the theme's blue.
                     Button("Begin")
-                        .modifier(Modifier.fill_max_width().background(Paint::Literal(strong)))
-                        .variant(ButtonVariant::Filled)
+                        .variant(ButtonVariant::Text)
+                        .color(palette::ON_ART)
+                        .modifier(
+                            Modifier
+                                .fill_max_width()
+                                .background(strong)
+                                .shape_role(ShapeRole::Full),
+                        )
                         .on_click(|| {
                             Message::new("Playback is not part of this sample").show();
                         });
                 });
+        });
+}
+
+/// A destination along the bottom: its icon, and a press over it.
+///
+/// The button carries no text and sits over the icon, so the press lands on it whatever
+/// was drawn underneath.
+fn icon_button(picture: &'static [u8], tint: Paint, on_click: Rc<dyn Fn()>) {
+    Box()
+        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+        .alignment(Alignment::Center)
+        .content(|| {
+            Icon(compose_rust::asset::asset(AssetKind::VectorIcon, picture)).color(tint);
+            let press = Rc::clone(&on_click);
+            Button("")
+                .variant(ButtonVariant::Text)
+                .modifier(Modifier.fill_max_size())
+                .on_click(move || press());
+        });
+}
+
+/// The bar along the bottom: three icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled bar with a selection pill under a hairline, a rail, or a drawer. The
+/// reference draws none of those. A meditation app's bar is a few bare icons on the page,
+/// the one you are on in the coral the reference marks things with, and that is a shape
+/// no design system would be right to give a set of destinations.
+#[Composable]
+fn bottom_bar(destination: Destination, on_go: Rc<dyn Fn(Destination)>) {
+    let rest = if destination.is_night() {
+        palette::ON_ART_MUTED
+    } else {
+        palette::MUTED
+    };
+    Row()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                let tint = if choice == destination {
+                    palette::ACCENT
+                } else {
+                    rest
+                };
+                key(choice.label(), || {
+                    Box().content(|| {
+                        let go = Rc::clone(&on_go);
+                        icon_button(choice.icon(), tint, Rc::new(move || go(choice)));
+                    });
+                });
+            }
         });
 }
 
@@ -343,10 +622,12 @@ pub fn app() {
     let opened = remember(|| mutable_state_of(Option::<u32>::None));
 
     // A course covers everything, including the bar along the bottom. A course whose only
-    // way out is its own back button should not also have three other ways out.
+    // way out is its own back button should not also have three other ways out. The page
+    // around the measure is cream too, so a wide window does not show the toolkit's own
+    // background either side of it.
     if let Some(found) = opened.get().and_then(course) {
         Box()
-            .modifier(Modifier.fill_max_size())
+            .modifier(Modifier.fill_max_size().background(palette::PAGE))
             .alignment(Alignment::TopCenter)
             .content(|| {
                 Column()
@@ -362,33 +643,32 @@ pub fn app() {
     }
 
     let chosen = destination.get();
+    let ground = chosen.ground();
 
-    // The frame is named rather than built. Which of a bar, a rail or a drawer the
-    // destinations become, and where the page sits beside them, are answers this screen
-    // never has to know.
+    // The bar stays along the bottom at every width, under the same measure as the page,
+    // because the reference is a phone and a phone's bar does not become a rail.
     Scaffold()
+        .modifier(Modifier.background(ground))
         .bottom_bar(|| {
-            Navigation(chosen.index()).content(|| {
-                for choice in Destination::STRIP {
-                    let pick = destination;
-                    key(choice.label(), || {
-                        NavigationItem(choice.label())
-                            // The reference's bar is the page's own ink rather than an
-                            // accent.
-                            .color(Paint::Literal(palette::INK))
-                            .icon(choice.icon())
-                            .on_click(move || pick.set(choice));
-                    });
-                }
-            });
+            Box()
+                .modifier(Modifier.fill_max_width().background(ground))
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
+                        .content(|| {
+                            let go = destination;
+                            bottom_bar(chosen, Rc::new(move |choice| go.set(choice)));
+                        });
+                });
         })
         .content(|| {
             Column()
-                .modifier(
-                    Modifier
-                        .fill_max_size()
-                        .background(Paint::Literal(palette::PAGE)),
-                )
+                .modifier(Modifier.fill_max_size().background(ground))
                 .content(|| {
                     Box()
                         .modifier(Modifier.fill_max_size())
@@ -401,27 +681,7 @@ pub fn app() {
                                         .fill_max_width_if(measure.is_none())
                                         .fill_max_height(),
                                 )
-                                .content(|| match chosen {
-                                    Destination::Today => shelf_page(
-                                        Destination::Today,
-                                        "Good evening",
-                                        "Three minutes is enough to start with.",
-                                        opened,
-                                    ),
-                                    Destination::Meditate => shelf_page(
-                                        Destination::Meditate,
-                                        "Meditate",
-                                        "Meditation for beginners and for people who have \
-                                         been at it a while.",
-                                        opened,
-                                    ),
-                                    Destination::Sleep => shelf_page(
-                                        Destination::Sleep,
-                                        "Sleep stories",
-                                        "Something to listen to on the way down.",
-                                        opened,
-                                    ),
-                                });
+                                .content(|| shelf_page(chosen, destination, opened));
                         });
                 });
         });
@@ -454,6 +714,8 @@ fn launch_builder() -> LaunchBuilder {
     // The name the window carries. A desktop lists windows by it, so a window that said
     // nothing was listed under whatever the renderer happened to be called.
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.social")
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
             compose_rust::schema::Window::new()
@@ -482,12 +744,71 @@ mod tests {
     use super::*;
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, Modifier as WireModifier, PropertyKind, WidgetKind};
     use courses::COURSES;
 
-    /// The mark on the badge that opens a course. Named because two tests press it and a
-    /// glyph nobody types is not something to spell twice.
-    const PLAY: &str = "\u{25b6}";
+    /// The node and the handler that press the destination drawn with this icon.
+    ///
+    /// The bar has no words on it, so a destination is found by what the reader sees: the
+    /// icon registered with this meaning, the node drawing it, and the button that shares
+    /// its box.
+    fn destination_press(mutations: &[Mutation<'_>], choice: Destination) -> Option<(u32, u64)> {
+        let tag = choice.icon();
+        let asset_id = mutations.iter().find_map(|mutation| match mutation {
+            Mutation::RegisterAsset {
+                asset_id,
+                kind: AssetKind::VectorIcon,
+                bytes,
+            } if *bytes == tag => Some(*asset_id),
+            _ => None,
+        })?;
+        let icon = mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Asset,
+                value: PropertyValue::Integer(id),
+            } if *id as u32 == asset_id => Some(*node_id),
+            _ => None,
+        })?;
+        let parent = mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::Insert {
+                parent_id, node_id, ..
+            } if *node_id == icon => Some(*parent_id),
+            _ => None,
+        })?;
+        let siblings: Vec<u32> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *parent_id == parent && *node_id != icon => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        mutations.iter().rev().find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::OnClick,
+                value: PropertyValue::Integer(handler),
+            } if siblings.contains(node_id) => Some((*node_id, *handler as u64)),
+            _ => None,
+        })
+    }
+
+    /// Presses a destination on a recording, which is how a screenshot reaches a page
+    /// other than the first.
+    fn go_to(screen: &mut sample_frames::Screen, choice: Destination) -> bool {
+        let found = destination_press(&screen.live_mutations(), choice);
+        let Some((node_id, handler_id)) = found else {
+            return false;
+        };
+        screen.dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::Clicked,
+        });
+        true
+    }
 
     /// Named for what it defends: the reference is a light design, and a machine set
     /// the other way drew this sample dark with nothing to compare against.
@@ -536,6 +857,28 @@ mod tests {
                 .collect()
         }
 
+        /// Presses a destination along the bottom, which is an icon with nothing written
+        /// under it.
+        fn press_destination(&mut self, choice: Destination) -> bool {
+            let found = destination_press(&sample_frames::live(self.mutations()), choice);
+            let Some((node_id, handler_id)) = found else {
+                return false;
+            };
+            let (batch, _) = self
+                .host
+                .dispatch(HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Clicked,
+                })
+                .expect("the click failed");
+            if !batch.is_empty() {
+                let batch = batch.to_vec();
+                self.frames.push(batch);
+            }
+            true
+        }
+
         fn press(&mut self, label: &str) -> bool {
             let found = {
                 let mutations = self.mutations();
@@ -576,6 +919,27 @@ mod tests {
             true
         }
 
+        /// The words on screen now, one per text node.
+        ///
+        /// Only the live nodes, and only the latest words each one carries: a node that
+        /// was given new words keeps its old record in the run, and counting that would
+        /// count something nobody can see.
+        fn live_texts(&self) -> Vec<String> {
+            let mut texts: Vec<(u32, String)> = Vec::new();
+            for mutation in sample_frames::live(self.mutations()) {
+                if let Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Text,
+                    value: PropertyValue::String(text),
+                } = mutation
+                {
+                    texts.retain(|(node, _)| *node != node_id);
+                    texts.push((node_id, text.to_owned()));
+                }
+            }
+            texts.into_iter().map(|(_, text)| text).collect()
+        }
+
         fn latest_texts(&self) -> Vec<String> {
             let Some(frame) = self.frames.last() else {
                 return Vec::new();
@@ -602,14 +966,232 @@ mod tests {
     }
 
     /// Every destination has to encode, not just the one the app opens on.
+    ///
+    /// Pressed by its icon, because the bar has no words on it.
     #[test]
     fn fr15_every_destination_encodes() {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
-                screen.press(choice.label()),
-                "the bar has no destination called {}",
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
                 choice.label()
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The bar is the sample's own: icons, and not a word or a design system's bar.
+    ///
+    /// Named for what it defends: the bar was a `Navigation`, which the active design
+    /// system draws as a labelled bar with a selection pill, and as a rail or a drawer
+    /// once the window widens. The reference has none of those.
+    #[test]
+    fn fr22_the_bar_is_icons_and_nothing_else() {
+        let mut screen = Screen::new();
+        // The first page has no headline, so any destination's name on it is the bar's.
+        for choice in Destination::STRIP {
+            assert!(
+                !screen
+                    .live_texts()
+                    .iter()
+                    .any(|text| text == choice.label()),
+                "the bar writes {} under its icon",
+                choice.label()
+            );
+        }
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let mutations = sample_frames::live(screen.mutations());
+            assert!(
+                !mutations.iter().any(|mutation| matches!(
+                    mutation,
+                    Mutation::Create {
+                        widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                        ..
+                    }
+                )),
+                "the bar is the design system's again"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The destination you are on is the one icon in the accent, and it moves when you
+    /// go somewhere else.
+    #[test]
+    fn fr22_the_selected_destination_is_drawn_in_the_accent() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let mutations = sample_frames::live(screen.mutations());
+            let mut tints: Vec<(u32, Paint)> = Vec::new();
+            for mutation in &mutations {
+                let Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                } = mutation
+                else {
+                    continue;
+                };
+                let Some(paint) = Paint::from_bits(*bits as u64) else {
+                    continue;
+                };
+                tints.retain(|(node, _)| node != node_id);
+                tints.push((*node_id, paint));
+            }
+            let accented: Vec<u32> = tints
+                .iter()
+                .filter(|(_, paint)| *paint == palette::ACCENT)
+                .map(|(node, _)| *node)
+                .collect();
+            assert_eq!(
+                accented.len(),
+                1,
+                "on {} the accent marks {} things rather than the destination you are on",
+                choice.label(),
+                accented.len()
+            );
+            let (pressed, _) = destination_press(&mutations, choice).expect("the bar lost an icon");
+            let icon = mutations.iter().find_map(|mutation| match mutation {
+                Mutation::Insert {
+                    parent_id, node_id, ..
+                } if *node_id != pressed && accented.contains(node_id) => Some(*parent_id),
+                _ => None,
+            });
+            let beside = mutations.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::Insert { parent_id, node_id, .. }
+                        if *node_id == pressed && Some(*parent_id) == icon
+                )
+            });
+            assert!(
+                beside,
+                "on {} the accent is on some other destination",
+                choice.label()
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Every course on a shelf is drawn once.
+    ///
+    /// Named for what it defends: the shelf took everything after its hero as the grid
+    /// and then drew the last course again as the wide card, so the third course of every
+    /// shelf was on screen twice.
+    #[test]
+    fn fr22_no_course_is_drawn_twice_on_its_shelf() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let texts = screen.live_texts();
+            for found in on(choice.shelf()) {
+                let times = texts.iter().filter(|text| *text == found.title).count();
+                assert_eq!(
+                    times,
+                    1,
+                    "{} is drawn {times} times on the {} shelf",
+                    found.title,
+                    choice.label()
+                );
+            }
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The fills on screen now, one per node: the latest each live node was given.
+    fn live_fills(mutations: &[Mutation<'_>]) -> Vec<Paint> {
+        let mut fills: Vec<(u32, Paint)> = Vec::new();
+        for mutation in mutations {
+            let Mutation::SetModifier {
+                node_id,
+                modifier: WireModifier::Background(paint),
+                ..
+            } = mutation
+            else {
+                continue;
+            };
+            fills.retain(|(node, _)| node != node_id);
+            fills.push((*node_id, *paint));
+        }
+        fills.into_iter().map(|(_, paint)| paint).collect()
+    }
+
+    /// The sleep stories stand on the night page, and the others on cream.
+    ///
+    /// Named for what it defends: every destination was drawn on the same cream page,
+    /// and the reference's sleep stories are on dark navy with white titles.
+    #[test]
+    fn fr22_the_sleep_stories_are_on_the_night_page() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+            let fills = live_fills(&sample_frames::live(screen.mutations()));
+            let (wanted, unwanted) = if choice == Destination::Sleep {
+                (palette::NIGHT, palette::PAGE)
+            } else {
+                (palette::PAGE, palette::NIGHT)
+            };
+            assert!(
+                fills.contains(&wanted),
+                "{} is not on its page: {fills:?}",
+                choice.label()
+            );
+            assert!(
+                !fills.contains(&unwanted),
+                "{} has the other page's ground in it: {fills:?}",
+                choice.label()
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// Nothing on any page is painted by the design system.
+    ///
+    /// Named for what it defends: a unified sample names its reference's colours, so a
+    /// fill that is a role is the active design system's colour on a picture that never
+    /// had it. A brush is allowed: the wash under a caption is one, made of literals.
+    #[test]
+    fn fr22_nothing_on_the_screen_is_painted_by_a_role() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_destination(choice),
+                "the bar has no icon for {}",
+                choice.label()
+            );
+        }
+        assert!(screen.press(PLAY), "no card opens");
+        for mutation in screen.mutations() {
+            let Mutation::SetModifier {
+                node_id,
+                modifier: WireModifier::Background(paint) | WireModifier::Border { paint, .. },
+                ..
+            } = mutation
+            else {
+                continue;
+            };
+            assert!(
+                !matches!(paint, Paint::Role(_)),
+                "node {node_id} is filled with {paint:?}, which the design system picks"
             );
         }
         compose_rust::window::reset_window_size();
@@ -631,7 +1213,11 @@ mod tests {
         let registered: Vec<u32> = mutations
             .iter()
             .filter_map(|mutation| match mutation {
-                Mutation::RegisterAsset { asset_id, .. } => Some(*asset_id),
+                Mutation::RegisterAsset {
+                    asset_id,
+                    kind: AssetKind::Svg,
+                    ..
+                } => Some(*asset_id),
                 _ => None,
             })
             .collect();
@@ -689,12 +1275,12 @@ mod tests {
                 .any(|text| text.starts_with("Session ")),
             "opening a course did not bring up its sessions"
         );
-        assert!(screen.press("\u{2190}"), "the course has no way back");
+        assert!(screen.press(BACK), "the course has no way back");
         assert!(
             screen
                 .latest_texts()
                 .iter()
-                .any(|text| text == "Good evening"),
+                .any(|text| text == "Courses just for you"),
             "closing the course did not bring the shelf back"
         );
         compose_rust::window::reset_window_size();
@@ -721,8 +1307,8 @@ mod tests {
         );
     }
 
-    /// The sleep shelf, which the reference draws on a dark page: a different set of
-    /// pictures and the one place the cards are all the same shape.
+    /// The sleep shelf, which the reference draws on a dark navy page with portrait
+    /// cards and a round way back beside its title.
     #[test]
     fn fr16_the_sleep_shelf_is_recorded() {
         sample_frames::record_as(
@@ -731,7 +1317,7 @@ mod tests {
             app,
             |screen| {
                 assert!(
-                    screen.press(Destination::Sleep.label()),
+                    go_to(screen, Destination::Sleep),
                     "the bar has no way to the sleep stories"
                 );
             },

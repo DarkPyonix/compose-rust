@@ -20,6 +20,10 @@ pub const STATUS_PANIC: i32 = -4;
 /// There is no renderer in this build to run. Returned by the loop entry point, never by
 /// a boundary call: a call could not have got this far without a renderer to make it.
 pub const STATUS_NO_RENDERER: i32 = -5;
+/// The application identifier given to `LaunchBuilder::identifier` breaks the rules for one,
+/// so nothing was started. Returned by the loop entry point, never by a boundary call, and
+/// said in a sentence on the standard error first.
+pub const STATUS_INVALID_IDENTIFIER: i32 = -6;
 
 /// What the process exits with when the renderer loop does not finish successfully.
 ///
@@ -347,6 +351,8 @@ impl Host {
         // the one replacing it, out of any context that made them make sense.
         //
         crate::message::reset_messages();
+        // A clipboard write is the same: it belongs to the Host that asked for it.
+        crate::clipboard::reset_clipboard();
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
@@ -588,6 +594,94 @@ impl Host {
         self.render_and_finish(0)
     }
 
+    /// Hands what a clipboard read found to the callback that asked for it.
+    ///
+    /// No node and no handler, like a file dialog's end: the request number names the
+    /// callback, and an answer nobody is waiting for is dropped.
+    fn clipboard_text(
+        &mut self,
+        request: u32,
+        status: u32,
+        len: u32,
+        text: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::clipboard::deliver_read(request, status, len, text)
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands the Renderer's answer to whoever asked for it: an operation on a file picked on
+    /// the web when the request number has its top bit set, a storage operation otherwise.
+    ///
+    /// The future that waits for it wakes here, and what the code awaiting it changes is
+    /// in the batch this call returns. An answer nobody is waiting for any more is dropped.
+    fn io_answer(
+        &mut self,
+        request: u32,
+        status: crate::schema::IoStatus,
+        data: &[u8],
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut awaited = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                // File operations number their requests with the top bit set and storage
+                // never does, so the number alone says whose answer this is.
+                awaited = if request & crate::picked_file::REQUEST_BIT != 0 {
+                    crate::picked_file::deliver_io(request, status, data)
+                } else {
+                    crate::storage::deliver_answer(request, status, data)
+                }
+            });
+        }
+        if !awaited {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
+    /// Hands files the Renderer now holds handles for to whoever asked: a folder's listing or
+    /// child, or a file dialog, which receives them as `webfile:` references.
+    #[allow(clippy::too_many_arguments)]
+    fn file_handles(
+        &mut self,
+        request: u32,
+        status: crate::schema::FileDialogStatus,
+        filter: u32,
+        delivery: crate::schema::FileDelivery,
+        first_handle: u32,
+        names: &str,
+        kinds: &str,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        let mut delivered = false;
+        {
+            let _dispatch_guard = EventDispatchGuard::enter();
+            self.runtime.run_in_context(&mut || {
+                delivered = crate::picked_file::deliver_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                )
+            });
+        }
+        if !delivered {
+            return self.empty_batch();
+        }
+        self.render_and_finish(0)
+    }
+
     /// Tells the components that listen that the application was opened with no window.
     fn application_reopen(&mut self) -> Result<(&[u8], i64), ProtocolError> {
         let mut delivered = false;
@@ -713,6 +807,62 @@ impl Host {
                     return Err(ProtocolError::InvalidValueKind(0));
                 }
                 return self.file_dialog_result(request, status, filter, paths);
+            }
+            // What a clipboard read found: the Host's own business, found by request number.
+            EventPayload::ClipboardText {
+                request,
+                status,
+                len,
+                text,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.clipboard_text(request, status, len, text);
+            }
+            // The answer to a storage operation, or to an operation on a file picked on the
+            // web, found by request number like a clipboard read.
+            EventPayload::IoAnswer {
+                request,
+                status,
+                data,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.io_answer(request, status, data);
+            }
+            // Files the Renderer holds handles for, for a dialog or a folder that asked.
+            EventPayload::FileHandles {
+                request,
+                status,
+                filter,
+                delivery,
+                first_handle,
+                names,
+                kinds,
+            } => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                return self.file_handles(
+                    request,
+                    status,
+                    filter,
+                    delivery,
+                    first_handle,
+                    names,
+                    kinds,
+                );
+            }
+            // Where Android keeps the application's files. Operations that were waiting for
+            // it go to the storage thread, which wakes them when they finish.
+            EventPayload::StorageLocation(path) => {
+                if event.node_id != 0 || event.handler_id != 0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                crate::storage::set_android_files(path);
+                return self.empty_batch();
             }
             _ => {}
         }
@@ -882,9 +1032,25 @@ impl Host {
             );
         });
         self.flush_notifications();
+        // Text the application asked to put on the clipboard, in the order it asked.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain(|text| batch.set_clipboard_text(text));
+        // Clipboard reads, each answered later by one event with its number.
+        let batch = self.runtime.batch_mut();
+        crate::clipboard::drain_reads(|request| batch.read_clipboard(request));
+        // Storage operations the Renderer carries out, on the web, in the order asked.
+        let batch = self.runtime.batch_mut();
+        crate::storage::drain_calls(|call| batch.storage_call(call));
         // File dialogs an application asked for, from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::file_dialog::drain(|request| batch.file_dialog(request));
+        // Handles the Host let go of, then the operations asked of the files it holds.
+        let batch = self.runtime.batch_mut();
+        let calls = std::cell::RefCell::new(batch);
+        crate::picked_file::drain(
+            |handle| calls.borrow_mut().release_file_handle(handle),
+            |call| calls.borrow_mut().file_call(call),
+        );
         // Animations an application started from a handler, a component or a worker.
         let batch = self.runtime.batch_mut();
         crate::animation::drain(|mutation| batch.write(mutation));
@@ -1044,6 +1210,8 @@ pub struct LaunchBuilder {
     mode: LoopMode,
     theme: Theme,
     window: crate::schema::Window,
+    /// Kept as a leaked string so the builder stays `Copy`. It is set once per launch.
+    identifier: Option<&'static str>,
 }
 
 impl Default for LaunchBuilder {
@@ -1052,6 +1220,7 @@ impl Default for LaunchBuilder {
             mode: LoopMode::Renderer,
             theme: Theme::default(),
             window: crate::schema::Window::new(),
+            identifier: None,
         }
     }
 }
@@ -1111,6 +1280,22 @@ impl LaunchBuilder {
         self
     }
 
+    /// The application's identifier, which names its storage (`compose_rust::storage`).
+    ///
+    /// Use the same value as `[bundle] identifier` in the application's `Dioxus.toml`,
+    /// such as `"dev.darkpyonix.composerust.samples.todo"`. It is not read from anywhere
+    /// else: a bundle, a package name or an executable name would give the same program a
+    /// different storage depending on how it was started, and the web has none of them.
+    ///
+    /// It is 1 to 255 bytes of ASCII letters, digits, `.` and `-`, because it names a
+    /// directory and a browser database as it is. One that is not stops the launch before
+    /// anything starts, with a sentence that says what is wrong and a failing exit status.
+    /// An application that never uses storage does not need one.
+    pub fn identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.identifier = Some(Box::leak(identifier.into().into_boxed_str()));
+        self
+    }
+
     /// Runs the application whose tree `runtime` builds. Does not return while it is
     /// running, and ends the process with a failing status if the renderer loop could
     /// not run at all.
@@ -1135,6 +1320,13 @@ impl LaunchBuilder {
         self,
         runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
     ) -> i32 {
+        // Before anything starts: an identifier that cannot name a directory would only
+        // fail later, at the first save, far from the line that set it.
+        if let Some(Err(problem)) = self.identifier.map(crate::storage::validate_identifier) {
+            eprintln!("compose-rust: {problem}");
+            return STATUS_INVALID_IDENTIFIER;
+        }
+        crate::storage::set_identifier(self.identifier);
         let factory: RuntimeFactory = Arc::new(runtime);
         if let Ok(mut slot) = APP.lock() {
             *slot = Some(factory);

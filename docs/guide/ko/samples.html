@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>샘플 · compose-rust 가이드</title>
+<meta name="description" content="compose-rust의 모든 샘플 애플리케이션을 설치 없이 브라우저에서 실행합니다.">
+<link rel="alternate" hreflang="en" href="../en/samples.html">
+<link rel="alternate" hreflang="ko" href="../ko/samples.html">
+<link rel="alternate" hreflang="x-default" href="../en/samples.html">
+<link rel="stylesheet" href="../assets/style.css?v=20">
+<script>(function(){try{var t=localStorage.getItem("dxc-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<a class="skip" href="#main">본문으로 건너뛰기</a>
+
+<header class="topbar">
+  <a class="brand" href="./"><span class="dot" aria-hidden="true"></span>compose-rust <small>가이드</small></a>
+  <span class="spacer"></span>
+  <button id="navtoggle" class="ghost" type="button" aria-expanded="false" aria-controls="sidebar">메뉴</button>
+  <nav class="langswitch" aria-label="언어">
+    <a href="../en/samples.html" hreflang="en">EN</a>
+    <a href="samples.html" aria-current="true" hreflang="ko">KO</a>
+  </nav>
+  <button id="themetoggle" class="ghost" type="button" data-dark="다크" data-light="라이트" aria-pressed="false">다크</button>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar">
+    <nav aria-label="가이드">
+      <h2>가이드</h2>
+      <ul>
+        <li><a href="overview.html">개요</a></li>
+        <li><a href="getting-started.html">시작하기</a></li>
+        <li><a href="writing-ui.html">UI 작성하기</a></li>
+        <li><a href="composables.html">위젯 레퍼런스</a></li>
+        <li><a href="lists-and-streaming.html">목록과 스트리밍</a></li>
+        <li><a href="design-systems.html">디자인 시스템</a></li>
+        <li><a href="architecture.html">아키텍처</a></li>
+        <li><a href="troubleshooting.html">문제 해결</a></li>
+        <li><a href="samples.html" aria-current="page">샘플</a></li>
+      </ul>
+      <h2>저장소</h2>
+      <ul>
+        <li><a href="https://github.com/DarkPyonix/compose-rust">GitHub</a></li>
+        <li><a href="https://crates.io/crates/compose-rust">crates.io</a></li>
+        <li><a href="https://github.com/DarkPyonix/compose-rust/issues">이슈</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <p class="eyebrow">샘플</p>
+    <h1>샘플을 브라우저에서 실행하기</h1>
+    <p class="lede">
+      저장소의 모든 샘플 애플리케이션을 데스크톱 프로그램과 같은 Rust 소스에서 웹용으로 빌드했습니다.
+      하나를 열면 페이지 안에서 바로 실행되고, 설치할 것은 없습니다.
+    </p>
+    <p>
+      페이지 하나는 렌더러, Skia, 샘플 자신의 WebAssembly 모듈로 되어 있고 압축 전 약 40 MB이므로
+      처음 열 때 잠시 걸립니다. WebAssembly 가비지 컬렉션을 지원하는 브라우저가 필요하며, 현재의
+      Chrome, Edge, Firefox가 지원합니다. 확인은 Chromium에서 합니다. 페이지는 가장 최근 샘플
+      릴리스에서 오므로 저장소보다 조금 늦을 수 있습니다. 각 샘플의 소스는
+      <a href="https://github.com/DarkPyonix/compose-rust/tree/main/samples"><code>samples/</code></a>에 있습니다.
+    </p>
+
+    <h2 id="adaptive">적응형</h2>
+    <p>이 네 개는 실행되는 플랫폼의 디자인 시스템을 따릅니다. 브라우저에서는 Fluent입니다.</p>
+    <div class="cards">
+      <a class="card" href="../samples/calculator/"><h3><code>calculator</code></h3><p>Windows, macOS, Deepin 계산기를 클론 코딩했습니다. 촘촘한 키 그리드, 메모리 레지스터, 키 옆이나 시트에 서는 기록이 있습니다.</p></a>
+      <a class="card" href="../samples/notepad/"><h3><code>notepad</code></h3><p>iOS와 Windows 메모 앱을 클론 코딩했습니다. 여러 줄 편집, 여러 문서, 페이지 옆이나 시트에 서는 목록이 있습니다.</p></a>
+      <a class="card" href="../samples/todo/"><h3><code>todo</code></h3><p>할 일 목록입니다. 안정된 키, 체크박스, 목적지 집합으로 된 필터, 수천 행을 다루는 지연 목록이 있습니다.</p></a>
+      <a class="card" href="../samples/chat/"><h3><code>chat</code></h3><p>Google Gemini를 클론 코딩했습니다. 목적지 집합으로 된 대화, 스크롤백, 워커 스레드에서 흘러 들어오는 답장이 있습니다.</p></a>
+    </div>
+    <h2 id="unified">통합형</h2>
+    <p>각각 디자인 시스템 하나를 정하고 어디서나 같게 그립니다. 모두 공개된 iOS 디자인을 다시 만든 것입니다.</p>
+    <div class="cards">
+      <a class="card" href="../samples/minimal/"><h3><code>minimal</code></h3><p>참조 그림의 색 그대로 그린 흑백 구성 요소 시트입니다. 스테퍼, 세그먼트 컨트롤, 카드, 스위치, 그라데이션, 그림자가 있습니다.</p></a>
+      <a class="card" href="../samples/store/"><h3><code>store</code></h3><p>옷 가게입니다. 들어가는 첫 화면, 페이지 점이 있는 캐러셀, 카테고리 줄, 두 칸 그리드, 상품 페이지, 합계를 내는 장바구니가 있습니다.</p></a>
+      <a class="card" href="../samples/statistics/"><h3><code>statistics</code></h3><p>Canvas로 그린 차트입니다. 색조가 든 페이지 위의 다이얼과 한 주의 비용입니다.</p></a>
+      <a class="card" href="../samples/selfcare/"><h3><code>selfcare</code></h3><p>기분 체크인입니다. 감정마다 그린 얼굴, 칩 그리드, 세션 카드 한 줄, 선으로 그린 한 주가 있습니다.</p></a>
+      <a class="card" href="../samples/podcast/"><h3><code>podcast</code></h3><p>플레이어입니다. Canvas로 그린 파형, 프로그램마다의 표지, 탐색 막대를 덮는 전체 화면 페이지가 있습니다.</p></a>
+      <a class="card" href="../samples/academic/"><h3><code>academic</code></h3><p>드럼 학원입니다. 과목 타일 그리드, 단계 줄, 열린 강의와 잠긴 강의가 있습니다.</p></a>
+      <a class="card" href="../samples/social/"><h3><code>social</code></h3><p>명상 앱입니다. 카드마다 삽화가 있고, 선반 세 줄과 탐색 막대를 덮는 강좌 페이지가 있습니다.</p></a>
+    </div>
+
+    <nav class="pagenav" aria-label="페이지 이동">
+      <a class="prev" href="troubleshooting.html"><span>이전</span>&larr; 문제 해결</a>
+    </nav>
+  </main>
+</div>
+
+<footer class="site">
+  <div class="inner">
+    <span>compose-rust &middot; Apache License 2.0</span>
+    <span><a class="footer-repo" href="https://github.com/DarkPyonix/compose-rust">GitHub</a> &middot; <a href="https://crates.io/crates/compose-rust">crates.io</a></span>
+    <span>이 가이드는 2026-10-03 기준 저장소 내용과 대조했습니다</span>
+  </div>
+</footer>
+
+<script src="../assets/guide.js" defer></script>
+</body>
+</html>

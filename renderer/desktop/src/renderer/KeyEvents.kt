@@ -30,11 +30,24 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
  */
 
 /**
- * The protocol key for a Compose key. The schema names Enter; every other key is `Other`,
- * and the event's `code` and `text` say which one it was.
+ * The protocol key for a Compose key. The schema names Enter and the keys menus, lists and
+ * overlays act on; every other key is `Other`, and the event's `code` and `text` say which
+ * one it was.
  */
 internal fun protocolKey(key: Key): ProtocolKey = when (key) {
     Key.Enter, Key.NumPadEnter -> ProtocolKey.Enter
+    Key.Escape -> ProtocolKey.Escape
+    Key.Tab -> ProtocolKey.Tab
+    Key.Backspace -> ProtocolKey.Backspace
+    Key.Delete -> ProtocolKey.Delete
+    Key.DirectionUp -> ProtocolKey.ArrowUp
+    Key.DirectionDown -> ProtocolKey.ArrowDown
+    Key.DirectionLeft -> ProtocolKey.ArrowLeft
+    Key.DirectionRight -> ProtocolKey.ArrowRight
+    Key.MoveHome -> ProtocolKey.Home
+    Key.MoveEnd -> ProtocolKey.End
+    Key.PageUp -> ProtocolKey.PageUp
+    Key.PageDown -> ProtocolKey.PageDown
     else -> ProtocolKey.Other
 }
 

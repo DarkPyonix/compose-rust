@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.max
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -112,6 +113,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     pressColor: Color = theme.color(ColorRole.OnSurface),
     allowPress: Boolean = true,
     allowPadding: Boolean = true,
+    pointerEvents: Modifier? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -139,6 +141,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
+    // How those corners curve, or null for plain arcs (or the design system's own curve).
+    // The background, border, shadow, clip and press feedback all draw the same outline.
+    val curve = cornerCurve()
     // The first opacity, background, transform and border of a node are where an animation the
     // Renderer plays on it is drawn. They read the animated value in the draw phase, so
     // the animation never recomposes or remeasures the node.
@@ -161,8 +166,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             pressColor,
         )
     }
-    val folded = fold(surface) { chain, value ->
-        when (value) {
+    // A node's pointer subscription listens over the whole node, so it goes ahead of everything
+    // else. A node drawn through a transform is the exception: there it goes just inside the
+    // last one, where Compose has already taken the pointer back through the transform, so
+    // the node is hit where it is drawn and the position is in its own untransformed box.
+    val pointerAfter = if (pointerEvents == null) {
+        -1
+    } else {
+        indexOfLast { it is ProtocolModifier.Transform || it is ProtocolModifier.Transform3D }
+    }
+    val outermost = if (pointerEvents != null && pointerAfter < 0) pointerEvents.then(surface) else surface
+    val folded = foldIndexed(outermost) { index, chain, value ->
+        val next = when (value) {
             is ProtocolModifier.WindowDrag -> chain.composed {
                 val drag = LocalWindowDrag.current
                 val exclusion = LocalWindowDragExclusion.current
@@ -192,6 +207,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.PressFeedback -> chain
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
+            // Read through `shape` and `curve` above: it bends the corners the other
+            // modifiers draw, and on its own draws nothing.
+            is ProtocolModifier.CornerCurve -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
                 if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
@@ -245,7 +263,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Only a node that asked is measured. Nothing is attached to a node without
             // this modifier, so a tree that observes nothing is laid out exactly as it
             // was before any of this existed.
-            is ProtocolModifier.ObserveSize -> chain.reportSizeTo(nodeId, dispatcher)
+            is ProtocolModifier.ObserveSize ->
+                if (value.everyDp) chain.reportEveryDpTo(nodeId, dispatcher) else chain.reportSizeTo(nodeId, dispatcher)
 
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
@@ -277,7 +296,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 } else {
                     val holder = if (!borderSeen) animated?.invoke() else null
                     borderSeen = true
-                    chain.borderEach(value, brushes.map { it!! }, corners, holder)
+                    chain.borderEach(value, brushes.map { it!! }, corners, curve ?: 0f, holder)
                 }
             }
 
@@ -286,13 +305,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // with no overflow rule rounds the decoration and leaves the content alone.
             is ProtocolModifier.CornerEach -> chain
             is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
-                chain.boxShadow(value, brush, corners, shape)
+                chain.boxShadow(value, brush, corners, shape, curve ?: 0f)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
             // where it has none.
             is ProtocolModifier.Clip ->
-                if (value.enabled) chain.clip(corners ?: shape) else chain
+                if (value.enabled) chain.clip(corners?.withCornerCurve(curve) ?: shape) else chain
 
             // CSS `transform`: drawn through layers, so the layout is untouched and a
             // pointer is tested against the shape that is drawn.
@@ -348,6 +367,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
         }
+        if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
     return attachPressableIfNeeded(folded)
 }
@@ -465,8 +485,14 @@ private fun Modifier.reportUnknownBrush(
     return this
 }
 
-/** The shape this node's clip, border and background all use. */
-internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
+/**
+ * The shape this node's clip, border, background, shadow and press feedback all use: its
+ * radii, with its corners curved the way its `CornerCurve` says when it has one.
+ */
+internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape =
+    resolvedBaseShape(theme).withCornerCurve(cornerCurve())
+
+private fun List<ProtocolModifier>.resolvedBaseShape(theme: ResolvedTheme): Shape {
     for (index in indices.reversed()) {
         when (val value = this[index]) {
             // A radius the Host wrote as a number is a circular arc of that many dp in every
@@ -565,7 +591,9 @@ private fun shadowOutline(
     shape: Shape,
 ): ShadowOutline {
     if (corners != null) return ShadowOutline(corners.roundRect(size, density), null)
-    return when (val outline = shape.createOutline(size, direction, density)) {
+    // A curved corner is read through the radii it curves, so the spread can grow them.
+    val plain = (shape as? CornerCurveShape)?.base ?: shape
+    return when (val outline = plain.createOutline(size, direction, density)) {
         is Outline.Rounded -> ShadowOutline(outline.roundRect, null)
         is Outline.Rectangle -> ShadowOutline(RoundRect(outline.rect), null)
         is Outline.Generic -> ShadowOutline(RoundRect(outline.path.getBounds()), outline.path)
@@ -587,6 +615,8 @@ private fun Modifier.borderEach(
     value: ProtocolModifier.BorderEach,
     brushes: List<Brush>,
     corners: CornerEachShape?,
+    /** How the corners curve; 0 for circular arcs, as CSS draws them. */
+    smoothing: Float,
     /** Where an animation of the border's colour writes the colour every side shows. */
     holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
 ): Modifier = drawWithCache {
@@ -621,8 +651,8 @@ private fun Modifier.borderEach(
     )
     val ring = Path.combine(
         PathOperation.Difference,
-        Path().apply { addRoundRect(outer) },
-        Path().apply { addRoundRect(inner) },
+        if (smoothing > 0f) cornerCurvePath(outer, smoothing) else Path().apply { addRoundRect(outer) },
+        if (smoothing > 0f) cornerCurvePath(inner, smoothing) else Path().apply { addRoundRect(inner) },
     )
     val middleX = width / 2f
     val middleY = height / 2f
@@ -692,6 +722,8 @@ private fun Modifier.boxShadow(
     brush: Brush,
     corners: CornerEachShape?,
     shape: Shape,
+    /** How the outline's corners curve; 0 for circular arcs. */
+    smoothing: Float = 0f,
 ): Modifier = drawWithCache {
     val spread = value.spread.dp.toPx()
     val blur = value.blur.dp.toPx().coerceAtLeast(0f)
@@ -699,7 +731,10 @@ private fun Modifier.boxShadow(
     val dy = value.y.dp.toPx()
     val cast = shadowOutline(size, this, layoutDirection, corners, shape)
     val box = cast.box
-    val boxPath = cast.exact ?: Path().apply { addRoundRect(box) }
+    val boxPath = when {
+        smoothing > 0f -> cornerCurvePath(box, smoothing)
+        else -> cast.exact ?: Path().apply { addRoundRect(box) }
+    }
     val shadowWidth = size.width + 2f * spread
     val shadowHeight = size.height + 2f * spread
     if (shadowWidth <= 0f || shadowHeight <= 0f) {
@@ -718,7 +753,11 @@ private fun Modifier.boxShadow(
         bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
         bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
     )
-    val shapePath = if (spread == 0f && cast.exact != null) cast.exact else Path().apply { addRoundRect(grownBox) }
+    val shapePath = when {
+        smoothing > 0f -> cornerCurvePath(grownBox, smoothing)
+        spread == 0f && cast.exact != null -> cast.exact
+        else -> Path().apply { addRoundRect(grownBox) }
+    }
     if (blur == 0f) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {
@@ -941,6 +980,84 @@ internal fun Modifier.pressFeedback(
             }
         }
 }
+
+/**
+ * A size rounded to the nearest whole dp, a half rounding up. The same rule the window's
+ * own every-dp report uses, so a node and a window that are the same size say the same.
+ */
+private fun wholeDp(dp: Float): Int = floor(dp + 0.5f).toInt()
+
+/**
+ * What a node that asked for every whole dp change has measured and last sent.
+ *
+ * A layout pass can run more than once in a frame, and a drag runs one every frame. The
+ * measurement is only written down where it happens; it is sent from the draw pass,
+ * which runs once a frame, so several measurements in one frame are one event carrying
+ * the last of them.
+ */
+internal class EveryDpReport {
+    var widthDp = 0f
+    var heightDp = 0f
+    var measured = false
+    private var sent = false
+    private var lastWidth = 0
+    private var lastHeight = 0
+    private var lastClass: WindowSizeClass? = null
+    private var lastHeightClass: WindowHeightClass? = null
+
+    fun flush(nodeId: Int, dispatcher: EventDispatcher) {
+        if (!measured) return
+        measured = false
+        val width = wholeDp(widthDp)
+        val height = wholeDp(heightDp)
+        val sizeClass = windowSizeClassOf(widthDp)
+        val heightClass = windowHeightClassOf(heightDp)
+        // A class can change without the rounded size changing (600 dp to 599.9 dp), so
+        // the classes are compared as well.
+        if (sent && width == lastWidth && height == lastHeight &&
+            sizeClass == lastClass && heightClass == lastHeightClass
+        ) {
+            return
+        }
+        sent = true
+        lastWidth = width
+        lastHeight = height
+        lastClass = sizeClass
+        lastHeightClass = heightClass
+        dispatcher.dispatch(
+            HostEvent.WindowSizeChanged(
+                nodeId = nodeId,
+                handlerId = 0,
+                widthDp = widthDp,
+                heightDp = heightDp,
+                sizeClass = sizeClass,
+                heightClass = heightClass,
+                safeAreaTop = 0f,
+                safeAreaLeading = 0f,
+                safeAreaTrailing = 0f,
+            ),
+        )
+    }
+}
+
+/**
+ * Reports this node's size whenever it changes by a whole dp, as well as when a class
+ * changes. The first measurement is always sent. The event carries the measured,
+ * unrounded size, the one measured last in the frame.
+ */
+private fun Modifier.reportEveryDpTo(nodeId: Int, dispatcher: EventDispatcher): Modifier =
+    composed {
+        val density = LocalDensity.current
+        val report = remember(nodeId) { EveryDpReport() }
+        onSizeChanged { size ->
+            report.widthDp = with(density) { size.width.toDp().value }
+            report.heightDp = with(density) { size.height.toDp().value }
+            report.measured = true
+        }.drawWithContent {
+            drawContent()
+            report.flush(nodeId, dispatcher)
+        }
+    }
 
 private const val HOVER_LAYER = 0.08f
 private val FOCUS_RING_WIDTH = 2.dp

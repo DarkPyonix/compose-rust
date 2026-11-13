@@ -60,8 +60,20 @@ const val BATCH_BYTES: Int = 16
  */
 const val EVENT_BUFFER_OFFSET: Int = 16
 
-/** How much room there is to encode one event into. */
+/**
+ * How much room there is to encode one event into, before any has needed more.
+ *
+ * An event that does not fit is encoded into a larger buffer the Host lends instead.
+ */
 const val EVENT_BUFFER_BYTES: Int = 4096
+
+/**
+ * The largest event buffer the Host lends.
+ *
+ * The buffer doubles from [EVENT_BUFFER_BYTES] until an event fits and stops here. An
+ * event larger than this is refused, never cut short.
+ */
+const val EVENT_BUFFER_MAX_BYTES: Int = 67108864
 
 /** `Init`, which calls `compose_rust_host_init`. */
 @JsFun("(handshake, handshakeLength, out) => globalThis.__composeRustHost.compose_rust_host_web_init(handshake, handshakeLength, out)")
@@ -82,6 +94,17 @@ external fun hostReleaseBatch(out: Int): Int
 /** `Shutdown`, which calls `compose_rust_host_shutdown`. */
 @JsFun("() => globalThis.__composeRustHost.compose_rust_host_web_shutdown()")
 external fun hostShutdown(): Int
+
+/**
+ * Borrows an event buffer of at least `minLength` bytes from the Host, for an event that
+ * does not fit in the one this side has. The Host keeps it until the next call, so
+ * this side goes on encoding into it. Zero means the Host refused.
+ *
+ * Setup, like starting the Host, rather than a boundary operation: it is called only
+ * when an event outgrows the buffer, which steady state never does.
+ */
+@JsFun("(minLength) => globalThis.__composeRustHost.compose_rust_host_web_lend_event_buffer(minLength)")
+external fun hostLendEventBuffer(minLength: Int): Int
 
 /**
  * Instantiates the Host on this module's memory and answers with the address of the block

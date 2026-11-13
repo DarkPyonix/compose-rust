@@ -1,8 +1,8 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDialogKind, FileDialogStatus, Key,
-    MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
+    AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
+    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
     NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
     SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
     WidgetKind, modifier_extra_words,
@@ -44,8 +44,39 @@ const TAG_SHOW_FILE_DIALOG: u16 = 26;
 const SHOW_FILE_DIALOG_PAYLOAD_LEN: usize = 4 + 4 + 2 + 2 + 4 * 8;
 // 27 sets application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
 const TAG_SET_OVERLAY_TOKENS: u16 = 27;
+// 28 and 29 are numbered for commands that are not here yet.
+const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
 const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+// 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
+// code editor's grouped edit.
+const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
+// 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
+// answered by one `ClipboardText` event carrying the same request number.
+const TAG_READ_CLIPBOARD: u16 = 31;
+// 32 asks the Renderer to carry out one storage operation, answered by one `IoAnswer`
+// event carrying the same request number.
+const TAG_STORAGE_CALL: u16 = 32;
+/// `StorageCall` after its header: the request, the operation, a reserved half word, then
+/// the store, the key and the bytes as three references. 32 bytes, so the record is 36.
+const STORAGE_CALL_PAYLOAD_LEN: usize = 4 + 2 + 2 + 3 * 8;
+// 33 asks something of a file the Renderer holds a handle for, answered by one `IoAnswer`
+// or `FileHandles` event carrying the same request number. 34 lets go of such a handle and
+// is not answered.
+const TAG_FILE_CALL: u16 = 33;
+/// `FileCall` after its header: the request, the operation, the create flag and the handle,
+/// then the name's and the bytes' references. 28 bytes, so the record is 32.
+const FILE_CALL_PAYLOAD_LEN: usize = 4 + 2 + 2 + 4 + 8 + 8;
+const TAG_RELEASE_FILE_HANDLE: u16 = 34;
+// 35 asks a scroll
+// container to go to an offset and 36 to bring a rectangle into view. Both are requests:
+// the Renderer owns the position and reports what it did in `ScrollChanged`.
+const TAG_SCROLL_TO: u16 = 35;
+const TAG_SCROLL_INTO_VIEW: u16 = 36;
+/// `ScrollTo` in full: the 4 byte head, the node, the item, the flags and two `f64`.
+const SCROLL_TO_LEN: usize = 32;
+/// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
+const SCROLL_INTO_VIEW_LEN: usize = 52;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -274,6 +305,78 @@ pub enum Mutation<'a> {
     },
     /// Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet.
     SetOverlayTokens(crate::schema::OverlayTokens),
+    /// Puts `text` on the platform clipboard as plain text.
+    ///
+    /// Not a node and not answered: a Renderer with no clipboard drops it.
+    SetClipboardText {
+        text: &'a str,
+    },
+    /// Asks for the plain text on the platform clipboard. Answered exactly once, later, by a
+    /// `ClipboardText` event that carries `request`.
+    ReadClipboard {
+        request: u32,
+    },
+    /// Scrolls a code editor so that `offset_px` physical pixels of its document are above
+    /// the top of its view. The Renderer keeps the offset inside what the document allows,
+    /// and reports where it ended up through `CodeScrolled` like any other scroll.
+    SetScrollOffset {
+        node_id: u32,
+        offset_px: f64,
+    },
+    /// Asks the Renderer to carry out one operation on the application's storage, where the
+    /// Renderer is the side that can reach it (a browser's IndexedDB). Answered exactly
+    /// once, later, by an `IoAnswer` event that carries `request`.
+    ///
+    /// `store` is the application identifier, `key` the value's name (empty for `Keys`),
+    /// and `data` the value to write (empty for every operation but `Write`).
+    StorageCall {
+        request: u32,
+        op: crate::schema::StorageOp,
+        store: &'a str,
+        key: &'a str,
+        data: &'a [u8],
+    },
+    /// Asks something of a file the Renderer holds a handle for: reading it, writing
+    /// `data` to it, listing a folder, or finding (and with `create`, making) the child
+    /// called `name`. Answered exactly once, later: a read or a write by an `IoAnswer`, a
+    /// listing or a child by a `FileHandles`, and any of them that failed by an `IoAnswer`
+    /// with the reason. `name` is empty but for `Child`, `data` but for `Write`.
+    FileCall {
+        request: u32,
+        op: FileOp,
+        create: bool,
+        handle: u32,
+        name: &'a str,
+        data: &'a [u8],
+    },
+    /// The Host holds nothing that names `handle` any more, so the Renderer may let go of
+    /// the file behind it. Not answered. A handle the Renderer does not hold is ignored.
+    ReleaseFileHandle {
+        handle: u32,
+    },
+    /// Asks the scroll container `node_id` to go to an offset in physical pixels. `flags`
+    /// is the wire word (`schema::scroll_to_flags`): animate, apply `x_px`, apply `y_px`.
+    /// An axis whose bit is off is not touched. `item` is the lazy list item the offset is
+    /// measured from, and 0 elsewhere.
+    ScrollTo {
+        node_id: u32,
+        item: u32,
+        flags: u32,
+        x_px: f64,
+        y_px: f64,
+    },
+    /// Asks the scroll container `node_id` to bring a rectangle into view. The fields are
+    /// the wire's: `target_kind` from `schema::scroll_target_kind`, the two alignments as
+    /// `schema::ScrollAlign` values, and `flags` from `schema::scroll_into_view_flags`.
+    ScrollIntoView {
+        node_id: u32,
+        target: u32,
+        target_kind: u16,
+        align_x: u16,
+        align_y: u16,
+        flags: u16,
+        rect: crate::schema::Rect,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -365,8 +468,26 @@ const EVENT_APPLICATION_REOPEN: u16 = 47;
 const EVENT_FOCUS_GAINED: u16 = 48;
 const EVENT_KEY_UP: u16 = 49;
 const EVENT_FILE_DIALOG_RESULT: u16 = 50;
+// 51 to 53 are numbered for events that are not here yet. 54 and 55 are the code editor's
+// row height and scroll offset, each one `f64` of physical pixels.
+const EVENT_CODE_METRICS: u16 = 54;
+const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
 const FILE_DIALOG_RESULT_LEN: usize = 36;
+// 51 to 55 are held by events other requirements have numbered.
+const EVENT_CLIPBOARD_TEXT: u16 = 56;
+/// `ClipboardText` in full: the 16 byte header, three words and the text's reference.
+const CLIPBOARD_TEXT_LEN: usize = 36;
+const EVENT_IO_ANSWER: u16 = 57;
+/// `IoAnswer` in full: the 16 byte header, two words and the data's reference.
+const IO_ANSWER_LEN: usize = 32;
+const EVENT_FILE_HANDLES: u16 = 58;
+/// `FileHandles` in full: the 16 byte header, five words and two string references.
+const FILE_HANDLES_LEN: usize = 52;
+const EVENT_STORAGE_LOCATION: u16 = 59;
+const EVENT_SCROLL_CHANGED: u16 = 60;
+/// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
+const SCROLL_CHANGED_LEN: usize = 72;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -720,6 +841,108 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_FILE_DIALOG_RESULT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CLIPBOARD_TEXT if record_len == CLIPBOARD_TEXT_LEN => {
+            crate::schema::EventPayload::ClipboardText {
+                request: read_u32(bytes, 16)?,
+                status: read_u32(bytes, 20)?,
+                len: read_u32(bytes, 24)?,
+                text: read_string(bytes, 28, record_len)?,
+            }
+        }
+        EVENT_CLIPBOARD_TEXT => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CODE_METRICS if record_len == 24 => crate::schema::EventPayload::CodeMetrics {
+            line_height_px: f64::from_bits(read_u64(bytes, 16)?),
+        },
+        EVENT_CODE_SCROLLED if record_len == 24 => crate::schema::EventPayload::CodeScrolled {
+            offset_px: f64::from_bits(read_u64(bytes, 16)?),
+        },
+        EVENT_CODE_METRICS | EVENT_CODE_SCROLLED => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_IO_ANSWER if record_len == IO_ANSWER_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| IoStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::IoAnswer {
+                request: read_u32(bytes, 16)?,
+                status,
+                data: read_bytes(bytes, 24, record_len)?,
+            }
+        }
+        EVENT_IO_ANSWER => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_FILE_HANDLES if record_len == FILE_HANDLES_LEN => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| FileDialogStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            let raw_delivery = read_u32(bytes, 28)?;
+            let delivery = u16::try_from(raw_delivery)
+                .ok()
+                .and_then(|tag| FileDelivery::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_delivery.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            let names = read_string(bytes, 36, record_len)?;
+            let kinds = read_string(bytes, 44, record_len)?;
+            // One letter per name, and only the two letters there are. A list whose kinds do
+            // not line up with its names would hand the application a file as a folder.
+            if let Some(unknown) = kinds.bytes().find(|kind| *kind != b'f' && *kind != b'd') {
+                return Err(ProtocolError::InvalidValueKind(u16::from(unknown)));
+            }
+            let count = if names.is_empty() {
+                0
+            } else {
+                names.split('\0').count()
+            };
+            if count != kinds.len() || names.split('\0').any(|name| count != 0 && name.is_empty()) {
+                return Err(ProtocolError::InvalidStringRange);
+            }
+            crate::schema::EventPayload::FileHandles {
+                request: read_u32(bytes, 16)?,
+                status,
+                filter: read_u32(bytes, 24)?,
+                delivery,
+                first_handle: read_u32(bytes, 32)?,
+                names,
+                kinds,
+            }
+        }
+        EVENT_FILE_HANDLES => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_STORAGE_LOCATION if record_len == 24 => {
+            crate::schema::EventPayload::StorageLocation(read_string(bytes, 16, record_len)?)
+        }
+        EVENT_STORAGE_LOCATION => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_SCROLL_CHANGED if record_len == SCROLL_CHANGED_LEN => {
+            use crate::schema::scroll_changed_flags as flag;
+            let flags = read_u32(bytes, 20)?;
+            if flags & !flag::KNOWN != 0 {
+                // A bit with no meaning here is a newer or a broken Renderer, and guessing
+                // what it says about the position would be worse than refusing the report.
+                return Err(ProtocolError::InvalidValueKind(
+                    (flags & !flag::KNOWN).trailing_zeros() as u16,
+                ));
+            }
+            crate::schema::EventPayload::ScrollChanged {
+                item: read_u32(bytes, 16)?,
+                settled: flags & flag::SETTLED != 0,
+                can_scroll_backward: flags & flag::CAN_SCROLL_BACKWARD != 0,
+                can_scroll_forward: flags & flag::CAN_SCROLL_FORWARD != 0,
+                x_px: f64::from_bits(read_u64(bytes, 24)?),
+                y_px: f64::from_bits(read_u64(bytes, 32)?),
+                max_x_px: f64::from_bits(read_u64(bytes, 40)?),
+                max_y_px: f64::from_bits(read_u64(bytes, 48)?),
+                viewport_width_px: f64::from_bits(read_u64(bytes, 56)?),
+                viewport_height_px: f64::from_bits(read_u64(bytes, 64)?),
+            }
+        }
+        EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1118,6 +1341,129 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(paths.as_bytes());
         return Ok(());
     }
+    if let crate::schema::EventPayload::ClipboardText {
+        request,
+        status,
+        len,
+        text,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_CLIPBOARD_TEXT,
+            CLIPBOARD_TEXT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&status.to_le_bytes());
+        output.extend_from_slice(&len.to_le_bytes());
+        let text_len = u32::try_from(text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(CLIPBOARD_TEXT_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&text_len.to_le_bytes());
+        output.extend_from_slice(text.as_bytes());
+        return Ok(());
+    }
+    match event.payload {
+        crate::schema::EventPayload::CodeMetrics { line_height_px } => {
+            put_event_header(output, EVENT_CODE_METRICS, 24, event);
+            output.extend_from_slice(&line_height_px.to_bits().to_le_bytes());
+            return Ok(());
+        }
+        crate::schema::EventPayload::CodeScrolled { offset_px } => {
+            put_event_header(output, EVENT_CODE_SCROLLED, 24, event);
+            output.extend_from_slice(&offset_px.to_bits().to_le_bytes());
+            return Ok(());
+        }
+        _ => {}
+    }
+    if let crate::schema::EventPayload::IoAnswer {
+        request,
+        status,
+        data,
+    } = event.payload
+    {
+        put_event_header(output, EVENT_IO_ANSWER, IO_ANSWER_LEN as u16, event);
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(u16::from(status)).to_le_bytes());
+        let data_len = u32::try_from(data.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(IO_ANSWER_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&data_len.to_le_bytes());
+        output.extend_from_slice(data);
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::FileHandles {
+        request,
+        status,
+        filter,
+        delivery,
+        first_handle,
+        names,
+        kinds,
+    } = event.payload
+    {
+        put_event_header(output, EVENT_FILE_HANDLES, FILE_HANDLES_LEN as u16, event);
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(status as u16).to_le_bytes());
+        output.extend_from_slice(&filter.to_le_bytes());
+        output.extend_from_slice(&u32::from(delivery as u16).to_le_bytes());
+        output.extend_from_slice(&first_handle.to_le_bytes());
+        let names_len = u32::try_from(names.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        let kinds_len = u32::try_from(kinds.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        let kinds_at = (FILE_HANDLES_LEN as u32)
+            .checked_add(names_len)
+            .ok_or(ProtocolError::LengthOverflow)?;
+        output.extend_from_slice(&(FILE_HANDLES_LEN as u32).to_le_bytes());
+        output.extend_from_slice(&names_len.to_le_bytes());
+        output.extend_from_slice(&kinds_at.to_le_bytes());
+        output.extend_from_slice(&kinds_len.to_le_bytes());
+        output.extend_from_slice(names.as_bytes());
+        output.extend_from_slice(kinds.as_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::ScrollChanged {
+        item,
+        settled,
+        can_scroll_backward,
+        can_scroll_forward,
+        x_px,
+        y_px,
+        max_x_px,
+        max_y_px,
+        viewport_width_px,
+        viewport_height_px,
+    } = event.payload
+    {
+        use crate::schema::scroll_changed_flags as flag;
+        put_event_header(
+            output,
+            EVENT_SCROLL_CHANGED,
+            SCROLL_CHANGED_LEN as u16,
+            event,
+        );
+        let mut flags = 0_u32;
+        if settled {
+            flags |= flag::SETTLED;
+        }
+        if can_scroll_backward {
+            flags |= flag::CAN_SCROLL_BACKWARD;
+        }
+        if can_scroll_forward {
+            flags |= flag::CAN_SCROLL_FORWARD;
+        }
+        output.extend_from_slice(&item.to_le_bytes());
+        output.extend_from_slice(&flags.to_le_bytes());
+        for value in [
+            x_px,
+            y_px,
+            max_x_px,
+            max_y_px,
+            viewport_width_px,
+            viewport_height_px,
+        ] {
+            output.extend_from_slice(&value.to_bits().to_le_bytes());
+        }
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1150,6 +1496,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         crate::schema::EventPayload::FilesEntered => (EVENT_FILES_ENTERED, 16, None, None),
         crate::schema::EventPayload::FilesDropped(paths) => {
             (EVENT_FILES_DROPPED, 24, Some(*paths), None)
+        }
+        crate::schema::EventPayload::StorageLocation(path) => {
+            (EVENT_STORAGE_LOCATION, 24, Some(*path), None)
         }
         crate::schema::EventPayload::Resync => (EVENT_RESYNC, 16, None, None),
         crate::schema::EventPayload::WindowCloseRequested => {
@@ -1196,7 +1545,13 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
         | crate::schema::EventPayload::WindowDragOver { .. }
-        | crate::schema::EventPayload::FileDialogResult { .. } => unreachable!(),
+        | crate::schema::EventPayload::CodeMetrics { .. }
+        | crate::schema::EventPayload::CodeScrolled { .. }
+        | crate::schema::EventPayload::FileDialogResult { .. }
+        | crate::schema::EventPayload::ClipboardText { .. }
+        | crate::schema::EventPayload::IoAnswer { .. }
+        | crate::schema::EventPayload::FileHandles { .. }
+        | crate::schema::EventPayload::ScrollChanged { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1493,6 +1848,11 @@ impl BatchEncoder {
                 self.begin_record(TAG_REQUEST_FOCUS, 4);
                 self.put_u32(*node_id);
             }
+            Mutation::SetScrollOffset { node_id, offset_px } => {
+                self.begin_record(TAG_SET_SCROLL_OFFSET, 12);
+                self.put_u32(*node_id);
+                self.put_u64(offset_px.to_bits());
+            }
             Mutation::ShowFileDialog {
                 request,
                 window,
@@ -1526,6 +1886,84 @@ impl BatchEncoder {
                 self.put_u16(overlay.popup_padding);
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
+            }
+            Mutation::SetClipboardText { text } => {
+                self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
+                self.put_string_ref(text)?;
+            }
+            Mutation::ReadClipboard { request } => {
+                self.begin_record(TAG_READ_CLIPBOARD, 4);
+                self.put_u32(*request);
+            }
+            Mutation::StorageCall {
+                request,
+                op,
+                store,
+                key,
+                data,
+            } => {
+                self.begin_record(TAG_STORAGE_CALL, STORAGE_CALL_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u16(u16::from(*op));
+                self.put_u16(0);
+                self.put_string_ref(store)?;
+                self.put_string_ref(key)?;
+                self.put_bytes_ref(data)?;
+            }
+            Mutation::FileCall {
+                request,
+                op,
+                create,
+                handle,
+                name,
+                data,
+            } => {
+                self.begin_record(TAG_FILE_CALL, FILE_CALL_PAYLOAD_LEN as u16);
+                self.put_u32(*request);
+                self.put_u16(*op as u16);
+                self.put_u16(u16::from(*create));
+                self.put_u32(*handle);
+                self.put_string_ref(name)?;
+                self.put_bytes_ref(data)?;
+            }
+            Mutation::ReleaseFileHandle { handle } => {
+                self.begin_record(TAG_RELEASE_FILE_HANDLE, 4);
+                self.put_u32(*handle);
+            }
+            Mutation::ScrollTo {
+                node_id,
+                item,
+                flags,
+                x_px,
+                y_px,
+            } => {
+                self.begin_record(TAG_SCROLL_TO, (SCROLL_TO_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*item);
+                self.put_u32(*flags);
+                self.put_u64(x_px.to_bits());
+                self.put_u64(y_px.to_bits());
+            }
+            Mutation::ScrollIntoView {
+                node_id,
+                target,
+                target_kind,
+                align_x,
+                align_y,
+                flags,
+                rect,
+            } => {
+                self.begin_record(TAG_SCROLL_INTO_VIEW, (SCROLL_INTO_VIEW_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(*target);
+                self.put_u16(*target_kind);
+                self.put_u16(*align_x);
+                self.put_u16(*align_y);
+                self.put_u16(*flags);
+                self.put_u64(rect.x_px.to_bits());
+                self.put_u64(rect.y_px.to_bits());
+                self.put_u64(rect.width_px.to_bits());
+                self.put_u64(rect.height_px.to_bits());
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2012,6 +2450,63 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
+            TAG_SET_CLIPBOARD_TEXT if len == 12 => Mutation::SetClipboardText {
+                text: read_string(bytes, payload, records_len)?,
+            },
+            TAG_READ_CLIPBOARD if len == 8 => Mutation::ReadClipboard {
+                request: read_u32(bytes, payload)?,
+            },
+            TAG_STORAGE_CALL if len == 4 + STORAGE_CALL_PAYLOAD_LEN => {
+                let raw_op = read_u16(bytes, payload + 4)?;
+                Mutation::StorageCall {
+                    request: read_u32(bytes, payload)?,
+                    op: crate::schema::StorageOp::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_op))?,
+                    store: read_string(bytes, payload + 8, records_len)?,
+                    key: read_string(bytes, payload + 16, records_len)?,
+                    data: read_bytes(bytes, payload + 24, records_len)?,
+                }
+            }
+            TAG_FILE_CALL if len == 4 + FILE_CALL_PAYLOAD_LEN => {
+                let raw_op = read_u16(bytes, payload + 4)?;
+                let raw_create = read_u16(bytes, payload + 6)?;
+                if raw_create > 1 {
+                    return Err(ProtocolError::InvalidValueKind(raw_create));
+                }
+                Mutation::FileCall {
+                    request: read_u32(bytes, payload)?,
+                    op: FileOp::try_from(raw_op)
+                        .map_err(|()| ProtocolError::InvalidValueKind(raw_op))?,
+                    create: raw_create == 1,
+                    handle: read_u32(bytes, payload + 8)?,
+                    name: read_string(bytes, payload + 12, records_len)?,
+                    data: read_bytes(bytes, payload + 20, records_len)?,
+                }
+            }
+            TAG_RELEASE_FILE_HANDLE if len == 8 => Mutation::ReleaseFileHandle {
+                handle: read_u32(bytes, payload)?,
+            },
+            TAG_SCROLL_TO if len == SCROLL_TO_LEN => Mutation::ScrollTo {
+                node_id: read_u32(bytes, payload)?,
+                item: read_u32(bytes, payload + 4)?,
+                flags: read_u32(bytes, payload + 8)?,
+                x_px: f64::from_bits(read_u64(bytes, payload + 12)?),
+                y_px: f64::from_bits(read_u64(bytes, payload + 20)?),
+            },
+            TAG_SCROLL_INTO_VIEW if len == SCROLL_INTO_VIEW_LEN => Mutation::ScrollIntoView {
+                node_id: read_u32(bytes, payload)?,
+                target: read_u32(bytes, payload + 4)?,
+                target_kind: read_u16(bytes, payload + 8)?,
+                align_x: read_u16(bytes, payload + 10)?,
+                align_y: read_u16(bytes, payload + 12)?,
+                flags: read_u16(bytes, payload + 14)?,
+                rect: crate::schema::Rect {
+                    x_px: f64::from_bits(read_u64(bytes, payload + 16)?),
+                    y_px: f64::from_bits(read_u64(bytes, payload + 24)?),
+                    width_px: f64::from_bits(read_u64(bytes, payload + 32)?),
+                    height_px: f64::from_bits(read_u64(bytes, payload + 40)?),
+                },
+            },
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -2178,11 +2673,22 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 start_line: read_u32(bytes, payload + 4)?,
                 collapsed: read_flag(bytes, payload + 8)?,
             },
+            TAG_SET_SCROLL_OFFSET if len == 16 => Mutation::SetScrollOffset {
+                node_id: read_u32(bytes, payload)?,
+                offset_px: f64::from_bits(read_u64(bytes, payload + 4)?),
+            },
+            TAG_SET_SCROLL_OFFSET => return Err(ProtocolError::InvalidRecordLength),
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_SET_OVERLAY_TOKENS => {
+            | TAG_SET_WINDOW_THEME..=TAG_SET_CLIPBOARD_TEXT
+            | TAG_READ_CLIPBOARD
+            | TAG_STORAGE_CALL
+            | TAG_FILE_CALL
+            | TAG_RELEASE_FILE_HANDLE
+            | TAG_SCROLL_TO
+            | TAG_SCROLL_INTO_VIEW => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -2456,7 +2962,9 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::ShapeRole(role) => (13, two_words(*role as u64, 0)),
         Modifier::Border { width, paint } => (14, two_words(float_word(*width), paint.to_bits())),
         Modifier::Elevation(dp) => (15, two_words(float_word(*dp), 0)),
-        Modifier::ObserveSize { token } => (16, two_words(u64::from(*token), 0)),
+        Modifier::ObserveSize { token, every_dp } => {
+            (16, two_words(u64::from(*token), u64::from(*every_dp)))
+        }
         Modifier::Motion(role) => (17, two_words(*role as u64, 0)),
         Modifier::Material(role) => (18, two_words(*role as u64, 0)),
         Modifier::Offset { x, y } => (19, two_words(float_word(*x), float_word(*y))),
@@ -2527,6 +3035,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
             (33, two_words(pack_floats(*scale, *tint_alpha), 0))
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
+        Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
         Modifier::Transform {
             a,
             b,
@@ -2631,6 +3140,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         15 => Ok(Modifier::Elevation(f32::from_bits(first as u32))),
         16 => Ok(Modifier::ObserveSize {
             token: first as u32,
+            every_dp: match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(16)),
+            },
         }),
         17 => Ok(Modifier::Motion(decode_role::<MotionRole>(first)?)),
         18 => Ok(Modifier::Material(decode_role::<MaterialRole>(first)?)),
@@ -2762,6 +3276,11 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 state,
             })
         }
+        // Carried as sent. An out-of-range value is not an error; the Renderer draws it as
+        // the nearer end of 0..=1.
+        35 => Ok(Modifier::CornerCurve {
+            smoothing: unpack_low(first),
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -3019,6 +3538,22 @@ mod tests {
         let mut encoder = BatchEncoder::default();
         encoder.encode(&expected[0]).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), expected);
+    }
+
+    #[test]
+    fn fr50_corner_curve_round_trips() {
+        for smoothing in [0.0, 0.6, 1.0, -2.5, 7.0] {
+            let expected = [Mutation::SetModifier {
+                node_id: 1,
+                index: 0,
+                modifier: Modifier::CornerCurve { smoothing },
+            }];
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&expected[0]).unwrap();
+            let bytes = encoder.finish().unwrap().to_vec();
+            assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 35);
+            assert_eq!(decode_batch(&bytes).unwrap(), expected);
+        }
     }
 
     /// Every design primitive fits in `(tag, u64, u64)` and survives a round trip.
@@ -4027,8 +4562,9 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        let trace: Arc<Mutex<Vec<(&'static str, Key, bool, bool, bool, bool)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        // What each key event carried: which handler, the key, then the four modifiers.
+        type KeyTrace = Vec<(&'static str, Key, bool, bool, bool, bool)>;
+        let trace: Arc<Mutex<KeyTrace>> = Arc::new(Mutex::new(Vec::new()));
         let trace_for_root = Arc::clone(&trace);
         let mut host = crate::ComposeHost::with_content(move || {
             let down_trace = Arc::clone(&trace_for_root);
@@ -4153,5 +4689,140 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The keys menus, lists and overlays act on have their own name, appended after
+    /// `Other` so no earlier tag moves, and each one survives the wire.
+    #[test]
+    fn fr12_named_keys_are_appended_and_round_trip() {
+        let named = [
+            (Key::Enter, 1u16, 0x28u32, "Enter"),
+            (Key::Other, 2, 0x04, "a"),
+            (Key::Escape, 3, 0x29, "Escape"),
+            (Key::Tab, 4, 0x2B, "Tab"),
+            (Key::Backspace, 5, 0x2A, "Backspace"),
+            (Key::Delete, 6, 0x4C, "Delete"),
+            (Key::ArrowUp, 7, 0x52, "ArrowUp"),
+            (Key::ArrowDown, 8, 0x51, "ArrowDown"),
+            (Key::ArrowLeft, 9, 0x50, "ArrowLeft"),
+            (Key::ArrowRight, 10, 0x4F, "ArrowRight"),
+            (Key::Home, 11, 0x4A, "Home"),
+            (Key::End, 12, 0x4D, "End"),
+            (Key::PageUp, 13, 0x4B, "PageUp"),
+            (Key::PageDown, 14, 0x4E, "PageDown"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, code, text) in named {
+            assert_eq!(Key::try_from(tag), Ok(key), "tag {tag} names {text}");
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key: false,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag);
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
+        assert_eq!(Key::try_from(15), Err(()));
+    }
+
+    /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the
+    /// Renderer does not dismiss it. Its own `on_key_down` sees Escape by its DOM key
+    /// string and HID usage, and consuming it is the call's result.
+    #[test]
+    fn fr45_container_key_down_sees_escape_and_consumes_it() {
+        use std::sync::{Arc, Mutex};
+
+        let seen: Arc<Mutex<Vec<(String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen_for_root = Arc::clone(&seen);
+        let mut host = crate::ComposeHost::with_content(move || {
+            let seen = Arc::clone(&seen_for_root);
+            crate::ui::Column()
+                .on_key_down(move |event| {
+                    seen.lock()
+                        .unwrap()
+                        .push((event.text().to_owned(), event.code()));
+                    if event.text() == "Escape" {
+                        event.consume();
+                    }
+                })
+                .content(|| {
+                    crate::ui::Text("session list");
+                });
+        });
+        let init = host.rebuild().unwrap().to_vec();
+        let mutations = decode_batch(&init).unwrap();
+        let (node_id, handler_id) = mutations
+            .iter()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::OnKeyDown,
+                    value: PropertyValue::Integer(handler),
+                } => Some((*node_id, *handler as u64)),
+                _ => None,
+            })
+            .expect("a Column with on_key_down must emit OnKeyDown");
+        let created_column = mutations.iter().any(|mutation| {
+            matches!(
+                mutation,
+                Mutation::Create { node_id: id, widget: crate::WidgetKind::Column, .. } if *id == node_id
+            )
+        });
+        assert!(
+            created_column,
+            "the key handler belongs to the Column itself"
+        );
+
+        let mut wire = Vec::new();
+        let mut press = |code: u32, text: &'static str| {
+            encode_event(
+                &HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: crate::EventPayload::KeyDown {
+                        key: if code == 0x29 {
+                            Key::Escape
+                        } else {
+                            Key::ArrowDown
+                        },
+                        shift_key: false,
+                        ctrl_key: false,
+                        alt_key: false,
+                        meta_key: false,
+                        repeat: false,
+                        code,
+                        text,
+                    },
+                },
+                &mut wire,
+            )
+            .unwrap();
+            host.dispatch_event(&wire).unwrap().1
+        };
+        assert_ne!(
+            press(0x29, "Escape"),
+            0,
+            "Escape was consumed by the container"
+        );
+        assert_eq!(
+            press(0x51, "ArrowDown"),
+            0,
+            "an unhandled key is left to the Renderer"
+        );
+
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![("Escape".to_owned(), 0x29), ("ArrowDown".to_owned(), 0x51)]
+        );
     }
 }

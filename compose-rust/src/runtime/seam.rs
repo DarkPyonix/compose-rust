@@ -170,6 +170,113 @@ impl Batch {
         }
     }
 
+    /// Writes one clipboard write. It names no node: the clipboard is the platform's.
+    pub fn set_clipboard_text(&mut self, text: &str) {
+        self.write(Mutation::SetClipboardText { text });
+    }
+
+    /// Writes one clipboard read request. It names no node either.
+    pub fn read_clipboard(&mut self, request: u32) {
+        self.write(Mutation::ReadClipboard { request });
+    }
+
+    /// Writes one operation on a file the Renderer holds a handle for.
+    pub(crate) fn file_call(&mut self, call: &crate::picked_file::Call) {
+        self.write(Mutation::FileCall {
+            request: call.request,
+            op: call.op,
+            create: call.create,
+            handle: call.handle,
+            name: &call.name,
+            data: &call.data,
+        });
+    }
+
+    /// Writes one storage operation for the Renderer to carry out. It names no node either.
+    pub(crate) fn storage_call(&mut self, call: &crate::storage::RendererCall) {
+        self.write(Mutation::StorageCall {
+            request: call.request,
+            op: call.op,
+            store: &call.store,
+            key: &call.key,
+            data: &call.data,
+        });
+    }
+
+    /// Lets the Renderer go of a file handle nothing on this side names any more.
+    pub(crate) fn release_file_handle(&mut self, handle: u32) {
+        self.write(Mutation::ReleaseFileHandle { handle });
+    }
+
+    /// Writes one request to scroll the container `node_id` to an offset in physical
+    /// pixels. An axis left `None` is not touched; a request that names neither axis is
+    /// refused when the batch is finished.
+    ///
+    /// A request, not a command: the Renderer owns the position. It keeps the offset
+    /// inside what the content allows, ignores the request while the user is dragging or
+    /// flinging, and says where the container ended up in `ScrollChanged`.
+    pub fn scroll_to(&mut self, node_id: u32, request: crate::schema::ScrollTo) {
+        use crate::schema::scroll_to_flags as flag;
+        let mut flags = 0;
+        if request.animate {
+            flags |= flag::ANIMATE;
+        }
+        if request.x_px.is_some() {
+            flags |= flag::X;
+        }
+        if request.y_px.is_some() {
+            flags |= flag::Y;
+        }
+        let x_px = request.x_px.unwrap_or(0.0);
+        let y_px = request.y_px.unwrap_or(0.0);
+        if flags & (flag::X | flag::Y) == 0 || !x_px.is_finite() || !y_px.is_finite() {
+            // The Renderer would refuse it with a protocol error after the batch had
+            // crossed. Refusing it here names the mistake where it was made.
+            self.fail(ProtocolError::InvalidValueKind(0));
+            return;
+        }
+        self.write(Mutation::ScrollTo {
+            node_id,
+            item: request.item,
+            flags,
+            x_px,
+            y_px,
+        });
+    }
+
+    /// Writes one request to bring a rectangle into view in the container `node_id`. One
+    /// request moves one container: to show something inside nested containers, write one
+    /// for each of them, innermost first.
+    pub fn scroll_into_view(&mut self, node_id: u32, request: crate::schema::ScrollIntoView) {
+        use crate::schema::{ScrollTarget, scroll_into_view_flags, scroll_target_kind};
+        let (target_kind, target, rect) = match request.target {
+            ScrollTarget::Content(rect) => (scroll_target_kind::CONTENT, 0, rect),
+            ScrollTarget::Node(node, rect) => (scroll_target_kind::NODE, node, rect),
+            ScrollTarget::Item(item, rect) => (scroll_target_kind::ITEM, item, rect),
+        };
+        let numbers = [rect.x_px, rect.y_px, rect.width_px, rect.height_px];
+        if numbers.iter().any(|value| !value.is_finite())
+            || rect.width_px < 0.0
+            || rect.height_px < 0.0
+        {
+            self.fail(ProtocolError::InvalidValueKind(0));
+            return;
+        }
+        self.write(Mutation::ScrollIntoView {
+            node_id,
+            target,
+            target_kind,
+            align_x: request.align_x as u16,
+            align_y: request.align_y as u16,
+            flags: if request.animate {
+                scroll_into_view_flags::ANIMATE
+            } else {
+                0
+            },
+            rect,
+        });
+    }
+
     /// Writes one file dialog request. Like a notification it names no node: the dialog is
     /// not in the tree, and `window` only says which window it is modal for.
     pub(crate) fn file_dialog(&mut self, request: &crate::file_dialog::Request) {
@@ -257,6 +364,14 @@ impl Batch {
             start_line,
             collapsed,
         });
+    }
+
+    /// Writes one request to scroll a code editor so that `offset_px` physical pixels of its
+    /// document are above the top of its view. The offset is the unit `CodeScrolled`
+    /// reports, so what one editor reported can be given to another to keep the two level.
+    /// The Renderer keeps it inside what the document allows.
+    pub fn set_scroll_offset(&mut self, node_id: u32, offset_px: f64) {
+        self.write(Mutation::SetScrollOffset { node_id, offset_px });
     }
 
     /// Appends the streamed tail to a Text node without resending its whole value.

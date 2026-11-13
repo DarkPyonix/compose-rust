@@ -19,6 +19,7 @@ mod boundary_jni;
 #[path = "boundary_wasm.gen.rs"]
 mod boundary_wasm;
 pub mod brush;
+pub mod clipboard;
 pub mod code;
 /// The rule the code colours of the two systems without a code editor scheme are derived
 /// by. Only the tests run it: the values themselves are literals in the token tables.
@@ -41,13 +42,17 @@ pub mod measure;
 pub mod message;
 pub mod notification;
 pub mod palette;
+pub mod picked_file;
 pub mod protocol;
 pub mod runtime;
 pub mod schema;
 pub mod spans;
+pub mod storage;
 pub mod theme;
 pub mod tokens;
 pub mod ui;
+#[doc(hidden)]
+pub mod web_event_buffer;
 pub mod window;
 pub mod windows;
 mod writer;
@@ -65,9 +70,9 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeHover, CodeRange, Decoration, Decorations, EditRejected, Fold, FoldChange,
-    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
-    SyntaxSpans, VisibleRange,
+    CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeScroll, Decoration,
+    Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration, GutterDecorations,
+    Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans, VisibleRange,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -82,15 +87,16 @@ pub use notification::{
     request_notification_permission, withdraw_notification,
 };
 pub use palette::{Palette, PaletteViolation};
+pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
     Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, DecorationKind, DesignSystem, EventPayload, GenericFamily, GutterDecorationKind,
-    HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
-    PropertyKind, RevealAlign, SCHEMA_HASH, Selection, SemanticsRole, Severity, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass,
-    WindowSizeClass, WordBreak,
+    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
+    GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
+    Selection, SemanticsRole, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,

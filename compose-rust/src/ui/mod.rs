@@ -26,19 +26,23 @@
 //! `rsx!` counterpart does not accept is still written when it is set, because the wire
 //! carries every Modifier slot on every node.
 
+pub(crate) mod focus;
 mod lazy;
 mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
 pub use crate::brush::{Brush, Stop, brush};
+pub use crate::clipboard::{Clipboard, use_clipboard};
 pub use crate::drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme, DesignSystem,
-    IconRole, Key, MaterialRole, MessageDuration, MotionRole, Paint, SemanticsRole, ShapeRole,
-    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, WindowHeightClass, WindowSizeClass,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme,
+    CompactNavigation, DesignSystem, HorizontalAlignment, IconRole, Key, MaterialRole,
+    MessageDuration, MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole,
+    SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
+    WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -53,6 +57,7 @@ pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
+pub use focus::{FocusHandle, use_focus_handle};
 pub use lazy::{LazyColumn, LazyGrid, LazyList, LazyListScope, LazyRow};
 pub use widgets::*;
 
@@ -288,6 +293,7 @@ fn keep_label(label: &str) -> Option<&'static str> {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Modifier {
     observe_size: Option<i64>,
+    observe_size_every_dp: bool,
     motion: Option<MotionRole>,
     material: Option<MaterialRole>,
     weight: Option<f32>,
@@ -299,6 +305,7 @@ pub struct Modifier {
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
+    corner_curve: Option<f32>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     elevation: Option<f32>,
@@ -331,6 +338,7 @@ impl Modifier {
     pub const fn new() -> Self {
         Self {
             observe_size: None,
+            observe_size_every_dp: false,
             motion: None,
             material: None,
             weight: None,
@@ -342,6 +350,7 @@ impl Modifier {
             shape_role: None,
             corner_radius: None,
             corner_radii: None,
+            corner_curve: None,
             border_width: None,
             border_color: None,
             elevation: None,
@@ -495,8 +504,22 @@ impl Modifier {
 
     /// Asks the Renderer to report this node's size under the token from
     /// [`crate::runtime::remember_node_size`].
+    ///
+    /// A report goes out on the first measurement and then whenever the width or height
+    /// class changes. A resize inside one class says nothing; use
+    /// [`Modifier::observe_size_every_dp`] for that.
     pub const fn observe_size(mut self, token: i64) -> Self {
         self.observe_size = Some(token);
+        self.observe_size_every_dp = false;
+        self
+    }
+
+    /// Like [`Modifier::observe_size`], and also reports whenever the width or height,
+    /// rounded to the nearest whole dp, changes inside one class. Several changes in one
+    /// frame are one report carrying the last size.
+    pub const fn observe_size_every_dp(mut self, token: i64) -> Self {
+        self.observe_size = Some(token);
+        self.observe_size_every_dp = true;
         self
     }
 
@@ -543,6 +566,17 @@ impl Modifier {
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
+        self
+    }
+
+    /// How the node's rounded corners curve, from 0 (a circular arc, the default) to 1.
+    /// Above 0 the curve eases in from each side with continuously changing curvature, as
+    /// Figma's corner smoothing does; 0.6 is the look of iOS. The radius stays whatever
+    /// `corner_radius`, `corner_radii` or `shape_role` made it, and the background, border,
+    /// shadow and clip all follow the same curve. A value outside 0..=1 is taken as the
+    /// nearer end, and NaN as 0.
+    pub fn corner_curve(mut self, smoothing: f32) -> Self {
+        self.corner_curve = Some(crate::schema::corner_smoothing(smoothing));
         self
     }
 
@@ -761,13 +795,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             out.push((name, value));
         }
     };
-    push(
-        container,
-        "observe_size",
-        modifier
-            .observe_size
-            .map_or(OwnedAttr::None, OwnedAttr::Int),
-    );
+    // One slot, two names: whichever is not in use goes out unset, which clears nothing
+    // because only the name that wrote a slot may clear it.
+    let (plain, every_dp) = match modifier.observe_size {
+        Some(token) if modifier.observe_size_every_dp => (OwnedAttr::None, OwnedAttr::Int(token)),
+        Some(token) => (OwnedAttr::Int(token), OwnedAttr::None),
+        None => (OwnedAttr::None, OwnedAttr::None),
+    };
+    push(container, "observe_size", plain);
+    push(container, "observe_size_every_dp", every_dp);
     push(container, "motion", role(modifier.motion));
     push(container || scaffold, "material", role(modifier.material));
     push(chip, "weight", float(modifier.weight));
@@ -799,6 +835,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             )
         }),
     );
+    push(false, "corner_curve", float(modifier.corner_curve));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,

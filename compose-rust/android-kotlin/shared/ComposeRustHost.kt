@@ -15,6 +15,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
@@ -37,11 +38,11 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.darkpyonix.composerust.foundation.HostMessages
+import dev.darkpyonix.composerust.foundation.navigationFor
 import dev.darkpyonix.composerust.foundation.systemChrome
 import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
-import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.FrameRequests
@@ -146,6 +147,9 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // the application, if one did, and then what the platform says about permission.
         table.notifications.attach(this)
         table.fileDialogs.attach(this)
+        table.clipboardReads.attach(this)
+        table.fileCalls.attach(this)
+        table.storage.attach(this)
     }
 
     /** Dispatches synchronously and returns the Host's consumption result. */
@@ -180,6 +184,9 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
         // where the UI thread, and so the Host, can be reached from any other thread.
         table.notifications.drain()
         table.fileDialogs.drain()
+        table.clipboardReads.drain()
+        table.fileCalls.drain()
+        table.storage.drain()
         applyTransaction { apply -> connection.renderFrame(frameTimeNanos, apply) }
     }
 
@@ -194,6 +201,9 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
     fun shutdown() {
         table.notifications.shutdown()
         table.fileDialogs.shutdown()
+        table.clipboardReads.shutdown()
+        table.fileCalls.shutdown()
+        table.storage.shutdown()
         connection.shutdown()
     }
 
@@ -419,6 +429,48 @@ private fun ComposeRustTree(
     SideEffect { host.table.notifications.wake = frames::request }
     // A file dialog's answer arrives the same way, from whichever thread the platform uses.
     SideEffect { host.table.fileDialogs.wake = frames::request }
+    // A clipboard read is answered at the top of the frame it asks for.
+    SideEffect { host.table.clipboardReads.wake = frames::request }
+    // A file operation is answered at the top of the frame it asks for, like a clipboard read.
+    SideEffect { host.table.fileCalls.wake = frames::request }
+    // A storage answer from the browser is delivered at the top of the frame it asks for.
+    SideEffect { host.table.storage.wake = frames::request }
+    // The clipboard the Host's copies go to is the one this composition sees. Every window
+    // shares it, so the root window's is enough.
+    @Suppress("DEPRECATION")
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    // The suspending clipboard, which is the only one a browser can read, and the scope its
+    // reads run in: the composition's own, so they run on the UI thread.
+    val composeClipboard = androidx.compose.ui.platform.LocalClipboard.current
+    val clipboardScope = androidx.compose.runtime.rememberCoroutineScope()
+    if (windowNodeId == 0) {
+        DisposableEffect(host) { onDispose { host.table.clipboardReads.detach() } }
+        DisposableEffect(host) { onDispose { host.table.fileCalls.detach() } }
+        SideEffect {
+            host.table.clipboard.sink = dev.darkpyonix.composerust.ui.platform.ClipboardSink { text ->
+                @Suppress("DEPRECATION")
+                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(text))
+            }
+            host.table.clipboardReads.launcher = { read ->
+                clipboardScope.launch(block = { read() })
+            }
+            // File operations suspend on the same scope, on the UI thread.
+            host.table.fileCalls.launcher = { operation ->
+                clipboardScope.launch(block = { operation() })
+            }
+            host.table.clipboardReads.source = dev.darkpyonix.composerust.ui.platform.ClipboardSource {
+                // A platform with a suspending read uses it. Elsewhere the clipboard manager
+                // answers at once, which every other target supports.
+                val platformRead = dev.darkpyonix.composerust.ui.platform.ClipboardReads.platform
+                if (platformRead != null) {
+                    platformRead(composeClipboard)
+                } else {
+                    @Suppress("DEPRECATION")
+                    clipboardManager.getText()?.text
+                }
+            }
+        }
+    }
     // Whether the window is the one in use decides whether a notification that asked to be
     // shown only when it is not is shown at all, and coming back to the window is when a
     // permission changed in the system's settings is looked for.
@@ -436,9 +488,10 @@ private fun ComposeRustTree(
     val observedDark = LocalSystemDarkObserver.current?.invoke() ?: isSystemInDarkTheme()
     val systemDark = systemDarkOverride ?: observedDark
     // The window's size is measured here, where the root content is, and reported to
-    // the Host only when it crosses a size class boundary. onSizeChanged already fires
-    // only when the measured size differs, and the reporter drops everything that does
-    // not change the class, so a drag across one class costs no boundary calls.
+    // the Host when either class changes, or for a window that asked for it, when the
+    // size changes by a whole dp. onSizeChanged already fires only when the measured size
+    // differs, and the reporter drops everything else, so a drag across one class costs
+    // a window that did not ask no boundary calls.
     val reporter = remember(host, windowNodeId) { WindowSizeReporter(windowNodeId) }
     val density = LocalDensity.current
     val zoom = LocalZoom.current
@@ -456,17 +509,11 @@ private fun ComposeRustTree(
     // and the design system is resolved against it, because a system is allowed to
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
-    // The height class is state too, so that a window which only crosses a height boundary
-    // (a phone-width window that is tall) recomposes and reaches the reporter below. Read
-    // only through the effect, the size is not observed, and a window whose width class did
-    // not change would never be reported.
-    var heightClass by remember(host) { mutableStateOf(WindowHeightClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
-            heightClass = windowHeightClassOf(size.height.toDp().value)
             measuredSize = size
         }
     }
@@ -495,6 +542,25 @@ private fun ComposeRustTree(
         snapshotFlow { host.table.animations.generation.intValue }.collect {
             while (host.table.animations.needsFrames()) {
                 withFrameNanos { frame -> host.tickAnimations(frame, currentTheme) }
+            }
+        }
+    }
+    // Moves and wheel travel are held between frames and sent once at the start of the next
+    // one, so a pointer that reports faster than the screen draws runs the Host once a frame.
+    // The loop waits for frames only while something is held.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.pointers.pendingGeneration.intValue }.collect {
+            while (host.table.pointers.hasPending) {
+                withFrameNanos { host.table.pointers.flush() }
+            }
+        }
+    }
+    // A scroll container the Host listens to reports where it is the same way: once at the
+    // start of the frame after it moved, for the place it has reached by then.
+    LaunchedEffect(host) {
+        snapshotFlow { host.table.scrolls.pendingGeneration.intValue }.collect {
+            while (host.table.scrolls.hasPending) {
+                withFrameNanos { host.table.scrolls.flush { event -> host.dispatch(event) } }
             }
         }
     }
@@ -553,10 +619,16 @@ private fun ComposeRustTree(
     // its own content clear of them. Leaving the page to take the strip instead drew a band
     // of page colour across the whole window above the sidebar, which is the leftover
     // title bar this exists to avoid.
-    val navigation = theme.rules.navigation(sizeClass, theme)
+    // Asked of the navigation the page opens with, so a compact window gets what that
+    // navigation chose rather than what its design system would have answered.
+    val openingNavigation = host.table.openingNavigation(pageRoots)
+    val navigation = theme.navigationFor(openingNavigation, sizeClass)
+    // A navigation that is not on the screen at all has no strip to take the top with,
+    // and the page under it starts below the window buttons like any other page.
     val stripTakesTheTop = navigation.carriesCaption &&
         navigation.presentation != NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(pageRoots)
+        navigation.presentation != NavigationPresentation.Hidden &&
+        openingNavigation != null
     val barIsCaption = !caption.fullSize && (caption.height > 0.dp || bars.top > 0.dp) &&
         (host.table.opensWithABar(pageRoots) || stripTakesTheTop)
     // A navigation showing a bar along the bottom grows into the bottom strip, so the page
@@ -564,7 +636,7 @@ private fun ComposeRustTree(
     // asked here because the page is laid out before anything inside it.
     val navigationTakesTheBottom = bars.bottom > 0.dp &&
         navigation.presentation == NavigationPresentation.Bar &&
-        host.table.opensWithANavigation(pageRoots)
+        openingNavigation != null
     val (pageTop, pageBottom) = pageInsets(caption, bars, barIsCaption, navigationTakesTheBottom)
     // The clock and the gesture bar are drawn by the system over what this window drew, so
     // they follow the theme that was resolved rather than the device's setting. A light
@@ -586,17 +658,24 @@ private fun ComposeRustTree(
     val reportEveryDp = remember(host, windowNodeId) {
         derivedStateOf { host.table.reportSizeFor(windowNodeId) }
     }.value
-    // A window that asked for every whole-dp change reads the size here, in the composition,
-    // so a new size recomposes this and reaches the effect. Any other window keeps reading it
-    // only inside the effect, as before, so a resize inside a size class costs it no
-    // recomposition.
-    val observedSize = if (reportEveryDp) measuredSize else null
-    // Subscribes this scope to the height class: reading the class here is what makes a
-    // height-only class change recompose, and so run the effect below with the new size.
+    // What decides whether the Host is told: both classes, and for a window that asked for
+    // every whole-dp change, the size rounded to whole dp as well. It is read here, in the
+    // composition, through a derived state, so a layout pass that changes it recomposes
+    // this scope once and reaches the effect below, and a layout pass that does not change
+    // it (a drag inside one class for a window that did not opt in) recomposes nothing.
+    // Reading the size only inside the effect would subscribe to nothing, and a window
+    // whose report depends on anything but the width class would never be told.
+    // Recomposition runs at most once a frame, so several layout passes in one frame are
+    // one report.
     @Suppress("UNUSED_VARIABLE")
-    val observedHeightClass = heightClass
+    val reportKey = remember(host, windowNodeId, density, reportEveryDp) {
+        derivedStateOf {
+            val size = measuredSize ?: return@derivedStateOf -1L
+            with(density) { windowReportKey(size.width.toDp().value, size.height.toDp().value, reportEveryDp) }
+        }
+    }.value
     SideEffect {
-        (observedSize ?: measuredSize)?.let { size ->
+        measuredSize?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
@@ -658,6 +737,11 @@ private fun ComposeRustTree(
         // Told once, and again only when the answer changes. A window that never asks is
         // never told, and comes up on exactly the path it did before any of this existed.
         SideEffect { platformWindowMaterial(asked) }
+        // Android's back closes the topmost overlay, as Escape does, and is left to the app
+        // when none is open. Where no platform installs a back hook this does nothing.
+        dev.darkpyonix.composerust.foundation.platformBackHandler(overlayFocusStack.hasOpen) {
+            overlayFocusStack.handleBack()
+        }
         CompositionLocalProvider(LocalWindowSizeClass provides sizeClass) {
             Box(
                 modifier
@@ -885,23 +969,27 @@ internal fun NodeTable.opensWithABar(roots: List<Int>): Boolean {
  * the strip the system's gesture bar sits in: a nested one has content below it and would
  * leave a gap in the middle of the screen.
  */
-internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean {
-    var id = roots.firstOrNull() ?: return false
+internal fun NodeTable.opensWithANavigation(roots: List<Int>): Boolean =
+    openingNavigation(roots) != null
+
+/** The navigation [opensWithANavigation] finds, or null where the page opens with none. */
+internal fun NodeTable.openingNavigation(roots: List<Int>): Node? {
+    var id = roots.firstOrNull() ?: return null
     repeat(BAR_SEARCH_DEPTH) {
-        val node = node(id) ?: return false
+        val node = node(id) ?: return null
         when (node.widget) {
-            WidgetKind.Navigation -> return true
+            WidgetKind.Navigation -> return node
             // The same wrappers the search above passes through, for the same reason:
             // they are not things the reader sees.
-            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return false
+            WidgetKind.Column, WidgetKind.Box -> id = node.children.firstOrNull() ?: return null
             // A frame's destinations are whatever fills its bottom slot, and the frame
             // owns the page around them, which is what this question is really asking.
-            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return false
-            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return false
-            else -> return false
+            WidgetKind.Scaffold -> id = slotChild(node, SlotRole.BottomBar) ?: return null
+            WidgetKind.ScaffoldSlot -> id = node.children.firstOrNull() ?: return null
+            else -> return null
         }
     }
-    return false
+    return null
 }
 
 /**

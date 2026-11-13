@@ -9,10 +9,13 @@ use compose_rust::codegen::{
     WEB_HOST_WASM_NAME, WEB_MEMORY_MIN_PAGES, generate_wasm_rust, generate_web_bridge_kotlin,
     generate_web_loader_js,
 };
+use compose_rust::protocol::{HostEvent, decode_event, encode_event};
 use compose_rust::schema::{
-    BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, WEB_BATCH_BYTES, WEB_BATCH_FIELDS,
-    WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
+    BOUNDARY_SCHEMA, BoundaryOp, BoundaryParam, EventPayload, IoStatus, WEB_BATCH_BYTES,
+    WEB_BATCH_FIELDS, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_MAX_BYTES, WEB_EVENT_BUFFER_OFFSET,
+    WEB_LEND_EVENT_BUFFER_SYMBOL, WEB_RUST_REGION_BASE, WEB_START_SYMBOL,
 };
+use compose_rust::web_event_buffer::{LentEventBuffer, region_address};
 
 /// The wasm symbol for one operation, spelled out here rather than taken from the
 /// generator, so that a renamed symbol fails a test instead of renaming its own assertion.
@@ -365,6 +368,176 @@ fn nfr5_a_page_without_a_host_says_so_and_carries_on() {
     assert!(
         loader.contains("console.info("),
         "and say on the console why the screen is the development host"
+    );
+}
+
+/// Writes `bytes` where the Renderer would, into a buffer the Host lent, and decodes what the
+/// Host then reads there.
+fn through_lent_buffer<'a>(
+    lender: &mut LentEventBuffer,
+    bytes: &[u8],
+    read: &'a mut Vec<u8>,
+) -> HostEvent<'a> {
+    let length = u32::try_from(bytes.len()).expect("the event fits in 32 bits");
+    let pointer = lender
+        .lend(length)
+        .expect("the Host refused a buffer under the ceiling");
+    // SAFETY: the buffer just lent holds at least `length` bytes and nothing else refers to
+    // it while this writes, which is the promise the Renderer relies on in a browser.
+    let lent = unsafe { std::slice::from_raw_parts_mut(pointer, bytes.len()) };
+    lent.clone_from_slice(bytes);
+    read.clear();
+    read.extend_from_slice(lent);
+    decode_event(read).expect("the Host could not decode the event it was lent a buffer for")
+}
+
+/// A paste, a large edit and a long storage answer are each larger than the 4 KiB buffer in
+/// the startup block. The Host lends a buffer that holds each of them, and what it reads
+/// there is the whole event.
+#[test]
+fn pr6_an_event_larger_than_the_lent_buffer_arrives_whole() {
+    let clipboard = "가나다라마바사아".repeat(64 * 1024 / 24) + &"x".repeat(64 * 1024 % 24);
+    assert_eq!(clipboard.len(), 64 * 1024);
+    let edit = "line of a pasted document\n".repeat(32 * 1024 / 26 + 1)[..32 * 1024].to_owned();
+    let value: Vec<u8> = (0..1024 * 1024).map(|index| (index % 251) as u8).collect();
+    let events = [
+        HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::ClipboardText {
+                request: 1,
+                status: 0,
+                len: clipboard.chars().count() as u32,
+                text: &clipboard,
+            },
+        },
+        HostEvent {
+            node_id: 5,
+            handler_id: 2,
+            payload: EventPayload::TextChanged(&edit),
+        },
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::IoAnswer {
+                request: 7,
+                status: IoStatus::Ok,
+                data: &value,
+            },
+        },
+    ];
+
+    let mut lender = LentEventBuffer::new();
+    let mut wire = Vec::new();
+    let mut read = Vec::new();
+    for event in &events {
+        encode_event(event, &mut wire).expect("the event did not encode");
+        assert!(wire.len() > WEB_EVENT_BUFFER_BYTES as usize);
+        let arrived = through_lent_buffer(&mut lender, &wire, &mut read);
+        assert_eq!(
+            &arrived, event,
+            "the Host read something other than what was sent"
+        );
+    }
+    assert!(lender.len() >= wire.len());
+}
+
+/// The lent buffer is kept: a request it already satisfies answers with the same address and
+/// allocates nothing, so a second event like the largest one costs nothing.
+#[test]
+fn pr6_a_lent_buffer_is_kept_until_a_larger_one_is_asked_for() {
+    let mut lender = LentEventBuffer::new();
+    assert!(lender.is_empty());
+    let grown = lender.lend(16 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.len(), 16 * 1024);
+    for smaller in [1, 8 * 1024, 16 * 1024] {
+        assert_eq!(
+            lender.lend(smaller),
+            Some(grown),
+            "a request for {smaller} bytes moved the buffer"
+        );
+    }
+    assert_eq!(
+        lender.len(),
+        16 * 1024,
+        "a smaller request does not shrink it"
+    );
+    lender.lend(32 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.len(), 32 * 1024);
+}
+
+/// Past 64 MiB the Host refuses, and a refusal leaves the buffer it lent before in place,
+/// because the Renderer goes on encoding into that one.
+#[test]
+fn pr6_an_event_past_the_ceiling_is_refused() {
+    assert_eq!(WEB_EVENT_BUFFER_MAX_BYTES, 64 * 1024 * 1024);
+    let mut lender = LentEventBuffer::new();
+    let kept = lender.lend(8 * 1024).expect("a buffer under the ceiling");
+    assert_eq!(lender.lend(WEB_EVENT_BUFFER_MAX_BYTES + 1), None);
+    assert_eq!(lender.lend(u32::MAX), None);
+    assert_eq!(lender.lend(0), None, "a request for nothing lends nothing");
+    assert_eq!(
+        lender.len(),
+        8 * 1024,
+        "a refusal frees nothing and lends nothing"
+    );
+    assert_eq!(lender.lend(8 * 1024), Some(kept));
+
+    let largest = lender
+        .lend(WEB_EVENT_BUFFER_MAX_BYTES)
+        .expect("the ceiling itself is lent");
+    assert!(!largest.is_null());
+    assert_eq!(lender.len(), WEB_EVENT_BUFFER_MAX_BYTES as usize);
+}
+
+/// Only an address in the Host's region is ever handed to the Renderer. Below it is the
+/// Renderer's own allocator, and past 32 bits is not an address a browser memory has.
+#[test]
+fn pr6_a_lent_address_is_in_the_host_region() {
+    let below = (WEB_RUST_REGION_BASE as usize - 1) as *const u8;
+    let base = WEB_RUST_REGION_BASE as usize as *const u8;
+    let above = (WEB_RUST_REGION_BASE as usize + 4096) as *const u8;
+    assert_eq!(region_address(std::ptr::null()), 0);
+    assert_eq!(region_address(below), 0);
+    assert_eq!(region_address(base), WEB_RUST_REGION_BASE);
+    assert_eq!(region_address(above), WEB_RUST_REGION_BASE + 4096);
+    #[cfg(target_pointer_width = "64")]
+    assert_eq!(region_address((u32::MAX as usize + 1) as *const u8), 0);
+}
+
+/// The export the Renderer borrows from is generated beside the boundary shims, takes one
+/// 32-bit length, answers with one 32-bit address, and only ever answers with an address
+/// the region check passed. The forwarder is the same fixed shape as every other one.
+#[test]
+fn pr6_the_lend_export_and_its_forwarder_come_from_the_schema() {
+    let rust = generate_wasm_rust();
+    let kotlin = generate_web_bridge_kotlin();
+    assert!(
+        rust.contains(&format!(
+            "#[unsafe(no_mangle)]\npub extern \"C\" fn {WEB_LEND_EVENT_BUFFER_SYMBOL}(min_len: u32) -> u32 {{"
+        )),
+        "the wasm module has to export {WEB_LEND_EVENT_BUFFER_SYMBOL}"
+    );
+    assert!(
+        rust.contains(".map_or(0, |pointer| region_address(pointer.cast_const()))"),
+        "the export has to answer zero for anything the region check refuses"
+    );
+    assert!(
+        kotlin.contains(&format!(
+            "@JsFun(\"(minLength) => globalThis.__composeRustHost.{WEB_LEND_EVENT_BUFFER_SYMBOL}(minLength)\")\n\
+             external fun hostLendEventBuffer(minLength: Int): Int"
+        )),
+        "the Renderer's forwarder for {WEB_LEND_EVENT_BUFFER_SYMBOL} is not the fixed shape"
+    );
+    assert!(kotlin.contains(&format!(
+        "const val EVENT_BUFFER_MAX_BYTES: Int = {WEB_EVENT_BUFFER_MAX_BYTES}"
+    )));
+    // Setup, not a boundary operation: the list of boundary functions does not grow.
+    assert!(
+        BOUNDARY_SCHEMA
+            .iter()
+            .all(|op| !op.symbol.contains("lend_event_buffer")),
+        "lending is setup and has no place in the boundary schema"
     );
 }
 

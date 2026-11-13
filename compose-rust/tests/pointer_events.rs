@@ -27,8 +27,20 @@ fn launch_guard() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// What the box was handed: the kind, the position, the buttons held, the button and the
+/// click count.
+type BoxRecord = (PointerKind, f32, f32, u32, u32, u32);
+
 thread_local! {
-    static SEEN: RefCell<Vec<(PointerKind, f32, f32, u32, u32, u32)>> = const { RefCell::new(Vec::new()) };
+    static SEEN: RefCell<Vec<BoxRecord>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the row that hears every kind was handed: the kind, the button, the buttons held,
+/// the click count, whether Control was held, the wheel's travel and its unit.
+type RowRecord = (PointerKind, u32, u32, u32, bool, f32, f32, WheelDeltaMode);
+
+thread_local! {
+    static ROW_SEEN: RefCell<Vec<RowRecord>> = const { RefCell::new(Vec::new()) };
 }
 
 #[Composable]
@@ -65,6 +77,29 @@ fn Screen() {
         Box().on_pointer(PointerKinds::NONE, |_| {}).content(|| {
             Text("empty mask");
         });
+        // A list row that hears every kind: a double press opens it, the secondary button
+        // asks for its menu, and the menu is the row's own, so that one is consumed.
+        Row()
+            .on_pointer(PointerKinds::ALL, |event| {
+                ROW_SEEN.with(|seen| {
+                    seen.borrow_mut().push((
+                        event.kind(),
+                        event.button(),
+                        event.buttons(),
+                        event.click_count(),
+                        event.ctrl_key(),
+                        event.delta_x(),
+                        event.delta_y(),
+                        event.delta_mode(),
+                    ));
+                });
+                if event.kind() == PointerKind::ContextMenu {
+                    event.consume();
+                }
+            })
+            .content(|| {
+                Text("row");
+            });
     });
 }
 
@@ -227,8 +262,13 @@ fn fr46_button_bits_match_compose_pointer_buttons() {
 fn fr46_unsubscribed_node_gets_no_pointer_modifier() {
     with_screen(|tree| {
         let dump = tree.dump();
-        // Exactly two nodes subscribe, the Box and one Text: the others write neither property.
-        assert_eq!(dump.matches("PointerKinds=").count(), 2, "{dump}");
+        // Exactly three nodes subscribe, the Box, one Text and the Row: the others write
+        // neither property.
+        assert_eq!(dump.matches("PointerKinds=").count(), 3, "{dump}");
+        assert!(
+            dump.contains("PointerKinds=Integer(255)"),
+            "every kind is 255: {dump}"
+        );
         assert!(
             dump.contains("PointerKinds=Integer(9)"),
             "Down | Move is 8 | 1: {dump}"
@@ -284,6 +324,77 @@ fn fr46_handler_sees_the_record_and_its_consume_is_the_result() {
                 vec![
                     (PointerKind::Move, 12.5, 3.0, 1, 0, 0),
                     (PointerKind::Down, 12.5, 3.0, 1, 1, 2),
+                ]
+            );
+        });
+    });
+}
+
+/// The row a list is made of: what a renderer sends for a double press, for the secondary
+/// button and for a wheel reaches the handler as it was sent, and only the menu is consumed.
+#[test]
+fn fr46_row_hears_double_press_context_menu_and_wheel() {
+    with_screen(|tree| {
+        ROW_SEEN.with(|seen| seen.borrow_mut().clear());
+        let (node_id, handler_id) = tree.find("Row", None, 0, PropertyKind::OnPointer);
+        // The button, the buttons held, the click count and the modifiers, then the wheel.
+        let send =
+            |kind: PointerKind, press: (u32, u32, u32, u32), wheel: (f32, f32, WheelDeltaMode)| {
+                dispatch(&HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::Pointer {
+                        kind,
+                        pointer_id: 1,
+                        pointer_type: PointerType::Mouse,
+                        x: 40.0,
+                        y: 8.0,
+                        buttons: press.1,
+                        button: press.0,
+                        modifiers: press.3,
+                        click_count: press.2,
+                        delta_x: wheel.0,
+                        delta_y: wheel.1,
+                        delta_mode: wheel.2,
+                        timestamp_nanos: 7,
+                    },
+                })
+            };
+        let still = (0.0, 0.0, WheelDeltaMode::Pixel);
+        let results = [
+            send(PointerKind::Down, (1, 1, 1, 0), still),
+            send(PointerKind::Up, (1, 0, 1, 0), still),
+            send(PointerKind::Down, (1, 1, 2, 0), still),
+            send(PointerKind::Up, (1, 0, 2, 0), still),
+            // Control is 2 in the modifier mask, and the secondary button is 2 in `buttons`.
+            send(PointerKind::ContextMenu, (0, 2, 0, 2), still),
+            send(
+                PointerKind::Wheel,
+                (0, 0, 0, 0),
+                (1.5, -3.0, WheelDeltaMode::Line),
+            ),
+        ];
+        assert_eq!(results, [0, 0, 0, 0, 1, 0], "only the menu is consumed");
+        let pixel = WheelDeltaMode::Pixel;
+        ROW_SEEN.with(|seen| {
+            assert_eq!(
+                *seen.borrow(),
+                vec![
+                    (PointerKind::Down, 1, 1, 1, false, 0.0, 0.0, pixel),
+                    (PointerKind::Up, 1, 0, 1, false, 0.0, 0.0, pixel),
+                    (PointerKind::Down, 1, 1, 2, false, 0.0, 0.0, pixel),
+                    (PointerKind::Up, 1, 0, 2, false, 0.0, 0.0, pixel),
+                    (PointerKind::ContextMenu, 0, 2, 0, true, 0.0, 0.0, pixel),
+                    (
+                        PointerKind::Wheel,
+                        0,
+                        0,
+                        0,
+                        false,
+                        1.5,
+                        -3.0,
+                        WheelDeltaMode::Line
+                    ),
                 ]
             );
         });

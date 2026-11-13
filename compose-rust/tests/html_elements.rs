@@ -88,7 +88,14 @@ fn every_modifier() -> Vec<Modifier> {
             paint: Paint::Role(ColorRole::Outline),
         },
         Modifier::Elevation(6.0),
-        Modifier::ObserveSize { token: 9 },
+        Modifier::ObserveSize {
+            token: 9,
+            every_dp: false,
+        },
+        Modifier::ObserveSize {
+            token: 9,
+            every_dp: true,
+        },
         Modifier::Motion(MotionRole::Standard),
         Modifier::Material(MaterialRole::Regular),
         Modifier::Offset { x: 12.5, y: -4.0 },
@@ -151,6 +158,7 @@ fn every_modifier() -> Vec<Modifier> {
             role: compose_rust::SemanticsRole::Button,
             state: 0b0110,
         },
+        Modifier::CornerCurve { smoothing: 0.6 },
     ]
 }
 
@@ -423,7 +431,7 @@ fn fr42_changing_one_modifier_is_one_record() {
 fn fr19_9_window_drag_modifier_round_trips() {
     for enabled in [false, true] {
         let mutation = set_modifier(Modifier::WindowDrag(enabled));
-        let bytes = encode(&[mutation.clone()]);
+        let bytes = encode(std::slice::from_ref(&mutation));
         assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 32);
         assert_eq!(decode_batch(&bytes), Ok(vec![mutation]));
     }

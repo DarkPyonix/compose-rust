@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 26;
+const MODIFIER_SLOTS: usize = 27;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -145,6 +145,11 @@ impl NodeWriter {
     /// Whether `node_id` is a `Window` node.
     pub(crate) fn is_window(&self, node_id: u32) -> bool {
         self.windows.contains(&node_id)
+    }
+
+    /// Whether `node_id` stands in the tree, under the root or under another node.
+    pub(crate) fn is_placed(&self, node_id: u32) -> bool {
+        self.parents.contains_key(&node_id)
     }
 
     /// The windows that left the tree since the last call.
@@ -346,6 +351,7 @@ impl NodeWriter {
         const WINDOW_DRAG: u16 = 23;
         const PRESS_FEEDBACK: u16 = 24;
         const SEMANTICS: u16 = 25;
+        const CORNER_CURVE: u16 = 26;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -376,11 +382,12 @@ impl NodeWriter {
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
             "padding" | "padding_role" => Some(PADDING),
-            "observe_size" => Some(OBSERVE_SIZE),
+            "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
             "press_feedback" => Some(PRESS_FEEDBACK),
             "semantics" => Some(SEMANTICS),
+            "corner_curve" => Some(CORNER_CURVE),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -420,10 +427,18 @@ impl NodeWriter {
             // The token is the application's name for this node, and it stays here: what
             // the Renderer reports back is its own node id, so the pairing has to be
             // remembered at the moment the two are both in hand.
-            "observe_size" => {
+            // `observe_size_every_dp` asks for a report on every whole dp change as well
+            // as on a class change; it shares the slot, so a node holds one or the other.
+            "observe_size" | "observe_size_every_dp" => {
                 let token = u32::try_from(integer(value)?).ok()?;
                 self.size_tokens.insert(node_id, token);
-                Some(Some((slot, Modifier::ObserveSize { token })))
+                Some(Some((
+                    slot,
+                    Modifier::ObserveSize {
+                        token,
+                        every_dp: name == "observe_size_every_dp",
+                    },
+                )))
             }
             "fill_max_width" | "fill_max_height" | "match_parent_size" => {
                 let AttrValue::Bool(enabled) = value else {
@@ -549,6 +564,12 @@ impl NodeWriter {
                 Some(Some((BORDER, Modifier::Border { width, paint })))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
+            "corner_curve" => Some(Some((
+                CORNER_CURVE,
+                Modifier::CornerCurve {
+                    smoothing: crate::schema::corner_smoothing(float(value)?),
+                },
+            ))),
             "press_feedback" => {
                 let AttrValue::Bytes(bytes) = value else {
                     return Some(None);
@@ -884,6 +905,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "filesentered" | "onfilesentered" => Some(PropertyKind::OnFilesEntered),
         "filesdropped" | "onfilesdropped" => Some(PropertyKind::OnFilesDropped),
         "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
+        "scrollchanged" | "onscrollchanged" => Some(PropertyKind::OnScrollChanged),
         "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
         "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
         "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),

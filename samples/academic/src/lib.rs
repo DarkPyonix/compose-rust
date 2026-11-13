@@ -3,33 +3,22 @@
 //! The marks on the tiles are pictures: the reference puts a rendered object on each, and
 //! three concentric circles in four colours is four subjects nobody can tell apart.
 //!
-//! The screen this sample exists for is the grid of subjects, and it is the one place in
-//! the seven references where the role vocabulary ran out. Four subjects want four fills
-//! that are peers of each other. There are three accent families and nothing else that is
-//! a peer of them, so the fourth tile is the neutral fill and reads quieter than its
-//! neighbours. That is written down in `school.rs` rather than papered over with a
-//! literal.
-//!
 //! Unified, naming Cupertino and dark: the reference is drawn on black, both screens,
 //! and a drum school that comes up white on a machine set to light is not that design.
-//! `THEME` says both.
+//! `THEME` says both. The colours are the picture's own, named in `palette`: four subjects
+//! that are four equals, one white card and dark grey locked ones. Said with roles they
+//! were the running design system's blue and its pale accent containers, which the
+//! picture never had.
 
+mod palette;
 mod school;
-
-mod palette {
-    use compose_rust::Color;
-    pub const PAGE: Color = Color::rgb(0x000000);
-    pub const TEXT: Color = Color::rgb(0xFFFFFF);
-    pub const PURPLE: Color = Color::rgb(0x3B2C63);
-    pub const RED: Color = Color::rgb(0xFF5A5F);
-    pub const TEAL: Color = Color::rgb(0x2DD4BF);
-    pub const AMBER: Color = Color::rgb(0xFBBF24);
-}
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
-use school::{LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, stage};
+use school::{
+    LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, reached, stage,
+};
 use std::rc::Rc;
 
 /// A phone design in a desktop window is still a phone design.
@@ -37,12 +26,45 @@ const PAGE_MEASURE: f32 = 420.0;
 
 /// How large a subject's mark is, and how tall its tile is.
 ///
-/// Larger than they were. The reference's four tiles take the top half of the screen with
-/// the object on each one filling most of its tile, and a grid of small marks in tall
-/// tiles left a band of empty page under it on a phone.
+/// The reference's four tiles take the top half of the screen with the object on each one
+/// filling most of its tile, and a grid of small marks in tall tiles left a band of empty
+/// page under it on a phone.
 const MARK_SIDE: f32 = 108.0;
 const TILE_HEIGHT: f32 = 196.0;
 const STRIP_HEIGHT: f32 = 56.0;
+
+/// How large a control whose face is an icon is: the bar's four, and the plan's back,
+/// search and menu.
+const ICON_TAP: f32 = 44.0;
+
+/// The chevrons beside "LESSON PLAN" and "YOUR PROGRESS", which are set at the size of the
+/// small capitals next to them rather than at a control's size.
+const CHEVRON_SIDE: f32 = 16.0;
+
+/// The picture in the top corner of the subjects page.
+const AVATAR_SIDE: f32 = 52.0;
+
+/// The coral dots: the one on the destination you are on and the one beside "RECENT".
+const DOT: f32 = 6.0;
+
+/// The coral circle in the corner of the open card, and how far it is pushed past the
+/// card's edges. The card clips it, so what shows is the quarter the reference draws.
+const CORNER_SIDE: f32 = 112.0;
+const CORNER_PUSH: f32 = 40.0;
+
+/// The picture standing in for the pupil, drawn rather than photographed: a photograph of
+/// a person belongs to whoever took it.
+static AVATAR: &[u8] = include_bytes!("../assets/avatar.svg");
+
+/// The icons this school draws outside a button, as the bytes each registration carries:
+/// the meaning's wire tag, little endian, and nothing else. The Renderer holds the artwork
+/// for every design system.
+mod icon {
+    use compose_rust::ui::IconRole;
+
+    pub static BACK: [u8; 2] = (IconRole::Back as u16).to_le_bytes();
+    pub static FORWARD: [u8; 2] = (IconRole::Forward as u16).to_le_bytes();
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Destination {
@@ -60,6 +82,8 @@ impl Destination {
         Destination::Profile,
     ];
 
+    /// What the destination is called. Nothing on screen says it: the reference's bar is
+    /// icons alone. It is the name assistive technology reads for the icon.
     fn label(self) -> &'static str {
         match self {
             Destination::Skills => "Skills",
@@ -69,6 +93,7 @@ impl Destination {
         }
     }
 
+    /// What the destination means, so the Renderer draws its own artwork for it.
     fn icon(self) -> IconRole {
         match self {
             Destination::Skills => IconRole::Home,
@@ -77,61 +102,89 @@ impl Destination {
             Destination::Profile => IconRole::Settings,
         }
     }
-
-    fn index(self) -> usize {
-        Self::STRIP
-            .iter()
-            .position(|found| *found == self)
-            .unwrap_or(0)
-    }
 }
 
 /// What opening a subject does, handed down to every tile.
 type OpenSubject = Rc<dyn Fn(&'static str)>;
 
-/// One subject as a tile: the mark, the name, and how far through it you are.
+/// A control whose face is an icon and nothing else, in the page's white.
+fn icon_button(icon: IconRole, name: &'static str, on_click: impl FnMut() + 'static) {
+    Button("")
+        .icon(icon)
+        .accessible_name(name)
+        .variant(ButtonVariant::Text)
+        .color(palette::TEXT)
+        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+        .on_click(on_click);
+}
+
+/// Small bold capitals, spaced out, which is how the reference sets its labels.
+fn capitals(label: &'static str, ink: Paint) {
+    Text(label)
+        .type_role(TypeRole::Caption)
+        .font_weight(700)
+        .letter_spacing(1.0)
+        .color(ink);
+}
+
+/// One subject as a tile: the mark, and the name centred under it.
 fn subject_tile(subject: &'static Subject, on_open: &OpenSubject) {
     let name = subject.name;
-    let fill = match name {
-        "Technique" => Paint::Literal(palette::PURPLE),
-        "Arsenal" => Paint::Literal(palette::RED),
-        "Coordination" => Paint::Literal(palette::TEAL),
-        _ => Paint::Literal(palette::AMBER),
-    };
     Box()
         .modifier(
             Modifier
                 .fill_max_width()
                 .height(TILE_HEIGHT)
-                .background(fill)
+                .background(subject.fill)
                 .shape_role(ShapeRole::Large)
                 .padding_role(SpaceRole::Md),
         )
         .content(|| {
-            Column().modifier(Modifier.fill_max_size()).content(|| {
-                Box()
-                    .modifier(Modifier.fill_max_width().weight(1.0))
-                    .alignment(Alignment::Center)
-                    .content(|| {
-                        Image(compose_rust::asset(AssetKind::Svg, subject.mark))
-                            .modifier(Modifier.size(MARK_SIDE, MARK_SIDE));
-                    });
-                let open = Rc::clone(on_open);
-                Button(name)
-                    .variant(ButtonVariant::Text)
-                    .color(Paint::Literal(palette::TEXT))
-                    .modifier(Modifier.padding_role(SpaceRole::None))
-                    .on_click(move || open(name));
-            });
+            Column()
+                .modifier(Modifier.fill_max_size())
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Box()
+                        .modifier(Modifier.fill_max_width().weight(1.0))
+                        .alignment(Alignment::Center)
+                        .content(|| {
+                            Image(compose_rust::asset(AssetKind::Svg, subject.mark))
+                                .modifier(Modifier.size(MARK_SIDE, MARK_SIDE));
+                        });
+                    let open = Rc::clone(on_open);
+                    Button(name)
+                        .variant(ButtonVariant::Text)
+                        .color(palette::TEXT)
+                        .modifier(Modifier.padding_role(SpaceRole::None))
+                        .on_click(move || open(name));
+                });
         });
 }
 
-/// The four subjects, two to a row, over the title the reference gives them.
-fn skills_page(on_open: &OpenSubject) {
+/// The subjects page: the pupil's picture on a line of its own, the title under it, the
+/// four subjects two to a row, and the two ways on from here.
+fn skills_page(on_open: &OpenSubject, destination: MutableState<Destination>) {
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .arrangement(Arrangement::End)
+                .content(|| {
+                    Image(compose_rust::asset(AssetKind::Svg, AVATAR)).modifier(
+                        Modifier
+                            .size(AVATAR_SIDE, AVATAR_SIDE)
+                            .shape_role(ShapeRole::Full)
+                            .clip(true),
+                    );
+                });
+
+            Text("Skills\nTo Pump!")
+                .type_role(TypeRole::Display)
+                .font_weight(600)
+                .color(palette::TEXT);
+
             Column()
                 .modifier(Modifier.fill_max_width())
                 .space_role(SpaceRole::Md)
@@ -160,80 +213,150 @@ fn skills_page(on_open: &OpenSubject) {
 
             Row()
                 .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
                 .alignment(Alignment::CenterStart)
                 .content(|| {
-                    Text("< LESSON PLAN")
-                        .type_role(TypeRole::Caption)
-                        .color(Paint::Literal(palette::TEXT))
-                        .modifier(Modifier.weight(1.0));
-                    Text("YOUR PROGRESS >")
-                        .type_role(TypeRole::Caption)
-                        .color(Paint::Literal(palette::TEXT));
+                    Row()
+                        .space_role(SpaceRole::Sm)
+                        .alignment(Alignment::CenterStart)
+                        .on_click(move || destination.set(Destination::Plan))
+                        .content(|| {
+                            Icon(compose_rust::asset(AssetKind::VectorIcon, &icon::BACK))
+                                .color(palette::TEXT)
+                                .modifier(Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE));
+                            capitals("LESSON PLAN", palette::TEXT);
+                        });
+                    Spacer().modifier(Modifier.weight(1.0));
+                    Row()
+                        .space_role(SpaceRole::Sm)
+                        .alignment(Alignment::CenterStart)
+                        .on_click(move || destination.set(Destination::Progress))
+                        .content(|| {
+                            capitals("YOUR PROGRESS", palette::TEXT);
+                            Icon(compose_rust::asset(AssetKind::VectorIcon, &icon::FORWARD))
+                                .color(palette::TEXT)
+                                .modifier(Modifier.size(CHEVRON_SIDE, CHEVRON_SIDE));
+                        });
                 });
         });
 }
 
-/// One lesson as a card. What is locked is quiet and says so in a word, because a padlock
-/// is an icon and an icon cannot be placed from application code.
+/// One lesson as a card.
+///
+/// The open one is the one light thing on the screen: white, black ink, a chevron, and a
+/// coral quarter circle in its corner. A locked one is a dark grey card with grey ink. The
+/// reference marks a locked card with a padlock as well, and there is no padlock to draw
+/// (`IconRole` has none), so the card names its state to assistive technology only.
 #[Composable]
 fn lesson_card(lesson: &'static Lesson) {
-    let (fill, ink) = if lesson.open {
-        (ColorRole::SurfaceContainer, ColorRole::OnSurface)
+    if lesson.open {
+        Box()
+            .modifier(
+                Modifier
+                    .fill_max_width()
+                    .background(palette::CARD)
+                    .shape_role(ShapeRole::Large)
+                    .clip(true),
+            )
+            .alignment(Alignment::BottomEnd)
+            .content(|| {
+                // Under the words, pushed past the corner so the card's clip leaves a
+                // quarter of it.
+                Box().modifier(
+                    Modifier
+                        .size(CORNER_SIDE, CORNER_SIDE)
+                        .offset(CORNER_PUSH, CORNER_PUSH)
+                        .background(palette::ACCENT)
+                        .shape_role(ShapeRole::Full),
+                );
+                Row()
+                    .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Lg))
+                    .space_role(SpaceRole::Sm)
+                    .alignment(Alignment::CenterStart)
+                    .content(|| {
+                        Column()
+                            .modifier(Modifier.weight(1.0))
+                            .space_role(SpaceRole::Sm)
+                            .content(|| {
+                                if lesson.recent {
+                                    Row()
+                                        .space_role(SpaceRole::Xs)
+                                        .alignment(Alignment::TopStart)
+                                        .content(|| {
+                                            capitals("RECENT", palette::CARD_INK);
+                                            Box().modifier(
+                                                Modifier
+                                                    .size(DOT, DOT)
+                                                    .background(palette::ACCENT)
+                                                    .shape_role(ShapeRole::Full),
+                                            );
+                                        });
+                                }
+                                Text(lesson.title)
+                                    .type_role(TypeRole::Headline)
+                                    .font_weight(700)
+                                    .color(palette::CARD_INK);
+                                Text(format!("{} lesson", ordinal(lesson.number)))
+                                    .type_role(TypeRole::Body)
+                                    .color(palette::CARD_MUTED);
+                            });
+                        Button("")
+                            .icon(IconRole::Forward)
+                            .accessible_name(lesson.title)
+                            .variant(ButtonVariant::Text)
+                            .color(palette::CHEVRON)
+                            .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+                            .on_click(|| {
+                                Message::new("Lessons are not part of this sample").show()
+                            });
+                    });
+            });
     } else {
-        (ColorRole::SurfaceVariant, ColorRole::OnSurfaceVariant)
-    };
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(Paint::Role(fill))
-                .shape_role(ShapeRole::Large)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Xs)
-        .content(|| {
-            if lesson.recent {
-                Text("Recent")
-                    .type_role(TypeRole::Label)
-                    .color(Paint::Role(ColorRole::Primary));
-            }
-            Text(lesson.title)
-                .type_role(TypeRole::Title)
-                .color(Paint::Role(ink));
-            Text(lesson.summary)
-                .type_role(TypeRole::Body)
-                .color(Paint::Role(ColorRole::OnSurfaceVariant));
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text(format!("{} lesson", ordinal(lesson.number)))
-                        .type_role(TypeRole::Caption)
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .modifier(Modifier.weight(1.0));
-                    if lesson.open {
-                        Button("Start").variant(ButtonVariant::Filled).on_click(|| {
-                            Message::new("Lessons are not part of this sample").show()
-                        });
-                    } else {
-                        Text("Locked")
-                            .type_role(TypeRole::Label)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                    }
-                });
-        });
+        Column()
+            .modifier(
+                Modifier
+                    .fill_max_width()
+                    .background(palette::LOCKED)
+                    .shape_role(ShapeRole::Large)
+                    .padding_role(SpaceRole::Lg)
+                    .label("Locked"),
+            )
+            .space_role(SpaceRole::Sm)
+            .content(|| {
+                Text(lesson.title)
+                    .type_role(TypeRole::Title)
+                    .color(palette::LOCKED_INK);
+                Text(format!("{} lesson", ordinal(lesson.number)))
+                    .type_role(TypeRole::Body)
+                    .color(palette::LOCKED_INK);
+            });
+    }
 }
 
-/// The lesson plan: a stage strip that runs off the edge, and the lessons in that stage.
-fn plan_page(chosen: &MutableState<u32>) {
+/// The lesson plan: a row of ways out, a stage strip that runs off the edge, the lessons
+/// in that stage, and "MORE" under them.
+fn plan_page(chosen: &MutableState<u32>, destination: MutableState<Destination>) {
     let lessons = stage(chosen.get());
     Column()
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Lesson plan").type_role(TypeRole::Headline);
+            // The reference's plan screen has no title. Its top is a way back, search and
+            // a menu.
+            Row()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::CenterStart)
+                .content(|| {
+                    icon_button(IconRole::Back, "Back", move || {
+                        destination.set(Destination::Skills)
+                    });
+                    Spacer().modifier(Modifier.weight(1.0));
+                    icon_button(IconRole::Search, "Search", || {
+                        Message::new("Search is not part of this sample").show()
+                    });
+                    icon_button(IconRole::Menu, "Menu", || {
+                        Message::new("The menu is not part of this sample").show()
+                    });
+                });
 
             // A strip rather than a segmented control. `Tabs` divides its width equally
             // and does not scroll, so four stages on a phone is four segments of seventy
@@ -247,18 +370,28 @@ fn plan_page(chosen: &MutableState<u32>) {
                         |position| STAGES[position].to_string(),
                         move |position| {
                             let number = STAGES[position];
-                            let current = strip.get();
+                            let current = strip.get() == number;
                             let pick = strip;
+                            // The stage being looked at is the amber pill. The rest are
+                            // words: white for a stage the pupil has reached, grey for one
+                            // still ahead.
+                            let ink = if current || reached(number) {
+                                palette::TEXT
+                            } else {
+                                palette::MUTED
+                            };
                             Box()
                                 .modifier(Modifier.padding_role(SpaceRole::Xs))
                                 .alignment(Alignment::Center)
                                 .content(|| {
-                                    Button(format!("Stage {number}"))
-                                        .variant(if number == current {
-                                            ButtonVariant::Filled
-                                        } else {
-                                            ButtonVariant::Text
-                                        })
+                                    Button(format!("{number} Stage"))
+                                        .variant(ButtonVariant::Text)
+                                        .color(ink)
+                                        .modifier(
+                                            Modifier
+                                                .background_if(current.then_some(palette::AMBER))
+                                                .shape_role(ShapeRole::Full),
+                                        )
                                         .on_click(move || pick.set(number));
                                 });
                         },
@@ -267,7 +400,7 @@ fn plan_page(chosen: &MutableState<u32>) {
 
             Column()
                 .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
+                .space_role(SpaceRole::Md)
                 .content(|| {
                     for lesson in lessons.iter().copied() {
                         key(lesson.number, || {
@@ -277,10 +410,22 @@ fn plan_page(chosen: &MutableState<u32>) {
                         });
                     }
                 });
+
+            Column()
+                .modifier(Modifier.fill_max_width())
+                .alignment(Alignment::Center)
+                .content(|| {
+                    Column()
+                        .alignment(Alignment::Center)
+                        .on_click(|| Message::new("Later lessons open as you finish these").show())
+                        .content(|| capitals("MORE", palette::TEXT));
+                });
         });
 }
 
-/// How far through everything a pupil is, subject by subject.
+/// How far through everything a pupil is, subject by subject. The reference has no such
+/// screen, so it is drawn from the picture's own colours: the dark grey card for the
+/// whole course and each subject's own tile colour for that subject.
 fn progress_page() {
     let overall = overall_progress();
     let done = LESSONS.iter().filter(|lesson| lesson.open).count();
@@ -288,24 +433,25 @@ fn progress_page() {
         .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .space_role(SpaceRole::Md)
         .content(|| {
-            Text("Your progress").type_role(TypeRole::Headline);
+            Text("Your progress")
+                .type_role(TypeRole::Headline)
+                .font_weight(600)
+                .color(palette::TEXT);
 
-            Surface()
+            Column()
                 .modifier(
                     Modifier
                         .fill_max_width()
+                        .background(palette::LOCKED)
                         .shape_role(ShapeRole::Large)
                         .padding_role(SpaceRole::Md),
                 )
+                .space_role(SpaceRole::Sm)
                 .content(|| {
-                    Column()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .content(|| {
-                            Text(format!("{done} of {} lessons open", LESSONS.len()))
-                                .type_role(TypeRole::Body);
-                            ProgressIndicator(overall).modifier(Modifier.fill_max_width());
-                        });
+                    Text(format!("{done} of {} lessons open", LESSONS.len()))
+                        .type_role(TypeRole::Body)
+                        .color(palette::TEXT);
+                    ProgressIndicator(overall).modifier(Modifier.fill_max_width());
                 });
 
             Column()
@@ -313,13 +459,12 @@ fn progress_page() {
                 .space_role(SpaceRole::Sm)
                 .content(|| {
                     for subject in &SUBJECTS {
-                        let (fill, ink, _) = subject.tile.roles();
                         key(subject.name, || {
                             Column()
                                 .modifier(
                                     Modifier
                                         .fill_max_width()
-                                        .background(Paint::Role(fill))
+                                        .background(subject.fill)
                                         .shape_role(ShapeRole::Large)
                                         .padding_role(SpaceRole::Md),
                                 )
@@ -331,21 +476,18 @@ fn progress_page() {
                                         .content(|| {
                                             Text(subject.name)
                                                 .type_role(TypeRole::BodyStrong)
-                                                .color(Paint::Role(ink))
+                                                .color(palette::TEXT)
                                                 .modifier(Modifier.weight(1.0));
                                             Text(format!(
                                                 "{}%",
                                                 (subject.progress * 100.0).round() as i32
                                             ))
                                             .type_role(TypeRole::Label)
-                                            .color(Paint::Role(ink));
+                                            .color(palette::TEXT);
                                         });
-                                    // A whole sentence on the tint, which is the promise the
-                                    // container roles make and the reason they are a colour
-                                    // of their own.
                                     Text(subject.blurb)
                                         .type_role(TypeRole::Caption)
-                                        .color(Paint::Role(ink));
+                                        .color(palette::TEXT);
                                     ProgressIndicator(subject.progress)
                                         .modifier(Modifier.fill_max_width());
                                 });
@@ -358,12 +500,49 @@ fn progress_page() {
 /// The profile destination, which the reference leaves as a name.
 fn profile_page() {
     Box()
-        .modifier(Modifier.fill_max_size())
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
         .alignment(Alignment::Center)
         .content(|| {
             Text("Profile")
                 .type_role(TypeRole::Body)
-                .color(Paint::Literal(palette::TEXT));
+                .color(palette::TEXT);
+        });
+}
+
+/// The bar along the bottom: four white icons and nothing else.
+///
+/// Drawn here rather than declared as a `Navigation`, which is the widget for "the
+/// destinations, in whatever shape this design system and this window call for": a
+/// labelled tab bar at a phone's width and a rail or a sidebar wider than that. The
+/// reference is four bare icons on the black page with no labels, no pill and no hairline,
+/// and the one you are on carries a coral dot at its shoulder.
+fn bottom_bar(current: Destination, destination: MutableState<Destination>) {
+    Row()
+        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
+        .arrangement(Arrangement::SpaceAround)
+        .alignment(Alignment::Center)
+        .content(|| {
+            for choice in Destination::STRIP {
+                key(choice.label(), || {
+                    Box()
+                        .modifier(Modifier.size(ICON_TAP, ICON_TAP))
+                        .alignment(Alignment::TopEnd)
+                        .content(|| {
+                            icon_button(choice.icon(), choice.label(), move || {
+                                destination.set(choice)
+                            });
+                            if choice == current {
+                                Box().modifier(
+                                    Modifier
+                                        .size(DOT, DOT)
+                                        .offset(-DOT, DOT)
+                                        .background(palette::ACCENT)
+                                        .shape_role(ShapeRole::Full),
+                                );
+                            }
+                        });
+                });
+            }
         });
 }
 
@@ -378,82 +557,49 @@ pub fn app() {
 
     let destination = remember(|| mutable_state_of(Destination::Skills));
     let chosen_stage = remember(|| mutable_state_of(2_u32));
-    let opened = remember(|| mutable_state_of(Option::<&'static str>::None));
 
-    let on_open: OpenSubject = {
-        let (opened, destination) = (opened, destination);
-        Rc::new(move |name: &'static str| {
-            opened.set(Some(name));
-            destination.set(Destination::Plan);
-        })
-    };
+    let on_open: OpenSubject = Rc::new(move |_: &'static str| {
+        destination.set(Destination::Plan);
+    });
 
     let current = destination.get();
 
-    // The frame is named rather than built. Which of a bar, a rail or a drawer the
-    // destinations become, and where the page sits beside them, are answers this screen
-    // never has to know.
+    // The page and the bar are both held to a phone's width once the window is wider than
+    // one, so the title, the grid and the bar stay in one column rather than the title
+    // running to one edge of a desktop window and the bar to both.
     Scaffold()
-        .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
+        .modifier(Modifier.background(palette::PAGE))
         .bottom_bar(|| {
-            Navigation(current.index())
-                .modifier(Modifier.background(Paint::Literal(palette::PAGE)))
+            Box()
+                .modifier(Modifier.fill_max_width().background(palette::PAGE))
+                .alignment(Alignment::Center)
                 .content(|| {
-                    for choice in Destination::STRIP {
-                        let pick = destination;
-                        key(choice.label(), || {
-                            // The reference's bar has no accent in it: every icon is white
-                            // and the selected one is marked by nothing but being the one
-                            // you are on.
-                            NavigationItem("")
-                                .color(Paint::Literal(palette::TEXT))
-                                .icon(choice.icon())
-                                .on_click(move || pick.set(choice));
-                        });
-                    }
+                    Column()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none()),
+                        )
+                        .content(|| bottom_bar(current, destination));
                 });
         })
         .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_size()
-                        .background(Paint::Literal(palette::PAGE)),
-                )
+            Box()
+                .modifier(Modifier.fill_max_size().background(palette::PAGE))
+                .alignment(Alignment::TopCenter)
                 .content(|| {
-                    // Custom header
-                    Row()
-                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            Text("Skills\nTo Pump!")
-                                .type_role(TypeRole::Display)
-                                .color(Paint::Literal(palette::TEXT))
-                                .modifier(Modifier.weight(1.0));
-                            Box().modifier(
-                                Modifier
-                                    .size(48.0, 48.0)
-                                    .corner_radius(24.0)
-                                    .background(Paint::Literal(palette::TEXT)),
-                            );
-                        });
-                    Box()
-                        .modifier(Modifier.fill_max_width().weight(1.0))
-                        .alignment(Alignment::TopCenter)
-                        .content(|| {
-                            ScrollColumn()
-                                .modifier(
-                                    Modifier
-                                        .width_if(measure)
-                                        .fill_max_width_if(measure.is_none())
-                                        .fill_max_height(),
-                                )
-                                .content(|| match current {
-                                    Destination::Skills => skills_page(&on_open),
-                                    Destination::Plan => plan_page(&chosen_stage),
-                                    Destination::Progress => progress_page(),
-                                    Destination::Profile => profile_page(),
-                                });
+                    ScrollColumn()
+                        .modifier(
+                            Modifier
+                                .width_if(measure)
+                                .fill_max_width_if(measure.is_none())
+                                .fill_max_height(),
+                        )
+                        .content(|| match current {
+                            Destination::Skills => skills_page(&on_open, destination),
+                            Destination::Plan => plan_page(&chosen_stage, destination),
+                            Destination::Progress => progress_page(),
+                            Destination::Profile => profile_page(),
                         });
                 });
         });
@@ -490,6 +636,8 @@ fn launch_builder() -> LaunchBuilder {
     // nothing was listed under whatever the renderer happened to be called, and every
     // sample here was listed under the toolkit's default name until this line existed.
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.academic")
         .with_theme(compose_rust::demo_theme_for(THEME))
         .with_window(
             compose_rust::schema::Window::new()
@@ -523,7 +671,7 @@ mod tests {
 
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
+    use compose_rust::schema::{EventPayload, Modifier as Wire, PropertyKind, WidgetKind};
 
     /// Named for what it defends: the reference is a dark design, and a machine set
     /// the other way drew this sample light with nothing to compare against.
@@ -547,8 +695,11 @@ mod tests {
         assert!(!theme.adaptive, "the design is the product here");
     }
 
-    /// The screen, driven the way a Renderer drives it. Every batch is kept, because a
-    /// batch is the change since the frame before it rather than what is on screen.
+    /// The screen, driven the way a Renderer drives it.
+    ///
+    /// Every batch is kept, because a batch is the change since the frame before it rather
+    /// than what is on screen. Controls are looked up in what is still live, so a press
+    /// never names a handler that went with its node.
     struct Screen {
         host: ComposeHost,
         frames: Vec<Vec<u8>>,
@@ -565,6 +716,15 @@ mod tests {
             }
         }
 
+        fn send(&mut self, event: HostEvent<'_>) {
+            let mut bytes = Vec::new();
+            encode_event(&event, &mut bytes).expect("the event did not encode");
+            let (batch, _) = self.host.dispatch_event(&bytes).expect("the event failed");
+            if !batch.is_empty() {
+                self.frames.push(batch.to_vec());
+            }
+        }
+
         fn mutations(&self) -> Vec<Mutation<'_>> {
             self.frames
                 .iter()
@@ -572,56 +732,148 @@ mod tests {
                 .collect()
         }
 
-        fn press(&mut self, label: &str) -> bool {
-            let found = {
-                let mutations = self.mutations();
-                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+        fn live(&self) -> Vec<Mutation<'_>> {
+            sample_frames::live(self.mutations())
+        }
+
+        /// The handler a live node declared for a press.
+        fn handler_of(&self, node: u32) -> Option<u64> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::OnClick,
+                        value: PropertyValue::Integer(handler),
+                    } if *node_id == node => Some(*handler as u64),
+                    _ => None,
+                })
+        }
+
+        /// What a live node was last placed in.
+        fn parent_of(&self, node: u32) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::Insert {
+                        parent_id, node_id, ..
+                    }
+                    | Mutation::Move {
+                        parent_id, node_id, ..
+                    } if *node_id == node => Some(*parent_id),
+                    _ => None,
+                })
+        }
+
+        /// What a live node holds.
+        fn children_of(&self, node: u32) -> Vec<u32> {
+            let live = self.live();
+            let mut children: Vec<u32> = live
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::Insert {
+                        parent_id, node_id, ..
+                    }
+                    | Mutation::Move {
+                        parent_id, node_id, ..
+                    } if *parent_id == node => Some(*node_id),
+                    _ => None,
+                })
+                .collect();
+            children.sort_unstable();
+            children.dedup();
+            children
+                .into_iter()
+                .filter(|child| self.parent_of(*child) == Some(node))
+                .collect()
+        }
+
+        /// The fill a live node was last given, if any.
+        fn background_of(&self, node: u32) -> Option<Paint> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier: Wire::Background(paint),
+                        ..
+                    } if *node_id == node => Some(*paint),
+                    _ => None,
+                })
+        }
+
+        /// The live node that carries this text.
+        fn node_saying(&self, label: &str) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
                     Mutation::SetProp {
                         node_id,
                         property: PropertyKind::Text,
                         value: PropertyValue::String(text),
                     } if *text == label => Some(*node_id),
                     _ => None,
-                });
-                node.and_then(|node| {
-                    mutations.iter().rev().find_map(|mutation| match mutation {
-                        Mutation::SetProp {
-                            node_id,
-                            property: PropertyKind::OnClick,
-                            value: PropertyValue::Integer(handler),
-                        } if *node_id == node => Some((node, *handler as u64)),
-                        _ => None,
-                    })
                 })
-            };
-            let Some((node_id, handler_id)) = found else {
-                return false;
-            };
-            let mut bytes = Vec::new();
-            encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                },
-                &mut bytes,
-            )
-            .expect("the click did not encode");
-            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
-            if !batch.is_empty() {
-                self.frames.push(batch.to_vec());
-            }
-            true
         }
 
-        /// Answers every windowing list's range request, which is what a real Renderer
-        /// does before the first pixel. Without it a `LazyRow` is an empty box and nothing
-        /// inside it can be pressed.
+        /// The live control whose face is this icon.
+        fn node_showing(&self, icon: IconRole) -> Option<u32> {
+            self.live()
+                .iter()
+                .rev()
+                .find_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Icon,
+                        value: PropertyValue::Integer(value),
+                    } if *value == icon as i64 => Some(*node_id),
+                    _ => None,
+                })
+        }
+
+        /// Presses a node, or the nearest thing around it that answers a press: a label
+        /// written inside a pressable row is pressed through the row.
+        fn press_node(&mut self, node: u32) -> bool {
+            let mut at = Some(node);
+            while let Some(candidate) = at {
+                if let Some(handler_id) = self.handler_of(candidate) {
+                    self.send(HostEvent {
+                        node_id: candidate,
+                        handler_id,
+                        payload: EventPayload::Clicked,
+                    });
+                    return true;
+                }
+                at = self.parent_of(candidate);
+            }
+            false
+        }
+
+        fn press(&mut self, label: &str) -> bool {
+            match self.node_saying(label) {
+                Some(node) => self.press_node(node),
+                None => false,
+            }
+        }
+
+        fn press_icon(&mut self, icon: IconRole) -> bool {
+            match self.node_showing(icon) {
+                Some(node) => self.press_node(node),
+                None => false,
+            }
+        }
+
+        /// Answers every live windowing list's range request, which is what a real
+        /// Renderer does before the first pixel. Without it a `LazyRow` is an empty box
+        /// and nothing inside it can be pressed.
         fn fill_lists(&mut self, count: u32) {
             let lists: Vec<(u32, u64)> = {
-                let mutations = self.mutations();
-                let nodes: Vec<u32> = mutations
-                    .iter()
+                let live = self.live();
+                live.iter()
                     .filter_map(|mutation| match mutation {
                         Mutation::Create {
                             node_id,
@@ -629,39 +881,24 @@ mod tests {
                         } => Some(*node_id),
                         _ => None,
                     })
-                    .collect();
-                nodes
-                    .iter()
                     .filter_map(|node| {
-                        mutations.iter().find_map(|mutation| match mutation {
+                        live.iter().rev().find_map(|mutation| match mutation {
                             Mutation::SetProp {
                                 node_id,
                                 property: PropertyKind::OnRangeRequested,
                                 value: PropertyValue::Integer(handler),
-                            } if node_id == node => Some((*node, *handler as u64)),
+                            } if *node_id == node => Some((node, *handler as u64)),
                             _ => None,
                         })
                     })
                     .collect()
             };
             for (node_id, handler_id) in lists {
-                let mut bytes = Vec::new();
-                encode_event(
-                    &HostEvent {
-                        node_id,
-                        handler_id,
-                        payload: EventPayload::RangeRequested { start: 0, count },
-                    },
-                    &mut bytes,
-                )
-                .expect("the range request did not encode");
-                let (batch, _) = self
-                    .host
-                    .dispatch_event(&bytes)
-                    .expect("the range request failed");
-                if !batch.is_empty() {
-                    self.frames.push(batch.to_vec());
-                }
+                self.send(HostEvent {
+                    node_id,
+                    handler_id,
+                    payload: EventPayload::RangeRequested { start: 0, count },
+                });
             }
         }
 
@@ -682,67 +919,46 @@ mod tests {
                 })
                 .collect()
         }
-        fn press_icon(&mut self, icon: IconRole) -> bool {
-            let found = {
-                let mutations = self.mutations();
-                let node = mutations.iter().rev().find_map(|mutation| match mutation {
+
+        /// The fills of everything live.
+        fn live_backgrounds(&self) -> Vec<Paint> {
+            self.live()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        modifier: Wire::Background(paint),
+                        ..
+                    } => Some(*paint),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Every paint the screen has sent so far: fills, borders and the colours of
+        /// text, icons and buttons.
+        fn every_paint(&self) -> Vec<(u32, Paint)> {
+            self.mutations()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        node_id,
+                        modifier: Wire::Background(paint) | Wire::Border { paint, .. },
+                        ..
+                    } => Some((*node_id, *paint)),
                     Mutation::SetProp {
                         node_id,
-                        property: PropertyKind::Icon,
-                        value: PropertyValue::Integer(val),
-                    } if *val == icon as i64 => Some(*node_id),
+                        property: PropertyKind::Color,
+                        value: PropertyValue::Integer(bits),
+                    } => Paint::from_bits(*bits as u64).map(|paint| (*node_id, paint)),
                     _ => None,
-                });
-                node.and_then(|node| {
-                    mutations.iter().rev().find_map(|mutation| match mutation {
-                        Mutation::SetProp {
-                            node_id,
-                            property: PropertyKind::OnClick,
-                            value: PropertyValue::Integer(handler),
-                        } if *node_id == node => Some((node, *handler as u64)),
-                        _ => None,
-                    })
                 })
-            };
-            let Some((node_id, handler_id)) = found else {
-                return false;
-            };
-            let mut bytes = Vec::new();
-            encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                },
-                &mut bytes,
-            )
-            .expect("the click did not encode");
-            let (batch, _) = self.host.dispatch_event(&bytes).expect("the click failed");
-            if !batch.is_empty() {
-                self.frames.push(batch.to_vec());
-            }
-            true
+                .collect()
         }
     }
 
-    #[test]
-    fn fr14_the_palette_is_pinned() {
-        assert_eq!(palette::PAGE.to_argb(), 0xFF000000);
-        assert_eq!(palette::TEXT.to_argb(), 0xFFFFFFFF);
-        assert_eq!(palette::PURPLE.to_argb(), 0xFF3B2C63);
-        assert_eq!(palette::RED.to_argb(), 0xFFFF5A5F);
-        assert_eq!(palette::TEAL.to_argb(), 0xFF2DD4BF);
-        assert_eq!(palette::AMBER.to_argb(), 0xFFFBBF24);
-    }
-
-    #[test]
-    fn the_first_frame_encodes_without_a_protocol_error() {
-        assert!(ComposeHost::new(app).rebuild().is_ok());
-    }
-
-    /// Every destination has to encode, not just the one the app opens on.
-    #[test]
-    fn fr15_every_destination_encodes() {
+    /// Walks every destination and, on the plan, every stage, so a test reads every
+    /// screen the sample has rather than the one it opens on.
+    fn every_screen() -> Screen {
         let mut screen = Screen::new();
         for choice in Destination::STRIP {
             assert!(
@@ -750,7 +966,29 @@ mod tests {
                 "the bar has no destination called {}",
                 choice.label()
             );
+            if choice == Destination::Plan {
+                screen.fill_lists(STAGES.len() as u32);
+                for number in STAGES {
+                    assert!(
+                        screen.press(&format!("{number} Stage")),
+                        "the strip has no stage {number}"
+                    );
+                }
+            }
         }
+        screen
+    }
+
+    #[test]
+    fn the_first_frame_encodes_without_a_protocol_error() {
+        compose_rust::window::reset_window_size();
+        assert!(ComposeHost::new(app).rebuild().is_ok());
+    }
+
+    /// Every destination has to encode, not just the one the app opens on.
+    #[test]
+    fn fr15_every_destination_encodes() {
+        every_screen();
         compose_rust::window::reset_window_size();
     }
 
@@ -764,62 +1002,83 @@ mod tests {
             .expect("the first frame failed")
             .to_vec();
         let mutations = decode_batch(&batch).expect("the batch did not decode");
+        let mut marks = Vec::new();
         for subject in SUBJECTS {
+            let registered: Vec<u32> = mutations
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::RegisterAsset {
+                        asset_id, bytes, ..
+                    } if *bytes == subject.mark => Some(*asset_id),
+                    _ => None,
+                })
+                .collect();
             assert_eq!(
-                mutations
-                    .iter()
-                    .filter(|mutation| matches!(
-                        mutation,
-                        Mutation::RegisterAsset { bytes, .. } if *bytes == subject.mark
-                    ))
-                    .count(),
+                registered.len(),
                 1,
                 "{} has no mark, or sent it more than once",
                 subject.name
             );
+            marks.push(registered[0]);
         }
-        let images: Vec<u32> = mutations
+        let drawn: Vec<u32> = mutations
             .iter()
             .filter_map(|mutation| match mutation {
-                Mutation::Create {
-                    node_id,
-                    widget: WidgetKind::Image,
-                } => Some(*node_id),
+                Mutation::SetProp {
+                    property: PropertyKind::Asset,
+                    value: PropertyValue::Integer(id),
+                    ..
+                } if marks.contains(&(*id as u32)) => Some(*id as u32),
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            images.len(),
-            SUBJECTS.len(),
-            "the grid should hold one mark per subject"
-        );
-        for image in images {
-            assert!(
-                mutations.iter().any(|mutation| matches!(
-                    mutation,
-                    Mutation::SetProp {
-                        node_id,
-                        property: PropertyKind::Asset,
-                        ..
-                    } if *node_id == image
-                )),
-                "a subject's mark reached the Renderer with no picture on it"
+        for mark in marks {
+            assert_eq!(
+                drawn.iter().filter(|id| **id == mark).count(),
+                1,
+                "a subject's mark is not on the grid exactly once"
             );
         }
         compose_rust::window::reset_window_size();
     }
 
-    /// Opening a subject takes you to its lessons and the bar says which subject it is.
+    /// Opening a subject takes you to its lessons.
     #[test]
     fn fr15_opening_a_subject_reaches_its_lessons() {
         let mut screen = Screen::new();
         assert!(screen.press("Technique"), "no subject on the grid opens");
+        let recent = LESSONS
+            .iter()
+            .find(|lesson| lesson.recent)
+            .expect("no recent lesson");
         let showing = screen.latest_texts();
         assert!(
-            showing
+            showing.iter().any(|text| text == recent.title),
+            "opening a subject did not reach the lessons: {showing:?}"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// "LESSON PLAN" and "YOUR PROGRESS" under the grid go where they say.
+    #[test]
+    fn fr15_the_labels_under_the_grid_lead_somewhere() {
+        let mut screen = Screen::new();
+        assert!(screen.press("LESSON PLAN"), "LESSON PLAN does nothing");
+        assert!(
+            screen.latest_texts().iter().any(|text| text == "MORE"),
+            "LESSON PLAN did not reach the lessons"
+        );
+        assert!(
+            screen.press_icon(IconRole::Back),
+            "the plan has no way back"
+        );
+        assert!(screen.press("YOUR PROGRESS"), "YOUR PROGRESS does nothing");
+        assert!(
+            screen
+                .latest_texts()
                 .iter()
-                .any(|text| text == "Lesson plan" || text == "< LESSON PLAN"),
-            "opening a subject did not reach the lessons"
+                .any(|text| text == "Your progress"),
+            "YOUR PROGRESS did not reach the progress page"
         );
         compose_rust::window::reset_window_size();
     }
@@ -839,11 +1098,215 @@ mod tests {
         screen.fill_lists(STAGES.len() as u32);
         for number in STAGES {
             assert!(
-                screen.press(&format!("Stage {number}")),
+                screen.press(&format!("{number} Stage")),
                 "the strip has no stage {number}"
             );
         }
         compose_rust::window::reset_window_size();
+    }
+
+    /// Nothing on any screen is painted by the design system.
+    ///
+    /// Named for what it defends: the lesson cards, the chosen stage and the progress
+    /// cards were all roles once, so the open lesson and the chosen stage came out in
+    /// the running system's blue and the progress cards in its pale accent containers.
+    /// The reference has none of those colours.
+    #[test]
+    fn fr22_nothing_on_any_screen_is_painted_by_a_role() {
+        let screen = every_screen();
+        for (node, paint) in screen.every_paint() {
+            assert!(
+                matches!(paint, Paint::Literal(_)),
+                "node {node} is painted {paint:?}, which the design system picks"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// No card or panel on any screen is one of the accent containers.
+    #[test]
+    fn fr22_no_card_is_an_accent_container() {
+        let screen = every_screen();
+        for (node, paint) in screen.every_paint() {
+            assert!(
+                !matches!(
+                    paint,
+                    Paint::Role(
+                        ColorRole::PrimaryContainer
+                            | ColorRole::SecondaryContainer
+                            | ColorRole::TertiaryContainer
+                    )
+                ),
+                "node {node} is painted {paint:?}"
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The bar is the sample's own: four controls whose face is an icon and nothing else,
+    /// and no `Navigation` that the design system would turn into a tab bar, a rail or a
+    /// sidebar.
+    #[test]
+    fn fr22_the_bar_is_four_icons_the_sample_draws() {
+        let screen = every_screen();
+        assert!(
+            !screen.mutations().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::Navigation | WidgetKind::NavigationItem,
+                    ..
+                }
+            )),
+            "the destinations are the design system's bar"
+        );
+        for choice in Destination::STRIP {
+            let node = screen
+                .node_showing(choice.icon())
+                .unwrap_or_else(|| panic!("the bar has no icon for {}", choice.label()));
+            let words: Vec<String> = screen
+                .live()
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                    } if *node_id == node && !text.is_empty() => Some((*text).to_owned()),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                words.is_empty(),
+                "{} is labelled {words:?}; the reference's bar is icons alone",
+                choice.label()
+            );
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The destination you are on is the one with the coral dot at its shoulder, and it
+    /// moves with you.
+    #[test]
+    fn fr22_the_destination_you_are_on_carries_the_accent() {
+        let mut screen = Screen::new();
+        for choice in Destination::STRIP {
+            assert!(
+                screen.press_icon(choice.icon()),
+                "the bar has no destination called {}",
+                choice.label()
+            );
+            for other in Destination::STRIP {
+                let icon = screen
+                    .node_showing(other.icon())
+                    .unwrap_or_else(|| panic!("the bar has no icon for {}", other.label()));
+                let slot = screen.parent_of(icon).expect("a bar icon sits in nothing");
+                let marked = screen
+                    .children_of(slot)
+                    .into_iter()
+                    .any(|child| screen.background_of(child) == Some(palette::ACCENT));
+                assert_eq!(
+                    marked,
+                    other == choice,
+                    "on {}, {} is {}marked in the accent",
+                    choice.label(),
+                    other.label(),
+                    if marked { "" } else { "not " }
+                );
+            }
+        }
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The plan the reference draws: one white card for the lesson that is open, dark grey
+    /// ones for the two still locked, and the chosen stage as the one amber pill. Nothing
+    /// on it is a filled button, which is the theme's blue.
+    #[test]
+    fn fr22_the_lesson_cards_are_the_reference_white_and_grey() {
+        let mut screen = Screen::new();
+        assert!(
+            screen.press_icon(Destination::Plan.icon()),
+            "no lesson plan"
+        );
+        screen.fill_lists(STAGES.len() as u32);
+        let fills = screen.live_backgrounds();
+        let count = |wanted: Paint| fills.iter().filter(|paint| **paint == wanted).count();
+        assert_eq!(
+            count(palette::CARD),
+            1,
+            "the open lesson is not the one white card"
+        );
+        assert_eq!(
+            count(palette::LOCKED),
+            2,
+            "the locked lessons are not dark grey"
+        );
+        assert_eq!(
+            count(palette::AMBER),
+            1,
+            "the chosen stage is not the amber pill"
+        );
+        assert!(
+            !screen.live().iter().any(|mutation| matches!(
+                mutation,
+                Mutation::SetProp {
+                    property: PropertyKind::Variant,
+                    value: PropertyValue::Integer(variant),
+                    ..
+                } if *variant == ButtonVariant::Filled as i64
+            )),
+            "a filled button on the plan is drawn in the theme's accent"
+        );
+        compose_rust::window::reset_window_size();
+    }
+
+    /// A phone design does not become a desktop design by being put in a wider window: the
+    /// page, with the title on it, and the bar both stop at a phone's width.
+    #[test]
+    fn fr20_the_page_stops_widening_past_a_phone() {
+        fn widths(width_dp: f32) -> Vec<f32> {
+            compose_rust::window::reset_window_size();
+            let mut host = ComposeHost::new(app);
+            host.rebuild().expect("the first frame failed");
+            let mut bytes = Vec::new();
+            encode_event(
+                &HostEvent {
+                    node_id: 0,
+                    handler_id: 0,
+                    payload: EventPayload::WindowSizeChanged {
+                        width_dp,
+                        height_dp: 780.0,
+                        class: WindowSizeClass::from_width_dp(width_dp),
+                        height_class: WindowHeightClass::from_height_dp(780.0),
+                        safe_area_top: 0.0,
+                        safe_area_leading: 0.0,
+                        safe_area_trailing: 0.0,
+                    },
+                },
+                &mut bytes,
+            )
+            .expect("the resize did not encode");
+            let (batch, _) = host.dispatch_event(&bytes).expect("the resize failed");
+            let found = decode_batch(batch)
+                .expect("the batch did not decode")
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    Mutation::SetModifier {
+                        modifier: Wire::Width(dp),
+                        ..
+                    } => Some(*dp),
+                    _ => None,
+                })
+                .collect();
+            compose_rust::window::reset_window_size();
+            found
+        }
+
+        let wide = widths(1180.0);
+        assert!(
+            wide.iter().filter(|dp| **dp == PAGE_MEASURE).count() >= 2,
+            "the page and the bar should both stop at a phone's width: {wide:?}"
+        );
+        assert!(!widths(420.0).contains(&PAGE_MEASURE));
     }
 
     /// The grid, in the design system it ships, in both schemes, at all three widths. The

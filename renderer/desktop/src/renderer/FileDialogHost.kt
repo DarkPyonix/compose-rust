@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.ui.platform
 
+import dev.darkpyonix.composerust.protocol.FileDelivery
 import dev.darkpyonix.composerust.protocol.FileDialogKind
 import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -83,6 +84,18 @@ sealed interface FileDialogOutcome {
         }
     }
 
+    /**
+     * The user chose, on a platform with no paths: the platform holds a handle for each
+     * entry of [files], numbered [firstHandle], [firstHandle] + 1 and so on, and the Host is
+     * told their names. [filter] is as for [Chosen].
+     */
+    class Handles(
+        val delivery: FileDelivery,
+        val firstHandle: Int,
+        val files: List<HeldFile>,
+        val filter: Int? = null,
+    ) : FileDialogOutcome
+
     /** The user closed the dialog. */
     data object Cancelled : FileDialogOutcome
 
@@ -110,6 +123,13 @@ interface FileDialogPlatform {
      * dialog if it has one open. The request ends with a cancel whether or not it does.
      */
     fun cancelWindow(window: Any?) {}
+
+    /**
+     * The handles a [FileDialogOutcome.Handles] numbered were never delivered (the answer did
+     * not fit, or a name could not travel), so nothing will ever name them. A platform that
+     * holds handles lets go of them.
+     */
+    fun discardHandles(firstHandle: Int, count: Int) {}
 }
 
 /**
@@ -129,6 +149,14 @@ object UnsupportedFileDialogs : FileDialogPlatform {
  */
 object FileDialogs {
     var platform: FileDialogPlatform = UnsupportedFileDialogs
+
+    /**
+     * The largest event this process can hand the Host, record and strings together. A
+     * connection whose event buffer stops growing at a known size (the web's, at the largest
+     * buffer its Host lends) sets it, and an answer that would not fit is unavailable rather
+     * than cut short.
+     */
+    var maxEventBytes: Int = Int.MAX_VALUE
 }
 
 /**
@@ -143,6 +171,7 @@ object FileDialogs {
 class FileDialogCenter(
     private val platform: FileDialogPlatform = FileDialogs.platform,
     private val maxPayloadBytes: Int = FileDialogLimits.MAX_PAYLOAD_BYTES,
+    private val maxEventBytes: Int = FileDialogs.maxEventBytes,
 ) {
     /** What `request` made of the request, for the table to report. */
     enum class Accepted { Accepted, Duplicate, UnknownWindow }
@@ -287,6 +316,7 @@ class FileDialogCenter(
 
     private fun resultEvent(spec: FileDialogSpec, outcome: FileDialogOutcome): HostEvent {
         val none = -1
+        if (outcome is FileDialogOutcome.Handles) return handlesResult(spec, outcome)
         return when (val checked = judge(outcome)) {
             is Checked.Paths -> HostEvent.FileDialogResult(
                 nodeId = 0,
@@ -312,6 +342,30 @@ class FileDialogCenter(
         }
     }
 
+    /**
+     * A choice on a platform with no paths, as a `FileHandles` event, or as an unavailable
+     * result when it cannot be delivered whole: more files than one answer may carry, a name
+     * that cannot travel, or more bytes than the event buffer holds. The handles of an answer
+     * that is not delivered are let go of, because nothing will ever name them.
+     */
+    private fun handlesResult(spec: FileDialogSpec, outcome: FileDialogOutcome.Handles): HostEvent {
+        val ended = { status: FileDialogStatus ->
+            platform.discardHandles(outcome.firstHandle, outcome.files.size)
+            HostEvent.FileDialogResult(0, 0, spec.request, status, -1, "")
+        }
+        if (outcome.files.isEmpty()) return ended(FileDialogStatus.Cancelled)
+        if (outcome.files.size > FileDialogLimits.MAX_PATHS) return ended(FileDialogStatus.Unavailable)
+        val filter = outcome.filter
+            ?.takeIf { chosen -> chosen in spec.filters.indices }
+            ?.let { chosen -> spec.sentPositions.getOrElse(chosen) { chosen } }
+            ?: -1
+        val event = FileCallCenter.handlesEvent(spec.request, outcome.delivery, outcome.firstHandle, outcome.files, filter)
+            ?: return ended(FileDialogStatus.Unavailable)
+        val size = FileCallCenter.encodedSize(event)
+        if (size > maxEventBytes || size > maxPayloadBytes) return ended(FileDialogStatus.Unavailable)
+        return event
+    }
+
     private sealed interface Checked {
         class Paths(val joined: String, val filter: Int?) : Checked
         class Ended(val status: FileDialogStatus) : Checked
@@ -328,6 +382,8 @@ class FileDialogCenter(
     private fun judge(outcome: FileDialogOutcome): Checked = when (outcome) {
         FileDialogOutcome.Cancelled -> Checked.Ended(FileDialogStatus.Cancelled)
         FileDialogOutcome.Unavailable -> Checked.Ended(FileDialogStatus.Unavailable)
+        // Answered by handlesResult before it gets here.
+        is FileDialogOutcome.Handles -> Checked.Ended(FileDialogStatus.Unavailable)
         is FileDialogOutcome.Chosen -> when {
             outcome.paths.isEmpty() -> Checked.Ended(FileDialogStatus.Cancelled)
             outcome.paths.size > FileDialogLimits.MAX_PATHS -> Checked.Ended(FileDialogStatus.Unavailable)
@@ -338,6 +394,9 @@ class FileDialogCenter(
                     texts.size != checked.size -> Checked.Ended(FileDialogStatus.Unavailable)
                     texts.sumOf { it.encodeToByteArray().size.toLong() + 1L } > maxPayloadBytes.toLong() ->
                         Checked.Ended(FileDialogStatus.Unavailable)
+                    // The record in front of the paths, and the paths, in a buffer that does not grow.
+                    texts.sumOf { it.encodeToByteArray().size.toLong() + 1L } - 1L + FILE_DIALOG_RESULT_RECORD_BYTES >
+                        maxEventBytes.toLong() -> Checked.Ended(FileDialogStatus.Unavailable)
                     else -> Checked.Paths(texts.joinToString("\u0000"), outcome.filter)
                 }
             }
@@ -345,6 +404,9 @@ class FileDialogCenter(
     }
 
     companion object {
+        /** `FileDialogResult`'s record in front of the paths it carries. */
+        private const val FILE_DIALOG_RESULT_RECORD_BYTES = 36L
+
         /**
          * Checks a request and puts it in the form a platform can rely on: filters and
          * extensions within their limits, extensions lower case without a leading dot or

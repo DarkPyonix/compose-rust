@@ -304,6 +304,17 @@ jobs:
         if: matrix.platform == 'jvm'
         run: ./renderer/scripts/publish-window.sh
 
+      - name: Build the web app bundle on its own first
+        # The toolchain (Kotlin CLI 0.13.0-dev-4399) unpacks skiko's wasm runtime into one
+        # fixed directory, renderer/build/temp/skiko-js-wasm-runtime, for every wasm bundle
+        # task. `build -p wasmJs` runs the app bundle and the test app bundle in parallel,
+        # and each one deletes and recreates the same files there, so one of them fails
+        # with FileAlreadyExistsException (#494). Building the app bundle alone first leaves
+        # it up to date, so the build below only runs the test bundle and nothing races.
+        if: matrix.platform == 'wasmJs'
+        working-directory: renderer
+        run: ./kotlin task :web:buildWasmJsAppWasmJsDebug
+
       - name: Build the renderer
         working-directory: renderer
         run: ./kotlin build -p ${{ matrix.platform }}

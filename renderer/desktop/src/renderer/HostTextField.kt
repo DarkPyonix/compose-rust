@@ -58,8 +58,11 @@ import dev.darkpyonix.composerust.design.FieldUnderline
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 import dev.darkpyonix.composerust.ui.node.HostText
 import dev.darkpyonix.composerust.design.LocalGlassDepth
 import androidx.compose.foundation.layout.PaddingValues
@@ -99,6 +102,9 @@ internal fun HostTextField(
     val overlayFocusStack = LocalOverlayFocusStack.current
 
     val multiline = node.flag(PropertyKind.Multiline, default = false)
+    // A bare field draws none of the design system's frame. It sits inside a box that
+    // already drew one, and a second frame inside the first reads as a field in a field.
+    val bare = node.flag(PropertyKind.Bare, default = false)
     val enabled = node.flag(PropertyKind.Enabled, default = true)
     val changeHandler = node.handler(PropertyKind.OnValueChange)
     val submitHandler = node.handler(PropertyKind.OnSubmit)
@@ -127,8 +133,33 @@ internal fun HostTextField(
             FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
         }
     }
+    // A font list on a field with a role is thrown away, and the Host is told so: on
+    // screen it would only be letters in a face nobody asked for.
+    if (fontBlob != null &&
+        (node.property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value != TYPE_ROLE_NONE.toLong()
+    ) {
+        ReportRuns(
+            node.id,
+            "text field fonts on node ${node.id}: a font list sent for a field with a type role is ignored: " +
+                "a field with a role is set in the theme's font for it. Send the type role None for a field set in its own fonts",
+            dispatcher,
+        )
+    }
     val roleStyle = node.textStyle(theme)
-    val textStyle = if (ownChain != null) roleStyle.copy(fontFamily = ownChain.primary) else roleStyle
+    // A field with no role that names its letter spacing is tracked by its face as a `Text`
+    // with no role is, so a value typed into it is as wide as the same words drawn beside
+    // it. One that names none is spaced by the design system's token, which on the Apple
+    // design systems already carries SF's tracking, so it is left as it is.
+    val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
+    val textStyle = if (ownChain != null) {
+        roleStyle.copy(
+            fontFamily = ownChain.primary,
+            letterSpacing = trackedLetterSpacing(roleStyle, ownChain.primary).takeIf { ownSpacing }
+                ?: roleStyle.letterSpacing,
+        )
+    } else {
+        roleStyle
+    }
     val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
     val fallbackFonts = remember(chain) {
         chain?.let { FontChainTransformation(it) } ?: VisualTransformation.None
@@ -218,7 +249,9 @@ internal fun HostTextField(
         // guard that keeps Enter away from Rust during a Korean composition.
         .onPreviewKeyEvent { event ->
             val composingNow = value.composition != null
-            if (composingNow && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+            if (composingNow && event.type == KeyEventType.KeyDown &&
+                (event.key == Key.Escape || event.key == Key.Back)
+            ) {
                 applyValueChange(value.copy(composition = null))
                 true
             } else {
@@ -297,7 +330,7 @@ internal fun HostTextField(
             it is dev.darkpyonix.composerust.protocol.Modifier.ShapeRole ||
             it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
     }
-    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape
+    val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
 
     BasicTextField(
         value = value,
@@ -317,15 +350,31 @@ internal fun HostTextField(
                     // could only put the caret in by hitting the words.
                     .fillMaxWidth()
                     .let { if (fillsHeight) it.fillMaxHeight() else it }
-                    .let { if (setsOwnHeight) it else it.defaultMinSize(minHeight = frame.minHeight) }
-                    .clip(frameShape)
                     .let {
-                        if (ownFill) it else it.background(if (focused) frame.containerFocused else frame.container)
+                        if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    .let { if (ownLine) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
-                    .let { if (ownLine || ownFill) it else it.fieldUnderline(frame.underline, focused) }
-                    .padding(node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)),
-                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
+                    // A bare field clips only to a corner the node named itself.
+                    .let { if (bare && !ownShape) it else it.clip(frameShape) }
+                    .let {
+                        if (ownFill || bare) {
+                            it
+                        } else {
+                            it.background(if (focused) frame.containerFocused else frame.container)
+                        }
+                    }
+                    .let { if (ownLine || bare) it else it.fieldBorder(frame.copy(shape = frameShape), focused) }
+                    .let { if (ownLine || ownFill || bare) it else it.fieldUnderline(frame.underline, focused) }
+                    .padding(
+                        if (bare) {
+                            node.contentPadding(theme, 0.dp, 0.dp)
+                        } else {
+                            node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)
+                        },
+                    ),
+                // A bare field is as tall as its text, so the placeholder and the text share
+                // the first line's baseline from the top edge rather than being centred in
+                // a minimum height the field no longer has.
+                contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     ThemedText(

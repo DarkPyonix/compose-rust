@@ -1,5 +1,72 @@
 # Changelog
 
+## Unreleased
+
+### The Windows release renderer is the Kotlin/Native static kit
+
+A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as the Kotlin/Native static kit, the one the crate's build script links on Windows, and checks it as one executable like the other desktop targets. Up to v0.0.7 that asset was the GraalVM native image, which the build script no longer links. The sample build takes this kit from the release for its crate version, checked against its `.sha256`, and builds the kit itself only when the release does not carry it ([#322](https://github.com/DarkPyonix/compose-rust/issues/322)).
+
+### Copying text to the clipboard from application code
+
+`compose_rust::clipboard::set_text(&str)` puts plain text on the platform clipboard through Compose's clipboard, for a "Copy link" button whose text the application already holds. It is one new `SetClipboardText` command (tag 29) with no answering event. Text over 64 KiB is refused with `Err` and nothing is sent, and where there is no clipboard the write does nothing. The Renderer never logs the text. Do not copy passwords or tokens this way: other applications can read the clipboard ([#471](https://github.com/DarkPyonix/compose-rust/issues/471)).
+
+### Reading text from the clipboard
+
+`compose_rust::clipboard::read_text(callback)` reads the plain text on the platform clipboard, for a paste shortcut, and `use_clipboard().read_text()` is the same read as a future. It is one new `ReadClipboard` command (tag 31) and one `ClipboardText` event (tag 56). Every read gets exactly one answer: the text, `None` when the clipboard is empty, holds no text, is missing, or the browser refused permission, or an error when the text is over 64 KiB, which is never cut short. The Renderer never logs the text, only its length ([#546](https://github.com/DarkPyonix/compose-rust/issues/546)).
+
+### Scrolling any scroll container from the Host, and hearing where it is
+
+`Batch::scroll_to(node, ScrollTo { .. })` asks a scroll container to go to an offset, and `Batch::scroll_into_view(node, ScrollIntoView { .. })` asks it to bring a rectangle, a descendant node or a lazy list item into view, aligned to the start, the centre, the end or the nearest edge. They are two new commands, `ScrollTo` (tag 35) and `ScrollIntoView` (tag 36), for `ScrollColumn`, `ScrollRow`, `LazyColumn`, `LazyRow`, `LazyGrid` and `CodeEditor`. A node with the new `OnScrollChanged` handler property (tag 186) reports its offset, range and viewport in a `ScrollChanged` event (tag 60): once after its first layout, at most once a frame while it moves, and once more when it comes to rest. A node without the handler sends nothing.
+
+Every length is in physical pixels, so a value read from a report and sent back is the same place. Both commands are requests, because the scroll position belongs to the Renderer: an offset is kept inside the range, and a request that arrives while the user drags or flings the container is dropped. A command for a node that does not scroll is reported as `NOT_SCROLLABLE` (19) and one whose values make no sense as `INVALID_SCROLL` (20); the rest of the batch still applies. The `ui` scroll state and its dp wire are unchanged ([#591](https://github.com/DarkPyonix/compose-rust/issues/591)).
+
+### Application storage
+
+`compose_rust::storage` keeps named values only the application reads and writes, the same code on every platform: `read`, `read_string`, `write`, `remove` and `keys`, each a future. An application names its storage with `LaunchBuilder::new().identifier(..)`, the same value as `[bundle] identifier` in its `Dioxus.toml`; without one every operation answers `StorageError::Unavailable`, and an identifier that cannot name a directory stops the launch with a sentence and a failing status. Keys are 1 to 128 bytes of `a-z`, `0-9`, `-`, `_` and `.`; a value is at most 16 MiB. Operations on one key apply in the order they are called, and a write is atomic.
+
+On macOS, iOS, Linux and Windows the values are files under the platform's data directory (`~/Library/Application Support`, `$XDG_DATA_HOME` or `~/.local/share`, `%APPDATA%`), read and written by a storage thread of the Host's; `COMPOSE_RUST_STORAGE_DIR` replaces the directory. Android keeps them in the application's files directory, which the Renderer reports at start with a new `StorageLocation` event (tag 59). In a browser the Renderer keeps them in IndexedDB, one database per identifier, through a new `StorageCall` command (tag 32) answered by one `IoAnswer` event (tag 57). A read there larger than the web's 4 KiB event buffer is reported as too large until #583 lets larger events through. Every sample now gives its identifier ([#611](https://github.com/DarkPyonix/compose-rust/issues/611), [#529](https://github.com/DarkPyonix/compose-rust/issues/529)).
+
+### Reading and writing the files a dialog chose, in a browser too
+
+`FileDialogResult::files()` turns a choice into `PickedFile`s, with `read`, `write`, `entries` and `child` as futures. The code is the same on every platform ([#609](https://github.com/DarkPyonix/compose-rust/issues/609)).
+
+- On a desktop a `PickedFile` is the path. A Host worker reads and writes it with `std::fs`, and a write goes to a temporary file beside it that is then renamed over it. `PickedFile::from_path` makes one from a path without a dialog.
+- In a browser the file dialog now works. Chromium uses the File System Access API pickers, and a write changes the same file again (`Delivery::Handle`). Firefox and Safari use a file input to open, which gives a copy that can only be read (`Delivery::Upload`), and a save becomes a download on every write (`Delivery::Download`). `can_write_again()` says which case it is.
+- In a browser `Chosen.paths` holds `webfile:<handle>/<name>` references, because a page gets no paths. `files()` reads them, so an application does not take them apart.
+- On the wire: the `FileCall` command (tag 33), the `ReleaseFileHandle` command (tag 34), the `FileHandles` event (tag 58), and the `IoAnswer` event (tag 57), which the application storage uses too. When the last `PickedFile` for a handle is dropped, the Host lets the Renderer release the handle.
+- Until events over the web's 4096 byte event buffer can reach the Host ([#583](https://github.com/DarkPyonix/compose-rust/issues/583)), a choice whose names do not fit answers `Unavailable` and a read that does not fit answers `FileError::TooLarge`. Neither is cut short.
+
+### Pointer events reach the nodes that subscribed
+
+`on_pointer(PointerKinds::..., handler)` now runs its handler. The renderer sends `Down`, `Up`, `Move`, `Enter`, `Leave`, `Cancel`, `Wheel` and `ContextMenu` to a subscribed node, with the position in dp from the node's top left corner ([#417](https://github.com/DarkPyonix/compose-rust/issues/417)). Before this the subscription was written and accepted, and nothing was ever sent.
+
+- A double click is a `Down` and an `Up` whose `click_count()` is 2. The secondary button, and Control with the primary button on macOS, arrive as `ContextMenu` with no `Down` beside it.
+- The deepest subscribed node hears an event first. `consume()` keeps it from the nearest subscribed ancestor and from Compose, so a consumed press is not also a click.
+- A node that took a `Down` keeps the pointer until it is released, and gets its `Move` and `Up` wherever the pointer goes.
+- `Move` is sent once a frame for each node with the latest position, and `Wheel` once a frame with its travel added up. A wheel's travel is in lines.
+
+A node that does not call `on_pointer` carries no pointer input, as before.
+
+### Continuous corners with `Modifier.corner_curve`
+
+`Modifier.corner_curve(smoothing)` draws a node's rounded corners with continuous curvature, the way Figma's corner smoothing does: 0 is the plain circular arc, 1 the longest curve, and 0.6 the look of iOS. The radius still comes from `corner_radius`, `corner_radii` or `shape_role`, and the background, border, shadow, clip and press feedback all follow the same outline, in every design system. A value outside 0..=1 is drawn as the nearer end ([#294](https://github.com/DarkPyonix/compose-rust/issues/294)). It is a new modifier, `CornerCurve` (wire tag 35), so the schema hash changes and a renderer and a crate from before this change no longer agree.
+
+### `Popover`: a floating box of any content on an anchor
+
+`Popover(open).anchor(..).content(..)` attaches a floating box to its anchor. `placement`
+names the side it opens on (`Bottom` unless said), `align` the edge it lines up with
+(`Start` unless said), and `offset` the gap in dp. The renderer keeps the box inside the
+window: it opens on the opposite side when the asked-for one has no room, and slides along
+the edge when it would reach past the window. `open` is the application's. A press outside
+the box or Escape calls `on_dismiss` once and closes nothing. The schema hash changes, so
+the renderer and the crate have to be built from the same version.
+
+### `CodeEditor` type, gutter, colours, row height and pixel scroll
+
+A `CodeEditor` node takes the `FontSize`, `LineHeight`, `TypeRole` and `Font` properties, and its line numbers are set in the same size as the code. Without them it is drawn in the design system's `Mono` role as before. Four properties space the gutter: `LineNumbers` (a boolean, 178), `GutterMinWidthDp` (179), `GutterPaddingDp` (180) and `TextInsetDp` (181). `CodeEditorColors` (182) is one 12 byte record of `ColorRole`s for the container, the gutter, a line number, the current line's number and the current line, built with `compose_rust::CodeEditorColors`; a slot left at zero keeps the design system's colour.
+
+The editor reports the height of a row in physical pixels with `CodeMetrics` (event 54, handler property `OnCodeMetrics` 183) when it is first drawn and when the height changes, and its scroll offset with `CodeScrolled` (event 55, handler property `OnCodeScrolled` 184) at most once a frame. `Batch::set_scroll_offset(node_id, offset_px)` (the `SetScrollOffset` command, tag 30) scrolls an editor to an offset in the same pixels, so two editors side by side can be kept level ([#544](https://github.com/DarkPyonix/compose-rust/issues/544)). The schema hash changes, so the Host and the Renderer must be built from the same version.
+
 ## v0.0.7
 
 ### Native file open and save dialogs
