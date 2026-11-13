@@ -928,7 +928,7 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 
 - **표현은 Renderer가 고릅니다.** 21.2가 탐색에 대해 Host 분기를 거부한 세 이유가 그대로 적용됩니다. Renderer가 이미 폭을 알고, 분기하면 칸의 노드가 지워졌다 다시 만들어지며, 선언 하나가 폰과 데스크톱에서 그 플랫폼답게 나오는 것이 이 프로젝트의 주장입니다.
 - 표현은 셋입니다. `SideBySide`(두 열), `Overlay`(본문이 자리를 다 쓰고 옆 칸은 그 위로 덮여 나옴), `Stacked`(한 번에 한 칸). `ComponentRules`의 `splitPane(WindowSizeClass)`가 답하고, 기본 대응은 `Compact→Stacked`, `Medium→SideBySide`(옆 칸 `Min`과 본문 최소의 합이 들어가지 않으면 `Overlay`), `Expanded→SideBySide`입니다. GNOME이 `Medium`에서 `Overlay`로 답하는 것처럼 시스템이 달리 답해도 위젯 코드는 바뀌지 않습니다.
-- **크기 클래스는 창이 아니라 분할 창 자신의 폭으로 셉니다.** 경계는 FR-20의 600dp/840dp 그대로입니다. 분할 창은 `Navigation`의 본문처럼 창보다 좁은 자리에 놓일 수 있고, 그때 창의 클래스로 고르면 넓은 창 안의 좁은 칸에 두 열을 억지로 넣게 됩니다. 이 측정은 Renderer 안에서 끝나며 이벤트를 보내지 않습니다. `LazyGrid`의 `min_column_width`(FR-25)와 같은 종류의 판단입니다.
+- **크기 클래스는 창이 아니라 분할 창 자신의 폭으로 셉니다.** 경계는 FR-20의 600dp/840dp 그대로입니다. `CollapseBelow`를 준 분할 창은 15.2.12.9를 따릅니다. 분할 창은 `Navigation`의 본문처럼 창보다 좁은 자리에 놓일 수 있고, 그때 창의 클래스로 고르면 넓은 창 안의 좁은 칸에 두 열을 억지로 넣게 됩니다. 이 측정은 Renderer 안에서 끝나며 이벤트를 보내지 않습니다. `LazyGrid`의 `min_column_width`(FR-25)와 같은 종류의 판단입니다.
 - **쌓였을 때 어느 칸이 보이는지는 `SelectedIndex`(42)입니다.** 0이 옆 칸, 1이 본문입니다. 폰에서 세션을 고르는 것은 도메인 사건이므로(어느 세션을 열지 Host가 압니다) Host가 1을 보냅니다. Renderer는 칸 전환 애니메이션을 스스로 돌립니다(D5). 두 열이나 덮기 표현에서 이 속성은 읽지 않습니다.
 - **본문에서 돌아오는 것은 Renderer가 받습니다.** 시스템 뒤로 가기(Android의 뒤로, iOS의 가장자리 쓸기)와 디자인 시스템이 그리는 뒤로 버튼입니다. 돌아오면 Renderer가 곧바로 옆 칸을 보이고, `OnDismiss`(41) 핸들러로 `Clicked`를 한 번 보냅니다. Host는 그것을 받아 선택을 비우고 `SelectedIndex`를 0으로 맞춥니다. `Sheet`(21.3)와 같은 규약이고 새 이벤트 태그가 없습니다.
 - 표현이 바뀌는 동안 두 칸의 노드는 새로 만들어지지 않습니다. 21.7의 2번과 같은 성질입니다.
@@ -946,6 +946,7 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 
 - 위젯 태그 42 `SplitPane`.
 - 새 속성은 하나입니다. `Collapsible`(bool), 속성 태그 90. 15.2.2의 규칙대로 `SplitPane`의 블록 90-99를 엽니다.
+- 15.2.12.9가 `CollapseBelow`(f32, dp), 속성 태그 91을 더합니다.
 - 나머지는 기존 태그를 씁니다. `Value`(51), `Min`(52), `Max`(53), `OnValueChange`(6), `SelectedIndex`(42), `OnDismiss`(41), `Text`(1).
 - 새 이벤트 태그, 새 명령 태그, 새 경계 진입점이 없습니다.
 - 위젯과 속성은 Rust 스키마(`schema.rs`)에 정의하고 Kotlin 쪽은 codegen이 생성합니다(FR-7). 스키마 해시가 움직입니다.
@@ -965,10 +966,34 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 10. 일곱 디자인 시스템에서 렌더링되고 `DesignShowcase`에 나옵니다. 경계선의 생김새가 최소 두 시스템에서 다르고(머리카락 선과 손잡이), 최소 한 시스템이 `Medium`에서 다른 표현을 답합니다.
 11. 자식이 둘이 아닌 분할 창은 `ProtocolError`를 보내고 프로세스가 죽지 않습니다.
 12. `Collapsible`이 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다.
+13. `collapse_below(720.0)`인 분할 창이 700dp 자리에서 `SelectedIndex`의 칸 하나만 그리고, 740dp 자리에서 두 열로 그립니다(시험 이름 fr15_2_12_collapse_below_stacks_under_its_own_threshold, 미구현).
+14. `collapse_below(480.0)`인 분할 창이 520dp 자리(크기 클래스 `Compact`)에서 쌓이지 않습니다. 옆 칸 `Min`과 본문 최소가 들어가지 않으면 `Overlay`입니다(시험 이름 fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact, 미구현).
+15. 넓은 창 안의 700dp 자리에 놓인 `collapse_below(720.0)` 분할 창이 쌓입니다. 창이 아니라 자기 폭으로 잰다는 것을 확인합니다(시험 이름 fr15_2_12_collapse_below_measures_its_own_width, 미구현).
+16. 경계를 여러 번 넘나드는 동안 두 칸의 `Create` 레코드가 나오지 않고, Host로 가는 이벤트가 없으며, 돌아오면 옆 칸이 사용자가 정한 폭입니다(시험 이름 fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing, 미구현).
+17. 속성을 보내지 않은 분할 창은 기존 fr15_2_12_* 테스트를 그대로 통과합니다.
+18. 음수와 NaN은 `ProtocolError`를 보내고 속성이 없는 것처럼 그립니다(시험 이름 fr15_2_12_invalid_collapse_below_is_a_protocol_error, 미구현).
+19. `CollapseBelow`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr15_2_12_collapse_below_round_trips, 미구현).
 
 ##### 15.2.12.8 열린 질문
 
 - **`Navigation` 서랍의 폭.** macOS의 사이드바는 끌어서 폭을 바꿀 수 있는데, FR-21의 `Navigation` 서랍은 폭을 디자인 시스템이 정하고 끌 수 없습니다. 분할 창과 같은 규칙(끝난 폭을 Host에 보고)을 서랍에도 줄지는 FR-21의 변경이라 이 항목에 넣지 않았습니다. 요청한 앱의 런처가 `Navigation`과 `SplitPane` 중 무엇으로 세션 목록을 그릴지에 따라 필요 여부가 갈립니다.
+
+##### 15.2.12.9 앱이 정하는 쌓기 경계 (이슈 #314, [leader, provisional, 2026-11-13])
+
+develop의 `HostSplitPane.kt`는 이미 자기 폭으로 크기 클래스를 세어 600dp 아래에서 `Stacked`가 됩니다. 이 절은 그 경계를 앱이 정하게 합니다. Ember의 목록/상세 화면은 720dp에서도 두 열이 비좁고, 반대로 어떤 화면은 520dp에서도 두 열을 원합니다.
+
+- **Rust API.** `SplitPane().collapse_below(dp: f32)`. 이름은 dioxus-compose의 `ListDetail collapse_below`와 같습니다. Compose에 같은 개념의 안정 API가 없으므로 개념 이름을 씁니다.
+- **와이어.** 새 속성 `CollapseBelow`(f32, dp), 속성 태그 91. 15.2.2의 규칙대로 `SplitPane`의 블록 90-99에서 `Collapsible`(90) 다음 자리입니다. 부르지 않은 분할 창은 보내지 않고 지금과 같습니다. 새 이벤트, 새 명령, 새 진입점이 없습니다. 스키마 해시가 움직입니다.
+- **규칙.** `CollapseBelow = N`(N > 0)인 분할 창은 표현을 이렇게 고릅니다.
+  - 자기 폭이 N보다 좁으면 `Stacked`입니다. 보이는 칸은 지금처럼 `SelectedIndex`(42)이고, 뒤로 가기와 `OnDismiss`(41)도 15.2.12.4 그대로입니다.
+  - 자기 폭이 N 이상이면 쌓지 않습니다. Renderer는 `ComponentRules.splitPane`에 자기 폭의 크기 클래스를 묻되, 그 클래스가 `Compact`이면 `Medium`으로 올려 묻습니다. 그래서 두 열인지 덮기인지는 여전히 디자인 시스템이 답하고(GNOME의 `Overlay`), 옆 칸 `Min`과 본문 최소가 들어가지 않으면 15.2.12.4대로 `Overlay`가 됩니다.
+  - 쌓을지 말지는 앱이, 쌓지 않을 때 어떻게 놓을지는 디자인 시스템이 정합니다. 21.2가 Host 분기를 거부한 이유와 충돌하지 않습니다. Host는 폭을 받지도 분기하지도 않고 경계값 하나를 선언할 뿐이며, 측정과 전환은 Renderer 안에서 끝납니다. `LazyGrid`의 `min_column_width`(FR-25)와 같은 종류입니다.
+- **폭은 분할 창 자신의 배치된 폭입니다.** 창의 폭이 아닙니다. 15.2.12.7의 5번 기준과 같은 이유입니다.
+- **경계를 넘나들어도 칸의 노드는 새로 만들어지지 않습니다**(`movableContentOf`, 21.7의 2번). 사용자가 정한 옆 칸 폭은 쌓였다가 돌아와도 그대로입니다. 경계를 넘는 것은 사용자가 끈 것이 아니므로 `ValueChanged`를 보내지 않습니다.
+- `N = 0`은 속성이 없는 것과 같습니다. 음수, NaN, 무한대는 `ProtocolError`이고 프로세스는 죽지 않으며 속성이 없는 것처럼 그립니다.
+- **Renderer.** 공유 인터프리터의 `HostSplitPane.kt` 한 곳입니다. `BoxWithConstraints`가 이미 재는 `available`로 위 규칙을 적용하고, `ComponentRules`의 인터페이스는 바뀌지 않습니다. 일곱 시스템 모두 재정의 없이 따릅니다. 데스크톱 세 OS, iOS, Android, Web이 같은 코드입니다.
+- 수용 기준은 15.2.12.7의 13-19번입니다.
+- 열린 질문. 쌓였는지를 Host가 알아야 하는 화면(쌓였을 때만 자기 뒤로 버튼을 그리는 앱)이 있을 수 있습니다. 지금은 `Modifier::observe_size_every_dp`로 폭을 받아 같은 N과 비교하면 됩니다. 표현 변경 이벤트를 따로 둘지는 사례가 나오면 정합니다.
 
 #### 15.2.2 속성 태그 블록
 
@@ -2062,6 +2087,40 @@ E2를 기본 경로로 삼으면 KSP가 Rust 열거형, Dioxus element, 컴포�
 - 값은 전부 디자인 시스템 표에 있습니다. Material 3의 emphasized 곡선과 Cupertino의 스프링은 같은 역할에 대한 서로 다른 답입니다.
 - 접근성: 시스템이 모션 감소를 요청하면 Renderer가 모든 역할을 `Instant`로 해석합니다. Host는 관여하지 않습니다(D5).
 - 수용 기준: `Motion(Standard)`을 단 노드의 보임 전환이 여섯 시스템에서 서로 다른 길이로 끝납니다. 모션 감소가 켜진 상태에서는 여섯 모두 한 프레임 안에 끝납니다. 정상 상태 할당이 없습니다.
+
+#### 24.1 크기 모션이 끝났음을 알림 (이슈 #315, [leader, provisional, 2026-11-13])
+
+요청한 쪽: dioxus-compose의 `AnimatedVisibility`(그쪽 FR-24.1). 숨기는 자식은 높이가 다 접힌 **뒤에** 트리에서 빼야 합니다. 지금은 페이드와 슬라이드가 끝나면 자식을 빼고 그다음 높이가 접히므로, 접히는 동안 빈 자리가 보입니다. 접힘이 언제 끝나는지는 그 애니메이션을 돌리는 Renderer만 압니다.
+
+FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는 `StartAnimation` 레코드의 `animation_id`로 주소를 정하고 크기를 싣지 않으며, `Motion` 역할의 보간에는 `animation_id`가 없기 때문입니다.
+
+- **Rust API.** 모든 위젯 범위의 공통 핸들러에 `on_motion_finished(impl FnMut(MotionFinished) + 'static)`를 더합니다(`on_focus_gained`과 같은 자리). `MotionFinished { width_dp: f32, height_dp: f32 }`는 끝난 크기입니다. `rsx!` 경로는 `writer::event_property`에 `"motionfinished" | "onmotionfinished"`를 매핑합니다.
+- **와이어.**
+  - 핸들러 속성 `OnMotionFinished`, 속성 태그 193. 어느 위젯에나 붙습니다. `OnScrollChanged`(186)처럼 위젯 하나의 블록이 아니라 공용이므로 그때 마지막으로 쓰인 번호 뒤를 씁니다.
+  - 이벤트 `MotionFinished`, 이벤트 태그 63. 24바이트 고정 레코드입니다. 공통 머리 16바이트(tag, record_len, node_id, handler_id) 뒤에 `width_dp: f32@16`, `height_dp: f32@20`. dp인 것은 `WindowSizeChanged`(FR-20.3)와 같습니다. 이 값은 Host가 다시 보내는 위치가 아니라 레이아웃 판단에 쓰는 크기이므로, `ScrollChanged`처럼 물리 픽셀일 이유가 없습니다.
+  - 스키마 해시가 움직입니다. 핸들러를 붙이지 않은 트리의 와이어는 지금과 한 바이트도 다르지 않습니다.
+- **보내는 때.**
+  - `Modifier::Motion`이 있는 노드의 크기 애니메이션이 목표 크기에 **닿아 멈추면** 한 번 보냅니다. 끝난 크기를 싣습니다.
+  - 도중에 목표가 바뀌어 다시 시작하면 중간 것은 보내지 않고, 마지막에 멈춘 것 하나만 보냅니다.
+  - 처음 배치(애니메이션 없이 정해지는 첫 크기)와 크기가 바뀌지 않은 배치에는 보내지 않습니다.
+  - **모션 감소에서도 보냅니다.** FR-24대로 역할이 `Instant`로 해석되면 크기는 한 프레임 안에 바뀌고, 이벤트도 그 프레임 안에 한 번 갑니다. 그래야 Host가 이 이벤트를 기다려 자식을 빼는 흐름이 모션 감소에서 멈추지 않습니다.
+  - 노드가 도중에 지워지면 보내지 않습니다. 핸들러가 노드와 함께 사라지는 기존 규칙 그대로입니다.
+  - `Motion` 수정자가 없는 노드의 핸들러는 아무것도 받지 않으며 오류가 아닙니다. 수정자는 조건에 따라 붙었다 떨어질 수 있기 때문입니다.
+- **Renderer.** 공유 인터프리터의 `ModifierChain.kt` 한 곳입니다(데스크톱 세 OS, iOS, Android, Web 공통).
+  - 지금의 `chain.animateContentSize(theme.motion(role))`에 Compose의 안정 API인 `finishedListener: (initialValue: IntSize, targetValue: IntSize) -> Unit`를 넘깁니다. 핸들러가 붙은 노드에만 넘기고, 리스너는 핸들러가 바뀔 때 한 번 만듭니다. 붙지 않은 노드는 지금과 같은 수정자이므로 비용이 없습니다.
+  - `animateContentSize`는 애니메이션이 `Finished`로 끝났을 때만 리스너를 부르고, 끊긴 애니메이션에는 부르지 않습니다. 위의 "멈춘 것 하나만" 규칙이 Compose의 동작 그대로입니다.
+  - 리스너는 UI 스레드의 프레임 시계에서 불리므로, 그 자리에서 `targetValue`를 밀도로 나눠 dp로 바꾸고 이벤트 버퍼에 씁니다. 큐나 스레드 이동이 없습니다(PR-1).
+- **비용.** 크기 변화 한 번에 이벤트 한 건이고, 애니메이션 프레임마다 보내지 않습니다. 정상 상태 할당이 없습니다.
+
+수용 기준.
+1. `motion(Standard)`와 `on_motion_finished`를 단 노드의 높이를 120dp에서 0으로 바꾸면, 애니메이션이 끝난 뒤 `MotionFinished`가 **정확히 한 번** `height_dp = 0.0`을 싣고 오며 애니메이션 도중에는 오지 않습니다(시험 이름 fr24_motion_finished_reports_once_with_the_final_size, 미구현).
+2. 도중에 목표를 120dp로 되돌리면 이벤트는 한 번, `height_dp = 120.0`으로만 옵니다(시험 이름 fr24_interrupted_motion_reports_only_where_it_settles, 미구현).
+3. 모션 감소가 켜진 상태에서 같은 변경의 이벤트가 그 프레임 안에 한 번 옵니다(시험 이름 fr24_motion_finished_arrives_under_reduced_motion, 미구현).
+4. 처음 배치와 크기가 그대로인 배치에는 이벤트가 없습니다(시험 이름 fr24_first_layout_sends_no_motion_finished, 미구현).
+5. 핸들러가 없는 노드는 아무것도 보내지 않고, 그런 트리의 와이어와 수정자 사슬이 이 항목 전과 같습니다(시험 이름 fr24_no_handler_means_no_listener, 미구현).
+6. 애니메이션 도중 노드를 지우면 이벤트가 오지 않고 `ProtocolError`도 없습니다(시험 이름 fr24_removed_node_sends_no_motion_finished, 미구현).
+7. `MotionFinished`와 `OnMotionFinished`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr24_motion_finished_round_trips, 미구현).
+8. 일곱 디자인 시스템에서 기준 1이 성립합니다. 끝나는 시각은 시스템마다 다르고(FR-24의 기존 기준), 이벤트 수는 모두 하나입니다.
 
 ### FR-25 Grid (`Draft`)
 
@@ -4902,6 +4961,34 @@ pub mod storage {
 3. `OnCompositionChange` 핸들러가 붙은 `TextField`에서 조합 범위가 생기면 `CompositionChanged(true)`가, 조합이 끝나면 `CompositionChanged(false)`가 그 핸들러 id로 전달됩니다(`fr65_text_field_reports_composition_changes`).
 4. **`ui`에서의 포커스 요청**(이슈 #476, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui` 위젯 스코프에 `.focus_handle(&FocusHandle)`이 있고, `FocusHandle::request()`가 다음 배치에 그 노드의 `RequestFocus`를 한 번 기록합니다. Dialog나 Sheet가 아닌 오버레이(서랍, 팝업 메뉴)를 연 앱이, 열 때 오버레이 컨테이너에 포커스를 주고 Esc로 닫을 때 연 컨트롤로 되돌리는 데 씁니다. 와이어 변경은 없습니다(`fr65_ui_focus_handle_requests_focus_for_its_node`).
 5. **누를 수 있는 컨테이너의 포커스**(이슈 #473, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `OnClick`이나 `Clickable`을 가진 컨테이너에 대한 `RequestFocus`는 자식이 아니라 그 컨테이너 자신에게 포커스를 줍니다. 눈에 보이는 동작 변경입니다. 전에는 요청이 컨테이너의 클릭 대상 뒤에 붙어 자식 쪽으로 포커스를 옮겼습니다(fr71_focus_action_reaches_a_pressable_container_and_a_text_field).
+
+### FR-83 글꼴 기능 설정: 탭 숫자와 OpenType 기능 (`Draft`, 이슈 #306, [leader, provisional, 2026-11-13])
+
+요청한 쪽: dioxus-compose와 Ember. KPI, 표, 타이머의 숫자는 자릿수마다 폭이 같아야 값이 바뀔 때 글자가 흔들리지 않습니다. 지금 스키마에는 글꼴 기능을 말할 방법이 없습니다.
+
+FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 이미 있는 와이어를 빌더로 여는 항목입니다. 이 기능은 역할이 있는 글에도 필요하므로 따로 둡니다.
+
+- **Rust API.** `ui::FontFeature { tag: [u8; 4], value: u32 }`와 `const fn FontFeature::new(tag: &[u8; 4], value: u32)`가 있고, 자주 쓰는 값은 상수로 둡니다(`FontFeature::TABULAR_NUMS` = `tnum 1`). `Text::font_feature_settings(&[FontFeature])`와 `TextField::font_feature_settings(&[FontFeature])`가 목록을 받습니다. 이름은 Compose의 `TextStyle.fontFeatureSettings`를 따릅니다(PR-7). 태그를 `&str`이 아니라 4바이트 배열로 받는 것은 길이가 틀린 태그를 컴파일 시점에 막기 위해서입니다.
+- **와이어.** 새 속성 `FontFeatureSettings`, 속성 태그 192, blob입니다. 레코드는 8바이트 고정(`tag: [u8; 4]@0`, `value: u32@4`)이고 최대 16개입니다. 같은 태그가 두 번 오면 뒤의 것이 이깁니다(CSS `font-feature-settings`와 같습니다). 빈 목록은 속성을 지우는 것과 같습니다. 부르지 않은 노드는 이 속성을 보내지 않으며, 그런 트리의 와이어는 지금과 한 바이트도 다르지 않습니다. 스키마 해시가 움직입니다.
+- **역할이 있는 글에도 적용합니다.** 23.2가 막는 것은 역할을 가진 글의 **글꼴 선택**을 노드마다 바꾸는 것입니다. 탭 숫자는 글꼴을 바꾸지 않고, 그 글꼴이 가진 숫자 모양 중 하나를 고르는 것입니다. 숫자가 흔들리지 않아야 한다는 것은 디자인 시스템이 아니라 그 화면(타이머, 표)의 의미이므로 앱이 정합니다.
+- **Renderer.** 공유 인터프리터(`renderer/desktop/src/renderer/`, iOS와 Android가 같은 파일을 씁니다) 한 곳에서 처리하므로 데스크톱 세 OS, iOS, Android, Web이 같은 코드입니다.
+  - `NodeTable`의 허용 목록에 `FontFeatureSettings`를 `Text`와 `TextField`로 더합니다.
+  - `TextResolution.kt`의 `textInput()`이 blob을 읽어 Compose 문법 문자열(`"tnum" 1, "liga" 0`)로 바꿉니다. 문자열은 속성이 바뀔 때 한 번 만들고 노드에 둡니다. 프레임마다 만들지 않으므로 정상 상태 할당이 없습니다.
+  - 해석된 `TextStyle`에 `fontFeatureSettings`로 넣습니다. 역할의 스타일이 이미 기능 문자열을 가지고 있으면 그 뒤에 이어 붙이므로, 같은 태그는 노드의 값이 이깁니다(HarfBuzz와 Minikin 모두 뒤의 기능이 앞의 것을 덮습니다). `TextField`는 입력한 글과 자리표시 글자 모두에 적용합니다(`HostTextField.kt`).
+  - Compose API는 안정 API인 `TextStyle(fontFeatureSettings = …)`뿐입니다. Android는 `Paint.setFontFeatureSettings`로, skiko 플랫폼(데스크톱, iOS, Web)은 Skia 문단의 기능 목록으로 내려갑니다. 렌더러별 분기가 없습니다.
+  - 글꼴에 그 기능이 없으면 아무 일도 일어나지 않고 오류도 아닙니다(브라우저와 같습니다). 일곱 디자인 시스템의 기본 글꼴(SF Pro, Segoe UI, Roboto, Cantarell, Noto Sans 등)이 `tnum`을 갖는지는 수용 기준 7에서 기록합니다.
+- **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
+- **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
+
+수용 기준.
+1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(시험 이름 fr83_font_feature_settings_writes_one_property_only_when_set, 미구현).
+2. 레코드 세 개짜리 목록이 체크인된 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr83_font_feature_settings_round_trips, 미구현).
+3. `tnum`을 가진 테스트 글꼴 에셋으로 그린 `"1111"`과 `"0000"`의 폭이 `tnum 1`이면 같고, 기능이 없으면 다릅니다(시험 이름 fr83_tabular_numerals_equalise_digit_widths, 미구현).
+4. 역할이 `Body`인 글에 `tnum 1`을 주면 역할의 글꼴, 크기, 굵기는 그대로이고 숫자 폭만 같아집니다(시험 이름 fr83_role_text_keeps_its_role_and_takes_features, 미구현).
+5. `TextField`의 입력한 숫자에도 같은 기준 3이 성립합니다(시험 이름 fr83_text_field_applies_font_features, 미구현).
+6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(시험 이름 fr83_malformed_font_features_are_a_protocol_error, 미구현).
+7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
+8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(시험 이름 fr83_font_features_do_not_allocate_in_steady_state, 미구현).
 
 ## 4. 경계 프로토콜
 
