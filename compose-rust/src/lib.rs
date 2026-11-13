@@ -35,6 +35,7 @@ pub mod design;
 pub mod drawing;
 mod extensions;
 pub mod file_dialog;
+pub mod font_features;
 pub mod fonts;
 pub mod highlight;
 pub mod input;
@@ -79,6 +80,7 @@ pub use compose_rust_macros::__compose_call_check;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
+pub use font_features::FontFeature;
 pub use fonts::{FontRef, FontRefs, FontStack};
 pub use input::{FileDrop, KeyEvent, PointerEvent, PointerKinds, RangeRequest, pointer_button};
 pub use message::{Message, show_message};
@@ -95,7 +97,7 @@ pub use schema::{
     GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
     OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, SpaceRole, TextAlign, TextOverflow, Theme,
+    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
     TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
 };
 pub use schema::{

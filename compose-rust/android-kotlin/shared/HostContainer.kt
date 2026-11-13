@@ -746,7 +746,8 @@ private fun OverflowMenu(
             Column(
                 Modifier
                     .testTag(barOverflowMenuTestTag(bar.id))
-                    .containerDecoration(surface, style, theme, overlay = true, role = ContainerRole.Menu),
+                    .containerDecoration(surface, style, theme, overlay = true, role = ContainerRole.Menu)
+                    .menuWidth(),
             ) {
                 overflowed.forEach { childId ->
                     key(childId) {

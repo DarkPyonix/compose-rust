@@ -4,6 +4,7 @@
 package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.foundation.background
+import org.thisisthepy.compose.window.graalvm.windows.Win32Frames
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -56,6 +57,7 @@ import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
 import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.setAppearanceCode
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
 import org.thisisthepy.compose.window.graalvm.macos.ACCESSIBILITY_ACTION_EVENT
@@ -161,6 +163,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
     }
+    // The window's appearance is the theme's scheme, not the system's: the material behind
+    // the scene is drawn in it. Given before the first frame from the theme the first batch
+    // set, and again in the scene below whenever the application changes it.
+    val appearance = WindowSchemeFollower { scheme -> window.setAppearanceCode(windowAppearanceCode(scheme)) }
+    appearance.follow(host.table.theme)
     val context = org.jetbrains.skia.DirectContext.makeMetal(window.device, window.queue)
     // A smaller Skia resource cache, for a soak that measures how much of what it holds is
     // that cache, and capped at 16 MB by default so blur scratch textures do not accumulate
@@ -219,6 +226,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             androidx.compose.foundation.LightDefaultContextMenuRepresentation
         } else {
             NativeContextMenuRepresentation { entries -> window.showContextMenu(packMenu(entries)) }
+        }
+        // A theme the application sends later moves the window's appearance with it. Read
+        // as a snapshot rather than in composition, so a new theme does not recompose this
+        // scope as well as everything that resolves it.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { appearance.follow(it) }
         }
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,

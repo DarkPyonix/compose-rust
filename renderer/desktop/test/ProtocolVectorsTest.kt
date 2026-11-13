@@ -33,6 +33,7 @@ import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.BatchBytes
 import dev.darkpyonix.composerust.protocol.StorageOp
@@ -286,6 +287,19 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The width a split pane stacks below decodes to the float the Host wrote, under the tag
+     * after the split pane's `Collapsible`.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_round_trips() {
+        assertEquals(
+            listOf(Mutation.SetProp(2, PropertyKind.CollapseBelow, PropertyValue.Float(720.5f))),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+                .filter { it.property == PropertyKind.CollapseBelow },
+        )
+    }
+
+    /**
      * The storage request and both events, read from and encoded to the bytes the Host
      * wrote: a request, an operation and three references; two words and a reference to the
      * bytes; and one string reference.
@@ -470,6 +484,59 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertTrue(patched, "the vector carries a file dialog request")
+    }
+
+    /**
+     * The overlay tokens record with the transient message's two fields appended: every
+     * field the Rust encoder wrote reads back as the same value, the older ones where they
+     * always were and the two new ones after the scrim.
+     */
+    @Test
+    fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
+        assertEquals(
+            listOf(
+                Mutation.SetOverlayTokens(
+                    OverlayTokens(
+                        sheetCornerRadius = 24,
+                        dialogCornerRadius = 16,
+                        popupCornerRadius = 12,
+                        sheetElevation = 8,
+                        popupElevation = 4,
+                        dialogElevation = 6,
+                        sheetPadding = 20,
+                        dialogPadding = 18,
+                        popupPadding = 10,
+                        scrim = 0x8000_0000L,
+                        toastElevation = 7,
+                        toastCornerRadius = 14,
+                    ),
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetOverlayTokens>(),
+        )
+    }
+
+    /**
+     * The text node's three font features, read from the bytes the Host wrote: tabular
+     * figures on, ligatures off, and a character variant whose value is wider than a byte.
+     */
+    @Test
+    fun fr83_font_feature_settings_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(22, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 22 }
+        assertEquals(listOf(PropertyKind.FontFeatureSettings), props.map { it.property })
+        val bytes = (props.single().value as PropertyValue.Bytes).value
+        val expected = "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "cv01".encodeToByteArray() + byteArrayOf(2, 1, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        assertEquals(
+            "tnum 1, liga 0, cv01 258",
+            dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
     }
 
     /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */

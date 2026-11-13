@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
@@ -107,6 +106,15 @@ internal class Win32Window private constructor(
     var gone = false
         private set
 
+    /** Whether a button went down in this window and has not come up. Windows of several only. */
+    private var pointerHeld = false
+
+    /** The held pointer was taken from the content: what is left of its gesture is not the content's. */
+    private var pointerWithheld = false
+
+    /** The scene has yet to be told the gesture is over, which it is told between two events. */
+    private var pointerCancelPending = false
+
     /** The handle of the window, which names it to the C side. */
     val handle: COpaquePointer get() = native.window
 
@@ -145,8 +153,11 @@ internal class Win32Window private constructor(
             }
         }
 
+    /** The system's text size, which the scene gets as its font scale and follows when it changes. */
+    private val textScale = WindowTextScale(Win32Loop.textScale())
+
     private val scene: ComposeScene = CanvasLayersComposeScene(
-        density = Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = platformContext,
@@ -199,6 +210,9 @@ internal class Win32Window private constructor(
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
                 }
+                textScale.receive(event)
+                // Files let go over the window go to the node under them.
+                routeFileDrop(event)
                 // Told which desktop it is, because the key numbers are Windows' own.
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
@@ -231,16 +245,21 @@ internal class Win32Window private constructor(
         select()
         drew = false
         work.runPending()
+        applyPointerCancel()
         var heard = false
         for (event in Win32Loop.drainEvents()) {
             if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                 System.err.println("compose-rust: window heard $event")
             }
-            scene.receive(event, win32 = true)
+            textScale.receive(event)
+            routeFileDrop(event)
+            if (!withheld(event)) scene.receive(event, win32 = true)
             textInput.receive(event)
             heard = true
             // The application may have removed this window while handling the event.
             if (gone) return true
+            // A handler of that event may have torn a window off under the pointer.
+            applyPointerCancel()
         }
         if (!painted || heard || scene.hasInvalidations() || frameWanted()) {
             draw()
@@ -248,6 +267,57 @@ internal class Win32Window private constructor(
         if (gone) return true
         semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
         return heard || drew
+    }
+
+    /**
+     * Takes the pointer that is held down in this window away from its content: the node that
+     * had it is told the gesture was cancelled, and the rest of that gesture (the moves with
+     * the button still down, and the release) is kept from the scene. The next press is a
+     * new gesture. True when a pointer was held, false when there was nothing to end.
+     *
+     * The scene is told between two events and never from inside one. This is called from a
+     * batch, and a batch can be the answer to a pointer event the scene is still handing
+     * out; Compose drops a cancel that arrives in the middle of that.
+     */
+    fun cancelPointerInput(): Boolean {
+        if (gone || !pointerHeld) return false
+        pointerHeld = false
+        pointerWithheld = true
+        pointerCancelPending = true
+        return true
+    }
+
+    private fun applyPointerCancel() {
+        if (!pointerCancelPending || gone) return
+        pointerCancelPending = false
+        scene.cancelPointerInput()
+    }
+
+    /**
+     * Follows the buttons, and answers whether [event] belongs to a gesture that was taken
+     * from the content with [cancelPointerInput]. The window keeps the mouse captured until
+     * the button comes up, so those events still arrive here.
+     */
+    private fun withheld(event: WindowEvent): Boolean {
+        when (event.kind) {
+            WindowEvent.POINTER_DOWN -> {
+                pointerHeld = true
+                pointerWithheld = false
+            }
+            WindowEvent.POINTER_UP -> {
+                pointerHeld = false
+                if (pointerWithheld) {
+                    pointerWithheld = false
+                    return true
+                }
+            }
+            WindowEvent.POINTER_MOVE -> if (pointerWithheld) {
+                if (event.buttons != 0) return true
+                // No button is down any more: the release was lost with the capture.
+                pointerWithheld = false
+            }
+        }
+        return false
     }
 
     /** What a caption button of this window asks: 0 minimises, 1 maximises or restores, 2 closes. */
@@ -328,7 +398,7 @@ internal class Win32Window private constructor(
         // is refitted, and what is measured here is the buffer that came back.
         val measured = native.measure()
         val fitted = IntSize(measured.width, measured.height)
-        val density = Density(measured.scale)
+        val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
             scene.density = density
             scene.size = fitted
@@ -381,7 +451,7 @@ internal class Win32Window private constructor(
         val target = Win32Loop.beginRasterFrame() ?: return false
         val measured = native.measure()
         val fitted = IntSize(target.width, target.height)
-        val density = Density(measured.scale)
+        val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
             scene.density = density
             scene.size = fitted

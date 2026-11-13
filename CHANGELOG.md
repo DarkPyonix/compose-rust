@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Font features: tabular figures for timers and tables
+
+`Text::font_feature_settings(&[FontFeature])` and `TextField::font_feature_settings(&[FontFeature])` ask the font for OpenType features, such as `FontFeature::TABULAR_NUMS` for digits of one width, so a number that changes does not move the digits beside it. They are taken with or without a type role, because a feature picks a form the font already has rather than another font. The list travels as the new property 192 (`FontFeatureSettings`, 8-byte records, at most 16), and a node that does not call it sends exactly what it sent before. The Renderer makes Compose's `fontFeatureSettings` string once when the list arrives; a list it cannot read is protocol error 24 and the text is drawn without features. A font without the feature draws as it would have.
+
+### A split pane chooses the width it stacks below
+
+`SplitPane().collapse_below(dp)` sets the split pane's own width below which it shows one pane at a time, the one `selected_index` names. At or above that width it never stacks: the design system is asked as for a medium width, so two columns or a side pane laid over the body is still its answer. Without it the line stays at 600 dp. The width is measured on the Renderer, so crossing the line sends the Host nothing and the panes keep their state. It is the new `CollapseBelow` property (91, f32). A negative or non-finite width is a protocol error, and the split pane is drawn as if it had none ([#314](https://github.com/DarkPyonix/compose-rust/issues/314)).
+
+### Long tokens break inside under `KeepAll`, and fields take a word break
+
+`Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).
+
+### SVG pictures draw on Android
+
+Android has no SVG reader of its own, so every `AssetKind::Svg` registration was reported as unreadable (protocol error 7) and drew an empty box. The Android renderer now reads SVG itself, following the rules Skia draws by on the desktop and iOS, so the same file draws the same picture on every platform. It reads shapes, groups, `use`, fills and strokes with their opacities, dashes, caps and joins, transforms, `viewBox` and `preserveAspectRatio`, linear and radial gradients, patterns and clip paths. It does not read `text`, `image`, `mask`, `filter`, `marker` or `<style>` sheets ([#567](https://github.com/DarkPyonix/compose-rust/issues/567)).
+
+### Desktop windows follow the system's text size
+
+The Windows and Linux windows draw native text at the operating system's text size (Windows' Text size slider, GNOME's `text-scaling-factor`, KDE's font DPI) and follow it when it changes with the window open. macOS has no public text size setting, so it stays at 1. Files dropped on a window of the Windows Kotlin/Native renderer now reach the `FileDropTarget` under them, as on Linux and macOS ([#68](https://github.com/DarkPyonix/compose-rust/issues/68), [#72](https://github.com/DarkPyonix/compose-rust/issues/72)).
+
+- `WINDOW_REVISION` moves to the fork commit that holds the text size reader and the Windows file drop.
+
 ### The Windows release renderer is the Kotlin/Native static kit
 
 A version tag now releases `compose-rust-renderer-v<ver>-windows-x64.tar.gz` as the Kotlin/Native static kit, the one the crate's build script links on Windows, and checks it as one executable like the other desktop targets. Up to v0.0.7 that asset was the GraalVM native image, which the build script no longer links. The sample build takes this kit from the release for its crate version, checked against its `.sha256`, and builds the kit itself only when the release does not carry it ([#322](https://github.com/DarkPyonix/compose-rust/issues/322)).

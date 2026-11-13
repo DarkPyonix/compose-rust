@@ -1919,3 +1919,84 @@ fn fr36_the_generated_activity_hands_notification_presses_to_the_renderer() {
     assert!(build.contains("override fun onNewIntent(intent: Intent)"));
     assert!(build.contains("RequestPermission()"));
 }
+
+/// The dx template's Activity, as it reaches this build: no keyboard setting at all.
+const DX_MANIFEST: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <application android:label=\"@string/app_name\">\n        <activity\n            android:configChanges=\"orientation|keyboardHidden|screenSize\"\n            android:exported=\"true\"\n            android:name=\"dev.dioxus.main.MainActivity\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.MAIN\" />\n            </intent-filter>\n        </activity>\n    </application>\n</manifest>\n";
+
+/// The window resizes for the keyboard instead of panning. A pan slides the whole window
+/// up by the keyboard's height, which took the top bar off the screen and left whatever was
+/// below the field under the keyboard; with `adjustResize` the renderer is told how much
+/// the keyboard covers and stops the page above it.
+#[test]
+fn fr19_the_android_activity_resizes_for_the_keyboard() {
+    let resized = renderer_dir::with_keyboard_resize(DX_MANIFEST).unwrap();
+    let activity_at = resized.find("<activity").unwrap();
+    let close_at = activity_at + resized[activity_at..].find('>').unwrap();
+    let mode_at = resized
+        .find("android:windowSoftInputMode=\"adjustResize\"")
+        .expect("the Activity says nothing about the keyboard, so Android pans the window");
+    assert!(
+        activity_at < mode_at && mode_at < close_at,
+        "the setting is on the Activity's own tag, not somewhere Android does not read it"
+    );
+    assert_eq!(
+        resized.matches("windowSoftInputMode").count(),
+        1,
+        "said once"
+    );
+    // The rest of the manifest is untouched.
+    assert_eq!(
+        resized.replace(
+            "\n            android:windowSoftInputMode=\"adjustResize\"",
+            ""
+        ),
+        DX_MANIFEST
+    );
+    // A second build changes nothing.
+    assert_eq!(renderer_dir::with_keyboard_resize(&resized), None);
+}
+
+/// A pan that was asked for is replaced, because it is what moves the bars off the screen;
+/// whether the keyboard opens on start is a separate part of the same value and is kept.
+#[test]
+fn fr19_an_existing_pan_becomes_a_resize_and_keeps_its_state() {
+    let panned = DX_MANIFEST.replace(
+        "android:exported=\"true\"",
+        "android:exported=\"true\"\n            android:windowSoftInputMode=\"stateHidden|adjustPan\"",
+    );
+    let resized = renderer_dir::with_keyboard_resize(&panned).unwrap();
+    assert!(resized.contains("android:windowSoftInputMode=\"stateHidden|adjustResize\""));
+    assert!(!resized.contains("adjustPan"));
+    assert_eq!(renderer_dir::with_keyboard_resize(&resized), None);
+
+    let already = DX_MANIFEST.replace(
+        "android:exported=\"true\"",
+        "android:exported=\"true\"\n            android:windowSoftInputMode=\"adjustResize\"",
+    );
+    assert_eq!(renderer_dir::with_keyboard_resize(&already), None);
+    assert_eq!(
+        renderer_dir::with_keyboard_resize("<manifest><application /></manifest>"),
+        None,
+        "a manifest with no Activity has nothing to say it on"
+    );
+    // `<activity-alias` is not an Activity of its own.
+    let alias_first = "<manifest><application><activity-alias android:name=\"a\" /><activity android:name=\"b\" /></application></manifest>";
+    let resized = renderer_dir::with_keyboard_resize(alias_first).unwrap();
+    assert!(resized.contains(
+        "<activity\n            android:windowSoftInputMode=\"adjustResize\" android:name=\"b\""
+    ));
+}
+
+/// The build applies it to the application's manifest along with the notification
+/// permission, and the renderer's own window setting says the same for an application
+/// that brings its own Activity.
+#[test]
+fn fr19_the_build_applies_the_keyboard_resize_to_the_manifest() {
+    let build = include_str!("../build.rs");
+    assert!(build.contains("renderer_dir::with_keyboard_resize("));
+    let chrome = include_str!("../android-kotlin/bridge/AndroidSystemChrome.kt");
+    assert!(
+        chrome.contains("SOFT_INPUT_ADJUST_RESIZE"),
+        "an application with its own Activity and manifest still gets a window that resizes"
+    );
+}

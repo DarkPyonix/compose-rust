@@ -222,6 +222,45 @@ class HtmlElementsTest {
     }
 
     /**
+     * A border on the start side only, as `Modifier.border_side(Side::Start, 1.0, ..)` sends
+     * it: the left 1dp column is the border's colour and every other edge is the node's
+     * background, the guide line beside an indented tree row.
+     */
+    @Test
+    fun fr60_border_side_draws_one_side() = runComposeUiTest {
+        show(
+            page {
+                node(
+                    2, ROOT, 0,
+                    ProtocolModifier.Offset(10f, 10f),
+                    ProtocolModifier.RequiredSize(100f, 60f),
+                    ProtocolModifier.Background(Paint.Literal(BLUE)),
+                    ProtocolModifier.BorderEach(
+                        0f, 0f, 0f, 1f,
+                        Paint.Literal(RED),
+                        Paint.Literal(RED),
+                        Paint.Literal(RED),
+                        Paint.Literal(RED),
+                    ),
+                )
+            },
+        )
+        val pixels = picture()
+        for (y in listOf(10, 11, 40, 68, 69)) {
+            assertColor(RED, pixels[10, y], "the start side at y $y")
+            assertColor(BLUE, pixels[11, y], "just inside the start side at y $y")
+        }
+        for (x in listOf(12, 60, 108)) {
+            assertColor(BLUE, pixels[x, 10], "the top edge at x $x")
+            assertColor(BLUE, pixels[x, 69], "the bottom edge at x $x")
+        }
+        for (y in listOf(10, 40, 69)) {
+            assertColor(BLUE, pixels[109, y], "the end edge at y $y")
+        }
+        assertColor(WHITE, pixels[9, 40], "outside the node before the start side")
+    }
+
+    /**
      * Each corner is cut to its own radius, and the background follows it. A corner with no
      * radius stays square.
      */

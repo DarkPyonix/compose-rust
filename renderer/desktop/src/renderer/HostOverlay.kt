@@ -7,7 +7,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -44,6 +47,8 @@ import kotlinx.coroutines.delay
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.PopoverAlign
+import dev.darkpyonix.composerust.protocol.PopoverPlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
@@ -218,26 +223,30 @@ internal fun HostDialog(
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-        onDismissRequest = {
+    platformModalOverlayWindow(
+        {
             open.set(false)
             dismiss(node, dispatcher)
         },
+        onEscape,
     ) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        // The scrim covers the whole window; the dialog is centred in what the keyboard
+        // leaves, so a field inside it is not under the keyboard.
+        val keyboard = overlayKeyboardInset()
         Box(
             Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
-            Column(
-                modifier
-                    .modalOverlaySurface(node.id, surfaceRequester)
-                    .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
-            ) {
-                node.children.forEach { childId ->
-                    key(childId) { RenderNode(childId, table, dispatcher) }
+            Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier
+                        .modalOverlaySurface(node.id, surfaceRequester)
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
+                ) {
+                    node.children.forEach { childId ->
+                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    }
                 }
             }
         }
@@ -286,7 +295,8 @@ internal fun HostMenu(
                 Column(
                     Modifier
                         .testTag(menuPopupTestTag(node.id))
-                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Menu),
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Menu)
+                        .menuWidth(),
                 ) {
                     entries.forEach { childId ->
                         key(childId) { RenderNode(childId, table, dispatcher) }
@@ -310,8 +320,13 @@ internal fun HostMenu(
 val LocalInAMenu = compositionLocalOf { false }
 
 /**
- * Places a menu or dropdown popup directly below its anchor's leading edge, flipping above
- * the anchor only when there is not enough room below in the window.
+ * Places a menu or dropdown popup directly below its anchor, flipping above the anchor only
+ * when there is not enough room below in the window.
+ *
+ * Across, the popup lines up with the anchor's leading edge when it fits that way, and with
+ * the anchor's trailing edge when it would otherwise run past the window, so a menu opened
+ * from a button at the end of a bar hangs under that button instead of being pushed
+ * against the window's edge. Whatever still does not fit is slid back inside the window.
  */
 internal object BelowAnchorPositionProvider : PopupPositionProvider {
     override fun calculatePosition(
@@ -320,20 +335,34 @@ internal object BelowAnchorPositionProvider : PopupPositionProvider {
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
     ): IntOffset {
-        val x = if (layoutDirection == LayoutDirection.Ltr) {
-            anchorBounds.left.coerceAtMost((windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        val fitsFromStart = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left + popupContentSize.width <= windowSize.width
         } else {
-            (anchorBounds.right - popupContentSize.width).coerceAtLeast(0)
+            anchorBounds.right - popupContentSize.width >= 0
         }
-        val belowY = anchorBounds.bottom
-        val y = if (belowY + popupContentSize.height <= windowSize.height || anchorBounds.top < popupContentSize.height) {
-            belowY
-        } else {
-            (anchorBounds.top - popupContentSize.height).coerceAtLeast(0)
-        }
-        return IntOffset(x, y)
+        return popoverPosition(
+            anchor = anchorBounds,
+            window = windowSize,
+            content = popupContentSize,
+            placement = PopoverPlacement.Bottom,
+            align = if (fitsFromStart) PopoverAlign.Start else PopoverAlign.End,
+            offset = 0,
+            margin = 0,
+            layoutDirection = layoutDirection,
+        )
     }
 }
+
+/**
+ * As wide as the widest entry, and no wider.
+ *
+ * A popup is measured against the whole window, so an entry that asks to fill the width,
+ * which is how a menu row is written, would otherwise make the menu as wide as the window:
+ * a band across the screen under the bar rather than a menu under its button. Measuring
+ * the entries' own widths first gives the column a width, and a filling entry then fills
+ * that, so every row is as wide as the widest one.
+ */
+internal fun Modifier.menuWidth(): Modifier = width(IntrinsicSize.Max)
 
 /** Test tag of the popup half of a menu, which is its own window, not part of the anchor. */
 fun menuPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-popup"
