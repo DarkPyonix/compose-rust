@@ -1068,8 +1068,11 @@ impl TextScope {
                 ));
                 attrs.push(("font", font_bytes(&font)));
                 // Left out when no feature was asked for, so such a text sends what it
-                // always did.
-                attrs.push(("font_feature_settings", font_features));
+                // always did. A first composition writes every attribute in the list, an
+                // empty one as well, so leaving it out is what keeps it off the wire.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
@@ -1374,7 +1377,10 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
-                attrs.push(("font_feature_settings", font_features));
+                // Left out when no feature was asked for, as `Text` leaves it out.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 // Written only for a bare field, so a framed one sends what it always did.
