@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
@@ -126,6 +127,10 @@ import dev.darkpyonix.composerust.foundation.hostPointerEvents
 import dev.darkpyonix.composerust.foundation.subscribesToPointer
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.flowHorizontalArrangement
+import dev.darkpyonix.composerust.ui.flowItemVerticalAlignment
+import dev.darkpyonix.composerust.ui.flowMaxItemsInEachRow
+import dev.darkpyonix.composerust.ui.flowVerticalArrangement
 import dev.darkpyonix.composerust.ui.boxAlignment
 import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
@@ -555,6 +560,19 @@ fun RenderNode(
             // the tree is whole and a protocol test can walk it.
             WidgetKind.Window -> Box(modifier) { Children(node, table, dispatcher) }
 
+            // A row that wraps. Compose measures each child at its own width and starts a
+            // new line where the next one does not fit, so the break is where the text
+            // really ends. A child wider than the line is given the line's width.
+            WidgetKind.FlowRow -> FlowRow(
+                modifier = modifier,
+                horizontalArrangement = node.flowHorizontalArrangement(),
+                verticalArrangement = node.flowVerticalArrangement(),
+                itemVerticalAlignment = node.flowItemVerticalAlignment(),
+                maxItemsInEachRow = node.flowMaxItemsInEachRow(),
+            ) {
+                OnGlass(glass) { Children(node, table, dispatcher) }
+            }
+
             WidgetKind.AbsoluteBox -> Layout(
                 content = {
                     // The root of an HTML island names the factor it is drawn at. Only the
@@ -594,6 +612,7 @@ val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
 internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
     WidgetKind.Column,
     WidgetKind.Row,
+    WidgetKind.FlowRow,
     WidgetKind.Box,
     WidgetKind.FileDropTarget,
     WidgetKind.AbsoluteBox,

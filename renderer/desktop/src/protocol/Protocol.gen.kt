@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, CompactNavigation, OnScrollChanged, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, CompactNavigation, OnScrollChanged, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -131,6 +131,10 @@ enum class IoStatus { Ok, NotFound, QuotaExceeded, Unavailable, PermissionDenied
 enum class FileDelivery { Handle, Upload, Download }
 
 enum class FileOp { Read, Write, Entries, Child }
+
+enum class HorizontalAlignment { Start, Center, End }
+
+enum class VerticalAlignment { Top, Center, Bottom }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1528,7 +1532,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -236506806268767540L
+    const val SCHEMA_HASH: Long = 2143139683292907741L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2503,6 +2507,7 @@ object Protocol {
         43 -> WidgetKind.CodeEditor
         44 -> WidgetKind.AbsoluteBox
         45 -> WidgetKind.Window
+        46 -> WidgetKind.FlowRow
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -2615,6 +2620,11 @@ object Protocol {
         127 -> PropertyKind.ReportSize
         128 -> PropertyKind.Scrim
         169 -> PropertyKind.Bare
+        170 -> PropertyKind.HorizontalSpacing
+        171 -> PropertyKind.VerticalSpacing
+        172 -> PropertyKind.HorizontalAlignment
+        173 -> PropertyKind.VerticalAlignment
+        174 -> PropertyKind.MaxItemsInEachRow
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
         27 -> PropertyKind.Progress
@@ -3353,6 +3363,20 @@ object Protocol {
         3 -> FileOp.Entries
         4 -> FileOp.Child
         else -> throw ProtocolException("unknown FileOp tag $tag", offset)
+    }
+
+    private fun horizontalAlignment(tag: Int, offset: Int): HorizontalAlignment = when (tag) {
+        1 -> HorizontalAlignment.Start
+        2 -> HorizontalAlignment.Center
+        3 -> HorizontalAlignment.End
+        else -> throw ProtocolException("unknown HorizontalAlignment tag $tag", offset)
+    }
+
+    private fun verticalAlignment(tag: Int, offset: Int): VerticalAlignment = when (tag) {
+        1 -> VerticalAlignment.Top
+        2 -> VerticalAlignment.Center
+        3 -> VerticalAlignment.Bottom
+        else -> throw ProtocolException("unknown VerticalAlignment tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {

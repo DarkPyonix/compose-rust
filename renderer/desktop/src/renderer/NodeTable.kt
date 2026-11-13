@@ -1249,6 +1249,14 @@ class NodeTable {
                 // A field drawn without the design system's frame.
                 PropertyKind.Bare -> widget == WidgetKind.TextField ||
                     widget == WidgetKind.Dropdown
+                // A wrapping row's gaps, alignments and per-line limit. Only it lays out by
+                // lines, so no other widget has anything to read them for.
+                PropertyKind.HorizontalSpacing,
+                PropertyKind.VerticalSpacing,
+                PropertyKind.HorizontalAlignment,
+                PropertyKind.VerticalAlignment,
+                PropertyKind.MaxItemsInEachRow,
+                -> widget == WidgetKind.FlowRow
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->
