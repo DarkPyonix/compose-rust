@@ -2114,13 +2114,13 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
 - **비용.** 크기 변화 한 번에 이벤트 한 건이고, 애니메이션 프레임마다 보내지 않습니다. 정상 상태 할당이 없습니다.
 
 수용 기준.
-1. `motion(Standard)`와 `on_motion_finished`를 단 노드의 높이를 120dp에서 0으로 바꾸면, 애니메이션이 끝난 뒤 `MotionFinished`가 **정확히 한 번** `height_dp = 0.0`을 싣고 오며 애니메이션 도중에는 오지 않습니다(시험 이름 fr24_motion_finished_reports_once_with_the_final_size, 미구현).
-2. 도중에 목표를 120dp로 되돌리면 이벤트는 한 번, `height_dp = 120.0`으로만 옵니다(시험 이름 fr24_interrupted_motion_reports_only_where_it_settles, 미구현).
-3. 모션 감소가 켜진 상태에서 같은 변경의 이벤트가 그 프레임 안에 한 번 옵니다(시험 이름 fr24_motion_finished_arrives_under_reduced_motion, 미구현).
-4. 처음 배치와 크기가 그대로인 배치에는 이벤트가 없습니다(시험 이름 fr24_first_layout_sends_no_motion_finished, 미구현).
-5. 핸들러가 없는 노드는 아무것도 보내지 않고, 그런 트리의 와이어와 수정자 사슬이 이 항목 전과 같습니다(시험 이름 fr24_no_handler_means_no_listener, 미구현).
-6. 애니메이션 도중 노드를 지우면 이벤트가 오지 않고 `ProtocolError`도 없습니다(시험 이름 fr24_removed_node_sends_no_motion_finished, 미구현).
-7. `MotionFinished`와 `OnMotionFinished`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr24_motion_finished_round_trips, 미구현).
+1. `motion(Standard)`와 `on_motion_finished`를 단 노드의 높이를 120dp에서 0으로 바꾸면, 애니메이션이 끝난 뒤 `MotionFinished`가 **정확히 한 번** `height_dp = 0.0`을 싣고 오며 애니메이션 도중에는 오지 않습니다(`fr24_motion_finished_reports_once_with_the_final_size`).
+2. 도중에 목표를 120dp로 되돌리면 이벤트는 한 번, `height_dp = 120.0`으로만 옵니다(`fr24_interrupted_motion_reports_only_where_it_settles`).
+3. 모션 감소가 켜진 상태에서 같은 변경의 이벤트가 그 프레임 안에 한 번 옵니다(`fr24_motion_finished_arrives_under_reduced_motion`).
+4. 처음 배치와 크기가 그대로인 배치에는 이벤트가 없습니다(`fr24_first_layout_sends_no_motion_finished`).
+5. 핸들러가 없는 노드는 아무것도 보내지 않고, 그런 트리의 와이어와 수정자 사슬이 이 항목 전과 같습니다(`fr24_no_handler_means_no_listener`).
+6. 애니메이션 도중 노드를 지우면 이벤트가 오지 않고 `ProtocolError`도 없습니다(`fr24_removed_node_sends_no_motion_finished`).
+7. `MotionFinished`와 `OnMotionFinished`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(`fr24_motion_finished_round_trips`).
 8. 일곱 디자인 시스템에서 기준 1이 성립합니다. 끝나는 시각은 시스템마다 다르고(FR-24의 기존 기준), 이벤트 수는 모두 하나입니다.
 
 ### FR-25 Grid (`Draft`)
