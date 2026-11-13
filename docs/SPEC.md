@@ -2565,7 +2565,7 @@ Notification::new("세션이 끝났습니다")
 - CodeLens 클릭과 고스트 텍스트 수락은 `DecorationActivated`(이벤트 태그 30)입니다. 장식 블롭 안의 id에는 Host 쪽 리스너가 붙어 있지 않으므로, 편집기 노드의 리스너 하나(`OnDecorationClick`)로 받고 페이로드의 id로 어느 장식인지 가립니다.
 - 장식의 id는 앱이 고르는 `u64`이며 0은 "장식 없음"이라 쓰지 않습니다.
 - 다섯 이벤트의 페이로드는 지금 `EventPayloadType`에 없는 모양이라 다섯을 더합니다. `kind`, `severity`, `phase`는 닫힌 열거형이고 모르는 값은 `ProtocolError`입니다. 범위가 문서 밖이거나 시작이 끝보다 뒤인 장식, 스팬, 편집은 그 항목만 버리고 `ProtocolError`를 보내며, 프로세스는 죽지 않습니다.
-- **묶음 편집의 이벤트와 속성(이슈 #496).** 이벤트 `CodeEditGroupResult`는 태그 51(48, 49는 `FocusGained`, `KeyUp`, 50은 `FileDialogResult`가 쓰므로 51입니다)이고 페이로드는 36바이트입니다: 머리 16바이트 뒤에 `request_id: u32`, `status: u32`(`Applied=1`, `Rejected=2`, `Invalid=3`, `TooOld=4`, 모르는 값은 `ProtocolError`), `base_version: u32`, `current_version: u32`(적용되면 마지막 변경 뒤의 버전, 아니면 지금 문서의 버전), `index: u32`(처음 문제가 된 편집의 순번이고 `Applied`이면 적용한 편집의 수). 핸들러 속성 `OnEditGroupResult`는 속성 태그 128입니다(127 `ReportSize`가 마지막 사용분입니다). 세 번호는 번호표 소유자의 확인을 받았습니다. 스키마 서술 문자열 끝에 추가하므로(`commands=...,edit_code_group`, `events=...,CodeEditGroupResult`, `properties=...,on_edit_group_result`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
+- **묶음 편집의 이벤트와 속성(이슈 #496).** 이벤트 `CodeEditGroupResult`는 태그 51(48, 49는 `FocusGained`, `KeyUp`, 50은 `FileDialogResult`가 쓰므로 51입니다)이고 페이로드는 36바이트입니다: 머리 16바이트 뒤에 `request_id: u32`, `status: u32`(`Applied=1`, `Rejected=2`, `Invalid=3`, `TooOld=4`, 모르는 값은 `ProtocolError`), `base_version: u32`, `current_version: u32`(적용되면 마지막 변경 뒤의 버전, 아니면 지금 문서의 버전), `index: u32`(처음 문제가 된 편집의 순번이고 `Applied`이면 적용한 편집의 수). 핸들러 속성 `OnEditGroupResult`는 속성 태그 194입니다(128은 `Scrim`이 이미 써서 옮겼습니다, [leader, provisional] (darkpyonix leader, 2026-11-13)). 세 번호는 번호표 소유자의 확인을 받았습니다. 스키마 서술 문자열 끝에 추가하므로(`commands=...,edit_code_group`, `events=...,CodeEditGroupResult`, `properties=...,on_edit_group_result`) **스키마 해시가 바뀝니다**. 다른 항목이 먼저 병합되면 번호는 그대로 두고 서술 문자열의 순서만 태그 순서에 맞춥니다.
 
 #### 38.7 수용 기준
 
@@ -2864,7 +2864,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
 8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
-  - 곁 표 속성 `SpanMetrics`, 속성 태그 121입니다(120은 FR-43의 `IslandZoom`이 가집니다). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
+  - 곁 표 속성 `SpanMetrics`, 속성 태그 187입니다(121은 `TrackColor`가 이미 써서 옮겼습니다, [leader, provisional] (darkpyonix leader, 2026-11-13)). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
   - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
   - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
   - 구간 번호가 범위 밖이거나, 한 구간 안에서 항목이 중복되거나, 표가 버퍼 밖을 가리키면 `ProtocolError`(NFR-7)이고, 측정은 그 레코드를 `Malformed`로 돌립니다.
