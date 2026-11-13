@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -54,6 +54,10 @@ enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, 
 
 enum class MessageDuration { Short, Long }
 
+enum class MessageVertical { Top, Bottom }
+
+enum class MessageHorizontal { Start, Center, End }
+
 enum class Chrome { Modern, System, FullSize }
 
 enum class TitleBar { Normal, Simple }
@@ -94,7 +98,7 @@ enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
 
 enum class Severity { Error, Warning, Information, Hint }
 
@@ -123,6 +127,8 @@ enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
 enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
 enum class CompactNavigation { Sidebar, None }
+
+enum class Snap { ItemStart }
 
 enum class StorageOp { Read, Write, Remove, Keys }
 
@@ -213,7 +219,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -225,6 +234,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -868,6 +879,8 @@ object CodeEditorRecords {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
         else -> null
     }
 
@@ -1254,12 +1267,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -1487,6 +1506,17 @@ sealed interface Mutation {
         val rectWidthPx: Double,
         val rectHeightPx: Double,
     ) : Mutation
+
+    /**
+     * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
+     * Answered once by a `PositionRect` event carrying [request].
+     */
+    data class QueryPositionRect(
+        val nodeId: Int,
+        val request: Int,
+        val line: Int,
+        val column: Int,
+    ) : Mutation
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1580,13 +1610,17 @@ sealed interface HostEvent {
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
+    data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8493683140838181048L
+    const val SCHEMA_HASH: Long = 863612710664529053L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1625,6 +1659,7 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_QUERY_POSITION_RECT = 39
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1792,7 +1827,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1805,6 +1840,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -1870,6 +1907,15 @@ object Protocol {
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
                         )
                     }
+                    TAG_QUERY_POSITION_RECT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.QueryPositionRect(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            request = readU32(batch, base, available, offset + 8).toInt(),
+                            line = readU32(batch, base, available, offset + 12).toInt(),
+                            column = readU32(batch, base, available, offset + 16).toInt(),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
@@ -1924,12 +1970,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -2162,6 +2219,10 @@ object Protocol {
                 is HostEvent.ScrollChanged -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
+                is HostEvent.MotionFinished -> null
+                is HostEvent.CaretRect -> null
+                is HostEvent.PositionRect -> null
+                is HostEvent.CodePointer -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2214,6 +2275,10 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 72
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
+                is HostEvent.MotionFinished -> 24
+                is HostEvent.CaretRect -> 40
+                is HostEvent.PositionRect -> 40
+                is HostEvent.CodePointer -> 80
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2270,6 +2335,10 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 60
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
+                is HostEvent.MotionFinished -> 63
+                is HostEvent.CaretRect -> 64
+                is HostEvent.PositionRect -> 65
+                is HostEvent.CodePointer -> 66
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2494,6 +2563,43 @@ object Protocol {
                 }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
+                is HostEvent.MotionFinished -> {
+                    out.putFloat(event.widthDp)
+                    out.putFloat(event.heightDp)
+                }
+                is HostEvent.CaretRect -> {
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putFloat(event.width)
+                    out.putFloat(event.height)
+                }
+                is HostEvent.PositionRect -> {
+                    out.putInt(event.request)
+                    out.putInt(if (event.found) 1 else 0)
+                    out.putFloat(if (event.found) event.x else 0f)
+                    out.putFloat(if (event.found) event.y else 0f)
+                    out.putFloat(if (event.found) event.width else 0f)
+                    out.putFloat(if (event.found) event.height else 0f)
+                }
+                is HostEvent.CodePointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2708,6 +2814,15 @@ object Protocol {
         184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
+        91 -> PropertyKind.CollapseBelow
+        188 -> PropertyKind.Snap
+        189 -> PropertyKind.MaxHeightFraction
+        192 -> PropertyKind.FontFeatureSettings
+        193 -> PropertyKind.OnMotionFinished
+        195 -> PropertyKind.OnCaretRect
+        196 -> PropertyKind.OnKeyPreview
+        197 -> PropertyKind.OnCodePointer
+        198 -> PropertyKind.RadioGroup
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3121,6 +3236,19 @@ object Protocol {
         else -> throw ProtocolException("unknown MessageDuration tag $tag", offset)
     }
 
+    private fun messageVertical(tag: Int, offset: Int): MessageVertical = when (tag) {
+        1 -> MessageVertical.Top
+        2 -> MessageVertical.Bottom
+        else -> throw ProtocolException("unknown MessageVertical tag $tag", offset)
+    }
+
+    private fun messageHorizontal(tag: Int, offset: Int): MessageHorizontal = when (tag) {
+        1 -> MessageHorizontal.Start
+        2 -> MessageHorizontal.Center
+        3 -> MessageHorizontal.End
+        else -> throw ProtocolException("unknown MessageHorizontal tag $tag", offset)
+    }
+
     private fun chrome(tag: Int, offset: Int): Chrome = when (tag) {
         1 -> Chrome.Modern
         2 -> Chrome.System
@@ -3272,6 +3400,8 @@ object Protocol {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
         else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
     }
 
@@ -3409,6 +3539,11 @@ object Protocol {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
         else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
+    }
+
+    private fun snap(tag: Int, offset: Int): Snap = when (tag) {
+        1 -> Snap.ItemStart
+        else -> throw ProtocolException("unknown Snap tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {

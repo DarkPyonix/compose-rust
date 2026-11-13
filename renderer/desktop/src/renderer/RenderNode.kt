@@ -1,6 +1,15 @@
 package dev.darkpyonix.composerust.ui.node
 
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.foundation.gestures.TargetedFlingBehavior
+import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import dev.darkpyonix.composerust.protocol.Snap
+import kotlin.math.abs
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -92,6 +101,7 @@ import dev.darkpyonix.composerust.foundation.FloatingActionArea
 import dev.darkpyonix.composerust.foundation.HostBadge
 import dev.darkpyonix.composerust.foundation.HostButton
 import dev.darkpyonix.composerust.foundation.HostChip
+import dev.darkpyonix.composerust.foundation.RadioGroupOrLayout
 import dev.darkpyonix.composerust.foundation.HostCodeEditor
 import dev.darkpyonix.composerust.foundation.HostFloatingAction
 import dev.darkpyonix.composerust.foundation.HostLazyGrid
@@ -123,6 +133,7 @@ import dev.darkpyonix.composerust.foundation.HostTopAppBar
 import dev.darkpyonix.composerust.foundation.HostTextField
 import dev.darkpyonix.composerust.foundation.SelectableRegion
 import dev.darkpyonix.composerust.foundation.Unselectable
+import dev.darkpyonix.composerust.foundation.UserSelectArea
 import dev.darkpyonix.composerust.foundation.hostKeyEvents
 import dev.darkpyonix.composerust.foundation.hostPointerEvents
 import dev.darkpyonix.composerust.foundation.subscribesToPointer
@@ -133,12 +144,14 @@ import dev.darkpyonix.composerust.ui.flowItemVerticalAlignment
 import dev.darkpyonix.composerust.ui.flowMaxItemsInEachRow
 import dev.darkpyonix.composerust.ui.flowVerticalArrangement
 import dev.darkpyonix.composerust.ui.boxAlignment
+import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.horizontalAlignment
 import dev.darkpyonix.composerust.ui.horizontalArrangement
 import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.motionFinishedListener
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
 import dev.darkpyonix.composerust.ui.verticalArrangement
@@ -273,6 +286,17 @@ fun RenderNode(
         } else {
             node.modifiers
         }
+    // Only a node that was given a motion handler hears its size motion settle. The
+    // listener is made once per handler, so the chain stays equal across compositions.
+    val motionFinishedHandler = node.handler(PropertyKind.OnMotionFinished)
+    val motionDensity = LocalDensity.current
+    val motionFinished = if (motionFinishedHandler == null) {
+        null
+    } else {
+        remember(nodeId, motionFinishedHandler, motionDensity, dispatcher) {
+            motionFinishedListener(nodeId, motionFinishedHandler, motionDensity, dispatcher)
+        }
+    }
     val chain = requested
         .then(
             ownModifiers.toComposeModifier(
@@ -287,6 +311,7 @@ fun RenderNode(
                 allowPress = node.widget != WidgetKind.TextField,
                 allowPadding = node.widget != WidgetKind.TextField,
                 pointerEvents = pointerEvents,
+                motionFinished = motionFinished,
             ),
         )
         .testTag(nodeTestTag(nodeId))
@@ -352,7 +377,7 @@ fun RenderNode(
     } else focusableModifier
     val dropTarget = platformFileDrop(dropModifier, node, dispatcher)
     // Where the node is drawn, recorded only while a scroll request needs to know.
-    val modifier = if (node.placementWanted) {
+    val nodeModifier = if (node.placementWanted) {
         dropTarget.onPlaced { coordinates -> node.placement = coordinates }
     } else {
         dropTarget
@@ -361,13 +386,16 @@ fun RenderNode(
     // the bar in the systems that draw glass, and it can only take that shape if it knows
     // what it is sitting on.
     val glass = node.isMadeOfGlass(theme)
+    // What the node's `UserSelect` asks of the text below it. Where that opens a selection
+    // region, the region takes the node's modifier and the node is drawn inside it with none.
+    UserSelectArea(node, table, nodeModifier) { modifier ->
     ProvideInheritedColor(nodeId, node, table, theme) {
         when (node.widget) {
-            WidgetKind.Column, WidgetKind.Row -> {
+            WidgetKind.Column, WidgetKind.Row -> RadioGroupOrLayout(node, table, dispatcher, modifier) { laidOut ->
                 val horizontal = node.widget == WidgetKind.Row
                 val sizedModifier = if (node.usesIntrinsicCrossAxis(table)) {
-                    if (horizontal) modifier.height(IntrinsicSize.Min) else modifier.width(IntrinsicSize.Min)
-                } else modifier
+                    if (horizontal) laidOut.height(IntrinsicSize.Min) else laidOut.width(IntrinsicSize.Min)
+                } else laidOut
                 val weights = node.children.map { table.node(it)?.modifiers?.weightOf() }
                 val intrinsicSafe = node.children.map { child -> !table.hasScrollingDescendant(child) }
                 if (weights.any { it != null }) {
@@ -440,11 +468,13 @@ fun RenderNode(
             }
             WidgetKind.ScrollColumn -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
+                val snap = rememberItemStartSnap(node, scrollState, vertical = true)
                 Column(
-                    modifier = modifier.hostScroll(node, table, scrollState, vertical = true).verticalScroll(scrollState),
+                    modifier = modifier.hostScroll(node, table, scrollState, vertical = true)
+                        .verticalScroll(scrollState, flingBehavior = snap?.fling),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
-                ) { Children(node, table, dispatcher) }
+                ) { Children(node, table, dispatcher, snap) }
             }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
@@ -453,11 +483,13 @@ fun RenderNode(
             // row or of any child leaves the position where the user put it.
             WidgetKind.ScrollRow -> {
                 val scrollState = rememberHostScrollState(node, dispatcher)
+                val snap = rememberItemStartSnap(node, scrollState, vertical = false)
                 Row(
-                    modifier = modifier.hostScroll(node, table, scrollState, vertical = false).horizontalScroll(scrollState),
+                    modifier = modifier.hostScroll(node, table, scrollState, vertical = false)
+                        .horizontalScroll(scrollState, flingBehavior = snap?.fling),
                     horizontalArrangement = node.horizontalArrangement(theme),
                     verticalAlignment = node.verticalAlignment(),
-                ) { Children(node, table, dispatcher) }
+                ) { Children(node, table, dispatcher, snap) }
             }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
@@ -607,6 +639,7 @@ fun RenderNode(
                 measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
             )
         }
+    }
     }
 }
 
@@ -945,6 +978,85 @@ private fun Modifier.hostScroll(node: Node, table: NodeTable, state: ScrollState
 }
 
 /**
+ * The snap a `ScrollRow` or `ScrollColumn` asked for with `Snap.ItemStart`: once a drag or a
+ * fling ends, the content comes to rest with the start edge of the nearest direct child on
+ * the start of the visible area.
+ *
+ * A plain scroll container has no list of items the way a lazy list does, so each direct
+ * child reports where its start edge sits in the content through [child], and [fling] is
+ * Compose's own snap fling over those edges. A child the Host has removed is left out by
+ * id, so an edge that no longer exists is never a place to stop.
+ */
+internal class ItemStartSnap(
+    private val node: Node,
+    private val state: ScrollState,
+    private val vertical: Boolean,
+    private val density: () -> Density,
+) : SnapLayoutInfoProvider {
+    /** Each direct child's start edge, in pixels from the start of the content. */
+    private val starts = HashMap<Int, Int>()
+
+    /** A right to left row starts at its right edge, and so does each of its children. */
+    internal var layoutDirection: LayoutDirection = LayoutDirection.Ltr
+
+    /** Compose's snap fling over [starts], which the container scrolls with. */
+    internal var fling: TargetedFlingBehavior? = null
+
+    /** Records where [childId]'s start edge sits each time it is placed. */
+    fun child(childId: Int): Modifier = Modifier.onPlaced { coordinates ->
+        val position = coordinates.positionInParent()
+        val content = coordinates.parentLayoutCoordinates?.size?.width
+        starts[childId] = when {
+            vertical -> position.y.roundToInt()
+            layoutDirection == LayoutDirection.Rtl && content != null ->
+                content - (position.x.roundToInt() + coordinates.size.width)
+            else -> position.x.roundToInt()
+        }
+    }
+
+    override fun calculateSnapOffset(velocity: Float): Float {
+        val current = state.value
+        val max = state.maxValue.takeIf { it != Int.MAX_VALUE } ?: current
+        var before = Float.NEGATIVE_INFINITY
+        var after = Float.POSITIVE_INFINITY
+        fun consider(stop: Int) {
+            val distance = (stop.coerceIn(0, max) - current).toFloat()
+            if (distance <= 0f && distance > before) before = distance
+            if (distance >= 0f && distance < after) after = distance
+        }
+        node.children.forEach { id -> starts[id]?.let(::consider) }
+        // The end of the content is a place to rest too, or the last children of a strip
+        // whose last child is narrower than the visible area could never be reached.
+        consider(max)
+        val minFling = with(density()) { MIN_SNAP_FLING_VELOCITY.toPx() }
+        val chosen = when {
+            // A drag let go: the nearer edge, so past half way goes on and less comes back.
+            abs(velocity) < minFling -> if (abs(after) <= abs(before)) after else before
+            velocity > 0f -> after
+            else -> before
+        }
+        return if (chosen.isInfinite()) 0f else chosen
+    }
+}
+
+/** Below this a release counts as a drag let go rather than a fling. Compose's own threshold. */
+private val MIN_SNAP_FLING_VELOCITY = 400.dp
+
+/**
+ * The [ItemStartSnap] of a scroll container whose `Snap` property says `ItemStart`, or null
+ * for free scrolling, which leaves the container's fling exactly as it was.
+ */
+@Composable
+private fun rememberItemStartSnap(node: Node, state: ScrollState, vertical: Boolean): ItemStartSnap? {
+    if (node.role(PropertyKind.Snap, Snap.entries.toTypedArray()) != Snap.ItemStart) return null
+    val density by rememberUpdatedState(LocalDensity.current)
+    val snap = remember(node.id, state, vertical) { ItemStartSnap(node, state, vertical) { density } }
+    snap.layoutDirection = LocalLayoutDirection.current
+    snap.fling = rememberSnapFlingBehavior(snap)
+    return snap
+}
+
+/**
  * Runs [content] one glass layer deeper where [glass] is true, and unchanged otherwise.
  *
  * Unchanged is the ordinary case and costs nothing: no provider is composed for a node
@@ -1119,38 +1231,50 @@ private fun NodeTable.hasScrollingDescendant(id: Int): Boolean {
  * so a weighted child is given its share wherever it is hosted and not only under a Column.
  */
 @Composable
-internal fun ColumnScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
+internal fun ColumnScope.Children(
+    node: Node,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    snap: ItemStartSnap? = null,
+) {
     // `key` keeps each child's state attached to its Host node id across Move mutations.
-    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
+    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher, snap) } }
 }
 
 @Composable
-private fun ColumnScope.WeightedChild(childId: Int, table: NodeTable, dispatcher: EventDispatcher) {
+private fun ColumnScope.WeightedChild(
+    childId: Int,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    snap: ItemStartSnap?,
+) {
     // Its own composable, so reading the child's modifier list subscribes this scope alone
     // and a `SetModifier` on one child cannot invalidate its siblings.
     val weight = table.node(childId)?.modifiers?.weightOf()
-    RenderNode(
-        childId,
-        table,
-        dispatcher,
-        if (weight == null) Modifier else Modifier.weight(weight),
-    )
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
 @Composable
-internal fun RowScope.Children(node: Node, table: NodeTable, dispatcher: EventDispatcher) {
-    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher) } }
+internal fun RowScope.Children(
+    node: Node,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    snap: ItemStartSnap? = null,
+) {
+    node.children.forEach { childId -> key(childId) { WeightedChild(childId, table, dispatcher, snap) } }
 }
 
 @Composable
-private fun RowScope.WeightedChild(childId: Int, table: NodeTable, dispatcher: EventDispatcher) {
+private fun RowScope.WeightedChild(
+    childId: Int,
+    table: NodeTable,
+    dispatcher: EventDispatcher,
+    snap: ItemStartSnap?,
+) {
     val weight = table.node(childId)?.modifiers?.weightOf()
-    RenderNode(
-        childId,
-        table,
-        dispatcher,
-        if (weight == null) Modifier else Modifier.weight(weight),
-    )
+    val weighted = if (weight == null) Modifier else Modifier.weight(weight)
+    RenderNode(childId, table, dispatcher, if (snap == null) weighted else weighted.then(snap.child(childId)))
 }
 
 /**

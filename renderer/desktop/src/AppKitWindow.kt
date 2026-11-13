@@ -57,6 +57,7 @@ import org.thisisthepy.compose.window.graalvm.macos.openNativeWindow
 import org.thisisthepy.compose.window.graalvm.macos.pumpWindowEvents
 import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
+import org.thisisthepy.compose.window.graalvm.macos.setAppearanceCode
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
 import org.thisisthepy.compose.window.graalvm.macos.ACCESSIBILITY_ACTION_EVENT
@@ -162,6 +163,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
         System.err.println("compose-rust: this machine has no Metal device")
         return
     }
+    // The window's appearance is the theme's scheme, not the system's: the material behind
+    // the scene is drawn in it. Given before the first frame from the theme the first batch
+    // set, and again in the scene below whenever the application changes it.
+    val appearance = WindowSchemeFollower { scheme -> window.setAppearanceCode(windowAppearanceCode(scheme)) }
+    appearance.follow(host.table.theme)
     val context = org.jetbrains.skia.DirectContext.makeMetal(window.device, window.queue)
     // A smaller Skia resource cache, for a soak that measures how much of what it holds is
     // that cache, and capped at 16 MB by default so blur scratch textures do not accumulate
@@ -201,8 +207,11 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     // Host and was told nothing had been initialised.
     val work = FrameDispatcher()
     val windowFocused = androidx.compose.runtime.mutableStateOf(true)
+    // macOS has no system text size of its own, so the font scale stays 1. The display scale
+    // is followed: a window moved between a 1x and a 2x screen changes it without resizing.
+    val backingScale = WindowBackingScale(measured.scale, WindowTextScale(1f))
     val scene = CanvasLayersComposeScene(
-        density = androidx.compose.ui.unit.Density(measured.scale),
+        density = backingScale.density(),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, ::setPointerShape, { windowFocused.value }),
@@ -220,6 +229,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             androidx.compose.foundation.LightDefaultContextMenuRepresentation
         } else {
             NativeContextMenuRepresentation { entries -> window.showContextMenu(packMenu(entries)) }
+        }
+        // A theme the application sends later moves the window's appearance with it. Read
+        // as a snapshot rather than in composition, so a new theme does not recompose this
+        // scope as well as everything that resolves it.
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { host.table.theme }.collect { appearance.follow(it) }
         }
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
@@ -274,6 +289,17 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             windowFocused.value = nowFocused
             heard = true
         }
+        // The backing scale, read each frame because a move to another screen changes it
+        // whether or not anything else about the window does. A cheap read of the window.
+        fun followScale(): Boolean {
+            val now = window.measure()
+            val change = backingScale.follow(now.width, now.height, now.scale) ?: return false
+            scene.density = change.density
+            size = change.size
+            scene.size = size
+            return true
+        }
+        if (followScale()) heard = true
         val events = drainWindowEvents()
         for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
             scene.receive(event)
@@ -303,6 +329,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             if (event.kind == WindowEvent.RESIZE) {
                 size = androidx.compose.ui.unit.IntSize(event.x.toInt(), event.y.toInt())
                 scene.size = size
+                followScale()
                 window.captionStrip(chrome)?.let { caption.value = it }
             }
             if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
@@ -352,7 +379,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             pumpWindowEvents(TURN_WAIT_SECONDS)
             LatencyTrace.mark("loop turn $frame")
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
-                window.scriptedResize(size.width / measured.scale.toInt() to size.height / measured.scale.toInt(),
+                window.scriptedResize(size.width / backingScale.scale.toInt() to size.height / backingScale.scale.toInt(),
                     360 to 420, 60, 8_000)
             }
             synthetic?.keysDue(System.nanoTime())?.let { (code, character) ->

@@ -55,6 +55,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
@@ -66,6 +68,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -261,11 +264,20 @@ internal fun HostTopAppBar(
 ) {
     val style = theme.rules.container(ContainerRole.TopAppBar, theme)
     val caption = LocalWindowCaption.current
+    // The bar says how tall it is, so a message placed along the top of the window can
+    // start below it. Only the height: whether this bar is the one across the top of the
+    // window is the page's question, answered where the message is drawn.
+    val insets = table.insets
+    val density = LocalDensity.current
+    DisposableEffect(insets, node.id) { onDispose { insets.topBar(node.id, null) } }
+    val measured = modifier.onSizeChanged { size ->
+        insets.topBar(node.id, with(density) { size.height.toDp() })
+    }
     if (style.floats) {
-        FloatingTopAppBar(node, modifier, table, dispatcher, theme, style)
+        FloatingTopAppBar(node, measured, table, dispatcher, theme, style)
         return
     }
-    Column(modifier) {
+    Column(measured) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -705,10 +717,12 @@ private fun OverflowButton(
     // A menu left open when everything fits again would come back open the next time
     // something overflowed.
     DisposableEffect(bar.id) { onDispose { state.open = false } }
+    val buttonRequester = remember(bar.id) { FocusRequester() }
     Box(modifier) {
         HostButton(
             button,
             Modifier
+                .focusRequester(buttonRequester)
                 .testTag(barOverflowTestTag(bar.id))
                 .semantics { contentDescription = OVERFLOW_NAME },
             table,
@@ -716,7 +730,7 @@ private fun OverflowButton(
             theme,
         )
         if (state.open) {
-            OverflowMenu(bar, overflowed, state, table, dispatcher, theme)
+            OverflowMenu(bar, overflowed, state, buttonRequester, table, dispatcher, theme)
         }
     }
 }
@@ -726,6 +740,7 @@ private fun OverflowMenu(
     bar: Node,
     overflowed: List<Int>,
     state: BarOverflowState,
+    opener: FocusRequester,
     table: NodeTable,
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
@@ -741,11 +756,14 @@ private fun OverflowMenu(
     ) {
         // The same popup a `Menu` opens, for the same reasons: the recorded page does not
         // reach into another platform window, and its entries are a list, not a stack of
-        // buttons.
+        // buttons. Its keyboard is a menu's too.
+        ReturnsFocusOnClose(opener)
+        val keys = rememberMenuKeyboard(overflowed, table, onEscape = close)
         CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
             Column(
                 Modifier
                     .testTag(barOverflowMenuTestTag(bar.id))
+                    .menuKeys(keys)
                     .containerDecoration(surface, style, theme, overlay = true, role = ContainerRole.Menu)
                     .menuWidth(),
             ) {
@@ -756,7 +774,7 @@ private fun OverflowMenu(
                         val entry = table.node(childId)
                         val closes = entry != null && entry.widget != WidgetKind.Menu &&
                             entry.flag(PropertyKind.Enabled, default = true)
-                        Box(if (closes) Modifier.closesAfterChoice(scope, close) else Modifier) {
+                        Box(keys.entry(childId).then(if (closes) Modifier.closesAfterChoice(scope, close) else Modifier)) {
                             RenderNode(childId, table, dispatcher)
                         }
                     }

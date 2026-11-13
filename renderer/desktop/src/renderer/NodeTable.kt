@@ -22,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
@@ -53,6 +54,13 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
     internal var focusRequestRevision by mutableStateOf(0L)
+
+    /**
+     * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
+     * Made once when the `FontFeatureSettings` property changes and read as it is on every
+     * frame after, so a text whose value changes builds no string for its features.
+     */
+    internal var fontFeatures by mutableStateOf<String?>(null)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -124,6 +132,11 @@ data class TableError(val code: Int, val message: String) {
         const val NOT_SCROLLABLE = 19
         /** A scroll request whose values make no sense for the container. The request is dropped. */
         const val INVALID_SCROLL = 20
+        /**
+         * A font feature list that cannot be read. The text is drawn without features. 21 to 23
+         * are held by the native view errors, which are numbered on another branch.
+         */
+        const val INVALID_FONT_FEATURES = 24
     }
 }
 
@@ -429,6 +442,9 @@ class NodeTable {
                 mutation.text,
                 mutation.action,
                 mutation.duration,
+                mutation.vertical,
+                mutation.horizontal,
+                mutation.offsetDp,
             )
 
             // Outside the window altogether. The centre decides what the window's own state
@@ -498,6 +514,18 @@ class NodeTable {
             is Mutation.SetScrollOffset -> codeNode(mutation.nodeId, "SetScrollOffset")?.let { (node, code) ->
                 code.hostScrollTo(mutation.offsetPx)
                 collectCode(node)
+            }
+            // A question, answered exactly once: by the editor where it can find the
+            // position, and here, with nothing on screen, where there is no editor to ask.
+            is Mutation.QueryPositionRect -> {
+                val found = codeNode(mutation.nodeId, "QueryPositionRect")
+                if (found == null) {
+                    outbox += HostEvent.PositionRect(mutation.nodeId, 0L, mutation.request, false, 0f, 0f, 0f, 0f)
+                } else {
+                    val (node, code) = found
+                    code.hostQueryPosition(mutation.request, mutation.line, mutation.column)
+                    collectCode(node)
+                }
             }
 
             // Requests too: the scroll position is this side's. Each is checked here and
@@ -783,6 +811,10 @@ class NodeTable {
                 code.hearsScroll = value is PropertyValue.Integer
                 return
             }
+            PropertyKind.OnCaretRect -> {
+                code.hearsCaretRect = value is PropertyValue.Integer
+                return
+            }
             else -> return
         }
         collectCode(node)
@@ -822,12 +854,36 @@ class NodeTable {
             )
             return
         }
+        if (mutation.property == PropertyKind.CollapseBelow) {
+            val width = (mutation.value as? PropertyValue.Float)?.value
+            if (width != null && (!width.isFinite() || width < 0f)) {
+                // Not a width at all. The split pane is drawn as if it had none, so a bad
+                // value cannot leave it stacked or unstacked by accident.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "a split pane stacks below a width of zero or more dp, and node " +
+                        "${node.id} was given $width; it keeps its size class's own line",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.FontFeatureSettings) {
+            node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                fontFeatureSettings(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "font features on node ${node.id}: $why; the text is drawn without them",
+                    )
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -951,7 +1007,13 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
-        codeNodes.remove(nodeId)
+        if (codeNodes.remove(nodeId) != null) {
+            // A query the editor had not answered yet is answered now, with nothing on
+            // screen: it never will be otherwise.
+            for (request in node.code?.abandonQueries().orEmpty()) {
+                outbox += HostEvent.PositionRect(nodeId, 0L, request, false, 0f, 0f, 0f, 0f)
+            }
+        }
         node.scroll?.let(scrolls::forget)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1069,11 +1131,17 @@ class NodeTable {
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
 
+                // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
                 PropertyKind.CheckColor,
-                -> widget == WidgetKind.Checkbox
+                -> widget == WidgetKind.Checkbox || widget == WidgetKind.RadioButton
 
-                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
+                    widget == WidgetKind.Checkbox ||
+                    widget == WidgetKind.RadioButton
+
+                // A linear layout gathers the radio buttons inside it into one group.
+                PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
@@ -1085,6 +1153,10 @@ class NodeTable {
                 PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
+                // Any node's size can move under a motion role, so any node may hear it
+                // settle. One without the role hears nothing, which is not an error: the
+                // role can come and go with the screen's state.
+                PropertyKind.OnMotionFinished,
                 -> true
 
                 // The scroll report belongs to the widgets that scroll.
@@ -1111,7 +1183,9 @@ class NodeTable {
                     widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.SelectionContainer ||
                     widget == WidgetKind.Spacer ||
-                    widget == WidgetKind.AbsoluteBox
+                    widget == WidgetKind.AbsoluteBox ||
+                    // An editor's own pointer events take the same mask of kinds.
+                    (widget == WidgetKind.CodeEditor && property == PropertyKind.PointerKinds)
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -1359,9 +1433,17 @@ class NodeTable {
                         // An editor set in the application's own monospace list.
                         widget == WidgetKind.CodeEditor
 
-                PropertyKind.SpanFonts,
+                // Where lines break, in a Text and in a field's typed text and placeholder.
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
+                -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                // OpenType features, such as digits of one width. They pick a form the font
+                // has rather than another font, so text with a role takes them too.
+                PropertyKind.FontFeatureSettings ->
+                    widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                PropertyKind.SpanFonts,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,
@@ -1413,6 +1495,13 @@ class NodeTable {
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
+                // The handler told where the caret is drawn, and the one offered keys
+                // before the editor handles them.
+                PropertyKind.OnCaretRect,
+                PropertyKind.OnKeyPreview,
+                // The handler of its pointer events with the text under them. The kinds it
+                // hears are the node's `PointerKinds`, below.
+                PropertyKind.OnCodePointer,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
@@ -1456,6 +1545,16 @@ class NodeTable {
                 // What a set of destinations becomes in a compact window, where the
                 // application chose. Only a navigation has destinations to place.
                 PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
+
+                // The width below which a split pane shows one pane at a time.
+                PropertyKind.CollapseBelow -> widget == WidgetKind.SplitPane
+
+                // Where a plain scroll container comes to rest. The lazy containers scroll
+                // by item through their own state and do not take it.
+                PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
+
+                // The tallest a sheet grows. A dialog sizes itself to its content.
+                PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

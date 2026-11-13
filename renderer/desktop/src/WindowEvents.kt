@@ -247,3 +247,37 @@ internal class WindowTextScale(initial: Float) {
     /** The Density a scene on a display of [scale] pixels per point is drawn at. */
     fun density(scale: Float): Density = Density(scale, value)
 }
+
+/**
+ * The display scale one window is drawn at, followed from whatever the window last measured.
+ *
+ * A window dragged from a 1x screen to a 2x one keeps its size in points but changes its
+ * backing scale, and nothing about that is a resize: AppKit may report it on its own, with
+ * or without a size change, or only as a new measurement. So the window is measured on every
+ * resize and every frame, and each measurement goes through [follow], which answers the new
+ * Density and pixel size when the scale moved and null when it did not. The pixel size comes
+ * from the same measurement, so the window's size in dp is what it was.
+ */
+internal class WindowBackingScale(initial: Float, private val textScale: WindowTextScale) {
+
+    /** The scale the scene was last given. */
+    var scale: Float = initial
+        private set
+
+    /** The Density a scene at the current scale is drawn at. */
+    fun density(): Density = textScale.density(scale)
+
+    /** What the scene is told when [follow] sees a new scale. */
+    data class Change(val density: Density, val size: androidx.compose.ui.unit.IntSize)
+
+    /**
+     * Takes one measurement of the window. Answers the scene's new Density (with the system's
+     * text size as its font scale) and its new size in pixels when the scale changed, which is
+     * also a frame to draw; null when it did not.
+     */
+    fun follow(width: Int, height: Int, measuredScale: Float): Change? {
+        if (measuredScale <= 0f || measuredScale == scale) return null
+        scale = measuredScale
+        return Change(textScale.density(measuredScale), androidx.compose.ui.unit.IntSize(width, height))
+    }
+}

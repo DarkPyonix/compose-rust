@@ -132,6 +132,9 @@ pub(crate) enum OwnedAttr {
     /// A value that is more than one scalar, such as a transform or an animated value,
     /// in the layout the writer reads it back from.
     Bytes(Vec<u8>),
+    /// A blob kept for the life of the program, such as an interned font feature list, so
+    /// writing it again on every composition costs no allocation.
+    Blob(&'static [u8]),
 }
 
 impl OwnedAttr {
@@ -146,6 +149,7 @@ impl OwnedAttr {
             Self::Draw(list) => AttrValue::Bytes(list.as_bytes()),
             Self::Spans(spans) => AttrValue::Bytes(spans.as_bytes()),
             Self::Bytes(bytes) => AttrValue::Bytes(bytes),
+            Self::Blob(bytes) => AttrValue::Bytes(bytes),
         }
     }
 
@@ -170,6 +174,8 @@ pub(crate) enum EventCallback {
     Range(Rc<RefCell<dyn FnMut(crate::RangeRequest)>>),
     Files(Rc<RefCell<dyn FnMut(crate::FileDrop)>>),
     Pointer(Rc<RefCell<dyn FnMut(crate::PointerEvent)>>),
+    /// The size a node's size motion settled at.
+    Motion(Rc<RefCell<dyn FnMut(crate::MotionFinished)>>),
     /// A window's report, or a dragged window passing over a node.
     Window(Rc<RefCell<dyn FnMut(crate::windows::WindowEvent)>>),
 }

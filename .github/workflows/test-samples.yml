@@ -129,7 +129,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Read the crate version and look for the release asset
         id: find
@@ -178,6 +178,11 @@ jobs:
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
   # Only when the release does not carry them yet.
+  #
+  # Every checkout in this workflow takes the run's commit (github.sha), never the branch
+  # name. A branch name is read again when each job starts, and the sample builds start half
+  # an hour after the renderer builds: a merge in between gave them a newer crate than the
+  # renderer, and the build script refused the pair over the schema hash.
   static-renderer:
     name: renderer
     needs: resolve
@@ -189,7 +194,7 @@ jobs:
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: ${{ matrix.target }}
-      ref: ${{ inputs.tag || github.ref }}
+      ref: ${{ inputs.tag || github.sha }}
 
   # The Windows renderer: Kotlin/Native, linked into the executable, so a Windows sample
   # is one file like the others. This replaces the GraalVM DLL the samples used to ship
@@ -230,7 +235,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -558,7 +563,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -631,7 +636,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -697,7 +702,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -760,7 +765,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -818,7 +823,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0
 
       - name: Check the tag names a main merge commit and the crate version

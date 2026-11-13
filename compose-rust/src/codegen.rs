@@ -149,7 +149,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -161,6 +164,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -403,12 +408,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -636,6 +647,17 @@ sealed interface Mutation {
         val rectWidthPx: Double,
         val rectHeightPx: Double,
     ) : Mutation
+
+    /**
+     * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
+     * Answered once by a `PositionRect` event carrying [request].
+     */
+    data class QueryPositionRect(
+        val nodeId: Int,
+        val request: Int,
+        val line: Int,
+        val column: Int,
+    ) : Mutation
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -764,6 +786,24 @@ object ScrollWire {
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
             ),
+            // The size a node's size motion settled at, in dp.
+            EventPayloadType::MotionFinished => {
+                output.push_str(", val widthDp: kotlin.Float, val heightDp: kotlin.Float")
+            }
+            // In the window's dp, the scroll and the zoom already in them.
+            EventPayloadType::CodeCaretRect => output.push_str(
+                ", val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            // `found` is false where the position is not on screen, and the rectangle is then
+            // all zero.
+            EventPayloadType::CodePositionRect => output.push_str(
+                ", val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            // The pointer's fields, then the character under it: -1 and -1 where it is over
+            // none.
+            EventPayloadType::CodePointer => output.push_str(
+                ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -840,6 +880,7 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_QUERY_POSITION_RECT = 39
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1007,7 +1048,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1020,6 +1061,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -1085,6 +1128,15 @@ object Protocol {
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
                         )
                     }
+                    TAG_QUERY_POSITION_RECT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.QueryPositionRect(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            request = readU32(batch, base, available, offset + 8).toInt(),
+                            line = readU32(batch, base, available, offset + 12).toInt(),
+                            column = readU32(batch, base, available, offset + 16).toInt(),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
@@ -1139,12 +1191,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -1388,7 +1451,11 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None | EventPayloadType::ScrollChanged => {
+            EventPayloadType::None
+            | EventPayloadType::ScrollChanged
+            | EventPayloadType::CodeCaretRect
+            | EventPayloadType::CodePositionRect
+            | EventPayloadType::CodePointer => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1425,6 +1492,7 @@ object Protocol {
             | EventPayloadType::WindowMove
             | EventPayloadType::WindowDrag
             | EventPayloadType::WindowDragOver
+            | EventPayloadType::MotionFinished
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1488,6 +1556,12 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // Two floats after the header.
+            EventPayloadType::MotionFinished => 24,
+            // Two words and four floats.
+            EventPayloadType::CodeCaretRect | EventPayloadType::CodePositionRect => 40,
+            // The pointer record and two words.
+            EventPayloadType::CodePointer => 80,
         };
         writeln!(
             output,
@@ -1674,7 +1748,7 @@ object Protocol {
                 output.push_str("                    out.putInt(reducedMotionTag(event.state))\n");
                 output.push_str("                }\n");
             }
-            EventPayloadType::Pointer => {
+            EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
                 output.push_str("                    out.putInt(event.pointerId)\n");
@@ -1693,6 +1767,10 @@ object Protocol {
                     "                    out.putInt(wheelDeltaModeTag(event.deltaMode))\n",
                 );
                 output.push_str("                    out.putLong(event.timestampNanos)\n");
+                if event.payload == EventPayloadType::CodePointer {
+                    output.push_str("                    out.putInt(event.line)\n");
+                    output.push_str("                    out.putInt(event.column)\n");
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeSelection => {
@@ -1807,6 +1885,12 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
+            EventPayloadType::MotionFinished => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.widthDp)\n");
+                output.push_str("                    out.putFloat(event.heightDp)\n");
+                output.push_str("                }\n");
+            }
             EventPayloadType::ScrollChanged => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(event.item)\n");
@@ -1817,6 +1901,28 @@ object Protocol {
                 output.push_str("                    out.putDouble(event.maxYPx)\n");
                 output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
                 output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeCaretRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.line)\n");
+                output.push_str("                    out.putInt(event.column)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(output, "                    out.putFloat(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodePositionRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(if (event.found) 1 else 0)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(
+                        output,
+                        "                    out.putFloat(if (event.found) event.{field} else 0f)"
+                    )
+                    .unwrap();
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::FileHandles => {
@@ -2727,7 +2833,8 @@ pub fn spans_vector() -> crate::spans::TextSpans {
 /// is one a byte count or a character count would get wrong.
 pub const CODE_VECTOR_TEXT: &str = "fn main() {\n    let 한 = \"😀\";\n}\n";
 
-/// One decoration of each kind, with a colour role on one of them and text on two.
+/// One decoration of each kind, with a colour role on one of them and text on two, and the
+/// two backgrounds after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -2737,6 +2844,8 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::code_lens(0, 0, "Run", 41),
         Decoration::hover_anchor(0, CodeRange::of(0, 3, 0, 7), 42),
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
+        Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
+        Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
     ])
 }
 
@@ -2894,6 +3003,14 @@ fn floats_le(values: &[f32]) -> Vec<u8> {
         .collect()
 }
 
+/// The three font features the mutation vector's text carries: tabular figures on,
+/// ligatures off, and a character variant whose value needs more than one byte.
+pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
+    crate::font_features::FontFeature::TABULAR_NUMS,
+    crate::font_features::FontFeature::NO_LIGATURES,
+    crate::font_features::FontFeature::new(b"cv01", 0x0102),
+];
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -2904,6 +3021,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_size = floats_le(&[800.0, 600.0]);
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
+    let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3144,6 +3262,21 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             text: "삭제했습니다",
             action: "Undo",
             duration: crate::schema::MessageDuration::Long,
+            placement: None,
+            offset_dp: None,
+        },
+        // And one that names where it goes: two placement tags and an offset after the
+        // fields every message has.
+        Mutation::ShowMessage {
+            handler_id: 0,
+            text: "복사했습니다",
+            action: "",
+            duration: crate::schema::MessageDuration::Short,
+            placement: Some(crate::schema::MessagePlacement {
+                vertical: crate::schema::MessageVertical::Bottom,
+                horizontal: crate::schema::MessageHorizontal::Center,
+            }),
+            offset_dp: Some(96.0),
         },
         // The three notification commands: six string references and two closed enums, one
         // string reference, and a bare header that is the shortest record on the wire.
@@ -3622,6 +3755,49 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // The width a split pane stacks below, with a fraction so that a value read from
+        // the wrong half of the record cannot pass.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::CollapseBelow,
+            value: PropertyValue::Float(720.5),
+        },
+        // A question about where a place on the editor's second line is, after its scroll
+        // command.
+        Mutation::QueryPositionRect {
+            node_id: 12,
+            request: 17,
+            line: 1,
+            column: 8,
+        },
+        // The overlay tokens with every field set to its own value, the transient
+        // message's two at the end of the record, before the record that stays last.
+        Mutation::SetOverlayTokens(
+            crate::schema::OverlayTokens::new()
+                .sheet_corner_radius(24)
+                .dialog_corner_radius(16)
+                .popup_corner_radius(12)
+                .sheet_elevation(8)
+                .popup_elevation(4)
+                .dialog_elevation(6)
+                .sheet_padding(20)
+                .dialog_padding(18)
+                .popup_padding(10)
+                .scrim_argb(0x8000_0000)
+                .toast_elevation(7)
+                .toast_corner_radius(14),
+        ),
+        // A text with three font features, one of them a value above one byte, after
+        // every older record but the last.
+        Mutation::Create {
+            node_id: 22,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::FontFeatureSettings,
+            value: PropertyValue::Bytes(&font_features),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4012,6 +4188,55 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // A node's size motion settled, after everything that was here before.
+        HostEvent {
+            node_id: 14,
+            handler_id: 30,
+            payload: EventPayload::MotionFinished {
+                width_dp: 240.5,
+                height_dp: 0.0,
+            },
+        },
+        // The caret's rectangle and the answer to the position query in the mutation
+        // vector, each with fractions a reader of the wrong width cannot pass.
+        HostEvent {
+            node_id: 12,
+            handler_id: 30,
+            payload: EventPayload::CaretRect {
+                line: 1,
+                column: 8,
+                rect: crate::code::CodeRect::new(120.5, 64.25, 2.0, 20.0),
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 0,
+            payload: EventPayload::PositionRect {
+                request: 17,
+                rect: Some(crate::code::CodeRect::new(88.75, 64.25, 2.0, 20.0)),
+            },
+        },
+        // A Cmd-click over the emoji's column on the editor's second line.
+        HostEvent {
+            node_id: 12,
+            handler_id: 31,
+            payload: EventPayload::CodePointer {
+                kind: crate::schema::PointerKind::Down,
+                pointer_id: 1,
+                pointer_type: crate::schema::PointerType::Mouse,
+                x: 96.5,
+                y: 30.25,
+                buttons: 1,
+                button: 1,
+                modifiers: 8,
+                click_count: 1,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                delta_mode: crate::schema::WheelDeltaMode::Pixel,
+                timestamp_nanos: 123_456_789_000,
+                position: Some(crate::code::Position::new(1, 13)),
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4031,7 +4256,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 120,
+    "recordCount": 122,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4053,7 +4278,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-six independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4096,7 +4321,11 @@ pub fn generate_vector_description() -> String {
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }},
+      {{ "type": "CaretRect", "offset": 1463, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "PositionRect", "offset": 1503, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }}
     ]
   }}
 }}

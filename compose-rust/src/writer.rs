@@ -378,7 +378,7 @@ impl NodeWriter {
             "transform" | "animated_offset" => Some(TRANSFORM),
             "alpha" | "animated_alpha" => Some(ALPHA),
             "offset" => Some(OFFSET),
-            "border_width" | "border_color" => Some(BORDER),
+            "border_width" | "border_color" | "border_each" => Some(BORDER),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
             "padding" | "padding_role" => Some(PADDING),
@@ -562,6 +562,24 @@ impl NodeWriter {
                     return Some(None);
                 };
                 Some(Some((BORDER, Modifier::Border { width, paint })))
+            }
+            // Four widths in dp and then the four paints' bits, top, right, bottom, left.
+            "border_each" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut widths = [0.0_f32; 4];
+                for (index, width) in widths.iter_mut().enumerate() {
+                    *width =
+                        f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
+                }
+                let mut paints = [crate::Paint::Role(crate::ColorRole::Outline); 4];
+                for (index, paint) in paints.iter_mut().enumerate() {
+                    let at = 16 + 8 * index;
+                    let bits = u64::from_le_bytes(bytes.get(at..at + 8)?.try_into().ok()?);
+                    *paint = crate::Paint::from_bits(bits)?;
+                }
+                Some(Some((BORDER, Modifier::border_sides(widths, paints))))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
             "corner_curve" => Some(Some((
@@ -906,6 +924,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "filesdropped" | "onfilesdropped" => Some(PropertyKind::OnFilesDropped),
         "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
         "scrollchanged" | "onscrollchanged" => Some(PropertyKind::OnScrollChanged),
+        "motionfinished" | "onmotionfinished" => Some(PropertyKind::OnMotionFinished),
         "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
         "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
         "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),

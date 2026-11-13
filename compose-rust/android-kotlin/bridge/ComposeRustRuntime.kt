@@ -72,6 +72,7 @@ object ComposeRustRuntime {
                 "the name of the application's own library before asking for the Host."
         }
         installAndroidBack()
+        installAndroidOverlayWindow()
         val created = ComposeRustHost(connection)
         created.start()
         // Before the first frame, so an application's first read finds where its values are.

@@ -18,7 +18,7 @@ import dev.darkpyonix.composerust.runtime.composeZoomShortcut
 import dev.darkpyonix.composerust.runtime.zoomedDensity
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.protocol.Window
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalWindowNodeId
@@ -287,7 +287,7 @@ private fun MacosWindowScene(
         }
         val strip = window.caption.value
         MacosWindowZoom(slot.zoom) { zoomKeys ->
-            ComposeRustContent(
+            WindowContent(
                 host,
                 modifier = zoomKeys,
                 caption = WindowCaption(

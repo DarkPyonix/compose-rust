@@ -92,6 +92,14 @@ else
         fail "$script does not check that the page drew something"
     grep -qF 'process.exit(1)' "$script" ||
         fail "$script never exits with a failure"
+    # Every page context names its locale. Left to the runner's environment, Chromium
+    # reported one Compose's Locale.current rejects, and every page threw before drawing.
+    contexts="$(grep -c 'browser.newContext(' "$script")"
+    located="$(grep -cE "browser\.newContext\(.*locale: '[a-z]{2}(-[A-Z]{2})?'" "$script")"
+    [[ "$contexts" -ge 1 && "$contexts" -eq "$located" ]] ||
+        fail "$script opens a page without naming its locale ($located of $contexts contexts do)" \
+            "Without one Chromium takes the runner's, which Compose cannot parse," \
+            "and every page fails with RangeError: Incorrect locale information provided."
     grep -qF 'function fr22_web_every_sample_draws_without_a_page_error' "$script" ||
         fail "$script lost fr22_web_every_sample_draws_without_a_page_error, the check that every page draws"
 fi

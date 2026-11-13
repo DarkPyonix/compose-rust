@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -41,6 +43,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -62,7 +65,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
@@ -82,12 +87,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -188,6 +195,13 @@ class CodeEditorLook(
      * set in the design system's face.
      */
     val fontFallback: ((String) -> List<AnnotatedString.Range<SpanStyle>>)? = null,
+    /**
+     * The tint a line background in a role is drawn with, across the editor's width and
+     * past the end of the line. Unspecified draws nothing.
+     */
+    val lineBackground: (ColorRole) -> Color = { Color.Unspecified },
+    /** The stronger tint a range background in a role is drawn with over its characters. */
+    val rangeBackground: (ColorRole) -> Color = { Color.Unspecified },
 )
 
 /**
@@ -277,6 +291,18 @@ class CodeEditorCallbacks(
      * or zero.
      */
     val onHover: (decoration: Long, position: CodePosition, rest: Boolean) -> Unit,
+    /**
+     * A key event, offered before the editor does anything with it. True means the Host
+     * took the key and the editor leaves it alone. [composing] says an input method is
+     * composing, which the Host is never offered a key during. Every event comes through
+     * here, releases too, so a held key's repeats can be told from its first press.
+     */
+    val onKeyPreview: (event: KeyEvent, composing: Boolean) -> Boolean = { _, _ -> false },
+    /**
+     * What the editor's view carries for the Host's pointer events over it, given what is
+     * under a point of the view. Nothing where the Host does not listen.
+     */
+    val codePointer: @Composable (CodePointerTarget) -> Modifier = { Modifier },
 )
 
 /** Test tag of the field a field surface types into. */
@@ -891,6 +917,108 @@ internal fun rowHeightPx(style: TextStyle, density: Density): Int = with(density
     max(1, lineHeight.toPx().roundToInt())
 }
 
+/** A rectangle in root pixels as dp of the window's content, at [density] pixels a dp. */
+internal fun Rect.toDp(density: Float): CodeRectDp =
+    CodeRectDp(left / density, top / density, width / density, height / density)
+
+/**
+ * Whether a caret rectangle in root pixels can be seen in an editor whose view is
+ * [viewport], with its text starting [textLeft] pixels in: some of the row is inside the
+ * view, and the caret is right of the gutter and not past the right edge.
+ */
+internal fun caretOnScreen(rect: Rect, viewport: LayoutCoordinates?, textLeft: Float): Boolean {
+    val view = viewport?.takeIf { it.isAttached } ?: return false
+    val origin = view.localToRoot(Offset.Zero)
+    val top = origin.y
+    val bottom = origin.y + view.size.height
+    val left = origin.x + textLeft
+    val right = origin.x + view.size.width
+    // Half a pixel either way, for a caret that stands exactly on the gutter's edge.
+    return rect.bottom > top && rect.top < bottom && rect.left >= left - 0.5f && rect.left <= right + 0.5f
+}
+
+/**
+ * Where a field surface draws a document position, for the caret report and the Host's
+ * position queries.
+ *
+ * Its fields are refreshed on every composition and read after layout, from the draw pass
+ * and from the layout callbacks, where the field's text layout and its place on screen are
+ * the ones the reader sees.
+ */
+internal class FieldPlaces(private val window: FieldWindow) : CodePointerTarget {
+    /** The field itself, where its text layout's coordinates start. */
+    var field: LayoutCoordinates? = null
+
+    /** The editor's view: everything the reader can see of it. */
+    var viewport: LayoutCoordinates? = null
+    var layout: (() -> TextLayoutResult?)? = null
+    var gutterWidthPx = 0f
+    var textLeftPx = 0f
+    var density = 1f
+
+    /** The width the field draws its caret at. */
+    var caretWidthPx = 2f
+
+    /** The function the model finds positions with, the same one for as long as this lives. */
+    val locate: (CodePosition) -> CodeRectDp? = { position ->
+        caretInRoot(position)?.takeIf { caretOnScreen(it, viewport, textLeftPx) }?.toDp(density)
+    }
+
+    /**
+     * Where a caret at [position] is drawn, in root pixels, or null where the field does
+     * not hold the position: a line outside its window, or one a fold hides.
+     */
+    fun caretInRoot(position: CodePosition): Rect? {
+        val model = window.model
+        if (!model.document.isValid(position) || model.isHidden(position.line)) return null
+        val offset = window.toField(position) ?: return null
+        val result = layout?.invoke() ?: return null
+        val coordinates = field?.takeIf { it.isAttached } ?: return null
+        var shown = window.toShown(offset, asEnd = false)
+        // A suggestion shows after the caret that stands where it starts.
+        val ghost = model.ghostText
+        if (ghost != null && ghost.start == position && ghost.text.isNotEmpty()) shown -= ghost.text.length
+        val cursor = result.getCursorRect(shown.coerceIn(0, result.layoutInput.text.length))
+        return Rect(coordinates.localToRoot(Offset(cursor.left, cursor.top)), Size(caretWidthPx, cursor.height))
+    }
+
+    override fun positionAt(x: Float, y: Float): CodePosition? {
+        if (x < gutterWidthPx) return null
+        val view = viewport?.takeIf { it.isAttached } ?: return null
+        val coordinates = field?.takeIf { it.isAttached } ?: return null
+        val result = layout?.invoke() ?: return null
+        val point = coordinates.localPositionOf(view, Offset(x, y))
+        if (point.x < 0f || point.y < 0f || point.y >= result.size.height) return null
+        // Past the end of the line it is on, the pointer is over no character.
+        val line = result.getLineForVerticalPosition(point.y)
+        if (point.x > result.getLineRight(line)) return null
+        val (offset, insertion) = window.toFieldOffset(result.getOffsetForPosition(point))
+        // A lens row and a suggestion are shown, not the document's text.
+        if (insertion != null) return null
+        return window.toDoc(offset)
+    }
+
+    /**
+     * Tells the model how to find positions and where the caret is, and answers the queries
+     * that waited for the editor to be drawn. Answers whether the Host has something to hear.
+     */
+    fun report(): Boolean {
+        // Before the field and the view have both been placed, nothing found here would be
+        // where the reader sees it, and a waiting query would be answered with nothing.
+        val ready = field?.isAttached == true && viewport?.isAttached == true && layout?.invoke() != null
+        if (!ready) return false
+        val model = window.model
+        model.locator = locate
+        if (!window.caretOutside) {
+            val caret = model.selection.caret
+            caretInRoot(caret)?.let { model.reportCaretRect(CaretReport(caret, it.toDp(density))) }
+        }
+        val answered = model.hasWaitingQueries
+        if (answered) model.answerWaitingQueries()
+        return answered || model.caretUntold
+    }
+}
+
 /**
  * The two field paths. [whole] holds every line; otherwise the field holds the lines around
  * the screen and is refilled as the view scrolls.
@@ -992,18 +1120,41 @@ private fun FieldSurface(
 
     val textInsetPx = with(density) { look.textInset.roundToPx() }
 
+    // Where the caret is drawn and where a position is, read after layout. What they find
+    // is sent from a coroutine rather than from inside the pass that found it.
+    val places = remember(window) { FieldPlaces(window).also { it.layout = { layoutHolder[0]?.invoke() } } }
+    places.gutterWidthPx = gutterWidthPx.toFloat()
+    places.textLeftPx = (gutterWidthPx + textInsetPx).toFloat()
+    places.density = density.density
+    places.caretWidthPx = with(density) { 2.dp.toPx() }
+    val scope = rememberCoroutineScope()
+    val currentCallbacks by rememberUpdatedState(callbacks)
+    val reportPlaces: () -> Unit = remember(places, scope) {
+        { if (places.report()) scope.launch { currentCallbacks.onOutput() } }
+    }
+    DisposableEffect(model, places) {
+        onDispose { if (model.locator === places.locate) model.locator = null }
+    }
+
     CompositionLocalProvider(
         LocalTextSelectionColors provides TextSelectionColors(look.cursor, look.selection),
     ) {
         Box(
             modifier
                 .boundedHeight(DEFAULT_EDITOR_HEIGHT)
+                // Outside the field, so the Host hears a press before the field moves the
+                // caret for it, and over the gutter as well as the text.
+                .then(callbacks.codePointer(places))
                 .changeSemantics(model, look)
                 .background(look.container)
                 .clipToBounds()
                 .onSizeChanged { size ->
                     viewportHeight = size.height
                     viewportWidth = size.width
+                }
+                .onGloballyPositioned { coordinates ->
+                    places.viewport = coordinates
+                    reportPlaces()
                 },
         ) {
             // The extent the offset may run to. A number, never a measured height.
@@ -1016,7 +1167,14 @@ private fun FieldSurface(
                     .drawBehind {
                         translate(top = -vertical.offset.toFloat()) {
                             drawCurrentLine(window, rows, rowPx, look)
+                            drawLineBackgrounds(model, rows, rowPx, vertical.offset, viewportHeight, 0f, look)
                         }
+                        // Read so that typing, a move of the caret and a scroll along the
+                        // lines all draw this again, and the caret is reported from here.
+                        window.state.text
+                        window.state.selection
+                        horizontal.value
+                        reportPlaces()
                     },
             ) {
                 Box(
@@ -1084,6 +1242,10 @@ private fun FieldSurface(
                                         placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
                                     }
                                 }
+                                .onGloballyPositioned { coordinates ->
+                                    places.field = coordinates
+                                    reportPlaces()
+                                }
                                 .onFocusChanged { focusState ->
                                     overlayFocusStack.noteFocused(focus, focusState.hasFocus)
                                     model.focusChanged(focusState.hasFocus)
@@ -1092,7 +1254,10 @@ private fun FieldSurface(
                                 .focusRequester(focus)
                                 .testTag(CODE_EDITOR_FIELD_TAG)
                                 .onPreviewKeyEvent { event ->
-                                    handleKey(event, window, look, callbacks)
+                                    // The Host hears the key first, and a key it takes is
+                                    // not the editor's.
+                                    callbacks.onKeyPreview(event, window.state.composition != null) ||
+                                        handleKey(event, window, look, callbacks)
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
@@ -1101,7 +1266,8 @@ private fun FieldSurface(
                                             val change = event.changes.firstOrNull() ?: continue
                                             val result = layoutHolder[0]?.invoke()
                                             when (event.type) {
-                                                PointerEventType.Press -> {
+                                                // A press the Host took is not the editor's.
+                                                PointerEventType.Press -> if (!change.isConsumed) {
                                                     val lens = result?.let {
                                                         lensAt(window, it, change.position)
                                                     }
@@ -1418,6 +1584,33 @@ internal fun HoverReport(tracker: HoverTracker, delayMillis: Long, callbacks: Co
     }
 }
 
+/**
+ * The line backgrounds of the lines on screen, from [left] to the right edge whatever the
+ * length of the line, over the current line's band and behind everything else.
+ */
+internal fun DrawScope.drawLineBackgrounds(
+    model: CodeEditorModel,
+    rows: RowMap,
+    rowPx: Int,
+    scroll: Int,
+    viewportHeight: Int,
+    left: Float,
+    look: CodeEditorLook,
+) {
+    model.overlayRevision
+    if (!model.backgroundsPresent) return
+    val first = rows.lineAtRow(scroll / rowPx)
+    val last = min(rows.lineCount - 1, rows.lineAtRow((scroll + viewportHeight) / rowPx + 1))
+    for (line in first..last) {
+        if (rows.isHidden(line)) continue
+        val background = model.lineBackgroundAt(line) ?: continue
+        val color = look.lineBackground(background.color ?: continue)
+        if (color == Color.Unspecified || color.alpha == 0f) continue
+        val top = rows.textRow(line) * rowPx.toFloat()
+        drawRect(color, Offset(left, top), Size(size.width - left, rowPx.toFloat()))
+    }
+}
+
 /** The line the caret is on, across the whole width, behind the text. */
 private fun DrawScope.drawCurrentLine(window: FieldWindow, rows: RowMap, rowPx: Int, look: CodeEditorLook) {
     window.revision
@@ -1543,6 +1736,7 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
     model.overlayRevision
     window.revision
     val textLength = layout.layoutInput.text.length
+    if (model.backgroundsPresent) drawRangeBackgrounds(window, layout, look)
     for (decoration in model.decorations) {
         if (decoration.kind != DecorationKind.Underline) continue
         if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
@@ -1564,6 +1758,34 @@ private fun DrawScope.drawDecorations(window: FieldWindow, layout: TextLayoutRes
             if (right - left < stroke * 4) right = left + (layout.getLineBottom(line) - layout.getLineTop(line)) / 2
             val y = layout.getLineBottom(line) - stroke * 1.5f
             drawUnderline(shape, color, left, right, y, stroke)
+        }
+    }
+}
+
+/** The range backgrounds over the characters they cover, in the field's own coordinates. */
+private fun DrawScope.drawRangeBackgrounds(window: FieldWindow, layout: TextLayoutResult, look: CodeEditorLook) {
+    val model = window.model
+    val textLength = layout.layoutInput.text.length
+    for (decoration in model.decorations) {
+        if (decoration.kind != DecorationKind.RangeBackground || decoration.start == decoration.end) continue
+        if (decoration.end.line < window.start || decoration.start.line >= window.end) continue
+        val color = look.rangeBackground(decoration.color ?: continue)
+        if (color == Color.Unspecified || color.alpha == 0f) continue
+        val from = window.toField(maxOf(decoration.start, CodePosition(window.start, 0))) ?: continue
+        val lastLine = window.end - 1
+        val to = window.toField(minOf(decoration.end, CodePosition(lastLine, model.document.line(lastLine).length)))
+            ?: continue
+        val shownFrom = window.toShown(from, asEnd = false).coerceIn(0, textLength)
+        val shownTo = window.toShown(to, asEnd = true).coerceIn(0, textLength)
+        if (shownTo <= shownFrom) continue
+        val firstLine = layout.getLineForOffset(shownFrom)
+        val lastShownLine = layout.getLineForOffset(shownTo)
+        for (line in firstLine..lastShownLine) {
+            val left = if (line == firstLine) layout.getHorizontalPosition(shownFrom, true) else layout.getLineLeft(line)
+            val right = if (line == lastShownLine) layout.getHorizontalPosition(shownTo, true) else layout.getLineRight(line)
+            if (right <= left) continue
+            val top = layout.getLineTop(line)
+            drawRect(color, Offset(left, top), Size(right - left, layout.getLineBottom(line) - top))
         }
     }
 }

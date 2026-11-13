@@ -14,7 +14,8 @@ import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.cornerCurve
 
 /**
- * The colours and size the application asked a Switch, Slider or Checkbox to draw with.
+ * The colours and size the application asked a Switch, Slider, Checkbox or RadioButton to
+ * draw with.
  *
  * Every slot is null until the node sent it, and a slot that is null keeps what the design
  * system draws. A look with nothing in it changes nothing, which is how a control that
@@ -27,22 +28,21 @@ class ControlLook(
     val thumb: Color? = null,
     /** The filled part of a Slider's track. */
     val activeTrack: Color? = null,
-    /** The box of a checked Checkbox. */
+    /** The box of a checked Checkbox, or a RadioButton's ring. */
     val container: Color? = null,
-    /** The check mark. */
+    /** The check mark, or a RadioButton's dot. */
     val check: Color? = null,
-    /** A Switch's width, or a Checkbox's side. */
+    /** A Switch's width, or a Checkbox's side or a RadioButton's diameter. */
     val width: Dp? = null,
     /** A Switch's height. */
     val height: Dp? = null,
     /** The corner shape the node asked for, or null where the design system's applies. */
     val shape: Shape? = null,
 ) {
-    /** Whether a Switch or a Checkbox has to be drawn from this look rather than by default. */
+    /** Whether a toggle has to be drawn from this look rather than by default. */
     fun appliesTo(role: ToggleRole): Boolean = when (role) {
         ToggleRole.Switch -> track != null || thumb != null || width != null || height != null
-        ToggleRole.Checkbox -> container != null || check != null || width != null
-        ToggleRole.RadioButton -> false
+        ToggleRole.Checkbox, ToggleRole.RadioButton -> container != null || check != null || width != null
     }
 
     companion object {

@@ -365,6 +365,36 @@ impl Decoration {
         }
     }
 
+    /// A tint across lines `line_start` to `line_end`, both included, the whole width of the
+    /// editor and past the end of each line. `color` is a role such as `DiffAdded`,
+    /// `DiffRemoved` or `DiffModified`, and the design system decides how strong the tint
+    /// of each is. The lines follow the reader's edits like every other decoration.
+    pub fn line_background(version: u32, line_start: u32, line_end: u32, color: ColorRole) -> Self {
+        Self {
+            version,
+            kind: DecorationKind::LineBackground,
+            severity: None,
+            color: Some(color),
+            range: CodeRange::of(line_start, 0, line_end, 0),
+            id: 0,
+            text: String::new(),
+        }
+    }
+
+    /// A tint over the characters of `range`, stronger than a line background in the same
+    /// role, for the part of a changed line that changed.
+    pub fn range_background(version: u32, range: CodeRange, color: ColorRole) -> Self {
+        Self {
+            version,
+            kind: DecorationKind::RangeBackground,
+            severity: None,
+            color: Some(color),
+            range,
+            id: 0,
+            text: String::new(),
+        }
+    }
+
     /// Draws an underline in this role rather than the one the design system would pick.
     pub fn with_color(mut self, role: ColorRole) -> Self {
         self.color = Some(role);
@@ -1121,4 +1151,186 @@ pub struct CodeScroll {
     /// The physical pixels of the document above the top of the view. The unit
     /// `Batch::set_scroll_offset` takes.
     pub offset_px: f64,
+}
+
+/// A rectangle on screen, in the dp the window lays its content out in.
+///
+/// The editor's own scroll is already in it, and so is the window's zoom, because the zoom
+/// is part of what a dp is there. The origin is the top left corner of the window's
+/// content, which is where an overlay the application opens over the editor is placed
+/// from, so a suggestion list or a hover card can be put at `x`, `y + height` as it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CodeRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl CodeRect {
+    pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    /// The bottom edge, which is where a list that opens under the caret starts.
+    pub fn bottom(&self) -> f32 {
+        self.y + self.height
+    }
+
+    /// The right edge.
+    pub fn right(&self) -> f32 {
+        self.x + self.width
+    }
+}
+
+/// Where an editor draws its caret, as the Renderer reported it.
+///
+/// Sent when the caret moves or the view scrolls, at most once a frame, and only to an
+/// editor whose application listens for it. The rectangle is the caret itself: as tall as
+/// a row and as wide as the caret is drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CaretRect {
+    /// The place in the document the caret stands at.
+    pub position: Position,
+    pub rect: CodeRect,
+}
+
+impl CaretRect {
+    /// The caret's place and rectangle out of a `CaretRect` event, or None for any other.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match *payload {
+            crate::schema::EventPayload::CaretRect { line, column, rect } => Some(Self {
+                position: Position::new(line, column),
+                rect,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// What a position query is answered with: the rectangle a caret at that position would be
+/// drawn in, or None where the position is not on screen.
+pub type PositionAnswer = Option<CodeRect>;
+
+type PositionCallback = Box<dyn FnOnce(PositionAnswer)>;
+
+thread_local! {
+    /// Callbacks waiting for their answer, by request number.
+    static POSITION_QUERIES: std::cell::RefCell<Vec<(u32, PositionCallback)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    /// The next request number. 0 is skipped so a zeroed record never looks like a query.
+    static NEXT_POSITION_QUERY: std::cell::Cell<u32> = const { std::cell::Cell::new(1) };
+}
+
+/// Numbers one question about where a position of an editor is on screen, and keeps
+/// `on_answer` until the answer arrives.
+///
+/// The number goes into the command that asks it, `Batch::query_position_rect`, written by
+/// whatever holds the editor's node. The Renderer answers every query exactly once, with
+/// the rectangle a caret at that position would be drawn in, or with None where the
+/// position is not on screen: scrolled away, folded, outside the document, or in an editor
+/// that is gone. `on_answer` then runs on the UI thread, inside the call that carried the
+/// answer, and anything it changes is in the batch that call returns.
+///
+/// It is how a hover card, a rename box or a parameter hint is put next to a word that is
+/// not where the caret is.
+pub fn position_query(on_answer: impl FnOnce(PositionAnswer) + 'static) -> u32 {
+    let request = NEXT_POSITION_QUERY.with(|next| {
+        let mut id = next.get();
+        if id == 0 {
+            id = 1;
+        }
+        next.set(id.wrapping_add(1));
+        id
+    });
+    POSITION_QUERIES.with_borrow_mut(|waiting| waiting.push((request, Box::new(on_answer))));
+    request
+}
+
+/// Hands an answer to the callback that asked for it. Returns whether there was one; an
+/// answer nobody is waiting for any more is ignored.
+pub(crate) fn deliver_position_rect(request: u32, answer: PositionAnswer) -> bool {
+    // Taken out before it runs: the callback may ask again, which edits the list.
+    let callback = POSITION_QUERIES.with_borrow_mut(|waiting| {
+        waiting
+            .iter()
+            .position(|(id, _)| *id == request)
+            .map(|at| waiting.remove(at).1)
+    });
+    match callback {
+        Some(callback) => {
+            callback(answer);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Forgets every query still waiting. Used when a new `Host` takes over the thread: the
+/// Renderer it talks to has never heard of them.
+#[doc(hidden)]
+pub fn reset_position_queries() {
+    POSITION_QUERIES.with_borrow_mut(Vec::clear);
+}
+
+/// A pointer event over a code editor, with the place in the text under the pointer.
+///
+/// Everything a node's pointer event says, under the same rules: the kinds the editor
+/// subscribes to with `PointerKinds`, the buttons, the modifiers, the click count, a `Move`
+/// at most once a frame, and a press held by the editor until it is released. Consuming a
+/// `Down` keeps the caret where it was, which is what Cmd or Ctrl and a click needs to go to
+/// a definition without moving the reader's caret.
+#[derive(Clone, Debug)]
+pub struct CodePointer {
+    pub event: crate::PointerEvent,
+    /// The character under the pointer, or None where it is over none: the gutter, past the
+    /// end of a line, or below the last one.
+    pub position: Option<Position>,
+}
+
+impl CodePointer {
+    /// The event out of a `CodePointer` payload, or None for any other.
+    pub fn from_payload(payload: &crate::schema::EventPayload<'_>) -> Option<Self> {
+        match *payload {
+            crate::schema::EventPayload::CodePointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+                position,
+            } => Some(Self {
+                event: crate::PointerEvent::new(
+                    kind,
+                    pointer_id,
+                    pointer_type,
+                    x,
+                    y,
+                    buttons,
+                    button,
+                    modifiers,
+                    click_count,
+                    delta_x,
+                    delta_y,
+                    delta_mode,
+                    timestamp_nanos,
+                ),
+                position,
+            }),
+            _ => None,
+        }
+    }
 }

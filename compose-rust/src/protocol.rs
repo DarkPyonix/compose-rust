@@ -2,10 +2,11 @@
 
 use crate::schema::{
     AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
-    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
-    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
-    WidgetKind, modifier_extra_words,
+    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, MessageHorizontal,
+    MessagePlacement, MessageVertical, Modifier, MotionRole, NotificationImportance,
+    NotificationPermission, NotificationPresentation, Paint, PropertyKind, SEMANTICS_STATE_MASK,
+    Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
+    modifier_extra_words,
 };
 use core::fmt;
 
@@ -47,7 +48,7 @@ const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 // 28 and 29 are numbered for commands that are not here yet.
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
 // 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
 // code editor's grouped edit.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
@@ -73,6 +74,12 @@ const TAG_RELEASE_FILE_HANDLE: u16 = 34;
 // the Renderer owns the position and reports what it did in `ScrollChanged`.
 const TAG_SCROLL_TO: u16 = 35;
 const TAG_SCROLL_INTO_VIEW: u16 = 36;
+// 37 and 38 are held by commands on other branches. 39 asks a code editor where a position
+// is on screen, answered by one `PositionRect` event carrying the same request number.
+const TAG_QUERY_POSITION_RECT: u16 = 39;
+/// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
+/// column.
+const QUERY_POSITION_RECT_LEN: usize = 20;
 /// `ScrollTo` in full: the 4 byte head, the node, the item, the flags and two `f64`.
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
@@ -179,11 +186,18 @@ pub enum Mutation<'a> {
     ///
     /// `handler_id` is what the action label reports when it is pressed, or 0 when the
     /// message has no action, in which case `action` is empty too.
+    ///
+    /// `placement` and `offset_dp` are where the application asked for it to be drawn,
+    /// and `None` leaves each to the design system. On the wire an absent placement is two
+    /// zero tags and an absent offset is a NaN, so a record written before they existed
+    /// reads as a message with neither.
     ShowMessage {
         handler_id: u64,
         text: &'a str,
         action: &'a str,
         duration: MessageDuration,
+        placement: Option<MessagePlacement>,
+        offset_dp: Option<f32>,
     },
     /// Asks the platform to show one notification outside the window.
     ///
@@ -377,6 +391,15 @@ pub enum Mutation<'a> {
         flags: u16,
         rect: crate::schema::Rect,
     },
+    /// Asks the code editor `node_id` where a caret at `line` and `column` would be drawn.
+    /// Answered exactly once, by a `PositionRect` event carrying `request`: a rectangle in
+    /// the window's dp, or none where the position is not on screen.
+    QueryPositionRect {
+        node_id: u32,
+        request: u32,
+        line: u32,
+        column: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -392,6 +415,9 @@ pub enum ProtocolError {
     InvalidTheme(u16),
     InvalidAssetKind(u16),
     InvalidMessageDuration(u16),
+    /// A message placement tag this decoder does not know, or a placement with one of its
+    /// two halves missing.
+    InvalidMessagePlacement(u16),
     /// A notification importance or presentation this decoder does not know.
     InvalidNotification(u16),
     InvalidStringRange,
@@ -488,6 +514,21 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
+// 61 and 62 are numbered for events that are not here yet.
+const EVENT_MOTION_FINISHED: u16 = 63;
+/// `MotionFinished` in full: the 16 byte header and two `f32` in dp.
+const MOTION_FINISHED_LEN: usize = 24;
+// 64 is where a code editor's caret is drawn and 65 the answer to a position query, both
+// with a rectangle of four `f32`.
+const EVENT_CARET_RECT: u16 = 64;
+const EVENT_POSITION_RECT: u16 = 65;
+/// `CaretRect` and `PositionRect` in full: the 16 byte header, two words and four `f32`.
+const CODE_RECT_EVENT_LEN: usize = 40;
+// 66 is a pointer over a code editor: the pointer record and the place in the text under it.
+const EVENT_CODE_POINTER: u16 = 66;
+const CODE_POINTER_LEN: usize = POINTER_RECORD_LEN + 8;
+/// The line and the column of a pointer that is over no character.
+const NO_CODE_POSITION: u32 = u32::MAX;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -943,6 +984,86 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_MOTION_FINISHED if record_len == MOTION_FINISHED_LEN => {
+            crate::schema::EventPayload::MotionFinished {
+                width_dp: f32::from_bits(read_u32(bytes, 16)?),
+                height_dp: f32::from_bits(read_u32(bytes, 20)?),
+            }
+        }
+        EVENT_MOTION_FINISHED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CARET_RECT if record_len == CODE_RECT_EVENT_LEN => {
+            crate::schema::EventPayload::CaretRect {
+                line: read_u32(bytes, 16)?,
+                column: read_u32(bytes, 20)?,
+                rect: read_code_rect(bytes, 24)?,
+            }
+        }
+        EVENT_POSITION_RECT if record_len == CODE_RECT_EVENT_LEN => {
+            let found = read_u32(bytes, 20)?;
+            let rect = read_code_rect(bytes, 24)?;
+            crate::schema::EventPayload::PositionRect {
+                request: read_u32(bytes, 16)?,
+                rect: match found {
+                    0 => None,
+                    1 => Some(rect),
+                    other => {
+                        return Err(ProtocolError::InvalidValueKind(
+                            other.min(u32::from(u16::MAX)) as u16,
+                        ));
+                    }
+                },
+            }
+        }
+        EVENT_CARET_RECT | EVENT_POSITION_RECT => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
+        EVENT_CODE_POINTER if record_len == CODE_POINTER_LEN => {
+            let crate::schema::EventPayload::Pointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+            } = decode_pointer(bytes)?
+            else {
+                unreachable!("decode_pointer reads a pointer record");
+            };
+            let line = read_u32(bytes, POINTER_RECORD_LEN)?;
+            let column = read_u32(bytes, POINTER_RECORD_LEN + 4)?;
+            let position = match (line, column) {
+                (NO_CODE_POSITION, NO_CODE_POSITION) => None,
+                // One half of "nowhere" is a record the two sides disagree on.
+                (NO_CODE_POSITION, _) | (_, NO_CODE_POSITION) => {
+                    return Err(ProtocolError::InvalidValueKind(u16::MAX));
+                }
+                (line, column) => Some(crate::code::Position::new(line, column)),
+            };
+            crate::schema::EventPayload::CodePointer {
+                kind,
+                pointer_id,
+                pointer_type,
+                x,
+                y,
+                buttons,
+                button,
+                modifiers,
+                click_count,
+                delta_x,
+                delta_y,
+                delta_mode,
+                timestamp_nanos,
+                position,
+            }
+        }
+        EVENT_CODE_POINTER => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -979,6 +1100,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         handler_id,
         payload,
     })
+}
+
+/// The four `f32` of a code editor rectangle, starting at `offset`.
+fn read_code_rect(bytes: &[u8], offset: usize) -> Result<crate::code::CodeRect, ProtocolError> {
+    Ok(crate::code::CodeRect {
+        x: f32::from_bits(read_u32(bytes, offset)?),
+        y: f32::from_bits(read_u32(bytes, offset + 4)?),
+        width: f32::from_bits(read_u32(bytes, offset + 8)?),
+        height: f32::from_bits(read_u32(bytes, offset + 12)?),
+    })
+}
+
+fn put_code_rect(output: &mut Vec<u8>, rect: crate::code::CodeRect) {
+    for value in [rect.x, rect.y, rect.width, rect.height] {
+        output.extend_from_slice(&value.to_bits().to_le_bytes());
+    }
 }
 
 /// Test/mock helper for constructing a Renderer-to-Host event.
@@ -1148,6 +1285,55 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&delta_y.to_bits().to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(delta_mode)).to_le_bytes());
         output.extend_from_slice(&timestamp_nanos.to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::CodePointer {
+        kind,
+        pointer_id,
+        pointer_type,
+        x,
+        y,
+        buttons,
+        button,
+        modifiers,
+        click_count,
+        delta_x,
+        delta_y,
+        delta_mode,
+        timestamp_nanos,
+        position,
+    } = event.payload
+    {
+        // The pointer record as a `Pointer` event writes it, under this tag and length.
+        encode_event(
+            &HostEvent {
+                node_id: event.node_id,
+                handler_id: event.handler_id,
+                payload: crate::schema::EventPayload::Pointer {
+                    kind,
+                    pointer_id,
+                    pointer_type,
+                    x,
+                    y,
+                    buttons,
+                    button,
+                    modifiers,
+                    click_count,
+                    delta_x,
+                    delta_y,
+                    delta_mode,
+                    timestamp_nanos,
+                },
+            },
+            output,
+        )?;
+        output[0..2].copy_from_slice(&EVENT_CODE_POINTER.to_le_bytes());
+        output[2..4].copy_from_slice(&(CODE_POINTER_LEN as u16).to_le_bytes());
+        let (line, column) = position.map_or((NO_CODE_POSITION, NO_CODE_POSITION), |at| {
+            (at.line, at.column)
+        });
+        output.extend_from_slice(&line.to_le_bytes());
+        output.extend_from_slice(&column.to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::ReducedMotionChanged(state) = event.payload {
@@ -1464,6 +1650,40 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::MotionFinished {
+        width_dp,
+        height_dp,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_MOTION_FINISHED,
+            MOTION_FINISHED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
+        output.extend_from_slice(&height_dp.to_bits().to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::CaretRect { line, column, rect } = event.payload {
+        put_event_header(output, EVENT_CARET_RECT, CODE_RECT_EVENT_LEN as u16, event);
+        output.extend_from_slice(&line.to_le_bytes());
+        output.extend_from_slice(&column.to_le_bytes());
+        put_code_rect(output, rect);
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::PositionRect { request, rect } = event.payload {
+        put_event_header(
+            output,
+            EVENT_POSITION_RECT,
+            CODE_RECT_EVENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(rect.is_some()).to_le_bytes());
+        put_code_rect(output, rect.unwrap_or_default());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1551,7 +1771,11 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ClipboardText { .. }
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
-        | crate::schema::EventPayload::ScrollChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::MotionFinished { .. }
+        | crate::schema::EventPayload::CaretRect { .. }
+        | crate::schema::EventPayload::PositionRect { .. }
+        | crate::schema::EventPayload::CodePointer { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1759,13 +1983,20 @@ impl BatchEncoder {
                 text,
                 action,
                 duration,
+                placement,
+                offset_dp,
             } => {
-                self.begin_record(TAG_SHOW_MESSAGE, 28);
+                self.begin_record(TAG_SHOW_MESSAGE, 36);
                 self.put_u64(*handler_id);
                 self.put_string_ref(text)?;
                 self.put_string_ref(action)?;
                 self.put_u16(*duration as u16);
+                // The two placement tags take the word that used to be padding, so a
+                // record without a placement keeps the bytes it always had there.
+                self.put_u16(placement.map_or(0, |placement| placement.vertical as u16));
+                self.put_u16(placement.map_or(0, |placement| placement.horizontal as u16));
                 self.put_u16(0);
+                self.put_u32(offset_dp.unwrap_or(f32::NAN).to_bits());
             }
             Mutation::EditCode {
                 node_id,
@@ -1886,6 +2117,8 @@ impl BatchEncoder {
                 self.put_u16(overlay.popup_padding);
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
+                self.put_u16(overlay.toast_elevation);
+                self.put_u16(overlay.toast_corner_radius);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -1943,6 +2176,21 @@ impl BatchEncoder {
                 self.put_u32(*flags);
                 self.put_u64(x_px.to_bits());
                 self.put_u64(y_px.to_bits());
+            }
+            Mutation::QueryPositionRect {
+                node_id,
+                request,
+                line,
+                column,
+            } => {
+                self.begin_record(
+                    TAG_QUERY_POSITION_RECT,
+                    (QUERY_POSITION_RECT_LEN - 4) as u16,
+                );
+                self.put_u32(*node_id);
+                self.put_u32(*request);
+                self.put_u32(*line);
+                self.put_u32(*column);
             }
             Mutation::ScrollIntoView {
                 node_id,
@@ -2436,6 +2684,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let dialog_padding = read_u16(bytes, payload + 14)?;
                 let popup_padding = read_u16(bytes, payload + 16)?;
                 let scrim = read_u32(bytes, payload + 20)?;
+                let toast_elevation = read_u16(bytes, payload + 24)?;
+                let toast_corner_radius = read_u16(bytes, payload + 26)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2447,6 +2697,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     dialog_padding,
                     popup_padding,
                     scrim,
+                    toast_elevation,
+                    toast_corner_radius,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
@@ -2574,14 +2826,31 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             TAG_RELEASE_ASSET if len == 8 => Mutation::ReleaseAsset {
                 asset_id: read_u32(bytes, payload)?,
             },
-            TAG_SHOW_MESSAGE if len == 32 => {
+            TAG_SHOW_MESSAGE if len == 40 => {
                 let raw_duration = read_u16(bytes, payload + 24)?;
+                let raw_vertical = read_u16(bytes, payload + 26)?;
+                let raw_horizontal = read_u16(bytes, payload + 28)?;
+                let placement = match (raw_vertical, raw_horizontal) {
+                    (0, 0) => None,
+                    (0, raw) | (raw, 0) => {
+                        return Err(ProtocolError::InvalidMessagePlacement(raw));
+                    }
+                    (vertical, horizontal) => Some(MessagePlacement {
+                        vertical: MessageVertical::try_from(vertical)
+                            .map_err(|()| ProtocolError::InvalidMessagePlacement(vertical))?,
+                        horizontal: MessageHorizontal::try_from(horizontal)
+                            .map_err(|()| ProtocolError::InvalidMessagePlacement(horizontal))?,
+                    }),
+                };
+                let offset = f32::from_bits(read_u32(bytes, payload + 32)?);
                 Mutation::ShowMessage {
                     handler_id: read_u64(bytes, payload)?,
                     text: read_string(bytes, payload + 8, records_len)?,
                     action: read_string(bytes, payload + 16, records_len)?,
                     duration: MessageDuration::try_from(raw_duration)
                         .map_err(|()| ProtocolError::InvalidMessageDuration(raw_duration))?,
+                    placement,
+                    offset_dp: (!offset.is_nan()).then_some(offset),
                 }
             }
             TAG_EDIT_CODE if len == 40 => Mutation::EditCode {
@@ -2678,6 +2947,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 offset_px: f64::from_bits(read_u64(bytes, payload + 4)?),
             },
             TAG_SET_SCROLL_OFFSET => return Err(ProtocolError::InvalidRecordLength),
+            TAG_QUERY_POSITION_RECT if len == QUERY_POSITION_RECT_LEN => {
+                Mutation::QueryPositionRect {
+                    node_id: read_u32(bytes, payload)?,
+                    request: read_u32(bytes, payload + 4)?,
+                    line: read_u32(bytes, payload + 8)?,
+                    column: read_u32(bytes, payload + 12)?,
+                }
+            }
+            TAG_QUERY_POSITION_RECT => return Err(ProtocolError::InvalidRecordLength),
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
@@ -3994,6 +4272,79 @@ mod tests {
             ]
         );
         assert_eq!(decode_batch(bytes).unwrap(), mutations);
+    }
+
+    /// A message's placement and offset ride in the record after the fields it always had,
+    /// which stay at their offsets, and a message that names neither still reads as one
+    /// with neither.
+    #[test]
+    fn fr21_message_placement_round_trips() {
+        let placed = Mutation::ShowMessage {
+            handler_id: 9,
+            text: "Copied",
+            action: "",
+            duration: MessageDuration::Short,
+            placement: Some(MessagePlacement {
+                vertical: MessageVertical::Bottom,
+                horizontal: MessageHorizontal::Center,
+            }),
+            offset_dp: Some(96.0),
+        };
+        let unplaced = Mutation::ShowMessage {
+            handler_id: 0,
+            text: "Saved",
+            action: "",
+            duration: MessageDuration::Long,
+            placement: None,
+            offset_dp: None,
+        };
+        let top_end = Mutation::ShowMessage {
+            handler_id: 0,
+            text: "Synced",
+            action: "",
+            duration: MessageDuration::Short,
+            placement: Some(MessagePlacement {
+                vertical: MessageVertical::Top,
+                horizontal: MessageHorizontal::End,
+            }),
+            offset_dp: None,
+        };
+        let mutations = [placed, unplaced, top_end];
+        let mut encoder = BatchEncoder::default();
+        for mutation in &mutations {
+            encoder.encode(mutation).unwrap();
+        }
+        let bytes = encoder.finish().unwrap();
+        let record = ENVELOPE_LEN;
+        assert_eq!(read_u16(bytes, record).unwrap(), TAG_SHOW_MESSAGE);
+        assert_eq!(read_u16(bytes, record + 2).unwrap(), 40);
+        // The old fields where they always were: the handler, the duration.
+        assert_eq!(read_u64(bytes, record + 4).unwrap(), 9);
+        assert_eq!(read_u16(bytes, record + 28).unwrap(), 1);
+        // Then the vertical and the horizontal tag, and the offset as an f32.
+        assert_eq!(read_u16(bytes, record + 30).unwrap(), 2);
+        assert_eq!(read_u16(bytes, record + 32).unwrap(), 2);
+        assert_eq!(f32::from_bits(read_u32(bytes, record + 36).unwrap()), 96.0);
+        // No placement is two zero tags, no offset a NaN.
+        let second = record + 40;
+        assert_eq!(read_u16(bytes, second + 30).unwrap(), 0);
+        assert_eq!(read_u16(bytes, second + 32).unwrap(), 0);
+        assert!(f32::from_bits(read_u32(bytes, second + 36).unwrap()).is_nan());
+        assert_eq!(decode_batch(bytes).unwrap(), mutations);
+
+        // A placement with one half missing, or a tag this side does not know, is an
+        // error rather than a guess.
+        for (offset, raw) in [(30, 0_u16), (32, 0), (30, 7), (32, 9)] {
+            let mut broken = bytes.to_vec();
+            broken[record + offset..record + offset + 2].copy_from_slice(&raw.to_le_bytes());
+            assert!(
+                matches!(
+                    decode_batch(&broken),
+                    Err(ProtocolError::InvalidMessagePlacement(_))
+                ),
+                "offset {offset} set to {raw} must be refused"
+            );
+        }
     }
 
     /// An importance or a presentation this side does not know is an error, never a guess
