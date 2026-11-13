@@ -1,9 +1,12 @@
 resize-probe: a real drag of the window's edge, and every frame the screen showed meanwhile
 
 What it does
-  resize-probe.exe presses the right edge of the hand-check window with real mouse input,
-  waits until Windows has started its sizing loop for the window, drags the edge out to the
-  right and back on a fixed schedule, and lets go. While it does, it records every frame the
+  resize-probe.exe presses an edge of the hand-check window with real mouse input (the right
+  edge by default; the bottom edge, the left edge or the bottom right corner with --edge),
+  waits until Windows has started its sizing loop for the window, drags the edge out and back
+  on a fixed schedule, and lets go. With --edge states it drags nothing: it maximises the
+  window, restores it, sets it to the left half of the screen as snapping does, and puts it
+  back. While it does, it records every frame the
   desktop compositor (DWM) puts on the primary monitor, through Desktop Duplication. For each
   frame it compares two rows through the window with the desktop as it was before the window
   opened. Before that it covers the primary monitor with a magenta backdrop, below every
@@ -17,6 +20,23 @@ What it does
   the new rectangle) is stale, and a failure too. And it measures how far the window's right
   edge lags the cursor, in pixels and in milliseconds: a window can show no blank area and
   still trail the mouse.
+
+  The edge markers. With DXC_RESIZE_MARKER=1 hand-check draws a scene made for the probe
+  (resize-control.exe always draws it): a 2 px green column down its left and right edges, a
+  2 px green row along its bottom edge, and dark ruler lines on a fixed grid between the
+  columns (in dp, so twice as many pixels at 200%). With --markers the probe measures, at
+  rest, how far each marker is from the window's border. In every frame after, each marker
+  must be there, no further from the border than at rest, and as wide as at rest, and every
+  ruler line must be on its grid. A marker further from the border is an area the app did not
+  draw, which shows even where Windows has moved the window's border in with the old picture
+  (that reads as a narrower window, with no backdrop showing). A marker of another width, or a
+  ruler line off its grid, is a picture stretched to a size it was not drawn for.
+
+  Frames for a person. With --frames FOLDER the probe keeps, as BMP files cropped to the
+  window plus 16 px: the frame at rest, ten frames spread through the drag, the first six
+  frames with a fault (named fault-<what>: hole, black, torn, stale, gap, stretch) and the
+  first frame after the drag. run-probe-v2 turns them into PNG files, with a contact sheet
+  per drag (frames\<drag>\contact.png) and one frame of each drag on contact-sheet.png.
 
   Do not touch the mouse while it runs: the probe is moving it.
 
@@ -33,13 +53,16 @@ Why there is a control window
   and run-probe-v2 writes the same line at the top of each application log, because whether
   Windows hides late frames depends on the build.
 
-The quick way: every app, every path, all three rates
+The quick way: every app, every path, every edge, all three rates
   Double-click run-probe-v2.cmd (or run run-probe-v2.ps1 in PowerShell) and do not touch the
   mouse until it says "Done". It drags hand-check.exe (the Kotlin/Native renderer), then
   graalvm\bin\hand-check.exe (the GraalVM native image renderer) when it is there, each with
   resize frames on the CPU (new) and on the GPU (old, DXC_RASTER_RESIZE=0), and then the
-  control window (late), at 16, 8 and 1 ms per mouse move. It prints a table of the results,
-  writes it to probe-logs\summary.md, and zips the logs into probe-logs.zip. Send that file.
+  control window (late): the right, bottom and left edges and the bottom right corner at 16, 8
+  and 1 ms per mouse move, and the window states once. Every drag has the markers on. It
+  prints a table of the results, writes it to probe-logs\summary.md, makes the contact sheets,
+  and zips the logs and frames into probe-logs.zip. Send that file, and look at
+  probe-logs\contact-sheet.png: every frame a verdict is about is there to see.
 
   Then check by hand, in each app (hand-check.exe and graalvm\bin\hand-check.exe), in the
   first text field: type a few letters, press Ctrl+A (all of it is selected), Ctrl+C, click
@@ -83,8 +106,14 @@ How to run one drag by hand (PowerShell, in the folder that holds hand-check.exe
   release, and the probe stops with an error. --turn-on-full-window-drag turns it on for the
   session and back off afterwards (CI uses this).
 
-  Options: --interval-ms N (time between mouse moves), --step-px N (pixels per move),
-  --travel N (how far out, default to the right edge of the work area less 16 px),
+  Options: --edge right|bottom|left|corner|states (which edge, default right; left moves the
+  window right first to make room), --markers (judge the edge markers; the app must draw
+  them), --frames FOLDER (keep frames as BMP files there), --gap-slack N (pixels a marker may
+  sit further from the border than at rest, default 0), --no-animation (with --edge states,
+  turn off the maximise animation for the run and back on after),
+  --interval-ms N (time between mouse moves), --step-px N (pixels per move),
+  --travel N (how far out, default to the edge of the work area less 16 px, at most 600 px
+  for edges other than the right one),
   --out FILE (default: the console), --class NAME (window class, default ComposeRustWindow),
   --wait-seconds N (how long to wait for the window, default 180), --place (put the window at
   the primary monitor's work area's top left at 640x480 from the probe as soon as it holds
@@ -130,7 +159,12 @@ What the output means (probe log)
       strip_black_rows      rows with black inside the window
       edge_rows/stale_rows  rows judged by the stale check, and those whose content had moved;
                             stale=1 when 30% of them had, a picture not at the window's size
-      lag_px                how far the window's right edge is from where the cursor was
+      marker_gap, _gap_px   with --markers: a marker further from the border than at rest,
+                            and by how many pixels; marker_missing, a marker not found
+      marker_stretch        a marker of another width, or ruler lines off their grid
+                            (ruler_lines found/expected, ruler_error_px how far off)
+      faults                what was wrong with the frame, or none
+      lag_px                how far the dragged edge is from where the cursor was
                             when the frame was shown (positive: behind it going out)
       lag_ms                how long ago the cursor was where this frame's edge is (-1: not
                             in the last two seconds)
@@ -138,9 +172,12 @@ What the output means (probe log)
                             S shadow over the backdrop, K black
   lag ...                   the drag's lag: median, 95th percentile and largest, in pixels
                             (distance) and milliseconds
+  markers at rest ...        where the markers were at rest and how far from the border
+  saved frame ...            a frame kept for --frames, with its crop
   summary / verdict         PASS when the loop was entered, the window changed size, and no
                             frame during the drag had desktop or black inside the window,
-                            on the two rows or anywhere down the strip, was torn, or was stale
+                            on the two rows or anywhere down the strip, was torn, was stale,
+                            or (with --markers) had a marker gap or a stretch
   Exit code: 0 PASS, 1 FAIL, 2 could not run.
 
 hand-check log (with DXC_RESIZE_TRACE=1)
