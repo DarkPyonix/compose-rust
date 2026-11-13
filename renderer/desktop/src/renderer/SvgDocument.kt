@@ -77,6 +77,19 @@ class SvgDocument private constructor(
         ?.let { Rect(it[0], it[1], it[0] + it[2], it[1] + it[3]) }
     private val aspect = SvgAspectRatio.parse(root.attributes["preserveAspectRatio"])
 
+    /**
+     * The size the document says it is, in its own units: its viewBox, or where it has none,
+     * a width and a height given as plain numbers. Null where it says neither. Skia's
+     * document answers the same question the same way on the other platforms.
+     */
+    internal val intrinsicSize: Size? = viewBox?.takeIf { it.width > 0f && it.height > 0f }
+        ?.let { Size(it.width, it.height) }
+        ?: run {
+            val w = root.length("width")?.takeIf { it.unit == SvgLengthUnit.Number }?.value
+            val h = root.length("height")?.takeIf { it.unit == SvgLengthUnit.Number }?.value
+            if (w != null && h != null && w > 0f && h > 0f) Size(w, h) else null
+        }
+
     // The picture built for the last viewport it was drawn in. Percentages in it resolve
     // against the viewport, which is the viewBox when there is one and the drawing area when
     // not, so a document with a viewBox is built once and every later frame reuses it.

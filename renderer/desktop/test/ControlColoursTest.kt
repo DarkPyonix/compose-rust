@@ -8,6 +8,10 @@ import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
+import dev.darkpyonix.composerust.protocol.HostEvent
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
@@ -350,5 +354,83 @@ class ControlColoursTest {
         check(looks.size >= 2) { "the content was composed ${looks.size} times" }
         assertEquals(true, looks[0] === looks[1], "an unchanged node gets the look it had")
         assertEquals(false, looks.last() === looks[0], "a changed colour makes a new look")
+    }
+
+    /**
+     * A thumb sized by the application is drawn at that diameter in every design system,
+     * the slider keeps the height it had, dragging the thumb moves the value, and where the
+     * slider is drawn shorter than 44 dp a press just below it still lands on it.
+     */
+    @Test
+    fun fr67_slider_thumb_size() {
+        val blue = 0xFF0000FF.toInt()
+        val handler = 61L
+        DesignSystem.entries.forEach { system ->
+            fun mutations(thumb: Float?) = buildList {
+                add(Mutation.SetTheme(Theme(system, system, ColorScheme.Light, false)))
+                add(Mutation.Create(root, WidgetKind.Box))
+                add(Mutation.SetModifier(root, 0, ProtocolModifier.Size(240f, 80f)))
+                add(Mutation.SetModifier(root, 1, ProtocolModifier.Background(Paint.Literal(blue))))
+                add(Mutation.Create(control, WidgetKind.Slider))
+                add(Mutation.SetProp(control, PropertyKind.Value, PropertyValue.Float(0.5f)))
+                add(Mutation.SetProp(control, PropertyKind.Min, PropertyValue.Float(0f)))
+                add(Mutation.SetProp(control, PropertyKind.Max, PropertyValue.Float(1f)))
+                add(Mutation.SetProp(control, PropertyKind.ThumbColor, literal(red)))
+                add(Mutation.SetProp(control, PropertyKind.OnValueChange, PropertyValue.Integer(handler)))
+                if (thumb != null) add(Mutation.SetProp(control, PropertyKind.ThumbSize, PropertyValue.Float(thumb)))
+                add(Mutation.SetModifier(control, 0, ProtocolModifier.Width(200f)))
+                add(Mutation.Insert(root, control, 0))
+            }
+            var defaultHeight = 0f
+            runComposeUiTest {
+                setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations(null)))) }
+                waitForIdle()
+                defaultHeight = onNodeWithTag(nodeTestTag(control)).getUnclippedBoundsInRoot().height.value
+            }
+            runComposeUiTest {
+                val connection = FakeHostConnection(mutations(12f))
+                setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+                waitForIdle()
+                val bounds = onNodeWithTag(nodeTestTag(control)).getUnclippedBoundsInRoot()
+                assertEquals(defaultHeight, bounds.height.value, "$system: the slider's height")
+
+                // The thumb sits in the middle of a 200 dp slider at 0.5. Down that column,
+                // everything that is not the page is the thumb, the track having a smaller
+                // height or a gap there.
+                val image = onNodeWithTag(nodeTestTag(root)).captureToImage().toAwtImage()
+                var painted = 0
+                for (y in 0 until image.height) {
+                    val pixel = image.getRGB(100, y)
+                    val far = (0..2).any { shift ->
+                        val a = (pixel shr (shift * 8)) and 0xff
+                        val b = (blue shr (shift * 8)) and 0xff
+                        kotlin.math.abs(a - b) > 40
+                    }
+                    if (far) painted++
+                }
+                check(painted in 11..13) { "$system: the thumb is $painted px tall, not 12" }
+
+                // Dragging the thumb to the right moves the value up.
+                onNodeWithTag(nodeTestTag(control)).performTouchInput {
+                    down(center)
+                    moveBy(Offset(30f, 0f))
+                    moveBy(Offset(30f, 0f))
+                    up()
+                }
+                waitForIdle()
+                val dragged = connection.nodeEvents.filterIsInstance<HostEvent.ValueChanged>()
+                check(dragged.isNotEmpty() && dragged.last().value > 0.6) { "$system: the drag moved nothing: $dragged" }
+
+                // A slider drawn shorter than 44 dp still takes a press just under its edge.
+                val height = bounds.height.value
+                if (height < 40f) {
+                    val below = height + (44f - height) / 4f
+                    onNodeWithTag(nodeTestTag(control)).performTouchInput { click(Offset(40f, below)) }
+                    waitForIdle()
+                    val pressed = connection.nodeEvents.filterIsInstance<HostEvent.ValueChanged>().last()
+                    check(pressed.value < 0.3) { "$system: a press ${below - height} dp below the slider missed it: $pressed" }
+                }
+            }
+        }
     }
 }

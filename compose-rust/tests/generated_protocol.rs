@@ -1,6 +1,7 @@
 use compose_rust::codegen::{
-    LINKED_HOST_FUNCTION, generate_event_vector, generate_kotlin, generate_linux_host_def,
-    generate_mutation_vector, generate_transform_3d_vector, generate_vector_description,
+    LINKED_HOST_FUNCTION, generate_background_brush_vector, generate_event_vector, generate_kotlin,
+    generate_linux_host_def, generate_mutation_vector, generate_transform_3d_vector,
+    generate_vector_description,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, decode_batch, decode_event, encode_event,
@@ -18,7 +19,7 @@ fn fr7_generated_kotlin_matches_schema() {
     assert!(generated.contains("27 -> PropertyKind.Progress"));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown widget tag $tag\""));
     assert!(generated.contains("else -> throw ProtocolException(\"unknown property tag $tag\""));
-    assert!(generated.contains("enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }"));
+    assert!(generated.contains("enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }"));
     assert!(generated.contains(
         "data class KeyDown(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent"
     ));
@@ -78,6 +79,11 @@ fn fr7_generated_vectors_match_schema() {
         include_bytes!("vectors/transform3d.bin").as_slice(),
         generate_transform_3d_vector().unwrap(),
         "3D transform vector is stale; run `cargo run -p compose-rust --bin codegen`",
+    );
+    assert_eq!(
+        include_bytes!("vectors/background_brush.bin").as_slice(),
+        generate_background_brush_vector().unwrap(),
+        "background brush vector is stale; run `cargo run -p compose-rust --bin codegen`",
     );
     assert_eq!(
         include_bytes!("vectors/events.bin").as_slice(),

@@ -51,6 +51,8 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.ui.HitArea
+import dev.darkpyonix.composerust.ui.minimumHitArea
 
 /**
  * Who draws the six selection controls.
@@ -320,31 +322,33 @@ internal object DrawnControlWidgets : ControlWidgets {
         val max = range.endInclusive
         val span = (max - min).takeIf { it > 0f }
         val fraction = if (span == null) 0f else ((value - min) / span).coerceIn(0f, 1f)
+        // The design system's thumb sets where the track ends and how tall the slider is. A
+        // thumb the application sized is drawn at that size over the same track, so the
+        // slider is laid out exactly as before and only the circle changes.
         val thumbPx = style.thumbSize
+        val drawnThumb = look.thumbSize ?: thumbPx
 
-        val interactive = if (!enabled) {
-            modifier
+        // Presses are taken over at least SLIDER_MIN_HIT_SIZE of height, whatever the thumb
+        // and the track measure, without the slider taking more room in its column.
+        val area = remember { HitArea() }
+        val inputs = if (!enabled) {
+            Modifier
         } else {
-            modifier
-                .pointerInput(min, max) {
+            Modifier
+                .pointerInput(min, max, area) {
                     detectTapGestures { offset ->
-                        onChange(valueAt(offset.x, size.width.toFloat(), thumbPx.toPx(), min, max))
+                        val at = area.inDrawnBox(offset)
+                        onChange(valueAt(at.x, area.width.toFloat(), thumbPx.toPx(), min, max))
                     }
                 }
-                .pointerInput(min, max) {
+                .pointerInput(min, max, area) {
                     detectHorizontalDragGestures { change, _ ->
-                        onChange(
-                            valueAt(
-                                change.position.x,
-                                size.width.toFloat(),
-                                thumbPx.toPx(),
-                                min,
-                                max,
-                            ),
-                        )
+                        val at = area.inDrawnBox(change.position)
+                        onChange(valueAt(at.x, area.width.toFloat(), thumbPx.toPx(), min, max))
                     }
                 }
         }
+        val interactive = modifier.minimumHitArea(SLIDER_MIN_HIT_SIZE, area, inputs)
 
         // What a screen reader is told. The control is drawn rather than assembled from
         // parts, so nothing underneath says it is a slider: without this it is an unnamed
@@ -401,12 +405,13 @@ internal object DrawnControlWidgets : ControlWidgets {
                         }
                     }
                     val centre = Offset(left + usable * fraction, size.height / 2f)
-                    drawCircle(knob, radius = thumb / 2f, center = centre)
+                    val knobDiameter = drawnThumb.toPx()
+                    drawCircle(knob, radius = knobDiameter / 2f, center = centre)
                     if (style.thumbBorderWidth.value > 0f) {
                         val border = style.thumbBorderWidth.toPx()
                         drawCircle(
                             color = style.thumbBorder,
-                            radius = (thumb - border) / 2f,
+                            radius = (knobDiameter - border) / 2f,
                             center = centre,
                             style = Stroke(width = border),
                         )
@@ -571,6 +576,9 @@ private const val SWITCH_THUMB_RATIO = 0.8f
 
 /** Narrow enough to sit in a row, wide enough that the track is worth dragging. */
 private val SLIDER_MIN_WIDTH = 120.dp
+
+/** The least height a slider takes presses over, a comfortable target for a finger. */
+private val SLIDER_MIN_HIT_SIZE = 44.dp
 
 private const val FULL_TURN = 360f
 private const val QUARTER_TURN_BACK = -90f

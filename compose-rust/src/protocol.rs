@@ -1,12 +1,12 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
-    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, MessageHorizontal,
-    MessagePlacement, MessageVertical, Modifier, MotionRole, NotificationImportance,
-    NotificationPermission, NotificationPresentation, Paint, PropertyKind, SEMANTICS_STATE_MASK,
-    Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
-    modifier_extra_words,
+    AssetKind, BackgroundRepeat, ColorScheme, DesignSystem, FileDelivery, FileDialogKind,
+    FileDialogStatus, FileOp, IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
+    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
+    WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -3529,6 +3529,30 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
+        Modifier::BackgroundBrush {
+            x,
+            y,
+            width,
+            height,
+            paint,
+            repeat,
+            tile_width,
+            tile_height,
+        } => (
+            28,
+            [
+                pack_floats(*x, *y),
+                pack_floats(*width, *height),
+                paint.to_bits(),
+                u64::from(u16::from(*repeat)),
+                pack_floats(*tile_width, *tile_height),
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
         Modifier::Transform {
             a,
             b,
@@ -3767,6 +3791,34 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             Ok(Modifier::Semantics {
                 role: decode_role::<SemanticsRole>(first)?,
                 state,
+            })
+        }
+        28 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(fifth),
+                unpack_high(fifth),
+            ];
+            // A tile that is not a size has no copies to place, and a value that is not a
+            // number would be drawn by one side and not the other. Refused here, as the
+            // Renderer refuses them.
+            if values.iter().any(|value| !value.is_finite()) || values[4] <= 0.0 || values[5] <= 0.0
+            {
+                return Err(ProtocolError::InvalidModifier(28));
+            }
+            let [x, y, width, height, tile_width, tile_height] = values;
+            Ok(Modifier::BackgroundBrush {
+                x,
+                y,
+                width,
+                height,
+                paint: decode_paint(third)?,
+                repeat: decode_role::<BackgroundRepeat>(fourth)?,
+                tile_width,
+                tile_height,
             })
         }
         // Carried as sent. An out-of-range value is not an error; the Renderer draws it as
@@ -5298,7 +5350,60 @@ mod tests {
             assert_eq!(read_u16(&wire, 16).unwrap(), tag);
             assert_eq!(decode_event(&wire).unwrap(), event);
         }
-        assert_eq!(Key::try_from(15), Err(()));
+        assert_eq!(Key::try_from(15), Ok(Key::F1));
+    }
+
+    /// The function keys and the menu key have their own name after `PageDown`, so no
+    /// earlier tag moves. Shift+F10, the other way to open a context menu, is `F10` with
+    /// Shift held rather than a key of its own.
+    #[test]
+    fn fr12_function_and_context_menu_keys() {
+        let functions = [
+            Key::F1,
+            Key::F2,
+            Key::F3,
+            Key::F4,
+            Key::F5,
+            Key::F6,
+            Key::F7,
+            Key::F8,
+            Key::F9,
+            Key::F10,
+            Key::F11,
+            Key::F12,
+        ];
+        for (index, key) in functions.into_iter().enumerate() {
+            assert_eq!(Key::try_from(15 + index as u16), Ok(key), "F{}", index + 1);
+        }
+        assert_eq!(Key::try_from(27), Ok(Key::ContextMenu));
+        assert_eq!(Key::try_from(28), Err(()));
+
+        let presses = [
+            (Key::F2, 16u16, false, 0x3Bu32, "F2"),
+            (Key::F12, 26, false, 0x45, "F12"),
+            (Key::F10, 24, true, 0x43, "F10"),
+            (Key::ContextMenu, 27, false, 0x65, "ContextMenu"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, shift_key, code, text) in presses {
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag, "{text}");
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
     }
 
     /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the
