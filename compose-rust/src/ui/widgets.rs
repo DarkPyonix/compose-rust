@@ -1900,6 +1900,7 @@ pub struct SliderScope {
     enabled: bool,
     accessible_name: Option<String>,
     look: ControlLook,
+    thumb_size: Option<f32>,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1917,6 +1918,7 @@ pub fn Slider(value: f32) -> SliderScope {
         enabled: true,
         accessible_name: None,
         look: ControlLook::default(),
+        thumb_size: None,
         on_change: None,
         done: false,
     }
@@ -1962,6 +1964,14 @@ impl SliderScope {
         self
     }
 
+    /// The thumb's diameter in dp. Without it the design system picks the size. The track
+    /// and the area that takes a press do not change with it, so a small thumb is still
+    /// easy to grab.
+    pub fn thumb_size(mut self, dp: f32) -> Self {
+        self.thumb_size = Some(dp);
+        self
+    }
+
     pub fn on_change(mut self, handler: impl FnMut(f32) + 'static) -> Self {
         self.on_change = Some(std::boxed::Box::new(handler));
         self
@@ -1969,6 +1979,7 @@ impl SliderScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
+        let thumb_size = self.thumb_size;
         let (color, value, min, max, steps, enabled) = (
             self.color,
             self.value,
@@ -1998,6 +2009,9 @@ impl SliderScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 push_accessible_name(accessible_name, attrs);
                 look.push(attrs);
+                if let Some(dp) = thumb_size {
+                    attrs.push(("thumb_size", OwnedAttr::Float(f64::from(dp))));
+                }
             },
             vec![("onchange", handler)],
             content,
