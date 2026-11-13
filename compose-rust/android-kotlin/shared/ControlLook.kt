@@ -11,6 +11,7 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
 
 /**
  * The colours and size the application asked a Switch, Slider or Checkbox to draw with.
@@ -75,6 +76,7 @@ private class ControlLookCache {
     private var size: PropertyValue? = null
     private var corner: dev.darkpyonix.composerust.protocol.Modifier? = null
     private var named = false
+    private var curve: Float? = null
     private var look: ControlLook = ControlLook.None
 
     fun read(node: Node, current: ResolvedTheme): ControlLook {
@@ -88,6 +90,7 @@ private class ControlLookCache {
         var newNamed = false
         var newCorner: dev.darkpyonix.composerust.protocol.Modifier? = null
         val modifiers = node.modifiers
+        val newCurve = modifiers.cornerCurve()
         for (index in modifiers.indices) {
             val value = modifiers[index]
             val isNamed = value is dev.darkpyonix.composerust.protocol.Modifier.Shape ||
@@ -97,7 +100,7 @@ private class ControlLookCache {
         }
         if (primed && theme === current && track == newTrack && thumb == newThumb &&
             activeTrack == newActive && container == newContainer && check == newCheck &&
-            size == newSize && named == newNamed && corner == newCorner
+            size == newSize && named == newNamed && corner == newCorner && curve == newCurve
         ) {
             return look
         }
@@ -105,7 +108,7 @@ private class ControlLookCache {
         theme = current
         track = newTrack; thumb = newThumb; activeTrack = newActive
         container = newContainer; check = newCheck; size = newSize
-        named = newNamed; corner = newCorner
+        named = newNamed; corner = newCorner; curve = newCurve
         val empty = newTrack == null && newThumb == null && newActive == null &&
             newContainer == null && newCheck == null && newSize == null && !newNamed
         look = if (empty) ControlLook.None else node.controlLook(current)

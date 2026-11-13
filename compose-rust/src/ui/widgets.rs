@@ -18,8 +18,9 @@ use crate::drawing::DrawList;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, IconRole,
-    Paint, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind, WordBreak,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation,
+    HorizontalAlignment, IconRole, Paint, PopoverAlign, PopoverPlacement, SlotRole, SpaceRole,
+    TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
@@ -448,6 +449,103 @@ impl ColumnScope {
         self.intrinsic_size(enabled)
     }
 }
+
+/// A `FlowRow` and its builder.
+pub struct FlowRowScope {
+    modifier: Modifier,
+    horizontal_spacing: Option<f32>,
+    vertical_spacing: Option<f32>,
+    horizontal_alignment: Option<HorizontalAlignment>,
+    vertical_alignment: Option<VerticalAlignment>,
+    max_items_in_each_row: Option<u32>,
+    done: bool,
+}
+
+/// Lays its children out on a line and starts a new line when the next child does not fit
+/// in what is left of it. Each child is measured at its own width, so a line breaks where
+/// the text really ends rather than where an estimate put it. A child wider than the whole
+/// line has the line to itself and is measured at the line's width. Compose's `FlowRow`.
+pub fn FlowRow() -> FlowRowScope {
+    FlowRowScope {
+        modifier: Modifier::new(),
+        horizontal_spacing: None,
+        vertical_spacing: None,
+        horizontal_alignment: None,
+        vertical_alignment: None,
+        max_items_in_each_row: None,
+        done: false,
+    }
+}
+
+impl FlowRowScope {
+    /// The gap between two children on the same line, in dp.
+    pub fn horizontal_spacing(mut self, dp: f32) -> Self {
+        self.horizontal_spacing = Some(dp);
+        self
+    }
+
+    /// The gap between two lines, in dp.
+    pub fn vertical_spacing(mut self, dp: f32) -> Self {
+        self.vertical_spacing = Some(dp);
+        self
+    }
+
+    /// Where the children of a line sit along it when they do not fill it. `Start` when
+    /// not set.
+    pub fn horizontal_alignment(mut self, alignment: HorizontalAlignment) -> Self {
+        self.horizontal_alignment = Some(alignment);
+        self
+    }
+
+    /// Where a child sits inside the height of its line. `Top` when not set.
+    pub fn vertical_alignment(mut self, alignment: VerticalAlignment) -> Self {
+        self.vertical_alignment = Some(alignment);
+        self
+    }
+
+    /// The most children one line holds, even when more would fit. No limit when not set.
+    pub fn max_items_in_each_row(mut self, count: u32) -> Self {
+        self.max_items_in_each_row = Some(count);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let (horizontal_spacing, vertical_spacing) =
+            (self.horizontal_spacing, self.vertical_spacing);
+        let (horizontal_alignment, vertical_alignment) =
+            (self.horizontal_alignment, self.vertical_alignment);
+        let max_items = self.max_items_in_each_row;
+        emit(
+            widget_key("compose_rust::ui::FlowRow"),
+            WidgetKind::FlowRow,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Container, attrs);
+                // Only what was set is written: an absent property is the Renderer's
+                // default, and a zero gap or tag would say nothing an absent one does not.
+                if let Some(dp) = horizontal_spacing {
+                    attrs.push(("horizontal_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(dp) = vertical_spacing {
+                    attrs.push(("vertical_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(alignment) = horizontal_alignment {
+                    attrs.push(("horizontal_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(alignment) = vertical_alignment {
+                    attrs.push(("vertical_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(count) = max_items {
+                    attrs.push(("max_items_in_each_row", OwnedAttr::Int(i64::from(count))));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(FlowRowScope);
 
 /// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
 /// this module would otherwise hide.
@@ -973,6 +1071,7 @@ pub struct TextFieldScope {
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
     focus_handle: Option<super::FocusHandle>,
+    bare: bool,
     done: bool,
 }
 
@@ -1001,6 +1100,7 @@ pub fn TextField() -> TextFieldScope {
         on_key_up: None,
         on_composition_change: None,
         focus_handle: None,
+        bare: false,
         done: false,
     }
 }
@@ -1117,11 +1217,22 @@ impl TextFieldScope {
         self
     }
 
+    /// Draws the field without the design system's frame: no fill, line, underline,
+    /// corner clip, inner padding, minimum height or focus line. Text, placeholder, caret,
+    /// selection and input methods stay as they are. For a field that sits inside a box
+    /// which already draws its own frame, so the frame is not drawn twice. A `background`
+    /// or `border` given on the node is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let bare = self.bare;
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1184,6 +1295,10 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
+                // Written only for a bare field, so a framed one sends what it always did.
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
+                }
             },
             listeners,
             content,
@@ -2101,6 +2216,7 @@ pub struct DropdownScope {
     selected_index: usize,
     enabled: bool,
     closed: bool,
+    bare: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
     done: bool,
 }
@@ -2112,6 +2228,7 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         selected_index,
         enabled: true,
         closed: false,
+        bare: false,
         on_change: None,
         done: false,
     }
@@ -2141,9 +2258,19 @@ impl DropdownScope {
         self
     }
 
+    /// Draws the closed field without the design system's frame: no fill, line, corner
+    /// clip, inner padding, minimum height or focus line. For a select that sits inside a
+    /// box which already draws its own frame. A `background` or `border` given on the node
+    /// is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
+        let bare = self.bare;
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler((value as i64).max(0) as usize)
@@ -2159,6 +2286,9 @@ impl DropdownScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 if closed {
                     attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
                 }
             },
             vec![("onchange", handler)],
@@ -2407,6 +2537,138 @@ impl<'a> MenuScope<'a> {
 }
 
 container!(MenuScope<'a>);
+
+/// A `Popover` and its builder.
+pub struct PopoverScope<'a> {
+    modifier: Modifier,
+    open: bool,
+    placement: Option<PopoverPlacement>,
+    align: Option<PopoverAlign>,
+    offset: Option<f32>,
+    scrim: bool,
+    scrim_color: Option<Paint>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    anchor: Option<Box<dyn FnOnce() + 'a>>,
+    done: bool,
+}
+
+/// A floating box of any content attached to its anchor.
+///
+/// The anchor is always drawn. The content is drawn only while `open` is true, and `open`
+/// is the application's: pressing outside the box or pressing Escape calls `on_dismiss`
+/// once and changes nothing, so the handler is where the application closes it or keeps
+/// it open to ask about unsaved work.
+///
+/// The Renderer places the box. It opens on the side `placement` names, lined up with the
+/// edge `align` names, and it moves to the opposite side or slides along the edge when it
+/// would otherwise leave the window.
+///
+/// `modifier` belongs to the floating box, not to the anchor: a shape, a border, a shadow
+/// or a material given there replaces the design system's for this box.
+pub fn Popover<'a>(open: bool) -> PopoverScope<'a> {
+    PopoverScope {
+        modifier: Modifier::new(),
+        open,
+        placement: None,
+        align: None,
+        offset: None,
+        scrim: false,
+        scrim_color: None,
+        on_dismiss: None,
+        anchor: None,
+        done: false,
+    }
+}
+
+impl<'a> PopoverScope<'a> {
+    /// Called once when the user presses outside the box or presses Escape.
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The side of the anchor the box opens on. `Bottom` when it is not said.
+    pub fn placement(mut self, placement: PopoverPlacement) -> Self {
+        self.placement = Some(placement);
+        self
+    }
+
+    /// The edge of the anchor the box lines up with. `Start` when it is not said.
+    pub fn align(mut self, align: PopoverAlign) -> Self {
+        self.align = Some(align);
+        self
+    }
+
+    /// The gap between the anchor and the box, in dp. The design system's gap when it is
+    /// not said.
+    pub fn offset(mut self, dp: f32) -> Self {
+        self.offset = Some(dp);
+        self
+    }
+
+    /// Whether the window behind the box is dimmed while it is open. It is not, unless
+    /// asked.
+    pub fn scrim(mut self, scrim: bool) -> Self {
+        self.scrim = scrim;
+        self
+    }
+
+    /// Dims the window behind the box with this colour instead of the design system's.
+    pub fn scrim_color(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim_color = Some(paint.into());
+        self
+    }
+
+    /// The widget the box is attached to. It is the first child on the wire.
+    pub fn anchor(mut self, anchor: impl FnOnce() + 'a) -> Self {
+        self.anchor = Some(std::boxed::Box::new(anchor));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = self.modifier;
+        let open = self.open;
+        let (placement, align, offset) = (self.placement, self.align, self.offset);
+        let (scrim, scrim_color) = (self.scrim, self.scrim_color);
+        let anchor = self.anchor.take();
+        emit(
+            widget_key("compose_rust::ui::Popover"),
+            WidgetKind::Popover,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(placement) = placement {
+                    attrs.push(("placement", role_or_zero(Some(placement))));
+                }
+                if let Some(align) = align {
+                    attrs.push(("align", role_or_zero(Some(align))));
+                }
+                if let Some(offset) = offset {
+                    attrs.push(("offset_dp", OwnedAttr::Float(f64::from(offset))));
+                }
+                if let Some(color) = scrim_color {
+                    attrs.push(("scrim", super::paint(Some(color))));
+                } else if scrim {
+                    attrs.push(("scrim", OwnedAttr::Bool(true)));
+                }
+            },
+            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            || {
+                if let Some(anchor) = anchor {
+                    let _anchor = crate::runtime::group_guard(widget_key(
+                        "compose_rust::ui::Popover::anchor",
+                    ));
+                    anchor();
+                }
+                let _content =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Popover::content"));
+                content();
+            },
+        );
+    }
+}
+
+container!(PopoverScope<'a>);
 
 /// A `Tabs` and its builder.
 pub struct TabsScope {
