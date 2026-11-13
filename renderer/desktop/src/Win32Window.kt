@@ -162,7 +162,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
         ) {
-            dev.darkpyonix.composerust.runtime.ComposeRustContent(host, caption = caption)
+            dev.darkpyonix.composerust.runtime.WindowContent(host, caption = caption)
         }
     }
     WindowStartReport.sceneCreated(size.width, size.height, measured.scale)
