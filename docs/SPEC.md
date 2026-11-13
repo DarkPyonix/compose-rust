@@ -4660,6 +4660,42 @@ pub mod storage {
 14. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_SCROLLABLE`, 위 목록의 잘못된 값은 저마다 `INVALID_SCROLL`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr80_unknown_node_is_a_protocol_error, fr80_non_scroll_node_is_a_protocol_error, fr80_invalid_scroll_values_are_protocol_errors).
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
+### FR-81 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Draft`, 이슈 #18)
+
+소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
+
+- **배율 `s`**는 장치 픽셀 ÷ dp입니다. Windows는 창이 있는 모니터의 DPI ÷ 96(100% = 1.0, 125% = 1.25, 150% = 1.5, 200% = 2.0), macOS는 창의 `backingScaleFactor`, Linux(X11)는 `Xft.dpi` ÷ 96이고 값이 없으면 1.0입니다. 장면의 밀도는 `s × k`이며 `k`는 FR-43의 확대 배율입니다.
+- **적용 범위**는 데스크톱 창 여섯 경로입니다: Windows, macOS, Linux 각각의 Kotlin/Native 창과 GraalVM 창.
+
+**선명하다는 것은 아래 넷이 모두 참이라는 뜻입니다.**
+
+1. **장치 픽셀 표면.** Skia가 그리는 표면은 창 클라이언트 영역의 장치 픽셀 크기(dp 크기 × `s`, 반올림)이고, 그 표면의 한 픽셀이 화면의 한 픽셀입니다. dp 크기로 그린 뒤 OS, DWM, 스왑체인, Core Animation이 늘리는 경로는 없습니다. Windows의 `DXGI_SCALING_STRETCH`는 버퍼와 표면 창의 크기가 같아 1:1인 동안만 허용되고, 크기가 다른 버퍼가 화면에 나오면 실패입니다. macOS는 `contentsScale`이 `backingScaleFactor`와 같고 drawable을 늘리지 않습니다.
+2. **OS의 배율 가상화가 없습니다.** Windows 프로세스는 첫 창을 만들기 전에 per-monitor v2 DPI 인식 상태입니다. 매니페스트(FR-22.6의 13번)가 없는 빌드(`-gnu` 대상, `windows-manifest` 기능을 끈 앱)도 런타임 호출로 같은 상태가 됩니다.
+3. **배율 변경을 따라갑니다.** 창이 다른 배율의 모니터로 가거나 OS 배율이 바뀌면(Windows `WM_DPICHANGED`, macOS 창의 백킹 속성 변경 알림, Linux `Xft.dpi` 변경), 입력이 없어도 프레임이 요청되고, 그 프레임은 새 `s`에 맞는 새 크기의 표면에 새 밀도로 그려집니다. 창의 dp 크기는 그대로입니다(Windows는 `WM_DPICHANGED`가 제안한 사각형을 씁니다). `DensityChanged`(FR-43.1)가 한 번 옵니다. 이전 배율의 프레임을 창 서버가 늘려 보여 주는 상태가 남으면 실패입니다.
+4. **도형과 글자의 앤티앨리어싱.** 렌더러는 Compose의 기본(채움, 획, 클립 모두 앤티앨리어싱)을 끄지 않습니다. 원, 둥근 모서리, 둥근 클립의 가장자리에는 중간 값의 픽셀이 있습니다. 글자는 Compose의 플랫폼 기본 래스터 설정(`FontRasterizationSettings.PlatformDefault`)을 따릅니다. 기준은 같은 배율에서 손으로 쓴 Compose와 같은 그림이라는 것이고(NFR-9), Windows 네이티브 앱의 ClearType과 같은 그림은 기준이 아닙니다. Compose의 Windows 기본은 회색조 앤티앨리어싱이라 ClearType보다 부드러워 보입니다. 이것을 바꿀지는 소유자가 정할 일이고, 이 항목은 정하지 않습니다.
+
+**비율 배율의 한계.** 125%와 150%에서 1dp는 1.25, 1.5 장치 픽셀이고, Compose는 픽셀에 맞추지 않으므로 1dp 선의 가장자리를 앤티앨리어싱으로 그립니다. 이것은 Compose 자체의 그림이고 늘린 그림의 흐림이 아닙니다. 그래서 비율 배율에서는 "화면의 픽셀이 Compose가 그 배율로 화면 밖에서 그린 픽셀과 같다"를 보고, 선이 장치 픽셀에 정확히 맞는지는 정수 배율에서만 봅니다.
+
+**시험 장면.** 흰 바탕에 (가) x = 10dp에서 시작하는 폭 1dp의 검은 세로 막대, (나) y = 10dp에서 시작하는 높이 1dp의 검은 가로 막대, (다) 지름 40dp의 검은 원, (라) 반지름 12dp로 둥글게 자른 검은 사각형, (마) 16sp 검은 글자 "Hg"를 둡니다. 막대는 dp 정수 좌표에 있으므로 정수 배율에서 경계가 장치 픽셀 경계에 떨어집니다. 렌더러의 진단 장면으로 두며, 앱 API는 늘지 않습니다.
+
+**지금 코드와의 차이(2026-11-13 코드 조사, 실행 확인 전).** Windows의 두 창은 1번에서 3번까지를 코드상 갖추고 있습니다. 보고 당시의 Windows 창은 AWT 창이었고(19.6의 2026-09-24 기록), 툴킷 없는 창은 2026-09-25, 매니페스트는 2026-10-03에 들어왔으므로 보고된 흐림은 DPI를 모르는 프로세스를 Windows가 늘려 그린 것으로 보이지만, 실제 화면에서 다시 확인하지 않았습니다. 다음은 아직 없습니다(모두 이슈 #18).
+- macOS의 두 창 모두 백킹 배율이 바뀌었다는 알림을 듣지 않아, 다른 배율의 화면으로 옮긴 뒤 다음 프레임이 요청될 때까지 이전 프레임이 늘려져 보입니다(포크).
+- macOS GraalVM 창은 drawable의 배율을 크기가 바뀔 때만 고치고(포크), 장면의 밀도를 창을 만들 때 한 번만 정합니다(이 저장소 `AppKitWindow.kt`).
+- Linux Kotlin/Native 창은 배율이 언제나 1.0이고, Linux GraalVM 창은 `Xft.dpi`를 시작할 때 한 번만 읽습니다(포크).
+
+수용 기준. 시험 이름 뒤에 그 기준을 어디서 확인하는지 적습니다. CI의 Windows는 `windows-latest`에서 WARP(`DXC_D3D12_WARP=1`)로 그리고, 배율은 `.github/scripts/set-display-scale.c`로 바꿉니다. CI의 Linux는 Xvfb에 `xrdb`로 `Xft.dpi`를 정합니다.
+
+1. **표면 크기와 밀도.** 각 창 경로에서 첫 프레임과 배율이 바뀐 뒤의 첫 프레임의 표면 픽셀 크기가 클라이언트 영역의 장치 픽셀 크기와 같고, 장면의 밀도가 `s`(`k = 1`)와 같습니다. 창 시작 보고에 실린 값으로 확인합니다(fr81_surface_is_device_pixels_at_every_scale). CI: Windows 100/125/150/200%, Linux `Xft.dpi` 96/120/144/192, macOS는 기준 8.
+2. **화면이 그린 것과 같습니다(늘림 없음).** 시험 장면이 자리 잡은 뒤의 화면 캡처(Windows는 DWM이 합성한 데스크톱에서 `DwmFlush` 뒤에 클라이언트 영역을 복사, macOS는 `kCGWindowImageBestResolution`의 `CGWindowListCreateImage`, Linux는 `XGetImage`)가 클라이언트 영역의 장치 픽셀 크기이고, 그 프레임에 그린 픽셀과 채널당 평균 차이 1 이하, 8을 넘게 다른 픽셀 0.1% 이하로 같습니다(fr81_screen_matches_the_drawn_frame). CI: 기준 1과 같은 배율.
+3. **정수 배율의 선.** `s` = 1과 2에서 1dp 막대는 정확히 `s`개 장치 픽셀 폭의 검정(모든 채널 8 이하)이고, 그 양옆 픽셀은 흰색(모든 채널 247 이상)입니다. 회색 번짐이 없습니다(fr81_one_dp_line_is_whole_device_pixels_at_integer_scales). CI: Windows 100%와 200%, Linux 96과 192, macOS는 기준 8.
+4. **비율 배율은 화면 밖 Compose와 같습니다.** `s` = 1.25와 1.5에서 화면 캡처가 같은 장면을 Compose가 밀도 `s`로 화면 밖에서 그린 그림(`ImageComposeScene`, 같은 글꼴과 래스터 설정)과 기준 2의 허용치로 같습니다. 같은 비교를 "밀도 1로 그려 `s`배 늘린 그림"에도 하여 그 차이가 허용치보다 크다는 것을 함께 보입니다. 시험이 늘린 그림을 알아볼 수 있다는 증거입니다(fr81_fractional_scale_matches_offscreen_compose). CI: Windows 125%와 150%, Linux 120과 144.
+5. **앤티앨리어싱.** 원과 둥근 클립의 가장자리를 따라 중간 값(16에서 239)의 픽셀이 있고, 가장자리를 법선 방향으로 가로지르는 전이 폭이 1에서 2 장치 픽셀입니다. 글자 "Hg"의 세로 획 가장자리의 전이 폭은 2 장치 픽셀 이하입니다. 늘린 그림은 이 폭이 `s`배로 넓어집니다(fr81_curved_edges_are_antialiased, fr81_glyph_edges_are_not_blurred). CI: 기준 1과 같은 배율.
+6. **실행 중 배율 변경.** 앱을 200%에서 띄운 채 OS 배율을 125%로 바꾸면(창에 `WM_DPICHANGED`가 옵니다. 모니터를 옮길 때와 같은 메시지입니다) 입력 없이 2초 안에 새 배율의 표면으로 다시 그려지고, 125%에서 기준 1, 2, 4가 통과하며, 창의 dp 크기가 1dp 안에서 그대로이고, `DensityChanged(1.25)`가 한 번 옵니다. 다시 200%로 바꾸면 기준 1, 2, 3이 200%에서 통과합니다(fr81_scale_change_redraws_at_the_new_scale). CI: Windows, 그리고 Linux에서 `Xft.dpi`를 192에서 120으로 실행 중에 바꾸는 것. macOS는 기준 8.
+7. **Windows 프로세스의 DPI 인식.** 매니페스트를 품은 앱과 `windows-manifest` 기능을 끈 앱 모두에서, 첫 창이 만들어질 때 그 창의 DPI 인식 문맥이 per-monitor v2이고(`GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(hwnd))`가 `DPI_AWARENESS_PER_MONITOR_AWARE`이고 `AreDpiAwarenessContextsEqual`로 v2와 같음), 200%에서 `GetDpiForWindow`가 192입니다(fr81_windows_process_is_per_monitor_v2_before_the_first_window). CI: Windows.
+8. **macOS 2배.** macOS 러너의 가상 디스플레이가 HiDPI 모드(`kCGDisplayShowDuplicateLowResolutionModes`로 받은 `CGDisplayCopyAllDisplayModes` 가운데 픽셀 폭이 점 폭의 두 배인 모드)를 주면, 공개 API `CGConfigureDisplayWithDisplayMode`로 1배와 2배를 오가며 기준 1, 2, 3, 5와 기준 6의 macOS판(1배에서 2배로, 2배에서 1배로)을 CI에서 확인합니다(fr81_macos_scales_one_and_two). 러너가 그런 모드를 주지 않으면 이 기준은 손 확인이고, CI 로그가 받은 배율을 적습니다. 어느 쪽인지는 구현의 첫 단계에서 러너로 확인해 보고합니다.
+9. **실제 화면에서의 손 확인.** 자동화할 수 없습니다. CI 러너에는 가상 모니터가 하나뿐이라 모니터 사이를 옮기는 일과 실제 패널에서의 모습은 사람이 봅니다. (가) Windows: 200% 주 모니터와 125% 보조 모니터가 있는 기기에서 창을 끌어 두 모니터를 오가고, 양쪽에서 시험 장면과 샘플이 선명하며, 옮긴 뒤 입력 없이도 새 배율로 다시 그려집니다. (나) macOS: Retina 내장 화면과 1배 외장 모니터를 오가며 같은 것을 봅니다. 둥근 도형의 가장자리가 계단이 아닙니다. (다) 각 배율의 스크린숏을 기록합니다(FR-19.8의 2번과 같은 방식). 사람이 확인한 날짜와 기기를 이 항목에 적습니다(fr81_hand_check_on_real_displays, 수동).
+10. 기준 1에서 7이 여섯 창 경로 모두에서 통과합니다. 경로 하나를 이 기준에서 빼는 것(예: 그 플랫폼에 GraalVM 창을 더는 내놓지 않는 경우)은 소유자가 정하고 이 항목에 적습니다.
+
 ### FR-55 누를 수 있는 컨테이너 (`Agreed`, 이슈 #372)
 
 요청한 쪽: darkpyonix-ember#220(Ember UI를 compose-rust 위에 올리는 일). 포인터 구독(FR-46)만으로 만든 `Box`는 키보드 포커스, 키 활성화, 접근성 역할을 잃습니다. 눌리는 면은 컨트롤이어야 합니다.
