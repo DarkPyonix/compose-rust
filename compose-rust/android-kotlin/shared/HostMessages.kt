@@ -137,10 +137,12 @@ internal fun HostMessages(
     }
     // The application's overlay tokens, where it set them, take the place of the design
     // system's corner and lift. A message is not a node, so this is the only way to give it
-    // either. Zero, or no tokens at all, keeps the design system's message as it is.
+    // either. Zero, or no tokens at all, keeps the design system's message as it is, with
+    // the design system's own lift under it.
     val overlay = theme.overlay
     val shape = overlay?.toastCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) } ?: style.shape
-    val lift = overlay?.toastElevation?.takeIf { it > 0 }?.let { Modifier.shadow(it.dp, shape, clip = false) } ?: Modifier
+    val elevation = overlay?.toastElevation?.takeIf { it > 0 }?.dp ?: style.elevation
+    val lift = if (elevation.value > 0f) Modifier.shadow(elevation, shape, clip = false) else Modifier
     val outline = if (style.borderWidth.value > 0f) {
         Modifier.border(style.borderWidth, style.borderColor, shape)
     } else {
