@@ -15,7 +15,7 @@
 //! [`Host`]: crate::Host
 
 use crate::protocol::{BatchEncoder, HostEvent, Mutation, ProtocolError};
-use crate::schema::{AssetKind, MessageDuration, Selection, Theme, Window};
+use crate::schema::{AssetKind, MessageDuration, MessagePlacement, Selection, Theme, Window};
 use std::task::{Context, Poll};
 
 /// One batch, written by the runtime and by the Host into the same arena.
@@ -134,11 +134,28 @@ impl Batch {
         action: &str,
         duration: MessageDuration,
     ) {
+        self.show_placed_message(handler_id, text, action, duration, None, None);
+    }
+
+    /// Writes one transient message that names where it is drawn: along which edge and at
+    /// which end of it, and how far from that edge in dp. `None` for either leaves it to
+    /// the design system, which is what [`Batch::show_message`] does for both.
+    pub fn show_placed_message(
+        &mut self,
+        handler_id: u64,
+        text: &str,
+        action: &str,
+        duration: MessageDuration,
+        placement: Option<MessagePlacement>,
+        offset_dp: Option<f32>,
+    ) {
         self.write(Mutation::ShowMessage {
             handler_id,
             text,
             action,
             duration,
+            placement,
+            offset_dp,
         });
     }
 

@@ -1056,11 +1056,13 @@ impl Host {
         });
         crate::asset::drain_releases(|asset_id| batch.release_asset(asset_id));
         crate::message::drain(|message| {
-            batch.show_message(
+            batch.show_placed_message(
                 message.handler_id,
                 &message.text,
                 &message.action,
                 message.duration,
+                message.placement,
+                message.offset_dp,
             );
         });
         self.flush_notifications();
