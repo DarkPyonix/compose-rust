@@ -85,7 +85,13 @@ class RoundButtonLabelTest {
                 inside = text.left >= box.left && text.right <= box.right &&
                     text.top >= box.top && text.bottom <= box.bottom,
                 ellipsized = (0 until layout.lineCount).any { layout.isLineEllipsized(it) },
-                overflows = layout.hasVisualOverflow,
+                // Not hasVisualOverflow: a one-line label that may ellipsize is laid out
+                // at the full width offered, so its paragraph is wider than its box
+                // whenever the button leaves a spare pixel, and that reads as overflow.
+                // A label is cut when its box is narrower than the line it needs, or
+                // shorter than its lines, or it lost a line.
+                overflows = layout.size.width < kotlin.math.ceil(layout.multiParagraph.intrinsics.maxIntrinsicWidth) ||
+                    layout.didOverflowHeight || layout.multiParagraph.didExceedMaxLines,
             )
         }
         return result!!
