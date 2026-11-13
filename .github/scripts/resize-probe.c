@@ -411,9 +411,17 @@ static int is_ruler_dark(uint32_t pixel) {
 }
 
 /*
- * The markers. Three rows across the window (at 30%, 50% and 70% of the client's height at
+ * The markers. Three rows across the window (at 30%, 40% and 70% of the client's height at
  * rest, well below any caption) and two columns down it (at 40% and 60% of the window's width
  * in the frame being judged).
+ *
+ * No row is at 50%: that is the height a right or left drag presses at, and the capture holds
+ * the cursor (the runner's display driver draws it into the desktop image). On a row through
+ * the cursor, the cursor ahead of a growing window read as the window's last pixel, so the
+ * distance from the window's border to the cursor counted as a gap; inside a shrinking window
+ * its outline read as a ruler line off the grid (a stretch), or it covered the right marker
+ * (missing). Run 43392446274 failed every right and left drag that way, with frames that were
+ * correct, while bottom and corner drags, pressed below the rows, passed.
  */
 #define MARKER_ROWS 3
 #define MARKER_COLUMNS 2
@@ -1538,7 +1546,10 @@ int main(int argc, char **argv) {
     zone_left = origin.x + 2;
     zone_width = client.right * 3 / 5;
     if (zone_left + zone_width > desktop.right - 1) zone_width = desktop.right - 1 - zone_left;
-    for (int r = 0; r < MARKER_ROWS; r++) marker_row_y[r] = origin.y + client.bottom * (3 + 2 * r) / 10;
+    /* Clear of the cursor's height (the middle) by a tenth of the client: see the markers. */
+    marker_row_y[0] = origin.y + client.bottom * 3 / 10;
+    marker_row_y[1] = origin.y + client.bottom * 4 / 10;
+    marker_row_y[2] = origin.y + client.bottom * 7 / 10;
     /*
      * How far the drag goes, where it presses (on the resize border of the edge, or of the
      * bottom right corner, at the middle of that edge) and which way it moves.
