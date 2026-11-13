@@ -1240,12 +1240,23 @@ class NodeTable {
                 PropertyKind.Open -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
                     // A sheet is an overlay on the same terms as a dialog.
-                    widget == WidgetKind.Sheet
+                    widget == WidgetKind.Sheet ||
+                    // A popover's is read every time: the Host owns it.
+                    widget == WidgetKind.Popover
 
                 // A custom scrim colour for modal and popup overlays.
                 PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
-                    widget == WidgetKind.Sheet
+                    widget == WidgetKind.Sheet ||
+                    // On a popover it is also a boolean: whether to dim the window at all.
+                    widget == WidgetKind.Popover
+
+                // The side of its anchor a popover opens on, the edge it lines up with,
+                // and the gap between the two.
+                PropertyKind.Placement,
+                PropertyKind.Align,
+                PropertyKind.OffsetDp,
+                -> widget == WidgetKind.Popover
                 // A field drawn without the design system's frame.
                 PropertyKind.Bare -> widget == WidgetKind.TextField ||
                     widget == WidgetKind.Dropdown
