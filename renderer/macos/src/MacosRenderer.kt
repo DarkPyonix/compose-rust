@@ -8,7 +8,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.foundation.ComposeFoundationFlags
 import java.lang.System
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.runtime.WindowCaption
@@ -203,7 +203,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
                 }
             }
             val strip = window.caption.value
-            ComposeRustContent(
+            WindowContent(
                 host,
                 caption = WindowCaption(
                     height = strip.height,

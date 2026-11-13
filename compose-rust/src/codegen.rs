@@ -149,7 +149,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -161,6 +164,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -764,6 +769,10 @@ object ScrollWire {
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
             ),
+            // The size a node's size motion settled at, in dp.
+            EventPayloadType::MotionFinished => {
+                output.push_str(", val widthDp: kotlin.Float, val heightDp: kotlin.Float")
+            }
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -1007,7 +1016,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1020,6 +1029,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -1425,6 +1436,7 @@ object Protocol {
             | EventPayloadType::WindowMove
             | EventPayloadType::WindowDrag
             | EventPayloadType::WindowDragOver
+            | EventPayloadType::MotionFinished
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1488,6 +1500,8 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // Two floats after the header.
+            EventPayloadType::MotionFinished => 24,
         };
         writeln!(
             output,
@@ -1805,6 +1819,12 @@ object Protocol {
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::MotionFinished => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.widthDp)\n");
+                output.push_str("                    out.putFloat(event.heightDp)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::ScrollChanged => {
@@ -2894,6 +2914,14 @@ fn floats_le(values: &[f32]) -> Vec<u8> {
         .collect()
 }
 
+/// The three font features the mutation vector's text carries: tabular figures on,
+/// ligatures off, and a character variant whose value needs more than one byte.
+pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
+    crate::font_features::FontFeature::TABULAR_NUMS,
+    crate::font_features::FontFeature::NO_LIGATURES,
+    crate::font_features::FontFeature::new(b"cv01", 0x0102),
+];
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -2904,6 +2932,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_size = floats_le(&[800.0, 600.0]);
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
+    let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
     let mut drag_from_pointer = 1_u32.to_le_bytes().to_vec();
     drag_from_pointer.extend_from_slice(&floats_le(&[12.5, 8.0]));
     let mutations = [
@@ -3622,6 +3651,41 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // The width a split pane stacks below, with a fraction so that a value read from
+        // the wrong half of the record cannot pass.
+        Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::CollapseBelow,
+            value: PropertyValue::Float(720.5),
+        },
+        // The overlay tokens with every field set to its own value, the transient
+        // message's two at the end of the record, before the record that stays last.
+        Mutation::SetOverlayTokens(
+            crate::schema::OverlayTokens::new()
+                .sheet_corner_radius(24)
+                .dialog_corner_radius(16)
+                .popup_corner_radius(12)
+                .sheet_elevation(8)
+                .popup_elevation(4)
+                .dialog_elevation(6)
+                .sheet_padding(20)
+                .dialog_padding(18)
+                .popup_padding(10)
+                .scrim_argb(0x8000_0000)
+                .toast_elevation(7)
+                .toast_corner_radius(14),
+        ),
+        // A text with three font features, one of them a value above one byte, after
+        // every older record but the last.
+        Mutation::Create {
+            node_id: 22,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 22,
+            property: PropertyKind::FontFeatureSettings,
+            value: PropertyValue::Bytes(&font_features),
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4012,6 +4076,15 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // A node's size motion settled, after everything that was here before.
+        HostEvent {
+            node_id: 14,
+            handler_id: 30,
+            payload: EventPayload::MotionFinished {
+                width_dp: 240.5,
+                height_dp: 0.0,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4031,7 +4104,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 120,
+    "recordCount": 121,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4053,7 +4126,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-three independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4096,7 +4169,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }}
     ]
   }}
 }}

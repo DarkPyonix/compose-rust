@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -222,26 +223,30 @@ internal fun HostDialog(
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-        onDismissRequest = {
+    platformModalOverlayWindow(
+        {
             open.set(false)
             dismiss(node, dispatcher)
         },
+        onEscape,
     ) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        // The scrim covers the whole window; the dialog is centred in what the keyboard
+        // leaves, so a field inside it is not under the keyboard.
+        val keyboard = overlayKeyboardInset()
         Box(
             Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
-            Column(
-                modifier
-                    .modalOverlaySurface(node.id, surfaceRequester)
-                    .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
-            ) {
-                node.children.forEach { childId ->
-                    key(childId) { RenderNode(childId, table, dispatcher) }
+            Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier
+                        .modalOverlaySurface(node.id, surfaceRequester)
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
+                ) {
+                    node.children.forEach { childId ->
+                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    }
                 }
             }
         }

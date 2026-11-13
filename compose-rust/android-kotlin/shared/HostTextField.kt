@@ -59,6 +59,8 @@ import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.role
+import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.ui.resolvedShape
 import dev.darkpyonix.composerust.ui.cornerCurve
@@ -151,7 +153,7 @@ internal fun HostTextField(
     // it. One that names none is spaced by the design system's token, which on the Apple
     // design systems already carries SF's tracking, so it is left as it is.
     val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
-    val textStyle = if (ownChain != null) {
+    val fontStyle = if (ownChain != null) {
         roleStyle.copy(
             fontFamily = ownChain.primary,
             letterSpacing = trackedLetterSpacing(roleStyle, ownChain.primary).takeIf { ownSpacing }
@@ -160,10 +162,34 @@ internal fun HostTextField(
     } else {
         roleStyle
     }
-    val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
-    val fallbackFonts = remember(chain) {
-        chain?.let { FontChainTransformation(it) } ?: VisualTransformation.None
+    // The node's OpenType features, for the typed text and the placeholder alike, which
+    // are both set in this style. They follow whatever the style already asks for, so a
+    // tag both name takes the node's value. The string was made when the property arrived.
+    val features = node.fontFeatures
+    val textStyle = if (features == null) {
+        fontStyle
+    } else {
+        fontStyle.copy(fontFeatureSettings = appendFontFeatures(fontStyle.fontFeatureSettings, features))
     }
+    val chain = ownChain ?: theme.chainFor(textStyle.fontFamily)
+    // Where the typed text and the placeholder may break, as a `Text` breaks: the same
+    // invisible characters, put in by the visual transformation so the value the field holds
+    // and reports is only what was typed.
+    //
+    // `OverflowWrap` is taken and needs nothing more here. A token too long for its line is
+    // broken inside by the line breaker under every mode, and a field never says its text's
+    // narrowest width: it is as wide as it is laid out, so there is no token width for a
+    // parent to size it by. The tokens that fit keep the mode's breaks, which is all
+    // `Anywhere` asks of them.
+    val breakMode = fieldBreakMode(node.role(PropertyKind.WordBreak, WordBreak.entries.toTypedArray()))
+    val fieldText = remember(chain, breakMode) {
+        if (chain == null && breakMode == BreakMode.Normal) {
+            VisualTransformation.None
+        } else {
+            FieldTextTransformation(chain, breakMode)
+        }
+    }
+    val brokenPlaceholder = remember(placeholder, breakMode) { breakText(placeholder, breakMode).text }
 
     // A Host SetText is applied only once the composition has finished: replacing the text
     // mid-composition would destroy the syllable being assembled.
@@ -339,7 +365,7 @@ internal fun HostTextField(
         enabled = enabled,
         singleLine = !multiline,
         textStyle = textStyle,
-        visualTransformation = fallbackFonts,
+        visualTransformation = fieldText,
         cursorBrush = SolidColor(frame.cursor),
         decorationBox = { inner ->
             Box(
@@ -378,7 +404,7 @@ internal fun HostTextField(
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     ThemedText(
-                        placeholder,
+                        brokenPlaceholder,
                         style = textStyle.copy(
                             color = theme.color(ColorRole.OnSurfaceVariant)
                                 .copy(alpha = PLACEHOLDER_ALPHA),
@@ -463,27 +489,55 @@ internal fun shouldSubmitOnEnter(
     else -> true
 }
 
-/**
- * Sets each letter of a field's text the first family of [chain] lacks in the next family
- * that has it, as a `Text` in the same font would be set.
- *
- * Only styles, never characters: the offsets map one to one, so the caret, the selection
- * and an input method's composition land where they would without it.
- */
-private class FontChainTransformation(private val chain: FontChain) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText {
-        val spans = chain.spans(text.text)
-        if (spans.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
-        val styled = buildAnnotatedString {
-            append(text)
-            for (span in spans) addStyle(span.item, span.start, span.end)
-        }
-        return TransformedText(styled, OffsetMapping.Identity)
+/** Where a field's lines may break, from its `WordBreak`. */
+internal fun fieldBreakMode(wordBreak: WordBreak?): BreakMode =
+    when (wordBreak) {
+        WordBreak.KeepAll -> BreakMode.KeepAll
+        WordBreak.BreakAll -> BreakMode.BreakAll
+        WordBreak.Normal, null -> BreakMode.Normal
     }
 
-    override fun equals(other: Any?): Boolean = other is FontChainTransformation && other.chain === chain
+/**
+ * A field's text as it is drawn: with the invisible characters [mode] puts where a line may
+ * or may not break, and with each letter the first family of [chain] lacks set in the next
+ * family that has it, as a `Text` in the same font would be set.
+ *
+ * The characters it adds take no width and are never drawn, and the offset mapping steps
+ * over them, so the caret, the selection and an input method's composition land where they
+ * would without it. The value the field holds, and the one the Host is told, is only what
+ * was typed.
+ */
+private class FieldTextTransformation(
+    private val chain: FontChain?,
+    private val mode: BreakMode,
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val broken = breakText(text.text, mode)
+        val spans = chain?.spans(broken.text).orEmpty()
+        if (spans.isEmpty() && broken.text.length == text.length) return TransformedText(text, OffsetMapping.Identity)
+        val styled = buildAnnotatedString {
+            append(broken.text)
+            for (span in text.spanStyles) {
+                addStyle(span.item, broken.position(span.start), broken.position(span.end))
+            }
+            for (span in spans) addStyle(span.item, span.start, span.end)
+        }
+        val mapping = if (broken.text.length == text.length) {
+            OffsetMapping.Identity
+        } else {
+            object : OffsetMapping {
+                override fun originalToTransformed(offset: Int): Int = broken.position(offset)
 
-    override fun hashCode(): Int = chain.hashCode()
+                override fun transformedToOriginal(offset: Int): Int = broken.original(offset)
+            }
+        }
+        return TransformedText(styled, mapping)
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is FieldTextTransformation && other.chain === chain && other.mode == mode
+
+    override fun hashCode(): Int = 31 * (chain?.hashCode() ?: 0) + mode.hashCode()
 }
 
 internal fun Node.contentPadding(

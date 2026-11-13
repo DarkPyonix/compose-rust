@@ -97,6 +97,11 @@ internal class TextInput(
     val color: Paint? = null,
     val textAlign: TextAlign? = null,
     val overflow: ComposeOverflow = ComposeOverflow.Clip,
+    /**
+     * The node's OpenType features as Compose's `fontFeatureSettings` string, or null for
+     * none. Taken with or without a role: a feature picks a form of the font, not a font.
+     */
+    val fontFeatures: String? = null,
 ) {
     companion object {
         const val DEFAULT_TAB_SIZE = 8
@@ -172,7 +177,7 @@ internal fun resolveText(
         theme.chainFor(theme.family(input.role ?: input.defaultRole))
     }
     val tracking = if (input.noRole) noRoleTracking(input, chain) else null
-    val style = if (input.noRole) {
+    val base = if (input.noRole) {
         TextStyle(
             fontSize = sized(input.fontSize ?: TextInput.NO_ROLE_FONT_SIZE),
             fontWeight = FontWeight(input.fontWeight ?: TextInput.NO_ROLE_FONT_WEIGHT),
@@ -200,7 +205,8 @@ internal fun resolveText(
             // rung is written in, and one node cannot say otherwise.
             fontFamily = theme.family(role),
         )
-    }.merge(
+    }
+    val style = base.merge(
         TextStyle(
             color = when {
                 forMeasure -> androidx.compose.ui.graphics.Color.Unspecified
@@ -214,6 +220,9 @@ internal fun resolveText(
                 TextAlign.Justify -> ComposeTextAlign.Justify
                 null -> ComposeTextAlign.Unspecified
             },
+            // After what the style already asks for, so a tag both name takes the node's
+            // value. Null where the node has none, which leaves the style's own.
+            fontFeatureSettings = appendFontFeatures(base.fontFeatureSettings, input.fontFeatures),
         ),
     )
 
@@ -449,6 +458,23 @@ private const val ZERO_WIDTH_SPACE = '​'
 internal class BrokenText(val text: String, private val map: IntArray?) {
     /** Where character [index] of the original string is in [text]. */
     fun position(index: Int): Int = map?.get(index) ?: index
+
+    /**
+     * The offset in the original string that offset [index] of [text] stands for. The two
+     * offsets on either side of an inserted character stand for the same one: the character
+     * takes no width, so both are the same place on screen.
+     */
+    fun original(index: Int): Int {
+        val map = map ?: return index
+        // The first original offset at or after [index]; the map only grows.
+        var low = 0
+        var high = map.size - 1
+        while (low < high) {
+            val middle = (low + high) ushr 1
+            if (map[middle] < index) low = middle + 1 else high = middle
+        }
+        return low
+    }
 }
 
 internal fun breakText(text: String, mode: BreakMode): BrokenText {
@@ -708,6 +734,7 @@ internal fun Node.textInput(): TextInput {
         color = paintProp(PropertyKind.Color),
         textAlign = role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray()),
         overflow = overflow(),
+        fontFeatures = fontFeatures,
     )
 }
 
@@ -729,4 +756,69 @@ internal fun Node.fontListProblem(): String? {
         if (FontRefRecords.decodeBlob(it) == null) return "the font list does not decode"
     }
     return null
+}
+
+/** Bytes of one font feature record: four tag bytes, then the value as a little-endian u32. */
+internal const val FONT_FEATURE_RECORD_LENGTH = 8
+
+/** The most font features one node may carry. */
+internal const val MAX_FONT_FEATURES = 16
+
+/**
+ * A `FontFeatureSettings` blob as Compose's `fontFeatureSettings` string, such as
+ * `tnum 1, liga 0`, or null where the list is empty or cannot be read.
+ *
+ * The tags are not quoted. Skia's reader on the desktop, iOS and the web
+ * (`FontFeature.parseW3`) takes the first word of each entry as the tag and drops any that
+ * is not four characters long, so `"tnum" 1` would be read as no feature at all. HarfBuzz,
+ * which Minikin uses on Android, reads a tag with or without quotes.
+ *
+ * The records keep their order, and a tag that comes twice is written twice: the shapers
+ * under Compose (HarfBuzz under Skia, Minikin on Android) let the later value win, as CSS
+ * does. A list whose length is not a whole number of records, that holds more than
+ * [MAX_FONT_FEATURES] records, or whose tag bytes are not printable ASCII is reported
+ * through [onError] and none of it is used, so the text is drawn without features.
+ *
+ * Called when the property changes, never per frame: the string is kept on the node.
+ */
+internal fun fontFeatureSettings(bytes: ByteArray, onError: (String) -> Unit): String? {
+    if (bytes.size % FONT_FEATURE_RECORD_LENGTH != 0) {
+        onError("${bytes.size} bytes is not a whole number of $FONT_FEATURE_RECORD_LENGTH-byte records")
+        return null
+    }
+    val count = bytes.size / FONT_FEATURE_RECORD_LENGTH
+    if (count > MAX_FONT_FEATURES) {
+        onError("$count features where at most $MAX_FONT_FEATURES are taken")
+        return null
+    }
+    if (count == 0) return null
+    val out = StringBuilder(count * 12)
+    for (index in 0 until count) {
+        val at = index * FONT_FEATURE_RECORD_LENGTH
+        for (offset in 0 until 4) {
+            val byte = bytes[at + offset].toInt() and 0xFF
+            if (byte !in 0x20..0x7E) {
+                onError("feature $index has the tag byte 0x${byte.toString(16)}, which is not printable ASCII")
+                return null
+            }
+        }
+        val value = (bytes[at + 4].toLong() and 0xFF) or
+            ((bytes[at + 5].toLong() and 0xFF) shl 8) or
+            ((bytes[at + 6].toLong() and 0xFF) shl 16) or
+            ((bytes[at + 7].toLong() and 0xFF) shl 24)
+        if (index > 0) out.append(", ")
+        for (offset in 0 until 4) out.append((bytes[at + offset].toInt() and 0xFF).toChar())
+        out.append(' ').append(value)
+    }
+    return out.toString()
+}
+
+/**
+ * [own] after [base], so a tag both name takes [own]'s value. Either alone is returned as
+ * it is, so a style with no features of its own costs nothing to give the node's.
+ */
+internal fun appendFontFeatures(base: String?, own: String?): String? = when {
+    own.isNullOrEmpty() -> base
+    base.isNullOrEmpty() -> own
+    else -> "$base, $own"
 }

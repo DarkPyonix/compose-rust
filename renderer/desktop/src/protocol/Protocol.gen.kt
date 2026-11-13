@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -124,6 +124,8 @@ enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
 enum class CompactNavigation { Sidebar, None }
 
+enum class Snap { ItemStart }
+
 enum class StorageOp { Read, Write, Remove, Keys }
 
 enum class IoStatus { Ok, NotFound, QuotaExceeded, Unavailable, PermissionDenied, Failed, ReadOnly, TooLarge }
@@ -213,7 +215,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -225,6 +230,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -1580,13 +1587,14 @@ sealed interface HostEvent {
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8493683140838181048L
+    const val SCHEMA_HASH: Long = 378988366624221972L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1792,7 +1800,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1805,6 +1813,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -2162,6 +2172,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
+                is HostEvent.MotionFinished -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2214,6 +2225,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 72
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
+                is HostEvent.MotionFinished -> 24
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2270,6 +2282,7 @@ object Protocol {
                 is HostEvent.ScrollChanged -> 60
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
+                is HostEvent.MotionFinished -> 63
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2494,6 +2507,10 @@ object Protocol {
                 }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
+                is HostEvent.MotionFinished -> {
+                    out.putFloat(event.widthDp)
+                    out.putFloat(event.heightDp)
+                }
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2708,6 +2725,11 @@ object Protocol {
         184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
+        91 -> PropertyKind.CollapseBelow
+        188 -> PropertyKind.Snap
+        189 -> PropertyKind.MaxHeightFraction
+        192 -> PropertyKind.FontFeatureSettings
+        193 -> PropertyKind.OnMotionFinished
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3409,6 +3431,11 @@ object Protocol {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
         else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
+    }
+
+    private fun snap(tag: Int, offset: Int): Snap = when (tag) {
+        1 -> Snap.ItemStart
+        else -> throw ProtocolException("unknown Snap tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {

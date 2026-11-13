@@ -47,7 +47,7 @@ const TAG_SET_OVERLAY_TOKENS: u16 = 27;
 // 28 and 29 are numbered for commands that are not here yet.
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 24;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
 // 29 puts plain text on the platform clipboard. Nothing answers it. 28 is held for the
 // code editor's grouped edit.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
@@ -488,6 +488,10 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
+// 61 and 62 are numbered for events that are not here yet.
+const EVENT_MOTION_FINISHED: u16 = 63;
+/// `MotionFinished` in full: the 16 byte header and two `f32` in dp.
+const MOTION_FINISHED_LEN: usize = 24;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -943,6 +947,13 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_MOTION_FINISHED if record_len == MOTION_FINISHED_LEN => {
+            crate::schema::EventPayload::MotionFinished {
+                width_dp: f32::from_bits(read_u32(bytes, 16)?),
+                height_dp: f32::from_bits(read_u32(bytes, 20)?),
+            }
+        }
+        EVENT_MOTION_FINISHED => return Err(ProtocolError::InvalidRecordLength),
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -1464,6 +1475,21 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::MotionFinished {
+        width_dp,
+        height_dp,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_MOTION_FINISHED,
+            MOTION_FINISHED_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
+        output.extend_from_slice(&height_dp.to_bits().to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1551,7 +1577,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ClipboardText { .. }
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
-        | crate::schema::EventPayload::ScrollChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::MotionFinished { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1886,6 +1913,8 @@ impl BatchEncoder {
                 self.put_u16(overlay.popup_padding);
                 self.put_u16(0);
                 self.put_u32(overlay.scrim);
+                self.put_u16(overlay.toast_elevation);
+                self.put_u16(overlay.toast_corner_radius);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2436,6 +2465,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let dialog_padding = read_u16(bytes, payload + 14)?;
                 let popup_padding = read_u16(bytes, payload + 16)?;
                 let scrim = read_u32(bytes, payload + 20)?;
+                let toast_elevation = read_u16(bytes, payload + 24)?;
+                let toast_corner_radius = read_u16(bytes, payload + 26)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2447,6 +2478,8 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     dialog_padding,
                     popup_padding,
                     scrim,
+                    toast_elevation,
+                    toast_corner_radius,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),

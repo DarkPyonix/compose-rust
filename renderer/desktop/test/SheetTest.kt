@@ -1,5 +1,6 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -9,6 +10,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.swipeUp
+import dev.darkpyonix.composerust.foundation.sheetContentTestTag
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
@@ -20,6 +26,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -182,6 +189,78 @@ class SheetTest {
             )
             assertNear(covered.right, sheet.right, "its trailing edge")
         }
+
+    /**
+     * A sheet with a tallest height is as tall as its content up to that share of the
+     * window, and the content scrolls once it is taller. Both edges a sheet comes from
+     * follow it: the bottom of a narrow window and the side of a wide one. The test window
+     * is 800dp tall at one pixel to the dp.
+     */
+    @Test
+    fun fr21_sheet_max_height_fraction() {
+        for (windowWidth in listOf(500.dp, 1100.dp)) {
+            // Taller than the share: the sheet stops at 0.85 of 800, and the content scrolls.
+            var tall = 0.dp
+            var tallColumn = 0.dp
+            runDesktopComposeUiTest(windowWidth.value.toInt(), 800) {
+                showTallSheet(windowWidth, contentHeight = 1000f)
+                val covered = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+                assertNear(800.dp, covered.bottom - covered.top, "the window the sheet covers")
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                assertNear(680.dp, sheet.bottom - sheet.top, "a sheet at $windowWidth holding 1000dp")
+                val column = onNodeWithTag(sheetContentTestTag(SHEET)).getBoundsInRoot()
+                val before = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+                onNodeWithTag(sheetContentTestTag(SHEET)).performTouchInput { swipeUp() }
+                waitForIdle()
+                val after = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+                assertTrue(after < before - 50.dp, "the content did not scroll: $before to $after")
+                tall = sheet.bottom - sheet.top
+                tallColumn = column.bottom - column.top
+            }
+            assertTrue(tallColumn < tall, "the scrolling content is inside the sheet")
+            // Shorter than the share: the sheet is as tall as its content and whatever the
+            // design system puts round it, which is the same in both.
+            runDesktopComposeUiTest(windowWidth.value.toInt(), 800) {
+                showTallSheet(windowWidth, contentHeight = 200f)
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                val column = onNodeWithTag(sheetContentTestTag(SHEET)).getBoundsInRoot()
+                assertNear(200.dp, column.bottom - column.top, "the content at $windowWidth")
+                assertNear(
+                    200.dp + (tall - tallColumn),
+                    sheet.bottom - sheet.top,
+                    "a sheet at $windowWidth holding 200dp",
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    private fun ComposeUiTest.showTallSheet(windowWidth: Dp, contentHeight: Float) {
+        val batch = listOf(
+            Mutation.SetTheme(
+                Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+            ),
+            Mutation.Create(SHEET, WidgetKind.Sheet),
+            Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+            Mutation.SetProp(SHEET, PropertyKind.MaxHeightFraction, PropertyValue.Float(0.85f)),
+            Mutation.Create(CONTENT, WidgetKind.Box),
+            Mutation.SetModifier(CONTENT, 0, ProtocolModifier.FillMaxWidth),
+            Mutation.SetModifier(CONTENT, 1, ProtocolModifier.Height(contentHeight)),
+            Mutation.Insert(SHEET, CONTENT, 0),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch)),
+                    Modifier.fillMaxSize(),
+                )
+            }
+        }
+        waitForIdle()
+    }
 
     /**
      * Pressing Escape on an open Dialog dispatches OnDismiss once, and leaves the Dialog

@@ -207,6 +207,9 @@ pub enum EventPayloadType {
     /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
     /// record.
     ScrollChanged,
+    /// The size a node's size motion settled at: `width_dp` and `height_dp`, two `f32` in
+    /// dp. A fixed 24-byte record.
+    MotionFinished,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -220,13 +223,16 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished;",
     "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView;",
+    // The fields of the overlay tokens record in wire order. A field is only appended, and
+    // appending one changes the record's length, so it is part of what the hash covers.
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -395,6 +401,7 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::IoAnswer => 31,
                 EventPayloadType::FileHandles => 32,
                 EventPayloadType::ScrollChanged => 33,
+                EventPayloadType::MotionFinished => 34,
             }],
         );
         index += 1;
@@ -1570,6 +1577,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: COMPACT_NAVIGATION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "Snap",
+        variants: SNAP_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "StorageOp",
         variants: STORAGE_OP_SCHEMA,
     },
@@ -1691,6 +1702,21 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     None = 2,
 } unlisted {
     Default = 0,
+});
+
+// Where a scroll container comes to rest once a drag or a fling ends.
+//
+// `None` is free scrolling: the container stops wherever the drag or the fling left it. It
+// travels as tag 0, which is the same as not sending the property, so it is not in the
+// schema table.
+//
+// `ItemStart` stops with the start edge of the nearest direct child on the start of the
+// visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
+// does.
+define_wire_enum!(SNAP_SCHEMA, Snap {
+    ItemStart = 1,
+} unlisted {
+    None = 0,
 });
 
 // How the application uses windows. `Single` is every application until now: the
@@ -1977,7 +2003,8 @@ pub struct Theme {
 /// How many type roles there are, which is how many font slots a theme carries.
 pub const TYPE_ROLE_COUNT: usize = 9;
 
-/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the
+/// transient message. Every measure is in dp, and 0 keeps the design system's own.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct OverlayTokens {
     pub sheet_corner_radius: u16,
@@ -1990,6 +2017,10 @@ pub struct OverlayTokens {
     pub dialog_padding: u16,
     pub popup_padding: u16,
     pub scrim: u32,
+    /// How high the transient message floats, which is how much shadow it casts.
+    pub toast_elevation: u16,
+    /// The corner radius of the transient message.
+    pub toast_corner_radius: u16,
 }
 
 impl OverlayTokens {
@@ -2005,6 +2036,8 @@ impl OverlayTokens {
             dialog_padding: 0,
             popup_padding: 0,
             scrim: 0,
+            toast_elevation: 0,
+            toast_corner_radius: 0,
         }
     }
 
@@ -2060,6 +2093,20 @@ impl OverlayTokens {
 
     pub const fn scrim_argb(mut self, argb: u32) -> Self {
         self.scrim = argb;
+        self
+    }
+
+    /// The transient message's elevation in dp: a shadow under it the height of a surface
+    /// that far up. A message is not a node and takes no Modifier, so this is where its
+    /// shadow is set, once for the application.
+    pub const fn toast_elevation(mut self, elevation: u16) -> Self {
+        self.toast_elevation = elevation;
+        self
+    }
+
+    /// The transient message's corner radius in dp.
+    pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
+        self.toast_corner_radius = radius;
         self
     }
 }
@@ -3532,6 +3579,30 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // block, so it takes the number after the last one in use: 169 to 184 are held by
     // properties other requirements have numbered.
     OnScrollChanged = 186,
+    // The width in dp, an f32, below which a split pane shows one pane at a time instead of
+    // its size class deciding. At or above it the split pane never stacks, and the design
+    // system still chooses between two columns and a side pane laid over the body. Absent
+    // or 0 keeps the size class's own line. The next place in the split pane's block after
+    // `Collapsible`.
+    CollapseBelow = 91,
+    // Where a `ScrollRow` or `ScrollColumn` comes to rest, as a `Snap` tag. Absent or 0 is
+    // free scrolling. 187 is held by a property on another branch.
+    Snap = 188,
+    // The tallest a `Sheet` grows, as an `f32` fraction of the window's height above 0 and
+    // at most 1. Below it the sheet is as tall as its content; at it the content scrolls.
+    // Absent leaves the height to the design system. 187 is held by a property on another
+    // branch.
+    MaxHeightFraction = 189,
+    // OpenType features for a `Text` or a `TextField`, such as tabular figures. A blob of
+    // 8-byte records, at most 16: the four tag bytes, then the value as a little-endian
+    // u32. A tag that comes twice takes the later value. Absent, or empty, is no features.
+    // 187 to 191 are held by properties other requirements have numbered.
+    FontFeatureSettings = 192,
+    // The handler a node's size motion reports to once it settles, the handler id as an
+    // integer. Any node may take it, so it is numbered after the last one in use rather
+    // than inside a widget's block: 187 to 192 are held by properties other requirements
+    // have numbered.
+    OnMotionFinished = 193,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3871,6 +3942,18 @@ pub enum EventPayload<'a> {
         max_y_px: f64,
         viewport_width_px: f64,
         viewport_height_px: f64,
+    },
+    /// A node's size motion came to rest, reported to the node's `OnMotionFinished`
+    /// handler with the size it settled at, in dp.
+    ///
+    /// Sent once for each run that reaches its target: a run that is interrupted by a new
+    /// target sends nothing, and only the one that settles does. The first layout and a
+    /// layout that leaves the size as it was send nothing, and neither does a node removed
+    /// while its size is moving. Under reduced motion the size changes in one frame and
+    /// this arrives in that frame.
+    MotionFinished {
+        width_dp: f32,
+        height_dp: f32,
     },
 }
 
@@ -4250,6 +4333,13 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "CodeScrolled",
         tag: 55,
         payload: EventPayloadType::Double,
+    },
+    // A node's size motion settled, reported to the node's own handler. 61 and 62 are
+    // numbered for events that are not here yet.
+    EventSchema {
+        name: "MotionFinished",
+        tag: 63,
+        payload: EventPayloadType::MotionFinished,
     },
 ];
 

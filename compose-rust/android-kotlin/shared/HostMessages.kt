@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -133,8 +135,16 @@ internal fun HostMessages(
         MessagePlacement.TopCenter -> Alignment.TopCenter
         MessagePlacement.TopEnd -> Alignment.TopEnd
     }
+    // The application's overlay tokens, where it set them, take the place of the design
+    // system's corner and lift. A message is not a node, so this is the only way to give it
+    // either. Zero, or no tokens at all, keeps the design system's message as it is, with
+    // the design system's own lift under it.
+    val overlay = theme.overlay
+    val shape = overlay?.toastCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) } ?: style.shape
+    val elevation = overlay?.toastElevation?.takeIf { it > 0 }?.dp ?: style.elevation
+    val lift = if (elevation.value > 0f) Modifier.shadow(elevation, shape, clip = false) else Modifier
     val outline = if (style.borderWidth.value > 0f) {
-        Modifier.border(style.borderWidth, style.borderColor, style.shape)
+        Modifier.border(style.borderWidth, style.borderColor, shape)
     } else {
         Modifier
     }
@@ -152,7 +162,8 @@ internal fun HostMessages(
     ) {
         Row(
             Modifier
-                .clip(style.shape)
+                .then(lift)
+                .clip(shape)
                 .background(style.container)
                 .then(outline)
                 .padding(
