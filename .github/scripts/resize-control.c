@@ -7,8 +7,9 @@
  * over its client area, and on the child a copy-model swapchain (DXGI_SWAP_EFFECT_SEQUENTIAL,
  * one buffer, DXGI_SCALING_STRETCH). On WM_SIZE it refits the swapchain to the new client
  * size, draws, presents, fits the child and waits for DWM (DwmFlush), all before WM_SIZE
- * returns. The one difference: during a drag it first sleeps DXC_RESIZE_PRESENT_DELAY_MS
- * milliseconds (50 when not set), so every new size's picture is that much late.
+ * returns. The one difference: once it is on screen, every WM_SIZE first sleeps
+ * DXC_RESIZE_PRESENT_DELAY_MS milliseconds (50 when not set), so every new size's picture is
+ * that much late: in a drag, and on maximise, restore and a size set from outside alike.
  *
  * Where Windows shows the window at its new size before its picture is there, that lateness
  * is on screen (an unpainted strip at the right, the old picture stretched or in the wrong
@@ -17,9 +18,11 @@
  * for any window on that machine says nothing about how promptly that window draws: the
  * probe cannot tell late from prompt there.
  *
- * What it draws is made for the probe's stale check: a light grey field with a dark 2 px line
- * every 24 px from the left, and a blue band along the right edge. A picture drawn for one
- * width and shown at another moves the lines.
+ * What it draws is the marker scene hand-check draws with DXC_RESIZE_MARKER=1, in pixels: a
+ * light grey field, a 2 px green column down the left and right edges and a 2 px green row
+ * along the bottom edge, and a dark 2 px line every 24 px from the left. The probe finds the
+ * markers against the window's border (a gap is an area not drawn), and a picture drawn for
+ * one width and shown at another moves the lines.
  *
  * It opens at the primary monitor's work area's top left, 640x480 pixels, as hand-check does
  * with DXC_REAL_DRAG=external, and closes itself after --seconds (default 300) or when closed.
@@ -58,7 +61,7 @@
 #define SURFACE_CLASS L"ResizeControlSurface"
 #define RULER_STEP 24
 #define RULER_WIDTH 2
-#define BAND_WIDTH 8
+#define MARKER_WIDTH 2
 #define MAX_LINES 512
 
 static HWND window;
@@ -70,6 +73,7 @@ static IDXGISwapChain1 *swapchain;
 static int buffer_width, buffer_height;
 static int delay_ms = 50;
 static int sizing;
+static int ready;
 static long steps;
 static LARGE_INTEGER frequency;
 
@@ -99,12 +103,12 @@ static int draw(int width, int height) {
     if (FAILED(made)) return 0;
     const float field[4] = {0.88f, 0.88f, 0.88f, 1.0f};
     const float line[4] = {0.25f, 0.25f, 0.25f, 1.0f};
-    const float band[4] = {0.10f, 0.35f, 0.80f, 1.0f};
+    const float marker[4] = {0.0f, 1.0f, 0.0f, 1.0f};
     ID3D11DeviceContext_ClearRenderTargetView(context, target, field);
     if (context1 != NULL) {
         D3D11_RECT lines[MAX_LINES];
         UINT count = 0;
-        for (int x = RULER_STEP; x + RULER_WIDTH <= width - BAND_WIDTH - 4 && count < MAX_LINES; x += RULER_STEP) {
+        for (int x = RULER_STEP; x + RULER_WIDTH <= width - MARKER_WIDTH && count < MAX_LINES; x += RULER_STEP) {
             lines[count].left = x;
             lines[count].top = 0;
             lines[count].right = x + RULER_WIDTH;
@@ -112,12 +116,20 @@ static int draw(int width, int height) {
             count++;
         }
         if (count > 0) ID3D11DeviceContext1_ClearView(context1, (ID3D11View *)target, line, lines, count);
-        D3D11_RECT edge;
-        edge.left = width > BAND_WIDTH ? width - BAND_WIDTH : 0;
-        edge.top = 0;
-        edge.right = width;
-        edge.bottom = height;
-        ID3D11DeviceContext1_ClearView(context1, (ID3D11View *)target, band, &edge, 1);
+        D3D11_RECT edges[3];
+        edges[0].left = 0;
+        edges[0].top = 0;
+        edges[0].right = width < MARKER_WIDTH ? width : MARKER_WIDTH;
+        edges[0].bottom = height;
+        edges[1].left = width > MARKER_WIDTH ? width - MARKER_WIDTH : 0;
+        edges[1].top = 0;
+        edges[1].right = width;
+        edges[1].bottom = height;
+        edges[2].left = 0;
+        edges[2].top = height > MARKER_WIDTH ? height - MARKER_WIDTH : 0;
+        edges[2].right = width;
+        edges[2].bottom = height;
+        ID3D11DeviceContext1_ClearView(context1, (ID3D11View *)target, marker, edges, 3);
     }
     ID3D11RenderTargetView_Release(target);
     HRESULT shown = IDXGISwapChain1_Present(swapchain, 0, 0);
@@ -152,7 +164,7 @@ static LRESULT CALLBACK control_proc(HWND hwnd, UINT message, WPARAM wparam, LPA
             int width = (int)LOWORD(lparam);
             int height = (int)HIWORD(lparam);
             long long asked = now_qpc();
-            int late = sizing && delay_ms > 0;
+            int late = ready && delay_ms > 0;
             if (late) Sleep((DWORD)delay_ms);
             int drawn = draw(width, height);
             long long presented = now_qpc();
@@ -160,7 +172,7 @@ static LRESULT CALLBACK control_proc(HWND hwnd, UINT message, WPARAM wparam, LPA
                 SetWindowPos(surface, NULL, 0, 0, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
             }
             DwmFlush();
-            if (sizing) {
+            if (ready) {
                 steps++;
                 fprintf(stderr, "resize-control: step n=%ld %dx%d qpc_size=%lld qpc_present=%lld late_ms=%.1f drawn=%d\n",
                         steps, width, height, asked, presented,
@@ -299,7 +311,8 @@ int main(int argc, char **argv) {
     if (seconds > 0) SetTimer(window, 1, (UINT)seconds * 1000u, NULL);
     RECT outer;
     GetWindowRect(window, &outer);
-    fprintf(stderr, "resize-control: ready at %ld,%ld %ldx%ld px, dpi %u, frames late by %d ms during a drag\n",
+    ready = 1;
+    fprintf(stderr, "resize-control: ready at %ld,%ld %ldx%ld px, dpi %u, frames late by %d ms on every size change\n",
             outer.left, outer.top, outer.right - outer.left, outer.bottom - outer.top, GetDpiForWindow(window), delay_ms);
 
     MSG message;
