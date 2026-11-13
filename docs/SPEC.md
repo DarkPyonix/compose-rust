@@ -1689,6 +1689,11 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. 시트 위에 열린 `Dialog`에서 Esc는 `Dialog`의 `OnDismiss`만 한 번 보내고 시트의 것은 보내지 않습니다(`fr21_escape_goes_to_the_topmost_overlay`).
 6. 닫히면 포커스가 오버레이를 연 컨트롤로 돌아갑니다(`fr21_escape_returns_focus_to_the_opener`).
 
+**Android의 뒤로 가기**(이슈 #559, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). Android의 뒤로 가기(시스템 Back 제스처와 버튼)는 Escape와 같은 규칙을 따릅니다. 맨 위의 열린 `Dialog`, `Sheet`, `Popover` 하나에 `OnDismiss`를 한 번 보내고, `Open`은 Host가 바꿉니다. 열린 오버레이가 없으면 Back은 지금처럼 앱(또는 탐색)에 갑니다. IME 조합 중이면 먼저 조합을 끝내는 것도 Escape와 같습니다.
+
+- 열린 Sheet 위에 Dialog가 있을 때 Back 한 번은 Dialog에만 `OnDismiss`를 보내고, 두 번째 Back은 Sheet에 보냅니다(fr21_android_back_dismisses_the_topmost_overlay_once).
+- 열린 오버레이가 없으면 Back이 소비되지 않습니다(fr21_android_back_without_overlay_passes_through).
+
 #### 21.4 일시 메시지는 노드가 아닙니다
 
 Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모델링해야 합니다.** "지금부터 4초 동안 열림"이라는 상태를 Rust가 들고, 4초 뒤에 워커가 신호를 보내 프레임을 돌려서 노드를 지워야 합니다. 4초짜리 애니메이션을 위해 VirtualDom이 도는 셈이고, D5가 스크롤 위치와 IME 조합을 Renderer에 둔 것과 정확히 같은 이유로 틀렸습니다.
@@ -2206,21 +2211,21 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 
 1. 동작 다섯 개를 단 막대를 좁은 폭으로 그리면 마지막에 선언한 동작들이 막대에 없고 넘침
    버튼이 있으며, 넘침 버튼을 누르면 그 동작들이 선언 순서대로 메뉴에 나옵니다. 막대에 남은
-   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다(시험 이름
-   fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu, 미구현).
+   동작은 모두 막대 안에 온전히 그려지고 폭이 0인 것이 없습니다
+   (`fr30_3_at_a_narrow_width_the_last_actions_are_in_the_overflow_menu`).
 2. 메뉴의 동작을 누르면 그 노드의 `Clicked`가 그 노드의 id와 핸들러로 한 번 가고, 메뉴가
-   닫힙니다(시험 이름 fr30_3_an_overflowed_action_is_still_invokable, 미구현).
-3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다(시험 이름
-   fr30_3_nothing_overflows_when_there_is_room, 미구현).
-4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다(시험 이름
-   fr30_3_the_first_declared_actions_stay_in_the_bar_longest, 미구현).
-5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다(시험 이름
-   fr30_3_leading_content_keeps_its_place, 미구현).
-6. 넘침 버튼의 접근성 이름이 "More actions"입니다(시험 이름
-   fr30_3_the_overflow_button_has_an_accessible_name, 미구현).
+   닫힙니다(`fr30_3_an_overflowed_action_is_still_invokable`).
+3. 같은 막대를 넓은 폭으로 그리면 모든 동작이 막대에 있고 넘침 버튼이 없습니다
+   (`fr30_3_nothing_overflows_when_there_is_room`).
+4. 폭을 단계적으로 줄이면 막대에 남는 동작은 늘 선언 순서의 앞부분입니다
+   (`fr30_3_the_first_declared_actions_stay_in_the_bar_longest`).
+5. 앞쪽 내용(뒤로 버튼과 제목)은 좁은 폭에서도 막대에 그대로 있습니다
+   (`fr30_3_leading_content_keeps_its_place`).
+6. 넘침 버튼의 접근성 이름이 "More actions"입니다
+   (`fr30_3_the_overflow_button_has_an_accessible_name`).
 7. 1과 3이 창 캡션을 겸하는 막대(캡션 높이와 창 버튼 폭이 있는 창), GNOME의 가운데 제목 막대,
-   Liquid Glass의 떠 있는 막대에서도 성립합니다(시험 이름
-   fr30_3_every_bar_path_overflows_the_same_way, 미구현).
+   Liquid Glass의 떠 있는 막대에서도 성립합니다
+   (`fr30_3_every_bar_path_overflows_the_same_way`).
 
 ### FR-31 Scaffold (`Draft`)
 

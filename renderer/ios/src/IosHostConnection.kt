@@ -40,16 +40,18 @@ import dev.darkpyonix.composerust.runtime.HostConnection
  * - Foreign memory is read through `CPointer`, not `Pointer`.
  */
 class IosHostConnection : HostConnection {
-    // Reused so that steady-state event dispatch allocates nothing. The frame budget
-    // allows no allocation on the encode path, and a fresh buffer per event would be one.
-    private val eventBytes = ByteArray(EVENT_BUFFER_BYTES)
-    private val eventBuffer: ByteBuffer =
-        ByteBuffer.wrap(eventBytes).order(ByteOrder.LITTLE_ENDIAN)
+    // Pinned for each call, so it is a plain array the Host reads in place. It grows when
+    // one event is larger than it, and only that event allocates.
+    private val events = GrowingEventBuffer(
+        GrowingEventBuffer.INITIAL_BYTES,
+        GrowingEventBuffer.MAX_BYTES,
+        allocate = { bytes -> ByteArray(bytes) },
+        view = { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN) },
+    )
 
     override fun init(onMutation: (Mutation) -> Unit) {
-        eventBuffer.clear()
-        val length = Protocol.handshake(eventBuffer)
-        eventBytes.usePinned { pinned ->
+        val length = Protocol.handshake(events.cleared())
+        events.backing.usePinned { pinned ->
             memScoped {
                 val batch = allocArray<ByteVar>(BATCH_BYTES)
                 checkStatus(
@@ -62,10 +64,9 @@ class IosHostConnection : HostConnection {
     }
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
-        eventBuffer.clear()
-        val length = Protocol.encodeEvent(event, eventBuffer)
+        val length = events.encode(event)
         var result = 0L
-        eventBytes.usePinned { pinned ->
+        events.backing.usePinned { pinned ->
             memScoped {
                 val batch = allocArray<ByteVar>(BATCH_BYTES)
                 checkStatus(
@@ -124,7 +125,6 @@ class IosHostConnection : HostConnection {
         const val BATCH_BYTES = 24
         const val LENGTH_OFFSET = 8L
         const val RESULT_OFFSET = 16L
-        const val EVENT_BUFFER_BYTES = 4096
     }
 }
 

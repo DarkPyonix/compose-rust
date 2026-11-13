@@ -47,6 +47,26 @@ On macOS, iOS, Linux and Windows the values are files under the platform's data 
 
 A node that does not call `on_pointer` carries no pointer input, as before.
 
+### Continuous corners with `Modifier.corner_curve`
+
+`Modifier.corner_curve(smoothing)` draws a node's rounded corners with continuous curvature, the way Figma's corner smoothing does: 0 is the plain circular arc, 1 the longest curve, and 0.6 the look of iOS. The radius still comes from `corner_radius`, `corner_radii` or `shape_role`, and the background, border, shadow, clip and press feedback all follow the same outline, in every design system. A value outside 0..=1 is drawn as the nearer end ([#294](https://github.com/DarkPyonix/compose-rust/issues/294)). It is a new modifier, `CornerCurve` (wire tag 35), so the schema hash changes and a renderer and a crate from before this change no longer agree.
+
+### `Popover`: a floating box of any content on an anchor
+
+`Popover(open).anchor(..).content(..)` attaches a floating box to its anchor. `placement`
+names the side it opens on (`Bottom` unless said), `align` the edge it lines up with
+(`Start` unless said), and `offset` the gap in dp. The renderer keeps the box inside the
+window: it opens on the opposite side when the asked-for one has no room, and slides along
+the edge when it would reach past the window. `open` is the application's. A press outside
+the box or Escape calls `on_dismiss` once and closes nothing. The schema hash changes, so
+the renderer and the crate have to be built from the same version.
+
+### `CodeEditor` type, gutter, colours, row height and pixel scroll
+
+A `CodeEditor` node takes the `FontSize`, `LineHeight`, `TypeRole` and `Font` properties, and its line numbers are set in the same size as the code. Without them it is drawn in the design system's `Mono` role as before. Four properties space the gutter: `LineNumbers` (a boolean, 178), `GutterMinWidthDp` (179), `GutterPaddingDp` (180) and `TextInsetDp` (181). `CodeEditorColors` (182) is one 12 byte record of `ColorRole`s for the container, the gutter, a line number, the current line's number and the current line, built with `compose_rust::CodeEditorColors`; a slot left at zero keeps the design system's colour.
+
+The editor reports the height of a row in physical pixels with `CodeMetrics` (event 54, handler property `OnCodeMetrics` 183) when it is first drawn and when the height changes, and its scroll offset with `CodeScrolled` (event 55, handler property `OnCodeScrolled` 184) at most once a frame. `Batch::set_scroll_offset(node_id, offset_px)` (the `SetScrollOffset` command, tag 30) scrolls an editor to an offset in the same pixels, so two editors side by side can be kept level ([#544](https://github.com/DarkPyonix/compose-rust/issues/544)). The schema hash changes, so the Host and the Renderer must be built from the same version.
+
 ## v0.0.7
 
 ### Native file open and save dialogs
