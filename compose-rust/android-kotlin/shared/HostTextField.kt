@@ -249,7 +249,9 @@ internal fun HostTextField(
         // guard that keeps Enter away from Rust during a Korean composition.
         .onPreviewKeyEvent { event ->
             val composingNow = value.composition != null
-            if (composingNow && event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+            if (composingNow && event.type == KeyEventType.KeyDown &&
+                (event.key == Key.Escape || event.key == Key.Back)
+            ) {
                 applyValueChange(value.copy(composition = null))
                 true
             } else {
