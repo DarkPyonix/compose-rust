@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Grouped edits for the code editor
+
+`Batch::edit_group(node_id, request_id, base_version, &[(CodeRange, &str)])` sends several edits to a code editor as one `EditCodeGroup` command (tag 28). Every range is in the document at `base_version`, in any order, and they must not overlap. The editor applies all of them or none: it moves the ranges past what the reader typed since, applies them from the end of the document backwards with one `CodeChanged` per edit, and makes the group one undo step. It then answers with exactly one `CodeEditGroupResult` (event 51, handler property `OnEditGroupResult` 194): `Applied`, `Rejected` where the reader changed a place the group would write, `TooOld` where the version is older than the editor remembers, or `Invalid` where the group makes no sense. `EditGroupResult::from_payload` reads it. A record that cannot be read is a protocol error, followed by `Invalid` when its request can be read. An empty group writes nothing. The schema hash changes.
+
 ### Text with no type role reaches the Renderer
 
 `Text`, `TextField` and `Button` with `.type_role(TypeRole::None)` now send the role tag 0, so text that names its own fonts is set in them. `TypeRole::None` is tag 0, which a design property at its neutral value never sent, so such text arrived with no role at all, was drawn in the default role's font, and the Renderer reported its fonts as ignored. A role that is never set is still not sent, and a role that is cleared now removes the property instead of sending 0, so the text goes back to the default role rather than to no role. The minimal sample's serif letters were drawn in the theme's sans this way, and the report they caused failed the web page check ([#569](https://github.com/DarkPyonix/compose-rust/issues/569)).

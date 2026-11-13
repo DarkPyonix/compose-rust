@@ -145,6 +145,7 @@ class ProtocolVectorsTest {
                 is Mutation.SetFolded -> mutation.nodeId !in created
                 is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 is Mutation.QueryPositionRect -> mutation.nodeId !in created
+                is Mutation.EditCodeGroup -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -1006,6 +1007,10 @@ class ProtocolVectorsTest {
                 dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
                 dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
             ),
+            // What became of the grouped edit in the mutation vector: both edits went in.
+            1623 to HostEvent.CodeEditGroupResult(
+                12, 32L, 8, dev.darkpyonix.composerust.protocol.EditGroupStatus.Applied, 1, 3, 2,
+            ),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -1014,7 +1019,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1623, bytes.size)
+        assertEquals(1659, bytes.size)
     }
 
     /**
@@ -1029,7 +1034,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1623, bytes.size)
+        assertEquals(1659, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1084,6 +1089,22 @@ class ProtocolVectorsTest {
         )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
+        // The grouped edit: its head, then its two edits back to front as the Rust side
+        // listed them, the emoji replaced by another surrogate pair.
+        val group = mutations.filterIsInstance<Mutation.EditCodeGroup>().single()
+        assertEquals(listOf(12, 8, 1), listOf(group.nodeId, group.requestId, group.baseVersion))
+        assertEquals(null, group.malformed)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(1, 17, 1, 19, "\uD83C\uDF89"),
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(0, 0, 0, 2, "pub fn"),
+            ),
+            CodeEditorRecords.decodeEditGroup(group.edits, errors::add),
+        )
+        assertEquals(
+            PropertyValue.Integer(32L),
+            props.single { it.property == PropertyKind.OnEditGroupResult }.value,
+        )
         assertEquals(
             listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
             CodeEditorRecords.decodeFolds(
