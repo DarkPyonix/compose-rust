@@ -4120,6 +4120,8 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 **메뉴의 키보드**(이슈 #504, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Menu`가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 자손 사이를 돌고(끝에서 처음으로 돌아갑니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus).
 
+**닫힌 선택 필드 목록의 키보드**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 닫힌 선택 필드(`Dropdown`)가 여는 선택지 목록도 위의 메뉴 키보드 규칙을 그대로 따릅니다. 열리면 지금 고른 선택지에, 없으면 첫 선택지에 포커스가 있고, 위와 아래가 돌고, Home과 End가 처음과 끝으로 가고, Enter와 Space가 고르고, Escape가 닫고 포커스를 필드로 돌려줍니다. 수용 기준: 셋째 선택지가 골라진 필드를 열면 셋째에 포커스가 있고, 위 키 한 번과 Enter로 둘째가 골라져 그 값의 `ValueChanged`가 한 번 갑니다(fr64_dropdown_arrow_keys_move_focus).
+
 ### FR-66 Button이 행이 되는 방법: 왼쪽 정렬 라벨, 글자 크기, 내용 슬롯 (`Agreed`, 이슈 #425)
 
 요청한 쪽: darkpyonix-ember(목업 `style.css`의 `.nav`: 높이 38px, 가로 여백 `--sp3`, 라벨과 아이콘과 개수가 한 줄, 개수는 오른쪽 끝). 목록 행, 내비게이션 행, 트리 행은 눌리는 면 전체가 컨트롤이어야 합니다. 지금은 `Button(text)`가 라벨을 가운데에 놓고 자기 글자 크기를 정해서, 앱이 Button 위에 칠한 행과 클릭 영역을 따로 얹어야 합니다.
