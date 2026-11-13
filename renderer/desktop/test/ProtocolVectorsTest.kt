@@ -10,7 +10,10 @@ import java.nio.ByteOrder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import dev.darkpyonix.composerust.protocol.FileDelivery
 import dev.darkpyonix.composerust.protocol.FileDialogKind
+import dev.darkpyonix.composerust.protocol.FileOp
+import dev.darkpyonix.composerust.protocol.IoStatus
 import dev.darkpyonix.composerust.protocol.FileDialogStatus
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.ProtocolException
@@ -30,6 +33,9 @@ import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.BatchBytes
+import dev.darkpyonix.composerust.protocol.IoStatus
+import dev.darkpyonix.composerust.protocol.StorageOp
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -122,6 +128,11 @@ class ProtocolVectorsTest {
                 // The clipboard is the platform's, not a node's.
                 is Mutation.SetClipboardText -> false
                 is Mutation.ReadClipboard -> false
+                // A file operation names a handle, not a node, and is answered, not reported.
+                is Mutation.FileCall -> false
+                is Mutation.ReleaseFileHandle -> false
+                // Storage is the application's, not a node's.
+                is Mutation.StorageCall -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -272,6 +283,76 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The storage request and both events, read from and encoded to the bytes the Host
+     * wrote: a request, an operation and three references; two words and a reference to the
+     * bytes; and one string reference.
+     */
+    @Test
+    fun fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
+        val value = "1\t0\t할 일\u0000".encodeToByteArray()
+        assertEquals(
+            listOf(
+                Mutation.StorageCall(
+                    request = 11,
+                    op = StorageOp.Write,
+                    store = "dev.darkpyonix.composerust.samples.todo",
+                    key = "tasks.tsv",
+                    data = BatchBytes.of(value),
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.StorageCall>(),
+        )
+
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(256)
+        val answer = HostEvent.IoAnswer(
+            nodeId = 0,
+            handlerId = 0,
+            request = 11,
+            status = IoStatus.Ok,
+            data = byteArrayOf(0xea.toByte(), 0xb0.toByte(), 0x92.toByte(), 0, 0xff.toByte()),
+        )
+        val answerLength = Protocol.encodeEvent(answer, out)
+        assertEquals(37, answerLength)
+        assertEquals(bytes.copyOfRange(1093, 1093 + 37).toList(), out.array().copyOf(answerLength).toList())
+        assertTrue("length=5" in answer.toString(), "the answer prints its length, not its bytes")
+
+        out.clear()
+        val locationLength = Protocol.encodeEvent(
+            HostEvent.StorageLocation(
+                nodeId = 0,
+                handlerId = 0,
+                text = "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
+            ),
+            out,
+        )
+        assertEquals(82, locationLength)
+        assertEquals(bytes.copyOfRange(1237, 1237 + 82).toList(), out.array().copyOf(locationLength).toList())
+
+        // An operation this side does not know is a record the two sides disagree on, which
+        // the decoder refuses instead of guessing.
+        val batch = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        val recordsLength = view.getInt(4)
+        var offset = 12
+        var patched = false
+        while (offset < recordsLength) {
+            val tag = view.getShort(offset).toInt()
+            val length = view.getShort(offset + 2).toInt()
+            if (tag == 32) {
+                view.putShort(offset + 8, 9.toShort())
+                patched = true
+            }
+            offset += length
+        }
+        assertTrue(patched, "the vector holds a storage request")
+        val failure = runCatching {
+            Protocol.decode(ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)) { }
+        }.exceptionOrNull()
+        assertTrue(failure is ProtocolException, "an unknown operation is a protocol error, got $failure")
+    }
+
+    /**
      * The file dialog request and its result, read from and encoded to the bytes the Host
      * wrote: four string references, a kind and a default filter, and three words and a
      * string reference.
@@ -342,6 +423,80 @@ class ProtocolVectorsTest {
     fun fr50_corner_curve_round_trips() {
         val last = decodeVector("mutations.bin").last()
         assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+    }
+
+    /**
+     * The web's file records: the operation and the release in the batch decode to what the
+     * Host wrote, and the two answers encode to the bytes the Host decodes. An operation this
+     * side does not know is refused, never guessed at.
+     */
+    @Test
+    fun fr72_web_file_records_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(
+                Mutation.FileCall(
+                    request = 0x8000_0011.toInt(),
+                    op = FileOp.Write,
+                    create = false,
+                    handle = 3,
+                    name = "",
+                    data = byteArrayOf(0x00, 0xff.toByte(), 0x7f, 0x80.toByte()),
+                ),
+                Mutation.FileCall(
+                    request = 0x8000_0012.toInt(),
+                    op = FileOp.Child,
+                    create = true,
+                    handle = 4,
+                    name = "새 문서.txt",
+                    data = ByteArray(0),
+                ),
+            ),
+            mutations.filterIsInstance<Mutation.FileCall>(),
+        )
+        assertEquals(listOf(Mutation.ReleaseFileHandle(3)), mutations.filterIsInstance<Mutation.ReleaseFileHandle>())
+
+        val events = vectorFile("events.bin").readBytes()
+        fun encoded(event: HostEvent): ByteArray {
+            val out = ByteBuffer.allocate(256)
+            val length = Protocol.encodeEvent(event, out)
+            return out.array().copyOf(length)
+        }
+        val answer = encoded(
+            HostEvent.IoAnswer(0, 0, 0x8000_0011.toInt(), IoStatus.Ok, byteArrayOf(0x00, 0xff.toByte(), 0x7f, 0x80.toByte())),
+        )
+        assertEquals(36, answer.size)
+        assertEquals(events.copyOfRange(1130, 1130 + 36).toList(), answer.toList())
+        val handles = encoded(
+            HostEvent.FileHandles(0, 0, 7, FileDialogStatus.Chosen, 1, FileDelivery.Handle, 3, "문서.txt\u0000사진", "fd"),
+        )
+        assertEquals(71, handles.size)
+        assertEquals(events.copyOfRange(1166, 1166 + 71).toList(), handles.toList())
+
+        // An operation outside the four, and a create flag that is neither 0 nor 1.
+        for ((at, values) in listOf(8 to listOf(0, 5, 9), 10 to listOf(2, 7))) {
+            val bytes = vectorFile("mutations.bin").readBytes()
+            val view = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            val recordsLength = view.getInt(4)
+            var offset = 12
+            var patched = false
+            while (offset < recordsLength) {
+                val tag = view.getShort(offset).toInt()
+                val length = view.getShort(offset + 2).toInt()
+                if (tag == 33 && !patched) {
+                    for (value in values) {
+                        view.putShort(offset + at, value.toShort())
+                        val failure = runCatching {
+                            Protocol.decode(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)) { }
+                        }.exceptionOrNull()
+                        assertTrue(failure is ProtocolException, "$value at $at decoded instead of being refused: $failure")
+                    }
+                    patched = true
+                }
+                offset += length
+            }
+            assertTrue(patched, "the vector carries a file operation")
+        }
     }
 
     @Test
@@ -705,8 +860,8 @@ class ProtocolVectorsTest {
             707 to HostEvent.FoldChanged(12, 26L, 0, true),
             731 to HostEvent.CompositionChanged(12, 27L, true),
             // The row height and the scroll offset, after everything that was here before.
-            1093 to HostEvent.CodeMetrics(12, 28L, 40.0),
-            1117 to HostEvent.CodeScrolled(12, 29L, 1234.5),
+            1319 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1343 to HostEvent.CodeScrolled(12, 29L, 1234.5),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -715,7 +870,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1141, bytes.size)
+        assertEquals(1367, bytes.size)
     }
 
     /**

@@ -288,16 +288,20 @@ pub fn app() {
         // The three filters are three destinations; the Renderer decides whether they
         // are a bar, a rail or a drawer.
         .bottom_bar(|| {
-            Navigation(current_filter.index()).content(|| {
-                for choice in Filter::STRIP {
-                    let pick = filter;
-                    key(choice.label(), || {
-                        NavigationItem(choice.label())
-                            .icon(choice.icon())
-                            .on_click(move || pick.set(choice));
-                    });
-                }
-            });
+            // The reference has no bar in a narrow window: the list of lists is a screen of
+            // its own, reached from a button floating over the page.
+            Navigation(current_filter.index())
+                .compact(CompactNavigation::None)
+                .content(|| {
+                    for choice in Filter::STRIP {
+                        let pick = filter;
+                        key(choice.label(), || {
+                            NavigationItem(choice.label())
+                                .icon(choice.icon())
+                                .on_click(move || pick.set(choice));
+                        });
+                    }
+                });
         })
         .top_bar(|| {
             list_bar(measure, total - remaining, total, || {
@@ -608,6 +612,8 @@ pub fn launch() {
 /// How this sample is configured, in one place because three entry points need it.
 fn launch_builder() -> LaunchBuilder {
     LaunchBuilder::new()
+        // The same as [bundle] identifier in Dioxus.toml. It names the storage.
+        .identifier("dev.darkpyonix.composerust.samples.todo")
         .with_theme(compose_rust::demo_theme())
         .with_window(
             compose_rust::schema::Window::new()
@@ -1435,5 +1441,42 @@ mod tests {
                 "the window at {start} created {created} widgets where the first created {first}"
             );
         }
+    }
+
+    /// A compact window gets no bottom bar and no toggle, as in the task list references, on
+    /// every design system: the screen chooses it once and never reads the width.
+    #[test]
+    fn fr22_3_6_todo_chooses_no_bar_in_a_compact_window() {
+        saved_list();
+        let mut host = ComposeHost::new(app);
+        let batch = host.rebuild().expect("the first frame encodes").to_vec();
+        let mutations = decode_batch(&batch).expect("the first frame decodes");
+        let navigations: Vec<u32> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::Create {
+                    node_id,
+                    widget: WidgetKind::Navigation,
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(navigations.len(), 1);
+        let chosen: Vec<i64> = mutations
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::CompactNavigation,
+                    value: PropertyValue::Integer(tag),
+                } if *node_id == navigations[0] => Some(*tag),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            chosen,
+            vec![i64::from(u16::from(CompactNavigation::None))],
+            "the destinations do not choose what a compact window gets"
+        );
     }
 }
