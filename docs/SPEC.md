@@ -160,6 +160,8 @@ Host 측 규칙:
 1. 새 키마다 태그가 위 값이고 인코딩 후 디코딩해도 같습니다(fr12_named_keys_are_appended_and_round_trip).
 2. Renderer가 Compose의 해당 키를 각 이름으로 보냅니다(fr12_named_keys_map_to_their_protocol_key).
 
+**기능 키와 메뉴 키**(이슈 #717, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Key`에 `F1`부터 `F12`(15부터 26)와 `ContextMenu`(27)를 덧붙입니다(추가 전용). Renderer는 Compose의 해당 키를 그 이름으로 보냅니다. Shift+F10은 Shift 수정자를 가진 `F10`입니다. 수용 기준: F2, F12, Shift+F10, Menu 키가 각각 그 이름과 수정자로 옵니다(fr12_function_and_context_menu_keys).
+
 ### FR-10 Modifier 값 모델 (`Done`)
 Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidth, Background(argb), Clickable(handler_id)]`. Renderer는 이를 `Modifier` 체인으로 재구성합니다.
 - 수용 기준: 스키마의 모든 Modifier 변형이 인코딩 후 디코딩해도 같습니다(`fr10_every_modifier_variant_in_the_vector_round_trips`). **(통과)**

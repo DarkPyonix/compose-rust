@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,6 +33,8 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.platform.composeKey
+import dev.darkpyonix.composerust.ui.platform.win32ComposeKey
 
 private const val FIELD = 1
 private const val KEY_HANDLER = 41L
@@ -484,6 +487,61 @@ class KeyEventTest {
         )
         for ((key, expected) in named) assertEquals(expected, protocolKey(key), "$key")
         assertEquals(ProtocolKey.Enter, protocolKey(Key.NumPadEnter))
-        assertEquals(ProtocolKey.Other, protocolKey(Key.F5))
+        assertEquals(ProtocolKey.Other, protocolKey(Key.Insert))
+    }
+
+    /**
+     * F1 to F12 and the context-menu key have their own name, and Shift+F10, the other way
+     * to open a context menu, is F10 with Shift held. Each arrives with its HID usage and
+     * DOM key string, and the platform key numbers of the AppKit and Win32 windows reach
+     * the same Compose keys.
+     */
+    @Test
+    fun fr12_function_and_context_menu_keys() = runComposeUiTest {
+        val functions = listOf(
+            Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6, Key.F7, Key.F8, Key.F9, Key.F10,
+            Key.F11, Key.F12,
+        )
+        val protocolFunctions = listOf(
+            ProtocolKey.F1, ProtocolKey.F2, ProtocolKey.F3, ProtocolKey.F4, ProtocolKey.F5,
+            ProtocolKey.F6, ProtocolKey.F7, ProtocolKey.F8, ProtocolKey.F9, ProtocolKey.F10,
+            ProtocolKey.F11, ProtocolKey.F12,
+        )
+        for ((key, expected) in functions.zip(protocolFunctions)) {
+            assertEquals(expected, protocolKey(key), "$key")
+        }
+        assertEquals(ProtocolKey.ContextMenu, protocolKey(Key.Menu))
+        // The JVM shell's AWT window reports the menu key as VK_CONTEXT_MENU.
+        assertEquals(ProtocolKey.ContextMenu, protocolKey(Key((1L shl 32) or 525L)))
+
+        val appKit = listOf(0x7A, 0x78, 0x63, 0x76, 0x60, 0x61, 0x62, 0x64, 0x65, 0x6D, 0x67, 0x6F)
+        assertEquals(functions, appKit.map { composeKey(it) })
+        assertEquals(Key.Menu, composeKey(0x6E))
+        assertEquals(functions, (0x70..0x7B).map { win32ComposeKey(it) })
+        assertEquals(Key.Menu, win32ComposeKey(0x5D))
+
+        val connection = FakeHostConnection(keyField())
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            pressKey(Key.F2)
+            pressKey(Key.F12)
+            withKeyDown(Key.ShiftLeft) { pressKey(Key.F10) }
+            pressKey(Key.Menu)
+        }
+        waitForIdle()
+
+        val events = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
+            .filter { it.key != ProtocolKey.Other }
+        assertEquals(
+            listOf(
+                Triple(ProtocolKey.F2, false, 0x3B to "F2"),
+                Triple(ProtocolKey.F12, false, 0x45 to "F12"),
+                Triple(ProtocolKey.F10, true, 0x43 to "F10"),
+                Triple(ProtocolKey.ContextMenu, false, 0x65 to "ContextMenu"),
+            ),
+            events.map { Triple(it.key, it.shiftKey, it.code to it.text) },
+        )
     }
 }
