@@ -1,4 +1,5 @@
-//! Switch, Slider and Checkbox take colours and a size, and send them only when asked.
+//! Switch, Slider, Checkbox and RadioButton take colours and a size, and send them only when
+//! asked. A Column or a Row can be a radio group.
 
 mod support;
 
@@ -163,5 +164,96 @@ fn fr67_dropping_a_colour_or_size_sends_a_removal() {
         removed,
         ["CheckColor", "ControlSize", "ControlSize", "TrackColor"],
         "{removed:?}"
+    );
+}
+
+#[Composable]
+fn Radios() {
+    Column().radio_group(true).content(|| {
+        RadioButton(true)
+            .size(18.0)
+            .ring_color(INK)
+            .dot_color(SURFACE);
+        RadioButton(false);
+    });
+    Row().content(|| {
+        RadioButton(false);
+    });
+}
+
+#[test]
+fn fr67_the_radio_button_sends_its_ring_dot_and_side() {
+    let dump = start(Radios).dump();
+    let styled = line(&dump, "RadioButton");
+    // The ring is the container slot and the dot the check slot, as on a Checkbox.
+    for name in ["ContainerColor", "CheckColor", "ControlSize"] {
+        assert!(styled.contains(name), "{styled}");
+    }
+    let plain: Vec<_> = dump
+        .lines()
+        .filter(|line| line.trim_start().starts_with("RadioButton"))
+        .skip(1)
+        .collect();
+    assert_eq!(plain.len(), 2, "{dump}");
+    for line in plain {
+        for name in ["ContainerColor", "CheckColor", "ControlSize"] {
+            assert!(!line.contains(name), "{line}");
+        }
+    }
+}
+
+#[test]
+fn fr67_radio_group_is_sent_only_for_a_group() {
+    let dump = start(Radios).dump();
+    assert!(line(&dump, "Column").contains("RadioGroup"), "{dump}");
+    assert!(!line(&dump, "Row").contains("RadioGroup"), "{dump}");
+}
+
+/// The group flag and the radio button's look survive the wire: the property records come
+/// back from the encoded batch with the kinds and the values they were written with.
+#[test]
+fn fr67_radio_group_and_radio_look_round_trip() {
+    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{PropertyKind, WidgetKind};
+
+    let mut host = ComposeHost::with_content(Radios);
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    let mutations = decode_batch(&batch).expect("the batch decodes");
+    let widget_of = |id: u32| {
+        mutations.iter().find_map(|mutation| match mutation {
+            Mutation::Create { node_id, widget } if *node_id == id => Some(*widget),
+            _ => None,
+        })
+    };
+    let mut group = Vec::new();
+    let mut look = Vec::new();
+    for mutation in &mutations {
+        if let Mutation::SetProp {
+            node_id,
+            property,
+            value,
+        } = mutation
+        {
+            match property {
+                PropertyKind::RadioGroup => group.push((widget_of(*node_id), value.clone())),
+                PropertyKind::ContainerColor
+                | PropertyKind::CheckColor
+                | PropertyKind::ControlSize => look.push((widget_of(*node_id), *property)),
+                _ => {}
+            }
+        }
+    }
+    assert_eq!(
+        group,
+        [(Some(WidgetKind::Column), PropertyValue::Bool(true))]
+    );
+    assert_eq!(PropertyKind::RadioGroup as u16, 198);
+    assert_eq!(
+        look,
+        [
+            (Some(WidgetKind::RadioButton), PropertyKind::ContainerColor),
+            (Some(WidgetKind::RadioButton), PropertyKind::CheckColor),
+            (Some(WidgetKind::RadioButton), PropertyKind::ControlSize),
+        ]
     );
 }
