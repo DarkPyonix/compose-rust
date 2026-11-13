@@ -429,31 +429,55 @@ fn page_bar(showing: Page, measure: Option<f32>, turn: impl Fn() + 'static) {
                 .modifier(Modifier.weight(1.0))
                 .alignment(Alignment::Center)
                 .content(|| {
-                    Row()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none())
-                                .padding_role_if(measure.map(|_| SpaceRole::Md)),
-                        )
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            Text(showing.title())
-                                .type_role(TypeRole::Headline)
-                                .font_weight(700)
-                                .color(palette::INK)
-                                .modifier(Modifier.weight(1.0));
-                            drawn_button(
-                                CHEVRON + 16.0,
-                                None,
-                                charts::chevron_down(CHEVRON, palette::INK),
-                                CHEVRON,
-                                showing.turn_label(),
-                                turn,
-                            );
-                        });
+                    bar_row(measure, || {
+                        Text(showing.title())
+                            .type_role(TypeRole::Headline)
+                            .font_weight(700)
+                            .color(palette::INK)
+                            .modifier(Modifier.weight(1.0));
+                        drawn_button(
+                            CHEVRON + 16.0,
+                            None,
+                            charts::chevron_down(CHEVRON, palette::INK),
+                            CHEVRON,
+                            showing.turn_label(),
+                            turn,
+                        );
+                    });
                 });
+        });
+}
+
+/// The bar's row, held to the page's measure on a window with room.
+///
+/// The inset that keeps the title off the measure's edge is horizontal only. The bar is
+/// as tall as the window's caption and centres its row, so an inset above and below
+/// made the row taller than the caption and pushed the title below the window buttons.
+/// A Modifier inset is the same on every side, so the inset is the row's own spacing
+/// instead: an empty Spacer at each end, one spacing step from what lies between them.
+/// The step is the design system's, not a number in dp.
+#[Composable]
+fn bar_row(measure: Option<f32>, content: impl FnOnce()) {
+    Row()
+        .modifier(
+            Modifier
+                .width_if(measure)
+                .fill_max_width_if(measure.is_none()),
+        )
+        .space_role(if measure.is_some() {
+            SpaceRole::Md
+        } else {
+            SpaceRole::None
+        })
+        .alignment(Alignment::CenterStart)
+        .content(|| {
+            Spacer();
+            Row()
+                .modifier(Modifier.weight(1.0))
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(content);
+            Spacer();
         });
 }
 
@@ -919,6 +943,192 @@ mod tests {
                 "the bar over the costs page is not sage at {width} dp"
             );
         }
+    }
+
+    /// The screen's tree as the Renderer holds it: each live node's kind, parent and
+    /// place among its siblings, the last value of each integer property, and what each
+    /// Modifier slot holds.
+    #[derive(Default)]
+    struct Tree {
+        widgets: std::collections::HashMap<u32, WidgetKind>,
+        parents: std::collections::HashMap<u32, (u32, u32)>,
+        integers: std::collections::HashMap<(u32, u16), i64>,
+        modifiers: std::collections::HashMap<(u32, u16), WireModifier>,
+    }
+
+    impl Tree {
+        fn of(mutations: &[Mutation<'_>]) -> Self {
+            let mut tree = Self::default();
+            for mutation in mutations {
+                match mutation {
+                    Mutation::Create { node_id, widget } => {
+                        tree.widgets.insert(*node_id, *widget);
+                    }
+                    Mutation::Insert {
+                        parent_id,
+                        node_id,
+                        index,
+                    }
+                    | Mutation::Move {
+                        parent_id,
+                        node_id,
+                        index,
+                    } => {
+                        tree.parents.insert(*node_id, (*parent_id, *index));
+                    }
+                    Mutation::SetProp {
+                        node_id,
+                        property,
+                        value: PropertyValue::Integer(value),
+                    } => {
+                        tree.integers.insert((*node_id, *property as u16), *value);
+                    }
+                    Mutation::SetModifier {
+                        node_id,
+                        index,
+                        modifier,
+                    } => {
+                        if *modifier == WireModifier::Empty {
+                            tree.modifiers.remove(&(*node_id, *index));
+                        } else {
+                            tree.modifiers.insert((*node_id, *index), modifier.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            tree
+        }
+
+        fn modifiers_of(&self, node: u32) -> Vec<&WireModifier> {
+            self.modifiers
+                .iter()
+                .filter(|((owner, _), _)| *owner == node)
+                .map(|(_, modifier)| modifier)
+                .collect()
+        }
+
+        /// The node's children, in order.
+        fn children(&self, node: u32) -> Vec<u32> {
+            let mut children: Vec<(u32, u32)> = self
+                .parents
+                .iter()
+                .filter(|(_, (parent, _))| *parent == node)
+                .map(|(child, (_, index))| (*index, *child))
+                .collect();
+            children.sort();
+            children.into_iter().map(|(_, child)| child).collect()
+        }
+
+        /// The containers from the bar's title up to the bar, the title first.
+        fn bar_title_path(&self) -> Vec<u32> {
+            let bar = *self
+                .widgets
+                .iter()
+                .find(|(_, kind)| **kind == WidgetKind::TopAppBar)
+                .expect("the screen has no bar")
+                .0;
+            let under_bar = |mut node: u32| {
+                while let Some((parent, _)) = self.parents.get(&node) {
+                    if *parent == bar {
+                        return true;
+                    }
+                    node = *parent;
+                }
+                false
+            };
+            let title = *self
+                .widgets
+                .iter()
+                .find(|(node, kind)| {
+                    **kind == WidgetKind::Text
+                        && self.integers.get(&(**node, PropertyKind::TypeRole as u16))
+                            == Some(&i64::from(u16::from(TypeRole::Headline)))
+                        && under_bar(**node)
+                })
+                .expect("the bar has no title")
+                .0;
+            let mut path = vec![title];
+            let mut current = title;
+            while current != bar {
+                current = self.parents[&current].0;
+                path.push(current);
+            }
+            path
+        }
+    }
+
+    /// Whether an inset puts anything above or below what it holds.
+    fn insets_vertically(modifier: &WireModifier) -> bool {
+        match modifier {
+            WireModifier::Padding(dp) => *dp != 0.0,
+            WireModifier::PaddingRole(role) => *role != SpaceRole::None,
+            WireModifier::PaddingEach { top, bottom, .. } => *top != 0.0 || *bottom != 0.0,
+            _ => false,
+        }
+    }
+
+    /// The bar is as tall as the window's caption and centres its row, so the title sits
+    /// on the line of the window buttons only while nothing between the bar and the title
+    /// is inset above or below. A row inset on every side grew past the caption once the
+    /// page took its measure and dropped the title below the buttons. The measured row is
+    /// still inset across, by the design system's spacing step rather than a dp, and the
+    /// way down from the bar to the title is the same at 760 and 1180 dp, so the title
+    /// stands at the same height at both.
+    #[test]
+    fn fr19_2_the_measured_bar_row_is_inset_across_and_never_above_or_below() {
+        let mut ways_down = Vec::new();
+        for width_dp in [760.0, 1180.0] {
+            let screen = Screen::at(width_dp);
+            let tree = Tree::of(&screen.live());
+            let path = tree.bar_title_path();
+            for node in &path {
+                for modifier in tree.modifiers_of(*node) {
+                    assert!(
+                        !insets_vertically(modifier),
+                        "at {width_dp} dp the bar's {:?} is inset above or below: {modifier:?}",
+                        tree.widgets.get(node)
+                    );
+                }
+            }
+            ways_down.push(
+                path.iter()
+                    .map(|node| tree.widgets.get(node).copied())
+                    .collect::<Vec<_>>(),
+            );
+
+            let measured = path
+                .iter()
+                .copied()
+                .find(|node| {
+                    tree.modifiers_of(*node)
+                        .contains(&&WireModifier::Width(PAGE_MEASURE))
+                })
+                .expect("the bar's row is not held to the page's measure");
+            assert_eq!(
+                tree.integers
+                    .get(&(measured, PropertyKind::SpaceRole as u16)),
+                Some(&i64::from(u16::from(SpaceRole::Md))),
+                "at {width_dp} dp the measured row should be inset across by the design \
+                 system's step"
+            );
+            let children = tree.children(measured);
+            assert!(
+                children.len() >= 3,
+                "at {width_dp} dp the measured row has no inset at its ends"
+            );
+            for end in [children[0], children[children.len() - 1]] {
+                assert_eq!(
+                    tree.widgets.get(&end),
+                    Some(&WidgetKind::Spacer),
+                    "each end of the measured row should be the empty step of its inset"
+                );
+            }
+        }
+        assert_eq!(
+            ways_down[0], ways_down[1],
+            "the title should hang from the bar the same way at 760 and 1180 dp"
+        );
     }
 
     /// The overview's window and bar are the page colour, so the bar is not a band of the
