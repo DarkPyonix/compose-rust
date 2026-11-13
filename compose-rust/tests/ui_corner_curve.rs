@@ -65,7 +65,7 @@ fn fr50_corner_curve_combines_with_corner_each() {
 #[test]
 fn fr50_corner_curve_change_sends_one_modifier() {
     let smoothing = mutable_state_of(0.6_f32);
-    let state = smoothing.clone();
+    let state = smoothing;
     let (mut host, mut tree) = start(move || {
         Box()
             .modifier(Modifier.corner_radius(16.0).corner_curve(state.get()))
