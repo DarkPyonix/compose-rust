@@ -641,6 +641,17 @@ sealed interface Mutation {
         val rectWidthPx: Double,
         val rectHeightPx: Double,
     ) : Mutation
+
+    /**
+     * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
+     * Answered once by a `PositionRect` event carrying [request].
+     */
+    data class QueryPositionRect(
+        val nodeId: Int,
+        val request: Int,
+        val line: Int,
+        val column: Int,
+    ) : Mutation
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -769,6 +780,15 @@ object ScrollWire {
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
             ),
+            // In the window's dp, the scroll and the zoom already in them.
+            EventPayloadType::CodeCaretRect => output.push_str(
+                ", val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
+            // `found` is false where the position is not on screen, and the rectangle is then
+            // all zero.
+            EventPayloadType::CodePositionRect => output.push_str(
+                ", val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float",
+            ),
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -845,6 +865,7 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_QUERY_POSITION_RECT = 39
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1090,6 +1111,15 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_QUERY_POSITION_RECT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.QueryPositionRect(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            request = readU32(batch, base, available, offset + 8).toInt(),
+                            line = readU32(batch, base, available, offset + 12).toInt(),
+                            column = readU32(batch, base, available, offset + 16).toInt(),
                         )
                     }
                     TAG_SET_WINDOW -> {
@@ -1395,7 +1425,10 @@ object Protocol {
                 )
                 .unwrap();
             }
-            EventPayloadType::None | EventPayloadType::ScrollChanged => {
+            EventPayloadType::None
+            | EventPayloadType::ScrollChanged
+            | EventPayloadType::CodeCaretRect
+            | EventPayloadType::CodePositionRect => {
                 writeln!(
                     output,
                     "                is HostEvent.{} -> null",
@@ -1495,6 +1528,8 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // Two words and four floats.
+            EventPayloadType::CodeCaretRect | EventPayloadType::CodePositionRect => 40,
         };
         writeln!(
             output,
@@ -1824,6 +1859,28 @@ object Protocol {
                 output.push_str("                    out.putDouble(event.maxYPx)\n");
                 output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
                 output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodeCaretRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.line)\n");
+                output.push_str("                    out.putInt(event.column)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(output, "                    out.putFloat(event.{field})").unwrap();
+                }
+                output.push_str("                }\n");
+            }
+            EventPayloadType::CodePositionRect => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.request)\n");
+                output.push_str("                    out.putInt(if (event.found) 1 else 0)\n");
+                for field in ["x", "y", "width", "height"] {
+                    writeln!(
+                        output,
+                        "                    out.putFloat(if (event.found) event.{field} else 0f)"
+                    )
+                    .unwrap();
+                }
                 output.push_str("                }\n");
             }
             EventPayloadType::FileHandles => {
@@ -3629,6 +3686,14 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // A question about where a place on the editor's second line is, after its scroll
+        // command.
+        Mutation::QueryPositionRect {
+            node_id: 12,
+            request: 17,
+            line: 1,
+            column: 8,
+        },
         // The overlay tokens with every field set to its own value, the transient
         // message's two at the end of the record, before the record that stays last.
         Mutation::SetOverlayTokens(
@@ -4036,6 +4101,25 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // The caret's rectangle and the answer to the position query in the mutation
+        // vector, each with fractions a reader of the wrong width cannot pass.
+        HostEvent {
+            node_id: 12,
+            handler_id: 30,
+            payload: EventPayload::CaretRect {
+                line: 1,
+                column: 8,
+                rect: crate::code::CodeRect::new(120.5, 64.25, 2.0, 20.0),
+            },
+        },
+        HostEvent {
+            node_id: 12,
+            handler_id: 0,
+            payload: EventPayload::PositionRect {
+                request: 17,
+                rect: Some(crate::code::CodeRect::new(88.75, 64.25, 2.0, 20.0)),
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4055,7 +4139,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 121,
+    "recordCount": 122,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4077,7 +4161,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4120,7 +4204,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "CaretRect", "offset": 1439, "length": 40, "nodeId": 12, "handlerId": 30, "line": 1, "column": 8, "x": 120.5, "y": 64.25, "width": 2.0, "height": 20.0 }},
+      {{ "type": "PositionRect", "offset": 1479, "length": 40, "nodeId": 12, "handlerId": 0, "request": 17, "found": true, "x": 88.75, "y": 64.25, "width": 2.0, "height": 20.0 }}
     ]
   }}
 }}

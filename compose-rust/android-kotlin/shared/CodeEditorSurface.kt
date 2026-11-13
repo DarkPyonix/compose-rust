@@ -26,6 +26,7 @@ import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -33,6 +34,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -41,6 +43,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -62,7 +65,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
@@ -88,6 +93,7 @@ import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -891,6 +897,91 @@ internal fun rowHeightPx(style: TextStyle, density: Density): Int = with(density
     max(1, lineHeight.toPx().roundToInt())
 }
 
+/** A rectangle in root pixels as dp of the window's content, at [density] pixels a dp. */
+internal fun Rect.toDp(density: Float): CodeRectDp =
+    CodeRectDp(left / density, top / density, width / density, height / density)
+
+/**
+ * Whether a caret rectangle in root pixels can be seen in an editor whose view is
+ * [viewport], with its text starting [textLeft] pixels in: some of the row is inside the
+ * view, and the caret is right of the gutter and not past the right edge.
+ */
+internal fun caretOnScreen(rect: Rect, viewport: LayoutCoordinates?, textLeft: Float): Boolean {
+    val view = viewport?.takeIf { it.isAttached } ?: return false
+    val origin = view.localToRoot(Offset.Zero)
+    val top = origin.y
+    val bottom = origin.y + view.size.height
+    val left = origin.x + textLeft
+    val right = origin.x + view.size.width
+    // Half a pixel either way, for a caret that stands exactly on the gutter's edge.
+    return rect.bottom > top && rect.top < bottom && rect.left >= left - 0.5f && rect.left <= right + 0.5f
+}
+
+/**
+ * Where a field surface draws a document position, for the caret report and the Host's
+ * position queries.
+ *
+ * Its fields are refreshed on every composition and read after layout, from the draw pass
+ * and from the layout callbacks, where the field's text layout and its place on screen are
+ * the ones the reader sees.
+ */
+internal class FieldPlaces(private val window: FieldWindow) {
+    /** The field itself, where its text layout's coordinates start. */
+    var field: LayoutCoordinates? = null
+
+    /** The editor's view: everything the reader can see of it. */
+    var viewport: LayoutCoordinates? = null
+    var layout: (() -> TextLayoutResult?)? = null
+    var textLeftPx = 0f
+    var density = 1f
+
+    /** The width the field draws its caret at. */
+    var caretWidthPx = 2f
+
+    /** The function the model finds positions with, the same one for as long as this lives. */
+    val locate: (CodePosition) -> CodeRectDp? = { position ->
+        caretInRoot(position)?.takeIf { caretOnScreen(it, viewport, textLeftPx) }?.toDp(density)
+    }
+
+    /**
+     * Where a caret at [position] is drawn, in root pixels, or null where the field does
+     * not hold the position: a line outside its window, or one a fold hides.
+     */
+    fun caretInRoot(position: CodePosition): Rect? {
+        val model = window.model
+        if (!model.document.isValid(position) || model.isHidden(position.line)) return null
+        val offset = window.toField(position) ?: return null
+        val result = layout?.invoke() ?: return null
+        val coordinates = field?.takeIf { it.isAttached } ?: return null
+        var shown = window.toShown(offset, asEnd = false)
+        // A suggestion shows after the caret that stands where it starts.
+        val ghost = model.ghostText
+        if (ghost != null && ghost.start == position && ghost.text.isNotEmpty()) shown -= ghost.text.length
+        val cursor = result.getCursorRect(shown.coerceIn(0, result.layoutInput.text.length))
+        return Rect(coordinates.localToRoot(Offset(cursor.left, cursor.top)), Size(caretWidthPx, cursor.height))
+    }
+
+    /**
+     * Tells the model how to find positions and where the caret is, and answers the queries
+     * that waited for the editor to be drawn. Answers whether the Host has something to hear.
+     */
+    fun report(): Boolean {
+        // Before the field and the view have both been placed, nothing found here would be
+        // where the reader sees it, and a waiting query would be answered with nothing.
+        val ready = field?.isAttached == true && viewport?.isAttached == true && layout?.invoke() != null
+        if (!ready) return false
+        val model = window.model
+        model.locator = locate
+        if (!window.caretOutside) {
+            val caret = model.selection.caret
+            caretInRoot(caret)?.let { model.reportCaretRect(CaretReport(caret, it.toDp(density))) }
+        }
+        val answered = model.hasWaitingQueries
+        if (answered) model.answerWaitingQueries()
+        return answered || model.caretUntold
+    }
+}
+
 /**
  * The two field paths. [whole] holds every line; otherwise the field holds the lines around
  * the screen and is refilled as the view scrolls.
@@ -992,6 +1083,21 @@ private fun FieldSurface(
 
     val textInsetPx = with(density) { look.textInset.roundToPx() }
 
+    // Where the caret is drawn and where a position is, read after layout. What they find
+    // is sent from a coroutine rather than from inside the pass that found it.
+    val places = remember(window) { FieldPlaces(window).also { it.layout = { layoutHolder[0]?.invoke() } } }
+    places.textLeftPx = (gutterWidthPx + textInsetPx).toFloat()
+    places.density = density.density
+    places.caretWidthPx = with(density) { 2.dp.toPx() }
+    val scope = rememberCoroutineScope()
+    val currentCallbacks by rememberUpdatedState(callbacks)
+    val reportPlaces: () -> Unit = remember(places, scope) {
+        { if (places.report()) scope.launch { currentCallbacks.onOutput() } }
+    }
+    DisposableEffect(model, places) {
+        onDispose { if (model.locator === places.locate) model.locator = null }
+    }
+
     CompositionLocalProvider(
         LocalTextSelectionColors provides TextSelectionColors(look.cursor, look.selection),
     ) {
@@ -1004,6 +1110,10 @@ private fun FieldSurface(
                 .onSizeChanged { size ->
                     viewportHeight = size.height
                     viewportWidth = size.width
+                }
+                .onGloballyPositioned { coordinates ->
+                    places.viewport = coordinates
+                    reportPlaces()
                 },
         ) {
             // The extent the offset may run to. A number, never a measured height.
@@ -1017,6 +1127,12 @@ private fun FieldSurface(
                         translate(top = -vertical.offset.toFloat()) {
                             drawCurrentLine(window, rows, rowPx, look)
                         }
+                        // Read so that typing, a move of the caret and a scroll along the
+                        // lines all draw this again, and the caret is reported from here.
+                        window.state.text
+                        window.state.selection
+                        horizontal.value
+                        reportPlaces()
                     },
             ) {
                 Box(
@@ -1083,6 +1199,10 @@ private fun FieldSurface(
                                     layout(placeable.width + textInsetPx, height) {
                                         placeable.place(textInsetPx, rows.rowTop(window.start) * rowPx - vertical.offset)
                                     }
+                                }
+                                .onGloballyPositioned { coordinates ->
+                                    places.field = coordinates
+                                    reportPlaces()
                                 }
                                 .onFocusChanged { focusState ->
                                     overlayFocusStack.noteFocused(focus, focusState.hasFocus)

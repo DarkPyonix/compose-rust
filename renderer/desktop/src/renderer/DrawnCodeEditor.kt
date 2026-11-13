@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -59,6 +61,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 
@@ -123,6 +126,11 @@ private class DrawnState(
     var coordinates: LayoutCoordinates? = null
     var rows: RowMap = RowMap.of(model)
     var scroll: EditorScroll? = null
+
+    /** Where the text area starts, after the gutter, and how many pixels make a dp. */
+    var gutterWidth = 0f
+    var density = 1f
+    var caretWidthPx = 1.5f
     private val views = HashMap<Int, LineView>()
     private var viewsRevision = -1
 
@@ -270,6 +278,54 @@ private class DrawnState(
         callbacks.onOutput()
     }
 
+    /**
+     * Where a caret at [position] is drawn, in this editor's own pixels. [composed] puts it
+     * after what an input method is composing there, which is where the caret is drawn.
+     */
+    private fun caretLocal(position: CodePosition, composed: Boolean): Rect {
+        val view = view(position.line)
+        val column = position.column.coerceIn(0, view.caretAt.size - 1)
+        val shown = view.caretAt[column] + if (composed) composing.length else 0
+        val x = textLeft + view.layout.getHorizontalPosition(shown, true)
+        val y = rows.textRow(position.line) * rowPx.toFloat() - (scroll?.offset ?: 0)
+        return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
+    }
+
+    private fun Rect.inRoot(): Rect {
+        val coordinates = coordinates?.takeIf { it.isAttached } ?: return this
+        return Rect(coordinates.localToRoot(topLeft), size)
+    }
+
+    /** The function the model finds positions with, the same one for as long as this lives. */
+    val locate: (CodePosition) -> CodeRectDp? = { position ->
+        if (!model.document.isValid(position) || model.isHidden(position.line)) {
+            null
+        } else {
+            val local = caretLocal(position, composed = false)
+            val size = coordinates?.size
+            val onScreen = size != null &&
+                local.bottom > 0f && local.top < size.height &&
+                local.left >= gutterWidth - 0.5f && local.left <= size.width + 0.5f
+            if (onScreen) local.inRoot().toDp(density) else null
+        }
+    }
+
+    /**
+     * Tells the model how to find positions and where the caret is, and answers the queries
+     * that waited for the editor to be drawn. Answers whether the Host has something to hear.
+     */
+    fun report(): Boolean {
+        if (coordinates?.isAttached != true || measurer == null) return false
+        model.locator = locate
+        val caret = model.selection.caret
+        if (model.document.isValid(caret)) {
+            model.reportCaretRect(CaretReport(caret, caretLocal(caret, composed = true).inRoot().toDp(density)))
+        }
+        val answered = model.hasWaitingQueries
+        if (answered) model.answerWaitingQueries()
+        return answered || model.caretUntold
+    }
+
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
         val row = ((point.y + (scroll?.offset ?: 0)) / rowPx).toInt().coerceAtLeast(0)
         val line = rows.lineAtRow(row).coerceIn(0, model.document.lineCount - 1)
@@ -326,6 +382,18 @@ private fun DrawnSurface(
             markColumn + foldColumn + density.changeColumnPx(model, look)
         ).toFloat()
     state.textLeft = gutterWidth + with(density) { look.textInset.toPx() }
+    state.gutterWidth = gutterWidth
+    state.density = density.density
+    state.caretWidthPx = with(density) { 1.5.dp.toPx() }
+    // What the caret report and the waiting queries found is sent from a coroutine rather
+    // than from inside the draw pass that found it.
+    val scope = rememberCoroutineScope()
+    val reportPlaces: () -> Unit = remember(state, scope) {
+        { if (state.report()) scope.launch { state.callbacks.onOutput() } }
+    }
+    DisposableEffect(model, state) {
+        onDispose { if (model.locator === state.locate) model.locator = null }
+    }
 
     // What the reader's edits queued is sent from here as well, on the composition thread.
     SideEffect { callbacks.onOutput() }
@@ -376,7 +444,10 @@ private fun DrawnSurface(
                 // their rows less the offset, and the extent is only a number.
                 .fillMaxSize()
                 .scrollable(vertical.scrollable, Orientation.Vertical)
-                .onGloballyPositioned { state.coordinates = it }
+                .onGloballyPositioned {
+                    state.coordinates = it
+                    reportPlaces()
+                }
                 .drawnTextInput(state)
                 .focusRequester(focus)
                 .onFocusChanged {
@@ -447,6 +518,7 @@ private fun DrawnSurface(
                     translate(top = -scroll.toFloat()) {
                         drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
                     }
+                    reportPlaces()
                 },
         )
     }

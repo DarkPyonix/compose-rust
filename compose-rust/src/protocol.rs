@@ -73,6 +73,12 @@ const TAG_RELEASE_FILE_HANDLE: u16 = 34;
 // the Renderer owns the position and reports what it did in `ScrollChanged`.
 const TAG_SCROLL_TO: u16 = 35;
 const TAG_SCROLL_INTO_VIEW: u16 = 36;
+// 37 and 38 are held by commands on other branches. 39 asks a code editor where a position
+// is on screen, answered by one `PositionRect` event carrying the same request number.
+const TAG_QUERY_POSITION_RECT: u16 = 39;
+/// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
+/// column.
+const QUERY_POSITION_RECT_LEN: usize = 20;
 /// `ScrollTo` in full: the 4 byte head, the node, the item, the flags and two `f64`.
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
@@ -377,6 +383,15 @@ pub enum Mutation<'a> {
         flags: u16,
         rect: crate::schema::Rect,
     },
+    /// Asks the code editor `node_id` where a caret at `line` and `column` would be drawn.
+    /// Answered exactly once, by a `PositionRect` event carrying `request`: a rectangle in
+    /// the window's dp, or none where the position is not on screen.
+    QueryPositionRect {
+        node_id: u32,
+        request: u32,
+        line: u32,
+        column: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -488,6 +503,12 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
+// 61 to 63 are held by events on other branches. 64 is where a code editor's caret is
+// drawn and 65 the answer to a position query, both with a rectangle of four `f32`.
+const EVENT_CARET_RECT: u16 = 64;
+const EVENT_POSITION_RECT: u16 = 65;
+/// `CaretRect` and `PositionRect` in full: the 16 byte header, two words and four `f32`.
+const CODE_RECT_EVENT_LEN: usize = 40;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -943,6 +964,32 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_CARET_RECT if record_len == CODE_RECT_EVENT_LEN => {
+            crate::schema::EventPayload::CaretRect {
+                line: read_u32(bytes, 16)?,
+                column: read_u32(bytes, 20)?,
+                rect: read_code_rect(bytes, 24)?,
+            }
+        }
+        EVENT_POSITION_RECT if record_len == CODE_RECT_EVENT_LEN => {
+            let found = read_u32(bytes, 20)?;
+            let rect = read_code_rect(bytes, 24)?;
+            crate::schema::EventPayload::PositionRect {
+                request: read_u32(bytes, 16)?,
+                rect: match found {
+                    0 => None,
+                    1 => Some(rect),
+                    other => {
+                        return Err(ProtocolError::InvalidValueKind(
+                            other.min(u32::from(u16::MAX)) as u16,
+                        ));
+                    }
+                },
+            }
+        }
+        EVENT_CARET_RECT | EVENT_POSITION_RECT => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
             return Err(ProtocolError::InvalidRecordLength);
         }
@@ -979,6 +1026,22 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         handler_id,
         payload,
     })
+}
+
+/// The four `f32` of a code editor rectangle, starting at `offset`.
+fn read_code_rect(bytes: &[u8], offset: usize) -> Result<crate::code::CodeRect, ProtocolError> {
+    Ok(crate::code::CodeRect {
+        x: f32::from_bits(read_u32(bytes, offset)?),
+        y: f32::from_bits(read_u32(bytes, offset + 4)?),
+        width: f32::from_bits(read_u32(bytes, offset + 8)?),
+        height: f32::from_bits(read_u32(bytes, offset + 12)?),
+    })
+}
+
+fn put_code_rect(output: &mut Vec<u8>, rect: crate::code::CodeRect) {
+    for value in [rect.x, rect.y, rect.width, rect.height] {
+        output.extend_from_slice(&value.to_bits().to_le_bytes());
+    }
 }
 
 /// Test/mock helper for constructing a Renderer-to-Host event.
@@ -1464,6 +1527,25 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::CaretRect { line, column, rect } = event.payload {
+        put_event_header(output, EVENT_CARET_RECT, CODE_RECT_EVENT_LEN as u16, event);
+        output.extend_from_slice(&line.to_le_bytes());
+        output.extend_from_slice(&column.to_le_bytes());
+        put_code_rect(output, rect);
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::PositionRect { request, rect } = event.payload {
+        put_event_header(
+            output,
+            EVENT_POSITION_RECT,
+            CODE_RECT_EVENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&request.to_le_bytes());
+        output.extend_from_slice(&u32::from(rect.is_some()).to_le_bytes());
+        put_code_rect(output, rect.unwrap_or_default());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::ZoomChanged { k, os, level } = event.payload {
         output.extend_from_slice(&EVENT_ZOOM_CHANGED.to_le_bytes());
         output.extend_from_slice(&28_u16.to_le_bytes());
@@ -1551,7 +1633,9 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::ClipboardText { .. }
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
-        | crate::schema::EventPayload::ScrollChanged { .. } => unreachable!(),
+        | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::CaretRect { .. }
+        | crate::schema::EventPayload::PositionRect { .. } => unreachable!(),
         crate::schema::EventPayload::AnimationEvent { .. }
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
@@ -1945,6 +2029,21 @@ impl BatchEncoder {
                 self.put_u32(*flags);
                 self.put_u64(x_px.to_bits());
                 self.put_u64(y_px.to_bits());
+            }
+            Mutation::QueryPositionRect {
+                node_id,
+                request,
+                line,
+                column,
+            } => {
+                self.begin_record(
+                    TAG_QUERY_POSITION_RECT,
+                    (QUERY_POSITION_RECT_LEN - 4) as u16,
+                );
+                self.put_u32(*node_id);
+                self.put_u32(*request);
+                self.put_u32(*line);
+                self.put_u32(*column);
             }
             Mutation::ScrollIntoView {
                 node_id,
@@ -2684,6 +2783,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 offset_px: f64::from_bits(read_u64(bytes, payload + 4)?),
             },
             TAG_SET_SCROLL_OFFSET => return Err(ProtocolError::InvalidRecordLength),
+            TAG_QUERY_POSITION_RECT if len == QUERY_POSITION_RECT_LEN => {
+                Mutation::QueryPositionRect {
+                    node_id: read_u32(bytes, payload)?,
+                    request: read_u32(bytes, payload + 4)?,
+                    line: read_u32(bytes, payload + 8)?,
+                    column: read_u32(bytes, payload + 12)?,
+                }
+            }
+            TAG_QUERY_POSITION_RECT => return Err(ProtocolError::InvalidRecordLength),
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION

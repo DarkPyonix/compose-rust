@@ -499,6 +499,18 @@ class NodeTable {
                 code.hostScrollTo(mutation.offsetPx)
                 collectCode(node)
             }
+            // A question, answered exactly once: by the editor where it can find the
+            // position, and here, with nothing on screen, where there is no editor to ask.
+            is Mutation.QueryPositionRect -> {
+                val found = codeNode(mutation.nodeId, "QueryPositionRect")
+                if (found == null) {
+                    outbox += HostEvent.PositionRect(mutation.nodeId, 0L, mutation.request, false, 0f, 0f, 0f, 0f)
+                } else {
+                    val (node, code) = found
+                    code.hostQueryPosition(mutation.request, mutation.line, mutation.column)
+                    collectCode(node)
+                }
+            }
 
             // Requests too: the scroll position is this side's. Each is checked here and
             // waits on the node for the container, which keeps it in range, may animate it,
@@ -783,6 +795,10 @@ class NodeTable {
                 code.hearsScroll = value is PropertyValue.Integer
                 return
             }
+            PropertyKind.OnCaretRect -> {
+                code.hearsCaretRect = value is PropertyValue.Integer
+                return
+            }
             else -> return
         }
         collectCode(node)
@@ -951,7 +967,13 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
-        codeNodes.remove(nodeId)
+        if (codeNodes.remove(nodeId) != null) {
+            // A query the editor had not answered yet is answered now, with nothing on
+            // screen: it never will be otherwise.
+            for (request in node.code?.abandonQueries().orEmpty()) {
+                outbox += HostEvent.PositionRect(nodeId, 0L, request, false, 0f, 0f, 0f, 0f)
+            }
+        }
         node.scroll?.let(scrolls::forget)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1416,6 +1438,8 @@ class NodeTable {
                 PropertyKind.CodeEditorColors,
                 PropertyKind.OnCodeMetrics,
                 PropertyKind.OnCodeScrolled,
+                // The handler told where the caret is drawn.
+                PropertyKind.OnCaretRect,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

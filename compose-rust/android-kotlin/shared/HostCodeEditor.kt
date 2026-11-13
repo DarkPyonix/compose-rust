@@ -114,8 +114,9 @@ internal fun HostCodeEditor(
     // sent now.
     val hearsMetrics = node.handler(PropertyKind.OnCodeMetrics) != null
     val hearsScroll = node.handler(PropertyKind.OnCodeScrolled) != null
-    LaunchedEffect(model, hearsMetrics, hearsScroll) {
-        if (hearsMetrics || hearsScroll) callbacks.onOutput()
+    val hearsCaret = node.handler(PropertyKind.OnCaretRect) != null
+    LaunchedEffect(model, hearsMetrics, hearsScroll, hearsCaret) {
+        if (hearsMetrics || hearsScroll || hearsCaret) callbacks.onOutput()
     }
     val focusRequest = node.focusRequestRevision
     CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest) { scrolling ->
@@ -293,6 +294,36 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
             is EditorOutput.Scrolled -> {
                 val handler = handler(PropertyKind.OnCodeScrolled) ?: continue
                 events += HostEvent.CodeScrolled(id, handler, output.offsetPx.toDouble())
+            }
+            // In the window's dp, the scroll and the zoom already in them.
+            is EditorOutput.Caret -> {
+                val handler = handler(PropertyKind.OnCaretRect) ?: continue
+                val (position, rect) = output.report
+                events += HostEvent.CaretRect(
+                    id,
+                    handler,
+                    position.line,
+                    position.column,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                )
+            }
+            // An answer goes to the query and names no handler: the Host asked, so it is
+            // waiting for it whether or not anything on the editor listens.
+            is EditorOutput.PositionAnswer -> {
+                val rect = output.rect
+                events += HostEvent.PositionRect(
+                    id,
+                    0L,
+                    output.request,
+                    rect != null,
+                    rect?.x ?: 0f,
+                    rect?.y ?: 0f,
+                    rect?.width ?: 0f,
+                    rect?.height ?: 0f,
+                )
             }
             is EditorOutput.Composing -> {
                 val handler = handler(PropertyKind.OnCompositionChange) ?: continue

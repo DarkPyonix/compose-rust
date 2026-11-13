@@ -90,6 +90,15 @@ class RevealRequest(val start: CodePosition, val end: CodePosition, val align: R
  */
 class ScrollRequest(val offsetPx: Int)
 
+/**
+ * A rectangle on screen in the dp of the window's content: the editor's scroll and the
+ * window's zoom are already in it.
+ */
+data class CodeRectDp(val x: Float, val y: Float, val width: Float, val height: Float)
+
+/** Where the caret is drawn: the place it stands at and its rectangle. */
+data class CaretReport(val position: CodePosition, val rect: CodeRectDp)
+
 /** One colour run of the syntax as it stands in the current version of the document. */
 class LiveSpan(var start: CodePosition, var end: CodePosition, val paint: Paint)
 
@@ -127,6 +136,12 @@ sealed interface EditorOutput {
 
     /** How far the view is scrolled, in pixels. Steps between two reports are one report. */
     class Scrolled(val offsetPx: Int) : EditorOutput
+
+    /** Where the caret is drawn. Moves between two reports are one report. */
+    class Caret(val report: CaretReport) : EditorOutput
+
+    /** The answer to the Host's position query [request]: a rectangle, or null where none is on screen. */
+    class PositionAnswer(val request: Int, val rect: CodeRectDp?) : EditorOutput
 
     /** The reader folded or unfolded the stretch that starts on [startLine]. */
     class FoldToggled(val startLine: Int, val collapsed: Boolean) : EditorOutput
@@ -215,6 +230,27 @@ class CodeEditorModel(
      */
     var hearsLineHeight = false
     var hearsScroll = false
+
+    /**
+     * Where the caret is drawn, as the surface last said and as the Host was last told, and
+     * whether the Host listens. Like the row height, what nobody listens for is not counted
+     * as told.
+     */
+    private var pendingCaret: CaretReport? = null
+    private var reportedCaret: CaretReport? = null
+    var hearsCaretRect = false
+
+    /**
+     * How the surface that draws the editor finds a position on screen, or null before it
+     * has been drawn. It answers null for a position that is not on screen.
+     */
+    var locator: ((CodePosition) -> CodeRectDp?)? = null
+
+    /** The Host's position queries that arrived before the editor was drawn, in order. */
+    private val waitingQueries = ArrayList<Pair<Int, CodePosition>>()
+
+    /** Whether a query is waiting for the surface to be drawn. */
+    val hasWaitingQueries: Boolean get() = waitingQueries.isNotEmpty()
 
     private var focused = false
     private var composing = false
@@ -573,6 +609,65 @@ class CodeEditorModel(
             reportedScroll = pendingScroll
             output += EditorOutput.Scrolled(pendingScroll)
         }
+        val caret = pendingCaret
+        if (hearsCaretRect && caret != null && caret != reportedCaret) {
+            reportedCaret = caret
+            output += EditorOutput.Caret(caret)
+        }
+    }
+
+    /**
+     * The surface says where it draws the caret. Said whenever it draws, reported only when
+     * it is not what the Host was last told, and at most once per drain.
+     */
+    fun reportCaretRect(report: CaretReport) {
+        pendingCaret = report
+    }
+
+    /** Whether the caret has moved since the Host was told, and the Host listens. */
+    val caretUntold: Boolean get() = hearsCaretRect && pendingCaret != null && pendingCaret != reportedCaret
+
+    /**
+     * The Host asks where a caret at a position would be drawn. Answered at once where the
+     * editor has been drawn, and as soon as it is otherwise. A place that is not in the
+     * document is not on screen.
+     */
+    fun hostQueryPosition(request: Int, line: Int, column: Int) {
+        val position = CodePosition(line, column)
+        if (line < 0 || column < 0 || !document.isValid(position)) {
+            output += EditorOutput.PositionAnswer(request, null)
+            return
+        }
+        val find = locator
+        if (find == null) {
+            waitingQueries += request to position
+            return
+        }
+        output += EditorOutput.PositionAnswer(request, find(position))
+    }
+
+    /** Answers the queries that waited for the surface, now that it can find a position. */
+    fun answerWaitingQueries() {
+        val find = locator ?: return
+        if (waitingQueries.isEmpty()) return
+        for ((request, position) in waitingQueries.toList()) {
+            output += EditorOutput.PositionAnswer(
+                request,
+                if (document.isValid(position)) find(position) else null,
+            )
+        }
+        waitingQueries.clear()
+    }
+
+    /**
+     * The requests of every query still waiting, which the editor will never answer now
+     * because it is going away, and none waiting any more.
+     */
+    fun abandonQueries(): List<Int> {
+        if (waitingQueries.isEmpty()) return emptyList()
+        val requests = waitingQueries.map { it.first }
+        waitingQueries.clear()
+        return requests
     }
 
     /** A position moved to the nearest place the document has, never between a pair's halves. */

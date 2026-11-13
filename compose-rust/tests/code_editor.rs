@@ -3,10 +3,11 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CodeChange, CodeEditorColors, CodeRange,
-    DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN, FOLD_RECORD, Fold, Folds,
-    GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position,
-    RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset,
+    CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange, CodeEditorColors,
+    CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN,
+    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
+    GutterDecorations, Position, PositionAnswer, RecordFieldType, SYNTAX_SPAN_LEN,
+    SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, position_query,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -50,6 +51,11 @@ enum Record {
     SetScrollOffset {
         node_id: u32,
         offset_px: f64,
+    },
+    QueryPositionRect {
+        node_id: u32,
+        request: u32,
+        position: Position,
     },
     Other,
 }
@@ -141,6 +147,16 @@ fn records(batch: &[u8]) -> Vec<Record> {
             Mutation::SetScrollOffset { node_id, offset_px } => {
                 Record::SetScrollOffset { node_id, offset_px }
             }
+            Mutation::QueryPositionRect {
+                node_id,
+                request,
+                line,
+                column,
+            } => Record::QueryPositionRect {
+                node_id,
+                request,
+                position: Position::new(line, column),
+            },
             _ => Record::Other,
         })
         .collect()
@@ -1026,4 +1042,176 @@ fn fr38_editor_scroll_offset_round_trips_on_the_wire() {
     let mut short = encoder.finish().unwrap().to_vec();
     short[14] = 12;
     assert!(decode_batch(&short).is_err());
+}
+
+/// The caret report, the position query and its answer keep the tags the wire table gives
+/// them, past the numbers other requirements hold.
+#[test]
+fn fr38_caret_and_position_rects_keep_their_assigned_tags() {
+    assert_eq!(PropertyKind::OnCaretRect as u16, 195);
+    assert_eq!(event_tag("CaretRect"), 64);
+    assert_eq!(event_tag("PositionRect"), 65);
+    assert_eq!(
+        PropertyKind::from_name("on_caret_rect"),
+        Ok(PropertyKind::OnCaretRect)
+    );
+}
+
+/// The caret comes back as two words and four floats in a 40 byte record, read into the
+/// place and the rectangle. A record of another length under the same tag is refused.
+#[test]
+fn fr38_editor_reports_the_caret_rect_on_the_wire() {
+    let rect = CodeRect::new(120.5, 64.25, 2.0, 20.0);
+    let (length, decoded) = round_trip(EventPayload::CaretRect {
+        line: 2,
+        column: 4,
+        rect,
+    });
+    assert_eq!(length, 40);
+    assert_eq!(
+        CaretRect::from_payload(&decoded.payload),
+        Some(CaretRect {
+            position: Position::new(2, 4),
+            rect,
+        })
+    );
+    assert_eq!(rect.bottom(), 84.25);
+    assert_eq!(rect.right(), 122.5);
+    assert_eq!(
+        CaretRect::from_payload(&EventPayload::CodeSaveRequested { version: 1 }),
+        None
+    );
+
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 3,
+            handler_id: 9,
+            payload: EventPayload::CaretRect {
+                line: 0,
+                column: 0,
+                rect,
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[0..4], &[64, 0, 40, 0]);
+    wire[2] = 36;
+    assert_eq!(
+        decode_event(&wire[..36]),
+        Err(ProtocolError::InvalidRecordLength)
+    );
+}
+
+thread_local! {
+    static ANSWERS: std::cell::RefCell<Vec<(&'static str, PositionAnswer)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[compose_rust::runtime::Composable]
+fn Nothing() {
+    compose_rust::ui::Text("editor");
+}
+
+/// The query is a 20 byte command written with the request number a callback was given,
+/// the answer a 40 byte event with a word that says whether the position is on screen, and
+/// through a Host the answer reaches its own callback once.
+#[test]
+fn fr38_editor_answers_position_rects_on_the_wire() {
+    ANSWERS.with_borrow_mut(Vec::clear);
+    let near = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("near", answer))));
+    let far = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("far", answer))));
+    assert_ne!(near, 0, "0 is never a request number");
+    assert_ne!(near, far);
+
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.query_position_rect(4, near, Position::new(1, 8));
+    let bytes = batch.finish().unwrap().to_vec();
+    assert_eq!(&bytes[12..16], &[39, 0, 20, 0]);
+    assert_eq!(
+        records(&bytes),
+        vec![Record::QueryPositionRect {
+            node_id: 4,
+            request: near,
+            position: Position::new(1, 8),
+        }]
+    );
+    let mut short = bytes.clone();
+    short[14] = 16;
+    assert!(decode_batch(&short).is_err());
+
+    let rect = CodeRect::new(88.75, 64.25, 2.0, 20.0);
+    let (length, _) = round_trip(EventPayload::PositionRect {
+        request: near,
+        rect: Some(rect),
+    });
+    assert_eq!(length, 40);
+    let (length, decoded) = round_trip(EventPayload::PositionRect {
+        request: far,
+        rect: None,
+    });
+    assert_eq!(length, 40);
+    assert_eq!(
+        decoded.payload,
+        EventPayload::PositionRect {
+            request: far,
+            rect: None
+        }
+    );
+    // The word is 0 or 1, and anything else is a record the two sides disagree on.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 4,
+            handler_id: 0,
+            payload: EventPayload::PositionRect {
+                request: far,
+                rect: Some(rect),
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    assert_eq!(&wire[20..24], &[1, 0, 0, 0]);
+    wire[20] = 2;
+    assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidValueKind(2)));
+
+    // Through a Host: each answer goes to the callback that asked, once.
+    let mut host = compose_rust::ComposeHost::with_theme(
+        Nothing,
+        compose_rust::schema::Theme::unified(compose_rust::schema::DesignSystem::Material3),
+    );
+    host.rebuild().expect("the first batch encodes");
+    // Made after the Host, which forgets every query a Host before it left waiting.
+    let near = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("near", answer))));
+    let far = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("far", answer))));
+    let answer = |request: u32, rect: Option<CodeRect>| HostEvent {
+        node_id: 4,
+        handler_id: 0,
+        payload: EventPayload::PositionRect { request, rect },
+    };
+    host.dispatch(answer(far, None))
+        .expect("the answer dispatches");
+    host.dispatch(answer(near, Some(rect)))
+        .expect("the answer dispatches");
+    host.dispatch(answer(near, None))
+        .expect("an answer nobody waits for is ignored");
+    assert_eq!(
+        ANSWERS.with_borrow(Clone::clone),
+        vec![("far", None), ("near", Some(rect))]
+    );
+    // An answer is addressed to no handler.
+    assert!(
+        host.dispatch(HostEvent {
+            node_id: 4,
+            handler_id: 7,
+            payload: EventPayload::PositionRect {
+                request: far,
+                rect: None
+            },
+        })
+        .is_err()
+    );
 }

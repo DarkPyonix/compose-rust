@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Where the code editor's caret is, and where any position is
+
+A `CodeEditor` with the new `OnCaretRect` handler property (tag 195) reports where it draws its caret in a `CaretRect` event (tag 64): the line, the column and a rectangle in the window's dp, with the editor's scroll and the window's zoom already in it. It is sent when the caret moves or the view scrolls, at most once a frame. `Batch::query_position_rect(node, request, position)` asks where a caret at any other position would be drawn, in a `QueryPositionRect` command (tag 39), and `compose_rust::code::position_query(callback)` gives the request its number. Every query gets exactly one `PositionRect` event (tag 65) back: the rectangle, or `None` where the position is not on screen, is not in the document, or the editor is gone. A suggestion list, a parameter hint, a rename box or a hover card is placed with them ([#553](https://github.com/DarkPyonix/compose-rust/issues/553)).
+
 ### Long tokens break inside under `KeepAll`, and fields take a word break
 
 `Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).

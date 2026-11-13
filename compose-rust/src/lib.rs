@@ -70,9 +70,10 @@ pub use boundary::{
 };
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
-    CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeScroll, Decoration,
-    Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration, GutterDecorations,
-    Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans, VisibleRange,
+    CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodeRange, CodeRect,
+    CodeScroll, Decoration, Decorations, EditRejected, Fold, FoldChange, Folds, GutterDecoration,
+    GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan, SyntaxSpans,
+    VisibleRange,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
