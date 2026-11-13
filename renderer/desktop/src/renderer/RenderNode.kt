@@ -139,6 +139,7 @@ import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.overflow
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
+import dev.darkpyonix.composerust.ui.motionFinishedListener
 import dev.darkpyonix.composerust.ui.toComposeModifier
 import dev.darkpyonix.composerust.ui.verticalAlignment
 import dev.darkpyonix.composerust.ui.verticalArrangement
@@ -273,6 +274,17 @@ fun RenderNode(
         } else {
             node.modifiers
         }
+    // Only a node that was given a motion handler hears its size motion settle. The
+    // listener is made once per handler, so the chain stays equal across compositions.
+    val motionFinishedHandler = node.handler(PropertyKind.OnMotionFinished)
+    val motionDensity = LocalDensity.current
+    val motionFinished = if (motionFinishedHandler == null) {
+        null
+    } else {
+        remember(nodeId, motionFinishedHandler, motionDensity, dispatcher) {
+            motionFinishedListener(nodeId, motionFinishedHandler, motionDensity, dispatcher)
+        }
+    }
     val chain = requested
         .then(
             ownModifiers.toComposeModifier(
@@ -287,6 +299,7 @@ fun RenderNode(
                 allowPress = node.widget != WidgetKind.TextField,
                 allowPadding = node.widget != WidgetKind.TextField,
                 pointerEvents = pointerEvents,
+                motionFinished = motionFinished,
             ),
         )
         .testTag(nodeTestTag(nodeId))

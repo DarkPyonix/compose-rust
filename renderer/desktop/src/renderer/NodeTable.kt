@@ -1085,6 +1085,10 @@ class NodeTable {
                 PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
+                // Any node's size can move under a motion role, so any node may hear it
+                // settle. One without the role hears nothing, which is not an error: the
+                // role can come and go with the screen's state.
+                PropertyKind.OnMotionFinished,
                 -> true
 
                 // The scroll report belongs to the widgets that scroll.

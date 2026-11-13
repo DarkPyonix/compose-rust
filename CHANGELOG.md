@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A node hears its size motion settle
+
+`on_motion_finished(|finished| ...)` on a container or a `TextField` runs once when the node's size, moving under `Modifier::motion`, reaches its target, with the size it settled at in `MotionFinished { width_dp, height_dp }`. A run that a newer size interrupts is not reported, only the one that settles; the first layout and a layout at the same size report nothing, and neither does a node removed while it moves. Under reduced motion the size changes in one frame and the report comes in that frame, so a screen that waits for a collapse before it takes a child out does not wait forever. In `rsx!` the listener is `onmotionfinished`. It is one new handler property, `OnMotionFinished` (193), and one `MotionFinished` event (tag 63, 24 bytes). A node with no handler sends nothing new and its modifier chain is unchanged ([#315](https://github.com/DarkPyonix/compose-rust/issues/315)).
+
 ### Long tokens break inside under `KeepAll`, and fields take a word break
 
 `Text::overflow_wrap(OverflowWrap::Anywhere)` lets a token too long for its line, such as a path or a URL, break between its letters even under `WordBreak::KeepAll`, while the tokens that fit keep their breaks. Such a text is as narrow as its widest letter when a weighted `Row` asks, so a 40 letter path in a narrow column wraps instead of widening the text past the column. `TextField::word_break` and `TextField::overflow_wrap` apply the same rules to the typed text and the placeholder: a `KeepAll` field breaks a Korean hint only at its spaces. The field's value, and what the Host is told, stays exactly what was typed. Each sends the existing `WordBreak` (111) or `OverflowWrap` (112) property, and only when it is called ([#443](https://github.com/DarkPyonix/compose-rust/issues/443), [#444](https://github.com/DarkPyonix/compose-rust/issues/444)).

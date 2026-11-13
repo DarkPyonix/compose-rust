@@ -23,7 +23,7 @@ use crate::schema::{
     SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
-use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
+use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -209,7 +209,22 @@ struct FocusAndKeyHandlers {
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
+}
+
+/// Writes a motion handler as the listener the wire needs. A node that was given none has
+/// no `OnMotionFinished` at all, and the Renderer attaches nothing to its size motion.
+fn motion_input(
+    handler: Option<Box<dyn FnMut(MotionFinished)>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handler {
+        listeners.push((
+            "onmotionfinished",
+            EventCallback::Motion(Rc::new(RefCell::new(handler))),
+        ));
+    }
 }
 
 /// Turns the handlers into listeners and binds the focus handle, if there is one, to the
@@ -237,6 +252,7 @@ fn focus_and_key_input(
             EventCallback::Key(Rc::new(RefCell::new(handler))),
         ));
     }
+    motion_input(handlers.on_motion_finished.take(), listeners);
 }
 
 macro_rules! focus_and_key_handlers {
@@ -270,6 +286,19 @@ macro_rules! focus_and_key_handlers {
             /// Binds `handle` to this node, so `handle.request()` puts keyboard focus here.
             pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
                 self.focus_and_keys.focus_handle = Some(handle.clone());
+                self
+            }
+
+            /// Runs once when this node's size motion comes to rest, with the size it settled
+            /// at in dp. The node needs `Modifier::motion` for its size to move; without it
+            /// nothing is reported. A run interrupted by a newer size is not reported, only
+            /// the one that settles, and under reduced motion it arrives in the frame the
+            /// size changes in.
+            pub fn on_motion_finished(
+                mut self,
+                handler: impl FnMut(MotionFinished) + 'static,
+            ) -> Self {
+                self.focus_and_keys.on_motion_finished = Some(std::boxed::Box::new(handler));
                 self
             }
         }
@@ -1083,6 +1112,7 @@ pub struct TextFieldScope {
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
     bare: bool,
     done: bool,
@@ -1114,6 +1144,7 @@ pub fn TextField() -> TextFieldScope {
         on_key_down: None,
         on_key_up: None,
         on_composition_change: None,
+        on_motion_finished: None,
         focus_handle: None,
         bare: false,
         done: false,
@@ -1246,6 +1277,15 @@ impl TextFieldScope {
         self
     }
 
+    /// Runs once when the field's size motion comes to rest, with the size it settled at
+    /// in dp. The field needs `Modifier::motion` for its size to move; without it nothing
+    /// is reported. A run interrupted by a newer size is not reported, only the one that
+    /// settles.
+    pub fn on_motion_finished(mut self, handler: impl FnMut(MotionFinished) + 'static) -> Self {
+        self.on_motion_finished = Some(std::boxed::Box::new(handler));
+        self
+    }
+
     /// Draws the field without the design system's frame: no fill, line, underline,
     /// corner clip, inner padding, minimum height or focus line. Text, placeholder, caret,
     /// selection and input methods stay as they are. For a field that sits inside a box
@@ -1294,6 +1334,7 @@ impl TextFieldScope {
                 }))),
             ));
         }
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
             widget_key("compose_rust::ui::TextField"),

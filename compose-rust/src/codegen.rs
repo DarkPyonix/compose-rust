@@ -769,6 +769,10 @@ object ScrollWire {
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
             ),
+            // The size a node's size motion settled at, in dp.
+            EventPayloadType::MotionFinished => {
+                output.push_str(", val widthDp: kotlin.Float, val heightDp: kotlin.Float")
+            }
         }
         if event.payload == EventPayloadType::IoAnswer {
             writeln!(
@@ -1432,6 +1436,7 @@ object Protocol {
             | EventPayloadType::WindowMove
             | EventPayloadType::WindowDrag
             | EventPayloadType::WindowDragOver
+            | EventPayloadType::MotionFinished
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1495,6 +1500,8 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // Two floats after the header.
+            EventPayloadType::MotionFinished => 24,
         };
         writeln!(
             output,
@@ -1812,6 +1819,12 @@ object Protocol {
                 output.push_str(
                     "                    writeStringReference(out, recordLength, text!!)\n",
                 );
+                output.push_str("                }\n");
+            }
+            EventPayloadType::MotionFinished => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putFloat(event.widthDp)\n");
+                output.push_str("                    out.putFloat(event.heightDp)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::ScrollChanged => {
@@ -4036,6 +4049,15 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 29,
             payload: EventPayload::CodeScrolled { offset_px: 1234.5 },
         },
+        // A node's size motion settled, after everything that was here before.
+        HostEvent {
+            node_id: 14,
+            handler_id: 30,
+            payload: EventPayload::MotionFinished {
+                width_dp: 240.5,
+                height_dp: 0.0,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4077,7 +4099,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-two independently decodable event records concatenated in schema order",
+    "description": "Forty-three independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4120,7 +4142,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "StorageLocation", "offset": 1237, "length": 82, "nodeId": 0, "handlerId": 0, "text": "/data/user/0/dev.darkpyonix.composerust.samples.todo/files" }},
       {{ "type": "ScrollChanged", "offset": 1319, "length": 72, "nodeId": 10, "handlerId": 21, "item": 3, "flags": 3, "xPx": 0.0, "yPx": 700.5, "maxXPx": 0.0, "maxYPx": -1.0, "viewportWidthPx": 320.0, "viewportHeightPx": 300.0 }},
       {{ "type": "CodeMetrics", "offset": 1391, "length": 24, "nodeId": 12, "handlerId": 28, "value": 40.0 }},
-      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }}
+      {{ "type": "CodeScrolled", "offset": 1415, "length": 24, "nodeId": 12, "handlerId": 29, "value": 1234.5 }},
+      {{ "type": "MotionFinished", "offset": 1439, "length": 24, "nodeId": 14, "handlerId": 30, "widthDp": 240.5, "heightDp": 0.0 }}
     ]
   }}
 }}
