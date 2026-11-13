@@ -149,7 +149,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -161,6 +164,8 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
 )
 
 /**
@@ -1007,7 +1012,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 32, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1020,6 +1025,8 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
                             ),
                         )
                     }
@@ -3622,6 +3629,23 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             offset_px: 1234.5,
         },
+        // The overlay tokens with every field set to its own value, the transient
+        // message's two at the end of the record, before the record that stays last.
+        Mutation::SetOverlayTokens(
+            crate::schema::OverlayTokens::new()
+                .sheet_corner_radius(24)
+                .dialog_corner_radius(16)
+                .popup_corner_radius(12)
+                .sheet_elevation(8)
+                .popup_elevation(4)
+                .dialog_elevation(6)
+                .sheet_padding(20)
+                .dialog_padding(18)
+                .popup_padding(10)
+                .scrim_argb(0x8000_0000)
+                .toast_elevation(7)
+                .toast_corner_radius(14),
+        ),
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4031,7 +4055,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 120,
+    "recordCount": 121,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
