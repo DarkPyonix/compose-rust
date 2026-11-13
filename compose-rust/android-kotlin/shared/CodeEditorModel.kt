@@ -4,8 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
+import dev.darkpyonix.composerust.protocol.CodeEditRecord
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.DecorationKind
+import dev.darkpyonix.composerust.protocol.EditGroupStatus
 import dev.darkpyonix.composerust.protocol.DecorationRecord
 import dev.darkpyonix.composerust.protocol.FoldRecord
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
@@ -14,6 +16,7 @@ import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.Severity
 import dev.darkpyonix.composerust.protocol.SyntaxSpanRecord
+import dev.darkpyonix.composerust.protocol.ViewZoneRecord
 import kotlin.time.TimeSource
 import kotlin.math.roundToInt
 
@@ -85,6 +88,13 @@ fun LiveGutterMark.changeMark(): ChangeMark? {
     }
 }
 
+/**
+ * Room after a line that is not text, the way a diff leaves blank rows to line its two sides
+ * up: [heightLines] rows high, with [text] drawn dimmed in it. It follows its line through
+ * edits, and the caret, the selection and a copy pass over it.
+ */
+class LiveViewZone(var afterLine: Int, val heightLines: Float, val text: String)
+
 /** A range the Host asked to have brought into view. A new request is a new object. */
 class RevealRequest(val start: CodePosition, val end: CodePosition, val align: RevealAlign)
 
@@ -129,6 +139,12 @@ sealed interface EditorOutput {
      */
     class SelectionMoved(val version: Int, val selection: CodeSelection) : EditorOutput
 
+    /**
+     * Every selection, the primary first, where there is more than one or there were until
+     * now. Moves between two reports are one report.
+     */
+    class SelectionsMoved(val version: Int, val selections: List<CodeSelection>) : EditorOutput
+
     /** The lines on screen changed. Folded lines are not counted. */
     class VisibleRange(val version: Int, val first: Int, val last: Int) : EditorOutput
 
@@ -158,6 +174,19 @@ sealed interface EditorOutput {
 
     /** Something the Host sent that could not be honoured. Only that item was dropped. */
     class Error(val message: String) : EditorOutput
+
+    /**
+     * What became of one grouped Host edit, queued exactly once for each, after the changes
+     * it made. [index] is how many edits went in where it was applied, and otherwise the
+     * position in the group, as sent, of the edit that kept it out.
+     */
+    class GroupResult(
+        val requestId: Int,
+        val status: EditGroupStatus,
+        val baseVersion: Int,
+        val currentVersion: Int,
+        val index: Int,
+    ) : EditorOutput
 }
 
 /** Where a change came from, which decides how it joins the undo history. */
@@ -209,9 +238,32 @@ class CodeEditorModel(
             selectionDirty = true
         }
 
+    /**
+     * The selections past the primary one, in the order they were added. Each is moved by
+     * every change the way the primary is. Empty while there is one selection, which is
+     * almost always.
+     */
+    var secondary: List<CodeSelection> = emptyList()
+        set(value) {
+            if (field.isEmpty() && value.isEmpty()) return
+            field = value
+            selectionDirty = true
+            secondaryRevision += 1
+        }
+
+    /** Changes whenever the selections past the primary one do, for what draws them. */
+    var secondaryRevision: Int by mutableIntStateOf(0)
+        private set
+
+    /** Every selection, the primary first. */
+    val selections: List<CodeSelection> get() = if (secondary.isEmpty()) listOf(selection) else listOf(selection) + secondary
+
     /** The selection changed since it was last compared with what the Host was told. */
     private var selectionDirty = false
     private var reportedSelection = CodeSelection.at(CodePosition.Zero)
+
+    /** Every selection as the Host was last told, where it was told about more than one. */
+    private var reportedSelections: List<CodeSelection> = listOf(CodeSelection.at(CodePosition.Zero))
 
     /** The lines on screen, as the surface last said, and as the Host was last told. */
     private var pendingVisible: Pair<Int, Int>? = null
@@ -291,6 +343,7 @@ class CodeEditorModel(
 
     private val decorationList = ArrayList<LiveDecoration>()
     private val spanList = ArrayList<LiveSpan>()
+    private val zoneList = ArrayList<LiveViewZone>()
 
     /** How many lines the longest colour run covers, so a window can find runs that start above it. */
     private var longestSpanLines = 0
@@ -304,8 +357,14 @@ class CodeEditorModel(
     val gutterMarks: List<LiveGutterMark> get() = gutterList
     val spans: List<LiveSpan> get() = spanList
 
+    /** The view zones, in the order the Host sent them. */
+    val viewZones: List<LiveViewZone> get() = zoneList
+
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
+
+    /** How many steps an undo can go back. */
+    val undoDepth: Int get() = undoStack.size
 
     /** The suggestion on show, if there is one. */
     val ghostText: LiveDecoration? get() = decorationList.firstOrNull { it.kind == DecorationKind.GhostText }
@@ -337,6 +396,7 @@ class CodeEditorModel(
     fun setHostText(text: String): Boolean {
         if (document.contentEquals(text)) return false
         document.reset(text)
+        if (wrapColumns > 0) rewrapAll()
         decorationList.clear()
         backgroundsPresent = false
         spanList.clear()
@@ -345,8 +405,11 @@ class CodeEditorModel(
         redoStack.clear()
         foldList.clear()
         gutterList.clear()
+        zoneList.clear()
         gutterStamp += 1
         foldStamp += 1
+        snippet = null
+        secondary = emptyList()
         selection = CodeSelection.at(CodePosition.Zero)
         contentRevision += 1
         overlayRevision += 1
@@ -539,6 +602,141 @@ class CodeEditorModel(
     }
 
     /**
+     * A group of edits the Host asked for as one, every range written against
+     * [baseVersion]: all of them go in, or none does.
+     *
+     * Everything is checked before the document is touched. The group is [EditGroupStatus.Invalid]
+     * where it makes no sense: a version the document has not reached, a range that starts
+     * after it ends or is not in the document, or two edits that overlap (ranges that only
+     * meet do not, and two insertions at one place go in in the order they were sent).
+     * Where the reader has changed the document since, every range is moved past what they
+     * typed, the way [hostEdit] moves one, and the whole group is
+     * [EditGroupStatus.Rejected] if any of them meets it, or [EditGroupStatus.TooOld] where
+     * the version is older than the document remembers.
+     *
+     * A group that goes in is applied from the end of the document backwards, so each
+     * change is reported against the document as it stood just before it and the version
+     * steps by one for each edit. It is one undo step of its own, never joined to the
+     * typing before it. Exactly one [EditorOutput.GroupResult] follows the changes. An empty
+     * group changes nothing and is answered as applied at the version the document is at.
+     */
+    fun hostEditGroup(requestId: Int, baseVersion: Int, edits: List<CodeEditRecord>) {
+        fun answer(status: EditGroupStatus, index: Int) {
+            output += EditorOutput.GroupResult(requestId, status, baseVersion, document.version, index)
+        }
+        if (edits.isEmpty()) {
+            output += EditorOutput.GroupResult(
+                requestId,
+                EditGroupStatus.Applied,
+                document.version,
+                document.version,
+                0,
+            )
+            return
+        }
+        // Compared as unsigned, which is what the wire carries: a version past 2^31 is
+        // still one the document has not reached.
+        if ((baseVersion.toLong() and 0xffff_ffffL) > document.version.toLong()) {
+            return answer(EditGroupStatus.Invalid, 0)
+        }
+
+        class Planned(val index: Int, var start: CodePosition, var end: CodePosition, val text: String)
+
+        val planned = ArrayList<Planned>(edits.size)
+        for ((index, edit) in edits.withIndex()) {
+            val start = CodePosition(edit.startLine, edit.startColumn)
+            val end = CodePosition(edit.endLine, edit.endColumn)
+            if (edit.startLine < 0 || edit.startColumn < 0 || edit.endLine < 0 || edit.endColumn < 0 ||
+                start > end
+            ) {
+                return answer(EditGroupStatus.Invalid, index)
+            }
+            planned += Planned(index, start, end, edit.text)
+        }
+        overlapIn(planned.map { Triple(it.index, it.start, it.end) })?.let { return answer(EditGroupStatus.Invalid, it) }
+
+        val changes = document.changesSince(baseVersion) ?: return answer(EditGroupStatus.TooOld, 0)
+        for (edit in planned) {
+            for (change in changes) {
+                if (CodeDocument.overlaps(change, edit.start, edit.end)) {
+                    return answer(EditGroupStatus.Rejected, edit.index)
+                }
+                if (edit.start == edit.end) {
+                    edit.start = CodeDocument.map(edit.start, change, Bias.After)
+                    edit.end = edit.start
+                } else {
+                    edit.start = CodeDocument.map(edit.start, change, Bias.After)
+                    edit.end = CodeDocument.map(edit.end, change, Bias.Before)
+                }
+            }
+        }
+        for (edit in planned) {
+            if (!document.isValid(edit.start) || !document.isValid(edit.end) || edit.start > edit.end) {
+                return answer(EditGroupStatus.Invalid, edit.index)
+            }
+        }
+        // Moving every range past the same changes keeps apart what was apart, so this
+        // refuses nothing the check above let through. It checks the ranges as they will
+        // be applied, which is what the document has to be protected from.
+        overlapIn(planned.map { Triple(it.index, it.start, it.end) })?.let { return answer(EditGroupStatus.Invalid, it) }
+
+        // Back to front: an edit further on is applied first, so the ones before it are
+        // still where they were sent. Of two at the same place the one that reaches further
+        // goes first, and of two insertions there the one sent later, so that they read in
+        // the order they were sent.
+        val ordered = planned.sortedWith(
+            compareByDescending<Planned> { it.start }
+                .thenByDescending { it.end }
+                .thenByDescending { it.index },
+        )
+        val before = selection
+        val applied = ArrayList<AppliedChange>(ordered.size)
+        for (edit in ordered) applied += applyRaw(edit.start, edit.end, edit.text)
+        redoStack.clear()
+        undoStack += UndoEntry(applied, before, selection, mergeable = false, at = clock())
+        output += EditorOutput.GroupResult(
+            requestId,
+            EditGroupStatus.Applied,
+            baseVersion,
+            document.version,
+            applied.size,
+        )
+    }
+
+    /**
+     * A grouped Host edit whose record could not be read. The group changed nothing and is
+     * still answered, as [EditGroupStatus.Invalid] at index 0. With [message] the editor
+     * reports why; without it the decoder has already reported the record.
+     */
+    fun hostEditGroupUnreadable(requestId: Int, baseVersion: Int, message: String?) {
+        if (message != null) output += EditorOutput.Error(message)
+        output += EditorOutput.GroupResult(requestId, EditGroupStatus.Invalid, baseVersion, document.version, 0)
+    }
+
+    /**
+     * The edit that overlaps another, given as (index, start, end), or null where none
+     * does. Of an overlapping pair it is the one further on in the document. Ranges that
+     * only meet do not overlap, and neither do two insertions at one place; an insertion
+     * overlaps a range only from strictly inside it.
+     */
+    private fun overlapIn(ranges: List<Triple<Int, CodePosition, CodePosition>>): Int? {
+        // In document order, an edit overlaps one before it exactly when it starts before
+        // the farthest end of the stretches (not insertions) before it. An insertion before
+        // it never overlaps it, and a stretch that starts where an insertion is sorts after
+        // the insertion, so meeting at an edge is never counted.
+        val sorted = ranges.sortedWith(
+            compareBy<Triple<Int, CodePosition, CodePosition>> { it.second }.thenBy { it.third },
+        )
+        var reach: CodePosition? = null
+        for ((index, start, end) in sorted) {
+            val farthest = reach
+            if (farthest != null && start < farthest) return index
+            if (start != end && (farthest == null || end > farthest)) reach = end
+        }
+        return null
+    }
+
+    /**
      * An edit the reader made, already committed: never a composition still in progress.
      *
      * Any suggestion on show goes away, because the reader typed something else.
@@ -636,6 +834,7 @@ class CodeEditorModel(
      * last told, say nothing.
      */
     private fun flushReports() {
+        keepSnippetAround()
         if (selectionDirty) {
             selectionDirty = false
             val current = snapped(selection)
@@ -643,6 +842,13 @@ class CodeEditorModel(
                 reportedSelection = current
                 output += EditorOutput.SelectionMoved(document.version, current)
             }
+            // The whole list goes only while there is more than one selection, and once more
+            // when it comes back to one, so an editor with one caret sends what it always did.
+            val all = if (secondary.isEmpty()) listOf(current) else selections.map(::snapped)
+            if (all != reportedSelections && (all.size > 1 || reportedSelections.size > 1)) {
+                output += EditorOutput.SelectionsMoved(document.version, all)
+            }
+            reportedSelections = all
         }
         val visible = pendingVisible
         if (visible != null) {
@@ -808,6 +1014,107 @@ class CodeEditorModel(
             foldList += LiveFold(first, last, record.collapsed)
         }
         foldsChanged()
+    }
+
+    /**
+     * Replaces every view zone with the Host's new list. A zone is read against the document
+     * as it is now. One after a line the document does not have, or with a height that is not
+     * a number above zero, is reported and left out.
+     */
+    fun setViewZones(records: List<ViewZoneRecord>) {
+        zoneList.clear()
+        for (record in records) {
+            if (record.afterLine < 0 || record.afterLine >= document.lineCount) {
+                output += EditorOutput.Error(
+                    "a view zone follows line ${record.afterLine}, and the document has ${document.lineCount} lines",
+                )
+                continue
+            }
+            if (!(record.heightLines > 0f) || record.heightLines.isInfinite()) {
+                output += EditorOutput.Error("a view zone after line ${record.afterLine} is ${record.heightLines} lines high")
+                continue
+            }
+            zoneList += LiveViewZone(record.afterLine, record.heightLines, record.text)
+        }
+        overlayRevision += 1
+    }
+
+    // Long lines broken onto the rows below.
+
+    /** The columns a long line is broken at, or 0 where none is. The surface that draws the editor sets it. */
+    var wrapColumns = 0
+        private set
+    private var wrapTabWidth = 4
+
+    /** How many rows past its first each line takes, while lines are broken. */
+    private var wrapExtra: IntArray? = null
+
+    /** Changes whenever [wrapExtra] does, for the running totals below. */
+    private var wrapStamp = 0
+    private var wrapPrefixStamp = -1
+    private var wrapPrefixFolds = -1
+    private var wrapPrefixCache: IntArray? = null
+
+    /**
+     * Breaks every line longer than [columns] onto the rows below it, a tab advancing to the
+     * next of the stops [tabWidth] apart; 0 breaks none. Setting what is already set does
+     * nothing, so a surface can say it on every frame.
+     */
+    fun setWrap(columns: Int, tabWidth: Int) {
+        val wanted = maxOf(0, columns)
+        if (wanted == wrapColumns && (wanted == 0 || tabWidth == wrapTabWidth)) return
+        wrapColumns = wanted
+        wrapTabWidth = tabWidth
+        rewrapAll()
+        overlayRevision += 1
+    }
+
+    private fun rewrapAll() {
+        wrapExtra = if (wrapColumns == 0) {
+            null
+        } else {
+            IntArray(document.lineCount) { wrapBreaks(document.line(it), wrapColumns, wrapTabWidth).size }
+        }
+        wrapStamp += 1
+    }
+
+    /** Where [line] breaks onto a new row, as the columns each row after the first starts at. */
+    fun wrapBreaksOf(line: Int): IntArray =
+        if (wrapColumns == 0 || line < 0 || line >= document.lineCount) NO_BREAKS
+        else wrapBreaks(document.line(line), wrapColumns, wrapTabWidth)
+
+    /**
+     * The rows long lines wrap onto, as running totals for a row map, or null where nothing
+     * wraps. Entry `i` counts the rows past their first of the lines before line `i`; a line
+     * a fold hides counts none.
+     */
+    fun wrapPrefix(): IntArray? {
+        val extra = wrapExtra ?: return null
+        val cached = wrapPrefixCache
+        if (cached != null && wrapPrefixStamp == wrapStamp && wrapPrefixFolds == foldStamp) return cached
+        val prefix = IntArray(extra.size + 1)
+        val folded = hiddenLines().isNotEmpty()
+        for (line in extra.indices) {
+            prefix[line + 1] = prefix[line] + if (folded && isHidden(line)) 0 else extra[line]
+        }
+        wrapPrefixCache = prefix
+        wrapPrefixStamp = wrapStamp
+        wrapPrefixFolds = foldStamp
+        return prefix
+    }
+
+    /** Keeps the rows each line takes in step with a change: only the lines it touched are measured again. */
+    private fun rewrap(change: AppliedChange) {
+        val extra = wrapExtra ?: return
+        val first = change.start.line
+        val oldLast = change.end.line
+        val newLast = change.newEnd.line
+        val next = IntArray(document.lineCount)
+        extra.copyInto(next, 0, 0, first)
+        for (line in first..newLast) next[line] = wrapBreaks(document.line(line), wrapColumns, wrapTabWidth).size
+        extra.copyInto(next, newLast + 1, oldLast + 1, extra.size)
+        wrapExtra = next
+        wrapStamp += 1
     }
 
     /** Replaces every mark beside the line numbers with the Host's new list. */
@@ -1131,9 +1438,499 @@ class CodeEditorModel(
         return a to b
     }
 
+    // Several selections at once, which a snippet's mirrors and the reader's extra carets are.
+
+    /** The place [count] characters before [position], over line breaks, never inside a pair. */
+    fun stepBack(position: CodePosition, count: Int): CodePosition {
+        var at = position
+        repeat(count) {
+            at = when {
+                at.column > 0 -> {
+                    val line = document.line(at.line)
+                    val step = if (at.column >= 2 && line[at.column - 1].isLowSurrogate() && line[at.column - 2].isHighSurrogate()) 2 else 1
+                    CodePosition(at.line, at.column - step)
+                }
+                at.line > 0 -> CodePosition(at.line - 1, document.line(at.line - 1).length)
+                else -> at
+            }
+        }
+        return at
+    }
+
+    /** The place [count] characters after [position], over line breaks, never inside a pair. */
+    fun stepForward(position: CodePosition, count: Int): CodePosition {
+        var at = position
+        repeat(count) {
+            val line = document.line(at.line)
+            at = when {
+                at.column < line.length -> {
+                    val step = if (line[at.column].isHighSurrogate() && at.column + 1 < line.length && line[at.column + 1].isLowSurrogate()) 2 else 1
+                    CodePosition(at.line, at.column + step)
+                }
+                at.line < document.lineCount - 1 -> CodePosition(at.line + 1, 0)
+                else -> at
+            }
+        }
+        return at
+    }
+
+    /**
+     * The same edit at every selection, as one undo step: a selection that is not collapsed
+     * is replaced with [text], and at a caret the [before] characters in front of it and the
+     * [after] characters behind it are. Each selection ends as a caret after what went in
+     * there. Where two of them reach the same text they are one. Returns whether anything
+     * changed.
+     */
+    fun editAtSelections(text: String, before: Int = 0, after: Int = 0, origin: EditOrigin = EditOrigin.Reader): Boolean {
+        dismissGhostText()
+        val all = selections
+        // Each selection's range, with where it stands among the selections.
+        val ranges = all.mapIndexed { index, selection ->
+            if (selection.collapsed) {
+                Triple(index, stepBack(selection.caret, before), stepForward(selection.caret, after))
+            } else {
+                Triple(index, selection.start, selection.end)
+            }
+        }.sortedWith(compareBy<Triple<Int, CodePosition, CodePosition>> { it.second }.thenBy { it.third })
+        // Ranges that overlap are joined, the one that comes first in the list keeping its place.
+        val joined = ArrayList<Triple<Int, CodePosition, CodePosition>>()
+        for (range in ranges) {
+            val last = joined.lastOrNull()
+            if (last != null && range.second < last.third) {
+                joined[joined.size - 1] = Triple(minOf(last.first, range.first), last.second, maxOf(last.third, range.third))
+            } else if (last != null && range.second == last.second && range.third == last.third) {
+                joined[joined.size - 1] = Triple(minOf(last.first, range.first), last.second, last.third)
+            } else {
+                joined += range
+            }
+        }
+        if (text.isEmpty() && joined.all { it.second == it.third }) return false
+        val selectionBefore = selection
+        val secondaryBefore = secondary
+        // From the end backwards, so the ranges in front are still where they were. The carets
+        // already placed behind are moved by every change made in front of them.
+        val carets = HashMap<Int, CodePosition>()
+        val changes = ArrayList<AppliedChange>(joined.size)
+        for ((index, start, end) in joined.asReversed()) {
+            val change = applyRaw(start, end, text)
+            changes += change
+            for (key in carets.keys.toList()) carets[key] = CodeDocument.map(carets.getValue(key), change, Bias.After)
+            carets[index] = change.newEnd
+        }
+        val placed = joined.map { CodeSelection.at(carets.getValue(it.first)) to it.first }.sortedBy { it.second }
+        selection = placed.first().first
+        secondary = placed.drop(1).map { it.first }
+        redoStack.clear()
+        undoStack += UndoEntry(
+            changes,
+            selectionBefore,
+            selection,
+            mergeable = false,
+            at = clock(),
+            secondaryBefore = secondaryBefore,
+            secondaryAfter = secondary,
+        )
+        return true
+    }
+
+    /**
+     * A reader's edit that a surface with one caret of its own made at the primary selection
+     * as it stood before the edit, [primary], made again at every other selection. It is
+     * repeated where it can be said the same way at a caret: text typed or pasted over the
+     * selection, or characters taken from either side of a caret on its own line. Returns
+     * false, and changes nothing, where it is not one of those; the caller then applies it
+     * as an edit of one place.
+     */
+    fun editLikePrimary(primary: CodeSelection, start: CodePosition, end: CodePosition, text: String, origin: EditOrigin): Boolean {
+        if (secondary.isEmpty()) return false
+        if (!primary.collapsed) {
+            if (start != primary.start || end != primary.end) return false
+            val saved = selection
+            selection = primary
+            if (!editAtSelections(text, 0, 0, origin)) selection = saved
+            return true
+        }
+        val caret = primary.caret
+        if (start.line != caret.line || end.line != caret.line || start > caret || end < caret) return false
+        val saved = selection
+        selection = primary
+        if (!editAtSelections(text, caret.column - start.column, end.column - caret.column, origin)) selection = saved
+        return true
+    }
+
+    /** Back to the primary selection alone. Returns whether there were others. */
+    fun dropSecondary(): Boolean {
+        if (secondary.isEmpty()) return false
+        secondary = emptyList()
+        return true
+    }
+
+    // The reader's extra carets: added by a press, by the next match, or on the lines above
+    // and below, and set by the Host.
+
+    /**
+     * Selections the Host asked for, the first of them the primary one, each a run of four
+     * numbers (anchor line, anchor column, active line, active column) written against
+     * [baseVersion]. Every end is moved past what the reader typed since. An end that is not
+     * a place in the document, or no selections at all, drops the command and is reported.
+     */
+    fun hostSetSelections(baseVersion: Int, values: IntArray) {
+        if (values.isEmpty() || values.size % 4 != 0) {
+            output += EditorOutput.Error("a list of selections has ${values.size / 4} whole selections in it")
+            return
+        }
+        val moved = ArrayList<CodeSelection>(values.size / 4)
+        for (index in 0 until values.size / 4) {
+            val anchor = CodePosition(values[index * 4], values[index * 4 + 1])
+            val active = CodePosition(values[index * 4 + 2], values[index * 4 + 3])
+            val (from, to) = moveAlong(baseVersion, "a selection", anchor, active, Bias.After, Bias.After) ?: return
+            if (!document.isValid(from) || !document.isValid(to)) {
+                output += EditorOutput.Error("the selection $anchor to $active is outside the document")
+                return
+            }
+            if (moved.none { it.start == minOf(from, to) && it.end == maxOf(from, to) }) moved += CodeSelection(from, to)
+        }
+        dismissGhostText()
+        selection = moved.first()
+        secondary = moved.drop(1)
+        hostSelection += 1
+    }
+
+    /** A caret added where the reader pressed with Alt held. One where a caret already is goes instead. */
+    fun addCaret(position: CodePosition) {
+        if (!document.isValid(position)) return
+        val existing = secondary.indexOfFirst { it.collapsed && it.caret == position }
+        when {
+            existing >= 0 -> secondary = secondary.filterIndexed { index, _ -> index != existing }
+            selection.collapsed && selection.caret == position -> {
+                if (secondary.isEmpty()) return
+                selection = secondary.first()
+                secondary = secondary.drop(1)
+            }
+            else -> secondary = secondary + CodeSelection.at(position)
+        }
+    }
+
+    /** The word around [position], or null where it is in none. */
+    fun wordAt(position: CodePosition): Pair<CodePosition, CodePosition>? {
+        val text = document.line(position.line)
+        fun isWord(character: Char) = character.isLetterOrDigit() || character == '_'
+        var start = position.column
+        var end = position.column
+        while (start > 0 && isWord(text[start - 1])) start -= 1
+        while (end < text.length && isWord(text[end])) end += 1
+        if (start == end) return null
+        return CodePosition(position.line, start) to CodePosition(position.line, end)
+    }
+
+    /**
+     * Cmd or Ctrl and D: with nothing selected, the word at the caret is selected; then each
+     * press adds a selection on the next place the same text is, after the selection added
+     * last and round the end of the document, passing over places already selected.
+     * Returns whether anything changed.
+     */
+    fun addNextMatch(): Boolean {
+        val last = secondary.lastOrNull() ?: selection
+        if (last.collapsed) {
+            if (secondary.isNotEmpty()) return false
+            val (start, end) = wordAt(selection.caret) ?: return false
+            selection = CodeSelection(start, end)
+            hostSelection += 1
+            return true
+        }
+        val wanted = document.textBetween(last.start, last.end)
+        val whole = document.text()
+        fun offsetOf(position: CodePosition): Int {
+            var offset = 0
+            for (line in 0 until position.line) offset += document.line(line).length + document.lineBreak(line).length
+            return offset + position.column
+        }
+        fun positionOf(offset: Int): CodePosition {
+            var rest = offset
+            var line = 0
+            while (line < document.lineCount - 1) {
+                val length = document.line(line).length + document.lineBreak(line).length
+                if (rest < length) break
+                rest -= length
+                line += 1
+            }
+            return CodePosition(line, minOf(rest, document.line(line).length))
+        }
+        val taken = selections.map { offsetOf(it.start) to offsetOf(it.end) }
+        var from = offsetOf(last.end)
+        repeat(2) {
+            var at = whole.indexOf(wanted, from)
+            while (at >= 0) {
+                val end = at + wanted.length
+                if (taken.none { (start, stop) -> at < stop && start < end }) {
+                    secondary = secondary + CodeSelection(positionOf(at), positionOf(end))
+                    return true
+                }
+                at = whole.indexOf(wanted, at + 1)
+            }
+            from = 0
+        }
+        return false
+    }
+
+    /**
+     * Alt and Cmd or Ctrl with Up or Down: a caret on the line above the topmost selection,
+     * or below the bottommost, at the same column where the line is that long. Returns
+     * whether there was such a line.
+     */
+    fun addCaretVertically(down: Boolean): Boolean {
+        val edge = if (down) selections.maxBy { it.caret } else selections.minBy { it.caret }
+        val target = edge.caret.line + if (down) 1 else -1
+        if (target < 0 || target >= document.lineCount) return false
+        val line = nearestVisible(target, down)
+        if (line == edge.caret.line || line < 0 || line >= document.lineCount) return false
+        secondary = secondary + CodeSelection.at(CodePosition(line, minOf(edge.caret.column, document.line(line).length)))
+        return true
+    }
+
+    /** Where a caret goes for a key that moves it, said without a picture of the text. */
+    enum class CaretMove { Left, Right, Up, Down, Home, End }
+
+    /**
+     * [selection] moved by [move] the way the keys move a caret: a selection that is not
+     * collapsed goes to its own edge for Left and Right, and [extend] keeps the anchor.
+     */
+    fun moved(selection: CodeSelection, move: CaretMove, extend: Boolean): CodeSelection {
+        val caret = selection.caret
+        val target = when (move) {
+            CaretMove.Left -> if (!extend && !selection.collapsed) selection.start else stepBack(caret, 1)
+            CaretMove.Right -> if (!extend && !selection.collapsed) selection.end else stepForward(caret, 1)
+            CaretMove.Up, CaretMove.Down -> {
+                val down = move == CaretMove.Down
+                val line = nearestVisible((caret.line + if (down) 1 else -1).coerceIn(0, document.lineCount - 1), down)
+                CodePosition(line, minOf(caret.column, document.line(line).length))
+            }
+            CaretMove.Home -> CodePosition(caret.line, 0)
+            CaretMove.End -> CodePosition(caret.line, document.line(caret.line).length)
+        }
+        return CodeSelection(if (extend) selection.anchor else target, target)
+    }
+
+    /** Moves every selection past the primary one by [move]. The primary is its surface's to move. */
+    fun moveSecondary(move: CaretMove, extend: Boolean) {
+        if (secondary.isEmpty()) return
+        secondary = secondary.map { moved(it, move, extend) }
+    }
+
+    // Snippet sessions.
+
+    /** The snippet whose tab stops the reader is stepping through, or null. */
+    private var snippet: SnippetSession? = null
+
+    /** Changes when a snippet session starts, moves to another stop, or ends. */
+    var snippetRevision: Int by mutableIntStateOf(0)
+        private set
+
+    /** Whether the reader is stepping through a snippet's tab stops. */
+    val snippetActive: Boolean get() = snippet != null
+
+    /** The choices of the stop the reader is on, while its list is open, or null. */
+    val snippetChoices: List<String>?
+        get() = snippet?.takeIf { it.choicesOpen }?.let { it.choices[it.order[it.current]] }
+
+    /** The choice the list has marked. */
+    var choiceIndex: Int by mutableIntStateOf(0)
+
+    /**
+     * A snippet the Host asked to have put in place of a range written against
+     * [baseVersion]. The range is moved past what the reader typed since, and where they
+     * typed in it the snippet is dropped and reported, as is a snippet that cannot be read.
+     * What goes in is one undo step, reported as ordinary changes; each new line of it takes
+     * the indentation of the line it goes into. Where it has tab stops, the reader is put on
+     * the first.
+     */
+    fun hostInsertSnippet(baseVersion: Int, startLine: Int, startColumn: Int, endLine: Int, endColumn: Int, source: String) {
+        val sentStart = CodePosition(startLine, startColumn)
+        val sentEnd = CodePosition(endLine, endColumn)
+        if (sentStart > sentEnd || startLine < 0 || startColumn < 0) {
+            output += EditorOutput.Error("a snippet's range starts at $sentStart after it ends at $sentEnd")
+            return
+        }
+        val parsed = parseSnippet(source) ?: run {
+            output += EditorOutput.Error("a snippet cannot be read: \"$source\"")
+            return
+        }
+        if (baseVersion > document.version) {
+            output += EditorOutput.Error(
+                "a snippet was written against version $baseVersion, and the document is at ${document.version}",
+            )
+            return
+        }
+        val changes = document.changesSince(baseVersion) ?: run {
+            output += EditorOutput.Error(
+                "a snippet was written against version $baseVersion, and the document remembers back to ${document.oldestVersion}",
+            )
+            return
+        }
+        var start = sentStart
+        var end = sentEnd
+        for (change in changes) {
+            if (CodeDocument.overlaps(change, start, end)) {
+                output += EditorOutput.Error("the reader changed the range $sentStart to $sentEnd a snippet was written for")
+                return
+            }
+            if (start == end) {
+                start = CodeDocument.map(start, change, Bias.After)
+                end = start
+            } else {
+                start = CodeDocument.map(start, change, Bias.After)
+                end = CodeDocument.map(end, change, Bias.Before)
+            }
+        }
+        if (!document.isValid(start) || !document.isValid(end) || start > end) {
+            output += EditorOutput.Error("a snippet's range $sentStart to $sentEnd is outside the document")
+            return
+        }
+        endSnippet()
+        dismissGhostText()
+        val indent = document.line(start.line).takeWhile { it == ' ' || it == '\t' }
+        val (text, offsets) = parsed.indented(indent)
+        val selectionBefore = selection
+        val secondaryBefore = secondary
+        secondary = emptyList()
+        val change = applyRaw(start, end, text)
+        redoStack.clear()
+        // Where an offset into the inserted text is in the document now.
+        fun at(offset: Int): CodePosition {
+            var line = start.line
+            var column = start.column
+            for (index in 0 until offset) {
+                if (text[index] == '\n') {
+                    line += 1
+                    column = 0
+                } else {
+                    column += 1
+                }
+            }
+            return CodePosition(line, column)
+        }
+        val places = HashMap<Int, MutableList<SnippetPlace>>()
+        val choices = HashMap<Int, List<String>>()
+        for ((index, stop) in parsed.stops.withIndex()) {
+            val (from, to) = offsets[index]
+            places.getOrPut(stop.number) { ArrayList() } += SnippetPlace(at(from), at(to))
+            stop.choices?.let { choices.putIfAbsent(stop.number, it) }
+        }
+        val numbers = places.keys.filter { it != 0 }.sorted()
+        val final = places[0]?.first() ?: SnippetPlace(change.newEnd, change.newEnd)
+        if (numbers.isEmpty()) {
+            selection = CodeSelection.at(final.start)
+        } else {
+            val session = SnippetSession(numbers + 0, places.mapValues { it.value.toList() } + (0 to listOf(final)), choices, SnippetPlace(start, change.newEnd))
+            snippet = session
+            showStop(session)
+        }
+        undoStack += UndoEntry(
+            listOf(change),
+            selectionBefore,
+            selection,
+            mergeable = false,
+            at = clock(),
+            secondaryBefore = secondaryBefore,
+            secondaryAfter = secondary,
+        )
+        hostSelection += 1
+        snippetRevision += 1
+    }
+
+    /** Puts the selections on the stop the session is at, and opens its list where it has choices. */
+    private fun showStop(session: SnippetSession) {
+        val places = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(places[0].start, places[0].end)
+        secondary = places.drop(1).map { CodeSelection(it.start, it.end) }
+        session.choicesOpen = session.choices.containsKey(session.order[session.current])
+        choiceIndex = 0
+    }
+
+    /**
+     * Tab in a snippet: the next stop, or `$0` and the end of the session. A list of choices
+     * that is open has its marked choice taken first. Returns false where there is no session.
+     */
+    fun nextSnippetStop(): Boolean {
+        val session = snippet ?: return false
+        if (session.choicesOpen) pickChoice(choiceIndex)
+        session.current += 1
+        if (session.current >= session.order.size - 1) {
+            // The last stop is `$0`: the caret goes there and the session is over.
+            val final = session.places.getValue(0).first()
+            selection = CodeSelection.at(final.start)
+            secondary = emptyList()
+            snippet = null
+        } else {
+            showStop(session)
+        }
+        hostSelection += 1
+        snippetRevision += 1
+        return true
+    }
+
+    /** Shift+Tab in a snippet: the stop before, if there is one. Returns false where there is no session. */
+    fun previousSnippetStop(): Boolean {
+        val session = snippet ?: return false
+        if (session.current > 0) session.current -= 1
+        showStop(session)
+        hostSelection += 1
+        snippetRevision += 1
+        return true
+    }
+
+    /** Ends the session, leaving the caret where it is. Returns whether there was one. */
+    fun endSnippet(): Boolean {
+        snippet ?: return false
+        snippet = null
+        secondary = emptyList()
+        snippetRevision += 1
+        return true
+    }
+
+    /** Closes the list of choices without taking one. Returns whether one was open. */
+    fun closeChoices(): Boolean {
+        val session = snippet ?: return false
+        if (!session.choicesOpen) return false
+        session.choicesOpen = false
+        snippetRevision += 1
+        return true
+    }
+
+    /** Moves the mark in the open list of choices by [step], round the ends. */
+    fun moveChoice(step: Int) {
+        val choices = snippetChoices ?: return
+        choiceIndex = ((choiceIndex + step) % choices.size + choices.size) % choices.size
+    }
+
+    /** Puts choice [index] in every place of the stop the reader is on, and closes the list. */
+    fun pickChoice(index: Int) {
+        val session = snippet ?: return
+        val choices = session.choices[session.order[session.current]] ?: return
+        val choice = choices.getOrNull(index) ?: return
+        session.choicesOpen = false
+        val places = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(places[0].start, places[0].end)
+        secondary = places.drop(1).map { CodeSelection(it.start, it.end) }
+        editAtSelections(choice)
+        val moved = session.places.getValue(session.order[session.current])
+        selection = CodeSelection(moved[0].start, moved[0].end)
+        secondary = moved.drop(1).map { CodeSelection(it.start, it.end) }
+        hostSelection += 1
+        snippetRevision += 1
+    }
+
+    /** Ends the session where the caret has left the snippet. */
+    private fun keepSnippetAround() {
+        val session = snippet ?: return
+        val caret = selection.caret
+        if (caret < session.bounds.start || caret > session.bounds.end) endSnippet()
+    }
+
     /** Undoes the last step. Each change it makes is reported, in order. */
     fun undo(): Boolean {
         val entry = undoStack.removeLastOrNull() ?: return false
+        endSnippet()
         redoStack += revert(entry)
         return true
     }
@@ -1141,6 +1938,7 @@ class CodeEditorModel(
     /** Does again what was last undone. */
     fun redo(): Boolean {
         val entry = redoStack.removeLastOrNull() ?: return false
+        endSnippet()
         undoStack += revert(entry)
         return true
     }
@@ -1153,12 +1951,15 @@ class CodeEditorModel(
             inverses += applyRaw(change.start, change.newEnd, change.removed)
         }
         selection = entry.selectionBefore
+        secondary = entry.secondaryBefore
         return UndoEntry(
             inverses,
             selectionBefore = entry.selectionAfter,
             selectionAfter = entry.selectionBefore,
             mergeable = false,
             at = 0L,
+            secondaryBefore = entry.secondaryAfter,
+            secondaryAfter = entry.secondaryBefore,
         )
     }
 
@@ -1183,11 +1984,18 @@ class CodeEditorModel(
     /** Changes the document, moves everything over it, and queues the report. */
     private fun applyRaw(start: CodePosition, end: CodePosition, text: String): AppliedChange {
         val change = document.replace(start, end, text)
+        rewrap(change)
         moveOverlays(change)
         selection = CodeSelection(
             CodeDocument.map(selection.anchor, change, Bias.After),
             CodeDocument.map(selection.caret, change, Bias.After),
         )
+        if (secondary.isNotEmpty()) {
+            secondary = secondary.map {
+                CodeSelection(CodeDocument.map(it.anchor, change, Bias.After), CodeDocument.map(it.caret, change, Bias.After))
+            }
+        }
+        snippet?.follow(change)
         output += EditorOutput.Changed(change)
         contentRevision += 1
         return change
@@ -1280,6 +2088,16 @@ class CodeEditorModel(
             foldStamp += 1
             moved = true
         }
+        if (zoneList.isNotEmpty()) {
+            // A zone stays after its line: a line typed in front of it moves it down, typing on
+            // its line leaves it, and where its line is deleted it goes to the line the
+            // deletion closed up on.
+            for (zone in zoneList) {
+                zone.afterLine = CodeDocument.map(CodePosition(zone.afterLine, 0), change, Bias.After).line
+                    .coerceIn(0, document.lineCount - 1)
+            }
+            moved = true
+        }
         if (gutterList.isNotEmpty()) {
             gutterStamp += 1
             val iterator = gutterList.iterator()
@@ -1305,10 +2123,301 @@ class CodeEditorModel(
         val mergeable: Boolean,
         /** When the step last grew. */
         val at: Long,
+        /** The selections past the primary one, before and after the step. */
+        val secondaryBefore: List<CodeSelection> = emptyList(),
+        val secondaryAfter: List<CodeSelection> = emptyList(),
     )
 
     companion object {
         /** Characters typed within this long of each other undo together. */
         const val TYPING_GROUP_NANOS: Long = 1_000_000_000L
     }
+}
+
+/** One place a snippet's tab stop is in the document, followed through edits. */
+class SnippetPlace(var start: CodePosition, var end: CodePosition) {
+    /**
+     * Moves the place past a change. Text typed at either edge of it is taken in, so typing
+     * into an empty stop grows the stop rather than leaving the text beside it.
+     */
+    fun follow(change: AppliedChange) {
+        start = CodeDocument.map(start, change, Bias.Before)
+        end = CodeDocument.map(end, change, Bias.After)
+        if (end < start) end = start
+    }
+}
+
+/**
+ * A snippet the reader is stepping through: its stops in the order Tab visits them, `$0`
+ * last, the places of each, the choices of those that have them, and the whole snippet,
+ * which the caret leaving ends the session.
+ */
+internal class SnippetSession(
+    val order: List<Int>,
+    val places: Map<Int, List<SnippetPlace>>,
+    val choices: Map<Int, List<String>>,
+    val bounds: SnippetPlace,
+) {
+    var current = 0
+    var choicesOpen = false
+
+    fun follow(change: AppliedChange) {
+        for (list in places.values) for (place in list) place.follow(change)
+        bounds.follow(change)
+    }
+}
+
+/** One tab stop of a parsed snippet: its number, and its choices where it has them. */
+class ParsedStop(val number: Int, val choices: List<String>?)
+
+/**
+ * A snippet read: its text, and for each stop in the order they appear, where it is in
+ * that text, as a start and an end offset.
+ */
+class ParsedSnippet(val text: String, val stops: List<ParsedStop>, val offsets: List<Pair<Int, Int>>) {
+    /** The text with [indent] after every line break, and the stops' offsets in it. */
+    fun indented(indent: String): Pair<String, List<Pair<Int, Int>>> {
+        if (indent.isEmpty() || '\n' !in text) return text to offsets
+        val moved = IntArray(text.length + 1)
+        val builder = StringBuilder()
+        for (index in text.indices) {
+            moved[index] = builder.length
+            builder.append(text[index])
+            if (text[index] == '\n') builder.append(indent)
+        }
+        moved[text.length] = builder.length
+        return builder.toString() to offsets.map { (from, to) -> moved[from] to moved[to] }
+    }
+}
+
+/**
+ * Reads a snippet in the subset of VS Code's syntax the editor takes: `$1`, `${1}`,
+ * `${1:placeholder}` (a placeholder may hold stops of its own), `${1|one,two|}`, `$0`, and a
+ * backslash before `$`, `}` or `\\`, and inside choices before `,` and `|`, for the
+ * character itself. A `$` that starts none of these is itself. Every place of one number
+ * shows the text of the first of them that has any, so `${1:name} = $1` reads `name = name`.
+ * Null where the snippet is not one: a `${` that is never closed, a number too large, or
+ * stops that make each other's text.
+ */
+fun parseSnippet(source: String): ParsedSnippet? {
+    var index = 0
+    fun number(): Int? {
+        val from = index
+        while (index < source.length && source[index].isDigit()) index += 1
+        if (index == from || index - from > 6) return null
+        return source.substring(from, index).toInt()
+    }
+    // Reads segments up to an unescaped `}` when [nested], or to the end.
+    fun segments(nested: Boolean): List<SnippetSegment>? {
+        val found = ArrayList<SnippetSegment>()
+        val text = StringBuilder()
+        fun flush() {
+            if (text.isNotEmpty()) {
+                found += SnippetText(text.toString())
+                text.clear()
+            }
+        }
+        while (index < source.length) {
+            val character = source[index]
+            when {
+                character == '\\' && index + 1 < source.length && source[index + 1] in "\$}\\" -> {
+                    text.append(source[index + 1])
+                    index += 2
+                }
+                character == '}' && nested -> {
+                    flush()
+                    return found
+                }
+                character == '$' && index + 1 < source.length && source[index + 1].isDigit() -> {
+                    index += 1
+                    val number = number() ?: return null
+                    flush()
+                    found += SnippetStop(number, null, null)
+                }
+                character == '$' && index + 2 < source.length && source[index + 1] == '{' && source[index + 2].isDigit() -> {
+                    index += 2
+                    val number = number() ?: return null
+                    if (index >= source.length) return null
+                    flush()
+                    when (source[index]) {
+                        '}' -> {
+                            index += 1
+                            found += SnippetStop(number, null, null)
+                        }
+                        ':' -> {
+                            index += 1
+                            val children = segments(nested = true) ?: return null
+                            if (index >= source.length || source[index] != '}') return null
+                            index += 1
+                            found += SnippetStop(number, children, null)
+                        }
+                        '|' -> {
+                            index += 1
+                            val choices = ArrayList<String>()
+                            val choice = StringBuilder()
+                            var closed = false
+                            while (index < source.length) {
+                                val next = source[index]
+                                if (next == '\\' && index + 1 < source.length && source[index + 1] in ",|\\$}") {
+                                    choice.append(source[index + 1])
+                                    index += 2
+                                } else if (next == ',') {
+                                    choices += choice.toString()
+                                    choice.clear()
+                                    index += 1
+                                } else if (next == '|' && index + 1 < source.length && source[index + 1] == '}') {
+                                    choices += choice.toString()
+                                    index += 2
+                                    closed = true
+                                    break
+                                } else {
+                                    choice.append(next)
+                                    index += 1
+                                }
+                            }
+                            if (!closed) return null
+                            found += SnippetStop(number, null, choices)
+                        }
+                        else -> return null
+                    }
+                }
+                else -> {
+                    text.append(character)
+                    index += 1
+                }
+            }
+        }
+        if (nested) return null
+        flush()
+        return found
+    }
+    val tree = segments(nested = false) ?: return null
+
+    // The text each number shows: that of its first place with a placeholder or choices.
+    val defining = HashMap<Int, SnippetStop>()
+    fun collect(list: List<SnippetSegment>) {
+        for (segment in list) {
+            if (segment is SnippetStop) {
+                if ((segment.children != null || segment.choices != null) && segment.number !in defining) defining[segment.number] = segment
+                segment.children?.let(::collect)
+            }
+        }
+    }
+    collect(tree)
+
+    val text = StringBuilder()
+    val stops = ArrayList<ParsedStop>()
+    val offsets = ArrayList<Pair<Int, Int>>()
+    var broken = false
+    fun render(list: List<SnippetSegment>, depth: Int) {
+        if (depth > 16) {
+            broken = true
+            return
+        }
+        for (segment in list) {
+            when (segment) {
+                is SnippetText -> text.append(segment.value)
+                is SnippetStop -> {
+                    val slot = stops.size
+                    stops += ParsedStop(segment.number, segment.choices ?: defining[segment.number]?.choices)
+                    offsets += 0 to 0
+                    val from = text.length
+                    when {
+                        segment.choices != null -> text.append(segment.choices.firstOrNull() ?: "")
+                        segment.children != null -> render(segment.children, depth + 1)
+                        else -> {
+                            val origin = defining[segment.number]
+                            when {
+                                origin?.choices != null -> text.append(origin.choices.firstOrNull() ?: "")
+                                // A mirror shows the placeholder's text, without stops of its own.
+                                origin?.children != null -> text.append(plain(origin.children))
+                            }
+                        }
+                    }
+                    offsets[slot] = from to text.length
+                }
+            }
+        }
+    }
+    render(tree, 0)
+    if (broken) return null
+    return ParsedSnippet(text.toString(), stops, offsets)
+}
+
+/** A piece of a snippet as it was read: text, or a tab stop. */
+private sealed class SnippetSegment
+
+private class SnippetText(val value: String) : SnippetSegment()
+
+private class SnippetStop(val number: Int, val children: List<SnippetSegment>?, val choices: List<String>?) : SnippetSegment()
+
+/** The text of snippet segments, a stop inside them shown as its own text. */
+private fun plain(list: List<SnippetSegment>, depth: Int = 0): String {
+    if (depth > 16) return ""
+    val builder = StringBuilder()
+    for (segment in list) {
+        when (segment) {
+            is SnippetText -> builder.append(segment.value)
+            is SnippetStop -> when {
+                segment.choices != null -> builder.append(segment.choices.firstOrNull() ?: "")
+                segment.children != null -> builder.append(plain(segment.children, depth + 1))
+            }
+        }
+    }
+    return builder.toString()
+}
+
+private val NO_BREAKS = IntArray(0)
+
+/** Whether a character takes two columns of a monospaced face: East Asian wide letters and pictures. */
+internal fun isWideCharacter(codePoint: Int): Boolean =
+    codePoint in 0x1100..0x115F || codePoint in 0x2E80..0xA4CF || codePoint in 0xAC00..0xD7A3 ||
+        codePoint in 0xF900..0xFAFF || codePoint in 0xFE30..0xFE4F || codePoint in 0xFF00..0xFF60 ||
+        codePoint in 0xFFE0..0xFFE6 || codePoint in 0x1F300..0x1FAFF || codePoint in 0x20000..0x3FFFD
+
+/**
+ * Where a line breaks onto new rows [columns] columns wide: the column, in UTF-16 units, each
+ * row after the first starts at. A row breaks after the last space or tab that fits in it,
+ * and where a word is longer than the row, at the column itself; never between the halves
+ * of a pair. A tab advances to the next of the stops [tabWidth] apart, counted from the start
+ * of its row, and an East Asian wide letter takes two columns. Empty where the line fits.
+ */
+fun wrapBreaks(text: String, columns: Int, tabWidth: Int): IntArray {
+    if (columns <= 0 || text.length <= columns / 2 && '\t' !in text) return NO_BREAKS
+    var breaks: ArrayList<Int>? = null
+    var rowStart = 0
+    var column = 0
+    var afterSpace = -1
+    var index = 0
+    val tab = maxOf(1, tabWidth)
+    fun widthAt(at: Int, shown: Int): Int {
+        val character = text[at]
+        if (character == '\t') return tab - shown % tab
+        val pair = character.isHighSurrogate() && at + 1 < text.length && text[at + 1].isLowSurrogate()
+        val code = if (pair) 0x10000 + ((character.code - 0xD800) shl 10) + (text[at + 1].code - 0xDC00) else character.code
+        return if (isWideCharacter(code)) 2 else 1
+    }
+    fun sizeAt(at: Int): Int =
+        if (text[at].isHighSurrogate() && at + 1 < text.length && text[at + 1].isLowSurrogate()) 2 else 1
+    while (index < text.length) {
+        val width = widthAt(index, column)
+        if (column + width > columns && index > rowStart) {
+            val at = if (afterSpace > rowStart && afterSpace <= index) afterSpace else index
+            (breaks ?: ArrayList<Int>().also { breaks = it }) += at
+            rowStart = at
+            afterSpace = -1
+            column = 0
+            var walk = at
+            while (walk < index) {
+                column += widthAt(walk, column)
+                walk += sizeAt(walk)
+            }
+            continue
+        }
+        column += width
+        val size = sizeAt(index)
+        if (text[index] == ' ' || text[index] == '\t') afterSpace = index + size
+        index += size
+    }
+    return breaks?.toIntArray() ?: NO_BREAKS
 }

@@ -37,6 +37,7 @@ import java.nio.ByteBuffer
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -206,6 +207,34 @@ class MeasureTest {
                 assertSameAsDrawn(results.single(), drawnLayout(TEXT), density.density, case.name)
             }
         }
+    }
+
+    /**
+     * CSS `letter-spacing: 0` is a real 0. Text with a role whose own spacing is not 0 (the
+     * default design system's body rung is tracked) is drawn with no extra spacing when the
+     * Host sends 0, and with the role's when it sends NaN, and is measured the way it is
+     * drawn in both cases.
+     */
+    @Test
+    fun fr40_explicit_zero_letter_spacing_is_not_unset() {
+        val text = "Letters set with and without the role's spacing"
+        val widths = mutableMapOf<String, Float>()
+        for ((name, spacing) in listOf("explicit 0" to 0f, "unset" to Float.NaN)) {
+            runComposeUiTest {
+                startHost(
+                    FakeHostConnection(
+                        textInColumn(1000f, text, PropertyKind.LetterSpacing to PropertyValue.Float(spacing)),
+                    ),
+                )
+                val (status, results) = measure(MeasureRequests().text(text, width = 1000f, letterSpacing = spacing))
+                assertEquals(MeasureRecords.CALL_OK, status, name)
+                assertSameAsDrawn(results.single(), drawnLayout(TEXT), density.density, name)
+                widths[name] = results.single().width
+            }
+        }
+        val zero = widths.getValue("explicit 0")
+        val unset = widths.getValue("unset")
+        assertNotEquals(unset, zero, "a spacing of 0 is drawn without the role's spacing")
     }
 
     @Test

@@ -20,9 +20,10 @@ import kotlin.wasm.unsafe.withScopedMemoryAllocator
  *
  * Both modules read and write one `WebAssembly.Memory`, so a batch is decoded where the
  * Host wrote it and no byte of it is copied. What crosses is the address and the length,
- * through a generated JavaScript arrow function that passes them on: about 12ns a call, and
- * the only reason it is there at all is that a wasm import has to be supplied before the
- * module that would define the shared memory exists.
+ * as a wasm call with no JavaScript on it: each `host*` function is a wasm import bound to
+ * the generated trampoline, which calls the Host's export through a table slot. The table
+ * is what lets this module be instantiated before the Host, which imports its memory,
+ * exists; the slots are filled once it does.
  *
  * Every call runs on the frame loop's thread and returns on the same call stack, and one
  * event costs two calls: `dispatchEvent` and the `releaseBatch` that follows it.
@@ -77,18 +78,15 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         // An event too large for every buffer the Host would lend is refused here, before
         // anything is sent, rather than cut short.
         val length = events.encode(event)
-        checkStatus(hostDispatchEvent(events.backing.address, length, outAddress), "dispatch_event")
+        checkStatus(hostDispatchEvent(events.backing.address, length, outAddress), "dispatch_event", event)
         val result = out.getLong(BATCH_RESULT_OFFSET)
         readBatch(onMutation)
         return result
     }
 
     override fun renderFrame(frameTimeNanos: Long, onMutation: (Mutation) -> Unit) {
-        // Split rather than passed whole: a 64-bit argument reaches the forwarder as a
-        // BigInt, and that would be a heap allocation on the call that happens every frame.
-        val low = frameTimeNanos.toInt()
-        val high = (frameTimeNanos ushr 32).toInt()
-        checkStatus(hostRenderFrame(low, high, outAddress), "render_frame")
+        // Passed whole: the call is wasm to wasm, so a Long crosses as an i64.
+        checkStatus(hostRenderFrame(frameTimeNanos, outAddress), "render_frame")
         readBatch(onMutation)
     }
 
@@ -147,9 +145,14 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
         return created
     }
 
-    private fun checkStatus(status: Int, operation: String) {
+    private fun checkStatus(status: Int, operation: String, event: HostEvent? = null) {
         if (status != STATUS_OK) {
-            throw HostCallException("compose_rust_host_$operation returned $status")
+            // Which event the Host refused, as the desktop and Android connections say. A
+            // bare status says a call failed and leaves the one question that locates it
+            // unanswered: a refused report printed only "dispatch_event returned -1", with
+            // what it reported lost.
+            val about = event?.let { " for $it" } ?: ""
+            throw HostCallException("compose_rust_host_$operation returned $status$about")
         }
     }
 

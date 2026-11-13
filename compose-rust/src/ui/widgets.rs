@@ -1009,6 +1009,8 @@ impl TextScope {
         self
     }
 
+    /// Extra space between letters, in sp. 0 draws no extra spacing; NaN, like never
+    /// calling this, takes the type role's spacing.
     pub fn letter_spacing(mut self, sp: f32) -> Self {
         self.letter_spacing = Some(sp);
         self
@@ -1123,14 +1125,22 @@ impl TextScope {
                 attrs.push(("word_break", super::role(word_break)));
                 attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
-                attrs.push(("type_role", role_or_zero(type_role)));
+                // `TypeRole::None` is tag 0, so it travels as an explicit 0 and a role that
+                // was never set travels as nothing. Sent the other way, the text that names
+                // its own fonts could not say it has no role, and the Renderer set it in
+                // the default role's font with its fonts ignored.
+                attrs.push(("type_role", super::role(type_role)));
                 attrs.push(("font_size", dp_or_zero(font_size)));
                 attrs.push((
                     "font_weight",
                     OwnedAttr::Int(i64::from(font_weight.unwrap_or(0))),
                 ));
                 attrs.push(("line_height", dp_or_zero(line_height)));
-                attrs.push(("letter_spacing", dp_or_zero(letter_spacing)));
+                // Unset is NaN, so an explicit 0 stays a 0 and draws no extra spacing.
+                attrs.push((
+                    "letter_spacing",
+                    OwnedAttr::Float(letter_spacing.map_or(f64::NAN, f64::from)),
+                ));
                 attrs.push(("color", paint_or_zero(color)));
                 attrs.push(("text_align", role_or_zero(text_align)));
                 attrs.push((
@@ -1419,7 +1429,9 @@ impl TextFieldScope {
                 attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
-                attrs.push(("type_role", role_or_zero(type_role)));
+                // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
+                // as for `Text`.
+                attrs.push(("type_role", super::role(type_role)));
                 if let Some(font_size) = font_size {
                     attrs.push(("font_size", OwnedAttr::Float(font_size as f64)));
                 }
@@ -1714,7 +1726,7 @@ impl ButtonScope {
                     attrs.push(("font_weight", OwnedAttr::Int(i64::from(font_weight))));
                 }
                 if type_role.is_some() {
-                    attrs.push(("type_role", role_or_zero(type_role)));
+                    attrs.push(("type_role", super::role(type_role)));
                 }
             },
             listeners,

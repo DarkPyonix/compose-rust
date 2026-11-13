@@ -736,7 +736,7 @@ LaunchBuilder::new()
 ##### 14.10.5 수용 기준
 
 1. `Primary`의 라이트·다크 값을 준 앱의 `Filled` 버튼이 일곱 디자인 시스템 모두에서 그 색으로 채워지고, 버튼의 모양과 눌림 표현은 시스템마다 다릅니다.
-2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host로 가는 이벤트와 Host가 보내는 `SetTheme` 없이 다크 값으로 바뀝니다.
+2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host의 응답이나 `SetTheme` 없이 다크 값으로 바뀝니다. Host로 가는 것은 FR-44의 알림 하나뿐입니다([leader, provisional] (darkpyonix leader, 2026-11-13)).
 3. 앱이 정하지 않은 역할(예: `Outline`)은 그 디자인 시스템의 값과 같습니다. 라이트 값만 준 역할의 다크 값은 디자인 시스템의 다크 값입니다.
 4. `Primary`만 주고 `OnPrimary`를 주지 않은 경우, Renderer가 고른 잉크가 3:1 이상입니다. 밝은 노랑과 진한 남색 두 경우에서 서로 다른 잉크(검정과 흰색)가 나옵니다.
 5. `Palette::check`가 대비를 어기는 쌍을 돌려주고, 어기지 않는 팔레트에는 빈 목록을 돌려줍니다.
@@ -2688,6 +2688,19 @@ Notification::new("세션이 끝났습니다")
 22. 줄 배경과 범위 배경 장식(이슈 #542, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식에 `LineBackground { line_start, line_end, color: ColorRole }`와 `RangeBackground { range, color: ColorRole }`가 더해집니다(장식 종류 값은 추가 전용으로 뒤에 붙입니다). 줄 배경은 편집기 폭 전체(줄 끝 너머 포함)를 칠하고, 범위 배경은 그 안의 바뀐 글자들을 더 진하게 칠합니다. 색은 `DiffAdded`, `DiffRemoved`, `DiffModified` 같은 역할만 받습니다. 다른 장식과 같이 편집을 따라 움직입니다(기준 4의 규칙).
     1. `DiffAdded` 줄 배경이 그 줄의 편집기 폭 전체를 칠하고(줄 끝 너머 픽셀 포함) 앞에 줄을 끼우면 아래로 따라갑니다(fr38_line_background_spans_the_width_and_follows_edits).
     2. 범위 배경이 그 글자들만 칠합니다(fr38_range_background_paints_its_characters).
+23. 스니펫 세션(이슈 #556, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 명령 `InsertSnippet { version, range, snippet }`(명령 태그 40). 스니펫은 VS Code 문법의 부분집합입니다: `$1`, `${1:자리 글자}`, `${1|선택,지|}`, `$0`, `\$` 이스케이프. 편집기는 범위를 스니펫의 글자로 바꾸고 세션을 엽니다. Tab과 Shift+Tab이 탭 정지 사이를 오가고, 같은 번호의 자리는 함께 고쳐지며(미러), 선택지 자리는 목록을 엽니다. `$0`에 닿거나 Escape를 누르거나 캐럿이 세션 밖으로 나가면 끝납니다. 삽입은 실행 취소 한 단계이고, 바뀐 글자는 보통의 `CodeChanged`로 갑니다.
+    1. `fn ${1:name}(${2:args}) {$0}` 삽입 뒤 캐럿이 `name`을 고른 상태이고, Tab이 `args`로, 다시 Tab이 `$0`로 가며 세션이 끝납니다(fr38_snippet_tab_stops).
+    2. 같은 번호 두 자리 중 하나를 고치면 다른 하나도 같은 글자가 됩니다(fr38_snippet_mirrors_edit_together).
+24. 보기 영역(이슈 #543, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `ViewZones`(속성 태그 199): 레코드 열 `{ after_line, height_lines: f32, text }`. 영역은 그 줄 뒤에 글자가 아닌 행을 끼웁니다(diff의 빈 맞춤 줄). 캐럿, 선택, 복사가 건너뛰고, 편집을 따라 움직이며(앞에 줄을 끼우면 아래로), 보이는 범위 이벤트는 모델 줄로 보고합니다. `text`가 있으면 흐린 글자로 그립니다.
+    1. 3번째 줄 뒤 2줄 높이 영역이 그 높이만큼 4번째 줄을 아래로 밀고, 아래 화살표가 영역을 건너뛰고, 앞에 줄을 끼우면 영역이 따라갑니다(fr38_view_zones_push_lines_and_are_skipped).
+25. 줄 감싸기(이슈 #548, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `WordWrap`(속성 태그 200): `Off`(기본), `Viewport`, `Column(n)`, `Bounded(n)`(둘 중 좁은 쪽). 긴 줄은 보이는 줄 여러 개로 나뉘고, 위아래 화살표와 Home/End는 보이는 줄을 따르며, 적중 판정, 선택, 장식은 보이는 줄 위에 그려지고, 줄 번호는 첫 보이는 줄에만, 보이는 범위 이벤트는 모델 줄로 보고합니다.
+    1. 폭 200dp에서 `Viewport`이면 500자 한 줄이 여러 보이는 줄로 그려지고, 아래 화살표가 같은 모델 줄의 다음 보이는 줄로 갑니다(fr38_word_wrap_viewport_breaks_long_lines).
+    2. `Column(40)`이면 40열에서 나뉩니다(fr38_word_wrap_column).
+26. 여러 캐럿(이슈 #549, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 편집기는 선택 여러 개를 가집니다. 이벤트 `SelectionsChanged`(이벤트 태그 67, 선택 목록: anchor와 active 쌍들, 첫째가 주 선택)와 명령 `SetSelections`(명령 태그 41). Alt+클릭이 캐럿을 더하고, Cmd/Ctrl+D가 다음 같은 글자를 더하고, Alt+Cmd/Ctrl+위/아래가 위아래 줄에 더합니다. 타이핑, 지우기, 붙여넣기는 모든 선택에 적용되고 실행 취소 한 단계입니다. Escape가 주 선택 하나로 돌아갑니다. 기존 `SelectionChanged`는 주 선택을 계속 보냅니다.
+    1. 세 줄에 캐럿 셋을 두고 "x"를 치면 세 줄 모두에 들어가고 실행 취소 한 번에 모두 사라집니다(fr38_multi_cursor_types_at_every_caret).
+    2. Cmd/Ctrl+D가 다음 일치를 더합니다(fr38_multi_cursor_add_next_match).
+27. 미니맵(이슈 #550, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `Minimap`(속성 태그 201): `Off`(기본), `Right`, `Left`. 줄인 문서 전체와 보이는 영역 표시를 그리고, 누르거나 끌면 그 자리로 스크롤하며, 장식(진단, 찾기 결과, diff 줄 배경) 표시를 보입니다.
+    1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -3626,6 +3639,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 #### 47.4 비용
 
 속성 둘(141, 142). 열거형 두 개. 렌더러 쪽에서는 포인터 아래 노드의 `Cursor` 조회와 영역 뿌리의 선택 영역 하나. 노드마다 붙는 비용은 속성이 있을 때만이고, 없는 화면에는 없습니다.
+
+**누르는 컨테이너와 HTML 버튼의 글자**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `OnClick`을 가진 컨테이너는 버튼과 같이 선택 영역에 들어가지 않습니다. 그 안의 글자는 끌거나 두 번 눌러도 골라지지 않고, 누르기는 그대로입니다. HTML 영역의 `<button>`은 브라우저와 같이 Host가 `UserSelect::None`을 계산해 보냅니다. 수용 기준: 선택 영역 안의 `on_click` 컨테이너 글자를 두 번 눌러도 아무것도 골라지지 않고 클릭은 한 번씩 갑니다(fr47_pressable_container_text_is_not_selectable).
 
 ### FR-48 `@font-face`: Host가 글꼴 바이트를 등록하고 글꼴 목록에서 씁니다 (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
@@ -5292,36 +5307,54 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/tests/android-kotlin-travels.test.sh`가 담긴 사본이 렌더러와 같은지와 패키지 목록에 들어 있는지를 봅니다. 사본이 뒤처지면 애플리케이션이 Host보다 낡은 인터프리터를 컴파일하고 핸드셰이크가 거부합니다.
   - **`sample-v0.1.1`의 APK는 이 경로로 만든 것이 아닙니다.** 우리 Amper 모듈(`renderer/android`)에 샘플의 cdylib을 넣어 빌드한 것이고, 그것이 증명하는 것은 Android에서 렌더러와 Host가 동작한다는 것이지 사용자가 겪을 경로가 동작한다는 것은 아닙니다. 다음 샘플 릴리스의 APK는 dx로 만듭니다.
 
-### PR-6 Web 경계 (`Agreed`, 재측정 중, 이슈 #54, PR #84)
+### PR-6 Web 경계 (`Done`)
 
-> **현황(2026-10-04).** develop의 Web 경계는 아래 JS 포워더입니다. 생성된 트램펄린으로 직결하는 구현과 재측정은 PR #84(`feat/web-direct-call`)에 있고 아직 병합되지 않았습니다.
+Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연결합니다. `LoopMode::Platform`입니다.
 
-**상태를 `Done`에서 내립니다(2026-10-03).** 소유자 지시는 직결이었습니다: "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해"(2026-09-19). 2026-09-20 실험에서 Wasm 테이블을 거치는 `call_indirect` 트램펄린이 Safari 기준 5.6ns(JS 경유 13.2ns)로 측정됐지만 커밋되지 않았습니다. 그 뒤 "직결은 불가능하다"는 결론이 승인 없이 이 항목과 INTENT에 들어갔습니다. 재측정(#54)으로 직결이 재현되면 이 항목과 INTENT D3/D8을 직결로 되돌리고, 아래의 JS 포워더 서술은 그때 고칩니다. 그때까지 이 항목은 `Done`이 아닙니다.
-Rust(wasm32)와 Kotlin/Wasm 모듈을 연결합니다. `LoopMode::Platform`입니다. 2026-09-20 실측으로 확정했습니다(`experiments/web-interop/`).
+**소유자 결정(2026-09-19): "Q7 JS 브릿지 갔다오는건 성능이 느려서 안된다. 직결하도록 해".** 경계 호출은 어느 방향으로도 JS를 거치지 않습니다. 2026-09-20 실험이 Wasm 테이블을 거치는 `call_indirect` 트램펄린으로 이것이 가능함을 보였고, 2026-10-03 재측정(#54, PR #75, `experiments/web-interop/trampoline/`)이 같은 결과를 냈습니다. 이 항목과 INTENT가 한동안 "브라우저에서는 직접 바인딩과 메모리 공유를 함께 가질 수 없다"고 적고 있었던 것은 승인 없이 들어간 서술이었고, 사실도 아니었습니다.
+
+상태는 `Done`입니다. 트램펄린 코드젠(#54 (d), #84)에서 수용 기준 1-7을 2026-11-13에 확인했습니다. 아래 "트램펄린 경로의 검증"을 보십시오.
 
 - **메모리: Kotlin이 소유합니다.** Kotlin/Wasm 모듈은 항상 자기 메모리를 정의해 export하며, 외부 메모리를 import하는 경로가 없습니다. 따라서 Rust가 `--import-memory`로 그 메모리를 가져다 씁니다. PR-4의 arena는 양쪽이 제자리에서 읽습니다. 복사는 없습니다.
-- **함수 호출: 경계 함수마다 고정된 형태의 JS forwarder를 코드젠으로 생성합니다.** 호출당 약 12ns입니다.
-- **두 가지를 동시에 가질 수 없습니다.** `WebAssembly.instantiate`는 import를 먼저 요구합니다. Kotlin은 Rust export 없이 인스턴스화할 수 없고, Rust는 Kotlin 메모리 없이 인스턴스화할 수 없으며, Kotlin 메모리는 인스턴스화 전에 존재하지 않습니다. wasm import를 wasm export에 직접 묶으면(1.45ns) 메모리를 공유할 수 없고, 메모리를 공유하면 한쪽 호출 경로에 JS forwarder가 들어옵니다. 단일 모듈 링크(WasmGC와 linear memory 혼합 불가), 제3의 메모리 소유 모듈, component model(브라우저 미지원) 모두 이 순환을 풀지 못합니다.
-- **메모리 공유를 택합니다.** 프레임 예산을 지배하는 것은 PR-4의 복사 회피이지 호출 오버헤드가 아닙니다. 프레임당 경계 호출 3회 기준 약 36ns이며, PR-5가 Android에서 이미 수용한 JNI 호출 비용(약 115ns)보다 한 자릿수 작습니다. D8이 거부한 React Native 브리지와는 성격이 다릅니다. 직렬화도, 비동기 큐도, 스레드 홉도, 데이터 복사도 없습니다.
-- 구현 시 주의: Kotlin 메모리는 0페이지로 시작하므로 Rust 인스턴스화 전에 JS가 `memory.grow()`를 해야 합니다. Rust의 데이터 세그먼트와 Kotlin `kotlin.wasm.unsafe` 할당자가 같은 주소 공간을 쓰므로 `--global-base`로 영역을 분리합니다.
-- 실측(Safari 26.5, Apple silicon): 같은 모듈 호출 0.30ns, wasm 직접 바인딩 1.45ns, JS forwarder 12.05ns, Kotlin에서 메모리 읽기 0.977ns/byte.
-- **방향에 따라 비용이 다릅니다.** forwarder를 거치는 것은 Renderer에서 Host로 가는 호출뿐입니다. 반대 방향, 곧 Host가 프레임을 요청하는 `request_frame`은 Rust의 wasm import를 Kotlin이 `@WasmExport`로 내놓은 함수에 직접 묶으므로 JS가 없습니다. Rust가 나중에 인스턴스화되고 그 시점에 Kotlin export는 이미 존재하기 때문입니다.
+- **함수 호출: Renderer에서 Host로 가는 호출은 wasm 트램펄린을 거쳐 직접 갑니다.** 코드젠이 경계 함수마다 `call_indirect` 함수 하나를 담은 작은 wasm 모듈(트램펄린)을 만듭니다. 트램펄린은 `WebAssembly.Table` 하나를 import하고, Kotlin은 경계 함수마다 `@WasmImport`로 트램펄린의 export에 묶입니다. 호출은 wasm `call` 하나와 `call_indirect` 하나이며, 그 사이에 JS 프레임은 없습니다.
+- **순환은 테이블이 풉니다.** Rust가 Kotlin의 메모리를 import하므로 Kotlin이 먼저 인스턴스화되어야 하고, 그 시점에 Rust export는 아직 없습니다. Kotlin/Wasm은 테이블을 import로 선언할 수 없지만 그럴 필요가 없습니다. 테이블을 import하는 것은 세 번째 모듈인 트램펄린이고, Kotlin은 그 모듈의 함수를 import할 뿐입니다. 순서는 테이블, 트램펄린, Kotlin(메모리가 생김), Rust(그 메모리를 import), 테이블 슬롯에 Rust export를 넣기입니다. JS는 이 배선에만 나오고 호출 경로에는 없습니다.
+- **반대 방향도 직접입니다.** Host가 프레임을 요청하는 `request_frame`은 Rust의 wasm import를 Kotlin이 `@WasmExport`로 내놓은 함수에 그대로 묶습니다. Rust가 나중에 인스턴스화되고 그 시점에 Kotlin export는 이미 있으므로 트램펄린도 필요 없습니다.
+- **실측(2026-10-03, M1 Mac mini, macOS 26.5.1, 페이지 로드 7회의 중앙값, 호출당 순수 ns):**
+
+  | 경로 | Safari 26.5 | Chrome 154 (headless shell) |
+  |---|---:|---:|
+  | Kotlin에서 Rust, 트램펄린 | 4.35 (4.30 .. 4.45) | 7.11 (6.97 .. 7.15) |
+  | Kotlin에서 JS를 거쳐 Rust | 12.45 (11.95 .. 12.60) | 25.57 (24.91 .. 25.73) |
+  | Rust에서 Kotlin, 직접 import | 1.55 | 2.36 |
+  | Rust에서 JS를 거쳐 Kotlin | 12.65 | 13.46 |
+
+  트램펄린은 JS를 거치는 경로보다 Safari에서 약 2.9배, Chrome에서 약 3.6배 빠릅니다. 공유 메모리 확인 네 가지(Rust가 쓴 것을 Kotlin이 읽음, 그 반대, JS가 같은 바이트를 봄, Kotlin 안에서의 왕복)는 두 브라우저의 모든 실행에서 통과했습니다. 2026-09-20의 Safari 측정(트램펄린 5.6ns, JS 경유 13.2ns)도 재현됩니다. 원자료는 `experiments/web-interop/trampoline/results/`에 있습니다.
+- **64비트 인자는 그대로 건넙니다.** 호출 경로에 JS가 없으므로 프레임 시각은 `i64` 하나로 넘어가고 `BigInt`가 생길 일이 없습니다.
+- 구현 시 주의: Kotlin 메모리는 0페이지로 시작하므로 Rust 인스턴스화 전에 `memory.grow()`를 해야 합니다. Rust의 데이터 세그먼트와 Kotlin `kotlin.wasm.unsafe` 할당자가 같은 주소 공간을 쓰므로 `--global-base`로 영역을 분리합니다.
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
-- **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
-- **forwarder는 Kotlin `@JsFun` 선언입니다.** 경계 함수마다 하나씩, 인자를 그대로 넘기는 고정 형태의 JS 화살표 함수를 코드젠이 생성합니다(`(a, b, c) => host.symbol(a, b, c)`). 실측한 12.05ns가 바로 이 모양입니다. 별도의 `@WasmImport` 모듈을 두는 길은 같은 순환에 걸립니다. Kotlin의 import는 인스턴스화 시점에 채워져야 하는데 그때 Rust는 아직 없습니다.
-- **인스턴스화 순서**를 페이지가 정합니다. 코드젠이 만든 로더 모듈이 `web.mjs`보다 먼저 평가되어 Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. 그다음 Kotlin 모듈이 인스턴스화되면서 메모리가 생기고, Kotlin `main`이 로더를 한 번 불러 그 메모리 위에 Rust를 동기로 인스턴스화합니다(`new WebAssembly.Instance`). 이 시점에 Kotlin export가 이미 있으므로 `compose_rust_renderer_request_frame`은 wasm export 객체를 그대로 넘겨 직접 바인딩합니다. Renderer 쪽에 새 진입점은 없습니다.
+- **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 그래도 Renderer에서 Host로 가는 호출이므로 경계 연산과 같은 트램펄린을 거치며, 경계 연산 슬롯 바로 다음 슬롯에 놓입니다. 이 호출에도 JS가 없습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
+- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 동기로 인스턴스화하고(`new WebAssembly.Instance`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣습니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
   1. Kotlin이 정의해 export한 메모리 하나를 Rust가 import하고, 한쪽이 쓴 arena를 다른 쪽이 제자리에서 읽습니다. 복사한 바이트가 없습니다.
   2. 이벤트 하나가 경계 호출 2회로 끝납니다(PR-4와 같은 기준).
-  3. forwarder의 호출당 비용을 실측해 기록합니다.
+  3. 어느 방향의 경계 호출에도 JS 프레임이 없습니다. 생성된 Kotlin 경계 선언은 `@WasmImport`이고 `@JsFun`이 아니며, 호출당 비용을 브라우저에서 실측해 기록합니다.
   4. M0 화면이 데스크톱과 같은 Rust 소스로 브라우저에 뜨고, 클릭이 Rust에 도달하며, Rust의 상태 변경이 화면에 반영됩니다.
-  5. 생성된 Kotlin 선언, 생성된 forwarder, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
+  5. 생성된 Kotlin 선언, 생성된 트램펄린과 로더, Rust의 wasm glue가 모두 같은 스키마에서 나옵니다. 손으로 쓴 glue는 없습니다(FR-7).
   6. Web에서 64KiB `ClipboardText`, 32KiB `TextChanged`, 1MiB `IoAnswer`가 그대로 Host에 도착합니다(pr6_an_event_larger_than_the_lent_buffer_arrives_whole). [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)
   7. 64MiB를 넘는 이벤트는 거절되고 아무것도 보내지 않습니다(pr6_an_event_past_the_ceiling_is_refused).
 
-**검증 (2026-09-22, Chrome for Testing 149 / V8, Apple silicon)**
+**트램펄린 경로의 검증 (2026-11-13, #84, Apple silicon Mac, HeadlessChrome 149)**
+
+- 코드젠이 경계 Kotlin 선언을 모두 `@WasmImport`로 만들고 `@JsFun`은 `installHost` 하나만 남습니다. 생성 파일은 다시 생성해도 바뀌지 않습니다(`compose-rust/tests/web_boundary.rs` 19건 통과, 수용 기준 3, 5).
+- `renderer/web/scripts/test-boundary.sh`(`WebBoundaryTest`)를 세 번 돌려 모두 통과했습니다. 공유 메모리에서 제자리 읽기(기준 1), 클릭이 Host에 닿고 상태 변경이 돌아옴(기준 2, 4), 빌려준 버퍼보다 큰 이벤트(기준 6), 상한을 넘는 이벤트 거절(기준 7)입니다.
+- 경계 호출 비용(기준 3): **4.00 / 4.14 / 3.89 ns/call**(200만 회 호출 7세트의 최선값, 3회 측정), 같은 루프를 모듈 안에서 돌린 값 0.40 ns입니다. JS forwarder의 12.15~12.75 ns보다 약 3배 빠릅니다.
+- PR #75의 독립 측정(`experiments/web-interop/trampoline/`, Chrome for Testing 149 headless, 7회 중앙값): Kotlin에서 Rust로 6.94 ns(JS 경유 27.06 ns), Rust에서 Kotlin으로 2.33 ns(JS 경유 20.62 ns)입니다.
+
+아래는 JS forwarder를 쓰던 이전 경로의 검증 기록입니다. 수용 기준 1, 2, 4는 그 경로에서 충족되었고 메모리와 인스턴스화 순서는 바뀌지 않았지만, 호출 경로가 바뀌었으므로 트램펄린 코드젠에서 다시 확인합니다(#54).
+
+**이전 경로의 검증 (2026-09-22, JS forwarder, Chrome for Testing 149 / V8, Apple silicon)**
 
 `renderer/web/test/WebBoundaryTest.kt`가 Kotlin/Wasm 테스트 러너가 이미 띄우는
 브라우저 안에서 경계를 직접 돕니다. 대상은 실물입니다. 생성된 forwarder, 생성된 wasm 심, 생성된
@@ -5339,12 +5372,12 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 - **수용 기준 2 충족.** PR-4의 기준은 Host 쪽 `boundary_call_cost.rs`가 지키고, 브라우저에서는
   텍스트 변경과 클릭이 Rust 핸들러에 도달해 바뀐 상태가 배치로 돌아오는 것을 확인했습니다
   (`pr6_a_click_reaches_the_host_and_its_state_change_comes_back`).
-- **수용 기준 3 충족.** 경계 호출 **12.15 / 12.29 / 12.75 ns**(3회 측정, 각 200만 회 호출 7세트의
+- **그때의 수용 기준 3(forwarder 비용 실측).** 경계 호출 **12.15 / 12.29 / 12.75 ns**(3회 측정, 각 200만 회 호출 7세트의
   최선값), 같은 루프를 모듈 안에서 돌린 값 **0.39~0.44 ns**. Safari 26.5의 12.05ns와 같은 자리이므로
   두 번째 엔진에서도 수치가 유지됩니다. 프레임당 경계 호출 3회는 약 37ns이고, 16.7ms 프레임에서
   0.0002%입니다.
 - **수용 기준 5 충족.** 생성된 Kotlin 선언, 생성된 forwarder와 인스턴스화, Rust의 wasm 심이 모두
-  `BOUNDARY_SCHEMA`와 그 옆의 메모리 상수에서 나옵니다. `dioxus-compose/tests/web_boundary.rs`가
+  `BOUNDARY_SCHEMA`와 그 옆의 메모리 상수에서 나옵니다. `compose-rust/tests/web_boundary.rs`가
   체크인된 세 파일이 오늘 생성되는 것과 같은지, forwarder가 인자를 넘기는 것 외에 아무것도 하지
   않는지, 양쪽 인자 개수가 맞는지를 지킵니다.
 - **수용 기준 4 충족.** `web/scripts/screenshot.sh`가 페이지를 띄워 사진을 찍습니다. 처음 뜬 화면에
@@ -5353,7 +5386,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
   나타납니다. 필드의 글자가 남는 것은 D5대로 `TextField`가 uncontrolled이기 때문이며 데스크톱과 같습니다.
   스크립트는 Kotlin 테스트 하네스가 이미 내려받은 Playwright와 브라우저, 툴체인이 들고 있는 Node를
   빌려 쓰므로 디스플레이도 네이티브 빌드도 필요하지 않습니다.
-- 남은 확인: SpiderMonkey에서 재측정. V8은 이 측정으로 닫혔습니다.
+- 남은 확인: 트램펄린 경로에서 `WebBoundaryTest`로 다시 재고 기록합니다(#54). SpiderMonkey 측정은 아직 없습니다.
 - CI는 여전히 wasm 테스트를 돌리지 않습니다. 러너가 잘린 skiko 모듈을 받아 브라우저 하네스가 뜨지
   않기 때문이고, 경계 테스트 자체는 이제 의미가 있으므로 그 문제가 풀리면 바로 켤 수 있습니다.
 

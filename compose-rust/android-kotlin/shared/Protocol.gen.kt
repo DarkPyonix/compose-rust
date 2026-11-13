@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
 
@@ -32,7 +32,7 @@ enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Ima
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
-enum class TextAlign { Start, Center, End, Justify }
+enum class TextAlign { Start, Center, End, Justify, Left, Right }
 
 enum class TextOverflow { Clip, Ellipsis, Visible }
 
@@ -98,6 +98,8 @@ enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
 
+enum class SystemColorScheme { Light, Dark }
+
 enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
 
 enum class Severity { Error, Warning, Information, Hint }
@@ -126,9 +128,15 @@ enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
 
 enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
+enum class EditGroupStatus { Applied, Rejected, Invalid, TooOld }
+
 enum class CompactNavigation { Sidebar, None }
 
 enum class Snap { ItemStart }
+
+enum class MinimapSide { Right, Left }
+
+enum class WordWrapMode { Viewport, Column, Bounded }
 
 enum class StorageOp { Read, Write, Remove, Keys }
 
@@ -640,14 +648,87 @@ data class CodeEditorColorsRecord(
     val currentLine: ColorRole?,
 )
 
+/** Room after a line of a code editor that is not text, `heightLines` rows high, with `text` drawn dimmed in it. `afterLine` is in the document as it is when the list arrives. */
+data class ViewZoneRecord(
+    val afterLine: Int,
+    val heightLines: kotlin.Float,
+    val text: String,
+)
+
+/**
+ * One edit of a grouped edit: a range of the document as it stood at the group's base
+ * version, and the text that replaces it.
+ */
+data class CodeEditRecord(
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val text: String,
+)
+
 /**
  * Reads the blobs a code editor carries.
  *
  * A record that cannot be read, a kind or a role this side does not know or a text that
  * points outside the blob, is reported through `onError` and left out. The rest of the list
- * is read regardless.
+ * is read regardless. A grouped edit is the exception: it goes in whole or not at all, so a
+ * blob with anything wrong in it is not read at all.
  */
 object CodeEditorRecords {
+    const val CODE_EDIT_LENGTH = 24
+
+    /**
+     * The edits of an `EditCodeGroup`, in the order they were sent, or null, with the
+     * reason given to [onError], where the blob is not one.
+     *
+     * The blob is a count, then one 24-byte record per edit (the range, then the text's
+     * offset and length), then the texts. A text's offset counts from the start of the
+     * texts. A count the blob is too short for, a text outside it or not UTF-8, or bytes
+     * after the last text make the blob unreadable.
+     */
+    fun decodeEditGroup(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditRecord>? {
+        if (bytes.size < 4) {
+            onError("a grouped edit is ${bytes.size} bytes, too short for its count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0).toLong() and 0xffff_ffffL
+        val textsStart = 4L + count * CODE_EDIT_LENGTH
+        if (textsStart > bytes.size) {
+            onError("a grouped edit says it has $count edits and is ${bytes.size} bytes")
+            return null
+        }
+        val edits = ArrayList<CodeEditRecord>(count.toInt())
+        var textsEnd = textsStart
+        for (index in 0 until count.toInt()) {
+            val at = 4 + index * CODE_EDIT_LENGTH
+            val start = textsStart + (buffer.getInt(at + 16).toLong() and 0xffff_ffffL)
+            val length = buffer.getInt(at + 20).toLong() and 0xffff_ffffL
+            if (start + length > bytes.size) {
+                onError("edit $index of a grouped edit names text outside it")
+                return null
+            }
+            val text = textOf(bytes, start.toInt(), length.toInt()) ?: run {
+                onError("edit $index of a grouped edit has text that is not UTF-8")
+                return null
+            }
+            textsEnd = maxOf(textsEnd, start + length)
+            edits += CodeEditRecord(
+                buffer.getInt(at),
+                buffer.getInt(at + 4),
+                buffer.getInt(at + 8),
+                buffer.getInt(at + 12),
+                text,
+            )
+        }
+        if (textsEnd != bytes.size.toLong()) {
+            onError("a grouped edit has ${bytes.size - textsEnd} bytes after its last text")
+            return null
+        }
+        return edits
+    }
+
     const val DECORATION_LENGTH = 44
 
     fun decodeDecorations(bytes: ByteArray, onError: (String) -> Unit): List<DecorationRecord> {
@@ -802,6 +883,32 @@ object CodeEditorRecords {
         val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
         val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
         return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
+    }
+
+    const val VIEW_ZONE_LENGTH = 16
+
+    fun decodeViewZones(bytes: ByteArray, onError: (String) -> Unit): List<ViewZoneRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<ViewZoneRecord>(bytes.size / VIEW_ZONE_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + VIEW_ZONE_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 8)
+            val textLength = buffer.getInt(offset + 12)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readViewZoneRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += VIEW_ZONE_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readViewZoneRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): ViewZoneRecord? {
+        val afterLine = buffer.getInt(offset + 0)
+        val heightLines = buffer.getFloat(offset + 4)
+        val text = textOf(bytes, buffer.getInt(offset + 8), buffer.getInt(offset + 12)) ?: run { onError("record $index names text outside the list"); return null }
+        return ViewZoneRecord(afterLine, heightLines, text)
     }
 
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
@@ -1508,6 +1615,40 @@ sealed interface Mutation {
     ) : Mutation
 
     /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
      * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
      * Answered once by a `PositionRect` event carrying [request].
      */
@@ -1517,6 +1658,33 @@ sealed interface Mutation {
         val line: Int,
         val column: Int,
     ) : Mutation
+
+    /**
+     * Several edits the application asks of a code editor as one: replace every range in
+     * [edits] with its text, all of them or none, and answer with one
+     * `CodeEditGroupResult` carrying [requestId].
+     *
+     * [edits] is the blob as it came, read by `CodeEditorRecords.decodeEditGroup`. Every
+     * range in it is in the document as it stood at [baseVersion]. [malformed] is set, and
+     * [edits] empty, where the record itself could not be read but its head could: the
+     * decoder reports the protocol error, and the editor still owes the group its answer.
+     */
+    data class EditCodeGroup(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val edits: ByteArray,
+        val malformed: String? = null,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is EditCodeGroup && nodeId == other.nodeId && requestId == other.requestId &&
+                    baseVersion == other.baseVersion && edits.contentEquals(other.edits) &&
+                    malformed == other.malformed)
+
+        override fun hashCode(): Int =
+            ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
+    }
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1590,6 +1758,7 @@ sealed interface HostEvent {
     data class FocusGained(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class KeyUp(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class FileDialogResult(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String) : HostEvent
+    data class CodeEditGroupResult(override val nodeId: Int, override val handlerId: Long, val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int) : HostEvent
     data class ClipboardText(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: Int, val length: Int, val text: String) : HostEvent {
         override fun toString(): String =
             "ClipboardText(request=$request, status=$status, length=$length)"
@@ -1614,13 +1783,25 @@ sealed interface HostEvent {
     data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
     data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
+    data class ColorSchemeChanged(override val nodeId: Int, override val handlerId: Long, val scheme: SystemColorScheme) : HostEvent
+    data class SelectionsChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val selections: IntArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SelectionsChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    version == other.version && selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()
+
+        override fun toString(): String =
+            "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
+    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 863612710664529053L
+    const val SCHEMA_HASH: Long = 7634867733493667174L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1651,6 +1832,7 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_EDIT_CODE_GROUP = 28
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
     private const val TAG_SET_SCROLL_OFFSET = 30
@@ -1660,6 +1842,8 @@ object Protocol {
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
     private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1905,6 +2089,64 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_EDIT_CODE_GROUP -> {
+                        // A group that cannot be read is still answered. Where its head
+                        // can be, the node, the request and as much of the rest as is
+                        // there go to the editor first, so the result it owes follows the
+                        // protocol error this record raises.
+                        if (length != 24) {
+                            if (length >= 12) {
+                                onMutation(
+                                    Mutation.EditCodeGroup(
+                                        readU32(batch, base, available, offset + 4).toInt(),
+                                        readU32(batch, base, available, offset + 8).toInt(),
+                                        if (length >= 16) readU32(batch, base, available, offset + 12).toInt() else 0,
+                                        ByteArray(0),
+                                        malformed = "an EditCodeGroup record is $length bytes, not 24",
+                                    ),
+                                )
+                            }
+                            requireRecordLength(length, 24, offset)
+                        }
+                        val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                        val requestId = readU32(batch, base, available, offset + 8).toInt()
+                        val baseVersion = readU32(batch, base, available, offset + 12).toInt()
+                        val edits = try {
+                            readBytes(batch, base, available, offset + 16)
+                        } catch (error: ProtocolException) {
+                            onMutation(
+                                Mutation.EditCodeGroup(
+                                    nodeId,
+                                    requestId,
+                                    baseVersion,
+                                    ByteArray(0),
+                                    malformed = "an EditCodeGroup record names edits outside the batch",
+                                ),
+                            )
+                            throw error
+                        }
+                        Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
                         )
                     }
                     TAG_QUERY_POSITION_RECT -> {
@@ -2212,6 +2454,7 @@ object Protocol {
                 is HostEvent.FocusGained -> null
                 is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeEditGroupResult -> null
                 is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.IoAnswer -> event.data
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
@@ -2223,6 +2466,8 @@ object Protocol {
                 is HostEvent.CaretRect -> null
                 is HostEvent.PositionRect -> null
                 is HostEvent.CodePointer -> null
+                is HostEvent.ColorSchemeChanged -> null
+                is HostEvent.SelectionsChanged -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also { buffer -> for (value in event.selections) buffer.putInt(value) }.array()
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2268,6 +2513,7 @@ object Protocol {
                 is HostEvent.FocusGained -> 16
                 is HostEvent.KeyUp -> 32
                 is HostEvent.FileDialogResult -> 36
+                is HostEvent.CodeEditGroupResult -> 36
                 is HostEvent.ClipboardText -> 36
                 is HostEvent.IoAnswer -> 32
                 is HostEvent.FileHandles -> 52
@@ -2279,6 +2525,8 @@ object Protocol {
                 is HostEvent.CaretRect -> 40
                 is HostEvent.PositionRect -> 40
                 is HostEvent.CodePointer -> 80
+                is HostEvent.ColorSchemeChanged -> 20
+                is HostEvent.SelectionsChanged -> 28
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2328,6 +2576,7 @@ object Protocol {
                 is HostEvent.FocusGained -> 48
                 is HostEvent.KeyUp -> 49
                 is HostEvent.FileDialogResult -> 50
+                is HostEvent.CodeEditGroupResult -> 51
                 is HostEvent.ClipboardText -> 56
                 is HostEvent.IoAnswer -> 57
                 is HostEvent.FileHandles -> 58
@@ -2339,6 +2588,8 @@ object Protocol {
                 is HostEvent.CaretRect -> 64
                 is HostEvent.PositionRect -> 65
                 is HostEvent.CodePointer -> 66
+                is HostEvent.ColorSchemeChanged -> 52
+                is HostEvent.SelectionsChanged -> 67
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2527,6 +2778,13 @@ object Protocol {
                     out.putInt(event.filter)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.CodeEditGroupResult -> {
+                    out.putInt(event.requestId)
+                    out.putInt(editGroupStatusTag(event.status))
+                    out.putInt(event.baseVersion)
+                    out.putInt(event.currentVersion)
+                    out.putInt(event.index)
+                }
                 is HostEvent.ClipboardText -> {
                     out.putInt(event.request)
                     out.putInt(event.status)
@@ -2599,6 +2857,13 @@ object Protocol {
                     out.putLong(event.timestampNanos)
                     out.putInt(event.line)
                     out.putInt(event.column)
+                }
+                is HostEvent.ColorSchemeChanged -> {
+                    out.putInt(systemColorSchemeTag(event.scheme))
+                }
+                is HostEvent.SelectionsChanged -> {
+                    out.putInt(event.version)
+                    writeStringReference(out, recordLength, text!!)
                 }
             }
             if (text != null) out.put(text)
@@ -2819,10 +3084,14 @@ object Protocol {
         189 -> PropertyKind.MaxHeightFraction
         192 -> PropertyKind.FontFeatureSettings
         193 -> PropertyKind.OnMotionFinished
+        194 -> PropertyKind.OnEditGroupResult
         195 -> PropertyKind.OnCaretRect
         196 -> PropertyKind.OnKeyPreview
         197 -> PropertyKind.OnCodePointer
         198 -> PropertyKind.RadioGroup
+        201 -> PropertyKind.Minimap
+        199 -> PropertyKind.ViewZones
+        200 -> PropertyKind.WordWrap
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -2901,6 +3170,13 @@ object Protocol {
         IoStatus.TooLarge -> 8
     }
 
+    private fun editGroupStatusTag(value: EditGroupStatus): Int = when (value) {
+        EditGroupStatus.Applied -> 1
+        EditGroupStatus.Rejected -> 2
+        EditGroupStatus.Invalid -> 3
+        EditGroupStatus.TooOld -> 4
+    }
+
     private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
         AnimationEventKind.Ready -> 1
         AnimationEventKind.Active -> 2
@@ -2920,6 +3196,11 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun systemColorSchemeTag(value: SystemColorScheme): Int = when (value) {
+        SystemColorScheme.Light -> 0
+        SystemColorScheme.Dark -> 1
     }
 
     private fun pointerKindTag(value: PointerKind): Int = when (value) {
@@ -3129,6 +3410,8 @@ object Protocol {
         2 -> TextAlign.Center
         3 -> TextAlign.End
         4 -> TextAlign.Justify
+        5 -> TextAlign.Left
+        6 -> TextAlign.Right
         else -> throw ProtocolException("unknown TextAlign tag $tag", offset)
     }
 
@@ -3395,6 +3678,12 @@ object Protocol {
         else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
     }
 
+    private fun systemColorScheme(tag: Int, offset: Int): SystemColorScheme = when (tag) {
+        0 -> SystemColorScheme.Light
+        1 -> SystemColorScheme.Dark
+        else -> throw ProtocolException("unknown SystemColorScheme tag $tag", offset)
+    }
+
     private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
         1 -> DecorationKind.Underline
         2 -> DecorationKind.CodeLens
@@ -3535,6 +3824,14 @@ object Protocol {
         else -> throw ProtocolException("unknown FileDialogStatus tag $tag", offset)
     }
 
+    private fun editGroupStatus(tag: Int, offset: Int): EditGroupStatus = when (tag) {
+        1 -> EditGroupStatus.Applied
+        2 -> EditGroupStatus.Rejected
+        3 -> EditGroupStatus.Invalid
+        4 -> EditGroupStatus.TooOld
+        else -> throw ProtocolException("unknown EditGroupStatus tag $tag", offset)
+    }
+
     private fun compactNavigation(tag: Int, offset: Int): CompactNavigation = when (tag) {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
@@ -3544,6 +3841,19 @@ object Protocol {
     private fun snap(tag: Int, offset: Int): Snap = when (tag) {
         1 -> Snap.ItemStart
         else -> throw ProtocolException("unknown Snap tag $tag", offset)
+    }
+
+    private fun minimapSide(tag: Int, offset: Int): MinimapSide = when (tag) {
+        1 -> MinimapSide.Right
+        2 -> MinimapSide.Left
+        else -> throw ProtocolException("unknown MinimapSide tag $tag", offset)
+    }
+
+    private fun wordWrapMode(tag: Int, offset: Int): WordWrapMode = when (tag) {
+        1 -> WordWrapMode.Viewport
+        2 -> WordWrapMode.Column
+        3 -> WordWrapMode.Bounded
+        else -> throw ProtocolException("unknown WordWrapMode tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {
