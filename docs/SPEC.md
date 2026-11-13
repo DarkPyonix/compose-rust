@@ -966,13 +966,13 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 10. 일곱 디자인 시스템에서 렌더링되고 `DesignShowcase`에 나옵니다. 경계선의 생김새가 최소 두 시스템에서 다르고(머리카락 선과 손잡이), 최소 한 시스템이 `Medium`에서 다른 표현을 답합니다.
 11. 자식이 둘이 아닌 분할 창은 `ProtocolError`를 보내고 프로세스가 죽지 않습니다.
 12. `Collapsible`이 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다.
-13. `collapse_below(720.0)`인 분할 창이 700dp 자리에서 `SelectedIndex`의 칸 하나만 그리고, 740dp 자리에서 두 열로 그립니다(시험 이름 fr15_2_12_collapse_below_stacks_under_its_own_threshold, 미구현).
-14. `collapse_below(480.0)`인 분할 창이 520dp 자리(크기 클래스 `Compact`)에서 쌓이지 않습니다. 옆 칸 `Min`과 본문 최소가 들어가지 않으면 `Overlay`입니다(시험 이름 fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact, 미구현).
-15. 넓은 창 안의 700dp 자리에 놓인 `collapse_below(720.0)` 분할 창이 쌓입니다. 창이 아니라 자기 폭으로 잰다는 것을 확인합니다(시험 이름 fr15_2_12_collapse_below_measures_its_own_width, 미구현).
-16. 경계를 여러 번 넘나드는 동안 두 칸의 `Create` 레코드가 나오지 않고, Host로 가는 이벤트가 없으며, 돌아오면 옆 칸이 사용자가 정한 폭입니다(시험 이름 fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing, 미구현).
+13. `collapse_below(720.0)`인 분할 창이 700dp 자리에서 `SelectedIndex`의 칸 하나만 그리고, 740dp 자리에서 두 열로 그립니다(`fr15_2_12_collapse_below_stacks_under_its_own_threshold`).
+14. `collapse_below(480.0)`인 분할 창이 520dp 자리(크기 클래스 `Compact`)에서 쌓이지 않습니다. 옆 칸 `Min`과 본문 최소가 들어가지 않으면 `Overlay`입니다(`fr15_2_12_collapse_below_lowers_the_stacking_line_below_compact`).
+15. 넓은 창 안의 700dp 자리에 놓인 `collapse_below(720.0)` 분할 창이 쌓입니다. 창이 아니라 자기 폭으로 잰다는 것을 확인합니다(`fr15_2_12_collapse_below_measures_its_own_width`).
+16. 경계를 여러 번 넘나드는 동안 두 칸의 `Create` 레코드가 나오지 않고, Host로 가는 이벤트가 없으며, 돌아오면 옆 칸이 사용자가 정한 폭입니다(`fr15_2_12_crossing_collapse_below_keeps_panes_and_sends_nothing`).
 17. 속성을 보내지 않은 분할 창은 기존 fr15_2_12_* 테스트를 그대로 통과합니다.
-18. 음수와 NaN은 `ProtocolError`를 보내고 속성이 없는 것처럼 그립니다(시험 이름 fr15_2_12_invalid_collapse_below_is_a_protocol_error, 미구현).
-19. `CollapseBelow`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(시험 이름 fr15_2_12_collapse_below_round_trips, 미구현).
+18. 음수와 NaN은 `ProtocolError`를 보내고 속성이 없는 것처럼 그립니다(`fr15_2_12_invalid_collapse_below_is_a_protocol_error`).
+19. `CollapseBelow`가 PR-4 프로토콜 벡터에서 Rust와 Kotlin 양쪽으로 같은 바이트로 왕복합니다(`fr15_2_12_collapse_below_round_trips`).
 
 ##### 15.2.12.8 열린 질문
 
