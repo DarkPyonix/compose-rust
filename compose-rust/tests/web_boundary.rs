@@ -597,6 +597,25 @@ fn pr6_the_page_answers_the_imports_the_host_carries() {
     );
 }
 
+/// In a browser the Host reads the date and the time zone from the page's `Date`, and a
+/// browser timer asks for the frame at whose start it checks whether the date changed. The
+/// instantiation answers all three, or a Host that reads the date would not start.
+#[test]
+fn fr86_the_page_answers_the_time_imports() {
+    let kotlin = generate_web_bridge_kotlin();
+    assert!(
+        kotlin.contains("compose_rust_time: {"),
+        "the instantiation has to answer the compose_rust_time imports"
+    );
+    for answer in [
+        "now_millis: () => Date.now(),",
+        "utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),",
+        "setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);",
+    ] {
+        assert!(kotlin.contains(answer), "missing {answer}");
+    }
+}
+
 /// A page that serves the renderer with no Host beside it still has to come up, because
 /// the renderer is worked on without the other side being built.
 #[test]
