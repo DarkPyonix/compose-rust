@@ -41,6 +41,7 @@ import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.letterSpacingProp
+import dev.darkpyonix.composerust.ui.lineHeightProp
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.node.Asset
@@ -722,7 +723,7 @@ internal fun Node.textInput(): TextInput {
         fontSize = floatProp(PropertyKind.FontSize),
         fontWeight = intProp(PropertyKind.FontWeight)?.toInt(),
         letterSpacing = letterSpacingProp(),
-        lineHeight = floatProp(PropertyKind.LineHeight),
+        lineHeight = lineHeightProp(),
         maxLines = maxLines(),
         softWrap = (property(PropertyKind.SoftWrap) as? PropertyValue.Bool)?.value != false,
         tabSize = intProp(PropertyKind.TabSize)?.toInt() ?: TextInput.DEFAULT_TAB_SIZE,
