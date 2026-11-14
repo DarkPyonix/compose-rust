@@ -372,7 +372,7 @@ internal fun HostSheet(
                             val direction = if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next
                             if (!focusManager.moveFocus(direction)) {
                                 focusManager.clearFocus()
-                                focusManager.moveFocus(direction)
+                                surfaceRequester.requestFocus()
                                 if (direction == FocusDirection.Next) {
                                     focusManager.moveFocus(direction)
                                 }
