@@ -190,8 +190,24 @@ jobs:
           EOF
           cat ~/.gradle/gradle.properties
 
+      - name: Restore the fork's Compose publication
+        # The publication depends only on what build-compose.sh pins (the fork, its revision
+        # and the versions it publishes as, all literals in that script), the target and the
+        # JDK. The script reads no .changes file; those are checked by
+        # scripts/tests/compose-fork.test.sh. LEGACY_REF and EQUIVALENT_REVISION go in the key
+        # as well, so a change to either rebuilds rather than trusting an older run.
+        id: fork-build
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.FORK_REPO }}
+          key: compose-fork-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-jdk21-${{ hashFiles('renderer/scripts/build-compose.sh') }}-legacy-${{ env.LEGACY_REF }}-equivalent-${{ env.EQUIVALENT_REVISION }}
+
       - name: Build Compose from the fork
         # Under the fork's own coordinates. The comparison reads them under the old build's.
+        # Skipped when the publication was restored: nothing after this step reads the work
+        # directory, and every later step takes the fork's publication from FORK_REPO.
+        id: fork-build-run
+        if: steps.fork-build.outputs.cache-hit != 'true'
         run: |
           rm -rf ~/.m2/repository
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
@@ -309,6 +325,15 @@ jobs:
         # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
           echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
+
+      - name: Save the fork's Compose publication (develop and main only)
+        # Saved from develop and main only: a cache saved on another branch is not visible
+        # to develop's runs.
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.fork-build.outputs.cache-hit != 'true' && steps.fork-build-run.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.FORK_REPO }}
+          key: ${{ steps.fork-build.outputs.cache-primary-key }}
 
       - name: Save Kotlin/Native for the Compose build (not from a pull request)
         if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'
