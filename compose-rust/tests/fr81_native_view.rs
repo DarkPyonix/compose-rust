@@ -13,7 +13,9 @@ use compose_rust::protocol::{
     HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event, encode_event,
 };
 use compose_rust::runtime::*;
-use compose_rust::schema::{EventPayload, NativeHandle, NativeParentKind, PropertyKind, WidgetKind};
+use compose_rust::schema::{
+    EventPayload, NativeHandle, NativeParentKind, PropertyKind, WidgetKind,
+};
 use compose_rust::ui::*;
 use compose_rust::{Batch, codegen};
 use std::sync::Arc;
@@ -224,7 +226,9 @@ fn fr81_tree_without_native_view_is_unchanged() {
         EventPayload::CodeScrolled { offset_px: 1234.5 }
     );
     assert!(matches!(
-        decode_event(&EVENTS[PARENT_AT - 76..PARENT_AT]).unwrap().payload,
+        decode_event(&EVENTS[PARENT_AT - 76..PARENT_AT])
+            .unwrap()
+            .payload,
         EventPayload::SelectionsChanged { .. }
     ));
 }
@@ -239,8 +243,7 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
             Button("Bump").on_click(move || bump.update(|count| *count += 1));
             Button("Swap").on_click(move || handle.set(0x2000));
             Button("Detach").on_click(move || handle.set(0));
-            NativeView(NativeHandle(handle.get()))
-                .modifier(Modifier::new().size(200.0, 100.0));
+            NativeView(NativeHandle(handle.get())).modifier(Modifier::new().size(200.0, 100.0));
         });
     });
     assert!(tree.widgets().iter().any(|widget| widget == "NativeView"));
@@ -265,7 +268,10 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
     // Visible is the default and is not written; there is no handler, so none is written.
     let dump = tree.dump();
     assert!(!dump.contains("NativeVisible="), "{dump}");
-    assert!(tree.handled("NativeView", PropertyKind::OnNativeViewFocus).is_empty());
+    assert!(
+        tree.handled("NativeView", PropertyKind::OnNativeViewFocus)
+            .is_empty()
+    );
 
     // A render that does not change the handle writes no command.
     let unrelated = click(&mut host, &mut tree, "Bump");
@@ -298,13 +304,18 @@ fn fr81_native_view_with_no_handle_writes_no_command() {
         NativeView(NativeHandle::NONE).modifier(Modifier::new().size(10.0, 10.0));
     });
     assert!(native_records(&first).is_empty());
-    assert!(decode_batch(&first).unwrap().iter().any(|mutation| matches!(
-        mutation,
-        Mutation::Create {
-            widget: WidgetKind::NativeView,
-            ..
-        }
-    )));
+    assert!(
+        decode_batch(&first)
+            .unwrap()
+            .iter()
+            .any(|mutation| matches!(
+                mutation,
+                Mutation::Create {
+                    widget: WidgetKind::NativeView,
+                    ..
+                }
+            ))
+    );
 }
 
 #[test]
@@ -316,18 +327,27 @@ fn fr81_hidden_native_view_writes_native_visible_false() {
             NativeView(NativeHandle(0x1000)).visible(shown.get());
         });
     });
-    assert!(tree.dump().contains("NativeVisible=Bool(false)"), "{}", tree.dump());
+    assert!(
+        tree.dump().contains("NativeVisible=Bool(false)"),
+        "{}",
+        tree.dump()
+    );
     let shown = click(&mut host, &mut tree, "Show");
     // Showing takes the property away, which is the default; the view is not attached
     // again.
-    assert!(decode_batch(&shown).unwrap().iter().any(|mutation| matches!(
-        mutation,
-        Mutation::SetProp {
-            property: PropertyKind::NativeVisible,
-            value: PropertyValue::None,
-            ..
-        }
-    )));
+    assert!(
+        decode_batch(&shown)
+            .unwrap()
+            .iter()
+            .any(|mutation| matches!(
+                mutation,
+                Mutation::SetProp {
+                    property: PropertyKind::NativeVisible,
+                    value: PropertyValue::None,
+                    ..
+                }
+            ))
+    );
     assert!(native_records(&shown).is_empty());
     assert!(!tree.dump().contains("NativeVisible="), "{}", tree.dump());
 }
@@ -375,7 +395,8 @@ fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
             scale,
         },
     };
-    host.dispatch(report(0xabc0, 2.0)).expect("the report is accepted");
+    host.dispatch(report(0xabc0, 2.0))
+        .expect("the report is accepted");
     assert_eq!(
         native_parent(0),
         Some(NativeParent {
@@ -387,15 +408,21 @@ fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
     );
     assert_eq!(woken.load(Ordering::SeqCst), 1);
     // The same report again wakes nobody.
-    host.dispatch(report(0xabc0, 2.0)).expect("the report is accepted");
+    host.dispatch(report(0xabc0, 2.0))
+        .expect("the report is accepted");
     assert_eq!(woken.load(Ordering::SeqCst), 1);
     // A new scale is a new report.
-    host.dispatch(report(0xabc0, 1.0)).expect("the report is accepted");
+    host.dispatch(report(0xabc0, 1.0))
+        .expect("the report is accepted");
     assert_eq!(native_parent(0).map(|parent| parent.scale), Some(1.0));
     assert_eq!(woken.load(Ordering::SeqCst), 2);
     // A closed window reports no handle.
-    host.dispatch(report(0, 1.0)).expect("the report is accepted");
-    assert_eq!(native_parent(0).map(|parent| parent.handle), Some(NativeHandle::NONE));
+    host.dispatch(report(0, 1.0))
+        .expect("the report is accepted");
+    assert_eq!(
+        native_parent(0).map(|parent| parent.handle),
+        Some(NativeHandle::NONE)
+    );
 
     // A report with a handler, or about a node that is not a window, is refused.
     let mut with_handler = report(0xabc0, 2.0);
@@ -458,7 +485,10 @@ fn fr81_native_view_records_refuse_what_they_cannot_read() {
     let focus_at = 12 + 24;
     for (offset, what) in [
         (attach_at + 8, "the first reserved word after the node"),
-        (attach_at + 12, "the second reserved word, before the handle"),
+        (
+            attach_at + 12,
+            "the second reserved word, before the handle",
+        ),
         (focus_at + 12, "the focus record's reserved word"),
     ] {
         let mut bad = written.clone();

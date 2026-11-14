@@ -41,7 +41,12 @@ thread_local! {
 /// The last report for `window` (0 for the single window), or `None` before there is one.
 /// A window that closed reports a zero handle, which is returned as it came.
 pub fn native_parent(window: u32) -> Option<NativeParent> {
-    PARENTS.with_borrow(|parents| parents.iter().find(|parent| parent.window == window).copied())
+    PARENTS.with_borrow(|parents| {
+        parents
+            .iter()
+            .find(|parent| parent.window == window)
+            .copied()
+    })
 }
 
 /// Every window's last report, in the order they first reported.
@@ -53,7 +58,10 @@ pub fn native_parents() -> Vec<NativeParent> {
 /// report equal to the last one for its window changes nothing and wakes nobody.
 pub(crate) fn publish(parent: NativeParent) -> bool {
     let changed = PARENTS.with_borrow_mut(|parents| {
-        match parents.iter_mut().find(|known| known.window == parent.window) {
+        match parents
+            .iter_mut()
+            .find(|known| known.window == parent.window)
+        {
             Some(known) if *known == parent => false,
             Some(known) => {
                 *known = parent;
