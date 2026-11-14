@@ -1253,9 +1253,8 @@ class NodeTable {
                 PropertyKind.AccessibleName -> true
 
                 // Colours and size of the selection controls.
-                PropertyKind.TrackColor,
-                PropertyKind.ThumbColor,
-                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+                PropertyKind.TrackColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider || widget == WidgetKind.ProgressIndicator
+                PropertyKind.ThumbColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
                 PropertyKind.ThumbSize -> widget == WidgetKind.Slider
@@ -1404,6 +1403,7 @@ class NodeTable {
                                     // colour instead.
                                     widget == WidgetKind.Tabs ||
                                     widget == WidgetKind.Slider ||
+                                    widget == WidgetKind.ProgressIndicator ||
                                     // A badge's fill. Only its role is read: a badge
                                     // has no literal colour.
                                     widget == WidgetKind.Badge ||
