@@ -1005,6 +1005,9 @@ impl TextScope {
         self
     }
 
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
@@ -1271,7 +1274,9 @@ impl TextFieldScope {
         self
     }
 
-    /// Explicit line height in sp.
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
