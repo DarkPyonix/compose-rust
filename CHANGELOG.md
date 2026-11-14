@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A sticky child in a scrolling row or column
+
+`Modifier::sticky()` holds a child of a `ScrollRow` or `ScrollColumn`, at any depth, at the container's start edge while the rest scrolls under it: a diff line's check or line number stays on the screen when the line is scrolled sideways. Its background, border and clip stay with it. `LazyRow` and `LazyColumn` are not covered. A new modifier (tag 41) moves the schema hash ([#424](https://github.com/DarkPyonix/compose-rust/issues/424)).
+
 ### A single-line field's placeholder stays on one line
 
 A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).

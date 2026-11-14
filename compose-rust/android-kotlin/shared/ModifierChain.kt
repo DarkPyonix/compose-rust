@@ -32,11 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
 import dev.darkpyonix.composerust.protocol.BackgroundRepeat
 import dev.darkpyonix.composerust.protocol.ColorRole
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.zIndex
-import dev.darkpyonix.composerust.ui.node.LocalScrollIsHorizontal
-import dev.darkpyonix.composerust.ui.node.LocalScrollState
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -240,23 +235,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.MinTouchTarget -> chain
             // Laid over the node where its padding starts, through `beforePadding` above.
             is ProtocolModifier.Overlay -> chain
-            is ProtocolModifier.Sticky -> chain.composed {
-                val scroll = LocalScrollState.current
-                if (scroll != null) {
-                    val isHorizontal = LocalScrollIsHorizontal.current
-                    Modifier
-                        .zIndex(1f)
-                        .offset {
-                            if (isHorizontal) {
-                                IntOffset(scroll.value, 0)
-                            } else {
-                                IntOffset(0, scroll.value)
-                            }
-                        }
-                } else {
-                    Modifier
-                }
-            }
+            // Applied round the whole node where it is rendered, outside every other modifier,
+            // so its background, border and clip stay with it while the rest scrolls.
+            is ProtocolModifier.Sticky -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
                 if (allowPadding) beforePadding(chain).padding(value.value.dp) else chain
