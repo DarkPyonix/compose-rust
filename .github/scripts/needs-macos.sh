@@ -11,7 +11,7 @@
 #   *.md at the root, LICENSE, .gitignore
 #                                 text that nothing builds
 #   .github/workflows/{pages,publish-crates,release-sync,windows-static,test-windows-c,
-#   test-windows-resize-metrics,test-windows-resize-probe}.yml
+#   test-windows-resize-metrics}.yml
 #                                 workflows no shell test reads. The others stay on the macOS
 #                                 side: install-nik.test.sh, kn-start-report.test.sh and
 #                                 others read them, and install-nik only means anything on
@@ -37,7 +37,7 @@ while IFS= read -r file; do
         docs/*) ;;
         .github/workflows/pages.yml|.github/workflows/publish-crates.yml|.github/workflows/release-sync.yml) ;;
         .github/workflows/windows-static.yml|.github/workflows/test-windows-c.yml) ;;
-        .github/workflows/test-windows-resize-metrics.yml|.github/workflows/test-windows-resize-probe.yml) ;;
+        .github/workflows/test-windows-resize-metrics.yml) ;;
         */*) case "$file" in
                  renderer/windows/*|renderer/staticlib-windows/*|renderer/desktop/scripts/windows-metadata/*) ;;
                  renderer/desktop/scripts/*.ps1|renderer/desktop/scripts/build-windows.sh) ;;

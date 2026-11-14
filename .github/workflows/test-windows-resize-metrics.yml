@@ -3,6 +3,19 @@
 # dirties the heap and then takes the window through 100 scripted sizes, printing every
 # frame's time and the collections among them. Builds as windows-static.yml does. Run by
 # hand, once per question; the Compose builds behind it are long.
+#
+# The probe job then drags the hand-check this run built, from another process, on Windows
+# Server 2022 and 2025, at 100% and at 200%: its right, bottom and left edges and its bottom
+# right corner at three mouse rates, and the window states (maximise, restore, the left half
+# of the screen, back), with resize frames on the CPU (the default) and on the GPU
+# (DXC_RASTER_RESIZE=0), and the same for resize-control, a window 50 ms late on purpose.
+# hand-check draws its marker scene (DXC_RESIZE_MARKER=1), so the probe judges every frame
+# against the window's own border: a marker that does not reach it is an area not drawn, a
+# marker of another width or a ruler line off its grid a stretched picture. The job fails
+# when the control passes anywhere (the probe could not tell a late frame from a prompt one
+# there, so nothing it says about hand-check counts) and when hand-check's CPU path shows any
+# fault. The frames it kept, and contact sheets of them, are the resize-probe-frames artifact.
+# The runners draw with WARP on the Basic Render Driver.
 
 name: Resize metrics
 
@@ -19,6 +32,19 @@ on:
       - ".github/scripts/resize-metrics-run.sh"
       - ".github/scripts/resize-real-drag-run.sh"
       - ".github/scripts/resize-probe.c"
+      - ".github/scripts/resize-control.c"
+      - ".github/scripts/resize-os-version.h"
+      - ".github/scripts/resize-probe.manifest"
+      - ".github/scripts/resize-probe-README.txt"
+      - ".github/scripts/resize-probe-match.sh"
+      - ".github/scripts/resize-contact-sheet.ps1"
+      - ".github/scripts/run-probe-v2.ps1"
+      - ".github/scripts/run-probe-v2.cmd"
+      - ".github/scripts/set-display-scale.c"
+      - "compose-rust/tests/fixtures/hand-check/**"
+      # WINDOW_REVISION, the fork commit the Windows window code is compiled from, is set
+      # here: moving it has to drag the window it builds.
+      - "renderer/scripts/build-compose.sh"
 
 concurrency:
   # One run per pull request: a new commit cancels the older run. Pushes to develop,
@@ -506,6 +532,318 @@ jobs:
           name: resize-metrics-windows-kn
           path: ${{ runner.temp }}/resize-metrics/
           retention-days: 14
+
+  probe:
+    # hand-check as the windows job above built it in this run, so what is dragged is the
+    # window code at this commit's pin and never an artifact of an older run.
+    needs: windows
+    name: Real drags of every edge from the resize probe at 100% and 200% (Windows, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+
+      - name: Receive the Kotlin/Native hand-check from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: hand-check-windows-kn
+          path: ${{ runner.temp }}/hand-check
+
+      - name: Enter the Visual Studio developer environment
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          $sdkbin = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+            if ($_ -match '^WindowsSdkVerBinPath=(.*)$') { $sdkbin = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          # mt.exe, which the linker runs to embed the probe's manifest.
+          Join-Path $sdkbin "x64" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+          Write-Output "Windows SDK tools: $(Join-Path $sdkbin 'x64')"
+
+      - name: Build the resize probe, the control window and the display scale tool, and lay out the kit
+        # The probe's manifest makes it per-monitor DPI aware before any of its code runs; the
+        # control window takes the same one, as hand-check is per-monitor aware too.
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/probe-kit"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$kit" "$tools"
+          scripts="$(cygpath -w "$PWD/.github/scripts")"
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-probe.c" \
+            /link /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          # A GUI program, so that starting it opens no console window: on Server 2025 the
+          # console opened beside the window and covered the backdrop the probe looks for.
+          (cd "$kit" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\resize-control.c" \
+            /link /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup /MANIFEST:EMBED "/MANIFESTINPUT:$scripts\\resize-probe.manifest")
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$scripts\\set-display-scale.c")
+          rm -f "$kit"/*.obj "$tools"/*.obj
+          cp "$(cygpath -u "$RUNNER_TEMP")/hand-check/hand-check.exe" "$kit/"
+          cp .github/scripts/run-probe-v2.ps1 .github/scripts/run-probe-v2.cmd .github/scripts/resize-contact-sheet.ps1 "$kit/"
+          cp .github/scripts/resize-probe-README.txt "$kit/README.txt"
+          {
+            echo
+            echo "This kit, all from commit $GITHUB_SHA (run $GITHUB_RUN_ID)"
+            echo "  resize-probe.exe               the probe"
+            echo "  resize-control.exe             the control window (50 ms late on purpose)"
+            echo "  hand-check.exe                 the Kotlin/Native renderer, built in this run, with the"
+            echo "                                 window code of the fork commit renderer/scripts/build-compose.sh pins"
+            echo "  run-probe-v2.cmd / .ps1        every drag, the table and the contact sheets"
+            echo "  resize-contact-sheet.ps1       the PNG frames and contact sheets, which run-probe-v2 makes"
+            echo
+            echo "sha256"
+            (cd "$kit" && sha256sum hand-check.exe resize-probe.exe resize-control.exe)
+          } >> "$kit/README.txt"
+          ls -la "$kit"
+          sha256sum "$kit"/*.exe
+
+      - name: Keep the probe kit
+        # hand-check, the control and the probe, for run-probe-v2.cmd on a real machine. One kit,
+        # from one runner: the executables are the same on both.
+        if: matrix.os == 'windows-2025'
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-kit-windows
+          path: ${{ runner.temp }}/probe-kit/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Real drags at 100%
+        # The kit's own script, as a person runs it. The runner has no graphics card, so
+        # hand-check and the control draw with WARP.
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/1x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
+
+      - name: Set the display to 200%
+        # The runner's display is 1024x768, where Windows offers no scale but 100%, and
+        # 1920x1080 stops at 175%: the scale tool picks the largest mode that offers 200%.
+        id: scale
+        run: |
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          mkdir -p "$out"
+          set +e
+          "$tools/set-display-scale.exe" 200 --fit > "$out/set-display-scale.log" 2>&1
+          status=$?
+          cat "$out/set-display-scale.log"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "set-display-scale exit $status"
+
+      - name: Real drags at 200%
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
+          out="$(cygpath -w "$RUNNER_TEMP/probe-logs/2x")"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
+
+      - name: Report the drags
+        # The table run-probe-v2 wrote for each scale, then each drag's own lines.
+        if: always()
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          results="$out/results-${{ matrix.os }}.md"
+          {
+            echo "## ${{ matrix.os }}"
+            for scale in 1x 2x; do
+              echo
+              echo "### $scale"
+              echo
+              cat "$out/$scale/summary.md" 2>/dev/null | tr -d '\r' | sed 's/^\xEF\xBB\xBF//' || echo "no summary"
+            done
+          } > "$results"
+          {
+            cat "$results"
+            echo
+            echo "### Display scale"
+            echo '```'
+            cat "$out/set-display-scale.log" 2>/dev/null || echo "no set-display-scale log"
+            echo '```'
+            for scale in 1x 2x; do
+              dir="$out/$scale"
+              for probe in "$dir"/*-probe.log; do
+                [ -f "$probe" ] || continue
+                label="$(basename "$probe" -probe.log)"
+                echo "### $scale $label"
+                echo '```'
+                grep -hE "resize-probe: (os|dpi awareness|duplicating|placed|moved|window|  |client|scan box|stale reference|markers|move-size|state|minimise|lag|summary|verdict)" \
+                  "$probe" 2>/dev/null || echo "no probe log"
+                cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null |
+                  grep -E "a window of our own|Compose scene created|first frame drawn|marker scene|resize-mode: (monitor|resize frames)|real drag (ready|done)|resize-control: (os|start|swapchain|ready|drag done)" |
+                  sort | uniq -c || true
+                cat "$dir/$label.log" "$dir/$label.log.err" 2>/dev/null > "$dir/$label.all.log"
+                case "$label" in
+                  kn-*-right-*) bash .github/scripts/resize-probe-match.sh "$dir/$label.all.log" "$probe" 2>/dev/null | tail -3 ;;
+                esac
+                echo '```'
+              done
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report memory
+        # From outside each app (the probe reads its private bytes, working set and the GPU
+        # process counters) before the right edge drag, at its peak and settled after it, and
+        # from inside it the window's own breakdown (DXC_METRICS memory-breakdown lines).
+        if: always()
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          num() { sed -n "s/.*resize-probe: memory $2 .*$3=\([-0-9.]*\).*/\1/p" "$1" | head -1; }
+          {
+            echo "### Memory, MB (private / working set / GPU local), from outside the app, right edge drags"
+            echo "| scale | app | path | rate | start | peak during the drag | settled |"
+            echo "|---|---|---|---|---|---|---|"
+            for scale in 1x 2x; do
+              for path in new old; do
+                for rate in 16 8 1; do
+                  f="$out/$scale/kn-$path-right-$rate-probe.log"
+                  [ -f "$f" ] || continue
+                  row="| $scale | kn | $path | $rate ms"
+                  for when in start "peak during the drag" settled; do
+                    row="$row | $(num "$f" "$when" private_mb) / $(num "$f" "$when" working_set_mb) / $(num "$f" "$when" gpu_local_mb)"
+                  done
+                  echo "$row |"
+                done
+              done
+            done
+            for scale in 1x 2x; do
+              echo "### $scale kn (new, right edge, 16 ms): the window's own breakdown"
+              echo '```'
+              cat "$out/$scale/kn-new-right-16.log" "$out/$scale/kn-new-right-16.log.err" 2>/dev/null |
+                grep -E "memory-breakdown|metrics memory|draw texture ->|raster bitmap ->|swapchain on" || echo "none"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-logs-${{ matrix.os }}
+          path: ${{ runner.temp }}/probe-logs/
+          retention-days: 14
+
+      - name: Keep the frames and the contact sheets
+        # For a person to look at: every frame a verdict is about, as PNG, a contact sheet per
+        # drag (frames/<drag>/contact.png) and one frame of each drag (contact-sheet.png).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resize-probe-frames-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/probe-logs/*/contact-sheet.png
+            ${{ runner.temp }}/probe-logs/*/frames/
+            ${{ runner.temp }}/probe-logs/*/summary.md
+          retention-days: 30
+
+      - name: The probe can tell late from prompt, and the CPU path shows no fault
+        # Every check here counts and goes on, so the step lists every failure, not the first.
+        #
+        # Every drag ran: a verdict that is not ERROR, the Windows version logged, the window
+        # at the scale asked for, the move-size loop entered and the lag measured (or, for the
+        # window states, each state sent).
+        #
+        # The control (50 ms late on purpose) must FAIL in every drag, at every rate and scale.
+        # Where it passes, the probe cannot tell a late frame from a prompt one on that runner,
+        # and nothing it says about hand-check there means anything: that fails the job, it is
+        # not reported and passed over. Its frames must also have been late as asked.
+        #
+        # hand-check with resize frames on the CPU (the default) must PASS every drag: no hole,
+        # black, torn, stale, marker gap or stretched frame, judged by the markers, and every
+        # CPU step blitted and validated in the same words from the same C. With resize frames
+        # on the GPU it must have taken that path; its verdicts are in the summary, not gated.
+        shell: bash --noprofile --norc -o pipefail {0}
+        run: |
+          out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
+          status=0
+          [ "${{ steps.scale.outputs.status }}" = 0 ] || { echo "the display did not go to 200%"; status=1; }
+          grep -q "effective dpi 192" "$out/set-display-scale.log" || { echo "the display is not at 192 dpi"; status=1; }
+          labels=""
+          for app_path in kn-new kn-old control-late; do
+            for edge in right bottom corner left; do
+              for rate in 16 8 1; do labels="$labels $app_path-$edge-$rate"; done
+            done
+            labels="$labels $app_path-states"
+          done
+          for scale in 1x 2x; do
+            want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
+            for label in $labels; do
+              dir="$out/$scale"
+              probe="$dir/$label-probe.log"
+              log="$dir/$label.all.log"
+              [ -f "$log" ] || cat "$dir/$label.log" "$dir/$label.log.err" > "$log" 2>/dev/null
+              verdict="$(grep -h "resize-probe: verdict" "$probe" 2>/dev/null || echo "no verdict")"
+              echo "$scale $label: $verdict"
+              case "$verdict" in *"verdict PASS"*|*"verdict FAIL"*) ;; *) echo "  the probe did not run"; status=1 ;; esac
+              grep -q "^resize-probe: os windows [1-9]" "$probe" 2>/dev/null || { echo "  no Windows version in the probe log"; status=1; }
+              grep -qF "px, $want" "$probe" 2>/dev/null || { echo "  the window was not at $want"; status=1; }
+              grep -q "^resize-probe: markers at rest" "$probe" 2>/dev/null || { echo "  the markers were not found at rest"; status=1; }
+              case "$label" in
+                *-states)
+                  for state in maximise restore; do
+                    grep -qE "^resize-probe: state $state qpc=[0-9]+ sent" "$probe" 2>/dev/null || { echo "  $state was not sent"; status=1; }
+                  done
+                  for state in left-half back; do
+                    grep -qE "^resize-probe: state $state qpc=.* set$" "$probe" 2>/dev/null || { echo "  $state was not set"; status=1; }
+                  done
+                  ;;
+                *)
+                  grep -q "move-size loop entered" "$probe" 2>/dev/null || { echo "  no move-size loop"; status=1; }
+                  grep -q "^resize-probe: lag frames=[1-9]" "$probe" 2>/dev/null || { echo "  no lag measured"; status=1; }
+                  ;;
+              esac
+              case "$label" in
+                kn-new-*)
+                  case "$verdict" in *"verdict PASS"*) ;; *) echo "  FAULT: the CPU resize path shows a fault (see the frames)"; status=1 ;; esac
+                  grep -qF "hand-check: marker scene" "$log" || { echo "  hand-check did not draw the marker scene"; status=1; }
+                  grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
+                    { echo "  hand-check did not take the CPU resize path"; status=1; }
+                  steps="$(grep -c "resize-proof step" "$log" || true)"
+                  bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$" || true)"
+                  echo "  resize-proof steps: $steps, not blitted and validated: $bad"
+                  { [ "$steps" -gt 0 ] && [ "$bad" = 0 ]; } || status=1
+                  ;;
+                kn-old-*)
+                  grep -qF "resize-mode: resize frames on the GPU" "$log" ||
+                    { echo "  hand-check did not take the GPU resize path"; status=1; }
+                  ! grep -q "resize-proof step" "$log" || { echo "  hand-check drew CPU steps with DXC_RASTER_RESIZE=0"; status=1; }
+                  ;;
+                control-late-*)
+                  case "$verdict" in
+                    *"verdict FAIL"*) ;;
+                    *) echo "  NO DISCRIMINATION: the 50 ms late control passed, so this runner cannot tell late frames from prompt ones here"; status=1 ;;
+                  esac
+                  steps="$(grep -c "resize-control: step n=" "$log" || true)"
+                  prompt="$(grep "resize-control: step n=" "$log" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^late_ms=/) { split($i, v, "="); if (v[2] + 0 < 45) n++ } } END { print n + 0 }')"
+                  echo "  control steps: $steps, less than 45 ms late: $prompt"
+                  { [ "$steps" -gt 0 ] && [ "$prompt" = 0 ]; } || status=1
+                  ;;
+              esac
+            done
+          done
+          exit $status
 
   macos:
     needs: requested
