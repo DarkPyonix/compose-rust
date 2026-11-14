@@ -170,9 +170,11 @@ internal object Material3ControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         diameter: Dp?,
+        color: Color?,
+        trackColor: Color?,
     ) {
-        val indicator = theme.color(ColorRole.Primary)
-        val track = theme.color(ColorRole.SurfaceVariant)
+        val indicator = color ?: theme.color(ColorRole.Primary)
+        val track = trackColor ?: theme.color(ColorRole.SurfaceVariant)
         val stroke = ringThickness(ProgressIndicatorDefaults.CircularStrokeWidth, diameter)
         when {
             circular && determinate -> CircularProgressIndicator(
