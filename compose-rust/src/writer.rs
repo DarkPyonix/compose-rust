@@ -1066,7 +1066,10 @@ impl NodeWriter {
 }
 
 fn property_kind(name: &str) -> Option<PropertyKind> {
-    PropertyKind::from_name(name).ok()
+    match name {
+        "hairline" => Some(PropertyKind::Separator),
+        _ => PropertyKind::from_name(name).ok(),
+    }
 }
 
 /// The property an event listener's handler id is written under.

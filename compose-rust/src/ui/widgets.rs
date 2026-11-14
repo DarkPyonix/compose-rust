@@ -21,8 +21,9 @@ use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
-    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
-    Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
+    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
@@ -2064,6 +2065,8 @@ pub struct ProgressIndicatorScope {
     value: f32,
     determinate: bool,
     circular: bool,
+    color: Option<Paint>,
+    track_color: Option<Paint>,
     done: bool,
 }
 
@@ -2074,6 +2077,8 @@ pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
         value,
         determinate: true,
         circular: false,
+        color: None,
+        track_color: None,
         done: false,
     }
 }
@@ -2095,9 +2100,39 @@ impl ProgressIndicatorScope {
         self
     }
 
+    /// The indicator's colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no colour of its own.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    /// The indicator's colour.
+    pub fn indicator_color(self, paint: Paint) -> Self {
+        self.color(paint)
+    }
+
+    /// The track's colour.
+    pub fn track_color(mut self, paint: Paint) -> Self {
+        self.track_color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no track colour of its own.
+    pub fn track_color_if(mut self, paint: Option<Paint>) -> Self {
+        self.track_color = paint;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (value, determinate, circular) = (self.value, self.determinate, self.circular);
+        let (color, track_color) = (self.color, self.track_color);
         emit(
             widget_key("compose_rust::ui::ProgressIndicator"),
             WidgetKind::ProgressIndicator,
@@ -2106,6 +2141,12 @@ impl ProgressIndicatorScope {
                 attrs.push(("value", OwnedAttr::Float(f64::from(value))));
                 attrs.push(("determinate", OwnedAttr::Bool(determinate)));
                 attrs.push(("circular", OwnedAttr::Bool(circular)));
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(track) = track_color {
+                    attrs.push(("track_color", super::paint(Some(track))));
+                }
             },
             Vec::new(),
             content,
@@ -2679,6 +2720,8 @@ pub struct ModalScope {
     open: bool,
     scrim: Option<Paint>,
     max_height_fraction: Option<f32>,
+    presentation: SheetPresentation,
+    max_width: Option<u32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2692,6 +2735,8 @@ pub fn Dialog(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2706,6 +2751,8 @@ pub fn Sheet(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2736,12 +2783,31 @@ impl ModalScope {
         self
     }
 
+    /// What form the sheet takes: an edge drawer (`Edge`, the default) or a centered modal
+    /// (`Centered`). A `Dialog` is always centered and does not take this.
+    pub fn presentation(mut self, presentation: SheetPresentation) -> Self {
+        self.presentation = presentation;
+        self
+    }
+
+    /// The maximum width of a centered sheet in dp.
+    ///
+    /// Zero or absent leaves the width to the design system (560 dp). Content wider than
+    /// this or a window narrower than this shrinks the sheet to fit. An edge sheet sizes
+    /// its width by its edge and does not take this.
+    pub fn max_width(mut self, max_width_dp: u32) -> Self {
+        self.max_width = (max_width_dp > 0).then_some(max_width_dp);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
         let max_height_fraction = self
             .max_height_fraction
             .filter(|_| widget == WidgetKind::Sheet);
+        let presentation = self.presentation;
+        let max_width = self.max_width.filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2759,6 +2825,15 @@ impl ModalScope {
                 }
                 if let Some(fraction) = max_height_fraction {
                     attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
+                }
+                if widget == WidgetKind::Sheet && presentation != SheetPresentation::Edge {
+                    attrs.push((
+                        "presentation",
+                        OwnedAttr::Int(i64::from(u16::from(presentation))),
+                    ));
+                }
+                if let Some(max_width) = max_width {
+                    attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
@@ -3023,6 +3098,7 @@ container!(TabsScope);
 pub struct TopAppBarScope {
     modifier: Modifier,
     title: String,
+    separator: Option<bool>,
     done: bool,
 }
 
@@ -3032,6 +3108,7 @@ pub fn TopAppBar() -> TopAppBarScope {
     TopAppBarScope {
         modifier: Modifier::new(),
         title: String::new(),
+        separator: None,
         done: false,
     }
 }
@@ -3042,15 +3119,34 @@ impl TopAppBarScope {
         self
     }
 
+    /// Whether to draw the design system's hairline separator under the bar.
+    ///
+    /// When unset, the active design system decides (e.g. Cupertino, Fluent and GNOME draw one;
+    /// Material 3 and Deepin do not; setting a custom border on the bar also suppresses it).
+    pub fn hairline(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
+    /// Alias for [`Self::hairline`].
+    pub fn separator(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let title = std::mem::take(&mut self.title);
+        let separator = self.separator;
         emit(
             widget_key("compose_rust::ui::TopAppBar"),
             WidgetKind::TopAppBar,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("text", OwnedAttr::Text(title)));
+                if let Some(separator) = separator {
+                    attrs.push(("separator", OwnedAttr::Bool(separator)));
+                }
             },
             Vec::new(),
             content,
