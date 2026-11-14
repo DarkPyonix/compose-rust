@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A Linux window redraws when the display scale changes
+
+The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
+
 ### Compose fork moved to 1.11.1-ext.4
 
 The renderer now builds with the Compose fork's `1.11.1-ext.4` (tag `v1.11.1-ext.4`) for Compose, and with the tip of the fork's `extended` past that tag for the window modules and skiko-awt, all published as `1.11.1-ext.4`. The Compose itself is unchanged from `ext.3` apart from its version. The design systems and the window modules are Java 11 class files (graalvm-linux Java 17), so a JDK 17 or 21 application can load them, and skiko-awt declares its own capability only. The windows gain F1 to F12 and the Menu key everywhere, a single text menu on a right click in a macOS field, an X11 window keeping its size in dp when the scale changes, and on Windows a new size drawn before it is shown after a maximise, restore or snap. Beyond the tag, a macOS native view moves in the same frame as the content under it, and an application can declare a node's accessible role to the Kotlin/Native macOS window.
