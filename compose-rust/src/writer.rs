@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 35;
+const MODIFIER_SLOTS: usize = 36;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -443,6 +443,7 @@ impl NodeWriter {
         const ASPECT_RATIO: u16 = 32;
         const MIN_TOUCH_TARGET: u16 = 33;
         const OVERLAY: u16 = 34;
+        const UNBOUNDED_WIDTH: u16 = 35;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -483,6 +484,7 @@ impl NodeWriter {
             "aspect_ratio" => Some(ASPECT_RATIO),
             "min_touch_target" => Some(MIN_TOUCH_TARGET),
             "overlay" => Some(OVERLAY),
+            "unbounded_width" => Some(UNBOUNDED_WIDTH),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -549,6 +551,19 @@ impl NodeWriter {
                         Modifier::FillMaxWidth
                     } else {
                         Modifier::FillMaxHeight
+                    },
+                )))
+            }
+            "unbounded_width" => {
+                let AttrValue::Bool(enabled) = value else {
+                    return Some(None);
+                };
+                Some(Some((
+                    slot,
+                    if !enabled {
+                        Modifier::Empty
+                    } else {
+                        Modifier::UnboundedWidth
                     },
                 )))
             }

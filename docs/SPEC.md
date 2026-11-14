@@ -5084,7 +5084,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
 
-### FR-87 비제약 폭 측정 수정자: `unbounded_width` (`Agreed`, 이슈 #634)
+### FR-87 비제약 폭 측정 수정자: `unbounded_width` (`Done`, 이슈 #634)
 
 요청한 쪽: dioxus-compose의 `Table`(FR-15.5.3, DarkPyonix/dioxus-compose#226). `Content` 열은 `use_node_size`를 통해 지금까지 그려진 가장 넓은 셀 크기로 너비를 맞춥니다. 그러나 Compose 렌더러에서 각 셀은 해당 열 슬롯이 이미 가진 너비(maxWidth) 제약 안에서 측정되므로, 더 넓은 셀이 들어와도 열의 현재 너비로 잘려 측정되며 열 너비가 첫 측정 크기를 넘어 늘어나지 못합니다. 부모의 최대 폭 제약 없이 노드의 본래 크기를 측정하여 `ObserveSize`로 보고하면서도, 현재 프레임의 부모 슬롯 안에는 잘려 배치되도록 하는 수정자가 필요합니다.
 
@@ -5094,8 +5094,8 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 2. **와이어 인코딩**:
    - `UnboundedWidth` 수정자 태그 40. 추가 필드가 없는 0워드(28바이트) 레코드로 전송합니다.
 3. **렌더러 해석**:
-   - 렌더러의 `ModifierChain`은 `UnboundedWidth`를 Compose `androidx.compose.foundation.layout.wrapContentWidth(align = Alignment.Start, unbounded = true)`로 변환합니다.
-   - `ObserveSize`가 함께 지정된 경우, `wrapContentWidth(align = Alignment.Start, unbounded = true)`를 `onSizeChanged` 직전에 배치하여 `onSizeChanged`가 부모의 최대 폭에 갇히지 않은 내용물의 본래 측정 너비를 수신하도록 합니다.
+   - 렌더러의 `ModifierChain`은 `UnboundedWidth`를 부모의 최대 폭 제약 없이(`maxWidth = Constraints.Infinity`) 자식을 측정하고, 부모 레이아웃에는 부모의 제약 폭으로 클램프된 크기를 반환하는 레이아웃 수정자로 변환합니다.
+   - `ObserveSize`가 함께 지정된 경우, `UnboundedWidth` 레이아웃 측정을 `onSizeChanged` 직전에 배치하여 `onSizeChanged`가 부모의 최대 폭에 갇히지 않은 내용물의 본래 측정 너비를 수신하도록 합니다.
    - 부모 레이아웃에는 부모의 제약 내로 정렬 및 클램프된 크기를 반환하여 슬롯을 넘치지 않습니다.
 
 #### 87.2 수용 기준
@@ -5103,7 +5103,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 1. `UnboundedWidth` 수정자가 호스트에서 인코딩되고 렌더러에서 같은 값으로 디코딩됩니다 (`fr87_unbounded_width_round_trips`).
 2. `Modifier.unbounded_width()` 및 `Modifier.wrap_content_width(true)` 메서드가 `UnboundedWidth` 수정자를 생성합니다 (`fr87_modifier_unbounded_width_builder`).
 3. 폭이 좁게 제약된 부모 안에서 `UnboundedWidth`와 `ObserveSize`를 가진 노드가 부모의 최대 폭보다 넓은 고유 너비를 `ObserveSize`로 보고합니다 (`fr87_unbounded_width_reports_natural_size`).
-4. 부모 레이아웃 관점에서는 `UnboundedWidth` 노드의 레이아웃 크기가 부모의 제약 폭으로 유지됩니다 (`fr87_unbounded_width_layout_clamped_to_parent`).
+4. 부모 레이아웃 관점에서는 `UnboundedWidth` 노드의 레이아웃 크기가 부모의 제약 폭으로 유지됩니다 (`fr87_unbounded_width_layout_clamped_to_parent`). **(2026-11-15 통과)**
 
 ## 4. 경계 프로토콜
 

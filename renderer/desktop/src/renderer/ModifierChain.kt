@@ -46,7 +46,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.composed
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
@@ -186,6 +188,23 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             ?: chain.composed { reportUnknownBrush(nodeId, overlay.paint, dispatcher) }
     }
     fun beforePadding(chain: Modifier): Modifier = attachOverlayIfNeeded(attachPressableIfNeeded(chain))
+    var unboundedWidthAttached = !any { it is ProtocolModifier.UnboundedWidth }
+    fun attachUnboundedWidthIfNeeded(chain: Modifier): Modifier {
+        if (unboundedWidthAttached) return chain
+        unboundedWidthAttached = true
+        return chain.layout { measurable, constraints ->
+            val childConstraints = constraints.copy(
+                minWidth = 0,
+                maxWidth = Constraints.Infinity,
+            )
+            val placeable = measurable.measure(childConstraints)
+            val width = placeable.width.coerceIn(constraints.minWidth, constraints.maxWidth)
+            val height = placeable.height.coerceIn(constraints.minHeight, constraints.maxHeight)
+            layout(width, height) {
+                placeable.placeRelative(0, 0)
+            }
+        }
+    }
     // A node's pointer subscription listens over the whole node, so it goes ahead of everything
     // else. A node drawn through a transform is the exception: there it goes just inside the
     // last one, where Compose has already taken the pointer back through the transform, so
@@ -297,11 +316,16 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
 
+            is ProtocolModifier.UnboundedWidth ->
+                attachUnboundedWidthIfNeeded(chain)
+
             // Only a node that asked is measured. Nothing is attached to a node without
             // this modifier, so a tree that observes nothing is laid out exactly as it
             // was before any of this existed.
-            is ProtocolModifier.ObserveSize ->
-                if (value.everyDp) chain.reportEveryDpTo(nodeId, dispatcher) else chain.reportSizeTo(nodeId, dispatcher)
+            is ProtocolModifier.ObserveSize -> {
+                val base = attachUnboundedWidthIfNeeded(chain)
+                if (value.everyDp) base.reportEveryDpTo(nodeId, dispatcher) else base.reportSizeTo(nodeId, dispatcher)
+            }
 
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
@@ -377,7 +401,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     // Read so a layer redraws when an animation writes a new matrix.
                     val shown = holder != null && holder.transformVersion.intValue >= 0 && holder.transformShown
                     if (shown) {
-                        holder!!.matrix.copyInto(matrix)
+                        holder.matrix.copyInto(matrix)
                     } else {
                         matrix[0] = value.a
                         matrix[1] = value.b
@@ -419,7 +443,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         }
         if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
-    return beforePadding(folded)
+    return beforePadding(attachUnboundedWidthIfNeeded(folded))
 }
 
 /**

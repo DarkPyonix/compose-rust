@@ -396,6 +396,7 @@ pub struct Modifier {
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
 }
@@ -447,6 +448,7 @@ impl Modifier {
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
         }
@@ -497,6 +499,20 @@ impl Modifier {
 
     pub const fn fill_max_size(self) -> Self {
         self.fill_max_width().fill_max_height()
+    }
+
+    /// Measures the node with an unbounded width constraint so [`Modifier::observe_size`]
+    /// or [`Modifier::observe_size_every_dp`] reports its unconstrained width, while
+    /// still laying out within the parent's constraints.
+    pub const fn unbounded_width(mut self) -> Self {
+        self.unbounded_width = true;
+        self
+    }
+
+    /// Measures the node with an unbounded width constraint when `unbounded` is `true`.
+    pub const fn wrap_content_width(mut self, unbounded: bool) -> Self {
+        self.unbounded_width = unbounded;
+        self
     }
 
     /// Constrains the size of the content within minimum and maximum bounds in dp.
@@ -1121,6 +1137,11 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         standard,
         "fill_max_height",
         OwnedAttr::Bool(modifier.fill_max_height),
+    );
+    push(
+        false,
+        "unbounded_width",
+        OwnedAttr::Bool(modifier.unbounded_width),
     );
     // The layer and the values the Renderer animates, written only when they are set. An
     // animated value owns its slot while it is set, as an animated background does above.
