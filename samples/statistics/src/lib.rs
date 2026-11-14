@@ -424,6 +424,7 @@ fn costs_page() {
 fn page_bar(showing: Page, measure: Option<f32>, turn: impl Fn() + 'static) {
     TopAppBar()
         .modifier(Modifier.fill_max_width().background(showing.ground()))
+        .hairline(false)
         .content(|| {
             Box()
                 .modifier(Modifier.weight(1.0))
