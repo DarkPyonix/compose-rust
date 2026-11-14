@@ -722,7 +722,7 @@ class NativeViewWindowTest {
             )
             assertEquals(((GAP_H + 10f + MARK_H) * f.scale).toInt(), f.slot.frames[VIEW]!!.y, "the rest of the batch applied")
             // Something that is not a view at all: the window refuses it.
-            val notAView = platform.Foundation.NSObject()
+            val notAView = platform.darwin.NSObject()
             f.send(Mutation.AttachNativeView(SECOND, notAView.objcPtr().toLong()))
             assertEquals(TableError.NATIVE_VIEW_REJECTED, f.errors.last())
         }
