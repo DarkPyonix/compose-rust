@@ -15,7 +15,11 @@ for path in sorted(root.glob('*.yml')):
         continue
     on = re.search(r'^on:\n(.*?)(?=^[a-zA-Z_][\w-]*:|\Z)', text, re.M | re.S)
     assert on and re.search(r'^  workflow_call:', on.group(1), re.M), path.name
-    assert not re.search(r'^  (pull_request|schedule|workflow_dispatch):', on.group(1), re.M), path.name
+    assert not re.search(r'^  (pull_request|schedule):', on.group(1), re.M), path.name
+    # Only the samples release may also be dispatched by hand: it is a release path, run again
+    # for an existing tag or tried without releasing, not a second way to start the tests.
+    if re.search(r'^  workflow_dispatch:', on.group(1), re.M):
+        assert path.name == 'test-samples.yml', path.name
     if re.search(r'^  push:', on.group(1), re.M):
         assert path.name in ('test-native-renderer.yml', 'test-samples.yml'), path.name
         assert re.search(r'^    tags:', on.group(1), re.M), path.name
