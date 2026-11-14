@@ -96,8 +96,14 @@ fn fr21_sheet_default_presentation_is_edge() {
     );
 
     let (pres, width) = sheet_property_records(None, None);
-    assert!(pres.is_empty(), "default Sheet sends no presentation property");
-    assert!(width.is_empty(), "default Sheet sends no max_width property");
+    assert!(
+        pres.is_empty(),
+        "default Sheet sends no presentation property"
+    );
+    assert!(
+        width.is_empty(),
+        "default Sheet sends no max_width property"
+    );
 
     let (pres_edge, _) = sheet_property_records(Some(SheetPresentation::Edge), None);
     assert!(
