@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### A sticky child in a scrolling row or column
+
+`Modifier::sticky()` holds a child of a `ScrollRow` or `ScrollColumn`, at any depth, at the container's start edge while the rest scrolls under it: a diff line's check or line number stays on the screen when the line is scrolled sideways. Its background, border and clip stay with it. `LazyRow` and `LazyColumn` are not covered. A new modifier (tag 41) moves the schema hash ([#424](https://github.com/DarkPyonix/compose-rust/issues/424)).
 ### A window's size reaches the Host from its first layout
 
 The window's size is reported to the Host from the layout pass that measured it, as an observed node's already was, rather than from the recomposition that pass schedules. On macOS a window draws only when something asks for a frame, so the Host could stay at 0x0, the compact class, for a long time after the first frame of a 1440x900 window, and lay its page out for a phone ([#773](https://github.com/DarkPyonix/compose-rust/issues/773)).
