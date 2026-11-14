@@ -852,7 +852,7 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 | 13 | `RadioButton` | 공통 |
 | 14 | `Switch` | Material Switch / UISwitch / Fluent Toggle |
 | 15 | `Slider` | 공통 |
-| 16 | `ProgressIndicator` | 공통. `determinate: bool`, `circular: bool` |
+| 16 | `ProgressIndicator` | 공통. `determinate: bool`, `circular: bool`, `color: Paint`, `track_color: Paint` |
 | 17 | `Divider` | 공통. `vertical: bool` |
 | 18 | `Card` | Material Card / 그룹 박스 / Fluent Card |
 | 19 | `Surface` | 배경과 고도를 갖는 컨테이너. FR-13.5 Elevation을 씁니다 |
@@ -1076,6 +1076,10 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 두 갈래로 나눈 이유는 기본값이 없으면 새 시스템마다 컨트롤 여섯 개의 컴포저블을 처음부터 쓰게 되기 때문입니다. 그것은 "디자인 시스템 하나 = 구현 하나"라는 FR-14.2의 계약을 깨뜨립니다.
 
 **FR-11의 `LinearProgressIndicator`(태그 100)와는 다른 위젯입니다.** 그쪽은 확장 메커니즘이 동작한다는 것을 보이는 예제입니다. 가로 막대만 있고, 결정형만 있고, 어느 디자인 시스템이 켜져 있든 Material 3로 그려지며, 코어가 아니라 확장 태그 블록에 있습니다. 여기의 `ProgressIndicator`(태그 16)는 코어 어휘이고, 결정형과 부정형을 모두 그리며, `circular`로 막대와 링을 고르고, 생김새는 활성 디자인 시스템이 정합니다. 둘 다 남깁니다. 예제를 지우면 FR-11이 보여주는 것이 없어지고, 예제를 코어로 승격하면 확장 태그 블록을 실제로 쓰는 코드가 저장소에서 사라집니다.
+
+**진행 표시기의 색상 지정**(이슈 #540). `ProgressIndicator`는 `color(Paint)`와 `track_color(Paint)`를 받습니다. 지정하지 않으면 활성 디자인 시스템의 강조색(표시기)과 보조 표면색(트랙)으로 그려지고, 지정하면 해당 `Paint`로 그려집니다(기존 속성 `PropertyKind::Color`, `PropertyKind::TrackColor` 사용).
+- 수용 기준: `ProgressIndicator`가 `color`와 `track_color`를 지정하면 해당 속성을 보내고, 지정하지 않으면 보내지 않습니다(`fr15_progress_indicator_sends_color_and_track_color`, `fr15_progress_indicator_without_colors_sends_neither`, `fr15_indeterminate_progress_indicator_sends_color_and_track_color`).
+- 수용 기준: Kotlin 렌더러가 지정된 색상으로 표시기와 트랙을 그리고, 미지정 시 디자인 시스템 기본값을 씁니다(`fr15_progress_indicator_draws_named_colors`).
 
 #### 15.2.5 값 변경 이벤트 (`ValueChanged`, 태그 16)
 
@@ -4968,7 +4972,7 @@ pub mod storage {
 요청한 쪽: darkpyonix-ember#220. 14dp 고리가 디자인 시스템의 4dp 굵기로 그려져 목업의 12px 고리, 2px 획과 맞지 않았습니다.
 
 - 원형 `ProgressIndicator`가 `Size`, `Width`, `Height` 수정자로 크기를 말하면(둘 다면 작은 쪽) 획 굵기는 `min(시스템 굵기, 지름 x 0.15)`입니다. 크기를 말하지 않았거나 큰 고리는 시스템의 굵기 그대로입니다.
-- **`stroke_width` 속성과 트랙, 표시 색 속성은 만들지 않습니다.** 새 속성은 스키마 해시와 생성 파일을 바꾸는 일이고, 크기에 비례하는 굵기가 요청의 한 갈래(`thickness following the size`)를 채웁니다. 색은 디자인 시스템의 것입니다. 앱이 색까지 정해야 하는 사례가 나오면 별도 이슈로 다룹니다.
+- **`stroke_width` 속성은 만들지 않습니다.** 새 속성은 스키마 해시와 생성 파일을 바꾸는 일이고, 크기에 비례하는 굵기가 요청의 한 갈래(`thickness following the size`)를 채웁니다. 트랙과 표시 색은 이슈 #540에서 기존 속성(`Color`, `TrackColor`)을 사용하여 지원합니다.
 
 수용 기준.
 1. 지름 14dp, 시스템 굵기 4dp이면 획은 2.1dp입니다.
