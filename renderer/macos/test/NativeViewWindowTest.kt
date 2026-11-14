@@ -425,6 +425,25 @@ private fun withWindow(initial: List<Mutation>, body: (Fixture) -> Unit) {
     }
 }
 
+/** What [image] shows down the column at [x], as runs of one colour and their length in pixels. */
+private fun runsDown(image: WindowImage, x: Double): String {
+    val ix = image.column(x)
+    val runs = StringBuilder()
+    var last = ' '
+    var count = 0
+    for (iy in image.row(0.0) until image.row(COLUMN_H.toDouble())) {
+        val at = image.pixel(ix, iy)
+        if (at != last && count > 0) {
+            runs.append(last).append(count).append(' ')
+            count = 0
+        }
+        last = at
+        count++
+    }
+    if (count > 0) runs.append(last).append(count)
+    return runs.toString()
+}
+
 /** The view at [x] in [image]: the rows it covers, in image pixels, or null when it is not there. */
 private fun viewRows(image: WindowImage, x: Double): IntRange? {
     val ix = image.column(x)
@@ -501,11 +520,13 @@ class NativeViewWindowTest {
                 val bottom = image.row(COLUMN_H.toDouble())
                 if (rows.first > top + 3) {
                     val above = (rows.first - 3 until rows.first).map { image.pixel(image.column(x), it) }
-                    assertTrue('G' !in above && 'B' in above, "frame $looked: above the view is $above, not the marker")
+                    assertTrue('G' !in above && 'B' in above, "frame $looked: above the view is $above, not the marker; " +
+                            "down the column: ${runsDown(image, x)}, the view's frame at y ${f.slot.frames[VIEW]?.y}")
                 }
                 if (rows.last < bottom - 3) {
                     val below = (rows.last + 1..rows.last + 3).map { image.pixel(image.column(x), it) }
-                    assertTrue('G' !in below && 'B' in below, "frame $looked: below the view is $below, not the marker")
+                    assertTrue('G' !in below && 'B' in below, "frame $looked: below the view is $below, not the marker; " +
+                            "down the column: ${runsDown(image, x)}, the view's frame at y ${f.slot.frames[VIEW]?.y}")
                 }
                 looked++
             }
