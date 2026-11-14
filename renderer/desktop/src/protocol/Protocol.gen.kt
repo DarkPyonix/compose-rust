@@ -1239,6 +1239,7 @@ sealed interface Modifier {
     data class BackgroundBrush(val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float, val paint: Paint, val repeat: dev.darkpyonix.composerust.protocol.BackgroundRepeat, val tile_width: kotlin.Float, val tile_height: kotlin.Float) : Modifier
     data class SizeIn(val minWidth: kotlin.Float, val maxWidth: kotlin.Float, val minHeight: kotlin.Float, val maxHeight: kotlin.Float) : Modifier
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
+    data class MinTouchTarget(val size: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1808,7 +1809,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 7554398215768727194L
+    const val SCHEMA_HASH: Long = -2455960229160085128L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -4021,6 +4022,7 @@ object Protocol {
         28 -> 3
         36 -> 0
         37 -> 0
+        38 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4064,6 +4066,7 @@ object Protocol {
             28 -> Modifier.BackgroundBrush(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), paint(readU64(batch, base, available, at + 16), offset), backgroundRepeat(readU64(batch, base, available, at + 24).toInt(), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset))
             36 -> Modifier.SizeIn(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
+            38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

@@ -1467,10 +1467,7 @@ impl TextFieldScope {
                     attrs.push(("color", super::paint(Some(color))));
                 }
                 if let Some(placeholder_color) = placeholder_color {
-                    attrs.push((
-                        "placeholder_color",
-                        super::paint(Some(placeholder_color)),
-                    ));
+                    attrs.push(("placeholder_color", super::paint(Some(placeholder_color))));
                 }
                 if let Some(caret_color) = caret_color {
                     attrs.push(("caret_color", super::paint(Some(caret_color))));

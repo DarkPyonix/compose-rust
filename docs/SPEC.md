@@ -4882,6 +4882,8 @@ pub mod storage {
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+**최소 누름 영역**(이슈 #472, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::min_touch_target(dp)`(수정자 `MinTouchTarget`, 수정자 태그 38, 기본 꺼짐). 누르는 노드의 적중 영역을 그린 크기 둘레로 최소 그 크기까지 넓히고, 배치와 그림은 바꾸지 않습니다(Compose의 minimumInteractiveComponentSize와 같습니다). 수용 기준: 26x32dp 버튼에 `min_touch_target(44)`이면 그림 밖 9dp 지점 누르기가 그 버튼의 클릭이 되고 이웃 배치는 그대로입니다(fr55_min_touch_target_grows_the_hit_area_only).
+
 ### FR-61 `Row`와 `Column`의 교차축 내재 크기 맞춤 (`Agreed`, 이슈 #389)
 
 요청한 쪽: Ember(워크스페이스 카드 줄, 칸 사이의 세로 구분선). 높이를 따로 정하지 않은 `Row` 안에 `Modifier::new().fill_max_height()`를 가진 자식을 두면, Compose의 `Row`는 교차축 상한이 무한대일 때 `fillMaxHeight`를 풀지 못하거나 바깥 창 높이를 채웁니다. 가장 키가 큰 형제의 높이에 맞춰 다른 자식이나 세로 `Divider`가 늘어나려면 `Row`가 교차축 내재 크기(`IntrinsicSize.Min`)로 재어져야 합니다.

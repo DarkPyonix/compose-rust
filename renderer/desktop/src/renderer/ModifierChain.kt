@@ -217,6 +217,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Read through `shape` and `curve` above: it bends the corners the other
             // modifiers draw, and on its own draws nothing.
             is ProtocolModifier.CornerCurve -> chain
+            // Applied round the whole node where it is rendered, outside every other
+            // modifier, so the area it grows is centred on the box the node is drawn in.
+            is ProtocolModifier.MinTouchTarget -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
                 if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
