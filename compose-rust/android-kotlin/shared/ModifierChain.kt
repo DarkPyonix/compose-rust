@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.Role
 import dev.darkpyonix.composerust.protocol.BackgroundRepeat
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -171,6 +173,19 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             pressColor,
         )
     }
+    // A paint laid over the node, in the same outline its background fills. It goes in
+    // where the padding starts, the place the press feedback goes, so it covers the box the
+    // background and the border are drawn in rather than the padded content alone, and it
+    // draws after the content inside it. It only draws, so the node keeps its size.
+    val overlay = lastOrNull { it is ProtocolModifier.Overlay } as ProtocolModifier.Overlay?
+    var overlayAttached = overlay == null
+    fun attachOverlayIfNeeded(chain: Modifier): Modifier {
+        if (overlayAttached || overlay == null) return chain
+        overlayAttached = true
+        return theme.brush(overlay.paint)?.let { brush -> chain.overlayPaint(brush, shape) }
+            ?: chain.composed { reportUnknownBrush(nodeId, overlay.paint, dispatcher) }
+    }
+    fun beforePadding(chain: Modifier): Modifier = attachOverlayIfNeeded(attachPressableIfNeeded(chain))
     // A node's pointer subscription listens over the whole node, so it goes ahead of everything
     // else. A node drawn through a transform is the exception: there it goes just inside the
     // last one, where Compose has already taken the pointer back through the transform, so
@@ -215,15 +230,32 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // Read through `shape` and `curve` above: it bends the corners the other
             // modifiers draw, and on its own draws nothing.
             is ProtocolModifier.CornerCurve -> chain
+            // Applied round the whole node where it is rendered, outside every other
+            // modifier, so the area it grows is centred on the box the node is drawn in.
+            is ProtocolModifier.MinTouchTarget -> chain
+            // Laid over the node where its padding starts, through `beforePadding` above.
+            is ProtocolModifier.Overlay -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
-                if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
+                if (allowPadding) beforePadding(chain).padding(value.value.dp) else chain
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
             is ProtocolModifier.Width -> chain.width(value.value.dp)
             is ProtocolModifier.Height -> chain.height(value.value.dp)
             is ProtocolModifier.Size -> chain.size(value.width.dp, value.height.dp)
+            is ProtocolModifier.SizeIn -> chain.sizeIn(
+                minWidth = if (value.minWidth.isNaN()) Dp.Unspecified else value.minWidth.dp,
+                maxWidth = if (value.maxWidth.isNaN()) Dp.Unspecified else value.maxWidth.dp,
+                minHeight = if (value.minHeight.isNaN()) Dp.Unspecified else value.minHeight.dp,
+                maxHeight = if (value.maxHeight.isNaN()) Dp.Unspecified else value.maxHeight.dp,
+            )
+            is ProtocolModifier.AspectRatio ->
+                if (value.ratio > 0f && !value.ratio.isNaN()) {
+                    chain.aspectRatio(value.ratio, value.matchHeightConstraintsFirst)
+                } else {
+                    chain
+                }
             // A gradient where the paint named one, a flat colour otherwise. A paint
             // that names a brush nobody registered is reported and left unpainted: a
             // guess would leave a screen subtly wrong with nothing to read about why.
@@ -239,13 +271,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
 
             is ProtocolModifier.PaddingEach ->
                 if (allowPadding) {
-                    attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                    beforePadding(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
                 } else {
                     chain
                 }
             is ProtocolModifier.PaddingRole ->
                 if (allowPadding) {
-                    attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                    beforePadding(chain).padding(theme.space(value.role))
                 } else {
                     chain
                 }
@@ -387,7 +419,20 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         }
         if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
-    return attachPressableIfNeeded(folded)
+    return beforePadding(folded)
+}
+
+/**
+ * A paint over the node and everything drawn inside it, filling [shape] at the node's size.
+ * Drawn after the content and never measured, so it neither hides behind a child nor moves
+ * anything.
+ */
+private fun Modifier.overlayPaint(brush: Brush, shape: Shape): Modifier = drawWithCache {
+    val outline = if (shape === RectangleShape) null else shape.createOutline(size, layoutDirection, this)
+    onDrawWithContent {
+        drawContent()
+        if (outline == null) drawRect(brush) else drawOutline(outline, brush)
+    }
 }
 
 /**
