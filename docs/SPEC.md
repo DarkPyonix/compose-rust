@@ -1223,6 +1223,8 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
   2. `icon`과 `text`를 함께 단 `Button`은 둘 다 그립니다.
   3. 글자가 빈 아이콘 버튼도 접근성 이름을 갖습니다.
 
+**SVG 에셋 아이콘**(이슈 #303, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
+
 ### FR-17 커스텀 드로잉 (`Agreed`)
 
 FR-15의 위젯 25개는 사각형, 모서리, 테두리, 그림자까지입니다. 기존 위젯을 아무리 조합해도 **새 픽셀은 나오지 않습니다.** 차트, 스파크라인, 서명 패드, 커스텀 로딩 표시, 아바타 링이 전부 여기 걸립니다.
