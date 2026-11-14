@@ -481,11 +481,12 @@ fn inverted_bar() {
                         .font_weight(BOLD)
                         .color(palette::PAGE);
                 });
-            // The placeholder and the caret are still the design system's, because a
-            // field cannot name either colour yet (#592).
+            // The placeholder and the caret are explicit paints matching the inverted bar.
             TextField()
                 .placeholder("Search")
                 .color(palette::PAGE)
+                .placeholder_color(palette::MUTED)
+                .caret_color(palette::PAGE)
                 .modifier(
                     Modifier
                         .fill_max_width()
@@ -871,7 +872,9 @@ mod tests {
                             PropertyKind::Color
                             | PropertyKind::TrackColor
                             | PropertyKind::ThumbColor
-                            | PropertyKind::ActiveTrackColor,
+                            | PropertyKind::ActiveTrackColor
+                            | PropertyKind::PlaceholderColor
+                            | PropertyKind::CaretColor,
                         value: PropertyValue::Integer(bits),
                     } => Paint::from_bits(*bits as u64).map(|paint| (*node_id, paint)),
                     _ => None,
