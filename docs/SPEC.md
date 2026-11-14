@@ -2977,7 +2977,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
 7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
 8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
-9. 그릴 때 `line_height = NaN`은 역할이 없는 텍스트에서 폰트 자체의 행간(normal)으로 그려지고, 측정한 값과 그린 값이 비트 단위로 같습니다(`fr40_normal_line_height_matches_the_drawn_text`).
+9. 그릴 때 `line_height = NaN`은 역할이 없는 텍스트에서 폰트 자체의 행간(normal)으로 그려지고, 측정한 값과 그린 값이 비트 단위로 같습니다(`fr40_normal_line_height_matches_the_drawn_text`). Rust 호스트에서 `line_height(f32::NAN)`은 NaN으로 전달되며 매 프레임 재전송되지 않습니다(`fr40_normal_line_height_does_not_reemit_every_frame`).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
