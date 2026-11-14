@@ -1,0 +1,13 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 300 360' preserveAspectRatio='xMidYMid slice' fill='none'>
+  <rect width='300' height='360' fill='#1e9be0'/>
+  <path d='M0 360 V250 Q40 210 70 250 Q100 290 150 250 Q200 210 240 250 Q270 280 300 250 V360 Z' fill='#f2414a'/>
+  <path d='M196 40 Q246 30 262 90 Q276 150 238 200 Q210 236 196 300 L170 300 Q176 220 206 172 Q236 122 196 40 Z' fill='#ffc21a'/>
+  <path d='M204 80 L232 70 M210 112 L246 100 M212 144 L250 132 M204 176 L240 166 M192 208 L226 200' stroke='#f2414a' stroke-width='6' stroke-linecap='round'/>
+  <path d='M30 300 Q20 200 54 150 Q74 120 66 70 L96 64 Q106 130 82 176 Q62 220 70 300 Z' fill='#f2414a'/>
+  <path d='M98 360 V246 Q98 196 150 192 Q202 196 202 246 V360 Z' fill='#d8302f'/>
+  <circle cx='150' cy='140' r='44' fill='#f6c9a8'/>
+  <path d='M104 142 Q100 88 150 84 Q200 88 196 142 Q188 112 150 110 Q114 112 104 142 Z' fill='#3a2622'/>
+  <path d='M104 142 Q96 180 112 200 L122 156 Z M196 142 Q204 180 188 200 L178 156 Z' fill='#3a2622'/>
+  <circle cx='34' cy='60' r='16' fill='#ffc21a'/>
+  <path d='M130 286 Q150 300 170 286' stroke='#ffc21a' stroke-width='6' stroke-linecap='round'/>
+</svg>

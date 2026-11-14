@@ -18,6 +18,10 @@ pub static COVERS: [&[u8]; 3] = [
     include_bytes!("../assets/cover-sunpath.svg"),
 ];
 
+/// The picture on the welcome screen: a listener among loud shapes, which is what the
+/// reference's first screen shows with a photograph.
+pub static WELCOME: &[u8] = include_bytes!("../assets/welcome.svg");
+
 /// One show.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Show {
@@ -203,7 +207,9 @@ pub fn waveform(
     let slot = width / columns as f32;
     let bar = slot * 0.5;
     let middle = height / 2.0;
-    let mut list = DrawListBuilder::with_capacity(columns, 0);
+    // Laid out in a box of the size asked for and scaled to whatever the canvas measures,
+    // so a waveform given a share of a row rather than a fixed size still fills it.
+    let mut list = DrawListBuilder::with_capacity(columns, 0).view_box(width, height);
     for index in 0..columns {
         // Never shorter than the column is wide, or a quiet moment is a speck that reads
         // as a rendering fault.
@@ -286,6 +292,37 @@ pub fn share(size: f32, paint: Paint) -> DrawList {
         .build()
 }
 
+/// Four rounded squares, which is the "everything, laid out" mark at the top left of the
+/// hub.
+pub fn grid(size: f32, paint: Paint) -> DrawList {
+    let unit = |value: f32| value * size / 18.0;
+    let stroke = unit(1.6);
+    let side = unit(5.6);
+    let corner = unit(1.6);
+    let mut list = DrawListBuilder::with_capacity(4, 0);
+    for (x, y) in [(2.4, 2.4), (10.0, 2.4), (2.4, 10.0), (10.0, 10.0)] {
+        list = list.round_rect(paint, unit(x), unit(y), side, side, corner, stroke);
+    }
+    list.build()
+}
+
+/// A bell: the dome, its rim, the clapper under it and the loop on top. The mark at the
+/// top right of the hub.
+pub fn bell(size: f32, paint: Paint) -> DrawList {
+    let unit = |value: f32| value * size / 18.0;
+    let stroke = unit(1.6);
+    DrawListBuilder::with_capacity(6, 0)
+        // The top half of a circle, from nine o'clock over to three.
+        .arc(paint, unit(9.0), unit(8.4), unit(5.0), 180.0, 180.0, stroke)
+        .line(paint, unit(4.0), unit(8.4), unit(4.0), unit(12.6), stroke)
+        .line(paint, unit(14.0), unit(8.4), unit(14.0), unit(12.6), stroke)
+        .line(paint, unit(2.6), unit(13.0), unit(15.4), unit(13.0), stroke)
+        // The bottom half of a small circle under the rim.
+        .arc(paint, unit(9.0), unit(14.4), unit(1.8), 0.0, 180.0, stroke)
+        .line(paint, unit(9.0), unit(1.8), unit(9.0), unit(3.4), stroke)
+        .build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,6 +393,8 @@ mod tests {
             heart(size, palette::INK),
             comment(size, palette::INK),
             share(size, palette::INK),
+            grid(size, palette::INK),
+            bell(size, palette::INK),
         ];
         for drawing in drawings {
             for command in drawing.decode().expect("a drawing did not decode") {
@@ -373,11 +412,34 @@ mod tests {
     #[test]
     fn fr22_the_three_action_marks_differ_and_stay_inside_their_square() {
         let size = 24.0;
-        let marks = [
-            heart(size, palette::INK),
-            comment(size, palette::INK),
-            share(size, palette::INK),
-        ];
+        marks_differ_and_stay_inside(
+            size,
+            &[
+                heart(size, palette::INK),
+                comment(size, palette::INK),
+                share(size, palette::INK),
+            ],
+        );
+    }
+
+    /// The two marks at the top of the hub, the grid and the bell, hold to the same rule
+    /// as the marks under an episode, and are not one of those either.
+    #[test]
+    fn fr22_the_top_row_marks_differ_and_stay_inside_their_square() {
+        let size = 24.0;
+        marks_differ_and_stay_inside(
+            size,
+            &[
+                grid(size, palette::INK),
+                bell(size, palette::INK),
+                heart(size, palette::INK),
+                comment(size, palette::INK),
+                share(size, palette::INK),
+            ],
+        );
+    }
+
+    fn marks_differ_and_stay_inside(size: f32, marks: &[DrawList]) {
         for (index, mark) in marks.iter().enumerate() {
             let commands = mark.decode().expect("a mark did not decode");
             assert!(!commands.is_empty(), "mark {index} draws nothing");
@@ -385,7 +447,7 @@ mod tests {
                 assert_ne!(mark.as_bytes(), other.as_bytes(), "two marks are one shape");
             }
         }
-        for mark in &marks {
+        for mark in marks {
             for command in mark.decode().expect("a mark did not decode") {
                 for value in corners(&command) {
                     assert!(
