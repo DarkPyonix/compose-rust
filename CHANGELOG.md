@@ -4,7 +4,7 @@
 
 ### Per-span font features
 
-OpenType font features can now be set on individual styled runs inside a `Text`: `TextSpans::new_with_features` and `TextSpans::with_feature_table` attach a per-span feature table to `TextSpans`, sent as the new `SpanFontFeatures` property (tag 209). In `ui::Text`, any run with features applies them to its `SpanStyle.fontFeatureSettings`. Where a node also sets `FontFeatureSettings`, the two lists combine and span-level features override conflicting tags. Text with a `TypeRole` also takes span font features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
+OpenType font features can now be set on single runs inside a `Text`: `TextSpans::new_with_features` gives each run its own list, and `spans::encode_feature_table` with `TextSpans::with_feature_table` attaches an already built table. The table travels beside the runs as the new `SpanFontFeatures` property (tag 209), and a `Text` none of whose runs names a feature sends no such record. A run that names features is set with the text's own `FontFeatureSettings` first and its own after them, so a tag both name takes the run's value, and a run that names none is drawn with the text's. Runs take features with or without a type role. A table the Renderer cannot read, or one that names a run the text does not have, is one `ProtocolError` and the text is drawn without span features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
 
 ### The window's density reaches the Host
 
