@@ -2064,6 +2064,8 @@ pub struct ProgressIndicatorScope {
     value: f32,
     determinate: bool,
     circular: bool,
+    color: Option<Paint>,
+    track_color: Option<Paint>,
     done: bool,
 }
 
@@ -2074,6 +2076,8 @@ pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
         value,
         determinate: true,
         circular: false,
+        color: None,
+        track_color: None,
         done: false,
     }
 }
@@ -2095,9 +2099,39 @@ impl ProgressIndicatorScope {
         self
     }
 
+    /// The indicator's colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no colour of its own.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    /// The indicator's colour.
+    pub fn indicator_color(self, paint: Paint) -> Self {
+        self.color(paint)
+    }
+
+    /// The track's colour.
+    pub fn track_color(mut self, paint: Paint) -> Self {
+        self.track_color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no track colour of its own.
+    pub fn track_color_if(mut self, paint: Option<Paint>) -> Self {
+        self.track_color = paint;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (value, determinate, circular) = (self.value, self.determinate, self.circular);
+        let (color, track_color) = (self.color, self.track_color);
         emit(
             widget_key("compose_rust::ui::ProgressIndicator"),
             WidgetKind::ProgressIndicator,
@@ -2106,6 +2140,12 @@ impl ProgressIndicatorScope {
                 attrs.push(("value", OwnedAttr::Float(f64::from(value))));
                 attrs.push(("determinate", OwnedAttr::Bool(determinate)));
                 attrs.push(("circular", OwnedAttr::Bool(circular)));
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(track) = track_color {
+                    attrs.push(("track_color", super::paint(Some(track))));
+                }
             },
             Vec::new(),
             content,
