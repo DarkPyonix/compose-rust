@@ -297,6 +297,18 @@ class NativeViewTest {
     }
 
     @Test
+    fun fr81_view_is_clipped_when_an_ancestor_shrinks_around_it() = runComposeUiTest {
+        // The column shrinks to 150 high and the view at y 100 stays where it is: only its
+        // clip changes, and no other view moves to bring the change with it.
+        val screen = screen(scrollingPage())
+        assertNull(screen.window.clips[VIEW])
+        val moves = screen.window.frameLog.size
+        send(screen, Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(200f, 150f)))
+        assertEquals(moves, screen.window.frameLog.size, "the view did not move: ${screen.window.frameLog}")
+        assertEquals(NativeRect(0, 100, 200, 50), screen.window.clips[VIEW], "cut to the column's new bottom")
+    }
+
+    @Test
     fun fr81_overlay_above_the_view_shows_through_a_rounded_hole() = runComposeUiTest {
         val popover = listOf(
             Mutation.Create(POPOVER, WidgetKind.Popover),
