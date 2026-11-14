@@ -5032,6 +5032,28 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
 8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
 
+### FR-84 레이아웃 제약 수정자: 크기 범위(`sizeIn`)와 종횡비(`aspectRatio`) (`Done`, 이슈 #603)
+
+요청한 쪽: 계산기 샘플(#587, #2) 및 Ember 시트 최대 높이 제약(#212, FR-L32). 고정 크기(`width`, `height`, `size`)나 채움(`fill_max_width`, `fill_max_height`) 외에 상한, 하한 경계나 고정 종횡비를 Compose 렌더러에 직접 전달할 수 없어, 창 크기 계산을 호스트에서 수동으로 어림잡거나 창 크기 클래스 변화에 의존해야 했습니다.
+
+#### 84.1 규칙
+
+1. **`Modifier::size_in(min_w, max_w, min_h, max_h)`**: 최소 및 최대 폭, 높이를 dp 단위로 제약합니다. 제약하지 않는 경계는 `f32::NAN`으로 전달하며, 이는 Compose의 `Dp.Unspecified`와 같습니다. 편의 메서드로 `width_in(min, max)`, `height_in(min, max)`, `max_width(max)`, `max_height(max)`, `min_width(min)`, `min_height(min)`을 제공합니다.
+2. **`Modifier::aspect_ratio(ratio)`**: 가로/세로 비율(width / height)을 지정합니다. 선택적으로 `aspect_ratio_match_height(ratio, match_height_constraints_first)`를 통해 세로 제약을 우선 적용할 수 있습니다. 0 이하이거나 NaN인 비율은 렌더러에서 무시됩니다.
+3. **와이어 인코딩**:
+   - `SizeIn` 수정자 태그 36. 첫 번째 워드에 `(min_width, max_width)`, 두 번째 워드에 `(min_height, max_height)`를 32비트 부동소수점 둘씩 묶어 2워드(16바이트)로 전송합니다.
+   - `AspectRatio` 수정자 태그 37. 첫 번째 워드에 `ratio` 부동소수점, 두 번째 워드에 `match_height_constraints_first` 플래그(0 또는 1)를 담아 2워드로 전송합니다.
+4. **렌더러 해석**:
+   - 렌더러의 `ModifierChain`은 `SizeIn`을 Compose `androidx.compose.foundation.layout.sizeIn`으로 변환하며, `NaN`인 경계는 `Dp.Unspecified`로 전달합니다.
+   - `AspectRatio`는 `androidx.compose.foundation.layout.aspectRatio`로 변환합니다.
+
+#### 84.2 수용 기준
+
+1. `SizeIn` 및 `AspectRatio` 수정자가 호스트에서 인코딩되고 렌더러에서 같은 값으로 디코딩됩니다 (`fr84_size_in_and_aspect_ratio_round_trip`).
+2. `Modifier.width_in`, `Modifier.height_in`, `Modifier.size_in` 메서드가 올바른 경계 바이트를 생성합니다 (`fr84_modifier_size_in_builder_bounds`).
+3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
+4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
