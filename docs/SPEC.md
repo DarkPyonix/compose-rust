@@ -4201,6 +4201,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`가 있습니다. 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
 - `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+- `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
 
 수용 기준.
 1. 화면 트리를 그려 접근성 트리를 뽑는 시험에서, 포커스를 받을 수 있는 모든 노드(Button, 누를 수 있는 컨테이너, 토글, Slider)가 비어 있지 않은 이름을 가진다는 검사가 있고, 이름 없는 노드가 있으면 실패하며 노드를 알려 줍니다.
@@ -4208,6 +4209,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Button("").icon(Refresh).accessible_name("가져오기")`의 접근성 이름이 "가져오기"입니다.
 4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
 5. 이름을 준 노드에서 `accessible_name`을 제거하면(제거 전달 뒤) 접근성 이름이 위젯의 기본(보이는 라벨이나 아이콘의 뜻)으로 돌아옵니다.
+6. 100,000 프레임 동안 매 프레임 다른 라벨을 주어도 메모리가 평평하게 유지되고(fr68_dynamic_labels_do_not_leak_across_frames), 같은 라벨을 반복할 때 정상 상태 추가 할당이 0회입니다(fr68_repeated_labels_do_not_allocate_in_steady_state).
 
 ### FR-69 비활성 Button의 라벨 대비 (`Done`, 이슈 #432)
 
@@ -5042,6 +5044,11 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
   - 글꼴에 그 기능이 없으면 아무 일도 일어나지 않고 오류도 아닙니다(브라우저와 같습니다). 일곱 디자인 시스템의 기본 글꼴(SF Pro, Segoe UI, Roboto, Cantarell, Noto Sans 등)이 `tnum`을 갖는지는 수용 기준 7에서 기록합니다.
 - **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
+- **호스트 텍스트 측정(이슈 #708).** 호스트에서 `tnum` 등 글꼴 기능이 지정된 텍스트를 측정할 때도 렌더러가 그릴 때와 같은 폭을 얻을 수 있도록, `MeasureText` 요청 레코드에 글꼴 기능 목록을 싣습니다.
+  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(레코드 80바이트: `font_features_offset@72 u32`, `font_features_count@76 u32`).
+  - 페이로드 영역에 8바이트 고정 레코드(`tag: [u8; 4]`, `value: u32`) 목록을 싣고, 렌더러의 `Measurement.kt`는 `textInput`에서 이를 읽어 `TextInput.fontFeatures`로 전달합니다.
+  - `TextStyle`에 `font_features: Vec<FontFeature>`를 둘 수 있으며, 기본값은 빈 목록입니다. 기능이 없는 텍스트는 빈 목록(count = 0)으로 보내며 기존과 동일하게 측정됩니다.
+  - 오류: 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니거나 16개를 넘으면 해당 레코드의 상태는 `STATUS_MALFORMED`입니다.
 
 수용 기준.
 1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(`fr83_font_feature_settings_writes_one_property_only_when_set`).
@@ -5052,6 +5059,8 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(`fr83_malformed_font_features_are_a_protocol_error`).
 7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
 8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
+9. `tnum 1` 기능을 준 숫자 문자열(`"1111"`, `"0000"`)을 `MeasureRequests::text`로 측정한 폭과 `Text` 노드로 그린 너비가 비트 단위로 같고, `tnum` 유무에 따른 측정 너비의 변화가 렌더러의 실제 그리기 폭 변화와 일치합니다(`fr83_measured_font_features_match_drawn_text`).
+10. `MeasureRequests::text`에 `font_features`가 전달되면 `font_features_offset@72`와 `font_features_count@76`에 인코딩되어 페이로드의 기능 레코드와 왕복합니다(`fr83_measure_record_carries_font_features`).
 
 ### FR-84 레이아웃 제약 수정자: 크기 범위(`sizeIn`)와 종횡비(`aspectRatio`) (`Done`, 이슈 #603)
 
