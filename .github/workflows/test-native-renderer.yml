@@ -46,55 +46,10 @@
 name: Native renderer test
 
 on:
-  # On a pull request only when asked, with the run-heavy-ci label, and then once per head
-  # rather than on every push. This is the slow half of the gate: a ~1GB toolchain download
-  # and tens of minutes of compilation per platform. heavy-checks.yml fails until it has
-  # passed on the head that is merged, so a renderer that stops building is found before the
-  # merge, not after. The paths are the ones the `changed` job below looks for on main.
-  pull_request:
-    types: [synchronize, reopened, labeled]
-    paths:
-      - renderer/**
-      - compose-rust/build.rs
-      - compose-rust/build/**
-      - scripts/install-nik.sh
-      - .github/scripts/check-single-executable.sh
-      - .github/scripts/package-static-renderer.sh
-      - scripts/check-windows-consumer.sh
-      - compose-rust/tests/fixtures/consumer/**
-      - compose-rust/tests/fixtures/consumer-mixed-runtime/**
-      - compose-rust/tests/fixtures/multi-window/**
-      - .github/scripts/check-linux-input-access.sh
-      - .github/scripts/atspi-walk.py
-      - scripts/parity/**
-      - .github/workflows/test-native-renderer.yml
-      - .github/workflows/static-renderer.yml
-      - .github/workflows/windows-static.yml
-      - .github/workflows/fork-desktop-modules.yml
-  # Pushes to main as well: the release branch is rebuilt from develop, so its head is a
-  # different commit from any that was checked as a pull request. The release workflow
-  # builds the renderer again for the artifacts, so nothing is published from a tree that
-  # cannot produce one.
-  # A version tag also runs this, and then the release jobs at the bottom attach what it
-  # built. There is no path filter on the trigger, and there cannot be one: a path filter
-  # applies to tag pushes too, so a release whose tagged commit happened not to touch the
-  # renderer would skip its own build and publish nothing. The `changed` job below does the
-  # same filtering where it can tell a tag from a branch, so main pushes that left the
-  # renderer alone cost one cheap job instead of four long ones.
   push:
-    branches: [main]
-    tags: ['v*']
-  schedule:
-    # 03:00 UTC daily. Scheduled runs only fire on the default branch.
-    - cron: '0 3 * * *'
-  workflow_dispatch:
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
-  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
-  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
-  group: test-native-renderer-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    tags:
+    - v*
+  workflow_call: {}
 
 permissions:
   contents: read
