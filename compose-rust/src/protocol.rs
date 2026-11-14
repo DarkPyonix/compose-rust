@@ -3553,7 +3553,29 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 0,
             ],
         ),
-        Modifier::MinTouchTarget { size } => (36, two_words(float_word(*size), 0)),
+        Modifier::SizeIn {
+            min_width,
+            max_width,
+            min_height,
+            max_height,
+        } => (
+            36,
+            two_words(
+                pack_floats(*min_width, *max_width),
+                pack_floats(*min_height, *max_height),
+            ),
+        ),
+        Modifier::AspectRatio {
+            ratio,
+            match_height_constraints_first,
+        } => (
+            37,
+            two_words(
+                pack_floats(*ratio, 0.0),
+                u64::from(*match_height_constraints_first),
+            ),
+        ),
+        Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
         Modifier::Transform {
             a,
             b,
@@ -3827,7 +3849,24 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         35 => Ok(Modifier::CornerCurve {
             smoothing: unpack_low(first),
         }),
-        36 => Ok(Modifier::MinTouchTarget {
+        36 => Ok(Modifier::SizeIn {
+            min_width: unpack_low(first),
+            max_width: unpack_high(first),
+            min_height: unpack_low(second),
+            max_height: unpack_high(second),
+        }),
+        37 => {
+            let match_height_constraints_first = match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(37)),
+            };
+            Ok(Modifier::AspectRatio {
+                ratio: unpack_low(first),
+                match_height_constraints_first,
+            })
+        }
+        38 => Ok(Modifier::MinTouchTarget {
             size: unpack_low(first),
         }),
         other => Err(ProtocolError::InvalidModifier(other)),

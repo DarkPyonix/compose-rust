@@ -22,7 +22,7 @@ fn Buttons() {
     });
 }
 
-/// `min_touch_target` is sent as modifier tag 36 carrying its size, only on the node that
+/// `min_touch_target` is sent as modifier tag 38 carrying its size, only on the node that
 /// asked for it, and it survives the wire.
 #[test]
 fn fr55_min_touch_target_grows_the_hit_area_only() {
@@ -49,6 +49,6 @@ fn fr55_min_touch_target_grows_the_hit_area_only() {
     let mut encoder = BatchEncoder::default();
     encoder.encode(&expected).unwrap();
     let bytes = encoder.finish().unwrap().to_vec();
-    assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 36);
+    assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 38);
     assert_eq!(decode_batch(&bytes).unwrap(), [expected]);
 }

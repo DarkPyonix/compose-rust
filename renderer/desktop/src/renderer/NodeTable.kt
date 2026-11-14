@@ -1348,6 +1348,9 @@ class NodeTable {
                 // modifiers.
                 PropertyKind.Placeholder -> widget == WidgetKind.TextField
                 PropertyKind.Multiline -> widget == WidgetKind.TextField
+                PropertyKind.PlaceholderColor,
+                PropertyKind.CaretColor,
+                -> widget == WidgetKind.TextField
                 PropertyKind.Enabled -> widget != WidgetKind.Spacer
 
                 // Windowing properties belong to the lazy container alone.

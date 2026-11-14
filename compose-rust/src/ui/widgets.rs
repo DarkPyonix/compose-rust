@@ -1172,6 +1172,8 @@ pub struct TextFieldScope {
     line_height: Option<f32>,
     letter_spacing: Option<f32>,
     color: Option<Paint>,
+    placeholder_color: Option<Paint>,
+    caret_color: Option<Paint>,
     font: FontRefs,
     font_features: OwnedAttr,
     word_break: Option<WordBreak>,
@@ -1205,6 +1207,8 @@ pub fn TextField() -> TextFieldScope {
         line_height: None,
         letter_spacing: None,
         color: None,
+        placeholder_color: None,
+        caret_color: None,
         font: FontRefs::default(),
         font_features: OwnedAttr::None,
         word_break: None,
@@ -1281,6 +1285,20 @@ impl TextFieldScope {
     /// Explicit text colour.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
+        self
+    }
+
+    /// Explicit placeholder text colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn placeholder_color(mut self, paint: Paint) -> Self {
+        self.placeholder_color = Some(paint);
+        self
+    }
+
+    /// Explicit caret colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn caret_color(mut self, paint: Paint) -> Self {
+        self.caret_color = Some(paint);
         self
     }
 
@@ -1384,6 +1402,7 @@ impl TextFieldScope {
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
+        let (placeholder_color, caret_color) = (self.placeholder_color, self.caret_color);
         let font = std::mem::take(&mut self.font);
         let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
@@ -1446,6 +1465,15 @@ impl TextFieldScope {
                 }
                 if let Some(color) = color {
                     attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(placeholder_color) = placeholder_color {
+                    attrs.push((
+                        "placeholder_color",
+                        super::paint(Some(placeholder_color)),
+                    ));
+                }
+                if let Some(caret_color) = caret_color {
+                    attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
                 // Left out when no feature was asked for, as `Text` leaves it out.

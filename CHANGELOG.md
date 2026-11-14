@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Layout modifiers: `size_in`, `width_in`, `height_in`, and `aspect_ratio`
+
+`Modifier` now supports bounded size constraints and aspect ratios: `Modifier.size_in(min_w, max_w, min_h, max_h)`, `Modifier.width_in(min, max)`, `Modifier.height_in(min, max)`, `Modifier.max_width(max)`, `Modifier.max_height(max)`, `Modifier.min_width(min)`, `Modifier.min_height(min)`, and `Modifier.aspect_ratio(ratio)` (with `aspect_ratio_match_height(ratio, match_height)`). Unconstrained bounds are passed as `f32::NAN` and map to `Dp.Unspecified` in Compose's `sizeIn` modifier.
+
 ### Compose fork moved to 1.11.1-ext.3
 
 The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.

@@ -33,6 +33,7 @@ import androidx.compose.ui.semantics.Role
 import dev.darkpyonix.composerust.protocol.BackgroundRepeat
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -227,6 +229,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Width -> chain.width(value.value.dp)
             is ProtocolModifier.Height -> chain.height(value.value.dp)
             is ProtocolModifier.Size -> chain.size(value.width.dp, value.height.dp)
+            is ProtocolModifier.SizeIn -> chain.sizeIn(
+                minWidth = if (value.minWidth.isNaN()) Dp.Unspecified else value.minWidth.dp,
+                maxWidth = if (value.maxWidth.isNaN()) Dp.Unspecified else value.maxWidth.dp,
+                minHeight = if (value.minHeight.isNaN()) Dp.Unspecified else value.minHeight.dp,
+                maxHeight = if (value.maxHeight.isNaN()) Dp.Unspecified else value.maxHeight.dp,
+            )
+            is ProtocolModifier.AspectRatio ->
+                if (value.ratio > 0f && !value.ratio.isNaN()) {
+                    chain.aspectRatio(value.ratio, value.matchHeightConstraintsFirst)
+                } else {
+                    chain
+                }
             // A gradient where the paint named one, a flat colour otherwise. A paint
             // that names a brush nobody registered is reported and left unpainted: a
             // guess would leave a screen subtly wrong with nothing to read about why.
