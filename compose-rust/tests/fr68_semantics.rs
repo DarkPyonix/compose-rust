@@ -5,7 +5,60 @@ mod support;
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use support::Tree;
+
+struct TrackingAllocator;
+
+thread_local! {
+    static TRACKING: Cell<bool> = const { Cell::new(false) };
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    static LIVE_BYTES: Cell<isize> = const { Cell::new(0) };
+}
+
+unsafe impl GlobalAlloc for TrackingAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let _ = TRACKING.try_with(|tracking| {
+            if tracking.get() {
+                let _ = ALLOCATIONS.try_with(|c| c.set(c.get() + 1));
+                let _ = LIVE_BYTES.try_with(|b| b.set(b.get() + layout.size() as isize));
+            }
+        });
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let _ = TRACKING.try_with(|tracking| {
+            if tracking.get() {
+                let _ = LIVE_BYTES.try_with(|b| b.set(b.get() - layout.size() as isize));
+            }
+        });
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let _ = TRACKING.try_with(|tracking| {
+            if tracking.get() {
+                let _ = ALLOCATIONS.try_with(|c| c.set(c.get() + 1));
+                let _ = LIVE_BYTES
+                    .try_with(|b| b.set(b.get() + size as isize - layout.size() as isize));
+            }
+        });
+        unsafe { System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static GLOBAL: TrackingAllocator = TrackingAllocator;
+
+fn count_allocations(work: impl FnOnce()) -> usize {
+    ALLOCATIONS.with(|count| count.set(0));
+    TRACKING.with(|tracking| tracking.set(true));
+    work();
+    TRACKING.with(|tracking| tracking.set(false));
+    ALLOCATIONS.with(|count| count.get())
+}
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
     let mut host = ComposeHost::with_content(content);
@@ -294,4 +347,84 @@ fn fr71_every_new_role_round_trips_and_is_exposed() {
             "{role} missing in\n{dump}"
         );
     }
+}
+
+#[Composable]
+fn DynamicLabelBox(name: MutableState<String>) {
+    let current = name.get();
+    Box().modifier(Modifier.label(&current)).content(|| {});
+}
+
+#[test]
+fn fr68_dynamic_labels_do_not_leak_across_frames() {
+    let name = mutable_state_of("initial".to_string());
+    let state = name;
+    let mut host = ComposeHost::with_content(move || DynamicLabelBox(state));
+    host.rebuild().expect("the initial build encodes");
+
+    for frame in 0..200u64 {
+        name.set(format!("warm {frame}"));
+        host.render_frame(frame).unwrap();
+    }
+
+    TRACKING.with(|t| t.set(true));
+    let warm_live = LIVE_BYTES.with(|b| b.get());
+
+    for frame in 200..100_200u64 {
+        name.set(format!("frame {frame}"));
+        host.render_frame(frame).unwrap();
+    }
+
+    let end_live = LIVE_BYTES.with(|b| b.get());
+    TRACKING.with(|t| t.set(false));
+
+    let growth = end_live - warm_live;
+    assert!(
+        growth < 64 * 1024,
+        "live memory grew by {growth} bytes over 100,000 dynamic labels"
+    );
+}
+
+fn label_frame_allocations(with_labels: bool) -> usize {
+    let count = mutable_state_of(0);
+    let state = count;
+    let mut host = ComposeHost::with_content(move || {
+        let _ = state.get();
+        Column().content(|| {
+            if with_labels {
+                Box()
+                    .modifier(Modifier.padding(4.0).label("Refresh"))
+                    .content(|| {});
+                Box()
+                    .modifier(Modifier.padding(4.0).label("Save"))
+                    .content(|| {});
+            } else {
+                Box().modifier(Modifier.padding(4.0)).content(|| {});
+                Box().modifier(Modifier.padding(4.0)).content(|| {});
+            }
+        });
+    });
+    host.rebuild().unwrap();
+
+    for frame in 1..10u64 {
+        count.set(frame as i32);
+        host.render_frame(frame).unwrap();
+    }
+
+    count_allocations(|| {
+        for frame in 10..50u64 {
+            count.set(frame as i32);
+            host.render_frame(frame).unwrap();
+        }
+    })
+}
+
+#[test]
+fn fr68_repeated_labels_do_not_allocate_in_steady_state() {
+    let without_labels = label_frame_allocations(false);
+    let with_labels = label_frame_allocations(true);
+    assert_eq!(
+        with_labels, without_labels,
+        "repeated labels allocated {with_labels} where without took {without_labels}"
+    );
 }
