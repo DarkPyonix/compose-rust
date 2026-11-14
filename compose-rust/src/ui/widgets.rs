@@ -3023,6 +3023,7 @@ container!(TabsScope);
 pub struct TopAppBarScope {
     modifier: Modifier,
     title: String,
+    separator: Option<bool>,
     done: bool,
 }
 
@@ -3032,6 +3033,7 @@ pub fn TopAppBar() -> TopAppBarScope {
     TopAppBarScope {
         modifier: Modifier::new(),
         title: String::new(),
+        separator: None,
         done: false,
     }
 }
@@ -3042,15 +3044,34 @@ impl TopAppBarScope {
         self
     }
 
+    /// Whether to draw the design system's hairline separator under the bar.
+    ///
+    /// When unset, the active design system decides (e.g. Cupertino, Fluent and GNOME draw one;
+    /// Material 3 and Deepin do not; setting a custom border on the bar also suppresses it).
+    pub fn hairline(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
+    /// Alias for [`Self::hairline`].
+    pub fn separator(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let title = std::mem::take(&mut self.title);
+        let separator = self.separator;
         emit(
             widget_key("compose_rust::ui::TopAppBar"),
             WidgetKind::TopAppBar,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("text", OwnedAttr::Text(title)));
+                if let Some(separator) = separator {
+                    attrs.push(("separator", OwnedAttr::Bool(separator)));
+                }
             },
             Vec::new(),
             content,
