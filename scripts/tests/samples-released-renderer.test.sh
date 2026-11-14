@@ -118,6 +118,17 @@ nfr15_samples_dispatch_keeps_the_tag_input() {
         && ok "a dispatch can build the desktop targets only" || fail "workflow_dispatch has no desktop_only input"
     awk '/^  workflow_call:/{f=1;next} /^  [^ ]/{f=0} f' <<<"$on" | grep -qE '^      desktop_only:$' \
         && ok "workflow_call still takes desktop_only" || fail "workflow_call lost its desktop_only input"
+    # One release per tag at a time, never cancelled, and only on the release job: a group on
+    # the whole workflow would be shared with the development run that calls it.
+    local release
+    release="$(awk '/^  release:/{f=1;next} /^  [^ ]/{f=0} f' "$samples")"
+    grep -qF '      group: test-samples-release-${{ inputs.tag || github.ref_name }}' <<<"$release" \
+        && grep -qE '^      cancel-in-progress: false$' <<<"$release" \
+        && ok "a release waits for another of the same tag and is never cancelled" \
+        || fail "the release job has no per-tag concurrency group that is never cancelled"
+    ! grep -qE '^concurrency:' "$samples" \
+        && ok "the workflow itself has no concurrency group" \
+        || fail "the workflow has a concurrency group of its own, which its caller would share"
     local refs
     refs="$(grep -c 'ref: \${{ inputs.tag || github.sha }}' "$samples")"
     [[ "$refs" -ge 2 ]] && ok "the resolve and build checkouts follow the tag" \

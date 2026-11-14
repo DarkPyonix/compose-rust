@@ -815,6 +815,12 @@ jobs:
       (needs.web.result == 'success' || needs.web.result == 'skipped') &&
       (github.event_name == 'push' || (inputs.tag != '' && !inputs.desktop_only)) }}
     runs-on: ubuntu-latest
+    # One release per tag at a time, and never cut short half way: a second run for the same
+    # tag waits. On this job only, which runs only with a tag, so a development run that
+    # calls this workflow without one never shares a group with its caller.
+    concurrency:
+      group: test-samples-release-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: write
       # To start the Pages workflow once samples-latest holds the new pages.
