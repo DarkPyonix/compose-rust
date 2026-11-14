@@ -370,6 +370,7 @@ pub struct Modifier {
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
     corner_curve: Option<f32>,
+    min_touch_target: Option<f32>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     border_each: Option<[(f32, Paint); 4]>,
@@ -419,6 +420,7 @@ impl Modifier {
             corner_radius: None,
             corner_radii: None,
             corner_curve: None,
+            min_touch_target: None,
             border_width: None,
             border_color: None,
             border_each: None,
@@ -794,6 +796,16 @@ impl Modifier {
         self
     }
 
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller, such as a 26 by 32 dp icon button, takes presses over a box grown to this
+    /// size around it. Its size, its place and how it is drawn stay as they are, so nothing
+    /// laid out beside it moves. Compose's `minimumInteractiveComponentSize` does the same
+    /// for Material's controls; 44 dp is the usual target for a finger. Off unless set.
+    pub const fn min_touch_target(mut self, dp: f32) -> Self {
+        self.min_touch_target = Some(dp);
+        self
+    }
+
     /// Sets the pressed scale and tint opacity.
     pub const fn press_feedback(mut self, scale: f32, tint_alpha: f32) -> Self {
         self.press_feedback = Some((scale, tint_alpha));
@@ -1050,6 +1062,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "corner_curve", float(modifier.corner_curve));
+    push(false, "min_touch_target", float(modifier.min_touch_target));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,

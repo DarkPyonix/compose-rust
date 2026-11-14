@@ -4117,6 +4117,13 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A button's least touch target, 44 dp, on a node of its own so the html element
+        // box keeps the modifiers it had.
+        Mutation::SetModifier {
+            node_id: 13,
+            index: 0,
+            modifier: Modifier::MinTouchTarget { size: 44.0 },
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
