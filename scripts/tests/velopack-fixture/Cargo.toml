@@ -1,0 +1,26 @@
+# The application scripts/tests/fr22-velopack.test.sh packages, installs and updates with
+# Velopack. It is a real Velopack app, so the test exercises
+# the SDK's install hooks, feed reading and apply path rather than a stand-in.
+#
+# It is its own workspace, not a member of the repository's: the velopack crate brings an
+# HTTP client, zip and the windows crate, and nothing else here needs them, so they stay
+# out of the main Cargo.lock and out of every `cargo test --workspace`.
+
+[package]
+name = "velopack-fixture"
+# The version the package says it is comes from FIXTURE_VERSION at compile time (see
+# src/main.rs), so one source builds both 1.0.0 and 1.0.1.
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+# Pinned to the vpk the workflow installs (`dotnet tool install -g vpk --version 1.2.161`):
+# Velopack asks for the SDK and vpk to be the same version.
+velopack = "=1.2.161"
+log = "0.4"
+
+[profile.release]
+strip = true
