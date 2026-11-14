@@ -335,8 +335,14 @@ fn grabber(paint: Paint) {
 
 /// A letter in the platform's serif, which is how the reference marks the two ends of
 /// its reading-size slider.
+///
+/// With no type role, because text with a role is set in the theme's font for it and the
+/// serif would be ignored. Where the platform has no serif face, as a browser page that
+/// ships only the renderer's fonts has none, the letter is set in the face the platform
+/// falls back to, and nothing is reported: a generic family is the platform's answer.
 fn serif_letter(size: f32) {
     Text("A")
+        .type_role(TypeRole::None)
         .font(FontRefs::new([FontRef::Generic(GenericFamily::Serif)]))
         .font_size(size)
         .color(palette::PAGE);
@@ -929,6 +935,50 @@ mod tests {
     #[test]
     fn the_first_frame_encodes_without_a_protocol_error() {
         assert!(ComposeHost::new(app).rebuild().is_ok());
+    }
+
+    /// Every text that names its own fonts says it has no type role.
+    ///
+    /// Text with a role is set in the theme's font for it, so a font list on it is thrown
+    /// away and the Renderer reports that it was. The two serif letters beside the slider
+    /// sent their serif with no role at all, which is the default role, so they were drawn
+    /// in the theme's sans and each page load printed the report. The web page check
+    /// counts a console error as a page that did not draw cleanly, and failed on it.
+    #[test]
+    fn fr40_text_that_names_fonts_has_no_type_role() {
+        let screen = Screen::new();
+        let live = screen.live();
+        let with_fonts: Vec<u32> = live
+            .iter()
+            .filter_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Font,
+                    value: PropertyValue::Bytes(_),
+                } => Some(*node_id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            with_fonts.len(),
+            2,
+            "the sheet names its own font for the two serif letters"
+        );
+        for node in with_fonts {
+            let role = live.iter().rev().find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::TypeRole,
+                    value,
+                } if *node_id == node => Some(value.clone()),
+                _ => None,
+            });
+            assert_eq!(
+                role,
+                Some(PropertyValue::Integer(0)),
+                "node {node} names fonts, so it has to send the type role None"
+            );
+        }
     }
 
     /// Nothing on the sheet is painted by the design system.

@@ -43,6 +43,7 @@ import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TextSpanRecord
 import dev.darkpyonix.composerust.protocol.ShapeRole
@@ -145,6 +146,9 @@ class ProtocolVectorsTest {
                 is Mutation.SetFolded -> mutation.nodeId !in created
                 is Mutation.SetScrollOffset -> mutation.nodeId !in created
                 is Mutation.QueryPositionRect -> mutation.nodeId !in created
+                is Mutation.EditCodeGroup -> mutation.nodeId !in created
+                is Mutation.InsertSnippet -> mutation.nodeId !in created
+                is Mutation.SetSelections -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -309,6 +313,21 @@ class ProtocolVectorsTest {
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
                 .filter { it.property == PropertyKind.CollapseBelow },
         )
+    }
+
+    /** The two physical alignments decode to the tags the Host wrote, `Left` 5 and `Right` 6. */
+    @Test
+    fun fr13_physical_text_align_round_trips() {
+        val aligns = decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+            .filter { it.property == PropertyKind.TextAlign }
+        assertEquals(
+            listOf(
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Left.ordinal + 1L)),
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Right.ordinal + 1L)),
+            ),
+            aligns,
+        )
+        assertEquals(listOf(5L, 6L), aligns.map { (it.value as PropertyValue.Integer).value })
     }
 
     /**
@@ -839,6 +858,34 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(527, 547).toList(), motion.array().copyOf(motionLength).toList())
     }
 
+    /**
+     * The system appearance report encodes to the 20 bytes the Host decodes: the header,
+     * then the scheme as one word, 0 for light and 1 for dark. It is the vector's last record.
+     */
+    @Test
+    fun fr44_color_scheme_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(
+            HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Dark),
+            out,
+        )
+        assertEquals(20, length)
+        assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
+        assertEquals(1755, bytes.size)
+        val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            20,
+            Protocol.encodeEvent(
+                HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Light),
+                light,
+            ),
+        )
+        assertEquals(52, light.getShort(0).toInt())
+        assertEquals(0, light.getInt(16))
+        assertEquals(1, out.getInt(16))
+    }
+
     /** The pointer event encodes to the 72 bytes the Host decodes. */
     @Test
     fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
@@ -1006,6 +1053,13 @@ class ProtocolVectorsTest {
                 dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
                 dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
             ),
+            // What became of the grouped edit in the mutation vector: both edits went in.
+            1623 to HostEvent.CodeEditGroupResult(
+                12, 32L, 8, dev.darkpyonix.composerust.protocol.EditGroupStatus.Applied, 1, 3, 2,
+            ),
+            // Every selection of the editor, a caret last and a selection made backwards in
+            // the middle, the four numbers of each behind the record.
+            1679 to HostEvent.SelectionsChanged(12, 33L, 4, intArrayOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0)),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -1014,7 +1068,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1623, bytes.size)
+        assertEquals(1755, bytes.size)
     }
 
     /**
@@ -1029,7 +1083,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1623, bytes.size)
+        assertEquals(1755, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
@@ -1084,6 +1138,56 @@ class ProtocolVectorsTest {
         )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
+        // The grouped edit: its head, then its two edits back to front as the Rust side
+        // listed them, the emoji replaced by another surrogate pair.
+        val group = mutations.filterIsInstance<Mutation.EditCodeGroup>().single()
+        assertEquals(listOf(12, 8, 1), listOf(group.nodeId, group.requestId, group.baseVersion))
+        assertEquals(null, group.malformed)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(1, 17, 1, 19, "\uD83C\uDF89"),
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(0, 0, 0, 2, "pub fn"),
+            ),
+            CodeEditorRecords.decodeEditGroup(group.edits, errors::add),
+        )
+        assertEquals(
+            PropertyValue.Integer(32L),
+            props.single { it.property == PropertyKind.OnEditGroupResult }.value,
+        )
+        // Three selections, the second made backwards.
+        val selections = mutations.filterIsInstance<Mutation.SetSelections>().single()
+        assertEquals(listOf(12, 1), listOf(selections.nodeId, selections.baseVersion))
+        val words = ByteBuffer.wrap(selections.selections).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            listOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0),
+            (0 until selections.selections.size / 4).map { words.getInt(it * 4) },
+        )
+        // The snippet over the closing brace, every character of it as the Rust side wrote it.
+        assertEquals(
+            listOf(Mutation.InsertSnippet(12, 3, 2, 0, 2, 1, "} // \${1:name} = \${1:name}, \${2|\uD55C,\uD83D\uDE00|} \\\$5\$0")),
+            mutations.filterIsInstance<Mutation.InsertSnippet>(),
+        )
+        // Word wrap at forty columns or the edge of the view, whichever comes first.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.WordWrapMode.Bounded.ordinal + 1).toLong() or (40L shl 16)),
+            props.single { it.property == PropertyKind.WordWrap }.value,
+        )
+        // The minimap on the right, and two view zones: the first with text that is not
+        // ASCII, the second half a row high.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.MinimapSide.Right.ordinal + 1).toLong()),
+            props.single { it.property == PropertyKind.Minimap }.value,
+        )
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(0, 2f, "\u2212 2\uC904"),
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(1, 0.5f, ""),
+            ),
+            CodeEditorRecords.decodeViewZones(
+                (props.single { it.property == PropertyKind.ViewZones }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
         assertEquals(
             listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
             CodeEditorRecords.decodeFolds(

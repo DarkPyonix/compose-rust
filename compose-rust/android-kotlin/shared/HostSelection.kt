@@ -32,6 +32,7 @@ import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.UserSelect
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.node.CLICKABLE_CONTAINERS
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 
@@ -87,6 +88,11 @@ internal fun Unselectable(content: @Composable () -> Unit) {
     }
 }
 
+/** Whether the node is a container that answers a press, and so is a button. */
+private fun Node.isPressable(): Boolean =
+    modifiers.any { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable } ||
+        (widget in CLICKABLE_CONTAINERS && props[PropertyKind.OnClick] != null)
+
 /** The node's `UserSelect`, with a value this Renderer does not know read as `Auto`. */
 internal fun Node.userSelect(): UserSelect {
     val value = (props[PropertyKind.UserSelect] as? PropertyValue.Integer)?.value ?: return UserSelect.Auto
@@ -105,6 +111,10 @@ internal fun Node.userSelect(): UserSelect {
  * - `All` selects the node whole on one press, and never a part of it.
  * - `Auto` follows the parent, which is to say it does nothing here.
  *
+ * A container that answers a press (an `OnClick` or a `Clickable` modifier) is read as
+ * `None` whatever it says, the way a button is: a double-click on its label is two presses,
+ * not a word to select.
+ *
  * Where a region is opened, the node's modifier goes on the region, so its size, its offset
  * and the weight its parent gave it reach the parent, and the node is drawn inside with none.
  */
@@ -118,7 +128,7 @@ internal fun UserSelectArea(
     val select = node.userSelect()
     val islandRoot = node.widget == WidgetKind.AbsoluteBox && node.floatProp(PropertyKind.IslandZoom) != null
     when {
-        select == UserSelect.None -> DisableSelection {
+        select == UserSelect.None || node.isPressable() -> DisableSelection {
             CompositionLocalProvider(LocalInSelectionRegion provides false) { content(modifier) }
         }
         select == UserSelect.All -> SelectedWhole(node, table, modifier, content)
