@@ -4530,6 +4530,8 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 
 **일시 메시지의 그림자**(이슈 #446, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 일시 메시지는 노드가 아니므로(21.4) 수정자를 받지 않습니다. 대신 오버레이 토큰에 `toast_elevation`(dp)과 `toast_corner_radius`(dp)를 더합니다. 0이면 디자인 시스템의 값입니다. 앱은 `SetOverlayTokens`로 한 번 정합니다. 레코드 길이가 늘어 스키마 해시가 움직입니다. 수용 기준: `toast_elevation(8)`을 준 뒤 띄운 메시지 아래에 그림자가 그려지고(픽셀), 0이면 디자인 시스템의 모양입니다(fr74_toast_elevation_token).
 
+**일시 메시지의 색, 테두리, 여백, 글자**(이슈 #781, [leader, provisional] (darkpyonix leader, 2026-11-15)). 일시 메시지의 채움색과 글자색, 테두리 두께, 여백, 글자 크기도 오버레이 토큰으로 정합니다. `toast_container_light`/`toast_container_dark`와 `toast_content_light`/`toast_content_dark`(ARGB, 0이면 디자인 시스템의 색), `toast_border_width`(dp, 값이 없으면 디자인 시스템의 선, 0이면 선 없음, 레코드에서는 0xFFFF가 값 없음), `toast_padding_horizontal`/`toast_padding_vertical`(dp, 0이면 디자인 시스템의 값), `toast_font_size`/`toast_line_height`(sp, 0이면 디자인 시스템의 값)입니다. 렌더러는 자신이 정한 색 구성표에 따라 밝은 쪽이나 어두운 쪽 색을 쓰므로, 메시지는 두 구성표에서 모두 페이지와 반전된 색으로 그릴 수 있습니다. 새 태그나 번호는 없고 `SetOverlayTokens`(명령 태그 27)의 레코드가 28바이트에서 56바이트로 늘어 스키마 해시가 움직입니다. 수용 기준: (가) 토큰이 정해진 오프셋으로 레코드를 오가며 값이 그대로 돌아옵니다(fr74_toast_style_tokens_round_trip). (나) 데스크톱 렌더러에서 Ember의 값(먹색 채움, 흰 글자, 테두리 0, 여백 16/10, 13/20)을 준 메시지가 그 값으로 그려지고 어두운 구성표에서는 어두운 쪽 채움으로 그려지며, 아무 값도 주지 않은 토큰은 지금의 메시지와 픽셀 단위로 같습니다(fr74_toast_style_tokens_draw). (다) Android와 iOS는 공유하는 HostMessages.kt로 같은 토큰을 그립니다.
+
 ### FR-75 텍스트 필드 타이포그래피와 아이콘 버튼 레이아웃 제어 (`Draft`, 이슈 #507)
 
 요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.1). Ember NFR-L3은 여러 OS에서 동일한 컴포저와 버튼 모양을 필요로 합니다. `HostTextField`는 타이포그래피와 내부 여백을 테마 기본 규칙(`theme.rules.field`)에서 파생하고, `HostButton`은 명시적 크기를 가진 아이콘 버튼에도 테마 버튼의 최소 높이와 여백을 강제 적용하여 전역 테마 변경 시 컴포저 플레이스홀더와 플러스 버튼의 위치와 크기가 달라지는 문제가 있었습니다. 이 항목은 텍스트 필드의 명시적 타이포그래피와 내용 여백 제어, 아이콘 버튼의 크기 존중 레이아웃을 제공합니다.
@@ -4938,6 +4940,7 @@ pub mod storage {
 4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
 5. **틀 없는 필드 `bare()`**(이슈 #519, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 위 규칙은 노드가 무엇을 줄 때만 시스템의 틀을 끄므로, 바깥 상자(CSS 상자, Ember의 알약이나 카드)가 이미 틀을 그린 필드는 틀이 두 겹이 됩니다. `TextField`와 `Dropdown`(닫힌 선택 필드, FR-64)에 `bare()`가 있고, 속성 `Bare`(bool) 하나를 보냅니다. `bare`인 필드는 시스템의 채움, 선, 밑줄, 모서리 자르기, 안쪽 여백, 포커스 선을 그리지 않고 투명합니다. 글자, 자리표시 글자, 캐럿, 선택, IME는 그대로 Compose의 것입니다. 자리표시 글자는 첫 줄 기준선에 놓이고 가운데로 밀리거나 잘리지 않습니다. `bare`이면서 `Background`나 `Border`를 준 필드는 위 규칙대로 그 값을 그립니다. `bare()` 필드의 모든 픽셀이 글자를 빼면 부모의 색이고 높이가 글자 한 줄 높이와 같습니다(fr56_bare_field_draws_no_frame). `bare()` `Dropdown`도 같습니다(fr56_bare_dropdown_draws_no_frame).
 6. **자리표시자 색과 캐럿 색**(이슈 #592, [leader, provisional] (darkpyonix leader, 2026-11-14)). `TextField`에 자리표시자 색과 캐럿 색을 지정하는 `placeholder_color(Paint)`와 `caret_color(Paint)` 빌더가 있고, 각각 속성 `PlaceholderColor`(속성 태그 203)와 `CaretColor`(속성 태그 204)를 보냅니다. 설정하지 않으면 속성을 보내지 않고 디자인 시스템의 기본값(`theme.color(ColorRole.OnSurfaceVariant).copy(alpha = 0.55f)` 및 `frame.cursor`)을 유지합니다. 렌더러는 전달받은 `Paint`로 자리표시자 텍스트와 캐럿 브러시를 그립니다(`fr56_text_field_placeholder_and_caret_paint_round_trips`, `fr56_text_field_honors_placeholder_and_caret_colors`).
+7. **한 줄 필드의 자리표시자는 한 줄**(이슈 #786, [leader, provisional] (darkpyonix leader, 2026-11-15)). 여러 줄이 아닌(`multiline` 꺼짐) `TextField`의 자리표시자는 필드보다 길면 한 줄에 머물고 줄임표로 끝납니다. 여러 줄 필드의 자리표시자는 지금처럼 줄을 바꿉니다. 새 속성이나 태그는 없습니다. 한 줄 필드의 기본 동작이 바뀝니다: 지금까지는 자리표시자가 줄을 바꿔 필드가 잘라내는 줄을 만들었습니다(`fr56_single_line_placeholder_ends_in_an_ellipsis`).
 
 ### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
 
@@ -5087,6 +5090,15 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 2. `Modifier.width_in`, `Modifier.height_in`, `Modifier.size_in` 메서드가 올바른 경계 바이트를 생성합니다 (`fr84_modifier_size_in_builder_bounds`).
 3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
+
+### FR-85 포커스를 가진 상자가 자기 키를 받는다 (`Done`, [리더, 잠정 2026-11-13], 이슈 #101)
+
+포커스를 받을 수 있는 상자에 키 핸들러(OnKeyDown, OnKeyUp, 있으면 OnKeyPreview)가 있으면, 그 상자 자신이 포커스를 가진 동안에도 키를 받고, 포커스를 가진 자손에서 올라오는 키도 받는다. 자손이 소비한 키는 상자에 가지 않는다.
+
+DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 가진 동안의 키와 자손에서 올라오는 키를 모두 받는다. dioxus-compose의 HTML 경로가 그런 요소를 이 상자로 그리므로, 상자가 둘 중 하나만 받으면 그 요소는 반쯤 죽는다.
+
+수용 기준.
+1. 상자 자신이 포커스를 가지면 키 하나에 그 핸들러가 한 번 실행된다. 포커스를 가진 자손 `TextField`가 소비하지 않은 키는 상자에 닿고, 소비한 키는 닿지 않는다(시험 이름 `fr85_a_focused_box_receives_its_own_keys`).
 
 ### FR-89 스크롤 컨테이너의 고정 자식 (Sticky, 이슈 #424) (`Agreed`)
 
