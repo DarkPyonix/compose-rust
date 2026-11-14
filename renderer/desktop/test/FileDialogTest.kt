@@ -393,4 +393,37 @@ class FileDialogTest {
         host.frame()
         assertEquals(listOf(1, 2, 3), connection.results().map { it.request })
     }
+
+    @Test
+    fun fr72_ui_loop_keeps_running_while_a_dialog_is_open() {
+        val platform = FakeFileDialogs()
+        val (host, connection) = hostWith(platform)
+        var wakeCalls = 0
+        host.table.fileDialogs.wake = { wakeCalls++ }
+
+        host.table.apply(Mutation.Create(1, WidgetKind.Window))
+        host.table.apply(dialog(1, window = 1))
+        host.frame()
+
+        assertEquals(1, platform.shown.size, "the dialog is shown")
+        assertTrue(connection.results().isEmpty(), "the dialog is open and has not answered")
+
+        // While the dialog is open, the host continues to process mutations and render frames.
+        host.table.apply(Mutation.Create(2, WidgetKind.Box))
+        host.frame()
+        assertTrue(connection.results().isEmpty(), "dialog is still open")
+
+        // When answered from a worker thread, wake is triggered and result is delivered on frame.
+        val worker = thread {
+            platform.forRequest(1).onResult(FileDialogOutcome.Chosen.ofText(listOf("/selected/file.txt")))
+        }
+        worker.join()
+        assertTrue(wakeCalls > 0, "answering a dialog wakes the frame loop")
+
+        host.frame()
+        assertEquals(
+            listOf(1 to FileDialogStatus.Chosen),
+            connection.results().map { it.request to it.status },
+        )
+    }
 }
