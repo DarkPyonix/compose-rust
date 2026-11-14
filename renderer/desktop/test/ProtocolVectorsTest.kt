@@ -102,7 +102,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -547,6 +550,17 @@ class ProtocolVectorsTest {
         )
     }
 
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
+        )
+    }
+
     /**
      * The text node's three font features, read from the bytes the Host wrote: tabular
      * figures on, ligatures off, and a character variant whose value is wider than a byte.
@@ -568,6 +582,13 @@ class ProtocolVectorsTest {
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)
+    }
+
+    /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f)), mutations[mutations.size - 2])
     }
 
     /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
@@ -692,6 +713,8 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
+                ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,

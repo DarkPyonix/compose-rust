@@ -14,6 +14,7 @@ use super::{
     Attrs, Modifier, Mods, dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers,
     role_or_zero, widget_key,
 };
+use crate::asset::AssetId;
 use crate::drawing::DrawList;
 use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
@@ -1172,6 +1173,8 @@ pub struct TextFieldScope {
     line_height: Option<f32>,
     letter_spacing: Option<f32>,
     color: Option<Paint>,
+    placeholder_color: Option<Paint>,
+    caret_color: Option<Paint>,
     font: FontRefs,
     font_features: OwnedAttr,
     word_break: Option<WordBreak>,
@@ -1205,6 +1208,8 @@ pub fn TextField() -> TextFieldScope {
         line_height: None,
         letter_spacing: None,
         color: None,
+        placeholder_color: None,
+        caret_color: None,
         font: FontRefs::default(),
         font_features: OwnedAttr::None,
         word_break: None,
@@ -1281,6 +1286,20 @@ impl TextFieldScope {
     /// Explicit text colour.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
+        self
+    }
+
+    /// Explicit placeholder text colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn placeholder_color(mut self, paint: Paint) -> Self {
+        self.placeholder_color = Some(paint);
+        self
+    }
+
+    /// Explicit caret colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn caret_color(mut self, paint: Paint) -> Self {
+        self.caret_color = Some(paint);
         self
     }
 
@@ -1384,6 +1403,7 @@ impl TextFieldScope {
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
+        let (placeholder_color, caret_color) = (self.placeholder_color, self.caret_color);
         let font = std::mem::take(&mut self.font);
         let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
@@ -1446,6 +1466,12 @@ impl TextFieldScope {
                 }
                 if let Some(color) = color {
                     attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(placeholder_color) = placeholder_color {
+                    attrs.push(("placeholder_color", super::paint(Some(placeholder_color))));
+                }
+                if let Some(caret_color) = caret_color {
+                    attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
                 // Left out when no feature was asked for, as `Text` leaves it out.
@@ -2137,6 +2163,9 @@ pub struct AssetScope {
     modifier: Modifier,
     widget: WidgetKind,
     asset_id: u32,
+    // Whether the asset is a picture drawn as an icon: in the icon slot, at an icon's size,
+    // and in the icon's colour rather than its own.
+    tinted: bool,
     color: Option<Paint>,
     content_scale: Option<ContentScale>,
     done: bool,
@@ -2148,6 +2177,7 @@ pub fn Image(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Image,
         asset_id,
+        tinted: false,
         color: None,
         content_scale: None,
         done: false,
@@ -2160,9 +2190,40 @@ pub fn Icon(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Icon,
         asset_id,
+        tinted: false,
         color: None,
         content_scale: None,
         done: false,
+    }
+}
+
+/// The other ways to make an `Icon`, beside [`Icon()`] with an id registered by role.
+pub enum Icon {}
+
+impl Icon {
+    /// An icon drawn from an SVG the application ships, registered with
+    /// [`asset`](crate::asset::asset) as [`AssetKind::Svg`](crate::schema::AssetKind::Svg).
+    ///
+    /// The picture is drawn in the icon slot at the size an [`IconRole`] icon has in the
+    /// design system, and in the icon's colour: every fill and every stroke takes the
+    /// [`color`](AssetScope::color) given, or the colour an icon has when none is, and keeps
+    /// its own alpha. A colour given as a role follows the light and the dark scheme.
+    ///
+    /// ```ignore
+    /// static BELL: &[u8] = include_bytes!("../icons/bell.svg");
+    ///
+    /// Icon::asset(asset(AssetKind::Svg, BELL)).color(Paint::Role(ColorRole::Primary));
+    /// ```
+    pub fn asset(asset_id: AssetId) -> AssetScope {
+        AssetScope {
+            modifier: Modifier::new(),
+            widget: WidgetKind::Icon,
+            asset_id,
+            tinted: true,
+            color: None,
+            content_scale: None,
+            done: false,
+        }
     }
 }
 
@@ -2185,7 +2246,8 @@ impl AssetScope {
 
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
-        let (widget, asset_id, color) = (self.widget, self.asset_id, self.color);
+        let (widget, asset_id, tinted, color) =
+            (self.widget, self.asset_id, self.tinted, self.color);
         let content_scale = self.content_scale;
         let key = if widget == WidgetKind::Icon {
             widget_key("compose_rust::ui::Icon")
@@ -2197,7 +2259,8 @@ impl AssetScope {
             widget,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
-                attrs.push(("asset", OwnedAttr::Int(i64::from(asset_id))));
+                let property = if tinted { "icon_asset" } else { "asset" };
+                attrs.push((property, OwnedAttr::Int(i64::from(asset_id))));
                 if widget == WidgetKind::Icon {
                     attrs.push(("color", paint_or_zero(color)));
                 }

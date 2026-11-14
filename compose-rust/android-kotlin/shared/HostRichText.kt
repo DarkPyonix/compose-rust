@@ -26,6 +26,7 @@ import androidx.compose.ui.text.MultiParagraphIntrinsics
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Paint
+import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WordBreak
@@ -190,14 +191,18 @@ internal fun HostRichText(
     }
     // Text in CSS pixels is laid out in a density whose font scale is one, so the system's
     // text size does not reach it. Everything else is laid out where it stands.
+    // A closed field's label is one line cut short at the end, unless the text said itself
+    // how many lines it takes or how it ends.
+    val oneLine = LocalOneLineLabel.current && node.property(PropertyKind.MaxLines) == null
+    val cutShort = LocalOneLineLabel.current && node.property(PropertyKind.Overflow) == null
     CompositionLocalProvider(LocalDensity provides density) {
         BasicText(
             text = text,
             modifier = modifier.then(if (minContent != null) MinContentWidth(minContent) else WordFloor(wordFloor)),
             style = resolved.style,
-            overflow = resolved.overflow,
-            softWrap = resolved.softWrap,
-            maxLines = resolved.maxLines,
+            overflow = if (cutShort) TextOverflow.Ellipsis else resolved.overflow,
+            softWrap = if (oneLine) false else resolved.softWrap,
+            maxLines = if (oneLine) 1 else resolved.maxLines,
             inlineContent = resolved.inlineContent,
             color = color,
         )

@@ -34,6 +34,10 @@ thread_local! {
     static LAST_ID: Cell<u32> = const { Cell::new(0) };
 }
 
+/// The id [`asset`] returns for a registered picture, and what an `Image` or an icon
+/// names it by.
+pub type AssetId = u32;
+
 /// Registers one picture and returns the id an [`crate::Image`] draws it by.
 ///
 /// ```ignore
