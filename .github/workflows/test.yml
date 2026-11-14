@@ -18,25 +18,7 @@
 name: Test
 
 on:
-  # Every pull request, whatever its base. Work lands on develop through pull requests, so
-  # a filter on main alone let those merge with no check at all while the merge rule
-  # assumed this gate had run. The release pull request into main is gated by the same run.
-  # Pushes are not a trigger: a merged pull request was already tested as a pull request,
-  # and running again on the push tested the identical tree and doubled the actions page.
-  pull_request:
-  workflow_dispatch:
-  # Nightly on the default branch, so the Kotlin, Gradle and cargo caches exist on main, which
-  # every pull request may read. Pull request runs only restore caches; this run saves them.
-  # 18:00 UTC is 03:00 in Korea, when the team's own runs are fewest; if it meets a heavy run
-  # it waits for a macOS runner, it does not fail.
-  schedule:
-    - cron: '0 18 * * *'
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop,
-  # dispatches and tag runs are never cancelled, so a release is never cut short.
-  group: test-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read

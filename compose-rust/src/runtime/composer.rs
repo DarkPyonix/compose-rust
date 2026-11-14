@@ -158,7 +158,7 @@ impl OwnedAttr {
     /// nothing else.
     fn differs(&self, next: &Self) -> bool {
         match (self, next) {
-            (Self::Float(left), Self::Float(right)) => left != right,
+            (Self::Float(left), Self::Float(right)) => left.to_bits() != right.to_bits(),
             _ => self != next,
         }
     }

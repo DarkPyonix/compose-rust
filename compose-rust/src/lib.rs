@@ -50,6 +50,7 @@ pub mod schema;
 pub mod spans;
 pub mod storage;
 pub mod theme;
+pub mod time;
 pub mod tokens;
 pub mod ui;
 #[doc(hidden)]
