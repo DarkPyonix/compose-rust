@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: ./scripts/tests/fr22-velopack.test.sh
 #
-# Velopack packaging and feed generation tests (SPEC FR-22.6).
+# Velopack packaging and feed generation tests.
 #
 # Tests that:
 # 1. Velopack packager CLI builds full/delta nupkg and valid releases.{channel}.json feed.
