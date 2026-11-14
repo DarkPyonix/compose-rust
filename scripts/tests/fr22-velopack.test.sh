@@ -217,8 +217,11 @@ fr22_6_7_windows_setup_installs_and_a_delta_update_applies() {
     root="$(to_unix "$LOCALAPPDATA")/$pack_id"
     installed="$root/current/velopack-fixture.exe"
     "$setup" --silent --verbose --log "$(to_native "$work/setup.log")"
-    local i
-    for ((i = 0; i < 60 && ! -f "$installed"; i++)); do sleep 1; done
+    local i=0
+    while [[ ! -f "$installed" && $i -lt 60 ]]; do
+        sleep 1
+        i=$((i + 1))
+    done
     if [[ ! -f "$installed" ]]; then
         fail "$name" "Setup.exe --silent installed nothing at $installed" "$(tail -n 40 "$work/setup.log" 2>/dev/null)"
         return 1
