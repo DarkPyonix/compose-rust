@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A single-line field's placeholder stays on one line
+
+A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).
+
 ### Today's date and the local time
 
 `compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).
