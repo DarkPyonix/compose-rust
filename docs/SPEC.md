@@ -5062,6 +5062,15 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
 
+### FR-85 포커스를 가진 상자가 자기 키를 받는다 (`Done`, [리더, 잠정 2026-11-13], 이슈 #101)
+
+포커스를 받을 수 있는 상자에 키 핸들러(OnKeyDown, OnKeyUp, 있으면 OnKeyPreview)가 있으면, 그 상자 자신이 포커스를 가진 동안에도 키를 받고, 포커스를 가진 자손에서 올라오는 키도 받는다. 자손이 소비한 키는 상자에 가지 않는다.
+
+DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 가진 동안의 키와 자손에서 올라오는 키를 모두 받는다. dioxus-compose의 HTML 경로가 그런 요소를 이 상자로 그리므로, 상자가 둘 중 하나만 받으면 그 요소는 반쯤 죽는다.
+
+수용 기준.
+1. 상자 자신이 포커스를 가지면 키 하나에 그 핸들러가 한 번 실행된다. 포커스를 가진 자손 `TextField`가 소비하지 않은 키는 상자에 닿고, 소비한 키는 닿지 않는다(시험 이름 `fr85_a_focused_box_receives_its_own_keys`).
+
 ## 4. 경계 프로토콜
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
