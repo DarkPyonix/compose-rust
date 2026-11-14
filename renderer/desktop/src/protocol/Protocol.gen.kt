@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, NativeVisible, OnNativeViewFocus, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, NativeVisible, OnNativeViewFocus, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -158,6 +158,8 @@ enum class ContentScale { Fit, Crop, FillBounds }
 
 enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
 
+enum class SheetPresentation { Edge, Centered }
+
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
  * size, weight and font are its own. Present and zero; an absent property is the
@@ -248,6 +250,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -1148,7 +1160,7 @@ object SpanFontRecords {
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
  */
 object MeasureRecords {
-    const val RECORD_LENGTH = 72
+    const val RECORD_LENGTH = 80
     const val RESULT_LENGTH = 32
     const val KIND_TEXT = 1
     const val KIND_NODE = 2
@@ -1176,6 +1188,8 @@ object MeasureRecords {
     const val TEXT_CONSTRAINT_AT = 60
     const val TEXT_WIDTH_AT = 64
     const val TEXT_ZOOM_AT = 68
+    const val TEXT_FONT_FEATURES_OFFSET_AT = 72
+    const val TEXT_FONT_FEATURES_COUNT_AT = 76
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
@@ -1242,6 +1256,7 @@ sealed interface Modifier {
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
     data class Overlay(val paint: Paint) : Modifier
+    data object Sticky : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1832,7 +1847,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8831822093611053085L
+    const val SCHEMA_HASH: Long = 5930533509208528076L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2044,7 +2059,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -2059,6 +2074,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -3176,6 +3200,9 @@ object Protocol {
         203 -> PropertyKind.PlaceholderColor
         204 -> PropertyKind.CaretColor
         205 -> PropertyKind.IconAsset
+        206 -> PropertyKind.Presentation
+        207 -> PropertyKind.MaxWidth
+        208 -> PropertyKind.Separator
         190 -> PropertyKind.NativeVisible
         191 -> PropertyKind.OnNativeViewFocus
         27 -> PropertyKind.Progress
@@ -4035,6 +4062,12 @@ object Protocol {
         else -> throw ProtocolException("unknown BackgroundRepeat tag $tag", offset)
     }
 
+    private fun sheetPresentation(tag: Int, offset: Int): SheetPresentation = when (tag) {
+        0 -> SheetPresentation.Edge
+        1 -> SheetPresentation.Centered
+        else -> throw ProtocolException("unknown SheetPresentation tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -4099,6 +4132,7 @@ object Protocol {
         37 -> 0
         38 -> 0
         39 -> 0
+        41 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4144,6 +4178,7 @@ object Protocol {
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
             39 -> Modifier.Overlay(paint(first, offset))
+            41 -> Modifier.Sticky
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
