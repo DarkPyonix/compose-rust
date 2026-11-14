@@ -144,8 +144,8 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The Batch methods write the same two records, byte for byte.
     let mut batch = Batch::new();
     batch.begin();
-    batch.attach_native_view(23, handle);
-    batch.focus_native_view(23, true);
+    batch.attach_native_view(24, handle);
+    batch.focus_native_view(24, true);
     let written = batch.finish().expect("the batch encodes").to_vec();
     assert_eq!(native_records(&written), expected);
 
