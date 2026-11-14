@@ -66,6 +66,12 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var fontFeatures by mutableStateOf<String?>(null)
 
     /**
+     * Per-span OpenType font features as Compose's `fontFeatureSettings` strings, keyed by
+     * run index, or null for none. Made once when `SpanFontFeatures` changes.
+     */
+    internal var spanFontFeatures by mutableStateOf<Map<Int, String>?>(null)
+
+    /**
      * A code editor's document and everything over it. Created with the node and kept for
      * its life, because the document is the Renderer's from the moment it opens: the Host
      * feeds it through the node's properties and its edit records, and never replaces it.
@@ -1001,6 +1007,36 @@ class NodeTable {
                 }
             }
         }
+        if (mutation.property == PropertyKind.SpanFontFeatures) {
+            node.spanFontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                val raw = dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(bytes)
+                if (raw == null) {
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "span font features on node ${node.id}: the table does not decode; the text is drawn without them",
+                    )
+                    null
+                } else {
+                    var errorReported = false
+                    val parsed = HashMap<Int, String>(raw.size)
+                    for ((span, featBytes) in raw) {
+                        val str = fontFeatureSettings(featBytes) { why ->
+                            if (!errorReported) {
+                                errorReported = true
+                                fail(
+                                    TableError.INVALID_FONT_FEATURES,
+                                    "span font features on node ${node.id} span $span: $why; the text is drawn without them",
+                                )
+                            }
+                        }
+                        if (str != null) {
+                            parsed[span] = str
+                        }
+                    }
+                    if (errorReported) null else parsed
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -1579,6 +1615,7 @@ class NodeTable {
                     widget == WidgetKind.Text || widget == WidgetKind.TextField
 
                 PropertyKind.SpanFonts,
+                PropertyKind.SpanFontFeatures,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,

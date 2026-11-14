@@ -1102,6 +1102,7 @@ impl TextScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 // Left out entirely when there are none, as the rsx widget leaves it out.
                 let span_fonts = spans.font_table().to_vec();
+                let span_features = spans.feature_table().to_vec();
                 attrs.push((
                     "spans",
                     if spans.is_empty() {
@@ -1118,6 +1119,16 @@ impl TextScope {
                         OwnedAttr::None
                     } else {
                         OwnedAttr::Bytes(span_fonts)
+                    },
+                ));
+                // The OpenType font features each styled run names travel beside the runs,
+                // and are left out when no run names any.
+                attrs.push((
+                    "span_font_features",
+                    if span_features.is_empty() {
+                        OwnedAttr::None
+                    } else {
+                        OwnedAttr::Bytes(span_features)
                     },
                 ));
                 attrs.push(("font", font_bytes(&font)));

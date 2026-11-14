@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Per-span font features
+
+OpenType font features can now be set on individual styled runs inside a `Text`: `TextSpans::new_with_features` and `TextSpans::with_feature_table` attach a per-span feature table to `TextSpans`, sent as the new `SpanFontFeatures` property (tag 209). In `ui::Text`, any run with features applies them to its `SpanStyle.fontFeatureSettings`. Where a node also sets `FontFeatureSettings`, the two lists combine and span-level features override conflicting tags. Text with a `TypeRole` also takes span font features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
+
 ### Centered Sheet presentation with scrim and focus trap
 
 A `Sheet` can now be presented in the center of the window rather than as an edge drawer: `.presentation(SheetPresentation::Centered)` sets the new `Presentation` property (tag 206) to `Centered` (1). In expanded and medium windows, the sheet appears centered in the window with 24dp rounded corners, a scrim with alpha about 0.4 behind it in both light and dark themes, and no drag handle or drag-to-dismiss gesture. The sheet's width defaults to 560dp and can be configured with `.max_width(dp)` on the new `MaxWidth` property (tag 207), clamped to available window width minus margins. Its height follows content height up to available window height minus margins, scrolling internally when content overflows. Keyboard focus is trapped inside the centered sheet while open, cycling between its focusable controls on Tab and Shift+Tab, and Esc or clicking the scrim dispatches `OnDismiss` once. On compact windows, a centered sheet falls back to bottom sheet presentation with grab handle and drag-to-dismiss ([#344](https://github.com/DarkPyonix/compose-rust/issues/344)).

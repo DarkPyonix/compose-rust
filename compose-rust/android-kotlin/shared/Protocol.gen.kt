@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -1137,6 +1137,59 @@ object SpanFontRecords {
 
     /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
     fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+/**
+ * Which runs of a Text name OpenType font features of their own, and which: the `SpanFontFeatures`
+ * property. Keyed by the run's index in its run list.
+ */
+object SpanFontFeatureRecords {
+    const val ENTRY_LENGTH = 12
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, ByteArray>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val features = HashMap<Int, ByteArray>(count)
+        for ((span, offset, featCount) in entries) {
+            if (featCount < 0 || featCount > 16 || offset < 0 || offset.toLong() + featCount.toLong() * 8 > limit.toLong()) {
+                return null
+            }
+            val slice = ByteArray(featCount * 8)
+            val pos = buffer.position()
+            buffer.position(offset)
+            buffer.get(slice)
+            buffer.position(pos)
+            features[span] = slice
+        }
+        return features
+    }
+
+    /** The table a `SpanFontFeatures` property carries: a count, then the entries and their feature lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, ByteArray>? {
         if (bytes.isEmpty()) return emptyMap()
         if (bytes.size < 4) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -3114,6 +3167,7 @@ object Protocol {
         206 -> PropertyKind.Presentation
         207 -> PropertyKind.MaxWidth
         208 -> PropertyKind.Separator
+        209 -> PropertyKind.SpanFontFeatures
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }

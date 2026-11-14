@@ -5472,6 +5472,7 @@ fn write_font_refs(output: &mut String) {
         FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
     };
     use crate::spans::{
+        SPAN_FEATURE_COUNT_AT, SPAN_FEATURE_ENTRY_LEN, SPAN_FEATURE_OFFSET_AT, SPAN_FEATURE_SPAN_AT,
         SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_FONT_SPAN_AT,
     };
     output.push_str(
@@ -5634,6 +5635,66 @@ object SpanFontRecords {
 
     /** The table a `SpanFonts` property carries: a count, then the entries and their lists. */
     fun decodeBlob(bytes: ByteArray): Map<Int, List<FontRef>>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) return null
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        return decode(buffer, bytes.size, 4, buffer.getInt(0))
+    }
+}
+
+/**
+ * Which runs of a Text name OpenType font features of their own, and which: the `SpanFontFeatures`
+ * property. Keyed by the run's index in its run list.
+ */
+object SpanFontFeatureRecords {
+"#,
+    );
+    writeln!(output, "    const val ENTRY_LENGTH = {SPAN_FEATURE_ENTRY_LEN}").unwrap();
+    for (name, value) in [
+        ("SPAN_AT", SPAN_FEATURE_SPAN_AT),
+        ("OFFSET_AT", SPAN_FEATURE_OFFSET_AT),
+        ("COUNT_AT", SPAN_FEATURE_COUNT_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
+    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, ByteArray>? {
+        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
+            return null
+        }
+        val previous = buffer.order()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        val entries = try {
+            List(count) { index ->
+                val entry = at + index * ENTRY_LENGTH
+                Triple(
+                    buffer.getInt(entry + SPAN_AT),
+                    buffer.getInt(entry + OFFSET_AT),
+                    buffer.getInt(entry + COUNT_AT),
+                )
+            }
+        } finally {
+            buffer.order(previous)
+        }
+        val features = HashMap<Int, ByteArray>(count)
+        for ((span, offset, featCount) in entries) {
+            if (featCount < 0 || featCount > 16 || offset < 0 || offset.toLong() + featCount.toLong() * 8 > limit.toLong()) {
+                return null
+            }
+            val slice = ByteArray(featCount * 8)
+            val pos = buffer.position()
+            buffer.position(offset)
+            buffer.get(slice)
+            buffer.position(pos)
+            features[span] = slice
+        }
+        return features
+    }
+
+    /** The table a `SpanFontFeatures` property carries: a count, then the entries and their feature lists. */
+    fun decodeBlob(bytes: ByteArray): Map<Int, ByteArray>? {
         if (bytes.isEmpty()) return emptyMap()
         if (bytes.size < 4) return null
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)

@@ -5047,7 +5047,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
   - Compose API는 안정 API인 `TextStyle(fontFeatureSettings = …)`뿐입니다. Android는 `Paint.setFontFeatureSettings`로, skiko 플랫폼(데스크톱, iOS, Web)은 Skia 문단의 기능 목록으로 내려갑니다. 렌더러별 분기가 없습니다.
   - 글꼴에 그 기능이 없으면 아무 일도 일어나지 않고 오류도 아닙니다(브라우저와 같습니다). 일곱 디자인 시스템의 기본 글꼴(SF Pro, Segoe UI, Roboto, Cantarell, Noto Sans 등)이 `tnum`을 갖는지는 수용 기준 7에서 기록합니다.
 - **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
-- **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
+- **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702(FR-88)에서 다룹니다(리더 결정, 2026-11-13).
 - **호스트 텍스트 측정(이슈 #708).** 호스트에서 `tnum` 등 글꼴 기능이 지정된 텍스트를 측정할 때도 렌더러가 그릴 때와 같은 폭을 얻을 수 있도록, `MeasureText` 요청 레코드에 글꼴 기능 목록을 싣습니다.
   - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(레코드 80바이트: `font_features_offset@72 u32`, `font_features_count@76 u32`).
   - 페이로드 영역에 8바이트 고정 레코드(`tag: [u8; 4]`, `value: u32`) 목록을 싣고, 렌더러의 `Measurement.kt`는 `textInput`에서 이를 읽어 `TextInput.fontFeatures`로 전달합니다.
@@ -5087,6 +5087,34 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 2. `Modifier.width_in`, `Modifier.height_in`, `Modifier.size_in` 메서드가 올바른 경계 바이트를 생성합니다 (`fr84_modifier_size_in_builder_bounds`).
 3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
+
+### FR-88 스팬 단위 글꼴 기능: 한 문단 안에서 특정 구간에만 OpenType 기능 적용 (`Agreed`, 이슈 #702, [leader, provisional, 2026-11-13])
+
+요청한 쪽: dioxus-compose와 HTML 텍스트 렌더링. FR-83은 `Text`와 `TextField` 노드 전체에 적용되는 하나의 OpenType 기능 목록(`FontFeatureSettings`, 속성 192)을 제공합니다. 그러나 CSS는 `font-feature-settings`를 요소별로 지정할 수 있으므로, HTML 경로의 한 문단 안 특정 `<span>`만 탭 숫자로 설정하고 나머지는 비례 숫자로 남겨두는 등의 처리가 필요합니다.
+
+- **Rust API.** `TextSpans`에 `features: Option<Rc<[u8]>>` 필드를 두고, `TextSpans::new_with_features(spans: impl IntoIterator<Item = (TextSpan, Vec<FontFeature>)>)` 및 `TextSpans::with_feature_table(table)`을 제공합니다. `TextSpans::span_features(&self) -> Vec<(u32, Vec<FontFeature>)>`로 디코딩할 수 있습니다. `Text` 위젯은 `spans.feature_table()`이 비어 있지 않을 때 `SpanFontFeatures` 속성을 전송합니다.
+- **와이어.** 새 속성 `SpanFontFeatures`, 속성 태그 209, blob입니다. `SpanFonts`(속성 116)와 동일한 곁 표(side table) 구조를 가집니다:
+  - 시작 부분에 기능을 지정한 스팬 개수(`u32`, 4바이트)가 옵니다.
+  - 이어서 각 스팬 항목마다 12바이트 레코드(`span_index@0 u32`, `offset@4 u32`, `count@8 u32`)가 배열됩니다.
+  - `offset` 위치에 해당 스팬의 OpenType 기능 목록이 8바이트 고정 레코드(`tag: [u8; 4]@0`, `value: u32@4`)들로 배열됩니다(스팬당 최대 16개).
+  - 전체 블롭은 4바이트 정렬을 유지합니다. 기능을 지정하지 않은 `Text`는 이 속성을 보내지 않습니다.
+- **역할 및 노드 수준 기능과의 조합.**
+  - `SpanFonts`와 달리, 글꼴 기능은 글꼴 변경이 아니라 글꼴이 가진 글리프 변형 선택이므로 스팬의 `type_role` 유무와 관계없이 적용됩니다.
+  - 노드에 `FontFeatureSettings`가 있고 스팬에도 `SpanFontFeatures`가 지정된 경우, Compose의 `SpanStyle(fontFeatureSettings = ...)`에 `appendFontFeatures(nodeFeatures, spanFeatures)`로 조합되어 적용됩니다. 동일한 태그가 겹치면 스팬의 기능 값이 우선합니다.
+  - 스팬에 기능이 없는 경우 `SpanStyle`의 `fontFeatureSettings`는 `null`로 유지되어 노드의 기본 `TextStyle` 설정을 상속합니다.
+- **Renderer.**
+  - `NodeTable`의 `Text` 허용 속성 목록에 `SpanFontFeatures`를 추가합니다.
+  - `NodeTable`은 `SpanFontFeatures` 변경 시 `SpanFontFeatureRecords.decodeBlob`과 `fontFeatureSettings`를 통해 `Map<Int, String>`으로 한 번 파싱하여 `node.spanFontFeatures`에 보관합니다. 프레임마다 파싱하지 않으므로 정상 상태 할당이 없습니다.
+  - `TextResolution.kt`의 `resolveText`에서 각 스팬을 빌드할 때 해당 스팬의 기능 문자열을 `SpanStyle`에 전달합니다.
+- **오류.**
+  - 블롭 헤더 또는 항목의 범위가 올바르지 않거나, 스팬당 기능 개수가 16개를 초과하거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`(코드 `TableError.INVALID_FONT_FEATURES`)를 전송하고, 해당 글은 기능 없이 그려집니다.
+
+수용 기준.
+1. `TextSpans::new_with_features`로 만든 스팬 목록이 `SpanFontFeatures` 속성 블롭으로 올바르게 인코딩되고 Rust와 Kotlin에서 동일하게 디코딩됩니다 (`fr88_span_font_features_encode_decode_round_trip`).
+2. 특정 스팬에만 `tnum 1`을 지정한 문단에서, 해당 스팬의 숫자(`"1111"`, `"0000"`)는 고정 폭으로 그려지고, 기능이 없는 스팬의 숫자는 원래의 비례 폭을 유지합니다 (`fr88_span_font_features_tabular_numerals_on_span_only`).
+3. `TypeRole`이 지정된 스팬에도 `SpanFontFeatures`가 적용되어 역할의 글꼴과 크기를 유지하면서 기능이 활성화됩니다 (`fr88_span_font_features_applied_to_role_spans`).
+4. 노드 수준의 `FontFeatureSettings`와 스팬의 `SpanFontFeatures`가 함께 존재할 때 두 기능이 결합되고, 동일한 태그는 스팬의 값이 이깁니다 (`fr88_span_font_features_override_node_features`).
+5. 잘못된 형식의 `SpanFontFeatures` 블롭은 `ProtocolError`를 발생시키고 프로세스가 중단되지 않으며 텍스트는 기능 없이 그려집니다 (`fr88_malformed_span_font_features_handled_gracefully`).
 
 ## 4. 경계 프로토콜
 
