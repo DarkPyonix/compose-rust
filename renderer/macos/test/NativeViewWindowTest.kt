@@ -28,10 +28,16 @@ import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.platform.MacosNativeViewWindow
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.get
+import kotlinx.cinterop.interpretObjCPointerOrNull
 import kotlinx.cinterop.objcPtr
-import kotlinx.cinterop.readValue
+import kotlinx.cinterop.plus
+import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.useContents
 import kotlinx.cinterop.usePinned
 import org.thisisthepy.compose.window.macos.MacosWindow
@@ -49,13 +55,29 @@ import platform.AppKit.NSTextView
 import platform.AppKit.NSView
 import platform.AppKit.nextEventMatchingMask
 import platform.AppKit.postEvent
-import platform.CoreGraphics.CGImageRef
 import platform.CoreGraphics.CGPoint
+import platform.CoreGraphics.CGPreflightScreenCaptureAccess
 import platform.CoreGraphics.CGRect
+import platform.CoreGraphics.CGRectMake
+import platform.CoreMedia.CMSampleBufferGetImageBuffer
+import platform.CoreMedia.CMSampleBufferGetSampleAttachmentsArray
+import platform.CoreMedia.CMSampleBufferRef
+import platform.CoreMedia.CMTimeMake
+import platform.CoreVideo.CVPixelBufferGetBaseAddress
+import platform.CoreVideo.CVPixelBufferGetBytesPerRow
+import platform.CoreVideo.CVPixelBufferGetHeight
+import platform.CoreVideo.CVPixelBufferGetWidth
+import platform.CoreVideo.CVPixelBufferLockBaseAddress
+import platform.CoreVideo.CVPixelBufferUnlockBaseAddress
+import platform.CoreVideo.kCVPixelBufferLock_ReadOnly
+import platform.CoreVideo.kCVPixelFormatType_32BGRA
+import platform.Foundation.NSArray
 import platform.Foundation.NSDate
 import platform.Foundation.NSDefaultRunLoopMode
+import platform.Foundation.NSDictionary
 import platform.Foundation.NSMakePoint
 import platform.Foundation.NSMakeRect
+import platform.Foundation.NSNumber
 import platform.Foundation.NSProcessInfo
 import platform.Foundation.NSRunLoop
 import platform.Foundation.NSRunLoopCommonModes
@@ -63,6 +85,19 @@ import platform.Foundation.NSTimer
 import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.distantPast
 import platform.Foundation.runMode
+import platform.ScreenCaptureKit.SCContentFilter
+import platform.ScreenCaptureKit.SCDisplay
+import platform.ScreenCaptureKit.SCFrameStatus
+import platform.ScreenCaptureKit.SCShareableContent
+import platform.ScreenCaptureKit.SCStream
+import platform.ScreenCaptureKit.SCStreamConfiguration
+import platform.ScreenCaptureKit.SCStreamFrameInfoStatus
+import platform.ScreenCaptureKit.SCStreamOutputProtocol
+import platform.ScreenCaptureKit.SCStreamOutputType
+import platform.ScreenCaptureKit.SCWindow
+import platform.darwin.NSObject
+import platform.darwin.dispatch_get_main_queue
+import platform.posix.memcpy
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -76,10 +111,18 @@ import kotlin.test.assertTrue
 // make the test slower and the pixels harder to read.
 //
 // The page is one green colour, the markers the Compose content draws next to the view are
-// blue, and the view is red, so the window's own image (CGWindowListCreateImage, which needs no
-// permission for the process's own windows) says at a pixel which one is on top. A runner with
-// no screen to capture from gives an image with none of those colours; the image checks then
-// say so and are skipped, and everything else still runs.
+// blue, and the view is red, so a picture of the window says at a pixel which one is on top.
+//
+// The pictures come from ScreenCaptureKit: what the window server composited, one picture each
+// time it composited the window. Not CGWindowListCreateImage. This window's content view is a
+// vibrant NSVisualEffectView, and for such a window CGWindowListCreateImage draws the window
+// again when asked rather than returning what was composited: with a view moved in the same
+// turn as the frame under it, it put the view a step ahead of that frame in 61 of 96 images,
+// while none of 93 ScreenCaptureKit pictures of the same turn had the two apart.
+//
+// Recording the screen needs the user's Screen Recording permission. A process without it, or
+// a runner with no screen to record, prints that the picture checks were not made and what
+// they would have checked; every check that does not look at the screen still runs.
 //
 // The input method cannot be driven from a test, so the one criterion about it is checked by
 // hand, on the macOS Kotlin/Native build of a sample with a NativeView holding an NSTextField
@@ -194,35 +237,212 @@ private class RecordingSlot(private val inner: NativeViewWindow) : NativeViewWin
     }
 }
 
-/** What the window's image shows at a point of its content, in points: R the view, G the page, B a marker. */
+private fun classify(r: Int, g: Int, b: Int): Char = when {
+    r > 180 && g < 80 && b < 80 -> 'R'
+    g > 140 && r < 80 && b < 80 -> 'G'
+    b > 160 && r < 80 && g < 80 -> 'B'
+    else -> '?'
+}
+
+/**
+ * A picture of the window's content as the window server composited it, in BGRA rows [stride]
+ * bytes apart, from the content's top left: R the view, G the page, B a marker.
+ */
 private class WindowImage(
     private val pixels: ByteArray,
     private val width: Int,
     private val height: Int,
-    private val left: Double,
-    private val top: Double,
+    private val stride: Int,
     val scale: Double,
 ) {
     /** At image pixel ([ix], [iy]). */
     fun pixel(ix: Int, iy: Int): Char {
         if (ix !in 0 until width || iy !in 0 until height) return '?'
-        val i = (iy * width + ix) * 4
-        val r = pixels[i].toInt() and 0xFF
-        val g = pixels[i + 1].toInt() and 0xFF
-        val b = pixels[i + 2].toInt() and 0xFF
-        return when {
-            r > 180 && g < 80 && b < 80 -> 'R'
-            g > 140 && r < 80 && b < 80 -> 'G'
-            b > 160 && r < 80 && g < 80 -> 'B'
-            else -> '?'
-        }
+        val i = iy * stride + ix * 4
+        return classify(pixels[i + 2].toInt() and 0xFF, pixels[i + 1].toInt() and 0xFF, pixels[i].toInt() and 0xFF)
     }
 
     /** At the content point ([x], [y]). */
     fun at(x: Double, y: Double): Char = pixel(column(x), row(y))
 
-    fun column(x: Double): Int = (left + x * scale).toInt()
-    fun row(y: Double): Int = (top + y * scale).toInt()
+    fun column(x: Double): Int = (x * scale).toInt()
+    fun row(y: Double): Int = (y * scale).toInt()
+}
+
+/** One column of a picture, down the scrolling column's height from its top, one cell a pixel. */
+private class Column(val cells: CharArray) {
+    /** Runs of one colour and their length in pixels, for a failure message. */
+    fun runs(): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < cells.size) {
+            var j = i
+            while (j < cells.size && cells[j] == cells[i]) j++
+            out.append(cells[i]).append(j - i).append(' ')
+            i = j
+        }
+        return out.toString().trim()
+    }
+
+    /** The rows the view covers, or null when it is not in this column. */
+    fun viewRows(): IntRange? {
+        val first = cells.indexOf('R')
+        return if (first < 0) null else first..cells.lastIndexOf('R')
+    }
+}
+
+/**
+ * The window's content as the window server composites it, from a ScreenCaptureKit stream of
+ * that window alone. Its pictures are handed over on the main queue, so they arrive while a
+ * test turns the run loop. It keeps the last picture, or, while [watch] is set, the column at
+ * one x of every picture.
+ */
+private class Screen : NSObject(), SCStreamOutputProtocol {
+    private var stream: SCStream? = null
+    private var scale = 1.0
+    private var latest: WindowImage? = null
+    private var watchedX: Double? = null
+    private val watched = ArrayList<Column>()
+
+    /** Starts the stream of [window]'s content, or answers why it could not. */
+    fun start(window: MacosWindow): String? {
+        if (!CGPreflightScreenCaptureAccess()) {
+            return "this process may not record the screen (it has no Screen Recording permission)"
+        }
+        var content: SCShareableContent? = null
+        var failed: String? = null
+        var answered = false
+        SCShareableContent.getShareableContentExcludingDesktopWindows(false, onScreenWindowsOnly = true) { found, error ->
+            content = found
+            failed = error?.localizedDescription
+            answered = true
+        }
+        if (!waitFor { answered }) return "the window server did not say what is on the screen"
+        val shareable = content ?: return "the window server would not say what is on the screen: $failed"
+        val number = window.window.windowNumber.toUInt()
+        val shown = shareable.windows.firstOrNull { (it as SCWindow).windowID == number } as SCWindow?
+            ?: return "the window is not among those on the screen"
+        val frame = shown.frame.useContents { origin.x to origin.y }
+        val display = shareable.displays.firstOrNull { d ->
+            (d as SCDisplay).frame.useContents {
+                frame.first >= origin.x && frame.first < origin.x + size.width &&
+                    frame.second >= origin.y && frame.second < origin.y + size.height
+            }
+        } as SCDisplay? ?: return "no display holds the window"
+        val filter = SCContentFilter(display = display, includingWindows = listOf(shown))
+        scale = filter.pointPixelScale.toDouble()
+        // The content view's rectangle, in the display's points from its top left.
+        val contentView = window.window.contentView!!
+        val inWindow: CValue<CGRect> = contentView.convertRect(contentView.bounds, toView = null)
+        val windowHeight = window.window.frame.useContents { size.height }
+        val (x, y, w, h) = inWindow.useContents {
+            listOf(origin.x, windowHeight - (origin.y + size.height), size.width, size.height)
+        }
+        val displayOrigin = display.frame.useContents { origin.x to origin.y }
+        val config = SCStreamConfiguration()
+        config.sourceRect = CGRectMake(frame.first - displayOrigin.first + x, frame.second - displayOrigin.second + y, w, h)
+        config.width = (w * scale).toULong()
+        config.height = (h * scale).toULong()
+        config.minimumFrameInterval = CMTimeMake(1, 240)
+        config.showsCursor = false
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.queueDepth = 8
+        val made = SCStream(filter, config, null)
+        if (!made.addStreamOutput(this, SCStreamOutputType.SCStreamOutputTypeScreen, dispatch_get_main_queue(), null)) {
+            return "the screen stream would not take an output"
+        }
+        var started = false
+        var startError: String? = null
+        made.startCaptureWithCompletionHandler { error ->
+            startError = error?.localizedDescription
+            started = true
+        }
+        if (!waitFor { started }) return "the screen stream did not start"
+        startError?.let { return "the screen stream did not start: $it" }
+        stream = made
+        if (!waitFor { latest != null }) return "the screen stream sent no picture of the window"
+        return null
+    }
+
+    fun stop() {
+        val running = stream ?: return
+        stream = null
+        var stopped = false
+        running.stopCaptureWithCompletionHandler { stopped = true }
+        waitFor { stopped }
+    }
+
+    /**
+     * The last picture the window server composited. A picture is sent only when the window
+     * changed, so the run loop is turned a moment first for one still on its way.
+     */
+    fun picture(): WindowImage? {
+        spin(0.1)
+        return latest
+    }
+
+    /** From now on, keeps the column at content [x] of every picture. */
+    fun watch(x: Double) {
+        watched.clear()
+        watchedX = x
+    }
+
+    /** Stops keeping columns, and gives those kept since [watch], in the order composited. */
+    fun stopWatching(): List<Column> {
+        spin(0.05)
+        watchedX = null
+        return watched.toList()
+    }
+
+    private fun waitFor(done: () -> Boolean): Boolean {
+        val begun = kotlin.time.TimeSource.Monotonic.markNow()
+        while (!done()) {
+            if (begun.elapsedNow().inWholeMilliseconds > 5000) return false
+            NSRunLoop.currentRunLoop.runMode(NSDefaultRunLoopMode, beforeDate = NSDate.dateWithTimeIntervalSinceNow(0.01))
+        }
+        return true
+    }
+
+    override fun stream(stream: SCStream, didOutputSampleBuffer: CMSampleBufferRef?, ofType: SCStreamOutputType) {
+        if (ofType != SCStreamOutputType.SCStreamOutputTypeScreen) return
+        val sample = didOutputSampleBuffer ?: return
+        // Only a picture the window server composited anew; an idle one repeats the last.
+        val attachments = CMSampleBufferGetSampleAttachmentsArray(sample, false)
+            ?.let { interpretObjCPointerOrNull<NSArray>(it.rawValue) }
+        val status = (attachments?.takeIf { it.count > 0uL }?.objectAtIndex(0uL) as? NSDictionary)
+            ?.objectForKey(SCStreamFrameInfoStatus) as? NSNumber
+        if (status?.longValue != SCFrameStatus.SCFrameStatusComplete.value) return
+        val buffer = CMSampleBufferGetImageBuffer(sample) ?: return
+        CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly)
+        try {
+            val width = CVPixelBufferGetWidth(buffer).toInt()
+            val height = CVPixelBufferGetHeight(buffer).toInt()
+            val stride = CVPixelBufferGetBytesPerRow(buffer).toInt()
+            val address = CVPixelBufferGetBaseAddress(buffer) ?: return
+            val x = watchedX
+            if (x == null) {
+                // One copy of the whole buffer. readBytes would read it a byte at a time.
+                val pixels = ByteArray(stride * height)
+                pixels.usePinned { pinned -> memcpy(pinned.addressOf(0), address, pixels.size.convert()) }
+                latest = WindowImage(pixels, width, height, stride, scale)
+                return
+            }
+            // While watching, only the one column is read: a whole picture each time the
+            // window is composited would be the test's own load on the frames it looks at.
+            val base: CPointer<UByteVar> = address.reinterpret()
+            val ix = (x * scale).toInt()
+            if (ix !in 0 until width) return
+            val rows = (COLUMN_H * scale).toInt().coerceAtMost(height)
+            watched += Column(
+                CharArray(rows) { iy ->
+                    val pixel = base + (iy * stride + ix * 4)
+                    classify(pixel!![2].toInt(), pixel[1].toInt(), pixel[0].toInt())
+                },
+            )
+        } finally {
+            CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly)
+        }
+    }
 }
 
 private class Fixture(
@@ -292,41 +512,43 @@ private class Fixture(
         spin(0.1)
     }
 
-    /** The window's own image, or null where there is no screen to take one from. */
-    fun image(): WindowImage? {
-        @Suppress("DEPRECATION")
-        val image: CGImageRef = platform.CoreGraphics.CGWindowListCreateImage(
-            platform.CoreGraphics.CGRectNull.readValue(),
-            1u shl 3,
-            window.window.windowNumber.toUInt(),
-            (1u shl 0) or (1u shl 3),
-        ) ?: return null
-        val width = platform.CoreGraphics.CGImageGetWidth(image).toInt()
-        val height = platform.CoreGraphics.CGImageGetHeight(image).toInt()
-        val pixels = ByteArray(width * height * 4)
-        pixels.usePinned { pinned ->
-            val space = platform.CoreGraphics.CGColorSpaceCreateDeviceRGB()
-            val context = platform.CoreGraphics.CGBitmapContextCreate(
-                pinned.addressOf(0), width.toULong(), height.toULong(), 8u, (width * 4).toULong(), space,
-                platform.CoreGraphics.CGImageAlphaInfo.kCGImageAlphaPremultipliedLast.value,
-            )
-            platform.CoreGraphics.CGContextDrawImage(
-                context, platform.CoreGraphics.CGRectMake(0.0, 0.0, width.toDouble(), height.toDouble()), image,
-            )
-            platform.CoreGraphics.CGContextRelease(context)
-            platform.CoreGraphics.CGColorSpaceRelease(space)
+    private var screen: Screen? = null
+    private var noScreen: String? = null
+
+    /**
+     * The stream of what the window server composites for this window, started the first time
+     * it is asked for, or null, with a printed line saying that [unchecked] was not checked,
+     * where the screen cannot be recorded.
+     */
+    fun screen(unchecked: String): Screen? {
+        screen?.let { return it }
+        if (noScreen == null) {
+            val started = Screen()
+            noScreen = started.start(window)
+            if (noScreen == null) screen = started else started.stop()
         }
-        platform.CoreGraphics.CGImageRelease(image)
-        val content = window.window.contentView!!
-        val rect: CValue<CGRect> = content.convertRect(content.bounds, toView = null)
-        val windowHeight = window.window.frame.useContents { size.height }
-        val imageScale = width / window.window.frame.useContents { size.width }
-        val left = rect.useContents { origin.x } * imageScale
-        val top = rect.useContents { windowHeight - (origin.y + size.height) } * imageScale
-        val read = WindowImage(pixels, width, height, left, top, imageScale)
-        // A screen that is locked or absent gives an image with no page colour in it.
-        if (read.at(COLUMN_W + 20.0, 10.0) != 'G') return null
+        screen?.let { return it }
+        println("native view: $noScreen, so nothing on the screen was looked at: $unchecked was not checked")
+        return null
+    }
+
+    /**
+     * The window's content as last composited, or null, with a printed line saying that
+     * [unchecked] was not checked, where there is no picture of the window to look at.
+     */
+    fun image(unchecked: String): WindowImage? {
+        val read = screen(unchecked)?.picture() ?: return null
+        // A screen that is locked or asleep gives a picture with no page colour in it.
+        if (read.at(COLUMN_W + 20.0, 10.0) != 'G') {
+            println("native view: the picture of the window shows no page, so the screen is not showing it: $unchecked was not checked")
+            return null
+        }
         return read
+    }
+
+    fun close() {
+        screen?.stop()
+        screen = null
     }
 }
 
@@ -400,6 +622,7 @@ private fun withWindow(initial: List<Mutation>, body: (Fixture) -> Unit) {
     val host = ComposeRustHost(connection)
     host.start()
     val timer = NSTimer.timerWithTimeInterval(1.0 / 60.0, repeats = true) { _: NSTimer? -> window.pumpHost(0L) }
+    var fixture: Fixture? = null
     try {
         @Suppress("DEPRECATION")
         window.setContent {
@@ -417,45 +640,14 @@ private fun withWindow(initial: List<Mutation>, body: (Fixture) -> Unit) {
             println("native view: the window cannot become key here; told it is key directly")
             window.window.becomeKeyWindow()
         }
-        body(Fixture(window, slot, connection, host))
+        fixture = Fixture(window, slot, connection, host)
+        body(fixture)
     } finally {
+        fixture?.close()
         timer.invalidate()
         window.window.orderOut(null)
         NativeViewPlatform.available = false
     }
-}
-
-/** What [image] shows down the column at [x], as runs of one colour and their length in pixels. */
-private fun runsDown(image: WindowImage, x: Double): String {
-    val ix = image.column(x)
-    val runs = StringBuilder()
-    var last = ' '
-    var count = 0
-    for (iy in image.row(0.0) until image.row(COLUMN_H.toDouble())) {
-        val at = image.pixel(ix, iy)
-        if (at != last && count > 0) {
-            runs.append(last).append(count).append(' ')
-            count = 0
-        }
-        last = at
-        count++
-    }
-    if (count > 0) runs.append(last).append(count)
-    return runs.toString()
-}
-
-/** The view at [x] in [image]: the rows it covers, in image pixels, or null when it is not there. */
-private fun viewRows(image: WindowImage, x: Double): IntRange? {
-    val ix = image.column(x)
-    var first = -1
-    var last = -1
-    for (iy in image.row(0.0) until image.row(COLUMN_H.toDouble())) {
-        if (image.pixel(ix, iy) == 'R') {
-            if (first < 0) first = iy
-            last = iy
-        }
-    }
-    return if (first < 0) null else first..last
 }
 
 class NativeViewWindowTest {
@@ -498,39 +690,46 @@ class NativeViewWindowTest {
             f.send(scrollTo(100.0 * scale))
             assertEquals(((GAP_H + MARK_H - 100f) * scale).toInt(), f.slot.frames[VIEW]!!.y)
 
-            // While an animated scroll runs, every picture the window shows has the view
-            // where the content is: right under the blue marker above it and right over the
-            // one below. A view a frame behind the content would leave the green page showing
-            // between the two on one side.
+            // While an animated scroll runs, every picture the window server composites has
+            // the view where the content is: right under the blue marker above it and right
+            // over the one below. A view a frame behind or ahead of the content would leave the
+            // green page showing between it and the marker on one side.
             f.send(scrollTo(0.0), settle = 0.3)
+            val screen = f.screen("where the view is in each picture of an animated scroll") ?: return@withWindow
+            screen.watch(COLUMN_W / 2.0)
             f.connection.queue(listOf(scrollTo(120.0 * scale, animate = true)))
             f.host.renderFrame(0L)
             f.window.requestFrame()
-            val x = COLUMN_W / 2.0
+            spin(0.7)
+            val pictures = screen.stopWatching()
             var looked = 0
-            val begun = kotlin.time.TimeSource.Monotonic.markNow()
-            while (begun.elapsedNow().inWholeMilliseconds < 700) {
-                spin(1.0 / 120.0)
-                val image = f.image() ?: run {
-                    println("native view: no image of the window to look at")
-                    return@withWindow
+            val places = HashSet<Int>()
+            val apart = ArrayList<String>()
+            pictures.forEachIndexed { index, column ->
+                val rows = column.viewRows() ?: return@forEachIndexed
+                val cells = column.cells
+                if (rows.first > 3) {
+                    val above = (rows.first - 3 until rows.first).map { cells[it] }
+                    if ('G' in above || 'B' !in above) apart += "picture $index: above the view is $above"
                 }
-                val rows = viewRows(image, x) ?: continue
-                val top = image.row(0.0)
-                val bottom = image.row(COLUMN_H.toDouble())
-                if (rows.first > top + 3) {
-                    val above = (rows.first - 3 until rows.first).map { image.pixel(image.column(x), it) }
-                    assertTrue('G' !in above && 'B' in above, "frame $looked: above the view is $above, not the marker; " +
-                            "down the column: ${runsDown(image, x)}, the view's frame at y ${f.slot.frames[VIEW]?.y}")
+                if (rows.last < cells.size - 3) {
+                    val below = (rows.last + 1..rows.last + 3).map { cells[it] }
+                    if ('G' in below || 'B' !in below) apart += "picture $index: below the view is $below"
                 }
-                if (rows.last < bottom - 3) {
-                    val below = (rows.last + 1..rows.last + 3).map { image.pixel(image.column(x), it) }
-                    assertTrue('G' !in below && 'B' in below, "frame $looked: below the view is $below, not the marker; " +
-                            "down the column: ${runsDown(image, x)}, the view's frame at y ${f.slot.frames[VIEW]?.y}")
-                }
+                places += rows.last
                 looked++
             }
-            assertTrue(looked >= 5, "the scroll was looked at in $looked pictures")
+            val everyPicture = pictures.mapIndexed { index, column -> "$index: ${column.runs()}" }.joinToString("; ")
+            assertTrue(
+                apart.isEmpty(),
+                "in ${apart.size} of $looked pictures the view was not beside its markers: $apart. " +
+                    "Down the column in each picture: $everyPicture",
+            )
+            println("native view: the view was beside its markers in all $looked pictures of the scroll, at ${places.size} places")
+            assertTrue(looked >= 5, "the scroll was looked at in $looked of ${pictures.size} pictures")
+            // Pictures of a page standing still would pass the checks above without showing
+            // anything about a scroll.
+            assertTrue(places.size >= 3, "the view was seen at only ${places.size} places in the $looked pictures")
         }
     }
 
@@ -541,19 +740,16 @@ class NativeViewWindowTest {
             val scale = f.scale
             // The view (100 points from y 100) half below the 260 point column: from y 210.
             f.send(Mutation.SetModifier(GAP, 0, ProtocolModifier.Size(COLUMN_W, GAP_H + 110f)))
-            val image = f.image()
-            if (image != null) {
+            f.image("that only the half of the view inside the column shows")?.let { image ->
                 assertEquals('R', image.at(COLUMN_W / 2.0, 230.0), "the half inside the column shows")
                 assertEquals('G', image.at(COLUMN_W / 2.0, 280.0), "the half below it does not")
-            } else {
-                println("native view: no image of the window to look at")
             }
             assertEquals(true, f.slot.visible[VIEW])
             // All the way out: hidden.
             f.send(Mutation.SetModifier(GAP, 0, ProtocolModifier.Size(COLUMN_W, GAP_H + 300f)))
             assertEquals(false, f.slot.visible[VIEW])
             assertTrue(view.superview!!.hidden)
-            f.image()?.let { shot ->
+            f.image("that nothing of the hidden view shows")?.let { shot ->
                 assertEquals('G', shot.at(COLUMN_W / 2.0, 250.0), "nothing of the view shows")
             }
             assertTrue(scale > 0)
@@ -585,7 +781,7 @@ class NativeViewWindowTest {
             assertNotNull(hole, "the open popover is a hole in the view: ${f.slot.holes[VIEW]}")
             assertTrue(hole.cornerRadius > 0, "with rounded corners: $hole")
             val scale = f.scale
-            val image = f.image()
+            val image = f.image("that the popover shows through the hole and the view in its rounded-off corner")
             if (image != null) {
                 val left = hole.rect.x / scale
                 val top = hole.rect.y / scale
@@ -599,12 +795,12 @@ class NativeViewWindowTest {
                 if (left > 1 && top >= viewTop && top + 2 < viewTop + VIEW_H) {
                     assertEquals('R', image.at(left + 1, top + 1), "the view in the hole's rounded-off corner")
                 }
-            } else {
-                println("native view: no image of the window to look at")
             }
             f.send(Mutation.SetProp(POPOVER, PropertyKind.Open, PropertyValue.Bool(false)), settle = 0.4)
             assertTrue(f.slot.holes[VIEW].orEmpty().isEmpty(), "closed, the hole is gone")
-            f.image()?.let { assertEquals('R', it.at(COLUMN_W / 2.0, GAP_H + MARK_H + VIEW_H / 2.0)) }
+            f.image("that the view shows again once the popover closed")?.let {
+                assertEquals('R', it.at(COLUMN_W / 2.0, GAP_H + MARK_H + VIEW_H / 2.0), "closed, the view shows again")
+            }
         }
     }
 
@@ -703,7 +899,10 @@ class NativeViewWindowTest {
             val cursor = platform.AppKit.NSCursor.IBeamCursor
             cursor.set()
             f.move(COLUMN_W / 2.0 + 20, GAP_H + MARK_H + VIEW_H / 2.0)
-            assertSame(cursor, platform.AppKit.NSCursor.currentCursor, "the view's cursor stays")
+            // Compared by the object's address: Kotlin/Native can hand out two references for one
+            // Objective-C object, so assertSame failed with both printed at the same address.
+            val current = platform.AppKit.NSCursor.currentCursor
+            assertEquals(cursor.objcPtr(), current.objcPtr(), "the view's cursor stays: $cursor, now $current")
         }
     }
 
@@ -729,7 +928,7 @@ class NativeViewWindowTest {
             val a = content.subviews.indexOf(first.superview)
             val b = content.subviews.indexOf(second.superview)
             assertTrue(b > a, "the later view's container is above the earlier one's: $a, $b")
-            f.image()?.let { image ->
+            f.image("that the later view is drawn on top")?.let { image ->
                 assertEquals('B', image.at(COLUMN_W / 2.0, GAP_H + MARK_H + VIEW_H / 2.0), "the later view is on top")
             }
         }
