@@ -11,7 +11,9 @@
 //! Markdown is a convenience on this side. [`TextSpans::from_markdown`] turns a small,
 //! closed subset into spans, and the Renderer never hears the word.
 
-use crate::font_features::{FONT_FEATURE_LEN, FontFeature};
+use crate::font_features::{
+    FONT_FEATURE_LEN, FONT_FEATURE_TAG_AT, FONT_FEATURE_VALUE_AT, FontFeature, MAX_FONT_FEATURES,
+};
 use crate::fonts::{FONT_REF_LEN, FontRefs};
 use crate::schema::{Paint, TypeRole};
 use std::rc::Rc;
@@ -41,11 +43,14 @@ pub const SPAN_FONT_SPAN_AT: usize = 0;
 pub const SPAN_FONT_OFFSET_AT: usize = 4;
 pub const SPAN_FONT_COUNT_AT: usize = 8;
 
-/// Bytes of one entry in a span font features table: which run, then where its features start
-/// and how many it holds.
+/// Bytes of one entry in a span font feature table: which run, then where its feature
+/// records start and how many there are.
 ///
 /// The table is a blob of its own, beside the runs rather than inside their records, so a
-/// run record is the same 36 bytes whether or not anything names font features.
+/// run record is the same 36 bytes whether or not anything names a font feature. It opens
+/// with the number of entries as a `u32`, the entries follow, and the 8-byte feature
+/// records (the ones `FontFeatureSettings` carries) come after them. Every offset counts
+/// from the start of the blob and is a multiple of four.
 pub const SPAN_FEATURE_ENTRY_LEN: usize = 12;
 pub const SPAN_FEATURE_SPAN_AT: usize = 0;
 pub const SPAN_FEATURE_OFFSET_AT: usize = 4;
@@ -185,7 +190,8 @@ pub struct TextSpans {
     bytes: Option<Rc<[u8]>>,
     /// The font table for runs that name one, which only text with no role reads.
     fonts: Option<Rc<[u8]>>,
-    /// The OpenType features table for runs that name features.
+    /// The font feature table for runs that name features of their own, which text takes
+    /// with or without a role.
     features: Option<Rc<[u8]>>,
 }
 
@@ -227,7 +233,15 @@ impl TextSpans {
         spans
     }
 
-    /// Runs, each with OpenType font features it is set with.
+    /// Runs, each with the OpenType features it is set with, such as
+    /// `FontFeature::TABULAR_NUMS` on the one run that is a number.
+    ///
+    /// An empty list leaves that run with the features of the text it is in. A run that
+    /// names features takes the text's as well, and where both name a tag the run's value
+    /// is the one used. Unlike a font, features are taken by a run with a role and by a
+    /// run of text that has one: they pick a form of the font and leave the font alone.
+    /// At most `MAX_FONT_FEATURES` (16) are taken for one run; a longer list is still
+    /// sent, so the Renderer can say what is wrong with it.
     pub fn new_with_features(
         spans: impl IntoIterator<Item = (TextSpan, impl AsRef<[FontFeature]>)>,
     ) -> Self {
@@ -262,7 +276,8 @@ impl TextSpans {
         self
     }
 
-    /// The same runs with an already encoded font features table beside them.
+    /// The same runs with an already encoded font feature table beside them, as
+    /// [`encode_feature_table`] lays one out. An empty table is no table.
     pub fn with_feature_table(mut self, table: impl Into<Rc<[u8]>>) -> Self {
         let table = table.into();
         self.features = (!table.is_empty()).then_some(table);
@@ -279,10 +294,16 @@ impl TextSpans {
         self.fonts.as_deref().unwrap_or(&[])
     }
 
-    /// The `SpanFontFeatures` blob: a count, then one entry per run that names features, then
-    /// the feature lists themselves. Every offset in it counts from the start of the blob.
+    /// The `SpanFontFeatures` blob: a count, then one entry per run that names features,
+    /// then the feature records themselves. Every offset in it counts from the start of
+    /// the blob. Empty where no run names a feature, and then nothing is sent.
     pub fn feature_table(&self) -> &[u8] {
         self.features.as_deref().unwrap_or(&[])
+    }
+
+    /// The same table, shared rather than copied, for a widget to keep and compare.
+    pub(crate) fn shared_feature_table(&self) -> Option<Rc<[u8]>> {
+        self.features.clone()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -321,7 +342,7 @@ impl TextSpans {
             .collect()
     }
 
-    /// How many runs name font features.
+    /// How many runs name font features, as the table's own count says.
     pub fn feature_entry_count(&self) -> usize {
         let table = self.feature_table();
         if table.len() < 4 {
@@ -330,36 +351,16 @@ impl TextSpans {
         u32::from_le_bytes([table[0], table[1], table[2], table[3]]) as usize
     }
 
-    /// The font features each run that names any is set with, by the run's index.
+    /// The font features each run that names any is set with, by the run's index, in the
+    /// order the table lists them.
+    ///
+    /// Empty where there is no table and where the table cannot be read by the rules the
+    /// Renderer holds it to: an entry or a feature list that runs past the end, an offset
+    /// that is not a multiple of four, more than `MAX_FONT_FEATURES` features for one run,
+    /// or a run named twice. The Renderer reports such a table and draws the text without
+    /// any of it, so nothing is read out of half of one here either.
     pub fn span_features(&self) -> Vec<(u32, Vec<FontFeature>)> {
-        let table = self.feature_table();
-        let word = |at: usize| -> Option<u32> {
-            let slice = table.get(at..at + 4)?;
-            Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
-        };
-        (0..self.feature_entry_count())
-            .filter_map(|entry| {
-                let at = 4 + entry * SPAN_FEATURE_ENTRY_LEN;
-                let span = word(at + SPAN_FEATURE_SPAN_AT)?;
-                let offset = word(at + SPAN_FEATURE_OFFSET_AT)? as usize;
-                let count = word(at + SPAN_FEATURE_COUNT_AT)? as usize;
-                let features = (0..count)
-                    .filter_map(|index| {
-                        let feat_at = offset + index * FONT_FEATURE_LEN;
-                        let tag: [u8; 4] = table.get(feat_at..feat_at + 4)?.try_into().ok()?;
-                        let val_bytes = table.get(feat_at + 4..feat_at + 8)?;
-                        let value = u32::from_le_bytes([
-                            val_bytes[0],
-                            val_bytes[1],
-                            val_bytes[2],
-                            val_bytes[3],
-                        ]);
-                        Some(FontFeature::new(&tag, value))
-                    })
-                    .collect();
-                Some((span, features))
-            })
-            .collect()
+        decode_feature_table(self.feature_table()).unwrap_or_default()
     }
 
     /// The runs this list holds, decoded again.
@@ -458,16 +459,29 @@ fn encode_font_table(named: &[(u32, FontRefs)]) -> Option<Rc<[u8]>> {
     Some(table.into())
 }
 
-/// Lays out a span font features table: the count, one entry per run, and after them each
-/// run's 8-byte font feature records.
+/// Lays out a span font feature table: the count, one entry per run, and after them
+/// each run's 8-byte feature records.
+///
+/// `named` pairs a run's index in its run list with that run's features. A run with no
+/// features gets no entry, and a list with no entry at all is no table, so text that names
+/// no feature sends nothing. Each run is named at most once: the Renderer reports a table
+/// that names a run twice, or names a run the text does not have, and draws the text
+/// without span features.
 pub fn encode_feature_table(named: &[(u32, Vec<FontFeature>)]) -> Option<Rc<[u8]>> {
-    if named.is_empty() {
+    let entry_count = named
+        .iter()
+        .filter(|(_, features)| !features.is_empty())
+        .count();
+    if entry_count == 0 {
         return None;
     }
-    let mut entries = Vec::with_capacity(named.len() * SPAN_FEATURE_ENTRY_LEN);
+    let lists_at = 4 + entry_count * SPAN_FEATURE_ENTRY_LEN;
+    let mut entries = Vec::with_capacity(entry_count * SPAN_FEATURE_ENTRY_LEN);
     let mut lists: Vec<u8> = Vec::new();
-    let lists_at = 4 + named.len() * SPAN_FEATURE_ENTRY_LEN;
     for (span, features) in named {
+        if features.is_empty() {
+            continue;
+        }
         let offset = (lists_at + lists.len()) as u32;
         let count = features.len() as u32;
         entries.extend_from_slice(&span.to_le_bytes());
@@ -478,10 +492,68 @@ pub fn encode_feature_table(named: &[(u32, Vec<FontFeature>)]) -> Option<Rc<[u8]
         }
     }
     let mut table = Vec::with_capacity(lists_at + lists.len());
-    table.extend_from_slice(&(named.len() as u32).to_le_bytes());
+    table.extend_from_slice(&(entry_count as u32).to_le_bytes());
     table.extend_from_slice(&entries);
     table.extend_from_slice(&lists);
     Some(table.into())
+}
+
+/// Reads a span font feature table back, or `None` where it breaks a rule of its layout.
+/// An empty blob is a table with no entries.
+fn decode_feature_table(table: &[u8]) -> Option<Vec<(u32, Vec<FontFeature>)>> {
+    if table.is_empty() {
+        return Some(Vec::new());
+    }
+    let word = |at: usize| -> Option<u32> {
+        let bytes = table.get(at..at.checked_add(4)?)?;
+        Some(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    };
+    let entry_count = word(0)? as usize;
+    // Checked before anything is allocated or walked, so a count that is only a large
+    // number costs nothing.
+    let entries_end = entry_count
+        .checked_mul(SPAN_FEATURE_ENTRY_LEN)?
+        .checked_add(4)?;
+    if entries_end > table.len() {
+        return None;
+    }
+    let mut decoded: Vec<(u32, Vec<FontFeature>)> = Vec::with_capacity(entry_count);
+    for entry in 0..entry_count {
+        let at = 4 + entry * SPAN_FEATURE_ENTRY_LEN;
+        let span = word(at + SPAN_FEATURE_SPAN_AT)?;
+        let offset = word(at + SPAN_FEATURE_OFFSET_AT)? as usize;
+        let count = word(at + SPAN_FEATURE_COUNT_AT)? as usize;
+        if count > MAX_FONT_FEATURES || offset % 4 != 0 || offset < entries_end {
+            return None;
+        }
+        let end = offset.checked_add(count * FONT_FEATURE_LEN)?;
+        if end > table.len() || decoded.iter().any(|(seen, _)| *seen == span) {
+            return None;
+        }
+        let features = table[offset..end]
+            .chunks_exact(FONT_FEATURE_LEN)
+            .map(|record| {
+                let tag_at = FONT_FEATURE_TAG_AT;
+                let value_at = FONT_FEATURE_VALUE_AT;
+                FontFeature::new(
+                    &[
+                        record[tag_at],
+                        record[tag_at + 1],
+                        record[tag_at + 2],
+                        record[tag_at + 3],
+                    ],
+                    u32::from_le_bytes([
+                        record[value_at],
+                        record[value_at + 1],
+                        record[value_at + 2],
+                        record[value_at + 3],
+                    ]),
+                )
+            })
+            .collect();
+        decoded.push((span, features));
+    }
+    Some(decoded)
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {

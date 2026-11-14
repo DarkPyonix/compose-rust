@@ -1102,7 +1102,7 @@ impl TextScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 // Left out entirely when there are none, as the rsx widget leaves it out.
                 let span_fonts = spans.font_table().to_vec();
-                let span_features = spans.feature_table().to_vec();
+                let span_features = spans.shared_feature_table();
                 attrs.push((
                     "spans",
                     if spans.is_empty() {
@@ -1121,16 +1121,14 @@ impl TextScope {
                         OwnedAttr::Bytes(span_fonts)
                     },
                 ));
-                // The OpenType font features each styled run names travel beside the runs,
-                // and are left out when no run names any.
-                attrs.push((
-                    "span_font_features",
-                    if span_features.is_empty() {
-                        OwnedAttr::None
-                    } else {
-                        OwnedAttr::Bytes(span_features)
-                    },
-                ));
+                // The OpenType features each styled run names travel beside the runs. Left
+                // out of the list where no run names any, so such a text sends what it
+                // always did: a first composition writes every attribute in the list, an
+                // empty one as a record that sets nothing. A table that goes away is
+                // cleared because it left the list.
+                if let Some(table) = span_features {
+                    attrs.push(("span_font_features", OwnedAttr::Shared(table)));
+                }
                 attrs.push(("font", font_bytes(&font)));
                 // Left out when no feature was asked for, so such a text sends what it
                 // always did. A first composition writes every attribute in the list, an

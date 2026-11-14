@@ -3292,6 +3292,21 @@ pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
     crate::font_features::FontFeature::new(b"cv01", 0x0102),
 ];
 
+/// The runs of the mutation vector's last text that name font features, and which: its
+/// second run takes tabular figures, and its fifth takes ligatures off and a stylistic
+/// set whose value needs more than one byte. Two entries with lists of different lengths,
+/// so an offset read from the wrong entry lands on the wrong records.
+pub fn span_font_feature_vector() -> Vec<(u32, Vec<crate::font_features::FontFeature>)> {
+    use crate::font_features::FontFeature;
+    vec![
+        (1, vec![FontFeature::TABULAR_NUMS]),
+        (
+            4,
+            vec![FontFeature::NO_LIGATURES, FontFeature::new(b"ss01", 0x0302)],
+        ),
+    ]
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -3303,6 +3318,8 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let span_font_features = crate::spans::encode_feature_table(&span_font_feature_vector())
+        .expect("the vector names features");
     let edit_group = code_edit_group_vector()?;
     let view_zones = code_view_zone_vector();
     let code_selections = code_selections_vector();
@@ -4176,6 +4193,17 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 23,
             property: PropertyKind::IconAsset,
             value: PropertyValue::Integer(9),
+        },
+        // A text whose second and fifth runs name font features of their own, as the table
+        // that travels beside the runs.
+        Mutation::Create {
+            node_id: 24,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::SpanFontFeatures,
+            value: PropertyValue::Bytes(&span_font_features),
         },
         // A button's least touch target, 44 dp, on a node of its own so the html element
         // box keeps the modifiers it had.
