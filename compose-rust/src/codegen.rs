@@ -167,6 +167,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -798,6 +808,7 @@ object ScrollWire {
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
             EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
+            EventPayloadType::Density => output.push_str(", val scale: kotlin.Float"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -1131,7 +1142,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1146,6 +1157,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -1635,6 +1655,7 @@ object Protocol {
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
             | EventPayloadType::ColorScheme
+            | EventPayloadType::Density
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1684,6 +1705,8 @@ object Protocol {
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
             EventPayloadType::ColorScheme => 20,
+            // One float after the header.
+            EventPayloadType::Density => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1912,6 +1935,14 @@ object Protocol {
                     "                    out.putInt(systemColorSchemeTag(event.scheme))\n",
                 );
                 output.push_str("                }\n");
+            }
+            EventPayloadType::Density => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putFloat(event.scale)",
+                    event.name
+                )
+                .unwrap();
             }
             EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
@@ -4049,7 +4080,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .popup_padding(10)
                 .scrim_argb(0x8000_0000)
                 .toast_elevation(7)
-                .toast_corner_radius(14),
+                .toast_corner_radius(14)
+                .toast_container(
+                    crate::schema::Color::argb(0xFF1C_1B19),
+                    crate::schema::Color::argb(0xFFF0_EEE9),
+                )
+                .toast_content(
+                    crate::schema::Color::argb(0xFFFF_FFFF),
+                    crate::schema::Color::argb(0xFF15_1514),
+                )
+                .toast_border_width(0)
+                .toast_padding(16, 10)
+                .toast_type(13, 20),
         ),
         // A text with three font features, one of them a value above one byte, after
         // every older record but the last.
@@ -4634,6 +4676,12 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 selections: &selections,
             },
         },
+        // A window on a screen at 200%, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::DensityChanged { scale: 2.0 },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4688,7 +4736,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-nine independently decodable event records concatenated in schema order",
+    "description": "Fifty independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4738,7 +4786,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
       {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
       {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
-      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }}
+      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
+      {{ "type": "DensityChanged", "offset": 1755, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }}
     ]
   }}
 }}

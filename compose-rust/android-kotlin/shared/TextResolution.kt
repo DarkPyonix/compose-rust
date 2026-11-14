@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
+import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.FontRef
@@ -71,8 +72,6 @@ internal class TextInput(
     val runs: List<TextRun>,
     /** The fonts runs name for themselves, by run index. */
     val runFonts: Map<Int, List<FontRef>>,
-    /** The OpenType font features runs name for themselves, by run index. */
-    val runFontFeatures: Map<Int, String> = emptyMap(),
     /**
      * True for text with no rung of the ladder at all, which takes its size, weight,
      * line height, letter spacing and font from its own values and nothing from the
@@ -379,7 +378,7 @@ internal fun resolveFontChain(
             }
         }
     }
-    if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
+    if (members.isEmpty()) members += FontChain.Member(platformSansSerifFamily, null)
     return FontChain(members)
 }
 
@@ -438,7 +437,7 @@ internal fun ignoredFontsProblem(input: TextInput): String? {
 /** Which installed family each generic name is, which is the platform's answer. */
 internal fun genericFontFamily(family: GenericFamily): FontFamily = when (family) {
     GenericFamily.SystemUi -> platformUiFamily
-    GenericFamily.SansSerif -> FontFamily.SansSerif
+    GenericFamily.SansSerif -> platformSansSerifFamily
     GenericFamily.Serif -> FontFamily.Serif
     GenericFamily.Monospace -> FontFamily.Monospace
 }
@@ -562,16 +561,7 @@ private fun annotate(
                 ?.takeIf { input.noRole && run.role == null }
                 ?.let { resolveFontChain(it, assets, problems) }
             val spacing = if (input.noRole) runSpacing(input, run, runChain, tracking, theme) else null
-            val runFeatures = input.runFontFeatures[index]?.takeIf { it.isNotEmpty() }
-            val combinedFeatures = runFeatures?.let { appendFontFeatures(input.fontFeatures, it) }
-            val style = spanStyle(
-                run,
-                runChain?.primary,
-                theme,
-                sized,
-                spacing?.let(sized) ?: TextUnit.Unspecified,
-                combinedFeatures,
-            )
+            val style = spanStyle(run, runChain?.primary, theme, sized, spacing?.let(sized) ?: TextUnit.Unspecified)
             addStyle(style, from, to)
             runChain?.spans(broken.text.substring(from, to))?.forEach { span ->
                 addStyle(span.item, from + span.start, from + span.end)
@@ -624,7 +614,6 @@ private fun spanStyle(
     theme: ResolvedTheme,
     sized: (Float) -> TextUnit,
     letterSpacing: TextUnit = TextUnit.Unspecified,
-    fontFeatures: String? = null,
 ): SpanStyle {
     return SpanStyle(
         color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
@@ -636,7 +625,6 @@ private fun spanStyle(
         fontSize = run.role?.let { sized(theme.type(it).size) } ?: TextUnit.Unspecified,
         fontFamily = family,
         letterSpacing = letterSpacing,
-        fontFeatureSettings = fontFeatures,
         textDecoration = when {
             run.underline && run.strikethrough ->
                 TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
@@ -731,11 +719,6 @@ internal fun Node.textInput(): TextInput {
         text = text(PropertyKind.Text),
         runs = decoded ?: emptyList(),
         runFonts = bytes(PropertyKind.SpanFonts)?.let(SpanFontRecords::decodeBlob) ?: emptyMap(),
-        runFontFeatures = spanFontFeatures ?: bytes(PropertyKind.SpanFontFeatures)?.let {
-            dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(it)?.mapValues { (_, b) ->
-                fontFeatureSettings(b) {} ?: ""
-            }
-        } ?: emptyMap(),
         noRole = (property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value == TYPE_ROLE_NONE.toLong(),
         role = typeRole(),
         fontSize = floatProp(PropertyKind.FontSize),
@@ -768,11 +751,6 @@ internal fun Node.runsDecodeProblem(): String? {
     }
     bytes(PropertyKind.SpanFonts)?.let {
         if (SpanFontRecords.decodeBlob(it) == null) return "the run font table does not decode"
-    }
-    bytes(PropertyKind.SpanFontFeatures)?.let {
-        if (dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(it) == null) {
-            return "the run font feature table does not decode"
-        }
     }
     return null
 }

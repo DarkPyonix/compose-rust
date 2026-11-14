@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -250,6 +250,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -1145,59 +1155,6 @@ object SpanFontRecords {
 }
 
 /**
- * Which runs of a Text name OpenType font features of their own, and which: the `SpanFontFeatures`
- * property. Keyed by the run's index in its run list.
- */
-object SpanFontFeatureRecords {
-    const val ENTRY_LENGTH = 12
-    private const val SPAN_AT = 0
-    private const val OFFSET_AT = 4
-    private const val COUNT_AT = 8
-
-    /** The [count] entries starting at [at] in [buffer], or null where any is malformed. */
-    fun decode(buffer: ByteBuffer, limit: Int, at: Int, count: Int): Map<Int, ByteArray>? {
-        if (count < 0 || at < 0 || at.toLong() + count.toLong() * ENTRY_LENGTH > limit.toLong()) {
-            return null
-        }
-        val previous = buffer.order()
-        buffer.order(ByteOrder.LITTLE_ENDIAN)
-        val entries = try {
-            List(count) { index ->
-                val entry = at + index * ENTRY_LENGTH
-                Triple(
-                    buffer.getInt(entry + SPAN_AT),
-                    buffer.getInt(entry + OFFSET_AT),
-                    buffer.getInt(entry + COUNT_AT),
-                )
-            }
-        } finally {
-            buffer.order(previous)
-        }
-        val features = HashMap<Int, ByteArray>(count)
-        for ((span, offset, featCount) in entries) {
-            if (featCount < 0 || featCount > 16 || offset < 0 || offset.toLong() + featCount.toLong() * 8 > limit.toLong()) {
-                return null
-            }
-            val slice = ByteArray(featCount * 8)
-            val pos = buffer.position()
-            buffer.position(offset)
-            buffer.get(slice)
-            buffer.position(pos)
-            features[span] = slice
-        }
-        return features
-    }
-
-    /** The table a `SpanFontFeatures` property carries: a count, then the entries and their feature lists. */
-    fun decodeBlob(bytes: ByteArray): Map<Int, ByteArray>? {
-        if (bytes.isEmpty()) return emptyMap()
-        if (bytes.size < 4) return null
-        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        return decode(buffer, bytes.size, 4, buffer.getInt(0))
-    }
-}
-
-/**
  * The layout of a measure call: the request records the Host writes, the result records
  * the Renderer writes back, and what each status means. The records and their offsets are
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
@@ -1299,6 +1256,7 @@ sealed interface Modifier {
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
     data class Overlay(val paint: Paint) : Modifier
+    data object Sticky : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1862,13 +1820,14 @@ sealed interface HostEvent {
         override fun toString(): String =
             "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
     }
+    data class DensityChanged(override val nodeId: Int, override val handlerId: Long, val scale: kotlin.Float) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8160037251374787650L
+    const val SCHEMA_HASH: Long = 3324199410486986659L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2078,7 +2037,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -2093,6 +2052,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -2535,6 +2503,7 @@ object Protocol {
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
                 is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
+                is HostEvent.DensityChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2594,6 +2563,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 80
                 is HostEvent.ColorSchemeChanged -> 20
                 is HostEvent.SelectionsChanged -> 28
+                is HostEvent.DensityChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2657,6 +2627,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 66
                 is HostEvent.ColorSchemeChanged -> 52
                 is HostEvent.SelectionsChanged -> 67
+                is HostEvent.DensityChanged -> 53
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2932,6 +2903,7 @@ object Protocol {
                     out.putInt(event.version)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.DensityChanged -> out.putFloat(event.scale)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -3167,7 +3139,6 @@ object Protocol {
         206 -> PropertyKind.Presentation
         207 -> PropertyKind.MaxWidth
         208 -> PropertyKind.Separator
-        209 -> PropertyKind.SpanFontFeatures
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -4095,6 +4066,7 @@ object Protocol {
         37 -> 0
         38 -> 0
         39 -> 0
+        41 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4140,6 +4112,7 @@ object Protocol {
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
             39 -> Modifier.Overlay(paint(first, offset))
+            41 -> Modifier.Sticky
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

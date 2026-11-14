@@ -251,11 +251,11 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - 비용: `ColorRole`이 23개에서 45개로, 토큰 표가 시스템당 23행에서 45행으로 늡니다. 빌드 시점에 Renderer 바이너리로 들어가는 표이고 런타임에 경계를 넘지 않습니다(14.4). Rust의 `DesignTokenTable.colors`가 `[ColorToken; 45]`가 되며, `tokens.rs`와 `design-systems/`의 Kotlin 표를 비교하는 테스트가 새 행도 비교합니다.
 
 수용 기준:
-1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다.
-2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`).
-3. 같은 코드 블록이 최소 두 시스템에서 다른 키워드 색으로 그려집니다. 일곱 번 같은 색이면 실패입니다.
-4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사).
-5. Material 3와 Deepin의 코드 역할 값이 위의 유도 규칙으로 그 시스템의 기반 역할에서 다시 계산한 값과 같습니다. Rust 표 테스트로 확인합니다.
+1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_code_colours_hold_their_contrast_in_every_system`]
+2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`). [**일부 증명**: 라이트와 다크에서 다르게 그려지는 것은 `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`. 와이어에 리터럴 색이 없다는 것은 하이라이터가 이름을 색 역할로만 접는다는 `fr13_1_3_highlight_names_fold_into_the_code_roles`로 간접적으로만 보이고, 와이어를 직접 확인하는 시험은 없습니다]
+3. 같은 코드 블록이 최소 두 시스템에서 다른 키워드 색으로 그려집니다. 일곱 번 같은 색이면 실패입니다. [**증명됨**: `fr13_1_3_keyword_colour_differs_between_systems`, `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`]
+4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사). [**시험 없음**: 역할을 더해도 위젯 정의와 속성·Modifier 스키마가 그대로라는 회귀 검사가 없습니다]
+5. Material 3와 Deepin의 코드 역할 값이 위의 유도 규칙으로 그 시스템의 기반 역할에서 다시 계산한 값과 같습니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_derived_code_colours_follow_the_rule`(Material 3와 Deepin, 두 명암)]
 
 #### 13.2 타이포그래피
 - `TypeRole`은 9단 사다리입니다: `Display`, `Headline`, `Title`, `Subtitle`, `Body`, `BodyStrong`, `Label`, `Caption`, `Mono`. 세 디자인 시스템의 타입 스케일이 모두 이 사다리에 대응합니다.
@@ -748,14 +748,14 @@ LaunchBuilder::new()
 
 ##### 14.10.5 수용 기준
 
-1. `Primary`의 라이트·다크 값을 준 앱의 `Filled` 버튼이 일곱 디자인 시스템 모두에서 그 색으로 채워지고, 버튼의 모양과 눌림 표현은 시스템마다 다릅니다.
-2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host의 응답이나 `SetTheme` 없이 다크 값으로 바뀝니다. Host로 가는 것은 FR-44의 알림 하나뿐입니다([leader, provisional] (darkpyonix leader, 2026-11-13)).
-3. 앱이 정하지 않은 역할(예: `Outline`)은 그 디자인 시스템의 값과 같습니다. 라이트 값만 준 역할의 다크 값은 디자인 시스템의 다크 값입니다.
-4. `Primary`만 주고 `OnPrimary`를 주지 않은 경우, Renderer가 고른 잉크가 3:1 이상입니다. 밝은 노랑과 진한 남색 두 경우에서 서로 다른 잉크(검정과 흰색)가 나옵니다.
-5. `Palette::check`가 대비를 어기는 쌍을 돌려주고, 어기지 않는 팔레트에는 빈 목록을 돌려줍니다.
-6. 고대비 모드가 켜진 Windows에서 팔레트를 준 앱이 팔레트 없이 띄운 앱과 같은 색으로 그려집니다. 수동 확인입니다.
-7. 56바이트 `SetTheme`과 팔레트 블롭이 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 팔레트가 없는 테마는 `len = 0`입니다.
-8. 모르는 역할 태그, `scheme = 3`, 중복 항목이 각각 `ProtocolError`가 되고, 나머지 항목은 적용되며, 프로세스가 죽지 않습니다.
+1. `Primary`의 라이트·다크 값을 준 앱의 `Filled` 버튼이 일곱 디자인 시스템 모두에서 그 색으로 채워지고, 버튼의 모양과 눌림 표현은 시스템마다 다릅니다. [**증명됨**: `fr14_10_a_filled_button_takes_the_application_primary_in_every_system`, `fr14_10_the_palette_value_is_what_a_role_resolves_to_in_every_system`]
+2. 같은 앱을 `FollowSystem`으로 띄우고 시스템 명암을 바꾸면, Host의 응답이나 `SetTheme` 없이 다크 값으로 바뀝니다. Host로 가는 것은 FR-44의 알림 하나뿐입니다([leader, provisional] (darkpyonix leader, 2026-11-13)). [**증명됨**: `fr14_10_following_the_system_into_dark_needs_nothing_from_the_host`]
+3. 앱이 정하지 않은 역할(예: `Outline`)은 그 디자인 시스템의 값과 같습니다. 라이트 값만 준 역할의 다크 값은 디자인 시스템의 다크 값입니다. [**증명됨**: `fr14_10_a_role_left_unsaid_is_the_systems_in_each_scheme`, `fr14_10_a_role_left_unsaid_is_the_systems_own`]
+4. `Primary`만 주고 `OnPrimary`를 주지 않은 경우, Renderer가 고른 잉크가 3:1 이상입니다. 밝은 노랑과 진한 남색 두 경우에서 서로 다른 잉크(검정과 흰색)가 나옵니다. [**증명됨**: `fr14_10_an_ink_left_unsaid_is_chosen_to_read_on_the_new_fill`(Rust와 렌더러, 노랑과 남색)]
+5. `Palette::check`가 대비를 어기는 쌍을 돌려주고, 어기지 않는 팔레트에는 빈 목록을 돌려줍니다. [**증명됨**: `fr14_10_the_check_reports_what_does_not_read_and_nothing_else`]
+6. 고대비 모드가 켜진 Windows에서 팔레트를 준 앱이 팔레트 없이 띄운 앱과 같은 색으로 그려집니다. 수동 확인입니다. [**손 확인 대기**: darkpyonix#141(Windows VM). 고대비에서 팔레트를 비켜 두는 논리는 `fr14_10_high_contrast_sets_the_palette_aside`]
+7. 56바이트 `SetTheme`과 팔레트 블롭이 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 팔레트가 없는 테마는 `len = 0`입니다. [**증명됨**: `fr14_10_set_theme_is_56_bytes_and_carries_the_palette_behind_it`, `fr14_10_the_vector_palette_round_trips`, `fr14_10_the_theme_in_the_vector_carries_its_palette`]
+8. 모르는 역할 태그, `scheme = 3`, 중복 항목이 각각 `ProtocolError`가 되고, 나머지 항목은 적용되며, 프로세스가 죽지 않습니다. [**증명됨**: `fr14_10_a_bad_entry_is_reported_and_the_rest_still_apply`, `fr14_10_a_bad_palette_entry_is_reported_and_the_rest_apply`(모르는 역할, `scheme = 3`, 중복)]
 
 코드 색 역할에 대한 기준(일곱 시스템의 대비, 리터럴 없는 강조, 시스템마다 다른 키워드 색, 스키마 회귀)은 13.1-3에 있습니다.
 
@@ -2163,8 +2163,8 @@ FR-41의 `AnimationEvent`(이벤트 31)는 쓰지 않습니다. 그 이벤트는
   - 스팬 레코드는 28바이트에서 **36바이트**가 됩니다. 글자색 `Paint` 뒤에 `background: Paint`(u64) 하나를 더하고, 0은 "배경 없음"입니다. 글자색과 배경을 한 `Paint` 자리에 플래그로 번갈아 싣는 방법은 쓰지 않습니다. 한 구간이 둘을 같이 가질 수 없게 되고, 바뀐 단어는 대개 글자색(문법 역할)과 배경(diff 강조)을 같이 가집니다.
   - 받는 값은 다른 `Paint` 자리와 같습니다. 역할이 먼저이고 리터럴은 탈출구입니다(13.1). 속성 태그는 그대로 `Spans`(64)이고, 레코드 길이가 바뀌므로 스키마 해시가 움직입니다. 레코드는 Rust 쪽(`spans.rs`)에 정의하고 Kotlin 디코더는 codegen이 생성합니다(FR-7).
   - 배경은 구간의 글자 상자를 칠하며, 줄이 바뀌는 구간은 줄마다 따로 칠합니다. 모양과 안쪽 여백은 두지 않습니다. 그것은 디자인 시스템이 정할 것이 생기면 그때 역할로 말할 일입니다.
-- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다.
-- 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다.
+- 수용 기준: 한 `Text` 안에서 굵은 구간과 링크 구간이 서로 다르게 그려지고, 링크 구간만 클릭을 보고합니다. 스팬 범위가 문자열 밖이거나 겹치면 프로세스를 중단하지 않고 `ProtocolError`를 보냅니다. 스팬이 없는 `Text`의 레코드 크기와 경로는 지금과 같습니다. [**일부 증명**: 범위 밖, 겹침, 빈 구간, 레코드가 아닌 블롭이 `ProtocolError`가 되고 글이 그려지는 것은 `fr26_a_run_past_the_end_is_reported`, `fr26_overlapping_runs_are_reported`, `fr26_an_empty_run_is_reported`, `fr26_a_blob_that_is_not_whole_records_is_refused`, `fr26_a_bad_run_is_reported_to_the_host_and_the_text_still_draws`. 굵은 구간과 링크 구간이 다르게 그려지고 링크만 클릭을 보고하는 것, 스팬 없는 `Text`의 레코드가 그대로인 것은 시험이 없습니다]
+- 수용 기준(배경): 배경 `Paint::Role(DiffAddedEmphasis)`를 단 스팬 하나가 그 구간 뒤만 칠하고 나머지 글자 뒤는 칠하지 않습니다. 글자색과 배경을 같이 가진 스팬이 둘 다 그려집니다. 36바이트 스팬 레코드가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 배경이 0인 스팬은 배경 없이 그려집니다. [**증명됨**: `fr26_a_background_paints_behind_its_own_run_and_nowhere_else`, `fr26_a_run_with_a_colour_and_a_background_draws_both`, `fr26_a_run_carries_its_colour_and_its_background_apart`, `fr26_the_runs_in_the_vector_decode_to_the_same_values`, `fr26_a_run_without_a_background_paints_nothing_behind_it`]
 
 ### FR-27 파일 드래그 앤 드롭 (`Draft`)
 
@@ -2516,18 +2516,18 @@ Notification::new("세션이 끝났습니다")
 
 #### 36.7 수용 기준
 
-1. macOS, Windows, Linux(GNOME) 배포 빌드에서 `PostNotification`이 그 플랫폼의 알림으로 나타나고, 제목과 본문이 보낸 글자와 같습니다. 수동 확인이며 native-image 빌드에서 기록합니다.
-2. 본문을 누르면 `NotificationActivated`가 보낸 `key`와 `action = 0`을 싣고 **정확히 한 번** 오고, 앱의 창이 앞으로 옵니다. 동작 버튼을 누르면 그 번호가 오고 창은 앞으로 오지 않습니다.
-3. 같은 `key`로 두 번 보내면 알림 센터에 하나만 남고 두 번째 내용이 보입니다. `WithdrawNotification`을 보내면 사라집니다.
-4. 권한이 `NotDetermined`일 때 첫 `PostNotification`이 플랫폼의 권한 요청을 띄우고, 허락하면 그 알림이 나타나며 `NotificationPermissionChanged(Granted)`가 한 번 옵니다. 거절하면 알림이 나타나지 않고 `Denied`가 한 번 오며, 그 뒤의 `PostNotification`은 권한을 다시 묻지 않습니다.
-5. 창이 활성인 동안 `WhenInactive` 알림은 나타나지 않고 `Always` 알림은 나타납니다.
-6. 워커 스레드에서 `NotificationSender`로 보낸 알림이, 창이 최소화된 상태에서 1초 안에 나타납니다. 그동안 사용자 코드가 경계 함수를 부르지 않습니다.
-7. 번들 식별자가 없는 실행(JVM 개발 셸)에서 권한 상태가 `Unsupported`이고, `PostNotification`이 프로세스를 죽이지 않으며 `ProtocolError`를 내지 않습니다.
-8. iOS와 Android에서 프로세스가 없을 때 알림을 눌러 앱이 시작되면, `NotificationActivated`가 `compose_rust_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다.
-9. 데스크톱 앱을 끝내면 그 앱이 띄운 알림이 알림 센터에서 사라집니다.
-10. 세 명령과 두 이벤트가 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 모르는 `importance`와 `state` 값이 `ProtocolError`가 되고 프로세스가 죽지 않습니다.
-11. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다.
-12. Android 13 이상에서 `POST_NOTIFICATIONS` 권한 요청이 나타나고, 서로 다른 `channel` 두 개가 설정 화면에 두 채널로 보입니다. 수동 확인입니다.
+1. macOS, Windows, Linux(GNOME) 배포 빌드에서 `PostNotification`이 그 플랫폼의 알림으로 나타나고, 제목과 본문이 보낸 글자와 같습니다. 수동 확인이며 native-image 빌드에서 기록합니다. [**손 확인 대기**: darkpyonix#141(macOS, Linux, Windows)]
+2. 본문을 누르면 `NotificationActivated`가 보낸 `key`와 `action = 0`을 싣고 **정확히 한 번** 오고, 앱의 창이 앞으로 옵니다. 동작 버튼을 누르면 그 번호가 오고 창은 앞으로 오지 않습니다. [**논리 증명, 손 확인 대기**: `fr36_a_press_reaches_the_host_exactly_once_with_its_key_and_action`, `fr36_an_activation_knows_whether_a_button_was_pressed`, `fr36_linux_a_press_comes_back_as_its_key_and_only_the_body_raises_the_window`. 실제 알림 센터에서는 darkpyonix#141]
+3. 같은 `key`로 두 번 보내면 알림 센터에 하나만 남고 두 번째 내용이 보입니다. `WithdrawNotification`을 보내면 사라집니다. [**논리 증명, 손 확인 대기**: `fr36_the_same_key_replaces_and_a_withdrawal_takes_it_away`, `fr36_linux_the_same_key_replaces_the_notification_it_posted`, `fr36_linux_withdrawing_closes_the_notification`. darkpyonix#141]
+4. 권한이 `NotDetermined`일 때 첫 `PostNotification`이 플랫폼의 권한 요청을 띄우고, 허락하면 그 알림이 나타나며 `NotificationPermissionChanged(Granted)`가 한 번 옵니다. 거절하면 알림이 나타나지 않고 `Denied`가 한 번 오며, 그 뒤의 `PostNotification`은 권한을 다시 묻지 않습니다. [**논리 증명, 손 확인 대기**: `fr36_the_first_post_asks_for_permission_and_a_yes_shows_it`, `fr36_a_no_drops_the_notification_reports_denied_once_and_is_never_asked_again`, `fr36_permission_is_reported_once_and_then_only_when_it_changes`, `fr36_the_application_can_ask_first_and_only_one_prompt_is_up_at_a_time`. darkpyonix#141]
+5. 창이 활성인 동안 `WhenInactive` 알림은 나타나지 않고 `Always` 알림은 나타납니다. [**논리 증명, 손 확인 대기**: `fr36_when_inactive_is_dropped_while_the_window_is_active_and_always_is_shown`. darkpyonix#141]
+6. 워커 스레드에서 `NotificationSender`로 보낸 알림이, 창이 최소화된 상태에서 1초 안에 나타납니다. 그동안 사용자 코드가 경계 함수를 부르지 않습니다. [**시험 없음**: 워커에서 `NotificationSender`로 보내는 경로를 다루는 시험이 없습니다. 최소화된 창에서 1초 안에 나타나는지는 darkpyonix#141]
+7. 번들 식별자가 없는 실행(JVM 개발 셸)에서 권한 상태가 `Unsupported`이고, `PostNotification`이 프로세스를 죽이지 않으며 `ProtocolError`를 내지 않습니다. [**증명됨**: `fr36_a_run_that_cannot_show_notifications_says_so_and_carries_on`, `fr36_linux_a_session_with_a_daemon_is_granted_and_one_without_is_unsupported`]
+8. iOS와 Android에서 프로세스가 없을 때 알림을 눌러 앱이 시작되면, `NotificationActivated`가 `compose_rust_host_init` 다음의 첫 이벤트로 옵니다. 수동 확인입니다. [**논리 증명, 손 확인 대기**: `fr36_a_press_that_started_the_application_is_the_first_event_after_init`, `fr36_the_generated_activity_hands_notification_presses_to_the_renderer`. iOS와 Android 기기에서는 darkpyonix#141]
+9. 데스크톱 앱을 끝내면 그 앱이 띄운 알림이 알림 센터에서 사라집니다. [**논리 증명, 손 확인 대기**: `fr36_ending_the_process_takes_back_what_a_desktop_showed`, `fr36_linux_ending_the_process_closes_what_it_showed`. darkpyonix#141]
+10. 세 명령과 두 이벤트가 PR-4 프로토콜 벡터에 들어가 양쪽에서 같은 바이트로 왕복합니다. 모르는 `importance`와 `state` 값이 `ProtocolError`가 되고 프로세스가 죽지 않습니다. [**증명됨**: `fr36_notification_commands_round_trip_at_their_fixed_lengths`, `fr36_notification_events_round_trip_fixed_layout`, `fr36_unknown_importance_and_presentation_are_protocol_errors`, `fr36_unknown_permission_state_is_a_protocol_error`, `fr36_a_notification_record_of_the_wrong_length_is_rejected`, `fr36_an_activation_naming_a_third_button_is_a_protocol_error`, `fr36_the_notification_records_in_the_vector_decode_to_the_same_values`, `fr36_the_notification_events_encode_to_the_vector_bytes`]
+11. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다. [**증명됨**: 경계 진입점이 다섯 개뿐이라는 `pr2_boundary_surface_unchanged_by_storage`, `pr2_boundary_surface_unchanged_by_file_dialog`, `pr2_boundary_surface_unchanged_by_web_files`가 FR-36이 들어간 트리에서 통과합니다]
+12. Android 13 이상에서 `POST_NOTIFICATIONS` 권한 요청이 나타나고, 서로 다른 `channel` 두 개가 설정 화면에 두 채널로 보입니다. 수동 확인입니다. [**손 확인 대기**: darkpyonix#141(Android 13). 매니페스트의 권한 선언은 `fr36_the_android_manifest_declares_the_notification_permission_once`]
 
 #### 36.8 열린 질문
 
@@ -4530,6 +4530,8 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 
 **일시 메시지의 그림자**(이슈 #446, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 일시 메시지는 노드가 아니므로(21.4) 수정자를 받지 않습니다. 대신 오버레이 토큰에 `toast_elevation`(dp)과 `toast_corner_radius`(dp)를 더합니다. 0이면 디자인 시스템의 값입니다. 앱은 `SetOverlayTokens`로 한 번 정합니다. 레코드 길이가 늘어 스키마 해시가 움직입니다. 수용 기준: `toast_elevation(8)`을 준 뒤 띄운 메시지 아래에 그림자가 그려지고(픽셀), 0이면 디자인 시스템의 모양입니다(fr74_toast_elevation_token).
 
+**일시 메시지의 색, 테두리, 여백, 글자**(이슈 #781, [leader, provisional] (darkpyonix leader, 2026-11-15)). 일시 메시지의 채움색과 글자색, 테두리 두께, 여백, 글자 크기도 오버레이 토큰으로 정합니다. `toast_container_light`/`toast_container_dark`와 `toast_content_light`/`toast_content_dark`(ARGB, 0이면 디자인 시스템의 색), `toast_border_width`(dp, 값이 없으면 디자인 시스템의 선, 0이면 선 없음, 레코드에서는 0xFFFF가 값 없음), `toast_padding_horizontal`/`toast_padding_vertical`(dp, 0이면 디자인 시스템의 값), `toast_font_size`/`toast_line_height`(sp, 0이면 디자인 시스템의 값)입니다. 렌더러는 자신이 정한 색 구성표에 따라 밝은 쪽이나 어두운 쪽 색을 쓰므로, 메시지는 두 구성표에서 모두 페이지와 반전된 색으로 그릴 수 있습니다. 새 태그나 번호는 없고 `SetOverlayTokens`(명령 태그 27)의 레코드가 28바이트에서 56바이트로 늘어 스키마 해시가 움직입니다. 수용 기준: (가) 토큰이 정해진 오프셋으로 레코드를 오가며 값이 그대로 돌아옵니다(fr74_toast_style_tokens_round_trip). (나) 데스크톱 렌더러에서 Ember의 값(먹색 채움, 흰 글자, 테두리 0, 여백 16/10, 13/20)을 준 메시지가 그 값으로 그려지고 어두운 구성표에서는 어두운 쪽 채움으로 그려지며, 아무 값도 주지 않은 토큰은 지금의 메시지와 픽셀 단위로 같습니다(fr74_toast_style_tokens_draw). (다) Android와 iOS는 공유하는 HostMessages.kt로 같은 토큰을 그립니다.
+
 ### FR-75 텍스트 필드 타이포그래피와 아이콘 버튼 레이아웃 제어 (`Draft`, 이슈 #507)
 
 요청한 쪽: darkpyonix-ember(#739, #740, `docs/DESIGN.md` §2, §4.1). Ember NFR-L3은 여러 OS에서 동일한 컴포저와 버튼 모양을 필요로 합니다. `HostTextField`는 타이포그래피와 내부 여백을 테마 기본 규칙(`theme.rules.field`)에서 파생하고, `HostButton`은 명시적 크기를 가진 아이콘 버튼에도 테마 버튼의 최소 높이와 여백을 강제 적용하여 전역 테마 변경 시 컴포저 플레이스홀더와 플러스 버튼의 위치와 크기가 달라지는 문제가 있었습니다. 이 항목은 텍스트 필드의 명시적 타이포그래피와 내용 여백 제어, 아이콘 버튼의 크기 존중 레이아웃을 제공합니다.
@@ -4938,6 +4940,7 @@ pub mod storage {
 4. `Shape`을 준 필드의 모서리 픽셀이 그 반지름 밖입니다.
 5. **틀 없는 필드 `bare()`**(이슈 #519, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 위 규칙은 노드가 무엇을 줄 때만 시스템의 틀을 끄므로, 바깥 상자(CSS 상자, Ember의 알약이나 카드)가 이미 틀을 그린 필드는 틀이 두 겹이 됩니다. `TextField`와 `Dropdown`(닫힌 선택 필드, FR-64)에 `bare()`가 있고, 속성 `Bare`(bool) 하나를 보냅니다. `bare`인 필드는 시스템의 채움, 선, 밑줄, 모서리 자르기, 안쪽 여백, 포커스 선을 그리지 않고 투명합니다. 글자, 자리표시 글자, 캐럿, 선택, IME는 그대로 Compose의 것입니다. 자리표시 글자는 첫 줄 기준선에 놓이고 가운데로 밀리거나 잘리지 않습니다. `bare`이면서 `Background`나 `Border`를 준 필드는 위 규칙대로 그 값을 그립니다. `bare()` 필드의 모든 픽셀이 글자를 빼면 부모의 색이고 높이가 글자 한 줄 높이와 같습니다(fr56_bare_field_draws_no_frame). `bare()` `Dropdown`도 같습니다(fr56_bare_dropdown_draws_no_frame).
 6. **자리표시자 색과 캐럿 색**(이슈 #592, [leader, provisional] (darkpyonix leader, 2026-11-14)). `TextField`에 자리표시자 색과 캐럿 색을 지정하는 `placeholder_color(Paint)`와 `caret_color(Paint)` 빌더가 있고, 각각 속성 `PlaceholderColor`(속성 태그 203)와 `CaretColor`(속성 태그 204)를 보냅니다. 설정하지 않으면 속성을 보내지 않고 디자인 시스템의 기본값(`theme.color(ColorRole.OnSurfaceVariant).copy(alpha = 0.55f)` 및 `frame.cursor`)을 유지합니다. 렌더러는 전달받은 `Paint`로 자리표시자 텍스트와 캐럿 브러시를 그립니다(`fr56_text_field_placeholder_and_caret_paint_round_trips`, `fr56_text_field_honors_placeholder_and_caret_colors`).
+7. **한 줄 필드의 자리표시자는 한 줄**(이슈 #786, [leader, provisional] (darkpyonix leader, 2026-11-15)). 여러 줄이 아닌(`multiline` 꺼짐) `TextField`의 자리표시자는 필드보다 길면 한 줄에 머물고 줄임표로 끝납니다. 여러 줄 필드의 자리표시자는 지금처럼 줄을 바꿉니다. 새 속성이나 태그는 없습니다. 한 줄 필드의 기본 동작이 바뀝니다: 지금까지는 자리표시자가 줄을 바꿔 필드가 잘라내는 줄을 만들었습니다(`fr56_single_line_placeholder_ends_in_an_ellipsis`).
 
 ### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
 
@@ -5115,6 +5118,37 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 3. `TypeRole`이 지정된 스팬에도 `SpanFontFeatures`가 적용되어 역할의 글꼴과 크기를 유지하면서 기능이 활성화됩니다 (`fr88_span_font_features_applied_to_role_spans`).
 4. 노드 수준의 `FontFeatureSettings`와 스팬의 `SpanFontFeatures`가 함께 존재할 때 두 기능이 결합되고, 동일한 태그는 스팬의 값이 이깁니다 (`fr88_span_font_features_override_node_features`).
 5. 잘못된 형식의 `SpanFontFeatures` 블롭은 `ProtocolError`를 발생시키고 프로세스가 중단되지 않으며 텍스트는 기능 없이 그려집니다 (`fr88_malformed_span_font_features_handled_gracefully`).
+
+### FR-85 포커스를 가진 상자가 자기 키를 받는다 (`Done`, [리더, 잠정 2026-11-13], 이슈 #101)
+
+포커스를 받을 수 있는 상자에 키 핸들러(OnKeyDown, OnKeyUp, 있으면 OnKeyPreview)가 있으면, 그 상자 자신이 포커스를 가진 동안에도 키를 받고, 포커스를 가진 자손에서 올라오는 키도 받는다. 자손이 소비한 키는 상자에 가지 않는다.
+
+DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 가진 동안의 키와 자손에서 올라오는 키를 모두 받는다. dioxus-compose의 HTML 경로가 그런 요소를 이 상자로 그리므로, 상자가 둘 중 하나만 받으면 그 요소는 반쯤 죽는다.
+
+수용 기준.
+1. 상자 자신이 포커스를 가지면 키 하나에 그 핸들러가 한 번 실행된다. 포커스를 가진 자손 `TextField`가 소비하지 않은 키는 상자에 닿고, 소비한 키는 닿지 않는다(시험 이름 `fr85_a_focused_box_receives_its_own_keys`).
+
+### FR-89 스크롤 컨테이너의 고정 자식 (Sticky) (`Done`, 이슈 #424, [leader, provisional] (darkpyonix leader, 2026-11-15))
+
+요청한 쪽: Ember VCS diff 뷰(darkpyonix-ember#249, `TODO(compose-rust#424)`). 가로로 스크롤되는 코드 diff 행 안에서 줄 번호나 체크 열이 화면 밖으로 스크롤되어 사라지지 않고, 시작 가장자리에 고정(pinned)된 채 유지되어야 합니다.
+
+#### 89.1 규칙
+
+1. **`Modifier::sticky()`**: 스크롤 컨테이너(`ScrollRow`, `ScrollColumn`) 안의 자식을, 깊이와 관계없이, 컨테이너의 시작 가장자리에 고정합니다. 컨테이너가 스크롤되어도 고정된 자식은 그 자리에 머무르고, 나머지는 그 아래로 스크롤됩니다.
+2. **와이어 인코딩**: `Sticky` 수정자 태그 41, 필드 없음.
+3. **렌더러 해석**:
+   - `ScrollRow`와 `ScrollColumn`은 내용에 자신의 스크롤 상태를 제공합니다.
+   - 렌더러는 `Sticky`를 노드가 그려지는 자리에서 노드의 다른 모든 수정자 바깥에 적용하므로, 배경과 테두리와 잘라내기가 노드와 함께 머뭅니다. 적용하는 것은 배치 시점에 읽은 스크롤 위치만큼의 오프셋(재구성 없음)과, 그 아래로 스크롤되는 것 위에 그려지도록 하는 `zIndex(1)`입니다.
+   - 스크롤 컨테이너 밖에서는 아무 일도 하지 않습니다. `LazyRow`와 `LazyColumn`은 이 항목에 들어 있지 않습니다.
+
+#### 89.2 수용 기준
+
+1. `Sticky` 수정자가 와이어 프로토콜에서 인코딩되고 왕복합니다 (`fr89_sticky_modifier_round_trips`).
+2. `Modifier::sticky()` 빌더가 올바른 수정자 속성을 생성합니다 (`fr89_modifier_sticky_builder`).
+3. Dioxus 작성기(`writer`)가 `"sticky"` 속성을 수신하여 `Modifier::Sticky`로 매핑합니다 (`fr89_writer_maps_sticky_attribute`).
+4. `ScrollRow`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 가로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 시작점에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_row`).
+5. `ScrollColumn`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 세로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 상단에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_column`).
+6. `ScrollRow` 안에 중첩된 줄마다 자기 배경을 가진 고정 칸이 있을 때, 스크롤한 뒤에도 각 칸은 뷰포트 시작 가장자리에 머물고 그 자리에 자기 배경을 그립니다 (`fr89_sticky_cell_in_a_nested_line_keeps_its_background`).
 
 ## 4. 경계 프로토콜
 

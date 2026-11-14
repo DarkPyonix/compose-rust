@@ -409,6 +409,7 @@ fun ComposeRustContent(
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
+        DensityReporter(host)
         ComposeRustTree(host, modifier, caption)
         return
     }
@@ -423,8 +424,10 @@ fun ComposeRustContent(
     CompositionLocalProvider(
         LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
         LocalZoom provides zoom,
+        LocalDisplayScale provides base.density,
     ) {
         ZoomReporter(host, zoom)
+        DensityReporter(host)
         // `onKeyEvent` rather than the preview: it runs after everything inside has had the
         // key, so a key the application consumed never reaches it.
         ComposeRustTree(
@@ -568,11 +571,21 @@ private fun ComposeRustTree(
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
+    // What the report carries besides the size, as the last composition left it. Read by
+    // the layout callback below, which runs after that composition's effects.
+    val reportInputs = remember(host, windowNodeId) { WindowReportInputs() }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
             measuredSize = size
+            // The Host is told from the layout that measured the window, as it is told an
+            // observed node's size. Waiting for the recomposition the write above schedules
+            // means waiting for a second frame, and a window that draws only when asked
+            // (macOS) can go a long time without one while the Host lays its page out for
+            // a 0x0, compact window. The reporter drops a repeat, so the effect below,
+            // which still reports a change of the safe area, sends nothing twice.
+            reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
     // Whether anything in the tree asked to be made of a material, and so whether the
@@ -746,6 +759,8 @@ private fun ComposeRustTree(
         }
     }.value
     SideEffect {
+        reportInputs.safeArea = safeArea
+        reportInputs.everyDp = reportEveryDp
         measuredSize?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
