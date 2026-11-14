@@ -3575,6 +3575,8 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 u64::from(*match_height_constraints_first),
             ),
         ),
+        Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
+        Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
         Modifier::Transform {
             a,
             b,
@@ -3865,6 +3867,10 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 match_height_constraints_first,
             })
         }
+        38 => Ok(Modifier::MinTouchTarget {
+            size: unpack_low(first),
+        }),
+        39 => Ok(Modifier::Overlay(decode_paint(first)?)),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

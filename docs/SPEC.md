@@ -1223,6 +1223,8 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
   2. `icon`과 `text`를 함께 단 `Button`은 둘 다 그립니다.
   3. 글자가 빈 아이콘 버튼도 접근성 이름을 갖습니다.
 
+**SVG 에셋 아이콘**(이슈 #303, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
+
 ### FR-17 커스텀 드로잉 (`Agreed`)
 
 FR-15의 위젯 25개는 사각형, 모서리, 테두리, 그림자까지입니다. 기존 위젯을 아무리 조합해도 **새 픽셀은 나오지 않습니다.** 차트, 스파크라인, 서명 패드, 커스텀 로딩 표시, 아바타 링이 전부 여기 걸립니다.
@@ -2703,6 +2705,8 @@ Notification::new("세션이 끝났습니다")
     2. Cmd/Ctrl+D가 다음 일치를 더합니다(fr38_multi_cursor_add_next_match).
 27. 미니맵(이슈 #550, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `Minimap`(속성 태그 201): `Off`(기본), `Right`, `Left`. 줄인 문서 전체와 보이는 영역 표시를 그리고, 누르거나 끌면 그 자리로 스크롤하며, 장식(진단, 찾기 결과, diff 줄 배경) 표시를 보입니다.
     1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
+28. 줄 끝 장식(이슈 #528, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식 종류 `AfterLine { line, text, color: ColorRole }`(장식 종류 값 7, 추가 전용). 그 줄의 마지막 글자 뒤에 흐린 글자를 그립니다(Code-OSS의 git blame 줄 끝 표시). 글자가 아니므로 선택, 복사, 캐럿 이동, 적중 판정에 들어가지 않고, 편집을 따라 줄과 함께 움직입니다(기준 4의 규칙).
+    1. 장식 글자가 줄 끝 뒤에 그려지고, End 키가 그 앞에서 멈추며, 줄 전체를 복사해도 장식 글자가 들어가지 않습니다(fr38_after_line_decoration_is_not_text).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -4241,7 +4245,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
 
-### FR-72 파일 열기와 저장 대화상자 (`Draft`, 이슈 #483)
+### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 
 요청한 쪽: darkpyonix-ember#486(파일 선택기와 실제로 보낼 수 있는 전송 시트)와 #550(전송 시트). 앱이 플랫폼의 파일 열기·저장 대화상자를 띄울 수 없어서 파일 전송 화면이 파일을 고를 길이 없습니다. 이 항목은 앱이 대화상자를 요청하고 결과를 이벤트로 받는 길을 더합니다.
 
@@ -4326,17 +4330,17 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 #### 72.7 수용 기준
 
-1. 명령 `ShowFileDialog`와 이벤트 `FileDialogResult`가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 모르는 `kind`와 `status`가 `ProtocolError`가 되고 프로세스가 죽지 않습니다(시험 이름 fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors).
-2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 pr2_boundary_surface_unchanged_by_file_dialog).
-3. 선택하든 취소하든 못 띄우든, 같은 `request`를 실은 `FileDialogResult`가 **정확히 하나** 옵니다. Fake Renderer로 세 경우를 확인합니다(시험 이름 fr72_every_request_gets_exactly_one_result).
-4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 fr72_duplicate_pending_request_is_a_protocol_error).
-5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 fr72_requests_on_one_window_are_shown_in_order).
-6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 fr72_unknown_window_reports_and_answers_unavailable).
-7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8로 나타낼 수 없는 경로가 하나라도 있으면 결과 전체가 `Unavailable`입니다(시험 이름 fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable).
-8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 fr72_more_than_ten_thousand_paths_answers_unavailable). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 fr72_filters_over_the_limit_are_trimmed_not_rejected).
-9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 fr72_ui_loop_keeps_running_while_a_dialog_is_open, 데스크톱 렌더러 시험).
-10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 fr72_closing_the_owner_window_cancels_the_dialog).
-11. iOS, Android 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 fr72_unsupported_platform_answers_unavailable).
+1. 명령 `ShowFileDialog`와 이벤트 `FileDialogResult`가 PR-4 프로토콜 벡터에 들어가 Rust와 Kotlin 양쪽에서 같은 바이트로 왕복합니다. 모르는 `kind`와 `status`가 `ProtocolError`가 되고 프로세스가 죽지 않습니다(시험 이름 `fr72_file_dialog_records_round_trip_and_unknown_enums_are_errors`).
+2. 경계 진입점 목록(PR-2)이 이 변경 전과 같습니다(시험 이름 `pr2_boundary_surface_unchanged_by_file_dialog`).
+3. 선택하든 취소하든 못 띄우든, 같은 `request`를 실은 `FileDialogResult`가 **정확히 하나** 옵니다. Fake Renderer로 세 경우를 확인합니다(시험 이름 `fr72_every_request_gets_exactly_one_result`).
+4. 이미 결과를 기다리는 `request`를 다시 보내면 `ProtocolError`가 한 번 오고 앞 요청의 결과는 하나만 옵니다(시험 이름 `fr72_duplicate_pending_request_is_a_protocol_error`).
+5. 같은 창에 요청 둘을 보내면 두 번째가 첫째의 결과 뒤에 뜨고, 결과도 그 순서로 옵니다. 다른 창의 요청은 기다리지 않습니다(시험 이름 `fr72_requests_on_one_window_are_shown_in_order`).
+6. 존재하지 않는 `window`는 `UNKNOWN_NODE` 보고와 함께 `Unavailable` 결과 하나를 만듭니다(시험 이름 `fr72_unknown_window_reports_and_answers_unavailable`).
+7. 경로가 NUL로 가른 한 문자열로 오고, 한글 경로와 260자를 넘는 경로가 잘리지 않고 UTF-8로 도착합니다. UTF-8로 나타낼 수 없는 경로가 하나라도 있으면 결과 전체가 `Unavailable`입니다(시험 이름 `fr72_paths_arrive_whole_utf8_and_a_non_utf8_path_answers_unavailable`).
+8. 10001개 경로를 고르면 `Unavailable`이고 `Chosen`이 일부만 가지 않습니다(시험 이름 `fr72_more_than_ten_thousand_paths_answers_unavailable`). 필터가 16개, 확장자가 32개를 넘으면 넘는 부분만 버려지고 요청은 처리됩니다(시험 이름 `fr72_filters_over_the_limit_are_trimmed_not_rejected`).
+9. 대화상자가 열려 있는 동안 UI 스레드의 이벤트 루프가 돌아, 같은 창 밖의 애니메이션과 다른 창의 입력이 처리됩니다. 대화상자를 연 채 워커가 보낸 프레임 요청이 100ms 안에 렌더됩니다(시험 이름 `fr72_ui_loop_keeps_running_while_a_dialog_is_open`, 데스크톱 렌더러 시험).
+10. 소유한 창을 지우면 열려 있던 대화상자가 닫히고 `Cancelled`가 하나 옵니다(시험 이름 `fr72_closing_the_owner_window_cancels_the_dialog`).
+11. iOS, Android 렌더러(와 포털도 GTK도 없는 Linux)에서 요청이 `Unavailable` 하나를 돌려주고 `ProtocolError`가 없습니다(시험 이름 `fr72_unsupported_platform_answers_unavailable`).
 12. **수동 확인, macOS·Windows·Linux(포털과 GTK 폴백 각각)의 배포 빌드에서 기록합니다.**
     - `OpenFile`, `OpenFiles`, `OpenFolder`, `OpenFolders`, `Save`가 플랫폼 대화상자로 뜨고 `title`, `directory`, `name`이 반영됩니다.
     - 필터가 고를 수 있는 파일을 제한하고 `default_filter`가 처음 선택된 필터입니다.
@@ -4348,15 +4352,15 @@ Host API는 `ctx.show_file_dialog(FileDialog::open_files().title("...").filter("
 
 72.9(Web과 `PickedFile`)의 기준([leader, provisional, 2026-11-13]):
 
-13. `FileHandles`, `FileCall`, `ReleaseFileHandle`이 PR-4 프로토콜 벡터에서 Rust와 Kotlin이 같은 바이트로 왕복하고, 모르는 `delivery`, `op`, `kinds` 글자가 `ProtocolError`입니다(시험 이름 fr72_web_file_records_round_trip, 미구현). 경계 진입점이 그대로입니다(시험 이름 pr2_boundary_surface_unchanged_by_web_files, 미구현).
-14. Fake Renderer로, Web의 요청마다 `FileHandles` 또는 `FileDialogResult` 중 하나가 정확히 하나 옵니다(시험 이름 fr72_web_every_request_gets_exactly_one_answer, 미구현).
-15. `Chosen { paths, filter }`로 쓴 코드가 그대로 컴파일되고, 네이티브에서 `files()`가 `paths`와 같은 순서, 같은 수이며, `PickedFile::read`와 `write`가 그 경로의 파일을 워커에서 읽고 원자적으로 씁니다(시험 이름 fr72_native_picked_files_read_and_write_their_paths, 미구현).
-16. Web에서 `FileHandles`가 만든 `Chosen`의 `paths`가 `webfile:<핸들>/<이름>` 참조이고, `files()`의 `name()`과 `delivery()`가 이벤트의 값과 같습니다. 한 핸들의 마지막 `PickedFile`이 버려지면 `ReleaseFileHandle`이 한 번 갑니다(시험 이름 fr72_web_files_come_from_references_and_release_their_handles, 미구현).
-17. Web, File System Access가 있을 때: 연 파일에 쓰고 다시 쓰면 같은 파일이 바뀌고 `delivery`가 `Handle`입니다. Playwright의 Chromium에서 고르기 창을 시험 핸들로 바꿔 CI로 돌립니다(시험 이름 fr72_web_a_resave_writes_the_same_file, 미구현).
-18. Web, 그 API가 없을 때(시험에서 `showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`를 지운 페이지): 열기가 `Upload`이고 `write`가 `ReadOnly`이며, 저장이 `Download`이고 `write`가 내려받기 하나를 만들고 `can_write_again()`이 false입니다(시험 이름 fr72_web_fallback_reports_upload_and_download, 미구현).
-19. Web: `<input>`을 닫으면 `Cancelled`, `AbortError`는 `Cancelled`, 활성화 없는 요청의 `SecurityError`는 `Unavailable`입니다(시험 이름 fr72_web_cancel_and_refusal_map_to_their_status, 미구현).
-20. Web: 놓은 핸들(`ReleaseFileHandle` 뒤)이나 모르는 핸들에 대한 연산이 `NotFound`이고 `ProtocolError`가 아닙니다(시험 이름 fr72_web_an_unknown_handle_is_not_found, 미구현).
-21. Web: 4 KiB를 넘는 이름 목록(파일 500개)이 `Chosen`으로 모두 도착하고(시험 이름 fr72_web_a_long_name_list_arrives_whole, 미구현), 1 MiB 파일이 `read`로 읽힙니다(시험 이름 fr72_web_reads_a_file_larger_than_the_event_buffer, 미구현). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 72.9가 `Done`이 되지 않습니다.** #583 전에는 같은 요청이 `Unavailable`, 같은 읽기가 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 fr72_web_an_answer_over_the_event_buffer_fails_whole, 미구현).
+13. `FileHandles`, `FileCall`, `ReleaseFileHandle`이 PR-4 프로토콜 벡터에서 Rust와 Kotlin이 같은 바이트로 왕복하고, 모르는 `delivery`, `op`, `kinds` 글자가 `ProtocolError`입니다(시험 이름 `fr72_web_file_records_round_trip`). 경계 진입점이 그대로입니다(시험 이름 `pr2_boundary_surface_unchanged_by_web_files`).
+14. Fake Renderer로, Web의 요청마다 `FileHandles` 또는 `FileDialogResult` 중 하나가 정확히 하나 옵니다(시험 이름 `fr72_web_every_request_gets_exactly_one_answer`).
+15. `Chosen { paths, filter }`로 쓴 코드가 그대로 컴파일되고, 네이티브에서 `files()`가 `paths`와 같은 순서, 같은 수이며, `PickedFile::read`와 `write`가 그 경로의 파일을 워커에서 읽고 원자적으로 씁니다(시험 이름 `fr72_native_picked_files_read_and_write_their_paths`).
+16. Web에서 `FileHandles`가 만든 `Chosen`의 `paths`가 `webfile:<핸들>/<이름>` 참조이고, `files()`의 `name()`과 `delivery()`가 이벤트의 값과 같습니다. 한 핸들의 마지막 `PickedFile`이 버려지면 `ReleaseFileHandle`이 한 번 갑니다(시험 이름 `fr72_web_files_come_from_references_and_release_their_handles`).
+17. Web, File System Access가 있을 때: 연 파일에 쓰고 다시 쓰면 같은 파일이 바뀌고 `delivery`가 `Handle`입니다. Playwright의 Chromium에서 고르기 창을 시험 핸들로 바꿔 CI로 돌립니다(시험 이름 `fr72_web_a_resave_writes_the_same_file`).
+18. Web, 그 API가 없을 때(시험에서 `showOpenFilePicker`, `showSaveFilePicker`, `showDirectoryPicker`를 지운 페이지): 열기가 `Upload`이고 `write`가 `ReadOnly`이며, 저장이 `Download`이고 `write`가 내려받기 하나를 만들고 `can_write_again()`이 false입니다(시험 이름 `fr72_web_fallback_reports_upload_and_download`).
+19. Web: `<input>`을 닫으면 `Cancelled`, `AbortError`는 `Cancelled`, 활성화 없는 요청의 `SecurityError`는 `Unavailable`입니다(시험 이름 `fr72_web_cancel_and_refusal_map_to_their_status`).
+20. Web: 놓은 핸들(`ReleaseFileHandle` 뒤)이나 모르는 핸들에 대한 연산이 `NotFound`이고 `ProtocolError`가 아닙니다(시험 이름 `fr72_web_an_unknown_handle_is_not_found`).
+21. Web: 4 KiB를 넘는 이름 목록(파일 500개)이 `Chosen`으로 모두 도착하고(시험 이름 `fr72_web_a_long_name_list_arrives_whole`), 1 MiB 파일이 `read`로 읽힙니다(시험 이름 `fr72_web_reads_a_file_larger_than_the_event_buffer`). **이 기준은 이슈 #583이 들어와야 통과할 수 있고, 그 전에는 72.9가 `Done`이 되지 않습니다.** #583 전에는 같은 요청이 `Unavailable`, 같은 읽기가 `TooLarge` 하나를 받는 것을 확인합니다(시험 이름 `fr72_web_an_answer_over_the_event_buffer_fails_whole`).
 22. 수동, Chrome, Firefox, Safari 각각에서 notepad로 열기, 고치기, 저장, 다시 저장을 하고, Chrome은 같은 파일이 바뀌는 것, 나머지는 내려받기가 되고 앱이 그렇다고 알리는 것을 기록합니다.
 
 #### 72.8 열린 질문
@@ -4882,6 +4886,8 @@ pub mod storage {
 4. `on_click`을 부르지 않은 컨테이너는 클릭 동작이 없고, 눌러도 `Clicked`가 가지 않습니다.
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
+**최소 누름 영역**(이슈 #472, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::min_touch_target(dp)`(수정자 `MinTouchTarget`, 수정자 태그 38, 기본 꺼짐). 누르는 노드의 적중 영역을 그린 크기 둘레로 최소 그 크기까지 넓히고, 배치와 그림은 바꾸지 않습니다(Compose의 minimumInteractiveComponentSize와 같습니다). 수용 기준: 26x32dp 버튼에 `min_touch_target(44)`이면 그림 밖 9dp 지점 누르기가 그 버튼의 클릭이 되고 이웃 배치는 그대로입니다(fr55_min_touch_target_grows_the_hit_area_only).
+
 ### FR-61 `Row`와 `Column`의 교차축 내재 크기 맞춤 (`Agreed`, 이슈 #389)
 
 요청한 쪽: Ember(워크스페이스 카드 줄, 칸 사이의 세로 구분선). 높이를 따로 정하지 않은 `Row` 안에 `Modifier::new().fill_max_height()`를 가진 자식을 두면, Compose의 `Row`는 교차축 상한이 무한대일 때 `fillMaxHeight`를 풀지 못하거나 바깥 창 높이를 채웁니다. 가장 키가 큰 형제의 높이에 맞춰 다른 자식이나 세로 `Divider`가 늘어나려면 `Row`가 교차축 내재 크기(`IntrinsicSize.Min`)로 재어져야 합니다.
@@ -4983,6 +4989,8 @@ pub mod storage {
 2. `Shape`과 `Clip(true)`(또는 `Shape` 단독)가 붙은 컨테이너 안에서 밖으로 넘치는 자식이 둥근 모서리에서 잘리고, 자체 `Background`를 준 `Card`에서도 둥근 모서리 바깥 픽셀이 잘립니다.
 
 **한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
+
+**모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 39): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
 
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 

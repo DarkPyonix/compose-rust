@@ -6,6 +6,10 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
@@ -249,5 +253,77 @@ class ButtonRowTest {
         }
         val (caption, _) = labelAndReference(TypeRole.Caption, null)
         assertTrue(bounds.first.width() > caption.width(), "an explicit FontSize beats the role's size")
+    }
+
+    /**
+     * A 26 by 32 dp button with a 44 dp touch target takes a press 9 dp outside its drawn
+     * edge as its own click, by touch and by mouse, while it and its neighbour stay exactly
+     * where they were without the modifier.
+     */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only() {
+        val small = 2
+        val gap = 3
+        val neighbour = 4
+        val smallHandler = 81L
+        val neighbourHandler = 82L
+        fun page(target: Boolean) = buildList {
+            add(theme())
+            add(Mutation.Create(root, WidgetKind.Row))
+            add(Mutation.SetModifier(root, 0, ProtocolModifier.Padding(40f)))
+            add(Mutation.Create(small, WidgetKind.Button))
+            add(Mutation.SetModifier(small, 0, ProtocolModifier.Size(26f, 32f)))
+            if (target) add(Mutation.SetModifier(small, 1, ProtocolModifier.MinTouchTarget(44f)))
+            add(Mutation.SetProp(small, PropertyKind.Icon, PropertyValue.Integer(1L)))
+            add(Mutation.SetProp(small, PropertyKind.OnClick, PropertyValue.Integer(smallHandler)))
+            add(Mutation.Create(gap, WidgetKind.Spacer))
+            add(Mutation.SetModifier(gap, 0, ProtocolModifier.Width(20f)))
+            add(Mutation.Create(neighbour, WidgetKind.Button))
+            add(Mutation.SetModifier(neighbour, 0, ProtocolModifier.Size(26f, 32f)))
+            add(Mutation.SetProp(neighbour, PropertyKind.Icon, PropertyValue.Integer(1L)))
+            add(Mutation.SetProp(neighbour, PropertyKind.OnClick, PropertyValue.Integer(neighbourHandler)))
+            add(Mutation.Insert(root, small, 0))
+            add(Mutation.Insert(root, gap, 1))
+            add(Mutation.Insert(root, neighbour, 2))
+        }
+        lateinit var plain: List<androidx.compose.ui.geometry.Rect>
+        runComposeUiTest {
+            setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(page(false)))) }
+            waitForIdle()
+            plain = listOf(small, neighbour).map { onNodeWithTag(nodeTestTag(it)).getBoundsInRoot().let { b ->
+                androidx.compose.ui.geometry.Rect(b.left.value, b.top.value, b.right.value, b.bottom.value)
+            } }
+        }
+        runComposeUiTest {
+            val connection = FakeHostConnection(page(true))
+            setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+            waitForIdle()
+            val targeted = listOf(small, neighbour).map { onNodeWithTag(nodeTestTag(it)).getBoundsInRoot().let { b ->
+                androidx.compose.ui.geometry.Rect(b.left.value, b.top.value, b.right.value, b.bottom.value)
+            } }
+            assertEquals(plain, targeted, "the button and its neighbour are laid out where they were")
+            assertEquals(26f, targeted[0].width)
+            assertEquals(32f, targeted[0].height)
+
+            // 9 dp left of the drawn edge, by touch, and 9 dp right of it, by mouse.
+            onNodeWithTag(nodeTestTag(small)).performTouchInput { click(Offset(-9f, 16f)) }
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(small)).performMouseInput { click(Offset(26f + 8.5f, 16f)) }
+            waitForIdle()
+            // On the button itself, and on the neighbour, as before.
+            onNodeWithTag(nodeTestTag(small)).performTouchInput { click(center) }
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(neighbour)).performTouchInput { click(center) }
+            waitForIdle()
+            assertEquals(
+                listOf(small to smallHandler, small to smallHandler, small to smallHandler, neighbour to neighbourHandler),
+                connection.nodeEvents.filterIsInstance<HostEvent.Clicked>().map { it.nodeId to it.handlerId },
+            )
+
+            // Beyond the 44 dp box the press is nobody's.
+            onNodeWithTag(nodeTestTag(small)).performTouchInput { click(Offset(-12f, 16f)) }
+            waitForIdle()
+            assertEquals(4, connection.nodeEvents.filterIsInstance<HostEvent.Clicked>().size)
+        }
     }
 }
