@@ -100,7 +100,7 @@ enum class ReducedMotion { Off, On, Unknown }
 
 enum class SystemColorScheme { Light, Dark }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground, AfterLine }
 
 enum class Severity { Error, Warning, Information, Hint }
 
@@ -992,6 +992,7 @@ object CodeEditorRecords {
         4 -> DecorationKind.GhostText
         5 -> DecorationKind.LineBackground
         6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> null
     }
 
@@ -1240,6 +1241,7 @@ sealed interface Modifier {
     data class SizeIn(val minWidth: kotlin.Float, val maxWidth: kotlin.Float, val minHeight: kotlin.Float, val maxHeight: kotlin.Float) : Modifier
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
+    data class Overlay(val paint: Paint) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1809,7 +1811,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1787926241858154318L
+    const val SCHEMA_HASH: Long = -8578215891242925580L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3717,6 +3719,7 @@ object Protocol {
         4 -> DecorationKind.GhostText
         5 -> DecorationKind.LineBackground
         6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
     }
 
@@ -4024,6 +4027,7 @@ object Protocol {
         36 -> 0
         37 -> 0
         38 -> 0
+        39 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4068,6 +4072,7 @@ object Protocol {
             36 -> Modifier.SizeIn(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
+            39 -> Modifier.Overlay(paint(first, offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

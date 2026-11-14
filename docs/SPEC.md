@@ -2705,6 +2705,8 @@ Notification::new("세션이 끝났습니다")
     2. Cmd/Ctrl+D가 다음 일치를 더합니다(fr38_multi_cursor_add_next_match).
 27. 미니맵(이슈 #550, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 속성 `Minimap`(속성 태그 201): `Off`(기본), `Right`, `Left`. 줄인 문서 전체와 보이는 영역 표시를 그리고, 누르거나 끌면 그 자리로 스크롤하며, 장식(진단, 찾기 결과, diff 줄 배경) 표시를 보입니다.
     1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
+28. 줄 끝 장식(이슈 #528, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식 종류 `AfterLine { line, text, color: ColorRole }`(장식 종류 값 7, 추가 전용). 그 줄의 마지막 글자 뒤에 흐린 글자를 그립니다(Code-OSS의 git blame 줄 끝 표시). 글자가 아니므로 선택, 복사, 캐럿 이동, 적중 판정에 들어가지 않고, 편집을 따라 줄과 함께 움직입니다(기준 4의 규칙).
+    1. 장식 글자가 줄 끝 뒤에 그려지고, End 키가 그 앞에서 멈추며, 줄 전체를 복사해도 장식 글자가 들어가지 않습니다(fr38_after_line_decoration_is_not_text).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -4988,6 +4990,8 @@ pub mod storage {
 
 **한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
 
+**모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 39): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
+
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 
 요청한 쪽: dioxus-compose(HTML 마운트된 요소의 `focus()`, `blur()`와 `TextField`의 `oncompositionstart`, `oncompositionend`). Host가 특정 노드에 키보드 포커스를 요청하거나 현재 포커스를 거두고, `TextField`에서도 `CodeEditor`(FR-38.9)와 같은 조합 상태 이벤트를 받을 수 있어야 합니다.
@@ -5059,6 +5063,17 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
 
 ## 4. 경계 프로토콜
+
+### FR-86 오늘 날짜와 지역 시각 (`Agreed`, 이슈 #630, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
+
+요청한 쪽: darkpyonix-ember와 샘플(todo의 오늘 날짜 머리, 지난 일과 오늘과 다가올 일 묶음, 오늘과 내일과 다음 주 일정). 화면이 사용자의 시간대로 오늘 날짜를 읽을 방법이 어느 플랫폼에서도 없습니다.
+
+- `compose_rust::time::today() -> LocalDate { year, month, day, weekday }`와 `now_local() -> LocalDateTime`(사용자의 시간대). 데스크톱, iOS, Android는 OS의 시간대를, 웹은 브라우저의 시간대를 씁니다. Host가 직접 읽으므로 경계 함수와 와이어는 늘지 않습니다(웹은 JS `Date`).
+- 날짜가 바뀌면(자정, 또는 사용자가 시간대를 바꾸면) `subscribe_date_change(notify)`가 한 번 깨웁니다.
+
+수용 기준:
+1. 시간대를 고정한 시험 환경에서 `today()`가 그 시간대의 날짜와 요일이고, UTC와 날짜가 다른 시각에도 그 시간대의 날짜입니다(fr86_today_in_the_user_time_zone).
+2. 자정을 넘기면 날짜 변경 알림이 한 번 옵니다(fr86_date_change_wakes_once).
 
 ### PR-1 호출 모델: 동기·동일 스레드 직접 호출 (`Done`)
 
@@ -5365,8 +5380,9 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연�
 - **주소 영역을 상수로 못박습니다.** 0부터 `WEB_RUST_REGION_BASE`(4MiB) 미만은 Kotlin `kotlin.wasm.unsafe` 할당자의 것이고, 그 위는 Rust의 데이터와 스택과 힙입니다. Rust는 `--global-base`로 그 자리에 놓입니다. Renderer는 할당자가 준 주소가 경계 아래인지 시작할 때 확인하고, 아니면 경계 호출을 시작하지 않습니다. 두 할당자가 같은 주소를 쓰면 화면이 조용히 틀리는 것으로 끝나므로, 겹침은 자라기 전에 잡아야 합니다.
 - 경계 함수 목록은 PR-2 그대로입니다. 여기에 Rust wasm 모듈은 `compose_rust_host_web_start`를 하나 더 export합니다. 경계 연산이 아니라, 라이브러리 로더가 없는 환경에서 Android의 `JNI_OnLoad`가 하던 일(루트 컴포넌트 등록과 RendererApi 설치)을 놓을 자리입니다.
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
+- **Host가 페이지에서 받는 시각**(이슈 #630, FR-86, [leader, provisional] (darkpyonix leader, 2026-11-13)). 브라우저의 Host는 자기 시계와 시간대가 없으므로, Host wasm 모듈은 페이지에서 가져오기 모듈 `compose_rust_time`의 세 함수를 받습니다: `now_millis`(`Date.now()`), `utc_offset_minutes`(`getTimezoneOffset`), `wake_after`(`setTimeout`으로 프레임을 요청). 생성된 `HostBridge.gen.kt`가 이 세 함수를 줍니다. 페이지에서 Host로만 가고 Renderer로는 건너지 않으며, 경계 호출이 아니므로 PR-2의 경계 함수 목록은 늘지 않습니다.
 - **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 그래도 Renderer에서 Host로 가는 호출이므로 경계 연산과 같은 트램펄린을 거치며, 경계 연산 슬롯 바로 다음 슬롯에 놓입니다. 이 호출에도 JS가 없습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
-- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 동기로 인스턴스화하고(`new WebAssembly.Instance`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣습니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
+- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 비동기로 인스턴스화하고(`await WebAssembly.instantiate`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣으며, 그 뒤에 첫 화면을 구성합니다. 동기 형태(`new WebAssembly.Instance`)는 Chromium이 메인 스레드에서 8MB가 넘는 모듈에 거부하므로 쓰지 않습니다. [리더, 잠정 2026-11-14, 이슈 #565] 비동기는 시작할 때뿐이고, 경계 호출은 여전히 동기 직접 호출입니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
   1. Kotlin이 정의해 export한 메모리 하나를 Rust가 import하고, 한쪽이 쓴 arena를 다른 쪽이 제자리에서 읽습니다. 복사한 바이트가 없습니다.
   2. 이벤트 하나가 경계 호출 2회로 끝납니다(PR-4와 같은 기준).

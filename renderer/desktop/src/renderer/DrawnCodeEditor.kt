@@ -228,6 +228,14 @@ private class DrawnState(
                 displayColumn += 1
             }
         }
+        // Muted text after the end of the line, past every caret place the line has, so the
+        // caret and End stay in front of it and no column is under it.
+        for (decoration in model.afterLineDecorations(line)) {
+            builder.pushStyle(SpanStyle(color = look.afterLineInk(decoration.color)))
+            builder.append(AFTER_LINE_GAP)
+            builder.append(decoration.text.substringBefore('\n'))
+            builder.pop()
+        }
         for (span in model.spansInLines(line, line + 1)) {
             val from = if (span.start.line < line) 0 else span.start.column.coerceAtMost(source.length)
             val to = if (span.end.line > line) source.length else span.end.column.coerceAtMost(source.length)
@@ -402,8 +410,10 @@ private class DrawnState(
         if (row < 0) return null
         val view = view(line)
         val local = inside - textLeft
-        // Past the end of the row, the pointer is over no character.
-        if (local > view.layout.size.width - view.rowX(row) || (row < view.rows - 1 && local > view.caretX(view.rowEnd(row)) - view.rowX(row))) return null
+        // Past the end of the row, the pointer is over no character, and text after the end
+        // of the line is past it.
+        val rowRight = if (row < view.rows - 1) view.caretX(view.rowEnd(row)) else view.charX(view.charAt.size - 1)
+        if (local > rowRight - view.rowX(row)) return null
         return CodePosition(line, view.columnOnRow(row, local))
     }
 

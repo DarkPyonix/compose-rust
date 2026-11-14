@@ -3053,7 +3053,7 @@ fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
-/// two backgrounds after them.
+/// two backgrounds and an after-line decoration after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -3065,6 +3065,7 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
         Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
         Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
+        Decoration::after_line(0, 1, "You, 2 days ago", ColorRole::OnSurfaceVariant),
     ])
 }
 
@@ -4117,6 +4118,12 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
         // An icon drawn from a picture in the icon's colour. No record registers the id it
         // names, so the Renderer reports it once when it draws the icon.
         Mutation::Create {
@@ -4646,7 +4653,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 131,
+    "recordCount": 132,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -6701,6 +6708,16 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
         wasmExports.compose_rust_renderer_request_frame,
       compose_rust_renderer_measure:
         wasmExports.compose_rust_renderer_measure,
+    },
+    // The date and the time zone, which the Host reads from the page's own clock. None of
+    // them goes to the Renderer; the timer only asks for a frame, at whose start the Host
+    // checks whether the date changed.
+    compose_rust_time: {
+      now_millis: () => Date.now(),
+      utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),
+      wake_after: (millis) => {
+        setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);
+      },
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),

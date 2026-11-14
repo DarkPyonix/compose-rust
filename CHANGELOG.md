@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Today's date and the local time
+
+`compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).
+
+### Text after the end of a line in the code editor
+
+A decoration kind is appended: `Decoration::after_line(version, line, text, role)` (kind 7) draws muted text after the last character of a line, in the role given, the way an editor shows who last changed a line. It is not text: it cannot be selected or copied, the caret and End stop in front of it, a pointer over it is over no character, and it follows its line through the reader's edits. A copy from the code editor is now always the document's own text, on both paths, and never what the field shows of lenses, suggestions or view zones ([#528](https://github.com/DarkPyonix/compose-rust/issues/528)).
+
 ### Layout modifiers: `size_in`, `width_in`, `height_in`, and `aspect_ratio`
 
 `Modifier` now supports bounded size constraints and aspect ratios: `Modifier.size_in(min_w, max_w, min_h, max_h)`, `Modifier.width_in(min, max)`, `Modifier.height_in(min, max)`, `Modifier.max_width(max)`, `Modifier.max_height(max)`, `Modifier.min_width(min)`, `Modifier.min_height(min)`, and `Modifier.aspect_ratio(ratio)` (with `aspect_ratio_match_height(ratio, match_height)`). Unconstrained bounds are passed as `f32::NAN` and map to `Dp.Unspecified` in Compose's `sizeIn` modifier.
