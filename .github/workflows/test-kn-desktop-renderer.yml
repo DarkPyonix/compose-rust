@@ -26,43 +26,7 @@
 name: Kotlin/Native desktop renderer test
 
 on:
-  workflow_dispatch:
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - renderer/macos/**
-      - renderer/linux/**
-      - renderer/desktop/src/**
-      - renderer/desktop/module.yaml
-      - renderer/desktop/scripts/**
-      # The Windows build's own files feed no job here (macOS and Linux modules only).
-      - '!renderer/desktop/scripts/build-windows.sh'
-      - '!renderer/desktop/scripts/*.ps1'
-      - '!renderer/desktop/scripts/windows-build-contract.test.sh'
-      - '!renderer/desktop/scripts/windows-metadata/**'
-      - renderer/ios/src/shared/**
-      - renderer/scripts/**
-      - renderer/kotlin
-      - renderer/kotlin.bat
-      - renderer/libs.versions.toml
-      - renderer/project.yaml
-      - compose-rust/tests/fixtures/consumer/**
-      - .github/scripts/resize-metrics-run.sh
-      - .github/scripts/resize-memory-check.sh
-      - .github/scripts/resize-soak-check.sh
-      - .github/scripts/idle-soak-check.sh
-      - .github/scripts/vertical-resize-run.sh
-      - .github/scripts/vertical-resize-check.sh
-      - .github/workflows/test-kn-desktop-renderer.yml
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
-  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
-  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
-  group: test-kn-desktop-renderer-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read
