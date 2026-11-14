@@ -329,6 +329,40 @@ fn lists_screen(
         });
 }
 
+/// The bar's row: the title and its action, held to the screen's measure on a wide
+/// window so the title starts where the list starts.
+///
+/// The inset that keeps the title off the measure's edge is horizontal only. The bar is
+/// as tall as the window's caption and centres its row, so an inset above and below
+/// made the row taller than the caption and pushed the title below the window buttons.
+/// A Modifier inset is the same on every side, so the inset is the row's own spacing
+/// instead: an empty Spacer at each end, one spacing step from what lies between them.
+/// The step is the design system's, the same one the list below is inset by.
+#[Composable]
+fn bar_row(measure: Option<f32>, content: impl FnOnce()) {
+    Row()
+        .modifier(
+            Modifier
+                .width_if(measure)
+                .fill_max_width_if(measure.is_none()),
+        )
+        .space_role(if measure.is_some() {
+            SpaceRole::Md
+        } else {
+            SpaceRole::None
+        })
+        .alignment(Alignment::CenterStart)
+        .content(|| {
+            Spacer();
+            Row()
+                .modifier(Modifier.weight(1.0))
+                .space_role(SpaceRole::Sm)
+                .alignment(Alignment::CenterStart)
+                .content(content);
+            Spacer();
+        });
+}
+
 /// The task list.
 #[Composable]
 pub fn app() {
@@ -749,39 +783,30 @@ pub fn app() {
                     .modifier(Modifier.weight(1.0))
                     .alignment(Alignment::Center)
                     .content(|| {
-                        Row()
-                            .modifier(
-                                Modifier
-                                    .width_if(measure)
-                                    .fill_max_width_if(measure.is_none())
-                                    .padding_role_if(measure.map(|_| SpaceRole::Md)),
-                            )
-                            .space_role(SpaceRole::Sm)
-                            .alignment(Alignment::CenterStart)
-                            .content(|| {
-                                // Two lines, as the reference heads every list: what is on
-                                // screen, and a second line nearly as large.
-                                Column().modifier(Modifier.weight(1.0)).content(|| {
-                                    Text(title.clone())
-                                        .type_role(TypeRole::Headline)
+                        bar_row(measure, || {
+                            // Two lines, as the reference heads every list: what is on
+                            // screen, and a second line nearly as large.
+                            Column().modifier(Modifier.weight(1.0)).content(|| {
+                                Text(title.clone())
+                                    .type_role(TypeRole::Headline)
+                                    .max_lines(1)
+                                    .overflow(TextOverflow::Ellipsis);
+                                if let Some(second_line) = second_line.clone() {
+                                    Text(second_line)
+                                        .type_role(TypeRole::Title)
                                         .max_lines(1)
                                         .overflow(TextOverflow::Ellipsis);
-                                    if let Some(second_line) = second_line.clone() {
-                                        Text(second_line)
-                                            .type_role(TypeRole::Title)
-                                            .max_lines(1)
-                                            .overflow(TextOverflow::Ellipsis);
-                                    }
-                                });
-                                bar_menu(
-                                    current_view,
-                                    completed_here,
-                                    data,
-                                    view,
-                                    bar_menu_open,
-                                    about_open,
-                                );
+                                }
                             });
+                            bar_menu(
+                                current_view,
+                                completed_here,
+                                data,
+                                view,
+                                bar_menu_open,
+                                about_open,
+                            );
+                        });
                     });
             });
         })
@@ -1315,7 +1340,9 @@ mod tests {
     use super::*;
     use compose_rust::ComposeHost;
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
-    use compose_rust::schema::{EventPayload, IoStatus, PropertyKind, StorageOp, WidgetKind};
+    use compose_rust::schema::{
+        EventPayload, IoStatus, Modifier as WireModifier, PropertyKind, StorageOp, WidgetKind,
+    };
     use compose_rust::storage::{Backend, testing};
     use std::collections::HashMap;
     use std::sync::OnceLock;
@@ -1440,6 +1467,8 @@ mod tests {
         opens: HashMap<u32, bool>,
         /// Where each node sits among its parent's children.
         positions: HashMap<u32, u32>,
+        /// What each node holds in each of its Modifier slots.
+        modifiers: HashMap<(u32, u16), WireModifier>,
     }
 
     impl MockRenderer {
@@ -1463,6 +1492,17 @@ mod tests {
                         self.positions.insert(*node_id, *index);
                     }
                     Mutation::Remove { node_id } => self.remove_subtree(*node_id),
+                    Mutation::SetModifier {
+                        node_id,
+                        index,
+                        modifier,
+                    } => {
+                        if *modifier == WireModifier::Empty {
+                            self.modifiers.remove(&(*node_id, *index));
+                        } else {
+                            self.modifiers.insert((*node_id, *index), modifier.clone());
+                        }
+                    }
                     Mutation::SetProp {
                         node_id,
                         property,
@@ -1494,6 +1534,7 @@ mod tests {
                             | PropertyKind::TypeRole
                             | PropertyKind::Alignment
                             | PropertyKind::Arrangement
+                            | PropertyKind::SpaceRole
                             | PropertyKind::SelectedIndex,
                             PropertyValue::Integer(value),
                         ) => {
@@ -1534,6 +1575,7 @@ mod tests {
             self.value_handlers.remove(&node_id);
             self.integers.retain(|(node, _), _| *node != node_id);
             self.strings.retain(|(node, _), _| *node != node_id);
+            self.modifiers.retain(|(node, _), _| *node != node_id);
         }
 
         /// An integer property of a live node.
@@ -2160,6 +2202,109 @@ mod tests {
             widths.iter().filter(|width| **width == measure).count(),
             2,
             "the bar and the list should both be the measure: {widths:?}"
+        );
+    }
+
+    /// The containers from the bar's title up to the bar, the title first.
+    fn bar_title_path(mock: &MockRenderer) -> Vec<u32> {
+        let bar = mock.nodes_of_kind(WidgetKind::TopAppBar)[0];
+        let title = mock
+            .nodes_of_kind(WidgetKind::Text)
+            .into_iter()
+            .find(|text| {
+                mock.ancestor(*text, WidgetKind::TopAppBar) == Some(bar)
+                    && mock.integer(*text, PropertyKind::TypeRole)
+                        == Some(i64::from(u16::from(TypeRole::Headline)))
+            })
+            .expect("the bar has no title");
+        let mut path = vec![title];
+        let mut current = title;
+        while current != bar {
+            current = mock.parents[&current];
+            path.push(current);
+        }
+        path
+    }
+
+    /// Whether an inset puts anything above or below what it holds.
+    fn insets_vertically(modifier: &WireModifier) -> bool {
+        match modifier {
+            WireModifier::Padding(dp) => *dp != 0.0,
+            WireModifier::PaddingRole(role) => *role != SpaceRole::None,
+            WireModifier::PaddingEach { top, bottom, .. } => *top != 0.0 || *bottom != 0.0,
+            _ => false,
+        }
+    }
+
+    /// The bar is as tall as the window's caption and centres its row, so the title sits
+    /// on the line of the window buttons only while nothing between the bar and the title
+    /// is inset above or below. A row inset on every side grew past the caption on a wide
+    /// window and dropped the title below the buttons. The row held to the measure is
+    /// still inset across, by the design system's spacing step rather than a dp, and the
+    /// way down from the bar to the title is the same at a medium and an expanded width,
+    /// so the title stands at the same height at both.
+    #[test]
+    fn fr19_2_the_measured_bar_row_is_inset_across_and_never_above_or_below() {
+        let mut ways_down = Vec::new();
+        for width_dp in [760.0, 1180.0] {
+            let screen = Screen::at(width_dp);
+            let mock = &screen.mock;
+            let path = bar_title_path(mock);
+            for node in &path {
+                for ((owner, _), modifier) in &mock.modifiers {
+                    assert!(
+                        !(owner == node && insets_vertically(modifier)),
+                        "at {width_dp} dp the bar's {:?} is inset above or below: {modifier:?}",
+                        mock.widgets.get(node)
+                    );
+                }
+            }
+            let kinds: Vec<Option<WidgetKind>> = path
+                .iter()
+                .map(|node| mock.widgets.get(node).copied())
+                .collect();
+            ways_down.push(kinds);
+
+            if width_dp >= WindowSizeClass::EXPANDED_MIN_WIDTH_DP {
+                let measured = path
+                    .iter()
+                    .copied()
+                    .find(|node| {
+                        mock.modifiers.iter().any(|((owner, _), modifier)| {
+                            *owner == *node
+                                && *modifier
+                                    == WireModifier::Width(WindowSizeClass::EXPANDED_MIN_WIDTH_DP)
+                        })
+                    })
+                    .expect("the bar's row is not held to the measure");
+                assert_eq!(
+                    mock.integer(measured, PropertyKind::SpaceRole),
+                    Some(i64::from(u16::from(SpaceRole::Md))),
+                    "the measured row should be inset across by the design system's step"
+                );
+                let mut children: Vec<u32> = mock
+                    .parents
+                    .iter()
+                    .filter(|(_, parent)| **parent == measured)
+                    .map(|(child, _)| *child)
+                    .collect();
+                children.sort_by_key(|child| mock.positions[child]);
+                assert!(
+                    children.len() >= 3,
+                    "the measured row has no inset at its ends"
+                );
+                for end in [children[0], children[children.len() - 1]] {
+                    assert_eq!(
+                        mock.widgets.get(&end),
+                        Some(&WidgetKind::Spacer),
+                        "each end of the measured row should be the empty step of its inset"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            ways_down[0], ways_down[1],
+            "the title should hang from the bar the same way at 760 and 1180 dp"
         );
     }
 
