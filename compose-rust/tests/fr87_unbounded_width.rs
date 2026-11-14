@@ -27,7 +27,7 @@ fn fr87_unbounded_width_round_trips() {
 
     let expected = [Mutation::SetModifier {
         node_id: 2,
-        index: 35,
+        index: 37,
         modifier: compose_rust::Modifier::UnboundedWidth,
     }];
     let mut encoder = BatchEncoder::default();
@@ -42,7 +42,7 @@ fn fr87_modifier_unbounded_width_builder() {
         Box().modifier(Modifier.unbounded_width()).content(|| {});
     });
     let dump = tree.dump();
-    assert!(dump.contains("UnboundedWidth"), "{dump}");
+    assert!(dump.contains("m37=UnboundedWidth"), "{dump}");
 
     let (_host, tree) = start(|| {
         Box()
@@ -50,7 +50,7 @@ fn fr87_modifier_unbounded_width_builder() {
             .content(|| {});
     });
     let dump = tree.dump();
-    assert!(dump.contains("UnboundedWidth"), "{dump}");
+    assert!(dump.contains("m37=UnboundedWidth"), "{dump}");
 
     let (_host, tree) = start(|| {
         Box()
@@ -59,4 +59,28 @@ fn fr87_modifier_unbounded_width_builder() {
     });
     let dump = tree.dump();
     assert!(!dump.contains("UnboundedWidth"), "{dump}");
+
+    // The last call decides, in either order.
+    let (_host, tree) = start(|| {
+        Box()
+            .modifier(Modifier.unbounded_width().wrap_content_width(false))
+            .content(|| {});
+    });
+    let dump = tree.dump();
+    assert!(!dump.contains("UnboundedWidth"), "{dump}");
+}
+
+/// The modifier has a slot of its own, so it sits beside the size report and the pinning
+/// that a table cell also carries instead of replacing either.
+#[test]
+fn fr87_unbounded_width_keeps_its_own_slot_beside_observe_size_and_sticky() {
+    let (_host, tree) = start(|| {
+        Box()
+            .modifier(Modifier.observe_size_every_dp(7).sticky().unbounded_width())
+            .content(|| {});
+    });
+    let dump = tree.dump();
+    assert!(dump.contains("m23=ObserveSize"), "{dump}");
+    assert!(dump.contains("m35=Sticky"), "{dump}");
+    assert!(dump.contains("m37=UnboundedWidth"), "{dump}");
 }
