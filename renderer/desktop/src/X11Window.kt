@@ -66,6 +66,11 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
             heard.add(event)
         }
 
+        // Queued with the rest, so the scene takes the new size on the loop's turn.
+        override fun onTextScaleChanged(scale: Float) {
+            heard.add(WindowEvent.TextScaleChanged(scale))
+        }
+
         override fun onCloseRequested(): Boolean {
             closed = true
             return true
@@ -111,8 +116,10 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     // queue, and the Host this renderer talks to is on this thread and invisible from
     // there.
     val work = FrameDispatcher()
+    // The system's text size, the scene's font scale, followed while the window is open.
+    val textScale = WindowTextScale(window.textScale())
     val scene = CanvasLayersComposeScene(
-        density = androidx.compose.ui.unit.Density(measured.scale),
+        density = textScale.density(measured.scale),
         size = size,
         coroutineContext = work,
         platformContext = NativePlatformContext({ size }, textInput, semantics, window::setCursor),
@@ -150,7 +157,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
     var painted = false
     val frames = WindowFrames({ window.measure() }) { width, height, scale ->
         val fitted = androidx.compose.ui.unit.IntSize(width, height)
-        val density = androidx.compose.ui.unit.Density(scale)
+        val density = textScale.density(scale)
         // Told to the scene here, in the frame that is about to be drawn at that size,
         // because a drawable that fits and a scene that does not is a window drawing its
         // old size into a corner of its new one.
@@ -223,6 +230,7 @@ internal fun runX11Window(autoExitMillis: Long? = null) {
                         window.readDroppedPaths()
                     }
                 }
+                textScale.receive(event)
                 scene.receive(event)
                 textInput.receive(event)
                 anyHeard = true

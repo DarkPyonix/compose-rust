@@ -30,9 +30,18 @@ import dev.darkpyonix.composerust.runtime.EventDispatcher
  */
 
 /**
- * The protocol key for a Compose key. The schema names Enter and the keys menus, lists and
- * overlays act on; every other key is `Other`, and the event's `code` and `text` say which
- * one it was.
+ * The context-menu key as the JVM development shell's window reports it: AWT's
+ * `VK_CONTEXT_MENU` (525) at the standard location (1), packed the way Compose's desktop
+ * `Key(nativeKeyCode, nativeKeyLocation)` packs them. Compose's own `Key.Menu` is a
+ * placeholder on desktop that no AWT event produces, so without this the key would be
+ * `Other` there. The other windows translate their key numbers to `Key.Menu` themselves.
+ */
+private val AwtContextMenuKey = Key((1L shl 32) or 525L)
+
+/**
+ * The protocol key for a Compose key. The schema names Enter, the keys menus, lists and
+ * overlays act on, the function keys and the context-menu key; every other key is `Other`,
+ * and the event's `code` and `text` say which one it was.
  */
 internal fun protocolKey(key: Key): ProtocolKey = when (key) {
     Key.Enter, Key.NumPadEnter -> ProtocolKey.Enter
@@ -48,6 +57,19 @@ internal fun protocolKey(key: Key): ProtocolKey = when (key) {
     Key.MoveEnd -> ProtocolKey.End
     Key.PageUp -> ProtocolKey.PageUp
     Key.PageDown -> ProtocolKey.PageDown
+    Key.F1 -> ProtocolKey.F1
+    Key.F2 -> ProtocolKey.F2
+    Key.F3 -> ProtocolKey.F3
+    Key.F4 -> ProtocolKey.F4
+    Key.F5 -> ProtocolKey.F5
+    Key.F6 -> ProtocolKey.F6
+    Key.F7 -> ProtocolKey.F7
+    Key.F8 -> ProtocolKey.F8
+    Key.F9 -> ProtocolKey.F9
+    Key.F10 -> ProtocolKey.F10
+    Key.F11 -> ProtocolKey.F11
+    Key.F12 -> ProtocolKey.F12
+    Key.Menu, AwtContextMenuKey -> ProtocolKey.ContextMenu
     else -> ProtocolKey.Other
 }
 
@@ -102,6 +124,9 @@ private val namedKeys: Map<Key, KeyName> = buildMap {
     name(Key.DirectionDown, 0x51, "ArrowDown")
     name(Key.DirectionUp, 0x52, "ArrowUp")
     name(Key.NumPadEnter, 0x58, "Enter")
+    // HID calls the context-menu key "Application"; the DOM calls it "ContextMenu".
+    name(Key.Menu, 0x65, "ContextMenu")
+    name(AwtContextMenuKey, 0x65, "ContextMenu")
     name(Key.CtrlLeft, 0xE0, "Control")
     name(Key.ShiftLeft, 0xE1, "Shift")
     name(Key.AltLeft, 0xE2, "Alt")

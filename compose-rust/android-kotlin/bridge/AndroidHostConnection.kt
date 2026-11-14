@@ -19,28 +19,33 @@ import java.nio.ByteOrder
  *
  * Steady state allocates nothing. The event buffer, the `out` array and the arena view are
  * all reused, and the arena view is only remade when the Host reports a new arena address,
- * which happens when the arena grows.
+ * which happens when the arena grows. The event buffer grows too, when one event is larger
+ * than it: a 64 KiB paste, a long document or a long list of picked files arrives whole
+ * instead of being refused.
  */
 class AndroidHostConnection : HostConnection {
-    private val eventBuffer: ByteBuffer =
-        ByteBuffer.allocateDirect(EVENT_BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+    // Direct, because the Host reads it through JNI without a copy.
+    private val events = GrowingEventBuffer(
+        GrowingEventBuffer.INITIAL_BYTES,
+        GrowingEventBuffer.MAX_BYTES,
+        allocate = { bytes -> ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN) },
+        view = { it },
+    )
     private val out = LongArray(OUT_SLOTS)
     private var arena: ByteBuffer? = null
     private var arenaAddress = 0L
 
     override fun init(onMutation: (Mutation) -> Unit) {
-        eventBuffer.clear()
         // Kotlin owns the process and the frame loop here, which is what the handshake
         // has to say before the Host decides whether to run one.
-        val length = Protocol.handshake(eventBuffer, LoopMode.Platform)
-        checkStatus(nativeInit(eventBuffer, length, out), "init")
+        val length = Protocol.handshake(events.cleared(), LoopMode.Platform)
+        checkStatus(nativeInit(events.buffer, length, out), "init")
         readBatch(onMutation)
     }
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
-        eventBuffer.clear()
-        val length = Protocol.encodeEvent(event, eventBuffer)
-        checkStatus(nativeDispatchEvent(eventBuffer, length, out), "dispatch_event")
+        val length = events.encode(event)
+        checkStatus(nativeDispatchEvent(events.buffer, length, out), "dispatch_event", event)
         readBatch(onMutation)
         return out[OUT_RESULT]
     }
@@ -95,15 +100,17 @@ class AndroidHostConnection : HostConnection {
         return created
     }
 
-    private fun checkStatus(status: Int, operation: String) {
+    private fun checkStatus(status: Int, operation: String, event: HostEvent? = null) {
         if (status != STATUS_OK) {
-            throw HostCallException("compose_rust_host_$operation returned $status")
+            // Which event the Host refused. A bare status says a call failed and leaves the
+            // one question that locates it unanswered; the desktop connection says it too.
+            val about = event?.let { " for $it" } ?: ""
+            throw HostCallException("compose_rust_host_$operation returned $status$about")
         }
     }
 
     private companion object {
         const val STATUS_OK = 0
-        const val EVENT_BUFFER_BYTES = 4096
         const val FRAME_TAG = "dxc-frame"
     }
 }

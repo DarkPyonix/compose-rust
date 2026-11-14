@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.2
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.3
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -29,10 +29,13 @@ set -euo pipefail
 # and main dispatcher, the AppKit pump on the main thread, the window modules, the design systems
 # under extended/design-systems (which scripts/fetch-design-systems.sh reads), and the
 # org.thisisthepy.compose coordinates with extended/compose/publish-local.sh, which this runs.
+# It is the fork's v1.11.1-ext.3 tag, which publishes as 1.11.1-ext.3. Its Compose sources are
+# the same as the ext.2 build's; the tag moves the version line, and the design systems now
+# sit in extended/design-systems/designsystem-<name>, published to Maven Central (fork #212).
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
@@ -42,25 +45,54 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # backport branch feat/windows-window-backport-57b4a0e, which carried those two fixes on an
 # older base; multi-window work builds on `extended` itself. It also holds the macOS file open
 # and save sheets (fork #183, `MacosFileDialogs`), which the macOS renderer shows when the Host
-# asks for a file dialog.
-WINDOW_REVISION="e3088cc0b01cb1d83d904dfa040a2e61d251d8e6"
+# asks for a file dialog, the operating system's text size (fork #156, `WindowPlatform.textScale`
+# and `WindowEvent.TextScaleChanged`), which every desktop window hands its scene as
+# `Density.fontScale`, and the Windows window's file drop through IDropTarget (fork #157), which
+# the Windows renderer routes to the node under the files. The Windows file dialogs (fork #190)
+# are a C file of their own, `win32_file_dialog.c`, which desktop/scripts/build-windows.sh
+# compiles beside the window. It also holds the macOS right click's single system edit menu and
+# the GraalVM window's dropping of Control characters (fork #158), and the Kotlin/Native macOS
+# window's `setApplicationIcon`, live appearance watch and explicit text clipboard (fork #159),
+# all Kotlin in the window modules, so nothing new is compiled or published here. It also holds
+# the IME text staying at the caret after a key moves it (fork #197), the GraalVM Windows
+# window's text size as a multiplier (fork #198), the X11 window's _NET_WM_PID and
+# WM_CLIENT_MACHINE (fork #199) and the macOS window host delivering heard events from its draw
+# path and event handlers (fork #200), so the macOS renderer needs no timer of its own to drain
+# them. Those changes sit in files the window build already compiles. It also holds the code
+# editor style (fork #155), the new accessibility roles (fork #201), the GraalVM macOS window's
+# appearance setter `dxc_native_set_appearance` (fork #203) and the Windows caption buttons with
+# Snap Layouts (fork #202, a header `win32_caption.h` beside `win32_window.c`). The Kotlin/Native
+# Windows window configures its system chrome itself, so its windows keep their caption.
+# It also holds the macOS window typing a key once instead of twice (fork #209), the X11
+# windows reporting Xft.dpi as their scale and following its changes (fork #205), and the
+# Windows window skipping a stretched present when ResizeBuffers fails (fork #206, a header
+# `win32_resize.h` beside `win32_window.c`), the native view slot and both macOS windows following
+# a backing-scale change (fork #207), and the GNOME text scale applied once on Linux (fork #210).
+# It is the fork's v1.11.1-ext.3 tag. Since the window pin before it, it adds the KDE text scale
+# applied once when the fonts DPI is forced (fork #211), which hands the X11 window the desktop's
+# scale beside the text factor through `dxc_native_set_text_factor_for`, and pointer events timed
+# by the platform with its own double-click interval (fork #214), which grows the window's event
+# record and adds `dxc_native_double_click_millis` to the AppKit and Windows windows. The event
+# record is read only by the fork's Kotlin; the renderer's C stand-ins answer the new text factor
+# call on the desktops without an X11 window.
+WINDOW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
 # Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
 # commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+MINGW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.2"
-MATERIAL3_AS="1.11.1-ext.2"
+COMPOSE_AS="1.11.1-ext.3"
+MATERIAL3_AS="1.11.1-ext.3"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
 # scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
 # fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
-SKIKO_AWT_AS="1.11.1-ext.2"
+SKIKO_AWT_AS="1.11.1-ext.3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

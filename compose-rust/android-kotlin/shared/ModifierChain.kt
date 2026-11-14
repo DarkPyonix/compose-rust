@@ -30,8 +30,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
+import dev.darkpyonix.composerust.protocol.BackgroundRepeat
 import dev.darkpyonix.composerust.protocol.ColorRole
 import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,13 +72,16 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -114,6 +120,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     allowPress: Boolean = true,
     allowPadding: Boolean = true,
     pointerEvents: Modifier? = null,
+    motionFinished: ((initialValue: IntSize, targetValue: IntSize) -> Unit)? = null,
 ): Modifier {
     // The last Shape or ShapeRole in the list is what clips, what the border
     // follows and what the background fills, whatever their order in the chain.
@@ -141,6 +148,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     // The corners an HTML box asked for, which its background, border, shadow and clip all
     // follow. Null where the node named no corners of its own.
     val corners = cornerEachShape()
+    // How those corners curve, or null for plain arcs (or the design system's own curve).
+    // The background, border, shadow, clip and press feedback all draw the same outline.
+    val curve = cornerCurve()
     // The first opacity, background, transform and border of a node are where an animation the
     // Renderer plays on it is drawn. They read the animated value in the draw phase, so
     // the animation never recomposes or remeasures the node.
@@ -163,6 +173,19 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             pressColor,
         )
     }
+    // A paint laid over the node, in the same outline its background fills. It goes in
+    // where the padding starts, the place the press feedback goes, so it covers the box the
+    // background and the border are drawn in rather than the padded content alone, and it
+    // draws after the content inside it. It only draws, so the node keeps its size.
+    val overlay = lastOrNull { it is ProtocolModifier.Overlay } as ProtocolModifier.Overlay?
+    var overlayAttached = overlay == null
+    fun attachOverlayIfNeeded(chain: Modifier): Modifier {
+        if (overlayAttached || overlay == null) return chain
+        overlayAttached = true
+        return theme.brush(overlay.paint)?.let { brush -> chain.overlayPaint(brush, shape) }
+            ?: chain.composed { reportUnknownBrush(nodeId, overlay.paint, dispatcher) }
+    }
+    fun beforePadding(chain: Modifier): Modifier = attachOverlayIfNeeded(attachPressableIfNeeded(chain))
     // A node's pointer subscription listens over the whole node, so it goes ahead of everything
     // else. A node drawn through a transform is the exception: there it goes just inside the
     // last one, where Compose has already taken the pointer back through the transform, so
@@ -204,15 +227,38 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.PressFeedback -> chain
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
+            // Read through `shape` and `curve` above: it bends the corners the other
+            // modifiers draw, and on its own draws nothing.
+            is ProtocolModifier.CornerCurve -> chain
+            // Applied round the whole node where it is rendered, outside every other
+            // modifier, so the area it grows is centred on the box the node is drawn in.
+            is ProtocolModifier.MinTouchTarget -> chain
+            // Laid over the node where its padding starts, through `beforePadding` above.
+            is ProtocolModifier.Overlay -> chain
+            // Applied round the whole node where it is rendered, outside every other modifier,
+            // so its background, border and clip stay with it while the rest scrolls.
+            is ProtocolModifier.Sticky -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
-                if (allowPadding) attachPressableIfNeeded(chain).padding(value.value.dp) else chain
+                if (allowPadding) beforePadding(chain).padding(value.value.dp) else chain
             is ProtocolModifier.MatchParentSize -> chain
             is ProtocolModifier.FillMaxWidth -> chain.fillMaxWidth()
             is ProtocolModifier.FillMaxHeight -> chain.fillMaxHeight()
             is ProtocolModifier.Width -> chain.width(value.value.dp)
             is ProtocolModifier.Height -> chain.height(value.value.dp)
             is ProtocolModifier.Size -> chain.size(value.width.dp, value.height.dp)
+            is ProtocolModifier.SizeIn -> chain.sizeIn(
+                minWidth = if (value.minWidth.isNaN()) Dp.Unspecified else value.minWidth.dp,
+                maxWidth = if (value.maxWidth.isNaN()) Dp.Unspecified else value.maxWidth.dp,
+                minHeight = if (value.minHeight.isNaN()) Dp.Unspecified else value.minHeight.dp,
+                maxHeight = if (value.maxHeight.isNaN()) Dp.Unspecified else value.maxHeight.dp,
+            )
+            is ProtocolModifier.AspectRatio ->
+                if (value.ratio > 0f && !value.ratio.isNaN()) {
+                    chain.aspectRatio(value.ratio, value.matchHeightConstraintsFirst)
+                } else {
+                    chain
+                }
             // A gradient where the paint named one, a flat colour otherwise. A paint
             // that names a brush nobody registered is reported and left unpainted: a
             // guess would leave a screen subtly wrong with nothing to read about why.
@@ -228,13 +274,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
 
             is ProtocolModifier.PaddingEach ->
                 if (allowPadding) {
-                    attachPressableIfNeeded(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
+                    beforePadding(chain).padding(value.start.dp, value.top.dp, value.end.dp, value.bottom.dp)
                 } else {
                     chain
                 }
             is ProtocolModifier.PaddingRole ->
                 if (allowPadding) {
-                    attachPressableIfNeeded(chain).padding(theme.space(value.role))
+                    beforePadding(chain).padding(theme.space(value.role))
                 } else {
                     chain
                 }
@@ -263,7 +309,13 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
             // user has asked to hold still answers every role with no run at all.
-            is ProtocolModifier.Motion -> chain.animateContentSize(theme.motion(value.role))
+            //
+            // A node with a motion handler is told when a run reaches its target. Compose
+            // calls the listener only for a run that finished, never for one a newer target
+            // interrupted, and never for the first layout, which has nothing to animate. A
+            // node without the handler passes no listener, which is the modifier it always had.
+            is ProtocolModifier.Motion ->
+                chain.animateContentSize(theme.motion(value.role), finishedListener = motionFinished)
 
             // What this node's surface is made of, drawn above at the outside of the chain.
             is ProtocolModifier.Material -> chain
@@ -290,7 +342,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 } else {
                     val holder = if (!borderSeen) animated?.invoke() else null
                     borderSeen = true
-                    chain.borderEach(value, brushes.map { it!! }, corners, holder)
+                    chain.borderEach(value, brushes.map { it!! }, corners, curve ?: 0f, holder)
                 }
             }
 
@@ -299,13 +351,20 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             // with no overflow rule rounds the decoration and leaves the content alone.
             is ProtocolModifier.CornerEach -> chain
             is ProtocolModifier.Shadow -> theme.brush(value.paint)?.let { brush ->
-                chain.boxShadow(value, brush, corners, shape)
+                chain.boxShadow(value, brush, corners, shape, curve ?: 0f)
+            } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
+
+            // CSS `background-image` with its position, size and repeat: one brush laid into
+            // a rectangle and repeated across the node, cut to the node's outline. Drawn
+            // where it sits in the chain, so a layer after the background colour lies over it.
+            is ProtocolModifier.BackgroundBrush -> theme.brush(value.paint)?.let { brush ->
+                chain.backgroundBrush(value, brush, corners?.withCornerCurve(curve) ?: shape)
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
 
             // `overflow: hidden`: the rounded box where the node has corners, its rectangle
             // where it has none.
             is ProtocolModifier.Clip ->
-                if (value.enabled) chain.clip(corners ?: shape) else chain
+                if (value.enabled) chain.clip(corners?.withCornerCurve(curve) ?: shape) else chain
 
             // CSS `transform`: drawn through layers, so the layout is untouched and a
             // pointer is tested against the shape that is drawn.
@@ -363,7 +422,82 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         }
         if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
-    return attachPressableIfNeeded(folded)
+    return beforePadding(folded)
+}
+
+/**
+ * A paint over the node and everything drawn inside it, filling [shape] at the node's size.
+ * Drawn after the content and never measured, so it neither hides behind a child nor moves
+ * anything.
+ */
+private fun Modifier.overlayPaint(brush: Brush, shape: Shape): Modifier = drawWithCache {
+    val outline = if (shape === RectangleShape) null else shape.createOutline(size, layoutDirection, this)
+    onDrawWithContent {
+        drawContent()
+        if (outline == null) drawRect(brush) else drawOutline(outline, brush)
+    }
+}
+
+/**
+ * One background layer: [brush] laid into the rectangle [value] names and repeated across
+ * the node the way its repeat says, cut to [outline].
+ *
+ * Each copy is the brush drawn into a rectangle of its own, so a gradient is measured
+ * against one tile, as CSS measures a `background-image` against its `background-size`.
+ * A repeat runs both ways from the rectangle until it is past the node's edges, and only
+ * the copies that reach into the node are drawn. Drawn behind the content, as a background.
+ */
+private fun Modifier.backgroundBrush(
+    value: ProtocolModifier.BackgroundBrush,
+    brush: Brush,
+    outline: Shape,
+): Modifier = drawWithCache {
+    val cut = if (outline === RectangleShape) null else outline.createOutline(size, layoutDirection, this)
+    val clip = cut?.let { Path().apply { addOutline(it) } }
+    val left = value.x.dp.toPx()
+    val top = value.y.dp.toPx()
+    val tile = Size(value.width.dp.toPx(), value.height.dp.toPx())
+    val stepX = value.tile_width.dp.toPx()
+    val stepY = value.tile_height.dp.toPx()
+    val acrossX = value.repeat == BackgroundRepeat.Repeat || value.repeat == BackgroundRepeat.RepeatX
+    val acrossY = value.repeat == BackgroundRepeat.Repeat || value.repeat == BackgroundRepeat.RepeatY
+    // The copies that reach into the node, counted from the one at the rectangle.
+    val columns = if (acrossX) copiesAcross(left, tile.width, stepX, size.width) else 0..0
+    val rows = if (acrossY) copiesAcross(top, tile.height, stepY, size.height) else 0..0
+    onDrawBehind {
+        if (tile.width <= 0f || tile.height <= 0f) return@onDrawBehind
+        val paintCopies: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = {
+            for (row in rows) {
+                for (column in columns) {
+                    // The drawing area is made the tile's own, because a brush is
+                    // measured against the area it is drawn in, not the rectangle.
+                    withTransform({
+                        translate(left + column * stepX, top + row * stepY)
+                        inset(0f, 0f, size.width - tile.width, size.height - tile.height)
+                    }) {
+                        drawRect(brush)
+                    }
+                }
+            }
+        }
+        if (clip == null) {
+            clipRect { paintCopies() }
+        } else {
+            clipPath(clip) { paintCopies() }
+        }
+    }
+}
+
+/**
+ * Which copies of a tile [length] long, placed every [step] from [start], reach into a span
+ * from 0 to [extent]: copy 0 is the one at [start], and the range runs both ways from it.
+ */
+private fun copiesAcross(start: Float, length: Float, step: Float, extent: Float): IntRange {
+    if (step <= 0f || length <= 0f) return 0..0
+    // A copy n covers start + n * step to start + n * step + length.
+    val first = kotlin.math.ceil((-length - start) / step).toInt()
+    val last = kotlin.math.floor((extent - start) / step).toInt()
+    return if (first > last) 0..-1 else first..last
 }
 
 /**
@@ -479,8 +613,14 @@ private fun Modifier.reportUnknownBrush(
     return this
 }
 
-/** The shape this node's clip, border and background all use. */
-internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape {
+/**
+ * The shape this node's clip, border, background, shadow and press feedback all use: its
+ * radii, with its corners curved the way its `CornerCurve` says when it has one.
+ */
+internal fun List<ProtocolModifier>.resolvedShape(theme: ResolvedTheme): Shape =
+    resolvedBaseShape(theme).withCornerCurve(cornerCurve())
+
+private fun List<ProtocolModifier>.resolvedBaseShape(theme: ResolvedTheme): Shape {
     for (index in indices.reversed()) {
         when (val value = this[index]) {
             // A radius the Host wrote as a number is a circular arc of that many dp in every
@@ -579,7 +719,9 @@ private fun shadowOutline(
     shape: Shape,
 ): ShadowOutline {
     if (corners != null) return ShadowOutline(corners.roundRect(size, density), null)
-    return when (val outline = shape.createOutline(size, direction, density)) {
+    // A curved corner is read through the radii it curves, so the spread can grow them.
+    val plain = (shape as? CornerCurveShape)?.base ?: shape
+    return when (val outline = plain.createOutline(size, direction, density)) {
         is Outline.Rounded -> ShadowOutline(outline.roundRect, null)
         is Outline.Rectangle -> ShadowOutline(RoundRect(outline.rect), null)
         is Outline.Generic -> ShadowOutline(RoundRect(outline.path.getBounds()), outline.path)
@@ -601,6 +743,8 @@ private fun Modifier.borderEach(
     value: ProtocolModifier.BorderEach,
     brushes: List<Brush>,
     corners: CornerEachShape?,
+    /** How the corners curve; 0 for circular arcs, as CSS draws them. */
+    smoothing: Float,
     /** Where an animation of the border's colour writes the colour every side shows. */
     holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
 ): Modifier = drawWithCache {
@@ -635,8 +779,8 @@ private fun Modifier.borderEach(
     )
     val ring = Path.combine(
         PathOperation.Difference,
-        Path().apply { addRoundRect(outer) },
-        Path().apply { addRoundRect(inner) },
+        if (smoothing > 0f) cornerCurvePath(outer, smoothing) else Path().apply { addRoundRect(outer) },
+        if (smoothing > 0f) cornerCurvePath(inner, smoothing) else Path().apply { addRoundRect(inner) },
     )
     val middleX = width / 2f
     val middleY = height / 2f
@@ -706,6 +850,8 @@ private fun Modifier.boxShadow(
     brush: Brush,
     corners: CornerEachShape?,
     shape: Shape,
+    /** How the outline's corners curve; 0 for circular arcs. */
+    smoothing: Float = 0f,
 ): Modifier = drawWithCache {
     val spread = value.spread.dp.toPx()
     val blur = value.blur.dp.toPx().coerceAtLeast(0f)
@@ -713,7 +859,10 @@ private fun Modifier.boxShadow(
     val dy = value.y.dp.toPx()
     val cast = shadowOutline(size, this, layoutDirection, corners, shape)
     val box = cast.box
-    val boxPath = cast.exact ?: Path().apply { addRoundRect(box) }
+    val boxPath = when {
+        smoothing > 0f -> cornerCurvePath(box, smoothing)
+        else -> cast.exact ?: Path().apply { addRoundRect(box) }
+    }
     val shadowWidth = size.width + 2f * spread
     val shadowHeight = size.height + 2f * spread
     if (shadowWidth <= 0f || shadowHeight <= 0f) {
@@ -732,7 +881,11 @@ private fun Modifier.boxShadow(
         bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
         bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
     )
-    val shapePath = if (spread == 0f && cast.exact != null) cast.exact else Path().apply { addRoundRect(grownBox) }
+    val shapePath = when {
+        smoothing > 0f -> cornerCurvePath(grownBox, smoothing)
+        spread == 0f && cast.exact != null -> cast.exact
+        else -> Path().apply { addRoundRect(grownBox) }
+    }
     if (blur == 0f) {
         return@drawWithCache onDrawBehind {
             clipPath(boxPath, ClipOp.Difference) {
@@ -954,6 +1107,30 @@ internal fun Modifier.pressFeedback(
                 drawOutline(shape.createOutline(size, layoutDirection, this), ink.copy(alpha = tint.coerceIn(0f, 1f)))
             }
         }
+}
+
+/**
+ * The listener a node's size motion reports through: when a run reaches its target, the
+ * size it settled at goes to the node's `OnMotionFinished` handler in dp.
+ *
+ * Called by Compose on the UI thread's frame clock, so the event is written on that same
+ * call, with no queue in between. Made once for each handler and density, not on every
+ * composition, so a node's chain does not change because its handler was asked again.
+ */
+internal fun motionFinishedListener(
+    nodeId: Int,
+    handlerId: Long,
+    density: Density,
+    dispatcher: EventDispatcher,
+): (initialValue: IntSize, targetValue: IntSize) -> Unit = { _, target ->
+    dispatcher.dispatch(
+        HostEvent.MotionFinished(
+            nodeId = nodeId,
+            handlerId = handlerId,
+            widthDp = target.width / density.density,
+            heightDp = target.height / density.density,
+        ),
+    )
 }
 
 /**

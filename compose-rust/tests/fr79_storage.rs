@@ -778,9 +778,9 @@ fn fr79_every_storage_request_gets_exactly_one_answer() {
     assert_eq!(testing::waiting(), 0, "every request was answered");
 }
 
-/// Until the web can carry an answer larger than its event buffer, a read that finds such a
-/// value gets one too-large answer carrying its length, and the application hears how large
-/// it was and what one answer could carry.
+/// A read whose value is larger than the largest event the web carries gets one too-large
+/// answer carrying its length, and the application hears how large it was and what one
+/// answer could carry: the largest event buffer the Host lends, less the answer's record.
 #[test]
 fn fr79_web_an_answer_over_the_event_buffer_is_too_large() {
     let _serial = serial();
@@ -793,7 +793,7 @@ fn fr79_web_an_answer_over_the_event_buffer_is_too_large() {
     let mut session = Session { host, tree };
     assert!(session.press("hide").is_empty());
     let load = session.press("load");
-    let length = 1024 * 1024_u32;
+    let length = 80 * 1024 * 1024_u32;
     session.answer(answer(load[0].0, IoStatus::TooLarge, &length.to_le_bytes()));
     let expected: Result<Option<Vec<u8>>, StorageError> = Err(StorageError::TooLarge {
         len: length as usize,
@@ -803,7 +803,7 @@ fn fr79_web_an_answer_over_the_event_buffer_is_too_large() {
         results().last().cloned(),
         Some(("load", format!("{expected:?}")))
     );
-    assert_eq!(storage::WEB_ANSWER_LIMIT, 4096 - 32);
+    assert_eq!(storage::WEB_ANSWER_LIMIT, 64 * 1024 * 1024 - 32);
 }
 
 #[test]

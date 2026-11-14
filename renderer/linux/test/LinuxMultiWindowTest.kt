@@ -30,11 +30,23 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlinx.cinterop.LongVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.pointed
+import kotlinx.cinterop.ptr
 import kotlinx.cinterop.toKString
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import platform.posix.getenv
+import x11.PMaxSize
+import x11.PMinSize
+import x11.XAllocSizeHints
+import x11.XFree
+import x11.XGetWMNormalHints
+import x11.glXGetCurrentDisplay
+import x11.glXGetCurrentDrawable
 
 /**
  * Multi-window tests on X11: the Linux backend over the fork's X11 window, against a real server (CI runs
@@ -345,6 +357,49 @@ class LinuxMultiWindowTest {
                 a.width == 410 && a.height == 230 && b.width == 450 && b.height == 270
             }
             assertTrue(heard, "one pump per turn did not deliver the resize of both windows")
+        } finally {
+            backend.closeAll()
+        }
+    }
+
+    @Test
+    fun fr53_linux_resizable_and_minimum_size_change_the_size_hints_of_an_open_window() {
+        if (!hasDisplay()) return
+        val backend = backend()
+        try {
+            val window = backend.open(config(1, 320f, 240f), Recorder()) as LinuxPlatformWindow
+            backend.turn()
+            val display = assertNotNull(glXGetCurrentDisplay(), "the window made no GL context current")
+            val drawable = glXGetCurrentDrawable()
+            fun hints(): Triple<Long, Pair<Int, Int>, Pair<Int, Int>> = memScoped {
+                val hints = assertNotNull(XAllocSizeHints())
+                try {
+                    val supplied = alloc<LongVar>()
+                    assertTrue(XGetWMNormalHints(display, drawable, hints, supplied.ptr) != 0, "no size hints set")
+                    Triple(
+                        hints.pointed.flags,
+                        hints.pointed.min_width to hints.pointed.min_height,
+                        hints.pointed.max_width to hints.pointed.max_height,
+                    )
+                } finally {
+                    XFree(hints)
+                }
+            }
+            window.setMinimumSize(100f, 80f)
+            window.setResizable(false)
+            val fixed = hints()
+            assertTrue(fixed.first and PMaxSize.toLong() != 0L, "a fixed window has no maximum size hint")
+            assertEquals(fixed.second, fixed.third, "a fixed window's minimum and maximum differ")
+
+            window.setMinimumSize(120f, 90f)
+            window.setResizable(true)
+            val restored = hints()
+            assertTrue(restored.first and PMinSize.toLong() != 0L, "the minimum size hint is missing")
+            assertEquals(0L, restored.first and PMaxSize.toLong(), "a resizable window kept its maximum size")
+            assertEquals(120 to 90, restored.second)
+
+            window.setMinimumSize(0f, 0f)
+            assertEquals(0L, hints().first and (PMinSize.toLong() or PMaxSize.toLong()), "old constraints stayed")
         } finally {
             backend.closeAll()
         }

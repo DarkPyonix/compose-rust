@@ -11,6 +11,9 @@ import dev.darkpyonix.composerust.runtime.clampZoomLevel
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.m0DemoHost
 import dev.darkpyonix.composerust.ui.platform.WebHostConnection
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 
 /**
  * The web renderer's entry point.
@@ -23,7 +26,9 @@ import dev.darkpyonix.composerust.ui.platform.WebHostConnection
  * The Host is installed here rather than on the page, because this is the first moment at
  * which both modules exist. The page compiled the Host's module before this one was
  * evaluated, and instantiating this one is what created the memory the Host imports, so
- * `install` has both halves in hand and is synchronous.
+ * `install` has both halves in hand. It finishes asynchronously, because a browser refuses
+ * to instantiate a module over 8MB synchronously on its main thread, so the viewport is
+ * composed once it has. Nothing calls the Host before then: its table slots are empty.
  *
  * A page served without a Host beside it falls back to the scripted [m0DemoHost], which is
  * the same development shell the JVM target has: the renderer has to be workable without
@@ -38,19 +43,21 @@ fun main() {
         dev.darkpyonix.composerust.ui.platform.readWebClipboardText(clipboard)
     }
     // The user's files: the browser's pickers, and the handles they give, behind the same
-    // dialog and file requests every platform answers. The event buffer does not grow, so an
-    // answer longer than it is refused whole instead of cut.
+    // dialog and file requests every platform answers. The event buffer grows as far as the
+    // largest one the Host lends, so an answer longer than that is refused whole instead of
+    // cut.
     val files = dev.darkpyonix.composerust.ui.platform.WebFiles()
     dev.darkpyonix.composerust.ui.platform.FileDialogs.platform = files
     dev.darkpyonix.composerust.ui.platform.FileCalls.platform = files
     dev.darkpyonix.composerust.ui.platform.FileDialogs.maxEventBytes =
-        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_BYTES
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES
     // The application's storage is the browser's here, so this side carries the Host's
     // storage requests out, in IndexedDB. An answer travels in the event buffer, so one
-    // larger than it holds is reported as too large rather than cut short.
+    // larger than the largest buffer the Host lends is reported as too large rather than
+    // cut short.
     dev.darkpyonix.composerust.ui.platform.Storage.platform = dev.darkpyonix.composerust.ui.platform.WebStorage()
     dev.darkpyonix.composerust.ui.platform.Storage.maxAnswerBytes =
-        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_BYTES - IO_ANSWER_RECORD_BYTES
+        dev.darkpyonix.composerust.ui.platform.EVENT_BUFFER_MAX_BYTES - IO_ANSWER_RECORD_BYTES
     // The browser's own answer to the media query a page would ask.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
         if (prefersReducedMotion()) {
@@ -62,9 +69,15 @@ fun main() {
     // Where the application's zoom level is kept between visits: the page's local storage,
     // which is the origin's own.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
-    val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
-    ComposeViewport {
-        ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+    MainScope().launch {
+        // The default family's real faces, fetched while the Host is instantiated, so the
+        // first frame is already set in them: a canvas has none of the machine's fonts.
+        val fonts = async { dev.darkpyonix.composerust.ui.platform.installBundledFonts() }
+        val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
+        fonts.await()
+        ComposeViewport {
+            ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
+        }
     }
 }
 

@@ -33,8 +33,12 @@ pub const ACCENT: Paint = Paint::Literal(Color::rgb(0xff_d60a));
 /// that puts a garment in the bag. Lighter than the ink, the way the reference draws it.
 pub const DARK: Paint = Paint::Literal(Color::rgb(0x34_3434));
 
-/// A carousel dot that is not the one showing.
+/// A carousel dot that is not the one showing, and the grabber on a garment's panel.
 pub const DOT: Paint = Paint::Literal(Color::rgb(0xe3_e3e3));
+
+/// A star the rating does not reach. The reference draws it as the same star in a light
+/// grey rather than as an outline.
+pub const FAINT: Paint = Paint::Literal(Color::rgb(0xc4_c4c4));
 
 /// The hairline between two rows of a grouped list.
 pub const OUTLINE: Paint = Paint::Literal(Color::rgb(0xe5_e5e5));
@@ -62,6 +66,7 @@ mod tests {
         assert_eq!(argb(ACCENT), 0xffff_d60a);
         assert_eq!(argb(DARK), 0xff34_3434);
         assert_eq!(argb(DOT), 0xffe3_e3e3);
+        assert_eq!(argb(FAINT), 0xffc4_c4c4);
         assert_eq!(argb(OUTLINE), 0xffe5_e5e5);
         assert_eq!(argb(ALERT), 0xffff_5a4e);
     }
@@ -70,7 +75,9 @@ mod tests {
     /// reference has one accent and it is the yellow above.
     #[test]
     fn fr22_no_colour_in_the_palette_is_the_theme_blue() {
-        for paint in [PAGE, INK, MUTED, TILE, ACCENT, DARK, DOT, OUTLINE, ALERT] {
+        for paint in [
+            PAGE, INK, MUTED, TILE, ACCENT, DARK, DOT, FAINT, OUTLINE, ALERT,
+        ] {
             let value = argb(paint);
             let (red, green, blue) = ((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
             assert!(

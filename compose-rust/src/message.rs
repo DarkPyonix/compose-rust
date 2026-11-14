@@ -9,7 +9,7 @@
 //! So a message is posted and forgotten. It rides out on the batch the current call
 //! produces, in the same way every other record does.
 
-use crate::schema::MessageDuration;
+use crate::schema::{MessageDuration, MessagePlacement};
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 
@@ -19,6 +19,8 @@ pub(crate) struct PendingMessage {
     pub(crate) text: String,
     pub(crate) action: String,
     pub(crate) duration: MessageDuration,
+    pub(crate) placement: Option<MessagePlacement>,
+    pub(crate) offset_dp: Option<f32>,
 }
 
 /// Where message action ids start.
@@ -58,14 +60,18 @@ thread_local! {
 ///     .show();
 /// ```
 ///
-/// Nothing here says where the message appears or what it looks like. Material calls it a
-/// snackbar, Apple a transient overlay, GNOME a toast: the design system decides, the same
-/// way it decides what a `Dialog` looks like.
+/// What it looks like is the design system's: Material calls it a snackbar, Apple a
+/// transient overlay, GNOME a toast, the same way it decides what a `Dialog` looks like.
+/// Where it appears is the design system's too, unless the application asks for a place
+/// with [`Message::with_placement`] or a distance from the edge with
+/// [`Message::with_offset`].
 pub struct Message {
     text: String,
     action: String,
     on_action: Option<Action>,
     duration: MessageDuration,
+    placement: Option<MessagePlacement>,
+    offset_dp: Option<f32>,
 }
 
 impl Message {
@@ -75,6 +81,8 @@ impl Message {
             action: String::new(),
             on_action: None,
             duration: MessageDuration::Short,
+            placement: None,
+            offset_dp: None,
         }
     }
 
@@ -94,6 +102,36 @@ impl Message {
 
     pub fn with_duration(mut self, duration: MessageDuration) -> Self {
         self.duration = duration;
+        self
+    }
+
+    /// Draws the message along `placement`'s edge, at `placement`'s end of it, rather than
+    /// where the design system would put it.
+    ///
+    /// The place is measured from inside the safe area and the application's own bars, so
+    /// a message at the bottom is above a bottom tab bar and one at the top is below the
+    /// top bar.
+    ///
+    /// ```ignore
+    /// Message::new("Copied")
+    ///     .with_placement(MessagePlacement {
+    ///         vertical: MessageVertical::Bottom,
+    ///         horizontal: MessageHorizontal::Center,
+    ///     })
+    ///     .with_offset(96.0)
+    ///     .show();
+    /// ```
+    pub fn with_placement(mut self, placement: MessagePlacement) -> Self {
+        self.placement = Some(placement);
+        self
+    }
+
+    /// How far the message is from the edge it is drawn along, in dp, in place of the
+    /// design system's distance. It is measured from the safe area and the bars, as the
+    /// placement is. A negative or non-finite distance is taken as zero, because a message
+    /// pushed off the screen is a message nobody reads.
+    pub fn with_offset(mut self, dp: f32) -> Self {
+        self.offset_dp = Some(if dp.is_finite() { dp.max(0.0) } else { 0.0 });
         self
     }
 
@@ -122,6 +160,8 @@ impl Message {
                 text: self.text,
                 action: self.action,
                 duration: self.duration,
+                placement: self.placement,
+                offset_dp: self.offset_dp,
             });
         });
     }

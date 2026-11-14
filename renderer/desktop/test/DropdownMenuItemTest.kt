@@ -15,6 +15,16 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.height
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isFocused
+import androidx.compose.ui.test.isRoot
+import androidx.compose.ui.test.onLast
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import dev.darkpyonix.composerust.protocol.HostEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -136,5 +146,95 @@ class DropdownMenuItemTest {
         waitForIdle()
 
         onNodeWithTag(nodeTestTag(1)).assertIsDisplayed()
+    }
+
+    // ----- the keyboard of the open list ---------------------------------------------------
+
+    private val keyHandler = 41L
+    private val keyOptions = listOf(2, 3, 4)
+
+    /** A closed field of three options with the third chosen. */
+    private fun keyboardField() = buildList {
+        add(Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)))
+        add(Mutation.Create(1, WidgetKind.Dropdown))
+        add(Mutation.SetProp(1, PropertyKind.SelectedIndex, PropertyValue.Integer(2)))
+        add(Mutation.SetProp(1, PropertyKind.Collapsible, PropertyValue.Bool(true)))
+        add(Mutation.SetProp(1, PropertyKind.OnValueChange, PropertyValue.Integer(keyHandler)))
+        keyOptions.forEachIndexed { index, id ->
+            add(Mutation.Create(id, WidgetKind.Text))
+            add(Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("Option ${index + 1}")))
+            add(Mutation.Insert(1, id, index))
+        }
+    }
+
+    private fun ComposeUiTest.openKeyboardField(connection: FakeHostConnection) {
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        onNodeWithText("Option 3").performClick()
+        waitForIdle()
+        mainClock.advanceTimeByFrame()
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.press(key: Key) {
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(key) }
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.assertOptionFocused(id: Int, what: String) {
+        val found = onAllNodes(isFocused() and hasAnyDescendant(hasTestTag(nodeTestTag(id))), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+        assertTrue(found.isNotEmpty(), "$what: option $id does not have focus")
+    }
+
+    /**
+     * The third option is chosen: opening the list focuses it, Up moves to the second, and
+     * Enter chooses that one with a single ValueChanged. No key reaches the Host.
+     */
+    @Test
+    fun fr64_dropdown_arrow_keys_move_focus() = runComposeUiTest {
+        val connection = FakeHostConnection(keyboardField())
+        openKeyboardField(connection)
+        assertOptionFocused(keyOptions[2], "on open, the chosen option")
+        press(Key.DirectionDown)
+        assertOptionFocused(keyOptions[0], "Down from the last goes round to the first")
+        press(Key.MoveEnd)
+        assertOptionFocused(keyOptions[2], "End")
+        press(Key.DirectionUp)
+        assertOptionFocused(keyOptions[1], "Up")
+        press(Key.Enter)
+        assertEquals(
+            listOf(HostEvent.ValueChanged(1, keyHandler, 1.0)),
+            connection.events.filterIsInstance<HostEvent.ValueChanged>(),
+            "Enter chooses the focused option, once",
+        )
+        assertTrue(
+            onAllNodes(hasTestTag(dropdownPopupTestTag(1))).fetchSemanticsNodes().isEmpty(),
+            "choosing an option left the list open",
+        )
+        assertTrue(
+            connection.events.none { it is HostEvent.KeyDown || it is HostEvent.KeyUp },
+            "the list's keys reached the Host: ${connection.events}",
+        )
+    }
+
+    /** Escape closes the list without choosing and gives focus back to the field. */
+    @Test
+    fun fr64_dropdown_escape_returns_focus_to_the_field() = runComposeUiTest {
+        val connection = FakeHostConnection(keyboardField())
+        openKeyboardField(connection)
+        assertOptionFocused(keyOptions[2], "on open")
+        press(Key.Escape)
+        assertTrue(
+            onAllNodes(hasTestTag(dropdownPopupTestTag(1))).fetchSemanticsNodes().isEmpty(),
+            "Escape left the list open",
+        )
+        assertTrue(
+            connection.events.none { it is HostEvent.ValueChanged },
+            "Escape chose an option: ${connection.events}",
+        )
+        val focused = onAllNodes(isFocused() and hasAnyDescendant(hasTestTag(nodeTestTag(keyOptions[2]))), useUnmergedTree = true)
+            .fetchSemanticsNodes()
+        assertTrue(focused.isNotEmpty(), "focus did not come back to the field")
     }
 }

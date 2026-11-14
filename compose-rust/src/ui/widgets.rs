@@ -14,15 +14,19 @@ use super::{
     Attrs, Modifier, Mods, dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers,
     role_or_zero, widget_key,
 };
+use crate::asset::AssetId;
 use crate::drawing::DrawList;
+use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, IconRole,
-    Paint, SlotRole, SpaceRole, TextAlign, TextOverflow, TypeRole, WidgetKind, WordBreak,
+    Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
+    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
-use crate::{FileDrop, KeyEvent, PointerEvent, PointerKinds};
+use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -208,7 +212,22 @@ struct FocusAndKeyHandlers {
     on_focus_lost: Option<Box<dyn FnMut()>>,
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
+}
+
+/// Writes a motion handler as the listener the wire needs. A node that was given none has
+/// no `OnMotionFinished` at all, and the Renderer attaches nothing to its size motion.
+fn motion_input(
+    handler: Option<Box<dyn FnMut(MotionFinished)>>,
+    listeners: &mut Vec<(&'static str, EventCallback)>,
+) {
+    if let Some(handler) = handler {
+        listeners.push((
+            "onmotionfinished",
+            EventCallback::Motion(Rc::new(RefCell::new(handler))),
+        ));
+    }
 }
 
 /// Turns the handlers into listeners and binds the focus handle, if there is one, to the
@@ -236,6 +255,7 @@ fn focus_and_key_input(
             EventCallback::Key(Rc::new(RefCell::new(handler))),
         ));
     }
+    motion_input(handlers.on_motion_finished.take(), listeners);
 }
 
 macro_rules! focus_and_key_handlers {
@@ -269,6 +289,19 @@ macro_rules! focus_and_key_handlers {
             /// Binds `handle` to this node, so `handle.request()` puts keyboard focus here.
             pub fn focus_handle(mut self, handle: &super::FocusHandle) -> Self {
                 self.focus_and_keys.focus_handle = Some(handle.clone());
+                self
+            }
+
+            /// Runs once when this node's size motion comes to rest, with the size it settled
+            /// at in dp. The node needs `Modifier::motion` for its size to move; without it
+            /// nothing is reported. A run interrupted by a newer size is not reported, only
+            /// the one that settles, and under reduced motion it arrives in the frame the
+            /// size changes in.
+            pub fn on_motion_finished(
+                mut self,
+                handler: impl FnMut(MotionFinished) + 'static,
+            ) -> Self {
+                self.focus_and_keys.on_motion_finished = Some(std::boxed::Box::new(handler));
                 self
             }
         }
@@ -324,6 +357,7 @@ struct Linear {
     space_role: Option<SpaceRole>,
     alignment: Option<Alignment>,
     intrinsic_size: Option<bool>,
+    radio_group: bool,
 }
 
 impl Linear {
@@ -334,6 +368,10 @@ impl Linear {
         attrs.push(("alignment", role_or_zero(self.alignment)));
         if let Some(intrinsic) = self.intrinsic_size {
             attrs.push(("collapsible", OwnedAttr::Bool(intrinsic)));
+        }
+        // Written only for a group, so a plain layout sends what it always did.
+        if self.radio_group {
+            attrs.push(("radio_group", OwnedAttr::Bool(true)));
         }
     }
 }
@@ -397,8 +435,21 @@ macro_rules! linear {
                 self
             }
 
+            /// Makes this layout a group of the `RadioButton`s inside it.
+            ///
+            /// The group is one stop for Tab: the selected button, or the first when none
+            /// is. The arrow keys move focus to the next or the previous button, wrapping
+            /// at the ends, and each move sends that button's `on_change(true)` once, the
+            /// same report a click sends. Which button is selected is still the
+            /// application's to decide. Assistive technology hears the layout as a radio
+            /// group.
+            pub fn radio_group(mut self, enabled: bool) -> Self {
+                self.linear.radio_group = enabled;
+                self
+            }
+
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let linear = std::mem::take(&mut self.linear);
                 let pointer = self.pointer.take();
                 let tear_off = self.tear_off.take();
@@ -449,6 +500,103 @@ impl ColumnScope {
     }
 }
 
+/// A `FlowRow` and its builder.
+pub struct FlowRowScope {
+    modifier: Modifier,
+    horizontal_spacing: Option<f32>,
+    vertical_spacing: Option<f32>,
+    horizontal_alignment: Option<HorizontalAlignment>,
+    vertical_alignment: Option<VerticalAlignment>,
+    max_items_in_each_row: Option<u32>,
+    done: bool,
+}
+
+/// Lays its children out on a line and starts a new line when the next child does not fit
+/// in what is left of it. Each child is measured at its own width, so a line breaks where
+/// the text really ends rather than where an estimate put it. A child wider than the whole
+/// line has the line to itself and is measured at the line's width. Compose's `FlowRow`.
+pub fn FlowRow() -> FlowRowScope {
+    FlowRowScope {
+        modifier: Modifier::new(),
+        horizontal_spacing: None,
+        vertical_spacing: None,
+        horizontal_alignment: None,
+        vertical_alignment: None,
+        max_items_in_each_row: None,
+        done: false,
+    }
+}
+
+impl FlowRowScope {
+    /// The gap between two children on the same line, in dp.
+    pub fn horizontal_spacing(mut self, dp: f32) -> Self {
+        self.horizontal_spacing = Some(dp);
+        self
+    }
+
+    /// The gap between two lines, in dp.
+    pub fn vertical_spacing(mut self, dp: f32) -> Self {
+        self.vertical_spacing = Some(dp);
+        self
+    }
+
+    /// Where the children of a line sit along it when they do not fill it. `Start` when
+    /// not set.
+    pub fn horizontal_alignment(mut self, alignment: HorizontalAlignment) -> Self {
+        self.horizontal_alignment = Some(alignment);
+        self
+    }
+
+    /// Where a child sits inside the height of its line. `Top` when not set.
+    pub fn vertical_alignment(mut self, alignment: VerticalAlignment) -> Self {
+        self.vertical_alignment = Some(alignment);
+        self
+    }
+
+    /// The most children one line holds, even when more would fit. No limit when not set.
+    pub fn max_items_in_each_row(mut self, count: u32) -> Self {
+        self.max_items_in_each_row = Some(count);
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = std::mem::take(&mut self.modifier);
+        let (horizontal_spacing, vertical_spacing) =
+            (self.horizontal_spacing, self.vertical_spacing);
+        let (horizontal_alignment, vertical_alignment) =
+            (self.horizontal_alignment, self.vertical_alignment);
+        let max_items = self.max_items_in_each_row;
+        emit(
+            widget_key("compose_rust::ui::FlowRow"),
+            WidgetKind::FlowRow,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Container, attrs);
+                // Only what was set is written: an absent property is the Renderer's
+                // default, and a zero gap or tag would say nothing an absent one does not.
+                if let Some(dp) = horizontal_spacing {
+                    attrs.push(("horizontal_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(dp) = vertical_spacing {
+                    attrs.push(("vertical_spacing", dp_or_zero(Some(dp))));
+                }
+                if let Some(alignment) = horizontal_alignment {
+                    attrs.push(("horizontal_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(alignment) = vertical_alignment {
+                    attrs.push(("vertical_alignment", role_or_zero(Some(alignment))));
+                }
+                if let Some(count) = max_items {
+                    attrs.push(("max_items_in_each_row", OwnedAttr::Int(i64::from(count))));
+                }
+            },
+            Vec::new(),
+            content,
+        );
+    }
+}
+
+container!(FlowRowScope);
+
 /// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
 /// this module would otherwise hide.
 pub struct ComposeBox {
@@ -482,7 +630,7 @@ impl ComposeBox {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let (modifier, alignment) = (self.modifier, self.alignment);
+        let (modifier, alignment) = (std::mem::take(&mut self.modifier), self.alignment);
         let pointer = self.pointer.take();
         let tear_off = self.tear_off.take();
         let mut listeners = Vec::new();
@@ -536,7 +684,7 @@ macro_rules! plain_container {
 
         impl $name {
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
@@ -660,6 +808,7 @@ macro_rules! scroll_container {
         pub struct $name {
             modifier: Modifier,
             scroll_state: Option<ScrollState>,
+            snap: Snap,
             pointer: Option<PointerSubscription>,
             on_click: Option<Box<dyn FnMut()>>,
             focus_and_keys: FocusAndKeyHandlers,
@@ -671,6 +820,7 @@ macro_rules! scroll_container {
             $name {
                 modifier: Modifier::new(),
                 scroll_state: None,
+                snap: Snap::None,
                 pointer: None,
                 on_click: None,
                 focus_and_keys: FocusAndKeyHandlers::default(),
@@ -686,8 +836,20 @@ macro_rules! scroll_container {
                 self
             }
 
+            /// Where the content comes to rest once a drag or a fling ends.
+            ///
+            /// `Snap::None`, the default, stops wherever the user left it.
+            /// `Snap::ItemStart` stops with the start edge of the nearest direct child on
+            /// the start of the visible area, like CSS `scroll-snap-align: start`. The
+            /// Renderer runs the snap, so it follows the platform's fling physics.
+            pub fn snap(mut self, snap: Snap) -> Self {
+                self.snap = snap;
+                self
+            }
+
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
+                let snap = self.snap;
                 let scroll_state = self.scroll_state.take();
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
@@ -701,6 +863,11 @@ macro_rules! scroll_container {
                     WidgetKind::$widget,
                     |attrs| {
                         push_modifiers(&modifier, Mods::Standard, attrs);
+                        // Free scrolling is the default, and the default is not sent: a
+                        // container that says nothing travels as it did before snapping.
+                        if snap != Snap::None {
+                            attrs.push(("snap", OwnedAttr::Int(i64::from(u16::from(snap)))));
+                        }
                         attrs.append(&mut subscription);
                     },
                     listeners,
@@ -783,7 +950,9 @@ pub struct TextScope {
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
     font: FontRefs,
+    font_features: OwnedAttr,
     word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
     pointer: Option<PointerSubscription>,
     done: bool,
 }
@@ -807,7 +976,9 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         max_lines: None,
         overflow: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
         word_break: None,
+        overflow_wrap: None,
         pointer: None,
         done: false,
     }
@@ -835,11 +1006,16 @@ impl TextScope {
         self
     }
 
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
     }
 
+    /// Extra space between letters, in sp. 0 draws no extra spacing; NaN, like never
+    /// calling this, takes the type role's spacing.
     pub fn letter_spacing(mut self, sp: f32) -> Self {
         self.letter_spacing = Some(sp);
         self
@@ -872,18 +1048,40 @@ impl TextScope {
         self
     }
 
+    /// OpenType features of the font the text is set in, such as
+    /// `FontFeature::TABULAR_NUMS` for digits of one width. Compose's
+    /// `TextStyle.fontFeatureSettings`, CSS's `font-feature-settings`.
+    ///
+    /// Taken with or without a type role: a feature picks one of the forms the font already
+    /// has and does not change the font. A tag given twice takes the later value, an empty
+    /// list is no features, and at most `MAX_FONT_FEATURES` (16) are taken. A font without
+    /// the feature draws as it would have.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
     /// Where a line may break inside a word. CSS `word-break`.
     pub fn word_break(mut self, word_break: WordBreak) -> Self {
         self.word_break = Some(word_break);
         self
     }
 
+    /// Whether a token too long for its line, such as a path or a URL, may break inside
+    /// itself. CSS `overflow-wrap`. With `Anywhere` such a token breaks between its letters
+    /// even under `WordBreak::KeepAll`; tokens that fit keep the breaking rule they had.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
         let font = std::mem::take(&mut self.font);
-        let word_break = self.word_break;
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let (type_role, font_size, font_weight, line_height, letter_spacing) = (
             self.type_role,
             self.font_size,
@@ -923,16 +1121,31 @@ impl TextScope {
                     },
                 ));
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, so such a text sends what it
+                // always did. A first composition writes every attribute in the list, an
+                // empty one as well, so leaving it out is what keeps it off the wire.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
                 attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
                 attrs.push(("text", OwnedAttr::Text(text)));
-                attrs.push(("type_role", role_or_zero(type_role)));
+                // `TypeRole::None` is tag 0, so it travels as an explicit 0 and a role that
+                // was never set travels as nothing. Sent the other way, the text that names
+                // its own fonts could not say it has no role, and the Renderer set it in
+                // the default role's font with its fonts ignored.
+                attrs.push(("type_role", super::role(type_role)));
                 attrs.push(("font_size", dp_or_zero(font_size)));
                 attrs.push((
                     "font_weight",
                     OwnedAttr::Int(i64::from(font_weight.unwrap_or(0))),
                 ));
                 attrs.push(("line_height", dp_or_zero(line_height)));
-                attrs.push(("letter_spacing", dp_or_zero(letter_spacing)));
+                // Unset is NaN, so an explicit 0 stays a 0 and draws no extra spacing.
+                attrs.push((
+                    "letter_spacing",
+                    OwnedAttr::Float(letter_spacing.map_or(f64::NAN, f64::from)),
+                ));
                 attrs.push(("color", paint_or_zero(color)));
                 attrs.push(("text_align", role_or_zero(text_align)));
                 attrs.push((
@@ -964,7 +1177,12 @@ pub struct TextFieldScope {
     line_height: Option<f32>,
     letter_spacing: Option<f32>,
     color: Option<Paint>,
+    placeholder_color: Option<Paint>,
+    caret_color: Option<Paint>,
     font: FontRefs,
+    font_features: OwnedAttr,
+    word_break: Option<WordBreak>,
+    overflow_wrap: Option<OverflowWrap>,
     on_value_change: Option<Box<dyn FnMut(String)>>,
     on_submit: Option<Box<dyn FnMut(String)>>,
     on_focus_gained: Option<Box<dyn FnMut()>>,
@@ -972,7 +1190,9 @@ pub struct TextFieldScope {
     on_key_down: Option<Box<dyn FnMut(KeyEvent)>>,
     on_key_up: Option<Box<dyn FnMut(KeyEvent)>>,
     on_composition_change: Option<Box<dyn FnMut(bool)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
+    bare: bool,
     done: bool,
 }
 
@@ -992,7 +1212,12 @@ pub fn TextField() -> TextFieldScope {
         line_height: None,
         letter_spacing: None,
         color: None,
+        placeholder_color: None,
+        caret_color: None,
         font: FontRefs::default(),
+        font_features: OwnedAttr::None,
+        word_break: None,
+        overflow_wrap: None,
         on_value_change: None,
         on_submit: None,
         on_focus_gained: None,
@@ -1000,7 +1225,9 @@ pub fn TextField() -> TextFieldScope {
         on_key_down: None,
         on_key_up: None,
         on_composition_change: None,
+        on_motion_finished: None,
         focus_handle: None,
+        bare: false,
         done: false,
     }
 }
@@ -1048,7 +1275,9 @@ impl TextFieldScope {
         self
     }
 
-    /// Explicit line height in sp.
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
@@ -1066,9 +1295,44 @@ impl TextFieldScope {
         self
     }
 
+    /// Explicit placeholder text colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn placeholder_color(mut self, paint: Paint) -> Self {
+        self.placeholder_color = Some(paint);
+        self
+    }
+
+    /// Explicit caret colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn caret_color(mut self, paint: Paint) -> Self {
+        self.caret_color = Some(paint);
+        self
+    }
+
     /// The fonts to try for the field's text, in order. Taken only with `TypeRole::None`.
     pub fn font(mut self, font: FontRefs) -> Self {
         self.font = font;
+        self
+    }
+
+    /// OpenType features for the typed text and the placeholder, as
+    /// `Text::font_feature_settings` takes them. Taken with or without a type role.
+    pub fn font_feature_settings(mut self, features: &[FontFeature]) -> Self {
+        self.font_features = crate::font_features::font_feature_attr(features);
+        self
+    }
+
+    /// Where a line of the typed text and of the placeholder may break inside a word, as
+    /// `Text::word_break` does. CSS `word-break`.
+    pub fn word_break(mut self, word_break: WordBreak) -> Self {
+        self.word_break = Some(word_break);
+        self
+    }
+
+    /// Whether a token too long for its line may break inside itself, in the typed text
+    /// and the placeholder, as `Text::overflow_wrap` does. CSS `overflow-wrap`.
+    pub fn overflow_wrap(mut self, overflow_wrap: OverflowWrap) -> Self {
+        self.overflow_wrap = Some(overflow_wrap);
         self
     }
 
@@ -1117,15 +1381,38 @@ impl TextFieldScope {
         self
     }
 
+    /// Runs once when the field's size motion comes to rest, with the size it settled at
+    /// in dp. The field needs `Modifier::motion` for its size to move; without it nothing
+    /// is reported. A run interrupted by a newer size is not reported, only the one that
+    /// settles.
+    pub fn on_motion_finished(mut self, handler: impl FnMut(MotionFinished) + 'static) -> Self {
+        self.on_motion_finished = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// Draws the field without the design system's frame: no fill, line, underline,
+    /// corner clip, inner padding, minimum height or focus line. Text, placeholder, caret,
+    /// selection and input methods stay as they are. For a field that sits inside a box
+    /// which already draws its own frame, so the frame is not drawn twice. A `background`
+    /// or `border` given on the node is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
+        let bare = self.bare;
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
+        let (placeholder_color, caret_color) = (self.placeholder_color, self.caret_color);
         let font = std::mem::take(&mut self.font);
+        let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
+        let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
         let key_down: EventCallback = match self.on_key_down.take() {
             Some(handler) => EventCallback::Key(Rc::new(RefCell::new(handler))),
             None => EventCallback::Key(Rc::new(RefCell::new(|_: KeyEvent| {}))),
@@ -1153,6 +1440,7 @@ impl TextFieldScope {
                 }))),
             ));
         }
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
             widget_key("compose_rust::ui::TextField"),
@@ -1167,7 +1455,9 @@ impl TextFieldScope {
                 attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
-                attrs.push(("type_role", role_or_zero(type_role)));
+                // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
+                // as for `Text`.
+                attrs.push(("type_role", super::role(type_role)));
                 if let Some(font_size) = font_size {
                     attrs.push(("font_size", OwnedAttr::Float(font_size as f64)));
                 }
@@ -1183,7 +1473,23 @@ impl TextFieldScope {
                 if let Some(color) = color {
                     attrs.push(("color", super::paint(Some(color))));
                 }
+                if let Some(placeholder_color) = placeholder_color {
+                    attrs.push(("placeholder_color", super::paint(Some(placeholder_color))));
+                }
+                if let Some(caret_color) = caret_color {
+                    attrs.push(("caret_color", super::paint(Some(caret_color))));
+                }
                 attrs.push(("font", font_bytes(&font)));
+                // Left out when no feature was asked for, as `Text` leaves it out.
+                if font_features != OwnedAttr::None {
+                    attrs.push(("font_feature_settings", font_features));
+                }
+                attrs.push(("word_break", super::role(word_break)));
+                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                // Written only for a bare field, so a framed one sends what it always did.
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
+                }
             },
             listeners,
             content,
@@ -1206,7 +1512,7 @@ fn lines_and_overflow(max_lines: Option<u32>, overflow: Option<TextOverflow>, at
     }
 }
 
-/// The colours and size a Switch, Slider or Checkbox was asked to draw with. Each is sent
+/// The colours and size a Switch, Slider, Checkbox or RadioButton was asked to draw with. Each is sent
 /// only when it was set, so a control that sets none sends the properties it always has
 /// and the design system draws it.
 #[derive(Clone, Copy, Default)]
@@ -1293,6 +1599,8 @@ pub struct ButtonScope {
     accessible_name: Option<String>,
     text_align: Option<TextAlign>,
     font_size: Option<f32>,
+    font_weight: Option<u16>,
+    type_role: Option<TypeRole>,
     on_click: Option<Box<dyn FnMut()>>,
     focus_handle: Option<super::FocusHandle>,
     done: bool,
@@ -1317,6 +1625,8 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         accessible_name: None,
         text_align: None,
         font_size: None,
+        font_weight: None,
+        type_role: None,
         on_click: None,
         focus_handle: None,
         done: false,
@@ -1337,6 +1647,21 @@ impl ButtonScope {
     /// design system's size for its variant.
     pub fn font_size(mut self, sp: f32) -> Self {
         self.font_size = Some(sp);
+        self
+    }
+
+    /// The label's weight (e.g. 400, 500, 600, 700). Overrides the type role's weight. A
+    /// button that never calls this sends nothing.
+    pub fn font_weight(mut self, weight: u16) -> Self {
+        self.font_weight = Some(weight);
+        self
+    }
+
+    /// The rung of the type ladder the label is set in: its size, weight and line height.
+    /// `font_size` and `font_weight` win over the role's values. A button that never calls
+    /// this sends nothing and keeps the design system's label style for its variant.
+    pub fn type_role(mut self, role: TypeRole) -> Self {
+        self.type_role = Some(role);
         self
     }
 
@@ -1400,13 +1725,14 @@ impl ButtonScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
+        let (font_weight, type_role) = (self.font_weight, self.type_role);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
         super::focus::bind_focus_handle(self.focus_handle.take());
         emit(
@@ -1427,6 +1753,12 @@ impl ButtonScope {
                 }
                 if font_size.is_some() {
                     attrs.push(("font_size", dp_or_zero(font_size)));
+                }
+                if let Some(font_weight) = font_weight {
+                    attrs.push(("font_weight", OwnedAttr::Int(i64::from(font_weight))));
+                }
+                if type_role.is_some() {
+                    attrs.push(("type_role", super::role(type_role)));
                 }
             },
             listeners,
@@ -1481,7 +1813,7 @@ macro_rules! toggle {
             }
 
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let (checked, enabled) = (self.checked, self.enabled);
                 let accessible_name = self.accessible_name.take();
                 let look = self.look;
@@ -1551,6 +1883,28 @@ impl CheckboxScope {
     }
 }
 
+control_colour!(
+    RadioButtonScope,
+    container,
+    ring_color,
+    "The ring around the button, selected or not. Where the design system fills a selected \
+     button, the fill takes this colour as well."
+);
+control_colour!(
+    RadioButtonScope,
+    check,
+    dot_color,
+    "The dot inside a selected button."
+);
+
+impl RadioButtonScope {
+    /// The diameter of the ring in dp. The dot scales with it.
+    pub fn size(mut self, side: f32) -> Self {
+        self.look.size = Some((side, side));
+        self
+    }
+}
+
 toggle!(
     CheckboxScope,
     Checkbox,
@@ -1584,6 +1938,7 @@ pub struct SliderScope {
     enabled: bool,
     accessible_name: Option<String>,
     look: ControlLook,
+    thumb_size: Option<f32>,
     on_change: Option<Box<dyn FnMut(f32)>>,
     done: bool,
 }
@@ -1601,6 +1956,7 @@ pub fn Slider(value: f32) -> SliderScope {
         enabled: true,
         accessible_name: None,
         look: ControlLook::default(),
+        thumb_size: None,
         on_change: None,
         done: false,
     }
@@ -1646,13 +2002,22 @@ impl SliderScope {
         self
     }
 
+    /// The thumb's diameter in dp. Without it the design system picks the size. The track
+    /// and the area that takes a press do not change with it, so a small thumb is still
+    /// easy to grab.
+    pub fn thumb_size(mut self, dp: f32) -> Self {
+        self.thumb_size = Some(dp);
+        self
+    }
+
     pub fn on_change(mut self, handler: impl FnMut(f32) + 'static) -> Self {
         self.on_change = Some(std::boxed::Box::new(handler));
         self
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
+        let thumb_size = self.thumb_size;
         let (color, value, min, max, steps, enabled) = (
             self.color,
             self.value,
@@ -1682,6 +2047,9 @@ impl SliderScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 push_accessible_name(accessible_name, attrs);
                 look.push(attrs);
+                if let Some(dp) = thumb_size {
+                    attrs.push(("thumb_size", OwnedAttr::Float(f64::from(dp))));
+                }
             },
             vec![("onchange", handler)],
             content,
@@ -1697,6 +2065,8 @@ pub struct ProgressIndicatorScope {
     value: f32,
     determinate: bool,
     circular: bool,
+    color: Option<Paint>,
+    track_color: Option<Paint>,
     done: bool,
 }
 
@@ -1707,6 +2077,8 @@ pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
         value,
         determinate: true,
         circular: false,
+        color: None,
+        track_color: None,
         done: false,
     }
 }
@@ -1728,9 +2100,39 @@ impl ProgressIndicatorScope {
         self
     }
 
+    /// The indicator's colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no colour of its own.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    /// The indicator's colour.
+    pub fn indicator_color(self, paint: Paint) -> Self {
+        self.color(paint)
+    }
+
+    /// The track's colour.
+    pub fn track_color(mut self, paint: Paint) -> Self {
+        self.track_color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no track colour of its own.
+    pub fn track_color_if(mut self, paint: Option<Paint>) -> Self {
+        self.track_color = paint;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, determinate, circular) = (self.value, self.determinate, self.circular);
+        let (color, track_color) = (self.color, self.track_color);
         emit(
             widget_key("compose_rust::ui::ProgressIndicator"),
             WidgetKind::ProgressIndicator,
@@ -1739,6 +2141,12 @@ impl ProgressIndicatorScope {
                 attrs.push(("value", OwnedAttr::Float(f64::from(value))));
                 attrs.push(("determinate", OwnedAttr::Bool(determinate)));
                 attrs.push(("circular", OwnedAttr::Bool(circular)));
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(track) = track_color {
+                    attrs.push(("track_color", super::paint(Some(track))));
+                }
             },
             Vec::new(),
             content,
@@ -1777,7 +2185,7 @@ impl DividerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let vertical = self.vertical;
         emit(
             widget_key("compose_rust::ui::Divider"),
@@ -1801,7 +2209,11 @@ pub struct AssetScope {
     modifier: Modifier,
     widget: WidgetKind,
     asset_id: u32,
+    // Whether the asset is a picture drawn as an icon: in the icon slot, at an icon's size,
+    // and in the icon's colour rather than its own.
+    tinted: bool,
     color: Option<Paint>,
+    content_scale: Option<ContentScale>,
     done: bool,
 }
 
@@ -1811,7 +2223,9 @@ pub fn Image(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Image,
         asset_id,
+        tinted: false,
         color: None,
+        content_scale: None,
         done: false,
     }
 }
@@ -1822,8 +2236,40 @@ pub fn Icon(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Icon,
         asset_id,
+        tinted: false,
         color: None,
+        content_scale: None,
         done: false,
+    }
+}
+
+/// The other ways to make an `Icon`, beside [`Icon()`] with an id registered by role.
+pub enum Icon {}
+
+impl Icon {
+    /// An icon drawn from an SVG the application ships, registered with
+    /// [`asset`](crate::asset::asset) as [`AssetKind::Svg`](crate::schema::AssetKind::Svg).
+    ///
+    /// The picture is drawn in the icon slot at the size an [`IconRole`] icon has in the
+    /// design system, and in the icon's colour: every fill and every stroke takes the
+    /// [`color`](AssetScope::color) given, or the colour an icon has when none is, and keeps
+    /// its own alpha. A colour given as a role follows the light and the dark scheme.
+    ///
+    /// ```ignore
+    /// static BELL: &[u8] = include_bytes!("../icons/bell.svg");
+    ///
+    /// Icon::asset(asset(AssetKind::Svg, BELL)).color(Paint::Role(ColorRole::Primary));
+    /// ```
+    pub fn asset(asset_id: AssetId) -> AssetScope {
+        AssetScope {
+            modifier: Modifier::new(),
+            widget: WidgetKind::Icon,
+            asset_id,
+            tinted: true,
+            color: None,
+            content_scale: None,
+            done: false,
+        }
     }
 }
 
@@ -1834,9 +2280,21 @@ impl AssetScope {
         self
     }
 
+    /// How the picture is laid into its box. An image only; an icon takes its design
+    /// system's optical size instead.
+    ///
+    /// Not calling it draws `ContentScale::Fit`, the whole picture in its own proportions.
+    /// `ContentScale::FillBounds` stretches it to the box, as CSS `object-fit: fill` does.
+    pub fn content_scale(mut self, scale: ContentScale) -> Self {
+        self.content_scale = Some(scale);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
-        let (widget, asset_id, color) = (self.widget, self.asset_id, self.color);
+        let modifier = std::mem::take(&mut self.modifier);
+        let (widget, asset_id, tinted, color) =
+            (self.widget, self.asset_id, self.tinted, self.color);
+        let content_scale = self.content_scale;
         let key = if widget == WidgetKind::Icon {
             widget_key("compose_rust::ui::Icon")
         } else {
@@ -1847,9 +2305,15 @@ impl AssetScope {
             widget,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
-                attrs.push(("asset", OwnedAttr::Int(i64::from(asset_id))));
+                let property = if tinted { "icon_asset" } else { "asset" };
+                attrs.push((property, OwnedAttr::Int(i64::from(asset_id))));
                 if widget == WidgetKind::Icon {
                     attrs.push(("color", paint_or_zero(color)));
+                }
+                // A picture that never chose is not sent a choice, so it reaches the
+                // Renderer exactly as it did before there was one.
+                if let (WidgetKind::Image, Some(scale)) = (widget, content_scale) {
+                    attrs.push(("content_scale", OwnedAttr::Int(i64::from(u16::from(scale)))));
                 }
             },
             Vec::new(),
@@ -1896,7 +2360,7 @@ impl CanvasScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let commands = std::mem::take(&mut self.commands);
         let view_box = self.view_box;
         emit(
@@ -1966,7 +2430,7 @@ impl DatePickerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
@@ -2040,7 +2504,7 @@ impl TimePickerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
@@ -2075,6 +2539,7 @@ pub struct DropdownScope {
     selected_index: usize,
     enabled: bool,
     closed: bool,
+    bare: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
     done: bool,
 }
@@ -2086,6 +2551,7 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         selected_index,
         enabled: true,
         closed: false,
+        bare: false,
         on_change: None,
         done: false,
     }
@@ -2115,9 +2581,19 @@ impl DropdownScope {
         self
     }
 
+    /// Draws the closed field without the design system's frame: no fill, line, corner
+    /// clip, inner padding, minimum height or focus line. For a select that sits inside a
+    /// box which already draws its own frame. A `background` or `border` given on the node
+    /// is still drawn.
+    pub fn bare(mut self) -> Self {
+        self.bare = true;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
+        let bare = self.bare;
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
                 handler((value as i64).max(0) as usize)
@@ -2133,6 +2609,9 @@ impl DropdownScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 if closed {
                     attrs.push(("collapsible", OwnedAttr::Bool(true)));
+                }
+                if bare {
+                    attrs.push(("bare", OwnedAttr::Bool(true)));
                 }
             },
             vec![("onchange", handler)],
@@ -2206,7 +2685,7 @@ impl MenuItemScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
@@ -2240,6 +2719,9 @@ pub struct ModalScope {
     widget: WidgetKind,
     open: bool,
     scrim: Option<Paint>,
+    max_height_fraction: Option<f32>,
+    presentation: SheetPresentation,
+    max_width: Option<u32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2252,6 +2734,9 @@ pub fn Dialog(open: bool) -> ModalScope {
         widget: WidgetKind::Dialog,
         open,
         scrim: None,
+        max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2265,6 +2750,9 @@ pub fn Sheet(open: bool) -> ModalScope {
         widget: WidgetKind::Sheet,
         open,
         scrim: None,
+        max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2282,9 +2770,44 @@ impl ModalScope {
         self
     }
 
+    /// The tallest the sheet grows, as a fraction of the window's height, above 0 and at
+    /// most 1.
+    ///
+    /// Below it the sheet is as tall as its content; content taller than that stops the
+    /// sheet at the fraction and scrolls inside it. A fraction above 1 is taken as 1, and
+    /// one that is not above 0 is not sent, which leaves the height to the design system
+    /// as it is without this call. A `Dialog` sizes itself to its content and does not
+    /// take it.
+    pub fn max_height_fraction(mut self, fraction: f32) -> Self {
+        self.max_height_fraction = (fraction > 0.0).then(|| fraction.min(1.0));
+        self
+    }
+
+    /// What form the sheet takes: an edge drawer (`Edge`, the default) or a centered modal
+    /// (`Centered`). A `Dialog` is always centered and does not take this.
+    pub fn presentation(mut self, presentation: SheetPresentation) -> Self {
+        self.presentation = presentation;
+        self
+    }
+
+    /// The maximum width of a centered sheet in dp.
+    ///
+    /// Zero or absent leaves the width to the design system (560 dp). Content wider than
+    /// this or a window narrower than this shrinks the sheet to fit. An edge sheet sizes
+    /// its width by its edge and does not take this.
+    pub fn max_width(mut self, max_width_dp: u32) -> Self {
+        self.max_width = (max_width_dp > 0).then_some(max_width_dp);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
+        let max_height_fraction = self
+            .max_height_fraction
+            .filter(|_| widget == WidgetKind::Sheet);
+        let presentation = self.presentation;
+        let max_width = self.max_width.filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2299,6 +2822,18 @@ impl ModalScope {
                 attrs.push(("open", OwnedAttr::Bool(open)));
                 if let Some(scrim) = scrim {
                     attrs.push(("scrim", super::paint(Some(scrim))));
+                }
+                if let Some(fraction) = max_height_fraction {
+                    attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
+                }
+                if widget == WidgetKind::Sheet && presentation != SheetPresentation::Edge {
+                    attrs.push((
+                        "presentation",
+                        OwnedAttr::Int(i64::from(u16::from(presentation))),
+                    ));
+                }
+                if let Some(max_width) = max_width {
+                    attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
@@ -2351,7 +2886,7 @@ impl<'a> MenuScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let expanded = self.expanded;
         let anchor = self.anchor.take();
         let scrim = self.scrim;
@@ -2382,6 +2917,138 @@ impl<'a> MenuScope<'a> {
 
 container!(MenuScope<'a>);
 
+/// A `Popover` and its builder.
+pub struct PopoverScope<'a> {
+    modifier: Modifier,
+    open: bool,
+    placement: Option<PopoverPlacement>,
+    align: Option<PopoverAlign>,
+    offset: Option<f32>,
+    scrim: bool,
+    scrim_color: Option<Paint>,
+    on_dismiss: Option<Box<dyn FnMut()>>,
+    anchor: Option<Box<dyn FnOnce() + 'a>>,
+    done: bool,
+}
+
+/// A floating box of any content attached to its anchor.
+///
+/// The anchor is always drawn. The content is drawn only while `open` is true, and `open`
+/// is the application's: pressing outside the box or pressing Escape calls `on_dismiss`
+/// once and changes nothing, so the handler is where the application closes it or keeps
+/// it open to ask about unsaved work.
+///
+/// The Renderer places the box. It opens on the side `placement` names, lined up with the
+/// edge `align` names, and it moves to the opposite side or slides along the edge when it
+/// would otherwise leave the window.
+///
+/// `modifier` belongs to the floating box, not to the anchor: a shape, a border, a shadow
+/// or a material given there replaces the design system's for this box.
+pub fn Popover<'a>(open: bool) -> PopoverScope<'a> {
+    PopoverScope {
+        modifier: Modifier::new(),
+        open,
+        placement: None,
+        align: None,
+        offset: None,
+        scrim: false,
+        scrim_color: None,
+        on_dismiss: None,
+        anchor: None,
+        done: false,
+    }
+}
+
+impl<'a> PopoverScope<'a> {
+    /// Called once when the user presses outside the box or presses Escape.
+    pub fn on_dismiss(mut self, handler: impl FnMut() + 'static) -> Self {
+        self.on_dismiss = Some(std::boxed::Box::new(handler));
+        self
+    }
+
+    /// The side of the anchor the box opens on. `Bottom` when it is not said.
+    pub fn placement(mut self, placement: PopoverPlacement) -> Self {
+        self.placement = Some(placement);
+        self
+    }
+
+    /// The edge of the anchor the box lines up with. `Start` when it is not said.
+    pub fn align(mut self, align: PopoverAlign) -> Self {
+        self.align = Some(align);
+        self
+    }
+
+    /// The gap between the anchor and the box, in dp. The design system's gap when it is
+    /// not said.
+    pub fn offset(mut self, dp: f32) -> Self {
+        self.offset = Some(dp);
+        self
+    }
+
+    /// Whether the window behind the box is dimmed while it is open. It is not, unless
+    /// asked.
+    pub fn scrim(mut self, scrim: bool) -> Self {
+        self.scrim = scrim;
+        self
+    }
+
+    /// Dims the window behind the box with this colour instead of the design system's.
+    pub fn scrim_color(mut self, paint: impl Into<Paint>) -> Self {
+        self.scrim_color = Some(paint.into());
+        self
+    }
+
+    /// The widget the box is attached to. It is the first child on the wire.
+    pub fn anchor(mut self, anchor: impl FnOnce() + 'a) -> Self {
+        self.anchor = Some(std::boxed::Box::new(anchor));
+        self
+    }
+
+    fn compose(&mut self, content: impl FnOnce()) {
+        let modifier = std::mem::take(&mut self.modifier);
+        let open = self.open;
+        let (placement, align, offset) = (self.placement, self.align, self.offset);
+        let (scrim, scrim_color) = (self.scrim, self.scrim_color);
+        let anchor = self.anchor.take();
+        emit(
+            widget_key("compose_rust::ui::Popover"),
+            WidgetKind::Popover,
+            |attrs| {
+                push_modifiers(&modifier, Mods::Standard, attrs);
+                attrs.push(("open", OwnedAttr::Bool(open)));
+                if let Some(placement) = placement {
+                    attrs.push(("placement", role_or_zero(Some(placement))));
+                }
+                if let Some(align) = align {
+                    attrs.push(("align", role_or_zero(Some(align))));
+                }
+                if let Some(offset) = offset {
+                    attrs.push(("offset_dp", OwnedAttr::Float(f64::from(offset))));
+                }
+                if let Some(color) = scrim_color {
+                    attrs.push(("scrim", super::paint(Some(color))));
+                } else if scrim {
+                    attrs.push(("scrim", OwnedAttr::Bool(true)));
+                }
+            },
+            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            || {
+                if let Some(anchor) = anchor {
+                    let _anchor = crate::runtime::group_guard(widget_key(
+                        "compose_rust::ui::Popover::anchor",
+                    ));
+                    anchor();
+                }
+                let _content =
+                    crate::runtime::group_guard(widget_key("compose_rust::ui::Popover::content"));
+                content();
+            },
+        );
+    }
+}
+
+container!(PopoverScope<'a>);
+
 /// A `Tabs` and its builder.
 pub struct TabsScope {
     modifier: Modifier,
@@ -2409,7 +3076,7 @@ impl TabsScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (color, selected_index) = (self.color, self.selected_index);
         emit(
             widget_key("compose_rust::ui::Tabs"),
@@ -2431,6 +3098,7 @@ container!(TabsScope);
 pub struct TopAppBarScope {
     modifier: Modifier,
     title: String,
+    separator: Option<bool>,
     done: bool,
 }
 
@@ -2440,6 +3108,7 @@ pub fn TopAppBar() -> TopAppBarScope {
     TopAppBarScope {
         modifier: Modifier::new(),
         title: String::new(),
+        separator: None,
         done: false,
     }
 }
@@ -2450,15 +3119,34 @@ impl TopAppBarScope {
         self
     }
 
+    /// Whether to draw the design system's hairline separator under the bar.
+    ///
+    /// When unset, the active design system decides (e.g. Cupertino, Fluent and GNOME draw one;
+    /// Material 3 and Deepin do not; setting a custom border on the bar also suppresses it).
+    pub fn hairline(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
+    /// Alias for [`Self::hairline`].
+    pub fn separator(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let title = std::mem::take(&mut self.title);
+        let separator = self.separator;
         emit(
             widget_key("compose_rust::ui::TopAppBar"),
             WidgetKind::TopAppBar,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("text", OwnedAttr::Text(title)));
+                if let Some(separator) = separator {
+                    attrs.push(("separator", OwnedAttr::Bool(separator)));
+                }
             },
             Vec::new(),
             content,
@@ -2487,7 +3175,7 @@ pub fn Tooltip(text: impl Into<String>) -> TooltipScope {
 
 impl TooltipScope {
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         emit(
             widget_key("compose_rust::ui::Tooltip"),
@@ -2560,7 +3248,7 @@ impl<'a> ScaffoldScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (top_bar, bottom_bar, floating_action) = (
             self.top_bar.take(),
             self.bottom_bar.take(),
@@ -2656,7 +3344,7 @@ impl<'a> NavigationScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let selected_index = self.selected_index;
         let compact = self.compact;
         let (head, foot) = (self.head.take(), self.foot.take());
@@ -2756,7 +3444,7 @@ impl NavigationItemScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let section = self.section.take();
         let (icon, color, enabled) = (self.icon, self.color, self.enabled);
@@ -2818,7 +3506,7 @@ impl FileDropTargetScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let alignment = self.alignment;
         let dropped: EventCallback = match self.on_files_dropped.take() {
             Some(handler) => EventCallback::Files(Rc::new(RefCell::new(handler))),
@@ -2905,7 +3593,7 @@ impl ChipScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
@@ -2961,7 +3649,7 @@ impl FloatingActionScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let icon = self.icon;
         emit(
@@ -3020,7 +3708,7 @@ impl BadgeScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = self.text.take();
         let (value, color) = (self.value, self.color);
         emit(
@@ -3050,6 +3738,7 @@ pub struct SplitPaneScope {
     min: Option<f32>,
     max: Option<f32>,
     collapsible: bool,
+    collapse_below: Option<f32>,
     selected_index: usize,
     label: Option<String>,
     on_change: Option<Box<dyn FnMut(f32)>>,
@@ -3066,6 +3755,7 @@ pub fn SplitPane() -> SplitPaneScope {
         min: None,
         max: None,
         collapsible: false,
+        collapse_below: None,
         selected_index: 0,
         label: None,
         on_change: None,
@@ -3096,6 +3786,19 @@ impl SplitPaneScope {
         self
     }
 
+    /// The split pane's own width in dp below which it shows one pane at a time, the one
+    /// `selected_index` names. At or above it the panes are never stacked, and the design
+    /// system still decides between two columns and a side pane laid over the body.
+    ///
+    /// Without it the line is the size class's: stacked below 600 dp. 0 is the same as not
+    /// calling this. The width is measured on the Renderer, so crossing the line sends the
+    /// Host nothing. A negative or non-finite width is reported as a protocol error and
+    /// the split pane is drawn as if it had none.
+    pub fn collapse_below(mut self, dp: f32) -> Self {
+        self.collapse_below = Some(dp);
+        self
+    }
+
     /// Which pane shows when only one fits: 0 the side pane, 1 the body.
     pub fn selected_index(mut self, index: usize) -> Self {
         self.selected_index = index;
@@ -3119,13 +3822,14 @@ impl SplitPaneScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let label = self.label.take();
-        let (value, min, max, collapsible, selected_index) = (
+        let (value, min, max, collapsible, collapse_below, selected_index) = (
             self.value,
             self.min,
             self.max,
             self.collapsible,
+            self.collapse_below,
             self.selected_index,
         );
         let change = match self.on_change.take() {
@@ -3146,6 +3850,7 @@ impl SplitPaneScope {
                 attrs.push(("min", as_float(min)));
                 attrs.push(("max", as_float(max)));
                 attrs.push(("collapsible", OwnedAttr::Bool(collapsible)));
+                attrs.push(("collapse_below", as_float(collapse_below)));
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("text", optional_text(label)));
             },
@@ -3178,7 +3883,7 @@ pub fn LinearProgressIndicator(progress: f32) -> LinearProgressIndicatorScope {
 
 impl LinearProgressIndicatorScope {
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let progress = self.progress;
         emit(
             widget_key("compose_rust::ui::LinearProgressIndicator"),

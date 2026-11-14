@@ -13,19 +13,7 @@
 name: Windows C compile
 
 on:
-  pull_request:
-    paths:
-      - "renderer/desktop/c/**"
-      - "renderer/scripts/build-compose.sh"
-      - "scripts/fetch-fork-window.sh"
-      - ".github/workflows/test-windows-c.yml"
-  workflow_dispatch:
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. A manual run is never
-  # cancelled.
-  group: test-windows-c-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -51,7 +39,8 @@ jobs:
           $sources = @(
             (Join-Path "renderer/desktop/c" "renderer_entry.c"),
             (Join-Path $env:WINDOW_C "win32_window.c"),
-            (Join-Path $env:WINDOW_C "win32_notifications.c")
+            (Join-Path $env:WINDOW_C "win32_notifications.c"),
+            (Join-Path $env:WINDOW_C "win32_file_dialog.c")
           )
           New-Item -ItemType Directory -Force -Path obj | Out-Null
           $failed = @()

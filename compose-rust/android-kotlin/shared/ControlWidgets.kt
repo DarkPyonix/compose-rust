@@ -51,6 +51,8 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.ui.HitArea
+import dev.darkpyonix.composerust.ui.minimumHitArea
 
 /**
  * Who draws the six selection controls.
@@ -137,6 +139,8 @@ interface ControlWidgets {
          * with a 4 dp line.
          */
         diameter: Dp? = null,
+        color: Color? = null,
+        trackColor: Color? = null,
     )
 
     /** A rule, along whichever axis [vertical] names. */
@@ -172,9 +176,15 @@ internal object DrawnControlWidgets : ControlWidgets {
         // The transition between the two states belongs to the Renderer, so a toggle
         // animates without a frame of it crossing the boundary.
         val progress by animateFloatAsState(if (checked) 1f else 0f, spec)
+        // A radio button's ring colour fills it only where the design system fills a
+        // selected one: there the fill is what reads as the ring. Elsewhere the ring is the
+        // outline and the inside stays the design system's.
+        val radioFills = style.containerChecked != style.container
         val container by animateColorAsState(
             targetValue = when {
                 role == ToggleRole.Switch && look.track != null -> look.track
+                role == ToggleRole.RadioButton && checked ->
+                    if (radioFills) look.container ?: style.containerChecked else style.containerChecked
                 checked -> look.container ?: style.containerChecked
                 else -> style.container
             },
@@ -236,19 +246,25 @@ internal object DrawnControlWidgets : ControlWidgets {
                 )
             }
 
-            ToggleRole.RadioButton -> Box(
-                clickable
-                    .size(style.size)
-                    .clip(style.shape)
-                    .background(container.copy(alpha = container.alpha * alpha), style.shape)
-                    .controlBorder(style.borderWidth, style.border.copy(alpha = alpha), style.shape)
-                    .drawBehind {
-                        val radius = style.thumbSize.toPx() / 2f * progress
-                        if (radius > 0f) {
-                            drawCircle(style.mark.copy(alpha = alpha), radius = radius)
-                        }
-                    },
-            )
+            ToggleRole.RadioButton -> {
+                // A diameter the application named scales the dot with it, in the design
+                // system's own proportion.
+                val side = look.width ?: style.size
+                val dot = style.thumbSize * (side / style.size)
+                Box(
+                    clickable
+                        .size(side)
+                        .clip(style.shape)
+                        .background(container.copy(alpha = container.alpha * alpha), style.shape)
+                        .controlBorder(style.borderWidth, (look.container ?: style.border).copy(alpha = alpha), style.shape)
+                        .drawBehind {
+                            val radius = dot.toPx() / 2f * progress
+                            if (radius > 0f) {
+                                drawCircle((look.check ?: style.mark).copy(alpha = alpha), radius = radius)
+                            }
+                        },
+                )
+            }
 
             ToggleRole.Switch -> {
                 val shape = look.shape ?: style.shape
@@ -308,31 +324,33 @@ internal object DrawnControlWidgets : ControlWidgets {
         val max = range.endInclusive
         val span = (max - min).takeIf { it > 0f }
         val fraction = if (span == null) 0f else ((value - min) / span).coerceIn(0f, 1f)
+        // The design system's thumb sets where the track ends and how tall the slider is. A
+        // thumb the application sized is drawn at that size over the same track, so the
+        // slider is laid out exactly as before and only the circle changes.
         val thumbPx = style.thumbSize
+        val drawnThumb = look.thumbSize ?: thumbPx
 
-        val interactive = if (!enabled) {
-            modifier
+        // Presses are taken over at least SLIDER_MIN_HIT_SIZE of height, whatever the thumb
+        // and the track measure, without the slider taking more room in its column.
+        val area = remember { HitArea() }
+        val inputs = if (!enabled) {
+            Modifier
         } else {
-            modifier
-                .pointerInput(min, max) {
+            Modifier
+                .pointerInput(min, max, area) {
                     detectTapGestures { offset ->
-                        onChange(valueAt(offset.x, size.width.toFloat(), thumbPx.toPx(), min, max))
+                        val at = area.inDrawnBox(offset)
+                        onChange(valueAt(at.x, area.width.toFloat(), thumbPx.toPx(), min, max))
                     }
                 }
-                .pointerInput(min, max) {
+                .pointerInput(min, max, area) {
                     detectHorizontalDragGestures { change, _ ->
-                        onChange(
-                            valueAt(
-                                change.position.x,
-                                size.width.toFloat(),
-                                thumbPx.toPx(),
-                                min,
-                                max,
-                            ),
-                        )
+                        val at = area.inDrawnBox(change.position)
+                        onChange(valueAt(at.x, area.width.toFloat(), thumbPx.toPx(), min, max))
                     }
                 }
         }
+        val interactive = modifier.minimumHitArea(SLIDER_MIN_HIT_SIZE, area, inputs)
 
         // What a screen reader is told. The control is drawn rather than assembled from
         // parts, so nothing underneath says it is a slider: without this it is an unnamed
@@ -389,12 +407,13 @@ internal object DrawnControlWidgets : ControlWidgets {
                         }
                     }
                     val centre = Offset(left + usable * fraction, size.height / 2f)
-                    drawCircle(knob, radius = thumb / 2f, center = centre)
+                    val knobDiameter = drawnThumb.toPx()
+                    drawCircle(knob, radius = knobDiameter / 2f, center = centre)
                     if (style.thumbBorderWidth.value > 0f) {
                         val border = style.thumbBorderWidth.toPx()
                         drawCircle(
                             color = style.thumbBorder,
-                            radius = (thumb - border) / 2f,
+                            radius = (knobDiameter - border) / 2f,
                             center = centre,
                             style = Stroke(width = border),
                         )
@@ -411,8 +430,12 @@ internal object DrawnControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         diameter: Dp?,
+        color: Color?,
+        trackColor: Color?,
     ) {
         val style = theme.rules.controls(theme).progress
+        val indicator = color ?: style.indicator
+        val track = trackColor ?: style.track
         val thickness = ringThickness(style.thickness, diameter)
         val sweep by rememberInfiniteTransition(label = "progress").animateFloat(
             initialValue = 0f,
@@ -435,7 +458,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                     val inset = thickness.toPx() / 2f
                     val box = Size(size.width - inset * 2f, size.height - inset * 2f)
                     drawArc(
-                        color = style.track,
+                        color = track,
                         startAngle = 0f,
                         sweepAngle = FULL_TURN,
                         useCenter = false,
@@ -444,7 +467,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         style = stroke,
                     )
                     drawArc(
-                        color = style.indicator,
+                        color = indicator,
                         // A determinate ring starts at twelve o'clock; an indeterminate one
                         // chases its own tail from wherever the sweep has reached.
                         startAngle = if (determinate) QUARTER_TURN_BACK else phase * FULL_TURN,
@@ -469,7 +492,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                     } else {
                         CornerRadius.Zero
                     }
-                    drawRoundRect(color = style.track, cornerRadius = radius)
+                    drawRoundRect(color = track, cornerRadius = radius)
                     val width = if (determinate) {
                         size.width * value
                     } else {
@@ -482,7 +505,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         (size.width + width) * phase - width
                     }
                     drawRoundRect(
-                        color = style.indicator,
+                        color = indicator,
                         topLeft = Offset(left, 0f),
                         size = Size(width.coerceAtMost(size.width), size.height),
                         cornerRadius = radius,
@@ -559,6 +582,9 @@ private const val SWITCH_THUMB_RATIO = 0.8f
 
 /** Narrow enough to sit in a row, wide enough that the track is worth dragging. */
 private val SLIDER_MIN_WIDTH = 120.dp
+
+/** The least height a slider takes presses over, a comfortable target for a finger. */
+private val SLIDER_MIN_HIT_SIZE = 44.dp
 
 private const val FULL_TURN = 360f
 private const val QUARTER_TURN_BACK = -90f

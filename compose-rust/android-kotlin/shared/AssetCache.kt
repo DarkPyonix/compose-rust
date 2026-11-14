@@ -41,12 +41,15 @@ sealed interface Asset {
         val chain: FontChain? = null,
     ) : Asset {
         /**
-         * One font file: the Compose font that draws it, where the platform can group
-         * faces into one family by weight, the weight and slant the file declares, and
-         * which letters it has a glyph for.
+         * One font file: the Compose font that draws it, the weight and slant the file
+         * declares, and which letters it has a glyph for.
+         *
+         * The Compose font is what lets a stack group a typeface's files into one family
+         * Compose picks a weight from. Every platform gives one, so bold text in a family
+         * that ships a bold file is set in that file.
          */
         class Face(
-            val font: androidx.compose.ui.text.font.Font?,
+            val font: androidx.compose.ui.text.font.Font,
             val weight: Int,
             val italic: Boolean,
             val hasGlyph: (Int) -> Boolean,
@@ -99,6 +102,7 @@ class AssetCache {
                 TableError.UNSUPPORTED_ASSET,
                 "asset $assetId has kind tag $kindTag, which this renderer cannot read",
             )
+        decodeWarning = null
         val asset = try {
             decode(kind, bytes)
         } catch (error: Throwable) {
@@ -119,8 +123,16 @@ class AssetCache {
             return TableError(TableError.UNREADABLE_ASSET, "asset $assetId $reason")
         }
         entries[assetId] = asset
-        return null
+        // Kept and drawn, but with a field the renderer could not honour, which the Host
+        // is told about.
+        val warning = decodeWarning ?: return null
+        decodeWarning = null
+        return TableError(TableError.UNREADABLE_ASSET, "asset $assetId: $warning")
     }
+
+    // What the decoder could not honour in an asset it still read, for the registration
+    // that is under way. A brush whose ellipse cannot be drawn is drawn as a circle.
+    private var decodeWarning: String? = null
 
     /**
      * Forgets every registration, for a Renderer that is throwing its tree away and asking
@@ -155,7 +167,8 @@ class AssetCache {
         // An image brush names a picture registered in its own right, so the lookup is
         // into what this cache is already holding. A brush registered before the picture
         // it names is unreadable and says so, rather than drawing nothing quietly.
-        AssetKind.Brush -> decodeBrushAsset(bytes, entries::get)?.let(Asset::Brush)
+        AssetKind.Brush -> decodeBrushAsset(bytes, { why -> decodeWarning = why }, entries::get)
+            ?.let(Asset::Brush)
 
         // A vector icon registers a meaning, so its bytes are the role tag and nothing
         // else. There is no artwork on the wire and no icon name to look up at run time.
@@ -470,28 +483,60 @@ internal fun decodeFontStack(bytes: ByteArray, lookup: (Int) -> Asset?): Asset.F
         members += stackMember(fonts)
     }
     require(at == bytes.size) { "the font stack has ${bytes.size - at} bytes after its last family" }
-    // Where the platform groups faces, the chain's first family is made here and is a family
-    // no other text is set in: that is what lets the theme tell text in this stack from
-    // text in its first face.
+    // The chain's first family is made here and is a family no other text is set in: that
+    // is what lets the theme tell text in this stack from text in its first face.
     return Asset.Font(family = members.first().family, chain = FontChain(members))
 }
 
 /**
- * One family of a stack: its faces as one family the platform picks a weight from, where
- * the platform can, and the letters any of them has.
+ * One family of a stack: its faces as one family Compose picks a weight from, and the
+ * letters any of them has.
  */
 private fun stackMember(fonts: List<Asset.Font>): FontChain.Member {
     val faces = fonts.map { it.face!! }
-    val composeFonts = faces.mapNotNull { it.font }
-    val family = if (composeFonts.size == faces.size) {
-        FontFamily(composeFonts)
-    } else {
-        // A platform that cannot group faces by weight sets the family in its regular
-        // upright face, the one closest to weight 400.
-        fonts.minBy { font ->
-            val face = font.face!!
-            kotlin.math.abs(face.weight - 400) + if (face.italic) 1000 else 0
-        }.family
-    }
+    val family = FontFamily(faces.map { it.font })
     return FontChain.Member(family) { codePoint -> faces.any { it.hasGlyph(codePoint) } }
+}
+
+/** The weight, 1 to 1000, and the slant a font file declares for itself. */
+data class DeclaredFaceStyle(val weight: Int, val italic: Boolean)
+
+/**
+ * The weight and slant a font file declares in its `OS/2` table, or null where the bytes
+ * are not a font that has one.
+ *
+ * Read from the bytes rather than asked of the platform's loader, because not every loader
+ * can say. Android below API 28 answers only bold or not, so a medium and a semibold face
+ * read as regular and bold, and two faces of one family claim the same weight.
+ *
+ * A collection (`ttcf`) is read by its first face, the one a loader opens when it is
+ * handed the file.
+ */
+internal fun declaredFaceStyle(bytes: ByteArray): DeclaredFaceStyle? {
+    fun u16(at: Int): Int? = if (at < 0 || at + 2 > bytes.size) {
+        null
+    } else {
+        ((bytes[at].toInt() and 0xFF) shl 8) or (bytes[at + 1].toInt() and 0xFF)
+    }
+    fun u32(at: Int): Int? {
+        val high = u16(at) ?: return null
+        val low = u16(at + 2) ?: return null
+        return (high shl 16) or low
+    }
+    fun tag(at: Int, name: String): Boolean =
+        at + 4 <= bytes.size && (0 until 4).all { bytes[at + it] == name[it].code.toByte() }
+
+    val start = if (tag(0, "ttcf")) u32(12) ?: return null else 0
+    val tables = u16(start + 4) ?: return null
+    for (index in 0 until tables) {
+        val record = start + 12 + 16 * index
+        if (!tag(record, "OS/2")) continue
+        val table = u32(record + 8) ?: return null
+        val weight = u16(table + 4) ?: return null
+        val selection = u16(table + 62) ?: return null
+        // Bit 0 says italic and bit 9 oblique; a slanted face is set for italic text either way.
+        val italic = selection and 0x0201 != 0
+        return DeclaredFaceStyle(weight.coerceIn(1, 1000), italic)
+    }
+    return null
 }

@@ -13,6 +13,10 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
+import dev.darkpyonix.composerust.protocol.SemanticsRole
+import dev.darkpyonix.composerust.ui.DeclaredExpanded
+import dev.darkpyonix.composerust.ui.DeclaredRole
+import dev.darkpyonix.composerust.ui.declaredStateDescription
 import org.thisisthepy.compose.window.AccessibleAction
 import org.thisisthepy.compose.window.AccessibleElement
 import org.thisisthepy.compose.window.AccessibleState
@@ -45,6 +49,38 @@ internal fun SemanticsOwner.describe(density: Float): List<AccessibleElement> {
     return found
 }
 
+/**
+ * The platform's role for a role the Host declared that Compose has no name for, or null for
+ * one Compose names itself (a button, a tab) and for no role at all.
+ *
+ * Each of these reaches a reader as the platform's own kind of control: a tab list is a tab
+ * group, a tree an outline and its items rows of it, a menu and its items the platform's.
+ */
+internal fun SemanticsRole.elementRole(): Int? = when (this) {
+    SemanticsRole.TabList -> ElementRole.TAB_GROUP
+    SemanticsRole.Tree -> ElementRole.OUTLINE
+    SemanticsRole.TreeItem -> ElementRole.OUTLINE_ROW
+    SemanticsRole.Menu -> ElementRole.MENU
+    SemanticsRole.MenuItem -> ElementRole.MENU_ITEM
+    SemanticsRole.TextBox -> ElementRole.FIELD
+    SemanticsRole.Heading -> ElementRole.HEADING
+    SemanticsRole.Navigation -> ElementRole.NAVIGATION
+    SemanticsRole.List -> ElementRole.LIST
+    SemanticsRole.ListItem -> ElementRole.LIST_ITEM
+    SemanticsRole.Group -> ElementRole.GROUP
+    else -> null
+}
+
+/**
+ * The [AccessibleState] bits for a node the Host declared open or closed. A node that said
+ * neither is not expandable at all, which is different from being closed.
+ */
+internal fun expandedStates(expanded: Boolean?): Int = when (expanded) {
+    null -> 0
+    false -> AccessibleState.EXPANDABLE
+    true -> AccessibleState.EXPANDABLE or AccessibleState.EXPANDED
+}
+
 private fun describeTree(node: SemanticsNode, parentId: Int, density: Float, into: MutableList<AccessibleElement>) {
     val element = node.describe(parentId, density)
     if (element != null) into += element
@@ -52,7 +88,11 @@ private fun describeTree(node: SemanticsNode, parentId: Int, density: Float, int
     for (child in node.children) describeTree(child, childParent, density, into)
 }
 
-private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleElement? {
+/**
+ * What one node tells a reader, or null for a node with nothing to say. [parentId] is the
+ * nearest ancestor that was kept.
+ */
+internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleElement? {
     val config = config
     if (config.getOrNull(SemanticsProperties.HideFromAccessibility) != null) return null
     val editable = config.getOrNull(SemanticsProperties.EditableText)
@@ -72,6 +112,11 @@ private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEle
     val canClick = config.getOrNull(SemanticsActions.OnClick) != null
     val canSetText = config.getOrNull(SemanticsActions.SetText) != null
     val canSetProgress = config.getOrNull(SemanticsActions.SetProgress) != null
+    val declaredRole = config.getOrNull(DeclaredRole)
+    val declaredExpanded = config.getOrNull(DeclaredExpanded)
+    // A role the Host declared is what the node is, even with nothing to read out: an empty
+    // menu is still a menu, and a reader moving through the window has to be told so.
+    val platformRole = declaredRole?.elementRole()
     val role = when {
         composeRole == Role.Button -> ElementRole.BUTTON
         composeRole == Role.Checkbox -> ElementRole.CHECKBOX
@@ -80,12 +125,15 @@ private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEle
         composeRole == Role.Tab -> ElementRole.TAB
         composeRole == Role.Image -> ElementRole.IMAGE
         composeRole == Role.DropdownList -> ElementRole.COMBO_BOX
+        platformRole != null -> platformRole
         editable != null -> ElementRole.FIELD
         range != null -> if (canSetProgress) ElementRole.SLIDER else ElementRole.PROGRESS
         toggle != null -> ElementRole.CHECKBOX
         canClick -> ElementRole.BUTTON
         config.getOrNull(SemanticsProperties.Heading) != null && label != null -> ElementRole.HEADING
         label != null -> ElementRole.TEXT
+        // Something that opens and closes is worth announcing without a name or a role.
+        declaredExpanded != null -> ElementRole.GROUP
         else -> return null
     }
 
@@ -105,6 +153,7 @@ private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEle
         }
     }
     if (config.getOrNull(SemanticsProperties.Selected) == true) states = states or AccessibleState.SELECTED
+    states = states or expandedStates(declaredExpanded)
     val password = config.getOrNull(SemanticsProperties.Password) != null
     if (editable != null) {
         states = states or if (canSetText) AccessibleState.EDITABLE else AccessibleState.READ_ONLY
@@ -123,12 +172,17 @@ private fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEle
     }
     if (config.getOrNull(SemanticsActions.OnLongClick) != null) actions = actions or AccessibleAction.SHOW_MENU
 
+    // The state description of a declared node says its role and whether it is open, for
+    // readers that have no other way to hear them. This window says both in the platform's
+    // own words, so the text is left out rather than heard twice.
+    val stateDescription = config.getOrNull(SemanticsProperties.StateDescription)
+        ?.takeUnless { it == declaredStateDescription(declaredRole, declaredExpanded) }
     val value = when {
         // A password is announced by its length, never its letters.
         editable != null && password -> "\u2022".repeat(editable.text.length)
         editable != null -> editable.text
-        range != null -> config.getOrNull(SemanticsProperties.StateDescription) ?: range.current.toString()
-        else -> config.getOrNull(SemanticsProperties.StateDescription)
+        range != null -> stateDescription ?: range.current.toString()
+        else -> stateDescription
     }
     val bounds = boundsInRoot
     return AccessibleElement(

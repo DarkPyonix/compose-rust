@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.NativeClipboard
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -220,6 +221,29 @@ class SelectionContainerTest {
         assertEquals(1, clicks.size)
         assertEquals(BUTTON, clicks.single().nodeId)
         assertEquals(BUTTON_HANDLER, clicks.single().handlerId)
+    }
+
+    /** Double-clicking a button's label inside a region selects nothing of it. */
+    @Test
+    fun fr33_double_clicking_a_button_label_selects_nothing() = runComposeUiTest {
+        val clipboard = RecordingClipboard()
+        val connection = FakeHostConnection(pageTree())
+        setContent {
+            CompositionLocalProvider(LocalClipboard provides clipboard) {
+                ComposeRustContent(rememberComposeRustHost(connection))
+            }
+        }
+        waitForIdle()
+
+        val bounds = onNodeWithTag(nodeTestTag(BUTTON)).fetchSemanticsNode().boundsInRoot
+        onRoot().performMouseInput { doubleClick(bounds.center) }
+        waitForIdle()
+        onRoot().performKeyInput {
+            withKeyDown(if (onMac) Key.MetaLeft else Key.CtrlLeft) { pressKey(Key.C) }
+        }
+        waitForIdle()
+
+        assertNull(clipboard.copied, "double-clicking the button selected its label")
     }
 
     /**

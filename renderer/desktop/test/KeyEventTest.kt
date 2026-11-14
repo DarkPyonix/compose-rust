@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.withKeyDown
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,6 +33,8 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.platform.composeKey
+import dev.darkpyonix.composerust.ui.platform.win32ComposeKey
 
 private const val FIELD = 1
 private const val KEY_HANDLER = 41L
@@ -364,49 +367,60 @@ class KeyEventTest {
     }
 
     /**
-     * A focusable box with `OnKeyDown` receives the keys pressed while the box itself has
-     * focus, not only keys that bubble up from a focused descendant (issue 101). The box has
-     * no children, so the only way a key can reach the handler is through the box's own
-     * focus target.
+     * A focusable box with `OnKeyDown` hears keys from two places, the way a DOM element with
+     * tabindex and onkeydown does. While the box itself has focus, every key it is pressed
+     * reaches its handler once. While a TextField inside it has focus, a key the field leaves
+     * unconsumed bubbles up to the box, and a key the field's handler consumes stops there.
      */
     @Test
-    fun fr12_a_focused_box_receives_its_own_keys() = runComposeUiTest {
+    fun fr85_a_focused_box_receives_its_own_keys() = runComposeUiTest {
         val box = 2
+        val boxKeys = 51L
         val connection = FakeHostConnection(
             listOf(
                 Mutation.Create(box, WidgetKind.Box),
-                Mutation.SetModifier(box, 0, ProtocolModifier.Size(40f, 40f)),
+                Mutation.SetModifier(box, 0, ProtocolModifier.Size(240f, 120f)),
                 Mutation.SetModifier(box, 1, ProtocolModifier.Clickable(77L)),
-                Mutation.SetProp(box, PropertyKind.OnKeyDown, PropertyValue.Integer(KEY_HANDLER)),
+                Mutation.SetProp(box, PropertyKind.OnKeyDown, PropertyValue.Integer(boxKeys)),
+                *keyField().toTypedArray(),
+                Mutation.Insert(box, FIELD, 0),
+                Mutation.Insert(0, box, 0),
             ),
         )
+        // The field's handler consumes F3 and nothing else.
+        connection.respondWith { event ->
+            val consumed = event is HostEvent.KeyDown && event.nodeId == FIELD && event.text == "F3"
+            HostResponse(result = if (consumed) 1 else 0)
+        }
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
 
         // A box with a key handler is made focusable but may expose no RequestFocus action,
-        // so it is focused the way a keyboard user does it.
+        // so it is focused the way a keyboard user does it. Tab comes before the box's child.
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Tab) }
         waitForIdle()
         onNodeWithTag(nodeTestTag(box)).assertIsFocused()
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Enter) }
         waitForIdle()
 
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            pressKey(Key.F2)
+            pressKey(Key.F3)
+        }
+        waitForIdle()
+
+        val keys = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().filter { it.key != ProtocolKey.Tab }
         assertEquals(
             listOf(
-                HostEvent.KeyDown(
-                    nodeId = box,
-                    handlerId = KEY_HANDLER,
-                    key = ProtocolKey.Enter,
-                    shiftKey = false,
-                    ctrlKey = false,
-                    altKey = false,
-                    metaKey = false,
-                    repeat = false,
-                    code = 0x28,
-                    text = "Enter",
-                ),
+                Triple(box, boxKeys, "Enter"),
+                Triple(FIELD, KEY_HANDLER, "F2"),
+                Triple(box, boxKeys, "F2"),
+                Triple(FIELD, KEY_HANDLER, "F3"),
             ),
-            connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().filter { it.key == ProtocolKey.Enter },
+            keys.map { Triple(it.nodeId, it.handlerId, it.text) },
         )
+        assertEquals(ProtocolKey.Enter, keys.first().key)
+        assertEquals(0x28, keys.first().code)
     }
 
     /**
@@ -473,6 +487,61 @@ class KeyEventTest {
         )
         for ((key, expected) in named) assertEquals(expected, protocolKey(key), "$key")
         assertEquals(ProtocolKey.Enter, protocolKey(Key.NumPadEnter))
-        assertEquals(ProtocolKey.Other, protocolKey(Key.F5))
+        assertEquals(ProtocolKey.Other, protocolKey(Key.Insert))
+    }
+
+    /**
+     * F1 to F12 and the context-menu key have their own name, and Shift+F10, the other way
+     * to open a context menu, is F10 with Shift held. Each arrives with its HID usage and
+     * DOM key string, and the platform key numbers of the AppKit and Win32 windows reach
+     * the same Compose keys.
+     */
+    @Test
+    fun fr12_function_and_context_menu_keys() = runComposeUiTest {
+        val functions = listOf(
+            Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6, Key.F7, Key.F8, Key.F9, Key.F10,
+            Key.F11, Key.F12,
+        )
+        val protocolFunctions = listOf(
+            ProtocolKey.F1, ProtocolKey.F2, ProtocolKey.F3, ProtocolKey.F4, ProtocolKey.F5,
+            ProtocolKey.F6, ProtocolKey.F7, ProtocolKey.F8, ProtocolKey.F9, ProtocolKey.F10,
+            ProtocolKey.F11, ProtocolKey.F12,
+        )
+        for ((key, expected) in functions.zip(protocolFunctions)) {
+            assertEquals(expected, protocolKey(key), "$key")
+        }
+        assertEquals(ProtocolKey.ContextMenu, protocolKey(Key.Menu))
+        // The JVM shell's AWT window reports the menu key as VK_CONTEXT_MENU.
+        assertEquals(ProtocolKey.ContextMenu, protocolKey(Key((1L shl 32) or 525L)))
+
+        val appKit = listOf(0x7A, 0x78, 0x63, 0x76, 0x60, 0x61, 0x62, 0x64, 0x65, 0x6D, 0x67, 0x6F)
+        assertEquals(functions, appKit.map { composeKey(it) })
+        assertEquals(Key.Menu, composeKey(0x6E))
+        assertEquals(functions, (0x70..0x7B).map { win32ComposeKey(it) })
+        assertEquals(Key.Menu, win32ComposeKey(0x5D))
+
+        val connection = FakeHostConnection(keyField())
+        connection.respondWith { HostResponse(result = 1) }
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            pressKey(Key.F2)
+            pressKey(Key.F12)
+            withKeyDown(Key.ShiftLeft) { pressKey(Key.F10) }
+            pressKey(Key.Menu)
+        }
+        waitForIdle()
+
+        val events = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>()
+            .filter { it.key != ProtocolKey.Other }
+        assertEquals(
+            listOf(
+                Triple(ProtocolKey.F2, false, 0x3B to "F2"),
+                Triple(ProtocolKey.F12, false, 0x45 to "F12"),
+                Triple(ProtocolKey.F10, true, 0x43 to "F10"),
+                Triple(ProtocolKey.ContextMenu, false, 0x65 to "ContextMenu"),
+            ),
+            events.map { Triple(it.key, it.shiftKey, it.code to it.text) },
+        )
     }
 }

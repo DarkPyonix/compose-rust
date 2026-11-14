@@ -14,8 +14,8 @@ import kotlin.time.TimeSource
  * asks, because the scene treats an equal time as no frame at all. The first frame is not
  * at zero: a scene that starts at zero takes its first frame for the start of time.
  *
- * Shared by the Windows renderers: the native image's window and the Kotlin/Native one,
- * whose source set links this file.
+ * Used by the Kotlin/Native Windows renderer, whose source set links this file. The native
+ * image's Windows window takes its frame time from the Compose fork's window instead.
  */
 class WindowFrameTime(
     /** The monotonic clock in nanoseconds; only differences between two reads mean anything. */

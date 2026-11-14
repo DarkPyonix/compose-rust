@@ -36,9 +36,9 @@ import re
 import sys
 
 source = open(sys.argv[1]).read()
-opening = "new WebAssembly.Instance(compiled, {"
+opening = "WebAssembly.instantiate(compiled, {"
 start = source.index(opening) + len(opening)
-block = source[start:source.index("}).exports;", start)]
+block = source[start:source.index("}).then(", start)]
 # The keys of the import object itself, which are the ones at its own indentation.
 keys = re.findall(r"^    ([A-Za-z_][A-Za-z0-9_]*):", block, re.MULTILINE)
 for key in sorted(set(keys)):

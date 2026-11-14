@@ -11,10 +11,12 @@ import dev.darkpyonix.composerust.foundation.ScrollPort
 import dev.darkpyonix.composerust.foundation.ScrollReports
 import dev.darkpyonix.composerust.foundation.ScrollRequest
 import dev.darkpyonix.composerust.protocol.ScrollWire
+import dev.darkpyonix.composerust.protocol.ContentScale
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.Window
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -22,6 +24,8 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.wordWrapRule
+import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
@@ -53,6 +57,13 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
     internal var parentId: Int = NodeTable.ROOT_ID
     internal var hostText by mutableStateOf<HostText?>(null)
     internal var focusRequestRevision by mutableStateOf(0L)
+
+    /**
+     * The node's font features as Compose's `fontFeatureSettings` string, or null for none.
+     * Made once when the `FontFeatureSettings` property changes and read as it is on every
+     * frame after, so a text whose value changes builds no string for its features.
+     */
+    internal var fontFeatures by mutableStateOf<String?>(null)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -124,6 +135,11 @@ data class TableError(val code: Int, val message: String) {
         const val NOT_SCROLLABLE = 19
         /** A scroll request whose values make no sense for the container. The request is dropped. */
         const val INVALID_SCROLL = 20
+        /**
+         * A font feature list that cannot be read. The text is drawn without features. 21 to 23
+         * are held by the native view errors, which are numbered on another branch.
+         */
+        const val INVALID_FONT_FEATURES = 24
     }
 }
 
@@ -429,6 +445,9 @@ class NodeTable {
                 mutation.text,
                 mutation.action,
                 mutation.duration,
+                mutation.vertical,
+                mutation.horizontal,
+                mutation.offsetDp,
             )
 
             // Outside the window altogether. The centre decides what the window's own state
@@ -466,6 +485,8 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+            // Several edits as one, all of them or none, answered once whatever became of it.
+            is Mutation.EditCodeGroup -> editCodeGroup(mutation)
 
             // The editor's selection and scroll are this side's, so these are requests
             // too: each is checked against the document and refused, with a protocol
@@ -489,9 +510,61 @@ class NodeTable {
                 )
                 collectCode(node)
             }
+            // Every selection the Host asked for, the first the primary one. A list that is
+            // not whole selections is reported here; the editor refuses one that names a
+            // place the document does not have.
+            is Mutation.SetSelections -> codeNode(mutation.nodeId, "SetSelections")?.let { (node, code) ->
+                val bytes = mutation.selections
+                if (bytes.isEmpty() || bytes.size % 16 != 0) {
+                    fail(
+                        TableError.INVALID_CODE_EDIT,
+                        "SetSelections on node ${node.id}: ${bytes.size} bytes are not whole selections of 16",
+                    )
+                } else {
+                    val values = IntArray(bytes.size / 4) { index ->
+                        (bytes[index * 4].toInt() and 0xff) or
+                            ((bytes[index * 4 + 1].toInt() and 0xff) shl 8) or
+                            ((bytes[index * 4 + 2].toInt() and 0xff) shl 16) or
+                            ((bytes[index * 4 + 3].toInt() and 0xff) shl 24)
+                    }
+                    code.hostSetSelections(mutation.baseVersion, values)
+                    collectCode(node)
+                }
+            }
+            // A snippet goes in as one edit and opens its tab stops; one that cannot be read,
+            // or whose range the reader has typed over, is reported and dropped.
+            is Mutation.InsertSnippet -> codeNode(mutation.nodeId, "InsertSnippet")?.let { (node, code) ->
+                code.hostInsertSnippet(
+                    mutation.baseVersion,
+                    mutation.startLine,
+                    mutation.startColumn,
+                    mutation.endLine,
+                    mutation.endColumn,
+                    mutation.snippet,
+                )
+                collectCode(node)
+            }
             is Mutation.SetFolded -> codeNode(mutation.nodeId, "SetFolded")?.let { (node, code) ->
                 code.hostSetFolded(mutation.startLine, mutation.collapsed)
                 collectCode(node)
+            }
+            // The offset waits in the model for the surface, which owns the scroll position
+            // and knows how far the document lets it go.
+            is Mutation.SetScrollOffset -> codeNode(mutation.nodeId, "SetScrollOffset")?.let { (node, code) ->
+                code.hostScrollTo(mutation.offsetPx)
+                collectCode(node)
+            }
+            // A question, answered exactly once: by the editor where it can find the
+            // position, and here, with nothing on screen, where there is no editor to ask.
+            is Mutation.QueryPositionRect -> {
+                val found = codeNode(mutation.nodeId, "QueryPositionRect")
+                if (found == null) {
+                    outbox += HostEvent.PositionRect(mutation.nodeId, 0L, mutation.request, false, 0f, 0f, 0f, 0f)
+                } else {
+                    val (node, code) = found
+                    code.hostQueryPosition(mutation.request, mutation.line, mutation.column)
+                    collectCode(node)
+                }
             }
 
             // Requests too: the scroll position is this side's. Each is checked here and
@@ -715,6 +788,38 @@ class NodeTable {
     }
 
     /**
+     * Hands a grouped edit to its editor, which answers it exactly once.
+     *
+     * A record the decoder could not read arrives marked as such, ahead of the protocol
+     * error the decoder raises for it, so that the editor still answers it; nothing more is
+     * reported for it here. Edits that cannot be read are reported, and answered the same
+     * way. Edits that can be read but make no sense are the editor's to answer, and are no
+     * protocol error.
+     */
+    private fun editCodeGroup(mutation: Mutation.EditCodeGroup) {
+        if (mutation.malformed != null) {
+            val node = nodes[mutation.nodeId] ?: return
+            val code = node.code ?: return
+            code.hostEditGroupUnreadable(mutation.requestId, mutation.baseVersion, null)
+            collectCode(node)
+            return
+        }
+        val (node, code) = codeNode(mutation.nodeId, "EditCodeGroup") ?: return
+        var unreadable: String? = null
+        val edits = CodeEditorRecords.decodeEditGroup(mutation.edits) { message -> unreadable = message }
+        if (edits == null) {
+            code.hostEditGroupUnreadable(
+                mutation.requestId,
+                mutation.baseVersion,
+                unreadable ?: "a grouped edit could not be read",
+            )
+        } else {
+            code.hostEditGroup(mutation.requestId, mutation.baseVersion, edits)
+        }
+        collectCode(node)
+    }
+
+    /**
      * Hands a code editor what the Host just set on it. The text is compared with the
      * document rather than applied, and the two lists are read record by record, so a bad
      * record costs that record and nothing else.
@@ -751,6 +856,52 @@ class NodeTable {
                     }
                 } ?: emptyList(),
             )
+            // Read where the editor is drawn, which knows how wide it is. Here a rule that is
+            // not one is said once, when it arrives.
+            PropertyKind.WordWrap -> {
+                val raw = (value as? PropertyValue.Integer)?.value
+                if (raw != null && raw != 0L && wordWrapRule(raw) == null) {
+                    fail(TableError.INVALID_CODE_EDIT, "word wrap on node ${node.id}: $raw is not a rule")
+                }
+                return
+            }
+            PropertyKind.ViewZones -> code.setViewZones(
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    CodeEditorRecords.decodeViewZones(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "view zones on node ${node.id}: $message")
+                    }
+                } ?: emptyList(),
+            )
+            // Read where the editor is drawn. Here it is only checked, so that a record
+            // that cannot be read is said once, when it arrives.
+            PropertyKind.CodeEditorColors -> {
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    val records = CodeEditorRecords.decodeCodeEditorColors(bytes) { message ->
+                        fail(TableError.INVALID_CODE_EDIT, "colours on node ${node.id}: $message")
+                    }
+                    if (records.size > 1) {
+                        fail(
+                            TableError.INVALID_CODE_EDIT,
+                            "colours on node ${node.id}: ${records.size} records where an editor has one",
+                        )
+                    }
+                }
+                return
+            }
+            // Whether there is anyone to tell. The model reports only what is heard, and
+            // the next frame's drain carries what a new listener has yet to hear.
+            PropertyKind.OnCodeMetrics -> {
+                code.hearsLineHeight = value is PropertyValue.Integer
+                return
+            }
+            PropertyKind.OnCodeScrolled -> {
+                code.hearsScroll = value is PropertyValue.Integer
+                return
+            }
+            PropertyKind.OnCaretRect -> {
+                code.hearsCaretRect = value is PropertyValue.Integer
+                return
+            }
             else -> return
         }
         collectCode(node)
@@ -790,12 +941,66 @@ class NodeTable {
             )
             return
         }
+        if (mutation.property == PropertyKind.CollapseBelow) {
+            val width = (mutation.value as? PropertyValue.Float)?.value
+            if (width != null && (!width.isFinite() || width < 0f)) {
+                // Not a width at all. The split pane is drawn as if it had none, so a bad
+                // value cannot leave it stacked or unstacked by accident.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "a split pane stacks below a width of zero or more dp, and node " +
+                        "${node.id} was given $width; it keeps its size class's own line",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
+        if (mutation.property == PropertyKind.ContentScale) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..ContentScale.entries.size.toLong()) {
+                // A scale this renderer does not know is a newer or a broken Host. The
+                // picture is drawn the way one that never chose is, whole and in its own
+                // proportions, rather than guessed at.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "image ${node.id} was given content scale $tag, which is not Fit (1), " +
+                        "Crop (2) or FillBounds (3); it is drawn as Fit",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
+        if (mutation.property == PropertyKind.TextAlign) {
+            val tag = (mutation.value as? PropertyValue.Integer)?.value
+            if (tag != null && tag != 0L && tag !in 1L..TextAlign.entries.size.toLong()) {
+                // A tag this side has no alignment for. Guessing one would put the text on
+                // a side nobody asked for, so it is dropped and the text takes its default.
+                fail(
+                    TableError.UNSUPPORTED_PROPERTY,
+                    "node ${node.id} was given text alignment tag $tag, which is not one of " +
+                        "${TextAlign.entries.joinToString()} (1 to ${TextAlign.entries.size}); " +
+                        "the text takes its default alignment",
+                )
+                node.props.remove(mutation.property)
+                return
+            }
+        }
         if (mutation.value is PropertyValue.None) {
             node.props.remove(mutation.property)
         } else {
             node.props[mutation.property] = mutation.value
         }
         if (node.code != null) feedCode(node, mutation.property, mutation.value)
+        if (mutation.property == PropertyKind.FontFeatureSettings) {
+            node.fontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                fontFeatureSettings(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "font features on node ${node.id}: $why; the text is drawn without them",
+                    )
+                }
+            }
+        }
         // The revision of a scroll container's own stated move. Where a scroll request is
         // already waiting from this batch, its place among them is kept, so the two are
         // applied in the order the batch wrote them.
@@ -814,6 +1019,17 @@ class NodeTable {
             return
         }
         val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.BackgroundBrush && !(modifier.tile_width > 0f && modifier.tile_height > 0f)) {
+            // A step that is not a size has no copies to place: a repeat would never end and
+            // a single copy has no tile to be. The modifier is refused and the slot keeps
+            // what it held.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "BackgroundBrush modifier on node ${mutation.nodeId} repeats every " +
+                    "${modifier.tile_width} by ${modifier.tile_height} dp; both must be more than zero",
+            )
+            return
+        }
         if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
             // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
             // would announce a control as something it is not, so the modifier is refused
@@ -919,7 +1135,13 @@ class NodeTable {
 
     private fun removeSubtree(nodeId: Int) {
         val node = nodes.remove(nodeId) ?: return
-        codeNodes.remove(nodeId)
+        if (codeNodes.remove(nodeId) != null) {
+            // A query the editor had not answered yet is answered now, with nothing on
+            // screen: it never will be otherwise.
+            for (request in node.code?.abandonQueries().orEmpty()) {
+                outbox += HostEvent.PositionRect(nodeId, 0L, request, false, 0f, 0f, 0f, 0f)
+            }
+        }
         node.scroll?.let(scrolls::forget)
         if (node.widget == WidgetKind.Window) {
             windowThemes.remove(nodeId)
@@ -1031,17 +1253,23 @@ class NodeTable {
                 PropertyKind.AccessibleName -> true
 
                 // Colours and size of the selection controls.
-                PropertyKind.TrackColor,
-                PropertyKind.ThumbColor,
-                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+                PropertyKind.TrackColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider || widget == WidgetKind.ProgressIndicator
+                PropertyKind.ThumbColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
+                PropertyKind.ThumbSize -> widget == WidgetKind.Slider
 
+                // A radio button's ring is its container and its dot its check.
                 PropertyKind.ContainerColor,
                 PropertyKind.CheckColor,
-                -> widget == WidgetKind.Checkbox
+                -> widget == WidgetKind.Checkbox || widget == WidgetKind.RadioButton
 
-                PropertyKind.ControlSize -> widget == WidgetKind.Switch || widget == WidgetKind.Checkbox
+                PropertyKind.ControlSize -> widget == WidgetKind.Switch ||
+                    widget == WidgetKind.Checkbox ||
+                    widget == WidgetKind.RadioButton
+
+                // A linear layout gathers the radio buttons inside it into one group.
+                PropertyKind.RadioGroup -> widget == WidgetKind.Column || widget == WidgetKind.Row
 
                 // Event properties carry handler ids and are valid on any widget.
                 PropertyKind.OnClick,
@@ -1053,6 +1281,10 @@ class NodeTable {
                 PropertyKind.OnKeyUp,
                 PropertyKind.OnRangeRequested,
                 PropertyKind.OnDismiss,
+                // Any node's size can move under a motion role, so any node may hear it
+                // settle. One without the role hears nothing, which is not an error: the
+                // role can come and go with the screen's state.
+                PropertyKind.OnMotionFinished,
                 -> true
 
                 // The scroll report belongs to the widgets that scroll.
@@ -1079,7 +1311,9 @@ class NodeTable {
                     widget == WidgetKind.ScrollRow ||
                     widget == WidgetKind.SelectionContainer ||
                     widget == WidgetKind.Spacer ||
-                    widget == WidgetKind.AbsoluteBox
+                    widget == WidgetKind.AbsoluteBox ||
+                    // An editor's own pointer events take the same mask of kinds.
+                    (widget == WidgetKind.CodeEditor && property == PropertyKind.PointerKinds)
 
                 // A Tooltip's text is the explanation it shows, and its description in the
                 // accessibility tree. A destination's is its label.
@@ -1113,6 +1347,9 @@ class NodeTable {
                 // modifiers.
                 PropertyKind.Placeholder -> widget == WidgetKind.TextField
                 PropertyKind.Multiline -> widget == WidgetKind.TextField
+                PropertyKind.PlaceholderColor,
+                PropertyKind.CaretColor,
+                -> widget == WidgetKind.TextField
                 PropertyKind.Enabled -> widget != WidgetKind.Spacer
 
                 // Windowing properties belong to the lazy container alone.
@@ -1136,6 +1373,17 @@ class NodeTable {
                 -> widget == WidgetKind.Text ||
                     widget == WidgetKind.Button ||
                     widget == WidgetKind.TextField ||
+                    // An editor takes the rung of the type ladder, the size and the row
+                    // height. Its ink is the design system's or a colour run's, and it
+                    // neither aligns nor cuts off its lines.
+                    (
+                        widget == WidgetKind.CodeEditor &&
+                            (
+                                property == PropertyKind.TypeRole ||
+                                    property == PropertyKind.FontSize ||
+                                    property == PropertyKind.LineHeight
+                                )
+                        ) ||
                     // A chip's label takes a line limit and an overflow, as a button's does.
                     (
                         widget == WidgetKind.Chip &&
@@ -1155,6 +1403,7 @@ class NodeTable {
                                     // colour instead.
                                     widget == WidgetKind.Tabs ||
                                     widget == WidgetKind.Slider ||
+                                    widget == WidgetKind.ProgressIndicator ||
                                     // A badge's fill. Only its role is read: a badge
                                     // has no literal colour.
                                     widget == WidgetKind.Badge ||
@@ -1183,6 +1432,9 @@ class NodeTable {
                 // at registration and the id is what crosses per frame.
                 PropertyKind.Asset ->
                     widget == WidgetKind.Image || widget == WidgetKind.Icon
+
+                // A picture drawn as an icon, in the icon's colour.
+                PropertyKind.IconAsset -> widget == WidgetKind.Icon
 
                 // The pickers carry a value and the ends of the range it may take, in the
                 // widget's own unit; a slider carries a position between the same two
@@ -1240,12 +1492,34 @@ class NodeTable {
                 PropertyKind.Open -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
                     // A sheet is an overlay on the same terms as a dialog.
-                    widget == WidgetKind.Sheet
+                    widget == WidgetKind.Sheet ||
+                    // A popover's is read every time: the Host owns it.
+                    widget == WidgetKind.Popover
 
                 // A custom scrim colour for modal and popup overlays.
                 PropertyKind.Scrim -> widget == WidgetKind.Dialog ||
                     widget == WidgetKind.Menu ||
-                    widget == WidgetKind.Sheet
+                    widget == WidgetKind.Sheet ||
+                    // On a popover it is also a boolean: whether to dim the window at all.
+                    widget == WidgetKind.Popover
+
+                // The side of its anchor a popover opens on, the edge it lines up with,
+                // and the gap between the two.
+                PropertyKind.Placement,
+                PropertyKind.Align,
+                PropertyKind.OffsetDp,
+                -> widget == WidgetKind.Popover
+                // A field drawn without the design system's frame.
+                PropertyKind.Bare -> widget == WidgetKind.TextField ||
+                    widget == WidgetKind.Dropdown
+                // A wrapping row's gaps, alignments and per-line limit. Only it lays out by
+                // lines, so no other widget has anything to read them for.
+                PropertyKind.HorizontalSpacing,
+                PropertyKind.VerticalSpacing,
+                PropertyKind.HorizontalAlignment,
+                PropertyKind.VerticalAlignment,
+                PropertyKind.MaxItemsInEachRow,
+                -> widget == WidgetKind.FlowRow
                 // A Dropdown's selection is a position in its own children, the same thing
                 // a tab strip's selection is.
                 PropertyKind.SelectedIndex ->
@@ -1288,11 +1562,23 @@ class NodeTable {
                 // break, its tab stops, sizes the system's font scale leaves alone, and
                 // whether it wraps at all. A Text, and its own list of fonts on a TextField
                 // A control's label is set by the design system.
-                PropertyKind.Font -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+                PropertyKind.Font ->
+                    widget == WidgetKind.Text ||
+                        widget == WidgetKind.TextField ||
+                        // An editor set in the application's own monospace list.
+                        widget == WidgetKind.CodeEditor
 
-                PropertyKind.SpanFonts,
+                // Where lines break, in a Text and in a field's typed text and placeholder.
                 PropertyKind.WordBreak,
                 PropertyKind.OverflowWrap,
+                -> widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                // OpenType features, such as digits of one width. They pick a form the font
+                // has rather than another font, so text with a role takes them too.
+                PropertyKind.FontFeatureSettings ->
+                    widget == WidgetKind.Text || widget == WidgetKind.TextField
+
+                PropertyKind.SpanFonts,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,
@@ -1335,6 +1621,28 @@ class NodeTable {
                 PropertyKind.OnVisibleRangeChange,
                 PropertyKind.OnEditorFocusChange,
                 PropertyKind.OnFoldChange,
+                // Whether it draws line numbers, how its gutter is spaced, the colours of
+                // its own parts, and the handlers of its row height and scroll offset.
+                PropertyKind.LineNumbers,
+                PropertyKind.GutterMinWidthDp,
+                PropertyKind.GutterPaddingDp,
+                PropertyKind.TextInsetDp,
+                PropertyKind.CodeEditorColors,
+                PropertyKind.OnCodeMetrics,
+                PropertyKind.OnCodeScrolled,
+                // The handler told where the caret is drawn, and the one offered keys
+                // before the editor handles them.
+                PropertyKind.OnCaretRect,
+                PropertyKind.OnKeyPreview,
+                // The handler told what became of each grouped edit.
+                PropertyKind.OnEditGroupResult,
+                // The handler of its pointer events with the text under them. The kinds it
+                // hears are the node's `PointerKinds`, below.
+                PropertyKind.OnCodePointer,
+                // Whether it draws a minimap, and on which side, and its view zones.
+                PropertyKind.Minimap,
+                PropertyKind.ViewZones,
+                PropertyKind.WordWrap,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
@@ -1378,6 +1686,29 @@ class NodeTable {
                 // What a set of destinations becomes in a compact window, where the
                 // application chose. Only a navigation has destinations to place.
                 PropertyKind.CompactNavigation -> widget == WidgetKind.Navigation
+
+                // The width below which a split pane shows one pane at a time.
+                PropertyKind.CollapseBelow -> widget == WidgetKind.SplitPane
+
+                // Where a plain scroll container comes to rest. The lazy containers scroll
+                // by item through their own state and do not take it.
+                PropertyKind.Snap -> widget == WidgetKind.ScrollRow || widget == WidgetKind.ScrollColumn
+
+                // The tallest a sheet grows. A dialog sizes itself to its content.
+                PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
+
+                // The presentation of a sheet: edge drawer or centered modal, and its max width.
+                PropertyKind.Presentation,
+                PropertyKind.MaxWidth,
+                -> widget == WidgetKind.Sheet
+
+                // How a picture is laid into its box. An icon takes its design system's
+                // optical size, so only an image has a box to lay it into.
+                PropertyKind.ContentScale -> widget == WidgetKind.Image
+
+                // Whether a bar across the top of a screen draws the design system's
+                // hairline separator underneath.
+                PropertyKind.Separator -> widget == WidgetKind.TopAppBar
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

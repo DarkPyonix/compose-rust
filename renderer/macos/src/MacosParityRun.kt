@@ -89,13 +89,11 @@ internal fun startParityRun(window: MacosWindow) {
 private const val IDLE_SOAK_EXIT_DELAY_SECONDS = 1.0
 
 /**
- * `DXC_IDLE_SOAK_SECONDS`, read once and then taken out of the environment.
+ * `DXC_IDLE_SOAK_SECONDS`, read once.
  *
- * The soak is this renderer's to run, once, for the one window it chooses. The window library
- * reads the same variable for every window it opens and runs a soak of its own in each, so a
- * run with three windows printed four sets of soak lines, and the first of them to end quit
- * the process under the others. Reading the value before any window opens and removing it
- * leaves the window library nothing to start.
+ * The soak is this renderer's to run, once, for the one window it chooses, so every window
+ * asks this one reading. The window library's own soak reads a variable of its own,
+ * `DXC_WINDOW_IDLE_SOAK_SECONDS`, and is not started by this one.
  */
 internal object IdleSoakSetting {
     private const val NAME = "DXC_IDLE_SOAK_SECONDS"
@@ -107,7 +105,6 @@ internal object IdleSoakSetting {
         if (!taken) {
             taken = true
             value = parse(platform.posix.getenv(NAME)?.toKString())
-            platform.posix.unsetenv(NAME)
         }
         return value
     }

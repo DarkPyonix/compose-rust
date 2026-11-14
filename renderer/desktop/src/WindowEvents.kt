@@ -10,6 +10,8 @@ import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.Density
+import org.thisisthepy.compose.window.TextScale
 import org.thisisthepy.compose.window.WindowEvent
 
 // What a window of our own heard, and how it reaches a scene.
@@ -181,6 +183,20 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x23 -> Key.MoveEnd
     0x21 -> Key.PageUp
     0x22 -> Key.PageDown
+    // VK_F1 to VK_F12 run in order, and VK_APPS is the context-menu key.
+    0x70 -> Key.F1
+    0x71 -> Key.F2
+    0x72 -> Key.F3
+    0x73 -> Key.F4
+    0x74 -> Key.F5
+    0x75 -> Key.F6
+    0x76 -> Key.F7
+    0x77 -> Key.F8
+    0x78 -> Key.F9
+    0x79 -> Key.F10
+    0x7A -> Key.F11
+    0x7B -> Key.F12
+    0x5D -> Key.Menu
     else -> Key.Unknown
 }
 
@@ -212,3 +228,70 @@ internal fun NativeTextInput.receive(event: WindowEvent, macos: Boolean = false)
     }
 }
 
+
+/**
+ * The operating system's text size one window draws at, which its scene gets as
+ * `Density.fontScale`.
+ *
+ * Starts from what the window module read when the window opened and follows the
+ * [WindowEvent.TEXT_SCALE_CHANGED] events it queues after that, so a reader who moves the
+ * system's text size slider sees the text grow without restarting. The display's scale is
+ * not part of it: [density] puts the two together where the window measures its buffer.
+ * A platform with no such setting (macOS) reports 1 and never sends the event.
+ */
+internal class WindowTextScale(initial: Float) {
+
+    /** The multiplier, 1 when the reader has not changed the system's setting. */
+    var value: Float = TextScale.clamp(initial)
+        private set
+
+    /**
+     * Takes the new text size from [event] when it is a text size change. Answers whether
+     * the size changed, which is a frame to draw: nothing in the scene has invalidated, but
+     * all of its text is about to be laid out again.
+     */
+    fun receive(event: WindowEvent): Boolean {
+        if (!event.isTextScaleChanged) return false
+        val next = TextScale.clamp(event.textScale)
+        if (next == value) return false
+        value = next
+        return true
+    }
+
+    /** The Density a scene on a display of [scale] pixels per point is drawn at. */
+    fun density(scale: Float): Density = Density(scale, value)
+}
+
+/**
+ * The display scale one window is drawn at, followed from whatever the window last measured.
+ *
+ * A window dragged from a 1x screen to a 2x one keeps its size in points but changes its
+ * backing scale, and nothing about that is a resize: AppKit may report it on its own, with
+ * or without a size change, or only as a new measurement. So the window is measured on every
+ * resize and every frame, and each measurement goes through [follow], which answers the new
+ * Density and pixel size when the scale moved and null when it did not. The pixel size comes
+ * from the same measurement, so the window's size in dp is what it was.
+ */
+internal class WindowBackingScale(initial: Float, private val textScale: WindowTextScale) {
+
+    /** The scale the scene was last given. */
+    var scale: Float = initial
+        private set
+
+    /** The Density a scene at the current scale is drawn at. */
+    fun density(): Density = textScale.density(scale)
+
+    /** What the scene is told when [follow] sees a new scale. */
+    data class Change(val density: Density, val size: androidx.compose.ui.unit.IntSize)
+
+    /**
+     * Takes one measurement of the window. Answers the scene's new Density (with the system's
+     * text size as its font scale) and its new size in pixels when the scale changed, which is
+     * also a frame to draw; null when it did not.
+     */
+    fun follow(width: Int, height: Int, measuredScale: Float): Change? {
+        if (measuredScale <= 0f || measuredScale == scale) return null
+        scale = measuredScale
+        return Change(textScale.density(measuredScale), androidx.compose.ui.unit.IntSize(width, height))
+    }
+}

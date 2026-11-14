@@ -120,3 +120,18 @@ internal fun routeFileDrop(kind: Int, position: Offset, carried: () -> String) {
         WindowEvent.FILES_DROPPED -> NativeFileDrops.drop(position, splitDroppedPaths(carried()))
     }
 }
+
+/**
+ * Routes [event] to the node under the files when it is one of the window's file events,
+ * with the paths it carries in its text, NUL between them. Answers whether it was one.
+ */
+internal fun routeFileDrop(event: WindowEvent): Boolean {
+    if (event.kind != WindowEvent.FILES_ENTERED &&
+        event.kind != WindowEvent.FILES_DROPPED &&
+        event.kind != WindowEvent.FILES_EXITED
+    ) {
+        return false
+    }
+    routeFileDrop(event.kind, Offset(event.x, event.y)) { event.text }
+    return true
+}

@@ -29,6 +29,8 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.platform.LocalLocalization
+import androidx.compose.ui.platform.PlatformLocalization
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.test.onNodeWithTag
@@ -43,10 +45,9 @@ import org.thisisthepy.compose.window.WindowEvent
 import dev.darkpyonix.composerust.ui.platform.receive
 import org.jetbrains.skia.Surface
 import kotlinx.coroutines.Dispatchers
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private const val FIELD = "field"
@@ -60,20 +61,6 @@ private const val FIELD = "field"
  * the menu is an `NSMenu`.
  */
 class NativeContextMenuTest {
-
-    private var savedLocale: java.util.Locale? = null
-
-    /** The menu labels come from the default locale; a Korean machine would label them 잘라내기. */
-    @BeforeTest
-    fun pinEnglishLocale() {
-        savedLocale = java.util.Locale.getDefault()
-        java.util.Locale.setDefault(java.util.Locale.ENGLISH)
-    }
-
-    @AfterTest
-    fun restoreLocale() {
-        savedLocale?.let { java.util.Locale.setDefault(it) }
-    }
 
     /** Every menu the native representation was asked for, as the entries it was given. */
     private val nativeRequests = mutableListOf<List<NativeMenuEntry>>()
@@ -93,20 +80,33 @@ class NativeContextMenuTest {
 
     @Test
     fun fr33_1_one_right_click_on_a_field_asks_for_exactly_one_native_menu() = runComposeUiTest {
+        // The labels Compose gives the text actions in the machine's language, read where the
+        // field's menu reads them, so the test means the same on an English and a Korean Mac.
+        var localization: PlatformLocalization? = null
         setContent {
+            localization = LocalLocalization.current
             CompositionLocalProvider(LocalContextMenuRepresentation provides native) { Field() }
         }
         onNodeWithTag(FIELD).performMouseInput { rightClick(center) }
         waitForIdle()
 
         assertEquals(1, nativeRequests.size, "one right click, one menu")
+        val strings = assertNotNull(localization, "the field was composed")
+        val actions = listOf(
+            "Cut" to strings.cut,
+            "Copy" to strings.copy,
+            "Paste" to strings.paste,
+            "Select all" to strings.selectAll,
+        )
+        assertEquals(4, actions.map { it.second }.toSet().size, "four distinct labels: $actions")
         val labels = nativeRequests.single().map { it.label }
-        for (expected in listOf("Cut", "Copy", "Paste", "Select all")) {
-            assertTrue(expected in labels, "the menu offers $expected: $labels")
+        for ((action, label) in actions) {
+            assertTrue(label in labels, "the menu offers $action ($label): $labels")
         }
+        val expected = actions.map { it.second }
         assertEquals(
-            listOf("Cut", "Copy", "Paste", "Select all"),
-            labels.filter { it in setOf("Cut", "Copy", "Paste", "Select all") },
+            expected,
+            labels.filter { it in expected },
             "in the order every other menu on the platform has them",
         )
     }

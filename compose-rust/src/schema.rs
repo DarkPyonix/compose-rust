@@ -207,6 +207,31 @@ pub enum EventPayloadType {
     /// physical pixels (offset, furthest offset and viewport, x before y). A fixed 72-byte
     /// record.
     ScrollChanged,
+    /// The size a node's size motion settled at: `width_dp` and `height_dp`, two `f32` in
+    /// dp. A fixed 24-byte record.
+    MotionFinished,
+    /// Where a code editor's caret is drawn: the line and the column it stands at, then
+    /// `x`, `y`, `width` and `height` as `f32` in the window's dp. A fixed 40-byte record.
+    CodeCaretRect,
+    /// The answer to one position query: the request number, a word that is 1 when the
+    /// position is on screen and 0 when it is not, then the rectangle as in
+    /// `CodeCaretRect`, all zero when there is none. A fixed 40-byte record.
+    CodePositionRect,
+    /// A pointer event over a code editor: the 72-byte `Pointer` record, then the line and
+    /// the column of the text under the pointer, both `u32::MAX` where it is over none. A
+    /// fixed 80-byte record.
+    CodePointer,
+    /// Every selection of a code editor, the primary first: the document version, then a
+    /// reference to 16-byte records behind the record (anchor line, anchor column, active
+    /// line, active column). A fixed 28-byte record and its selections.
+    CodeSelections,
+    /// What became of one grouped edit of a code editor: the request id, an
+    /// `EditGroupStatus` word, the version the group was written against, the version the
+    /// document is at now and the index of the edit that decided it (or, applied, how many
+    /// edits went in). A fixed 36-byte record.
+    CodeEditGroupResult,
+    /// One `u32`: whether the system appearance is light (0) or dark (1).
+    ColorScheme,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -219,14 +244,19 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,compact_navigation,on_scroll_changed;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,ClipboardText,IoAnswer,FileHandles,StorageLocation,ScrollChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,SetClipboardText,ReadClipboard,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView"
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect,InsertSnippet,SetSelections;",
+    // The fields of the overlay tokens record in wire order. A field is only appended, and
+    // appending one changes the record's length, so it is part of what the hash covers.
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius,toast_container_light,toast_container_dark,toast_content_light,toast_content_dark,toast_border_width,toast_padding_horizontal,toast_padding_vertical,toast_font_size,toast_line_height;",
+    // The fields of the message record in wire order, appended to in the same way.
+    "showmessage=handler_id,text,action,duration,vertical,horizontal,offset_dp"
 );
 
 const fn hash_bytes(mut hash: u64, bytes: &[u8]) -> u64 {
@@ -395,6 +425,13 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::IoAnswer => 31,
                 EventPayloadType::FileHandles => 32,
                 EventPayloadType::ScrollChanged => 33,
+                EventPayloadType::MotionFinished => 34,
+                EventPayloadType::CodeCaretRect => 35,
+                EventPayloadType::CodePositionRect => 36,
+                EventPayloadType::CodePointer => 37,
+                EventPayloadType::CodeEditGroupResult => 38,
+                EventPayloadType::ColorScheme => 39,
+                EventPayloadType::CodeSelections => 40,
             }],
         );
         index += 1;
@@ -403,6 +440,8 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::SYNTAX_SPAN_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::FOLD_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
+    hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
     hash
 }
 
@@ -592,6 +631,18 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // one window into another, is a protocol error: Compose keeps one composition per
     // window and has no way to hand a node from one to the next.
     Window = 45,
+    // A row that wraps. Children are measured at their own width and placed one after
+    // another on a line; a child that does not fit in what is left of the line starts the
+    // next one. A child wider than the whole line has the line to itself and is measured
+    // at the line's width, so nothing runs out of the row.
+    FlowRow = 46,
+    // A floating box of any content attached to an anchor. The first child is the anchor
+    // and is always drawn; the rest is the content, drawn only while the Host says it is
+    // open. A `Menu` is the same shape with entries in it and a place the design system
+    // fixes; here the Host names the side and the edge, and the Renderer keeps the box
+    // inside the window by flipping it to the other side or sliding it along the edge.
+    // 46 is held for a widget on another branch.
+    Popover = 47,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -627,6 +678,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -927,11 +992,15 @@ define_wire_enum!(SPACE_ROLE_SCHEMA, SpaceRole {
     Xxl = 7,
 });
 
+// `Start` and `End` follow the writing direction and swap in right-to-left text. `Left`
+// and `Right` are physical, as CSS `text-align: left|right` is, and never swap.
 define_wire_enum!(TEXT_ALIGN_SCHEMA, TextAlign {
     Start = 1,
     Center = 2,
     End = 3,
     Justify = 4,
+    Left = 5,
+    Right = 6,
 });
 
 define_wire_enum!(TEXT_OVERFLOW_SCHEMA, TextOverflow {
@@ -1053,6 +1122,34 @@ define_wire_enum!(MESSAGE_DURATION_SCHEMA, MessageDuration {
     Long = 2,
 });
 
+// The edge a transient message is drawn along, where the application chose one. Tag 0 on the
+// wire is "the design system's place", which is what a message that names no placement
+// gets, so neither enum lists it.
+define_wire_enum!(MESSAGE_VERTICAL_SCHEMA, MessageVertical {
+    Top = 1,
+    Bottom = 2,
+});
+
+// Where along that edge the message sits. Start and End follow the layout direction, the
+// same way a `Row`'s do.
+define_wire_enum!(MESSAGE_HORIZONTAL_SCHEMA, MessageHorizontal {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+/// Where a transient message is drawn, for an application that wants a place other than
+/// the design system's.
+///
+/// Wherever it is, the message stays clear of the safe area and of the application's own
+/// bars: a message at the bottom sits above a bottom tab bar, and one at the top below the
+/// top bar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessagePlacement {
+    pub vertical: MessageVertical,
+    pub horizontal: MessageHorizontal,
+}
+
 // How much a notification matters. Closed for the same reason a message's duration is: what
 // it is worth in sound, in an Android channel's importance or in getting through Do Not
 // Disturb is the platform's answer, so the Host has no way to send a sound file or a
@@ -1121,15 +1218,21 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
     Content = 4,
 });
 
-// What a code editor decoration is. Four kinds and no more: a mark under a range, a line of
-// text above a line, a range that answers a resting pointer, and a suggestion shown in
-// place. Each is what a language server or an extension host already speaks in, so an
-// application can pass its answers through without inventing a fifth.
+// What a code editor decoration is: a mark under a range, a line of text above a line, a
+// range that answers a resting pointer, and a suggestion shown in place. Each is what a
+// language server or an extension host already speaks in, so an application can pass its
+// answers through without inventing its own. After them, the two backgrounds a diff view
+// is drawn with: a tint across whole lines, the width of the editor, and a stronger one
+// over the characters that changed. Then muted text after the end of a line, which is not
+// text: a blame annotation, an inline value. Values are only appended.
 define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     Underline = 1,
     CodeLens = 2,
     HoverAnchor = 3,
     GhostText = 4,
+    LineBackground = 5,
+    RangeBackground = 6,
+    AfterLine = 7,
 });
 
 // How serious an underlined diagnostic is. The four a language server reports, in its
@@ -1157,6 +1260,23 @@ define_wire_enum!(GUTTER_DECORATION_KIND_SCHEMA, GutterDecorationKind {
     Dot = 1,
     Bar = 2,
     Glyph = 3,
+});
+
+// The side of its anchor a `Popover` opens on. `Start` and `End` follow the layout
+// direction. It is the side asked for: the Renderer opens on the opposite one when the
+// content does not fit between the anchor and the window's edge.
+define_wire_enum!(POPOVER_PLACEMENT_SCHEMA, PopoverPlacement {
+    Top = 1,
+    Bottom = 2,
+    Start = 3,
+    End = 4,
+});
+
+// Which edge of its anchor a `Popover` lines up with, along the side it opened on.
+define_wire_enum!(POPOVER_ALIGN_SCHEMA, PopoverAlign {
+    Start = 1,
+    Center = 2,
+    End = 3,
 });
 
 // Where `RevealRange` puts the range it brings into view: the least scroll that shows it,
@@ -1247,6 +1367,13 @@ define_wire_enum!(REDUCED_MOTION_SCHEMA, ReducedMotion {
     Off = 1,
     On = 2,
     Unknown = 3,
+});
+
+// Whether the system appearance is light or dark, as the Renderer reads it. Unlike
+// `ColorScheme`, it has no `FollowSystem`: it is the answer that choice follows.
+define_wire_enum!(SYSTEM_COLOR_SCHEME_SCHEMA, SystemColorScheme {
+    Light = 0,
+    Dark = 1,
 });
 
 define_wire_enum!(POINTER_KIND_SCHEMA, PointerKind {
@@ -1400,6 +1527,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: MESSAGE_DURATION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "MessageVertical",
+        variants: MESSAGE_VERTICAL_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MessageHorizontal",
+        variants: MESSAGE_HORIZONTAL_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "Chrome",
         variants: CHROME_SCHEMA,
     },
@@ -1480,6 +1615,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: REDUCED_MOTION_SCHEMA,
     },
     RoleEnumSchema {
+        name: "SystemColorScheme",
+        variants: SYSTEM_COLOR_SCHEME_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "DecorationKind",
         variants: DECORATION_KIND_SCHEMA,
     },
@@ -1536,8 +1675,24 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         variants: FILE_DIALOG_STATUS_SCHEMA,
     },
     RoleEnumSchema {
+        name: "EditGroupStatus",
+        variants: EDIT_GROUP_STATUS_SCHEMA,
+    },
+    RoleEnumSchema {
         name: "CompactNavigation",
         variants: COMPACT_NAVIGATION_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "Snap",
+        variants: SNAP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "MinimapSide",
+        variants: MINIMAP_SIDE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "WordWrapMode",
+        variants: WORD_WRAP_MODE_SCHEMA,
     },
     RoleEnumSchema {
         name: "StorageOp",
@@ -1554,6 +1709,34 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
     RoleEnumSchema {
         name: "FileOp",
         variants: FILE_OP_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "HorizontalAlignment",
+        variants: HORIZONTAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "VerticalAlignment",
+        variants: VERTICAL_ALIGNMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverPlacement",
+        variants: POPOVER_PLACEMENT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "PopoverAlign",
+        variants: POPOVER_ALIGN_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "ContentScale",
+        variants: CONTENT_SCALE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "BackgroundRepeat",
+        variants: BACKGROUND_REPEAT_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "SheetPresentation",
+        variants: SHEET_PRESENTATION_SCHEMA,
     },
 ];
 
@@ -1647,6 +1830,72 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     Default = 0,
 });
 
+// How a `Sheet` is presented: entering from an edge (`Edge = 0`, the default) or centered in
+// the window (`Centered = 1`).
+define_wire_enum!(SHEET_PRESENTATION_SCHEMA, SheetPresentation {
+    Edge = 0,
+    Centered = 1,
+});
+
+// Where a scroll container comes to rest once a drag or a fling ends.
+//
+// `None` is free scrolling: the container stops wherever the drag or the fling left it. It
+// travels as tag 0, which is the same as not sending the property, so it is not in the
+// schema table.
+//
+// `ItemStart` stops with the start edge of the nearest direct child on the start of the
+// visible area, the way CSS `scroll-snap-type: mandatory` with `scroll-snap-align: start`
+// does.
+// Where a code editor breaks a long line, the mode part of the `WordWrap` property: at the
+// edge of the view, at a number of columns, or at whichever of the two comes first. `Off`
+// breaks no line, which is what an editor that never sets it does.
+define_wire_enum!(WORD_WRAP_MODE_SCHEMA, WordWrapMode {
+    Viewport = 1,
+    Column = 2,
+    Bounded = 3,
+} unlisted {
+    Off = 0,
+});
+
+// Which side of a code editor its minimap is drawn on: the whole document shrunk, with the
+// part on screen marked, which a press or a drag scrolls to. `Off` draws none, which is what
+// an editor that never sets it does.
+define_wire_enum!(MINIMAP_SIDE_SCHEMA, MinimapSide {
+    Right = 1,
+    Left = 2,
+} unlisted {
+    Off = 0,
+});
+
+define_wire_enum!(SNAP_SCHEMA, Snap {
+    ItemStart = 1,
+} unlisted {
+    None = 0,
+});
+
+// How an `Image` lays its picture into the box it was given, as Compose's `ContentScale`.
+//
+// `Fit` keeps the picture's proportions and shows all of it, centred, leaving the rest of
+// the box empty. `Crop` keeps the proportions and covers the whole box, centred, cutting
+// off what falls outside. `FillBounds` stretches the picture to the box in each direction
+// on its own, which is CSS `object-fit: fill`. Not sending the property draws `Fit`.
+define_wire_enum!(CONTENT_SCALE_SCHEMA, ContentScale {
+    Fit = 1,
+    Crop = 2,
+    FillBounds = 3,
+});
+
+// How a `BackgroundBrush` repeats its rectangle across the node, as CSS
+// `background-repeat` does: not at all, in both directions, along the width only, or
+// along the height only. A repeat runs both ways from the rectangle, so a node is covered
+// to its edges whichever corner the rectangle sits in.
+define_wire_enum!(BACKGROUND_REPEAT_SCHEMA, BackgroundRepeat {
+    NoRepeat = 1,
+    Repeat = 2,
+    RepeatX = 3,
+    RepeatY = 4,
+});
+
 // How the application uses windows. `Single` is every application until now: the
 // root's content fills the one window `SetWindow` describes. `Windows` is the multi-window
 // mode, in which the root's children are `Window` nodes and `SetWindow` describes nothing
@@ -1680,6 +1929,20 @@ define_wire_enum!(FILE_DIALOG_STATUS_SCHEMA, FileDialogStatus {
     Chosen = 1,
     Cancelled = 2,
     Unavailable = 3,
+});
+
+// What became of one grouped edit of a code editor. The group goes in whole or not at all,
+// and each way it can stay out asks the application for something different: `Rejected`
+// means the reader typed where it would have written, so read the document again and send
+// it again; `TooOld` means the version it was written against is older than the editor
+// remembers, so the application's copy has to be brought back in step; `Invalid` means the
+// group itself makes no sense (edits that overlap, a range outside the document, a version
+// from the future).
+define_wire_enum!(EDIT_GROUP_STATUS_SCHEMA, EditGroupStatus {
+    Applied = 1,
+    Rejected = 2,
+    Invalid = 3,
+    TooOld = 4,
 });
 
 // How the files a Renderer holds handles for reached it. Closed, because what an
@@ -1722,6 +1985,21 @@ define_wire_enum!(IO_STATUS_SCHEMA, IoStatus {
     Failed = 6,
     ReadOnly = 7,
     TooLarge = 8,
+});
+
+// Where the children of one line of a `FlowRow` sit along it, when they do not fill it.
+define_wire_enum!(HORIZONTAL_ALIGNMENT_SCHEMA, HorizontalAlignment {
+    Start = 1,
+    Center = 2,
+    End = 3,
+});
+
+// Where a child of a `FlowRow` sits inside the height of its line, when it is shorter
+// than the tallest child on that line.
+define_wire_enum!(VERTICAL_ALIGNMENT_SCHEMA, VerticalAlignment {
+    Top = 1,
+    Center = 2,
+    Bottom = 3,
 });
 
 /// What an application may decide about its own window.
@@ -1916,7 +2194,8 @@ pub struct Theme {
 /// How many type roles there are, which is how many font slots a theme carries.
 pub const TYPE_ROLE_COUNT: usize = 9;
 
-/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, and Sheet.
+/// Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the
+/// transient message. Every measure is in dp, and 0 keeps the design system's own.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct OverlayTokens {
     pub sheet_corner_radius: u16,
@@ -1929,6 +2208,29 @@ pub struct OverlayTokens {
     pub dialog_padding: u16,
     pub popup_padding: u16,
     pub scrim: u32,
+    /// How high the transient message floats, which is how much shadow it casts.
+    pub toast_elevation: u16,
+    /// The corner radius of the transient message.
+    pub toast_corner_radius: u16,
+    /// The transient message's fill in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_light: u32,
+    /// The transient message's fill in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_dark: u32,
+    /// The transient message's text in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_light: u32,
+    /// The transient message's text in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_dark: u32,
+    /// The width of the line around the transient message in dp. `None` keeps the design
+    /// system's line, and `Some(0)` draws none.
+    pub toast_border_width: Option<u16>,
+    /// The space left and right of the transient message's text, in dp.
+    pub toast_padding_horizontal: u16,
+    /// The space above and below the transient message's text, in dp.
+    pub toast_padding_vertical: u16,
+    /// The size of the transient message's text, in sp.
+    pub toast_font_size: u16,
+    /// The line height of the transient message's text, in sp.
+    pub toast_line_height: u16,
 }
 
 impl OverlayTokens {
@@ -1944,6 +2246,17 @@ impl OverlayTokens {
             dialog_padding: 0,
             popup_padding: 0,
             scrim: 0,
+            toast_elevation: 0,
+            toast_corner_radius: 0,
+            toast_container_light: 0,
+            toast_container_dark: 0,
+            toast_content_light: 0,
+            toast_content_dark: 0,
+            toast_border_width: None,
+            toast_padding_horizontal: 0,
+            toast_padding_vertical: 0,
+            toast_font_size: 0,
+            toast_line_height: 0,
         }
     }
 
@@ -1999,6 +2312,57 @@ impl OverlayTokens {
 
     pub const fn scrim_argb(mut self, argb: u32) -> Self {
         self.scrim = argb;
+        self
+    }
+
+    /// The transient message's elevation in dp: a shadow under it the height of a surface
+    /// that far up. A message is not a node and takes no Modifier, so this is where its
+    /// shadow is set, once for the application.
+    pub const fn toast_elevation(mut self, elevation: u16) -> Self {
+        self.toast_elevation = elevation;
+        self
+    }
+
+    /// The transient message's corner radius in dp.
+    pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
+        self.toast_corner_radius = radius;
+        self
+    }
+
+    /// The transient message's fill, one colour for the light scheme and one for the dark.
+    /// The renderer takes the one for the scheme it is drawing in, so a message can be
+    /// drawn inverted (dark on a light page, light on a dark one).
+    pub const fn toast_container(mut self, light: Color, dark: Color) -> Self {
+        self.toast_container_light = light.to_argb();
+        self.toast_container_dark = dark.to_argb();
+        self
+    }
+
+    /// The transient message's text colour for the light scheme and for the dark.
+    pub const fn toast_content(mut self, light: Color, dark: Color) -> Self {
+        self.toast_content_light = light.to_argb();
+        self.toast_content_dark = dark.to_argb();
+        self
+    }
+
+    /// The width of the line around the transient message in dp; 0 draws none.
+    pub const fn toast_border_width(mut self, width: u16) -> Self {
+        self.toast_border_width = Some(width);
+        self
+    }
+
+    /// The space around the transient message's text in dp: left and right, then above and
+    /// below.
+    pub const fn toast_padding(mut self, horizontal: u16, vertical: u16) -> Self {
+        self.toast_padding_horizontal = horizontal;
+        self.toast_padding_vertical = vertical;
+        self
+    }
+
+    /// The transient message's text size and line height in sp.
+    pub const fn toast_type(mut self, font_size: u16, line_height: u16) -> Self {
+        self.toast_font_size = font_size;
+        self.toast_line_height = line_height;
         self
     }
 }
@@ -2293,6 +2657,76 @@ pub enum Modifier {
         role: SemanticsRole,
         state: u32,
     },
+    /// How this node's rounded corners curve, from 0 to 1. 0 is a plain circular arc; above
+    /// it the curve starts further along each side and its curvature changes continuously,
+    /// as Figma's corner smoothing does (0.6 is what iOS looks like). The radius still
+    /// comes from `Shape`, `ShapeRole` or `CornerEach`; this changes only the curve, and
+    /// a node without a radius is not changed. A value outside 0..=1 is drawn as the nearer
+    /// end and NaN as 0, so one bad shape cannot stop the program; see
+    /// [`corner_smoothing`].
+    CornerCurve {
+        smoothing: f32,
+    },
+    /// A brush laid into a rectangle of this node and repeated across it, the way CSS
+    /// draws one `background-image` layer with its `background-position`,
+    /// `background-size` and `background-repeat`.
+    ///
+    /// `x`, `y`, `width` and `height` are the rectangle in dp from the node's top left
+    /// corner, which is one tile: a gradient is measured against it, not against the node.
+    /// `repeat` says which ways the tile repeats and `tile_width` and `tile_height` how far
+    /// apart the copies are, in dp; a plain CSS repeat sends the rectangle's own size, and
+    /// `space` or `round` the step the Host worked out. The layer is cut to the node's
+    /// outline, its corners included. Several layers are several of these, the first
+    /// drawn at the bottom, so a Host sends a CSS list last to first. A tile width or
+    /// height of zero or less, and any value that is not a finite number, is refused.
+    BackgroundBrush {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        paint: Paint,
+        repeat: BackgroundRepeat,
+        tile_width: f32,
+        tile_height: f32,
+    },
+    /// Constrains the layout size between minimum and maximum bounds in dp.
+    /// Unconstrained bounds are `f32::NAN`.
+    SizeIn {
+        min_width: f32,
+        max_width: f32,
+        min_height: f32,
+        max_height: f32,
+    },
+    /// Attempts to size content to match an aspect ratio (width / height).
+    AspectRatio {
+        ratio: f32,
+        match_height_constraints_first: bool,
+    },
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller takes presses over a box grown to this size around it, centred on it; its
+    /// size, its place and how it is drawn do not change, so neither does anything laid out
+    /// beside it. A node already this large is not changed.
+    MinTouchTarget {
+        size: f32,
+    },
+    /// A paint laid over the node, over its content and its background, in the outline its
+    /// background fills: the box the node is drawn in, cut to the same corners (`Shape`,
+    /// `ShapeRole` or `CornerEach`, curved as `CornerCurve` says). It takes no room, so a
+    /// node sized by its content stays the size it was. A press tint or a selection wash is
+    /// one of these.
+    Overlay(Paint),
+    /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
+    /// while the rest of the content scrolls.
+    Sticky,
+}
+
+/// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
+pub fn corner_smoothing(smoothing: f32) -> f32 {
+    if smoothing.is_nan() {
+        0.0
+    } else {
+        smoothing.clamp(0.0, 1.0)
+    }
 }
 
 /// Where the checked field sits in `Modifier::Semantics::state`.
@@ -2896,6 +3330,61 @@ const PRESS_FEEDBACK_FIELDS: &[FieldSchema] = &[
     },
 ];
 
+const CORNER_CURVE_FIELDS: &[FieldSchema] = &[FieldSchema {
+    name: "smoothing",
+    ty: FieldType::Float,
+    slot: FieldSlot::FirstLow,
+}];
+
+const BACKGROUND_BRUSH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "repeat",
+        ty: FieldType::Role("BackgroundRepeat"),
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "tile_width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "tile_height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+];
+
+const MIN_TOUCH_TARGET_FIELDS: &[FieldSchema] = &[FieldSchema {
+    name: "size",
+    ty: FieldType::Float,
+    slot: FieldSlot::FirstLow,
+}];
+
 const SEMANTICS_FIELDS: &[FieldSchema] = &[
     FieldSchema {
         name: "role",
@@ -2906,6 +3395,42 @@ const SEMANTICS_FIELDS: &[FieldSchema] = &[
         name: "state",
         ty: FieldType::U32,
         slot: FieldSlot::SecondLow,
+    },
+];
+
+const SIZE_IN_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "minWidth",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "maxWidth",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "minHeight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "maxHeight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+
+const ASPECT_RATIO_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "ratio",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "matchHeightConstraintsFirst",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Second,
     },
 ];
 
@@ -3108,6 +3633,52 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 34,
         extra_words: 0,
         fields: SEMANTICS_FIELDS,
+    },
+    // 28 to 30 were set aside for modifiers that have not landed, so the next free tag is
+    // 35.
+    VariantSchema {
+        name: "CornerCurve",
+        tag: 35,
+        extra_words: 0,
+        fields: CORNER_CURVE_FIELDS,
+    },
+    // 28, the first of the tags set aside above. The rectangle, the paint, the repeat and
+    // the step take five words, three past the two every record has.
+    VariantSchema {
+        name: "BackgroundBrush",
+        tag: 28,
+        extra_words: 3,
+        fields: BACKGROUND_BRUSH_FIELDS,
+    },
+    VariantSchema {
+        name: "SizeIn",
+        tag: 36,
+        extra_words: 0,
+        fields: SIZE_IN_FIELDS,
+    },
+    VariantSchema {
+        name: "AspectRatio",
+        tag: 37,
+        extra_words: 0,
+        fields: ASPECT_RATIO_FIELDS,
+    },
+    VariantSchema {
+        name: "MinTouchTarget",
+        tag: 38,
+        extra_words: 0,
+        fields: MIN_TOUCH_TARGET_FIELDS,
+    },
+    VariantSchema {
+        name: "Overlay",
+        tag: 39,
+        extra_words: 0,
+        fields: PAINT_FIELD,
+    },
+    VariantSchema {
+        name: "Sticky",
+        tag: 41,
+        extra_words: 0,
+        fields: NO_FIELDS,
     },
 ];
 
@@ -3383,7 +3954,53 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // absent is false.
     ReportSize = 127,
     // Scrim colour for modal overlays (Dialog, Sheet, Menu), as a `Paint` bit value.
+    // A `Popover` draws no scrim unless it is asked to, so there it is also a boolean:
+    // true draws the design system's scrim, and a `Paint` draws that colour.
     Scrim = 128,
+    // A `TextField` or `Dropdown` drawn without the design system's frame (fill, line,
+    // underline, corner clip, inner padding, minimum height, focus line). A boolean;
+    // absent is false. A node `Background` or `Border` is still drawn.
+    Bare = 169,
+    // A `FlowRow`'s layout. The gap between children on one line and the gap between
+    // lines, each a literal dp; where a line's children sit along it and where each child
+    // sits inside its line's height, as `HorizontalAlignment` and `VerticalAlignment` tags;
+    // and the most children one line may hold, an integer, absent for no limit. 169 is
+    // taken by another pending property, so these start at 170.
+    HorizontalSpacing = 170,
+    VerticalSpacing = 171,
+    HorizontalAlignment = 172,
+    VerticalAlignment = 173,
+    MaxItemsInEachRow = 174,
+    // The popover block. All three belong to a `Popover`. 169 to 174 are held for
+    // properties on other branches.
+    //
+    // The side of the anchor the content opens on, a `PopoverPlacement` tag. Absent is
+    // `Bottom`.
+    Placement = 175,
+    // The edge of the anchor the content lines up with, a `PopoverAlign` tag. Absent is
+    // `Start`.
+    Align = 176,
+    // The gap between the anchor and the content, an `f32` in dp. Absent leaves the gap
+    // to the design system.
+    OffsetDp = 177,
+    // How a code editor is laid out and coloured where the application says so. A node
+    // that sets none of them draws with the design system's values. 169 to 177 are
+    // numbered for properties that are not here yet.
+    //
+    // Whether the line numbers are drawn, a boolean. Absent is yes.
+    LineNumbers = 178,
+    // The least width of the line number column with its padding, the padding on each side
+    // of a line number, and the space between the gutter and the text. Each an f32 in dp.
+    GutterMinWidthDp = 179,
+    GutterPaddingDp = 180,
+    TextInsetDp = 181,
+    // One colour record as a blob: a `ColorRole` for each of the container, the gutter, a
+    // line number, the current line's number and the current line. Zero leaves a slot to
+    // the design system.
+    CodeEditorColors = 182,
+    // The handlers of the editor's row height and of its scroll offset.
+    OnCodeMetrics = 183,
+    OnCodeScrolled = 184,
     // What a `Navigation` becomes in a compact window, as a `CompactNavigation` tag. Absent
     // or 0 leaves it to the design system.
     CompactNavigation = 185,
@@ -3392,6 +4009,83 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // block, so it takes the number after the last one in use: 169 to 184 are held by
     // properties other requirements have numbered.
     OnScrollChanged = 186,
+    // The width in dp, an f32, below which a split pane shows one pane at a time instead of
+    // its size class deciding. At or above it the split pane never stacks, and the design
+    // system still chooses between two columns and a side pane laid over the body. Absent
+    // or 0 keeps the size class's own line. The next place in the split pane's block after
+    // `Collapsible`.
+    CollapseBelow = 91,
+    // Where a `ScrollRow` or `ScrollColumn` comes to rest, as a `Snap` tag. Absent or 0 is
+    // free scrolling. 187 is held by a property on another branch.
+    Snap = 188,
+    // The tallest a `Sheet` grows, as an `f32` fraction of the window's height above 0 and
+    // at most 1. Below it the sheet is as tall as its content; at it the content scrolls.
+    // Absent leaves the height to the design system. 187 is held by a property on another
+    // branch.
+    MaxHeightFraction = 189,
+    // OpenType features for a `Text` or a `TextField`, such as tabular figures. A blob of
+    // 8-byte records, at most 16: the four tag bytes, then the value as a little-endian
+    // u32. A tag that comes twice takes the later value. Absent, or empty, is no features.
+    // 187 to 191 are held by properties other requirements have numbered.
+    FontFeatureSettings = 192,
+    // The handler a node's size motion reports to once it settles, the handler id as an
+    // integer. Any node may take it, so it is numbered after the last one in use rather
+    // than inside a widget's block: 187 to 192 are held by properties other requirements
+    // have numbered.
+    OnMotionFinished = 193,
+    // The handler a code editor reports what became of each grouped edit to, the handler id
+    // as an integer: one `CodeEditGroupResult` for every `EditCodeGroup`.
+    OnEditGroupResult = 194,
+    // The handler a code editor tells where its caret is drawn. 190 and 191 are held by
+    // properties on other branches.
+    OnCaretRect = 195,
+    // The handler a code editor offers each key press to before it handles the key itself.
+    // It hears the `KeyDown` record a key handler does, and a press it consumes is not the
+    // editor's. Never while an input method is composing.
+    OnKeyPreview = 196,
+    // The handler a code editor sends its pointer events to, each with the place in the
+    // text under the pointer. The kinds it hears are the `PointerKinds` mask's.
+    OnCodePointer = 197,
+    // Whether a `Column` or a `Row` is a group of radio buttons, a boolean. Such a group is
+    // one stop for Tab, its arrow keys move between the radio buttons inside it, and
+    // assistive technology hears it as a radio group. Absent is no.
+    RadioGroup = 198,
+    // Whether a code editor draws a minimap beside its text, and on which side, as a
+    // `MinimapSide` tag. Absent or 0 draws none. 199 and 200 are held by the editor's view
+    // zones and its word wrap.
+    Minimap = 201,
+    // A code editor's view zones, rows after a line that are not text, as a blob of
+    // fixed-length records sent whole, with the text they show behind them.
+    ViewZones = 199,
+    // Where a code editor breaks a line too long for it onto the rows below, as an integer:
+    // the `WordWrapMode` tag in the low 16 bits and the column count above them. Absent or
+    // 0 breaks no line.
+    WordWrap = 200,
+    // How an `Image` lays its picture into its box, as a `ContentScale` tag. Absent or 0
+    // is `Fit`, which is how every picture was drawn before there was a choice. 37 is the
+    // next place in the 28 to 39 block, after the divider's `Vertical`.
+    ContentScale = 37,
+    // The diameter in dp a Slider draws its thumb at, an f32. Absent is the design system's
+    // size. The track and the area that takes a press stay as they are.
+    ThumbSize = 202,
+    // The placeholder text colour and caret colour of a TextField as Paint bits.
+    // Absent leaves the design system's defaults.
+    PlaceholderColor = 203,
+    CaretColor = 204,
+    // The id of an SVG asset an `Icon` draws in its icon slot, tinted with the icon's
+    // colour: every fill and stroke in the picture takes that colour and keeps its own
+    // alpha. It is sized as an `IconRole` icon is, so a row of icons lines up whichever kind
+    // each one is.
+    IconAsset = 205,
+    // The presentation of a `Sheet`: whether it enters from an edge (`Edge = 0`) or appears
+    // in the centre of the window (`Centered = 1`). Absent or 0 is `Edge`.
+    Presentation = 206,
+    // The maximum width of a centered `Sheet` in dp, an integer. 0 leaves it to the design
+    // system (560 dp).
+    MaxWidth = 207,
+    // Whether a bar across the top of a screen draws the design system's hairline
+    // separator underneath. Absent lets the design system decide.
+    Separator = 208,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3531,6 +4225,9 @@ pub enum EventPayload<'a> {
     /// Whether the platform asks for reduced motion, sent once after start and then only
     /// when the answer changes.
     ReducedMotionChanged(ReducedMotion),
+    /// Whether the system appearance is light or dark, sent once before the first frame and
+    /// then only when it changes. It is sent whatever the theme's `color_scheme` is.
+    ColorSchemeChanged(SystemColorScheme),
     /// A pointer did something inside a node that subscribed to it. Coordinates are in dp
     /// from the node's top left corner, `buttons` is what is held now and `button` is the
     /// one that caused a `Down` or an `Up`. `timestamp_nanos` is on the frame time's clock.
@@ -3651,6 +4348,15 @@ pub enum EventPayload<'a> {
         /// The DOM `key` string, such as `"ArrowDown"` or `"a"`.
         text: &'a str,
     },
+    /// The height of one row of a code editor in physical pixels, as it is drawn. Sent when
+    /// the editor is first drawn and whenever the height changes.
+    CodeMetrics {
+        line_height_px: f64,
+    },
+    /// How far a code editor is scrolled down, in physical pixels. At most once a frame.
+    CodeScrolled {
+        offset_px: f64,
+    },
     /// A file dialog ended. `request` is the number the Host gave it, `filter` is the
     /// position of the filter in use (`u32::MAX` when there is none) and `paths` holds the
     /// chosen paths separated by one NUL byte, empty unless the status is `Chosen`.
@@ -3722,6 +4428,70 @@ pub enum EventPayload<'a> {
         max_y_px: f64,
         viewport_width_px: f64,
         viewport_height_px: f64,
+    },
+    /// A node's size motion came to rest, reported to the node's `OnMotionFinished`
+    /// handler with the size it settled at, in dp.
+    ///
+    /// Sent once for each run that reaches its target: a run that is interrupted by a new
+    /// target sends nothing, and only the one that settles does. The first layout and a
+    /// layout that leaves the size as it was send nothing, and neither does a node removed
+    /// while its size is moving. Under reduced motion the size changes in one frame and
+    /// this arrives in that frame.
+    MotionFinished {
+        width_dp: f32,
+        height_dp: f32,
+    },
+    /// Where a code editor draws its caret, in the window's dp with the scroll and the zoom
+    /// already in it. At most once a frame, when the caret or the view moves.
+    CaretRect {
+        line: u32,
+        column: u32,
+        rect: crate::code::CodeRect,
+    },
+    /// The answer to one `QueryPositionRect`, carrying the request number the Host gave
+    /// it. `None` where the position is not on screen.
+    PositionRect {
+        request: u32,
+        rect: Option<crate::code::CodeRect>,
+    },
+    /// A pointer event over a code editor: every field a `Pointer` event has, with the same
+    /// meaning and the same rules, and the place in the text under the pointer. `position`
+    /// is `None` where the pointer is not over a character: over the gutter, past the end
+    /// of a line or below the last one.
+    CodePointer {
+        kind: PointerKind,
+        pointer_id: u32,
+        pointer_type: PointerType,
+        x: f32,
+        y: f32,
+        buttons: u32,
+        button: u32,
+        modifiers: u32,
+        click_count: u32,
+        delta_x: f32,
+        delta_y: f32,
+        delta_mode: WheelDeltaMode,
+        timestamp_nanos: u64,
+        position: Option<crate::code::Position>,
+    },
+    /// Every selection of a code editor, the primary first, read against `version`: sent
+    /// while there is more than one, and once more when it comes back to one, to the same
+    /// listener as `SelectionChanged`, which goes on reporting the primary alone.
+    /// `selections` is 16-byte records, which [`crate::code::SelectionsChange`] reads.
+    SelectionsChanged {
+        version: u32,
+        selections: &'a [u8],
+    },
+    /// What became of one `EditCodeGroup`, sent exactly once for each. `current_version`
+    /// is the version after the last change the group made where it went in, and the
+    /// document's version where it did not. `index` is the position in the group, as sent,
+    /// of the edit that kept it out, or the number of edits that went in.
+    CodeEditGroupResult {
+        request_id: u32,
+        status: EditGroupStatus,
+        base_version: u32,
+        current_version: u32,
+        index: u32,
     },
 }
 
@@ -4058,8 +4828,15 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 50,
         payload: EventPayloadType::FileDialogResult,
     },
-    // Tags 51 to 55 are held by events other requirements have numbered. Like a file dialog's
-    // end, a clipboard read addresses the Host itself and is found by its request number.
+    // What became of a grouped edit of a code editor, reported to the editor's own handler.
+    EventSchema {
+        name: "CodeEditGroupResult",
+        tag: 51,
+        payload: EventPayloadType::CodeEditGroupResult,
+    },
+    // Tags 52 and 53 are held by events other requirements have numbered. Like a file
+    // dialog's end, a clipboard read addresses the Host itself and is found by its request
+    // number.
     EventSchema {
         name: "ClipboardText",
         tag: 56,
@@ -4090,6 +4867,55 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 60,
         payload: EventPayloadType::ScrollChanged,
     },
+    // 51 to 53 are numbered for events that are not here yet. Both of these carry one
+    // `f64` of physical pixels, the shape `ValueChanged` has.
+    EventSchema {
+        name: "CodeMetrics",
+        tag: 54,
+        payload: EventPayloadType::Double,
+    },
+    EventSchema {
+        name: "CodeScrolled",
+        tag: 55,
+        payload: EventPayloadType::Double,
+    },
+    // A node's size motion settled, reported to the node's own handler. 61 and 62 are
+    // numbered for events that are not here yet.
+    EventSchema {
+        name: "MotionFinished",
+        tag: 63,
+        payload: EventPayloadType::MotionFinished,
+    },
+    // Where a code editor's caret is drawn,
+    // and the answer to a question about where a position is.
+    EventSchema {
+        name: "CaretRect",
+        tag: 64,
+        payload: EventPayloadType::CodeCaretRect,
+    },
+    EventSchema {
+        name: "PositionRect",
+        tag: 65,
+        payload: EventPayloadType::CodePositionRect,
+    },
+    // A pointer over a code editor, with the place in the text under it.
+    EventSchema {
+        name: "CodePointer",
+        tag: 66,
+        payload: EventPayloadType::CodePointer,
+    },
+    // About the platform rather than a node, like the reduced motion setting.
+    EventSchema {
+        name: "ColorSchemeChanged",
+        tag: 52,
+        payload: EventPayloadType::ColorScheme,
+    },
+    // Every selection of a code editor, to its selection listener.
+    EventSchema {
+        name: "SelectionsChanged",
+        tag: 67,
+        payload: EventPayloadType::CodeSelections,
+    },
 ];
 
 /// One argument of a boundary operation.
@@ -4116,8 +4942,8 @@ impl BoundaryParam {
 /// One logical boundary operation, stated without saying which side calls it.
 ///
 /// `symbol` is the Host's C export. Every platform binding, the GraalVM function
-/// declarations, the Android shims and the browser forwarders, is a rendering of this
-/// table, which is why none of them is written by hand.
+/// declarations, the Android shims and the browser's imports and trampoline, is a rendering
+/// of this table, which is why none of them is written by hand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundaryOp {
     /// Direction-neutral name, in PascalCase.
@@ -4243,6 +5069,22 @@ pub const WEB_BATCH_BYTES: u32 = 16;
 /// not fit is refused by the encoder rather than truncated.
 pub const WEB_EVENT_BUFFER_BYTES: u32 = 4096;
 
+/// The largest event buffer the Host lends a browser Renderer.
+///
+/// An event that does not fit in the first buffer is encoded into a larger one the Host
+/// lends on request, doubling each time, and this is where the doubling stops. An event
+/// larger than this is refused rather than cut short: a single event that large is a bug
+/// in whatever produced it, and lending without a ceiling would turn that bug into running
+/// out of memory. The other platforms grow their own buffers to the same ceiling.
+pub const WEB_EVENT_BUFFER_MAX_BYTES: u32 = 64 * 1024 * 1024;
+
+/// The Host export a browser Renderer borrows a larger event buffer from.
+///
+/// It is setup, like `compose_rust_host_web_start`, not a boundary operation: the
+/// Renderer calls it only when an event outgrows the buffer it has, and keeps what it gets.
+/// It goes through the trampoline like the boundary operations, in the slot after theirs.
+pub const WEB_LEND_EVENT_BUFFER_SYMBOL: &str = "compose_rust_host_web_lend_event_buffer";
+
 /// Where the event buffer starts inside the block `compose_rust_host_web_start` reports.
 ///
 /// The out record comes first, at offset zero, and the event buffer follows it.
@@ -4261,17 +5103,19 @@ pub const WEB_START_SYMBOL: &str = "compose_rust_host_web_start";
 /// because Rust is instantiated second and Kotlin's exports already exist by then.
 pub const WEB_RENDERER_IMPORT_MODULE: &str = "compose_rust_renderer";
 
-/// The global the generated forwarders read the Host's exports off.
+/// The global the loader publishes the trampoline's table under.
 ///
-/// A `@JsFun` body is inlined into the import object module Kotlin generates, so the only
-/// name it can reach the loader through is a property of the global object.
-pub const WEB_HOST_GLOBAL: &str = "__composeRustHost";
+/// The loader creates the table and the Renderer's generated `installHost` fills it with the
+/// Host's exports. That body is a `@JsFun`, inlined into the import object module Kotlin
+/// generates, so the only name it can reach the loader's table through is a property of the
+/// global object. Nothing reads it on a call: a call goes through the table from wasm.
+pub const WEB_TABLE_GLOBAL: &str = "__composeRustHostTable";
 
 /// The global the loader module publishes the compiled Host module under.
 ///
-/// Compiling is all the page does, and the reason the page has to do it at all is that
-/// compiling is asynchronous while the boundary is not: the fetch has to have finished
-/// before the Renderer's `main` runs. Everything after it, the memory, the imports and the
-/// entry point, is in the generated Kotlin, because only the Renderer's own module can name
-/// them.
+/// Besides the trampoline, compiling is all the page does, and the reason the page has to
+/// do it at all is that compiling is asynchronous while the boundary is not: the fetch has
+/// to have finished before the Renderer's `main` runs. Everything after it, the memory, the
+/// Host's imports, the entry point and filling the table, is in the generated Kotlin,
+/// because only the Renderer's own module can name them.
 pub const WEB_MODULE_GLOBAL: &str = "__composeRustHostModule";

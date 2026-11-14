@@ -1174,6 +1174,59 @@ pub fn with_notification_permission(manifest: &str) -> Option<String> {
     Some(text)
 }
 
+/// The application's manifest with its first Activity told to resize for the keyboard, or
+/// `None` when it already says so or has no `<activity>` to say it on.
+///
+/// Without it Android pans the window instead: the whole screen slides up by the
+/// keyboard's height, so the bar at the top leaves the screen and runs under the status
+/// bar, and nothing below the focused field is laid out for the space that is left. With
+/// it, an edge-to-edge window is not resized either, but it is told how much the keyboard
+/// covers, and the renderer stops the page above it while bars and overlays keep their
+/// place. The Activity is the one the build generates, so the setting goes on that.
+///
+/// Any `state...` part of an existing value is kept; an `adjust...` part other than
+/// `adjustResize` is what causes the pan, so it is replaced.
+pub fn with_keyboard_resize(manifest: &str) -> Option<String> {
+    const ATTRIBUTE: &str = "android:windowSoftInputMode=\"";
+    const RESIZE: &str = "adjustResize";
+    let open = manifest
+        .match_indices("<activity")
+        .map(|(at, _)| at)
+        .find(|&at| {
+            manifest[at + "<activity".len()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_whitespace)
+        })?;
+    let end = open + manifest[open..].find('>')?;
+    let tag = &manifest[open..end];
+    let Some(attribute_at) = tag.find(ATTRIBUTE) else {
+        let after = open + "<activity".len();
+        let mut text = String::with_capacity(manifest.len() + 64);
+        text.push_str(&manifest[..after]);
+        text.push_str(&format!("\n            {ATTRIBUTE}{RESIZE}\""));
+        text.push_str(&manifest[after..]);
+        return Some(text);
+    };
+    let value_at = open + attribute_at + ATTRIBUTE.len();
+    let value_end = value_at + manifest[value_at..end].find('"')?;
+    let value = &manifest[value_at..value_end];
+    if value.split('|').any(|part| part.trim() == RESIZE) {
+        return None;
+    }
+    let mut parts: Vec<&str> = value
+        .split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !part.starts_with("adjust"))
+        .collect();
+    parts.push(RESIZE);
+    let mut text = String::with_capacity(manifest.len() + 16);
+    text.push_str(&manifest[..value_at]);
+    text.push_str(&parts.join("|"));
+    text.push_str(&manifest[value_end..]);
+    Some(text)
+}
+
 /// Puts Compose into an application module's generated `build.gradle.kts`.
 ///
 /// The Dioxus CLI generates this file and offers `gradle_plugins` for adding to it, but

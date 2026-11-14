@@ -3,7 +3,7 @@
 mod support;
 
 use compose_rust::runtime::*;
-use compose_rust::schema::{Paint, WordBreak};
+use compose_rust::schema::{OverflowWrap, Paint, WordBreak};
 use compose_rust::ui::*;
 use compose_rust::{ComposeHost, FontRef, FontRefs};
 use support::Tree;
@@ -39,7 +39,7 @@ fn fr_42_shadows_from_an_iterator_keep_their_order_and_stop_at_the_limit() {
     let layers = (0..6).map(|n| Shadow::new(0.0, n as f32, 1.0, 0.0, ink()));
     let modifier = Modifier.shadows(layers);
     let (_host, tree) = start(move || {
-        Column().modifier(modifier).content(|| {});
+        Column().modifier(modifier.clone()).content(|| {});
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Shadow").count(), MAX_SHADOWS, "{dump}");
@@ -113,4 +113,89 @@ fn fr_40_text_that_names_no_font_sends_no_font() {
         !dump.contains("Font=") && !dump.contains("WordBreak="),
         "{dump}"
     );
+}
+
+/// The one node of `widget` in the dump, as its line.
+fn line_of<'a>(dump: &'a str, widget: &str) -> &'a str {
+    let lines: Vec<&str> = dump
+        .lines()
+        .filter(|line| line.trim_start().split(' ').next() == Some(widget))
+        .collect();
+    assert_eq!(lines.len(), 1, "one {widget} in {dump}");
+    lines[0]
+}
+
+#[test]
+fn fr58_text_sends_overflow_wrap_beside_word_break() {
+    let (_host, tree) = start(|| {
+        Text("/Users/someone/projects/a-very-long-file-name.rs")
+            .word_break(WordBreak::KeepAll)
+            .overflow_wrap(OverflowWrap::Anywhere);
+    });
+    let dump = tree.dump();
+    let text = line_of(&dump, "Text");
+    assert!(
+        text.contains(&format!("WordBreak=Integer({})", WordBreak::KeepAll as u16)),
+        "{dump}"
+    );
+    assert!(
+        text.contains(&format!(
+            "OverflowWrap=Integer({})",
+            OverflowWrap::Anywhere as u16
+        )),
+        "{dump}"
+    );
+}
+
+#[test]
+fn fr58_text_field_sends_word_break_and_overflow_wrap() {
+    let (_host, tree) = start(|| {
+        TextField()
+            .placeholder("검색어를 입력하세요")
+            .word_break(WordBreak::KeepAll)
+            .overflow_wrap(OverflowWrap::Anywhere);
+    });
+    let dump = tree.dump();
+    let field = line_of(&dump, "TextField");
+    assert!(
+        field.contains(&format!("WordBreak=Integer({})", WordBreak::KeepAll as u16)),
+        "{dump}"
+    );
+    assert!(
+        field.contains(&format!(
+            "OverflowWrap=Integer({})",
+            OverflowWrap::Anywhere as u16
+        )),
+        "{dump}"
+    );
+}
+
+#[test]
+fn fr58_text_and_text_field_that_name_no_breaking_send_none() {
+    let (_host, tree) = start(|| {
+        Text("a");
+        TextField().placeholder("b");
+    });
+    let dump = tree.dump();
+    assert!(
+        !dump.contains("WordBreak=") && !dump.contains("OverflowWrap="),
+        "{dump}"
+    );
+}
+
+#[test]
+fn fr58_overflow_wrap_set_back_to_none_is_cleared() {
+    let wrap = mutable_state_of(true);
+    let state = wrap;
+    let (mut host, mut tree) = start(move || {
+        let text = Text("token");
+        if state.get() {
+            text.overflow_wrap(OverflowWrap::Anywhere);
+        }
+    });
+    assert!(tree.dump().contains("OverflowWrap="), "{}", tree.dump());
+    wrap.set(false);
+    let batch = host.render_frame(0).expect("the frame encodes").to_vec();
+    tree.apply(&batch);
+    assert!(!tree.dump().contains("OverflowWrap="), "{}", tree.dump());
 }

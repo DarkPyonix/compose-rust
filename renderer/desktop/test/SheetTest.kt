@@ -1,14 +1,27 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.swipeUp
+import dev.darkpyonix.composerust.foundation.sheetContentTestTag
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getBoundsInRoot
@@ -20,9 +33,11 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import dev.darkpyonix.composerust.foundation.platformBackHandler
 import dev.darkpyonix.composerust.foundation.sheetScrimTestTag
 import dev.darkpyonix.composerust.foundation.sheetTestTag
 import dev.darkpyonix.composerust.protocol.ColorScheme
@@ -31,11 +46,13 @@ import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SheetPresentation
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.tooling.HostResponse
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
@@ -63,6 +80,19 @@ private fun sheetBatch(open: Boolean) = listOf(
     Mutation.Create(SHEET, WidgetKind.Sheet),
     Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(open)),
     Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+    Mutation.Create(CONTENT, WidgetKind.Text),
+    Mutation.SetProp(CONTENT, PropertyKind.Text, PropertyValue.Text("filter by")),
+    Mutation.Insert(SHEET, CONTENT, 0),
+)
+
+private fun sheetBatchCentered(open: Boolean) = listOf(
+    Mutation.SetTheme(
+        Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+    ),
+    Mutation.Create(SHEET, WidgetKind.Sheet),
+    Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(open)),
+    Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+    Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
     Mutation.Create(CONTENT, WidgetKind.Text),
     Mutation.SetProp(CONTENT, PropertyKind.Text, PropertyValue.Text("filter by")),
     Mutation.Insert(SHEET, CONTENT, 0),
@@ -182,6 +212,78 @@ class SheetTest {
         }
 
     /**
+     * A sheet with a tallest height is as tall as its content up to that share of the
+     * window, and the content scrolls once it is taller. Both edges a sheet comes from
+     * follow it: the bottom of a narrow window and the side of a wide one. The test window
+     * is 800dp tall at one pixel to the dp.
+     */
+    @Test
+    fun fr21_sheet_max_height_fraction() {
+        for (windowWidth in listOf(500.dp, 1100.dp)) {
+            // Taller than the share: the sheet stops at 0.85 of 800, and the content scrolls.
+            var tall = 0.dp
+            var tallColumn = 0.dp
+            runDesktopComposeUiTest(windowWidth.value.toInt(), 800) {
+                showTallSheet(windowWidth, contentHeight = 1000f)
+                val covered = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+                assertNear(800.dp, covered.bottom - covered.top, "the window the sheet covers")
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                assertNear(680.dp, sheet.bottom - sheet.top, "a sheet at $windowWidth holding 1000dp")
+                val column = onNodeWithTag(sheetContentTestTag(SHEET)).getBoundsInRoot()
+                val before = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+                onNodeWithTag(sheetContentTestTag(SHEET)).performTouchInput { swipeUp() }
+                waitForIdle()
+                val after = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+                assertTrue(after < before - 50.dp, "the content did not scroll: $before to $after")
+                tall = sheet.bottom - sheet.top
+                tallColumn = column.bottom - column.top
+            }
+            assertTrue(tallColumn < tall, "the scrolling content is inside the sheet")
+            // Shorter than the share: the sheet is as tall as its content and whatever the
+            // design system puts round it, which is the same in both.
+            runDesktopComposeUiTest(windowWidth.value.toInt(), 800) {
+                showTallSheet(windowWidth, contentHeight = 200f)
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                val column = onNodeWithTag(sheetContentTestTag(SHEET)).getBoundsInRoot()
+                assertNear(200.dp, column.bottom - column.top, "the content at $windowWidth")
+                assertNear(
+                    200.dp + (tall - tallColumn),
+                    sheet.bottom - sheet.top,
+                    "a sheet at $windowWidth holding 200dp",
+                )
+            }
+        }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    private fun ComposeUiTest.showTallSheet(windowWidth: Dp, contentHeight: Float) {
+        val batch = listOf(
+            Mutation.SetTheme(
+                Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+            ),
+            Mutation.Create(SHEET, WidgetKind.Sheet),
+            Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+            Mutation.SetProp(SHEET, PropertyKind.MaxHeightFraction, PropertyValue.Float(0.85f)),
+            Mutation.Create(CONTENT, WidgetKind.Box),
+            Mutation.SetModifier(CONTENT, 0, ProtocolModifier.FillMaxWidth),
+            Mutation.SetModifier(CONTENT, 1, ProtocolModifier.Height(contentHeight)),
+            Mutation.Insert(SHEET, CONTENT, 0),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(
+                    rememberComposeRustHost(FakeHostConnection(batch)),
+                    Modifier.fillMaxSize(),
+                )
+            }
+        }
+        waitForIdle()
+    }
+
+    /**
      * Pressing Escape on an open Dialog dispatches OnDismiss once, and leaves the Dialog
      * open when the Host keeps Open true.
      */
@@ -215,6 +317,103 @@ class SheetTest {
         assertEquals(listOf(HostEvent.Clicked(dialog, handler)), dismissals)
         // The Host did not send Open=false, so the Dialog stays open.
         onNodeWithTag(nodeTestTag(label)).assertTextEquals("unsaved changes")
+    }
+
+    /**
+     * Android's back reaches the renderer through the platform back hook. The test installs
+     * one that records what the window registered, which is the same call Android's
+     * BackHandler receives, and presses back by invoking it.
+     */
+    private class RecordedBack {
+        var enabled = false
+        var onBack: () -> Unit = {}
+    }
+
+    private fun <T> withRecordedBack(block: (RecordedBack) -> T): T {
+        val previous = platformBackHandler
+        val recorded = RecordedBack()
+        // The window's own hook is the last one registered without a split pane on screen.
+        platformBackHandler = { enabled, onBack ->
+            recorded.enabled = enabled
+            recorded.onBack = onBack
+        }
+        try {
+            return block(recorded)
+        } finally {
+            platformBackHandler = previous
+        }
+    }
+
+    /**
+     * With a Dialog open over an open Sheet, one back dismisses only the Dialog; once the
+     * Host closes it, the next back dismisses the Sheet.
+     */
+    @Test
+    fun fr21_android_back_dismisses_the_topmost_overlay_once() = withRecordedBack { back ->
+        runComposeUiTest {
+            val dialog = 3
+            val dialogText = 4
+            val dialogHandler = 66L
+            val connection = FakeHostConnection(
+                sheetBatch(open = true) + listOf(
+                    Mutation.Create(dialog, WidgetKind.Dialog),
+                    Mutation.SetProp(dialog, PropertyKind.Open, PropertyValue.Bool(true)),
+                    Mutation.SetProp(dialog, PropertyKind.OnDismiss, PropertyValue.Integer(dialogHandler)),
+                    Mutation.Create(dialogText, WidgetKind.Text),
+                    Mutation.SetProp(dialogText, PropertyKind.Text, PropertyValue.Text("discard?")),
+                    Mutation.Insert(dialog, dialogText, 0),
+                    Mutation.Insert(SHEET, dialog, 1),
+                ),
+            )
+            // The Host honours the Dialog's dismissal and leaves the Sheet to the next back.
+            connection.respondWith { event ->
+                if (event == HostEvent.Clicked(dialog, dialogHandler)) {
+                    HostResponse(listOf(Mutation.SetProp(dialog, PropertyKind.Open, PropertyValue.Bool(false))))
+                } else {
+                    HostResponse()
+                }
+            }
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(nodeTestTag(dialogText)).assertTextEquals("discard?")
+            assertTrue(back.enabled, "back is claimed while an overlay is open")
+
+            runOnIdle { back.onBack() }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.Clicked(dialog, dialogHandler)),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+            )
+            onNodeWithTag(nodeTestTag(CONTENT)).assertTextEquals("filter by")
+            assertTrue(back.enabled, "the Sheet is still open")
+
+            runOnIdle { back.onBack() }
+            waitForIdle()
+            assertEquals(
+                listOf(HostEvent.Clicked(dialog, dialogHandler), HostEvent.Clicked(SHEET, DISMISS_HANDLER)),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+            )
+        }
+    }
+
+    /** With no overlay open, the window does not claim back, so it stays the app's. */
+    @Test
+    fun fr21_android_back_without_overlay_passes_through() = withRecordedBack { back ->
+        runComposeUiTest {
+            val connection = FakeHostConnection(sheetBatch(open = false))
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    ComposeRustContent(rememberComposeRustHost(connection))
+                }
+            }
+            waitForIdle()
+            assertEquals(false, back.enabled)
+            assertTrue(connection.events.filterIsInstance<HostEvent.Clicked>().isEmpty())
+        }
     }
 
     /**
@@ -486,5 +685,320 @@ class SheetTest {
         waitForIdle()
 
         onNodeWithTag(nodeTestTag(opener)).assertIsFocused()
+    }
+
+    /**
+     * A centered sheet in an expanded window is placed in the center of the window with
+     * the default width of 560dp, or an explicit max width when specified.
+     * Its scrim is drawn with alpha about 0.4 in both light and dark themes.
+     */
+    @Test
+    fun fr21_centered_sheet_geometry() {
+        for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
+            runDesktopComposeUiTest(1024, 800) {
+                val batch = listOf(
+                    Mutation.SetTheme(
+                        Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, adaptive = false),
+                    ),
+                    Mutation.Create(SHEET, WidgetKind.Sheet),
+                    Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+                    Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+                    Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                    Mutation.Create(CONTENT, WidgetKind.Box),
+                    Mutation.SetModifier(CONTENT, 0, ProtocolModifier.Height(200f)),
+                    Mutation.Insert(SHEET, CONTENT, 0),
+                )
+                setContent {
+                    CompositionLocalProvider(
+                        LocalFrameRequests provides frames,
+                        LocalDensity provides Density(1f),
+                    ) {
+                        Box(Modifier.fillMaxSize().background(Color.White)) {
+                            ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.fillMaxSize())
+                        }
+                    }
+                }
+                waitForIdle()
+                val covered = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                assertNear(1024.dp, covered.right - covered.left, "covered window width")
+                assertNear(800.dp, covered.bottom - covered.top, "covered window height")
+                assertNear(560.dp, sheet.right - sheet.left, "centered sheet default width")
+                assertNear((1024.dp - 560.dp) / 2f, sheet.left - covered.left, "horizontal centering")
+                assertNear((800.dp - (sheet.bottom - sheet.top)) / 2f, sheet.top - covered.top, "vertical centering")
+
+                val picture = onNodeWithTag(sheetScrimTestTag(SHEET)).captureToImage().toAwtImage()
+                val pixel = picture.getRGB(4, 4)
+                val channels = listOf((pixel shr 16) and 0xff, (pixel shr 8) and 0xff, pixel and 0xff)
+                val expected = if (scheme == ColorScheme.Light) 153 else 12
+                assertTrue(
+                    channels.all { abs(it - expected) <= 6 },
+                    "scrim pixel channel should be about $expected for scheme $scheme but was $channels",
+                )
+            }
+        }
+
+        // Test explicit max_width(1360) in a wide 1600x800 window.
+        runDesktopComposeUiTest(1600, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(
+                    Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+                ),
+                Mutation.Create(SHEET, WidgetKind.Sheet),
+                Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+                Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+                Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                Mutation.SetProp(SHEET, PropertyKind.MaxWidth, PropertyValue.Integer(1360L)),
+                Mutation.Create(CONTENT, WidgetKind.Box),
+                Mutation.SetModifier(CONTENT, 0, ProtocolModifier.Height(200f)),
+                Mutation.Insert(SHEET, CONTENT, 0),
+            )
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.fillMaxSize())
+                }
+            }
+            waitForIdle()
+            val covered = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+            val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+            assertNear(1360.dp, sheet.right - sheet.left, "centered sheet explicit max width")
+            assertNear((1600.dp - 1360.dp) / 2f, sheet.left - covered.left, "horizontal centering")
+        }
+    }
+
+    /**
+     * Clicking the scrim or pressing Escape on a centered sheet dispatches OnDismiss once.
+     */
+    @Test
+    fun fr21_centered_sheet_dismisses_on_scrim_and_escape() {
+        runDesktopComposeUiTest(1024, 800) {
+            val connection = FakeHostConnection(sheetBatchCentered(open = true))
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(sheetScrimTestTag(SHEET)).performTouchInput { click(Offset(20f, 20f)) }
+            waitForIdle()
+            val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
+            assertEquals(
+                listOf(HostEvent.Clicked(SHEET, DISMISS_HANDLER)),
+                dismissals,
+                "clicking scrim dispatches OnDismiss once",
+            )
+        }
+
+        runDesktopComposeUiTest(1024, 800) {
+            val connection = FakeHostConnection(sheetBatchCentered(open = true))
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
+                }
+            }
+            waitForIdle()
+            onAllNodes(isRoot()).onLast().performKeyInput { pressKey(Key.Escape) }
+            waitForIdle()
+            val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
+            assertEquals(
+                listOf(HostEvent.Clicked(SHEET, DISMISS_HANDLER)),
+                dismissals,
+                "pressing Escape dispatches OnDismiss once",
+            )
+        }
+    }
+
+    /**
+     * A centered sheet traps keyboard focus: Tab cycles within the sheet's focusable children
+     * and never escapes to controls on the page. Closing the sheet restores focus to the opener.
+     */
+    @Test
+    fun fr21_centered_sheet_focus_trap_and_tab_cycle() = runDesktopComposeUiTest(1024, 800) {
+        val root = 10
+        val opener = 11
+        val field1 = 21
+        val field2 = 22
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(root, WidgetKind.Column),
+                Mutation.Create(opener, WidgetKind.Button),
+                Mutation.SetProp(opener, PropertyKind.Text, PropertyValue.Text("Open settings")),
+                Mutation.SetProp(opener, PropertyKind.OnClick, PropertyValue.Integer(88L)),
+                Mutation.Insert(root, opener, 0),
+                Mutation.Create(SHEET, WidgetKind.Sheet),
+                Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(false)),
+                Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+                Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                Mutation.Create(field1, WidgetKind.TextField),
+                Mutation.Insert(SHEET, field1, 0),
+                Mutation.Create(field2, WidgetKind.TextField),
+                Mutation.Insert(SHEET, field2, 1),
+                Mutation.Insert(root, SHEET, 1),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
+            }
+        }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(opener)).requestFocus()
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(opener)).assertIsFocused()
+
+        // Open the centered sheet.
+        connection.scheduleFrame(
+            listOf(Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true))),
+        )
+        frames.request()
+        waitForIdle()
+
+        // Tab moves focus to the first text field.
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(Key.Tab) }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(field1)).assertIsFocused()
+
+        // Tab moves focus to the second text field.
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(Key.Tab) }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(field2)).assertIsFocused()
+
+        // Tab at the end cycles back to the first text field without escaping to opener.
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(Key.Tab) }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(field1)).assertIsFocused()
+
+        // Close the sheet: focus returns to the opener button.
+        connection.scheduleFrame(
+            listOf(Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(false))),
+        )
+        frames.request()
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(opener)).assertIsFocused()
+    }
+
+    /**
+     * If content exceeds available window height minus margins, the centered sheet clamps
+     * its height to available height and content scrolls. When content is shorter, the
+     * sheet is only as tall as its content.
+     */
+    @Test
+    fun fr21_centered_sheet_scrolls_taller_content() {
+        // Taller content (1000dp) in 800dp window: clamps to 800dp - 32dp = 768dp and scrolls.
+        runDesktopComposeUiTest(1024, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(
+                    Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+                ),
+                Mutation.Create(SHEET, WidgetKind.Sheet),
+                Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+                Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                Mutation.Create(CONTENT, WidgetKind.Box),
+                Mutation.SetModifier(CONTENT, 0, ProtocolModifier.FillMaxWidth),
+                Mutation.SetModifier(CONTENT, 1, ProtocolModifier.Height(1000f)),
+                Mutation.Insert(SHEET, CONTENT, 0),
+            )
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.fillMaxSize())
+                }
+            }
+            waitForIdle()
+            val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+            assertNear(768.dp, sheet.bottom - sheet.top, "sheet height clamped to 768dp")
+
+            val before = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+            onNodeWithTag(sheetContentTestTag(SHEET)).performTouchInput { swipeUp() }
+            waitForIdle()
+            val after = onNodeWithTag(nodeTestTag(CONTENT)).getUnclippedBoundsInRoot().top
+            assertTrue(after < before - 50.dp, "content scrolled inside centered sheet")
+        }
+
+        // Shorter content (200dp) in 800dp window: content height is 200dp, sheet height < 768dp.
+        runDesktopComposeUiTest(1024, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(
+                    Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+                ),
+                Mutation.Create(SHEET, WidgetKind.Sheet),
+                Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+                Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                Mutation.Create(CONTENT, WidgetKind.Box),
+                Mutation.SetModifier(CONTENT, 0, ProtocolModifier.FillMaxWidth),
+                Mutation.SetModifier(CONTENT, 1, ProtocolModifier.Height(200f)),
+                Mutation.Insert(SHEET, CONTENT, 0),
+            )
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.fillMaxSize())
+                }
+            }
+            waitForIdle()
+            val column = onNodeWithTag(sheetContentTestTag(SHEET)).getBoundsInRoot()
+            assertNear(200.dp, column.bottom - column.top, "content height is 200dp")
+            val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+            assertTrue(sheet.bottom - sheet.top < 768.dp, "sheet does not expand to maximum available height")
+        }
+    }
+
+    /**
+     * In a compact window (500dp wide), a centered sheet falls back to bottom sheet presentation
+     * with drag-to-dismiss enabled.
+     */
+    @Test
+    fun fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact() = runDesktopComposeUiTest(500, 800) {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.SetTheme(
+                    Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false),
+                ),
+                Mutation.Create(SHEET, WidgetKind.Sheet),
+                Mutation.SetProp(SHEET, PropertyKind.Open, PropertyValue.Bool(true)),
+                Mutation.SetProp(SHEET, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS_HANDLER)),
+                Mutation.SetProp(SHEET, PropertyKind.Presentation, PropertyValue.Integer(SheetPresentation.Centered.ordinal.toLong())),
+                Mutation.Create(CONTENT, WidgetKind.Text),
+                Mutation.SetProp(CONTENT, PropertyKind.Text, PropertyValue.Text("Compact fallback")),
+                Mutation.Insert(SHEET, CONTENT, 0),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(500.dp, 800.dp))
+            }
+        }
+        waitForIdle()
+
+        val covered = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+        val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+        assertNear(covered.right - covered.left, sheet.right - sheet.left, "fallback bottom sheet width")
+        assertNear(covered.bottom, sheet.bottom, "fallback bottom sheet bottom edge")
+        assertNear((covered.bottom - covered.top) / 2f, sheet.bottom - sheet.top, "fallback bottom sheet height")
+
+        // Dragging down closes the compact fallback sheet.
+        onNodeWithTag(sheetTestTag(SHEET)).performTouchInput { swipeDown() }
+        waitForIdle()
+        val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
+        assertEquals(1, dismissals.size, "drag down dismisses the fallback sheet once")
     }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.detectHostPlatform
+import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PointerType
@@ -121,6 +122,29 @@ internal fun HostNode.subscribesToPointer(): Boolean =
     handler(PropertyKind.OnPointer) != null && pointerKinds() != 0
 
 /**
+ * Whether a code editor has both halves of its own subscription: the handler that hears its
+ * pointer with the text under it, and at least one kind in the same mask a node's has.
+ */
+internal fun HostNode.subscribesToCodePointer(): Boolean =
+    handler(PropertyKind.OnCodePointer) != null && pointerKinds() != 0
+
+/**
+ * A code editor's surface, as the pointer events over it see it: what is under a point.
+ *
+ * The editor's pointer node routes in the first pass rather than the main one. The text
+ * the editor draws handles a press in the main pass, so a press the Host consumed has to be
+ * consumed before then, or the caret would move under a Cmd-click that was the Host's.
+ */
+interface CodePointerTarget {
+    /**
+     * The character under a point of the editor's view, in its pixels, or null where there
+     * is none: the gutter, past the end of a line, below the last line, or a row the editor
+     * shows that is not the document's.
+     */
+    fun positionAt(x: Float, y: Float): CodePosition?
+}
+
+/**
  * The modifier of a subscribed node. Call it only for a node that subscribes.
  *
  * The scale positions are divided by is the node's own: inside an HTML island that is the
@@ -156,6 +180,38 @@ internal fun hostPointerEvents(
     )
 }
 
+/**
+ * The modifier of a code editor's view whose node subscribes to [PropertyKind.OnCodePointer].
+ * The records are the ones [hostPointerEvents] sends with the character under the pointer
+ * after them, and every rule is the same: the kinds, the capture, a move a frame, the click
+ * count, the menu, and a consumed press consumed for Compose too.
+ */
+@Composable
+internal fun codePointerEvents(
+    node: HostNode,
+    router: PointerRouter,
+    dispatcher: EventDispatcher,
+    target: CodePointerTarget,
+): Modifier {
+    val outer = LocalDensity.current
+    val view = LocalViewConfiguration.current
+    val controlClickIsMenu = remember {
+        (hostPlatformOverride ?: detectHostPlatform()) == HostPlatform.MacOs
+    }
+    return HostPointerElement(
+        node,
+        router,
+        dispatcher,
+        outer.density,
+        view.doubleTapTimeoutMillis,
+        view.longPressTimeoutMillis,
+        view.touchSlop,
+        controlClickIsMenu,
+        hostWheelDeltaMode,
+        target,
+    )
+}
+
 private data class HostPointerElement(
     val node: HostNode,
     val router: PointerRouter,
@@ -166,6 +222,8 @@ private data class HostPointerElement(
     val slop: Float,
     val controlClickIsMenu: Boolean,
     val wheelMode: WheelDeltaMode,
+    /** A code editor's view, for the editor's own events. Null for a node's [PropertyKind.OnPointer]. */
+    val code: CodePointerTarget? = null,
 ) : ModifierNodeElement<HostPointerNode>() {
     override fun create(): HostPointerNode = HostPointerNode(node, router, dispatcher).also(::configure)
 
@@ -193,6 +251,7 @@ private data class HostPointerElement(
         node.slop = slop
         node.controlClickIsMenu = controlClickIsMenu
         node.wheelMode = wheelMode
+        node.code = code
     }
 }
 
@@ -212,6 +271,9 @@ internal class HostPointerNode(
     var slop = 0f
     var controlClickIsMenu = false
     var wheelMode = WheelDeltaMode.Line
+
+    /** The code editor this node is the view of, which makes its records `CodePointer` ones. */
+    var code: CodePointerTarget? = null
 
     /** The event being dispatched, as this node sees it: its positions are this node's own. */
     var current: PointerEvent? = null
@@ -281,6 +343,20 @@ internal class HostPointerNode(
     }
 
     override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
+        if (code != null) {
+            // Routed on the way down, before the editor's text sees the event: the nodes of
+            // the chain further out are already on the stack, and the editor is the
+            // innermost subscriber there is.
+            if (pass != PointerEventPass.Initial) return
+            current = pointerEvent
+            router.begin(this)
+            if (pointerEvent.type == PointerEventType.Scroll && wheelTaken && wants(PointerKind.Wheel)) {
+                val changes = pointerEvent.changes
+                for (index in changes.indices) changes[index].consume()
+            }
+            router.finish(this, pointerEvent)
+            return
+        }
         when (pass) {
             // On the way down every subscriber in the path says it is there. The deepest
             // one is the first to see the main pass, and by then the whole path is known.
@@ -351,6 +427,8 @@ internal class HostPointerNode(
         deltaY: Float = 0f,
         deltaMode: WheelDeltaMode = WheelDeltaMode.Pixel,
     ): Boolean {
+        val editor = code
+        if (editor != null) return sendCode(editor, kind, button, clickCount, deltaX, deltaY, deltaMode)
         val handler = host.handler(PropertyKind.OnPointer) ?: return false
         if (!router.alive(host.id)) return false
         return dispatcher.dispatch(
@@ -370,6 +448,42 @@ internal class HostPointerNode(
                 deltaY = deltaY,
                 deltaMode = deltaMode,
                 timestampNanos = lastUptimeMillis * 1_000_000L,
+            ),
+        )
+    }
+
+    /** [send] for a code editor's view: the same record, and the character under the pointer. */
+    private fun sendCode(
+        editor: CodePointerTarget,
+        kind: PointerKind,
+        button: Int,
+        clickCount: Int,
+        deltaX: Float,
+        deltaY: Float,
+        deltaMode: WheelDeltaMode,
+    ): Boolean {
+        val handler = host.handler(PropertyKind.OnCodePointer) ?: return false
+        if (!router.alive(host.id)) return false
+        val position = editor.positionAt(lastX, lastY)
+        return dispatcher.dispatch(
+            HostEvent.CodePointer(
+                nodeId = host.id,
+                handlerId = handler,
+                kind = kind,
+                pointerId = lastPointerId,
+                pointerType = lastPointerType,
+                x = lastX / pxPerUnit,
+                y = lastY / pxPerUnit,
+                buttons = lastButtons,
+                button = button,
+                modifiers = lastModifiers,
+                clickCount = clickCount,
+                deltaX = deltaX,
+                deltaY = deltaY,
+                deltaMode = deltaMode,
+                timestampNanos = lastUptimeMillis * 1_000_000L,
+                line = position?.line ?: -1,
+                column = position?.column ?: -1,
             ),
         )
     }

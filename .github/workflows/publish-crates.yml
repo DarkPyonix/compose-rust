@@ -86,6 +86,17 @@ jobs:
           sudo apt-get install -y build-essential pkg-config zlib1g-dev \
             libx11-dev libxext-dev libgl-dev libegl-dev libfontconfig1-dev libfreetype-dev
 
+      - name: Fetch the publish script from this workflow's commit
+        # The tag being published may predate the script (v0.0.7 does), so it comes from
+        # the commit this workflow file runs from, next to the tag's checkout. A subdirectory
+        # keeps the tag's own tree untouched; cargo packages only tracked files, so it is
+        # never part of a crate.
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .publish-tools
+          sparse-checkout: .github/scripts
+
       - name: Publish
         # Default features only, so this is exactly what a consumer gets. The verification
         # build downloads the renderer for this version from the release the renderer workflow
@@ -93,9 +104,10 @@ jobs:
         # crate whose build script cannot find its own renderer would ship a version
         # nobody can build.
         #
-        # compose-rust-macros goes in the same call: compose-rust names it by version, so it
-        # has to be on crates.io first, and publishing both at once uploads them in
-        # dependency order.
+        # compose-rust-macros goes first, since compose-rust names it by version. The script
+        # skips any crate whose version is already on crates.io and waits for the index to
+        # serve each one before the next, so a run that failed half way (v0.0.7 uploaded
+        # the macros, then timed out waiting for the index) can simply be run again.
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -p compose-rust-macros -p compose-rust
+        run: bash .publish-tools/.github/scripts/publish-crates.sh

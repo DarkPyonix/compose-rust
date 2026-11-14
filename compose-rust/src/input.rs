@@ -122,6 +122,18 @@ impl FileDrop {
     }
 }
 
+/// A node's size motion came to rest: the size it settled at, in dp.
+///
+/// Delivered once for each change of size that runs to its end, after the last frame of
+/// the run, so a screen can wait for a collapse to finish before it takes the child out.
+/// A run that a newer target interrupts is not reported; the one that settles is. Under
+/// reduced motion the size changes in one frame and this arrives in that frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MotionFinished {
+    pub width_dp: f32,
+    pub height_dp: f32,
+}
+
 /// The visible item range the Renderer asks the Host to materialise.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RangeRequest {

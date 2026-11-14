@@ -28,11 +28,14 @@ import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
 import dev.darkpyonix.composerust.protocol.RevealAlign
 import dev.darkpyonix.composerust.protocol.MessageDuration
+import dev.darkpyonix.composerust.protocol.MessageHorizontal
+import dev.darkpyonix.composerust.protocol.MessageVertical
 import dev.darkpyonix.composerust.protocol.NotificationImportance
 import dev.darkpyonix.composerust.protocol.NotificationPermission
 import dev.darkpyonix.composerust.protocol.NotificationPresentation
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.OverlayTokens
 import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.BatchBytes
 import dev.darkpyonix.composerust.protocol.StorageOp
@@ -40,6 +43,7 @@ import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.SpanRecords
 import dev.darkpyonix.composerust.protocol.TextSpanRecord
 import dev.darkpyonix.composerust.protocol.ShapeRole
@@ -98,7 +102,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -140,6 +147,11 @@ class ProtocolVectorsTest {
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
+                is Mutation.SetScrollOffset -> mutation.nodeId !in created
+                is Mutation.QueryPositionRect -> mutation.nodeId !in created
+                is Mutation.EditCodeGroup -> mutation.nodeId !in created
+                is Mutation.InsertSnippet -> mutation.nodeId !in created
+                is Mutation.SetSelections -> mutation.nodeId !in created
                 // An animation is played on a node, so one that names a node the vector
                 // never created is reported once the batch is in.
                 is Mutation.StartAnimation -> mutation.animation.nodeId !in created
@@ -169,6 +181,15 @@ class ProtocolVectorsTest {
                     text = "삭제했습니다",
                     action = "Undo",
                     duration = MessageDuration.Long,
+                ),
+                Mutation.ShowMessage(
+                    handlerId = 0L,
+                    text = "복사했습니다",
+                    action = "",
+                    duration = MessageDuration.Short,
+                    vertical = MessageVertical.Bottom,
+                    horizontal = MessageHorizontal.Center,
+                    offsetDp = 96f,
                 ),
             ),
             messages,
@@ -265,6 +286,51 @@ class ProtocolVectorsTest {
         )
         assertEquals(51, length)
         assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
+    }
+
+    /** The wrapping row and its five layout properties, decoded from the bytes the Host wrote. */
+    @Test
+    fun fr76_the_flow_row_records_in_the_vector_decode_to_the_same_values() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(21, WidgetKind.FlowRow) in mutations)
+        assertEquals(
+            listOf(
+                Mutation.SetProp(21, PropertyKind.HorizontalSpacing, PropertyValue.Float(8f)),
+                Mutation.SetProp(21, PropertyKind.VerticalSpacing, PropertyValue.Float(12f)),
+                Mutation.SetProp(21, PropertyKind.HorizontalAlignment, PropertyValue.Integer(2)),
+                Mutation.SetProp(21, PropertyKind.VerticalAlignment, PropertyValue.Integer(3)),
+                Mutation.SetProp(21, PropertyKind.MaxItemsInEachRow, PropertyValue.Integer(3)),
+            ),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 21 },
+        )
+    }
+
+    /**
+     * The width a split pane stacks below decodes to the float the Host wrote, under the tag
+     * after the split pane's `Collapsible`.
+     */
+    @Test
+    fun fr15_2_12_collapse_below_round_trips() {
+        assertEquals(
+            listOf(Mutation.SetProp(2, PropertyKind.CollapseBelow, PropertyValue.Float(720.5f))),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+                .filter { it.property == PropertyKind.CollapseBelow },
+        )
+    }
+
+    /** The two physical alignments decode to the tags the Host wrote, `Left` 5 and `Right` 6. */
+    @Test
+    fun fr13_physical_text_align_round_trips() {
+        val aligns = decodeVector("mutations.bin").filterIsInstance<Mutation.SetProp>()
+            .filter { it.property == PropertyKind.TextAlign }
+        assertEquals(
+            listOf(
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Left.ordinal + 1L)),
+                Mutation.SetProp(2, PropertyKind.TextAlign, PropertyValue.Integer(TextAlign.Right.ordinal + 1L)),
+            ),
+            aligns,
+        )
+        assertEquals(listOf(5L, 6L), aligns.map { (it.value as PropertyValue.Integer).value })
     }
 
     /**
@@ -455,6 +521,93 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The overlay tokens record with the transient message's fields appended: every field
+     * the Rust encoder wrote reads back as the same value, the older ones where they always
+     * were and the message's shadow, corner, colours, line, padding and type after the scrim.
+     */
+    @Test
+    fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
+        assertEquals(
+            listOf(
+                Mutation.SetOverlayTokens(
+                    OverlayTokens(
+                        sheetCornerRadius = 24,
+                        dialogCornerRadius = 16,
+                        popupCornerRadius = 12,
+                        sheetElevation = 8,
+                        popupElevation = 4,
+                        dialogElevation = 6,
+                        sheetPadding = 20,
+                        dialogPadding = 18,
+                        popupPadding = 10,
+                        scrim = 0x8000_0000L,
+                        toastElevation = 7,
+                        toastCornerRadius = 14,
+                        toastContainerLight = 0xFF1C1B19L,
+                        toastContainerDark = 0xFFF0EEE9L,
+                        toastContentLight = 0xFFFFFFFFL,
+                        toastContentDark = 0xFF151514L,
+                        toastBorderWidth = 0,
+                        toastPaddingHorizontal = 16,
+                        toastPaddingVertical = 10,
+                        toastFontSize = 13,
+                        toastLineHeight = 20,
+                    ),
+                ),
+            ),
+            decodeVector("mutations.bin").filterIsInstance<Mutation.SetOverlayTokens>(),
+        )
+    }
+
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
+        )
+    }
+
+    /**
+     * The text node's three font features, read from the bytes the Host wrote: tabular
+     * figures on, ligatures off, and a character variant whose value is wider than a byte.
+     */
+    @Test
+    fun fr83_font_feature_settings_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(22, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 22 }
+        assertEquals(listOf(PropertyKind.FontFeatureSettings), props.map { it.property })
+        val bytes = (props.single().value as PropertyValue.Bytes).value
+        val expected = "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "cv01".encodeToByteArray() + byteArrayOf(2, 1, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        assertEquals(
+            "tnum 1, liga 0, cv01 258",
+            dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
+    }
+
+    /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f)), mutations[mutations.size - 2])
+    }
+
+    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    @Test
+    fun fr50_corner_curve_round_trips() {
+        val last = decodeVector("mutations.bin").last()
+        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+    }
+
+    /**
      * The web's file records: the operation and the release in the batch decode to what the
      * Host wrote, and the two answers encode to the bytes the Host decodes. An operation this
      * side does not know is refused, never guessed at.
@@ -569,6 +722,9 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
+                ProtocolModifier.MinTouchTarget(44f),
+                ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
         )
@@ -587,7 +743,7 @@ class ProtocolVectorsTest {
             mutations.filterIsInstance<Mutation.Create>().single { it.nodeId == 8 },
         )
         val onBox = mutations.filterIsInstance<Mutation.SetModifier>().filter { it.nodeId == 8 }
-        assertEquals((0..8).toList(), onBox.map { it.index })
+        assertEquals((0..9).toList(), onBox.map { it.index })
 
         // The record lengths, read from the bytes rather than from the decoder: 28 for a
         // value of two words, 36 for the shadow's three and 60 for the border's six.
@@ -604,7 +760,7 @@ class ProtocolVectorsTest {
             offset += length
         }
         assertEquals(
-            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28),
+            mapOf(19 to 28, 20 to 28, 21 to 60, 22 to 28, 23 to 36, 24 to 28, 25 to 28, 26 to 44, 31 to 28, 35 to 28),
             lengths,
         )
     }
@@ -734,6 +890,34 @@ class ProtocolVectorsTest {
         assertEquals(bytes.copyOfRange(527, 547).toList(), motion.array().copyOf(motionLength).toList())
     }
 
+    /**
+     * The system appearance report encodes to the 20 bytes the Host decodes: the header,
+     * then the scheme as one word, 0 for light and 1 for dark. It is the vector's last record.
+     */
+    @Test
+    fun fr44_color_scheme_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(
+            HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Dark),
+            out,
+        )
+        assertEquals(20, length)
+        assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
+        assertEquals(1755, bytes.size)
+        val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            20,
+            Protocol.encodeEvent(
+                HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Light),
+                light,
+            ),
+        )
+        assertEquals(52, light.getShort(0).toInt())
+        assertEquals(0, light.getInt(16))
+        assertEquals(1, out.getInt(16))
+    }
+
     /** The pointer event encodes to the 72 bytes the Host decodes. */
     @Test
     fun fr46_the_pointer_event_encodes_to_the_vector_bytes() {
@@ -850,6 +1034,9 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.CodeLens, null, null, 0, 0, 0, 0, 41L, "Run"),
                 DecorationRecord(0, DecorationKind.HoverAnchor, null, null, 0, 3, 0, 7, 42L, ""),
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
+                DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
+                DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.AfterLine, null, ColorRole.OnSurfaceVariant, 1, 0, 1, 0, 0L, "You, 2 days ago"),
             ),
             decorations,
         )
@@ -887,6 +1074,25 @@ class ProtocolVectorsTest {
             683 to HostEvent.EditorFocusChanged(12, 25L, true),
             707 to HostEvent.FoldChanged(12, 26L, 0, true),
             731 to HostEvent.CompositionChanged(12, 27L, true),
+            // The row height and the scroll offset, after everything that was here before.
+            1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
+            // Where the caret is drawn and the answer to the position query, after them.
+            1463 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
+            1503 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
+            // A Cmd-click over the second line, with the place in the text under it.
+            1543 to HostEvent.CodePointer(
+                12, 31L, dev.darkpyonix.composerust.protocol.PointerKind.Down, 1,
+                dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
+                dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
+            ),
+            // What became of the grouped edit in the mutation vector: both edits went in.
+            1623 to HostEvent.CodeEditGroupResult(
+                12, 32L, 8, dev.darkpyonix.composerust.protocol.EditGroupStatus.Applied, 1, 3, 2,
+            ),
+            // Every selection of the editor, a caret last and a selection made backwards in
+            // the middle, the four numbers of each behind the record.
+            1679 to HostEvent.SelectionsChanged(12, 33L, 4, intArrayOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0)),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -895,7 +1101,45 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1391, bytes.size)
+        assertEquals(1755, bytes.size)
+    }
+
+    /**
+     * A node's size motion settling encodes here to the bytes the Rust Host decodes: the
+     * header, then the settled width and height as `f32` in dp. The handler property it
+     * is sent for reads back from its tag.
+     */
+    @Test
+    fun fr24_motion_finished_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val buffer = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
+        assertEquals(24, length)
+        assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
+        assertEquals(1755, bytes.size)
+
+        // A SetProp of the handler, written by hand: the record header, the node, the
+        // property tag 193 and an integer value holding the handler id.
+        val record = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
+        record.putShort(2) // SetProp, 24 bytes with its header
+        record.putShort(24)
+        record.putInt(14)
+        record.putShort(193)
+        record.putShort(3) // an integer value
+        record.putLong(30L)
+        record.putInt(0)
+        val envelope = ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN)
+        envelope.putShort(0)
+        envelope.putShort(12)
+        envelope.putInt(36) // the records end 36 bytes in, the envelope included
+        envelope.putInt(1)
+        envelope.put(record.array())
+        val decoded = mutableListOf<Mutation>()
+        Protocol.decode(ByteBuffer.wrap(envelope.array()).order(ByteOrder.LITTLE_ENDIAN), decoded::add)
+        assertEquals(
+            listOf<Mutation>(Mutation.SetProp(14, PropertyKind.OnMotionFinished, PropertyValue.Integer(30L))),
+            decoded,
+        )
     }
 
     /**
@@ -917,8 +1161,66 @@ class ProtocolVectorsTest {
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
         )
+        assertEquals(
+            listOf(Mutation.QueryPositionRect(12, 17, 1, 8)),
+            mutations.filterIsInstance<Mutation.QueryPositionRect>(),
+        )
+        assertEquals(
+            listOf(Mutation.SetScrollOffset(12, 1234.5)),
+            mutations.filterIsInstance<Mutation.SetScrollOffset>(),
+        )
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
+        // The grouped edit: its head, then its two edits back to front as the Rust side
+        // listed them, the emoji replaced by another surrogate pair.
+        val group = mutations.filterIsInstance<Mutation.EditCodeGroup>().single()
+        assertEquals(listOf(12, 8, 1), listOf(group.nodeId, group.requestId, group.baseVersion))
+        assertEquals(null, group.malformed)
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(1, 17, 1, 19, "\uD83C\uDF89"),
+                dev.darkpyonix.composerust.protocol.CodeEditRecord(0, 0, 0, 2, "pub fn"),
+            ),
+            CodeEditorRecords.decodeEditGroup(group.edits, errors::add),
+        )
+        assertEquals(
+            PropertyValue.Integer(32L),
+            props.single { it.property == PropertyKind.OnEditGroupResult }.value,
+        )
+        // Three selections, the second made backwards.
+        val selections = mutations.filterIsInstance<Mutation.SetSelections>().single()
+        assertEquals(listOf(12, 1), listOf(selections.nodeId, selections.baseVersion))
+        val words = ByteBuffer.wrap(selections.selections).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(
+            listOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0),
+            (0 until selections.selections.size / 4).map { words.getInt(it * 4) },
+        )
+        // The snippet over the closing brace, every character of it as the Rust side wrote it.
+        assertEquals(
+            listOf(Mutation.InsertSnippet(12, 3, 2, 0, 2, 1, "} // \${1:name} = \${1:name}, \${2|\uD55C,\uD83D\uDE00|} \\\$5\$0")),
+            mutations.filterIsInstance<Mutation.InsertSnippet>(),
+        )
+        // Word wrap at forty columns or the edge of the view, whichever comes first.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.WordWrapMode.Bounded.ordinal + 1).toLong() or (40L shl 16)),
+            props.single { it.property == PropertyKind.WordWrap }.value,
+        )
+        // The minimap on the right, and two view zones: the first with text that is not
+        // ASCII, the second half a row high.
+        assertEquals(
+            PropertyValue.Integer((dev.darkpyonix.composerust.protocol.MinimapSide.Right.ordinal + 1).toLong()),
+            props.single { it.property == PropertyKind.Minimap }.value,
+        )
+        assertEquals(
+            listOf(
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(0, 2f, "\u2212 2\uC904"),
+                dev.darkpyonix.composerust.protocol.ViewZoneRecord(1, 0.5f, ""),
+            ),
+            CodeEditorRecords.decodeViewZones(
+                (props.single { it.property == PropertyKind.ViewZones }.value as PropertyValue.Bytes).value,
+                errors::add,
+            ),
+        )
         assertEquals(
             listOf(FoldRecord(0, 0, 2, false), FoldRecord(0, 1, 3, true)),
             CodeEditorRecords.decodeFolds(

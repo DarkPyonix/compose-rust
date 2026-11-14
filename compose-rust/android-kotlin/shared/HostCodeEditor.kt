@@ -1,10 +1,16 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.ResolvedTheme
@@ -14,14 +20,24 @@ import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodeEditorSurface
 import dev.darkpyonix.composerust.foundation.code.EditorOutput
 import dev.darkpyonix.composerust.foundation.code.EditorScroll
+import dev.darkpyonix.composerust.foundation.code.WordWrapRule
+import dev.darkpyonix.composerust.protocol.CodeEditorColorsRecord
+import dev.darkpyonix.composerust.protocol.ColorRole
+import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.HoverPhase
+import dev.darkpyonix.composerust.protocol.MinimapSide
+import dev.darkpyonix.composerust.protocol.WordWrapMode
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
+import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
 
 /**
@@ -42,13 +58,41 @@ internal fun HostCodeEditor(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
     table: NodeTable,
+    assets: AssetCache? = null,
 ) {
     val model = node.code ?: return
     val tabWidth = (node.property(PropertyKind.TabWidth) as? PropertyValue.Integer)?.value
         ?.toInt()
         ?.takeIf { it > 0 }
-    val look = remember(theme, tabWidth) { codeEditorLook(node, theme, tabWidth) }
+    // The application's own font list, where it gave one: the editor is set in its first
+    // family and a letter that family lacks comes from the next one that has it.
+    val fontBlob = node.bytes(PropertyKind.Font)
+    val fontChain = remember(fontBlob, assets?.size) {
+        if (fontBlob == null || assets == null) {
+            null
+        } else {
+            FontRefRecords.decodeBlob(fontBlob)?.let { resolveFontChain(it, assets, mutableListOf()) }
+        }
+    }
+    // Every property the look is made of is read here, so that changing one of them makes
+    // a new look and leaving them alone keeps the one there is.
+    val look = remember(
+        theme,
+        tabWidth,
+        fontChain,
+        node.property(PropertyKind.TypeRole),
+        node.property(PropertyKind.FontSize),
+        node.property(PropertyKind.LineHeight),
+        node.property(PropertyKind.LineNumbers),
+        node.property(PropertyKind.GutterMinWidthDp),
+        node.property(PropertyKind.GutterPaddingDp),
+        node.property(PropertyKind.TextInsetDp),
+        node.bytes(PropertyKind.CodeEditorColors),
+        node.property(PropertyKind.Minimap),
+        node.property(PropertyKind.WordWrap),
+    ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
+    val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
     val callbacks = remember(node, model) {
         CodeEditorCallbacks(
             onOutput = { node.sendCodeOutput(model.drainOutput(includeReports = true), currentDispatcher) },
@@ -75,7 +119,27 @@ internal fun HostCodeEditor(
                     )
                 }
             },
+            onKeyPreview = keyPreview,
+            // The Host's pointer events over the editor go through the same router as every
+            // other node's, so a press the editor does not consume goes on to the nearest
+            // subscribed node around it.
+            codePointer = { target ->
+                if (node.subscribesToCodePointer()) {
+                    codePointerEvents(node, table.pointers, currentDispatcher, target)
+                } else {
+                    Modifier
+                }
+            },
         )
+    }
+    // A listener attached after the editor was drawn has the row height and the offset
+    // waiting for it in the model. Nothing else may redraw the editor soon, so they are
+    // sent now.
+    val hearsMetrics = node.handler(PropertyKind.OnCodeMetrics) != null
+    val hearsScroll = node.handler(PropertyKind.OnCodeScrolled) != null
+    val hearsCaret = node.handler(PropertyKind.OnCaretRect) != null
+    LaunchedEffect(model, hearsMetrics, hearsScroll, hearsCaret) {
+        if (hearsMetrics || hearsScroll || hearsCaret) callbacks.onOutput()
     }
     val focusRequest = node.focusRequestRevision
     CodeEditorSurface(model, look, callbacks, modifier, focusRequest = focusRequest) { scrolling ->
@@ -106,21 +170,71 @@ private fun EditorScroll.axis(viewport: () -> Int): ScrollAxis = ScrollAxis(
     jump = { target -> scrollTo(target) },
 )
 
-/** What the design system says an editor looks like here, resolved to plain values. */
-internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): CodeEditorLook {
+/**
+ * What an editor offers the Host before it handles a key: the `KeyDown` record a key handler
+ * hears, sent to the node's `OnKeyPreview` handler, whose answer says whether the Host took
+ * the key. Nothing is sent while an input method composes, for a release, or where nothing
+ * listens. Every event passes through [held], so a repeat is marked as one.
+ */
+internal fun codeEditorKeyPreview(
+    node: Node,
+    dispatcher: () -> EventDispatcher,
+    held: HeldKeys = HeldKeys(),
+): (KeyEvent, Boolean) -> Boolean = { event, composing ->
+    val handler = node.handler(PropertyKind.OnKeyPreview)
+    if (handler == null) {
+        held.observe(event.type, event.key)
+        false
+    } else {
+        dispatchKeyDown(node.id, handler, event, composing, dispatcher(), held)
+    }
+}
+
+/** The colours the application gave this editor, or null where it gave none that can be read. */
+internal fun Node.codeEditorColors(): CodeEditorColorsRecord? =
+    bytes(PropertyKind.CodeEditorColors)?.let { bytes ->
+        // What cannot be read was reported when the property arrived; here it is only left out.
+        CodeEditorRecords.decodeCodeEditorColors(bytes) {}.firstOrNull()
+    }
+
+/**
+ * A length in dp the application set on the node, or null where it set none. Zero is a
+ * length like any other here: a text inset of nothing is a thing to ask for. A length
+ * below zero or one that is not a number is left to the design system.
+ */
+private fun Node.lengthOrNull(kind: PropertyKind): Dp? = when (val value = property(kind)) {
+    is PropertyValue.Float -> value.value
+    is PropertyValue.Integer -> value.value.toFloat()
+    else -> null
+}?.takeIf { it >= 0f && it.isFinite() }?.dp
+
+/**
+ * What an editor looks like here, resolved to plain values: the design system's editor,
+ * with the type, the gutter and the colours the application set on the node over it.
+ */
+internal fun codeEditorLook(
+    node: Node,
+    theme: ResolvedTheme,
+    tabWidth: Int?,
+    fontChain: FontChain? = null,
+): CodeEditorLook {
     val style = theme.rules.codeEditor(theme)
+    val colors = node.codeEditorColors()
+    // The role, the size and the row height are the node's where it has them, and the
+    // monospace rung of the type ladder where it does not.
+    val type = node.textStyle(theme, TypeRole.Mono)
     return CodeEditorLook(
-        textStyle = node.textStyle(theme, TypeRole.Mono).copy(color = style.text),
-        container = style.container,
-        gutter = style.gutter,
-        lineNumber = style.lineNumber,
-        currentLineNumber = style.currentLineNumber,
-        currentLine = style.currentLine,
+        textStyle = type.copy(color = style.text, fontFamily = fontChain?.primary ?: type.fontFamily),
+        container = colors?.container?.let { theme.color(it) } ?: style.container,
+        gutter = colors?.gutter?.let { theme.color(it) } ?: style.gutter,
+        lineNumber = colors?.lineNumber?.let { theme.color(it) } ?: style.lineNumber,
+        currentLineNumber = colors?.currentLineNumber?.let { theme.color(it) } ?: style.currentLineNumber,
+        currentLine = colors?.currentLine?.let { theme.color(it) } ?: style.currentLine,
         currentLineBorder = style.currentLineBorder,
         gutterDivider = style.gutterDivider,
         gutterDividerWidth = style.gutterDividerWidth,
-        gutterPadding = style.gutterPadding,
-        textInset = style.textInset,
+        gutterPadding = node.lengthOrNull(PropertyKind.GutterPaddingDp) ?: style.gutterPadding,
+        textInset = node.lengthOrNull(PropertyKind.TextInsetDp) ?: style.textInset,
         selection = style.selection,
         cursor = style.cursor,
         underlineWidth = style.underlineWidth,
@@ -140,7 +254,60 @@ internal fun codeEditorLook(node: Node, theme: ResolvedTheme, tabWidth: Int?): C
         // The same for every design system: the width and gap of a change-marker bar.
         changeBarWidth = 4.dp,
         changeBarGap = 12.dp,
+        lineNumbers = node.flag(PropertyKind.LineNumbers, default = true),
+        gutterMinWidth = node.lengthOrNull(PropertyKind.GutterMinWidthDp) ?: 0.dp,
+        fontFallback = fontChain?.let { chain -> { text: String -> chain.spans(text) } },
+        lineBackground = { role -> diffTint(role, theme, strong = false) },
+        rangeBackground = { role -> diffTint(role, theme, strong = true) },
+        minimapSide = node.role(PropertyKind.Minimap, MinimapSide.entries.toTypedArray()),
+        wordWrap = node.wordWrap(),
     )
+}
+
+/**
+ * Where the application asked long lines to break: the `WordWrapMode` tag in the low 16 bits
+ * of the property and the columns above them. Null where it asked for none, or for a rule
+ * that is not one, which the table reported when it arrived.
+ */
+internal fun Node.wordWrap(): WordWrapRule? = (property(PropertyKind.WordWrap) as? PropertyValue.Integer)?.value?.let(::wordWrapRule)
+
+/** The rule an integer of the `WordWrap` property says, or null where it says none or is not one. */
+internal fun wordWrapRule(value: Long): WordWrapRule? {
+    if (value < 0) return null
+    val mode = WordWrapMode.entries.getOrNull((value and 0xffff).toInt() - 1) ?: return null
+    val columns = value shr 16
+    if (columns > Int.MAX_VALUE) return null
+    return when (mode) {
+        WordWrapMode.Viewport -> if (columns == 0L) WordWrapRule(mode, 0) else null
+        WordWrapMode.Column, WordWrapMode.Bounded -> if (columns > 0) WordWrapRule(mode, columns.toInt()) else null
+    }
+}
+
+/**
+ * What a line background ([strong] false) or a range background ([strong] true) in a role
+ * is drawn with. An added or a removed line takes the design system's container tint for
+ * it and the changed characters its emphasis tint, the same pair a diff badge uses. A role
+ * that is already one of those tints is drawn as it is. Any other role is laid over the
+ * text as a wash, light enough that the code stays readable.
+ */
+internal fun diffTint(role: ColorRole, theme: ResolvedTheme, strong: Boolean): Color = when (role) {
+    ColorRole.DiffAdded -> theme.color(if (strong) ColorRole.DiffAddedEmphasis else ColorRole.DiffAddedContainer)
+    ColorRole.DiffRemoved -> theme.color(if (strong) ColorRole.DiffRemovedEmphasis else ColorRole.DiffRemovedContainer)
+    ColorRole.DiffAddedContainer,
+    ColorRole.DiffRemovedContainer,
+    ColorRole.DiffAddedEmphasis,
+    ColorRole.DiffRemovedEmphasis,
+    -> theme.color(role)
+    else -> theme.color(role).let { ink ->
+        // The same strengths the container and the emphasis tints are mixed at.
+        val wash = when {
+            strong && theme.dark -> 0.40f
+            strong -> 0.30f
+            theme.dark -> 0.20f
+            else -> 0.12f
+        }
+        ink.copy(alpha = ink.alpha * wash)
+    }
 }
 
 /**
@@ -200,6 +367,19 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
                     selection.caret.column,
                 )
             }
+            // Every selection, as anchor and active pairs, to the same listener as the
+            // primary one.
+            is EditorOutput.SelectionsMoved -> {
+                val handler = handler(PropertyKind.OnSelectionChange) ?: continue
+                val values = IntArray(output.selections.size * 4)
+                for ((index, selection) in output.selections.withIndex()) {
+                    values[index * 4] = selection.anchor.line
+                    values[index * 4 + 1] = selection.anchor.column
+                    values[index * 4 + 2] = selection.caret.line
+                    values[index * 4 + 3] = selection.caret.column
+                }
+                events += HostEvent.SelectionsChanged(id, handler, output.version, values)
+            }
             is EditorOutput.VisibleRange -> {
                 val handler = handler(PropertyKind.OnVisibleRangeChange) ?: continue
                 events += HostEvent.VisibleRangeChanged(id, handler, output.version, output.first, output.last)
@@ -212,9 +392,60 @@ internal fun Node.codeEvents(outputs: List<EditorOutput>, onError: (String) -> U
                 val handler = handler(PropertyKind.OnFoldChange) ?: continue
                 events += HostEvent.FoldChanged(id, handler, output.startLine, output.collapsed)
             }
+            // Pixels cross as a whole number in a double, the unit the scroll command takes.
+            is EditorOutput.LineHeight -> {
+                val handler = handler(PropertyKind.OnCodeMetrics) ?: continue
+                events += HostEvent.CodeMetrics(id, handler, output.px.toDouble())
+            }
+            is EditorOutput.Scrolled -> {
+                val handler = handler(PropertyKind.OnCodeScrolled) ?: continue
+                events += HostEvent.CodeScrolled(id, handler, output.offsetPx.toDouble())
+            }
+            // In the window's dp, the scroll and the zoom already in them.
+            is EditorOutput.Caret -> {
+                val handler = handler(PropertyKind.OnCaretRect) ?: continue
+                val (position, rect) = output.report
+                events += HostEvent.CaretRect(
+                    id,
+                    handler,
+                    position.line,
+                    position.column,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                )
+            }
+            // An answer goes to the query and names no handler: the Host asked, so it is
+            // waiting for it whether or not anything on the editor listens.
+            is EditorOutput.PositionAnswer -> {
+                val rect = output.rect
+                events += HostEvent.PositionRect(
+                    id,
+                    0L,
+                    output.request,
+                    rect != null,
+                    rect?.x ?: 0f,
+                    rect?.y ?: 0f,
+                    rect?.width ?: 0f,
+                    rect?.height ?: 0f,
+                )
+            }
             is EditorOutput.Composing -> {
                 val handler = handler(PropertyKind.OnCompositionChange) ?: continue
                 events += HostEvent.CompositionChanged(id, handler, output.composing)
+            }
+            is EditorOutput.GroupResult -> {
+                val handler = handler(PropertyKind.OnEditGroupResult) ?: continue
+                events += HostEvent.CodeEditGroupResult(
+                    id,
+                    handler,
+                    output.requestId,
+                    output.status,
+                    output.baseVersion,
+                    output.currentVersion,
+                    output.index,
+                )
             }
             is EditorOutput.Error -> onError(output.message)
         }

@@ -7,7 +7,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -44,12 +47,15 @@ import kotlinx.coroutines.delay
 import dev.darkpyonix.composerust.design.ContainerRole
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.PopoverAlign
+import dev.darkpyonix.composerust.protocol.PopoverPlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
+import dev.darkpyonix.composerust.ui.isDeclaredSelected
 import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.textStyle
 import dev.darkpyonix.composerust.design.LocalGlassBackdrop
@@ -60,13 +66,18 @@ import androidx.compose.runtime.CompositionLocalProvider
  * held focus before each one opened.
  *
  * Escape asks to close only the topmost open overlay, and only after whatever holds focus
- * inside it has declined the key. When the overlay closes, focus returns to the control that
- * had it before the overlay opened.
+ * inside it has declined the key. Android's back gesture and button take the same path, so
+ * a back closes the same overlay Escape would. When the overlay closes, focus returns to the
+ * control that had it before the overlay opened.
  */
 class OverlayFocusStack {
     private class Entry(val nodeId: Int, var onEscape: () -> Unit, val opener: FocusRequester?)
 
     private val entries = mutableListOf<Entry>()
+    private var openCount by mutableStateOf(0)
+
+    /** Whether any overlay is open, read in composition so a platform back hook follows it. */
+    val hasOpen: Boolean get() = openCount > 0
     private var currentFocused: FocusRequester? = null
 
     internal fun noteFocused(requester: FocusRequester, focused: Boolean) {
@@ -81,6 +92,7 @@ class OverlayFocusStack {
         entries.removeAll { it.nodeId == nodeId }
         val opener = currentFocused
         entries += Entry(nodeId, onEscape, opener)
+        openCount = entries.size
         return opener
     }
 
@@ -92,6 +104,7 @@ class OverlayFocusStack {
         val index = entries.indexOfFirst { it.nodeId == nodeId }
         if (index < 0) return
         val removed = entries.removeAt(index)
+        openCount = entries.size
         val target = if (entries.isEmpty()) removed.opener else null
         if (target != null) {
             try {
@@ -103,7 +116,18 @@ class OverlayFocusStack {
     }
 
     internal fun handleEscape(event: KeyEvent, fromNodeId: Int? = null): Boolean {
-        if (event.type != KeyEventType.KeyDown || event.key != Key.Escape) return false
+        if (event.type != KeyEventType.KeyDown) return false
+        // Android delivers its back button as Key.Back to a focused overlay window, which
+        // never reaches the Activity's back dispatcher. A desktop keyboard has no such key.
+        if (event.key != Key.Escape && event.key != Key.Back) return false
+        return handleBack(fromNodeId)
+    }
+
+    /**
+     * Asks the topmost open overlay to close, as Escape does. Returns false, leaving the
+     * back to the app, when no overlay is open.
+     */
+    fun handleBack(fromNodeId: Int? = null): Boolean {
         val top = entries.lastOrNull() ?: return false
         if (fromNodeId != null && top.nodeId != fromNodeId) return false
         top.onEscape()
@@ -196,30 +220,34 @@ internal fun HostDialog(
     if (!open.value) return
     val style = theme.rules.container(ContainerRole.Dialog, theme)
     val scrim = node.paintProp(PropertyKind.Scrim)?.let { theme.color(it) }
-        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it.toULong()) }
+        ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it) }
         ?: style.scrim
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onEscape = { dismiss(node, dispatcher) }
-    Popup(
-        alignment = Alignment.Center,
-        properties = PopupProperties(focusable = true, dismissOnBackPress = false),
-        onDismissRequest = {
+    platformModalOverlayWindow(
+        {
             open.set(false)
             dismiss(node, dispatcher)
         },
+        onEscape,
     ) {
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
+        // The scrim covers the whole window; the dialog is centred in what the keyboard
+        // leaves, so a field inside it is not under the keyboard.
+        val keyboard = overlayKeyboardInset()
         Box(
             Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
-            Column(
-                modifier
-                    .modalOverlaySurface(node.id, surfaceRequester)
-                    .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
-            ) {
-                node.children.forEach { childId ->
-                    key(childId) { RenderNode(childId, table, dispatcher) }
+            Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier
+                        .modalOverlaySurface(node.id, surfaceRequester)
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Dialog),
+                ) {
+                    node.children.forEach { childId ->
+                        key(childId) { RenderNode(childId, table, dispatcher) }
+                    }
                 }
             }
         }
@@ -245,9 +273,10 @@ internal fun HostMenu(
     val style = theme.rules.container(ContainerRole.Menu, theme)
     val anchorId = node.children.firstOrNull()
     val entries = node.children.drop(1)
+    val anchorRequester = remember(node.id) { FocusRequester() }
     Box(modifier) {
         if (anchorId != null) {
-            key(anchorId) { RenderNode(anchorId, table, dispatcher) }
+            key(anchorId) { RenderNode(anchorId, table, dispatcher, Modifier.focusRequester(anchorRequester)) }
         }
         if (open.value) {
             Popup(
@@ -264,14 +293,21 @@ internal fun HostMenu(
                 // not a distance: drawing the page by it puts a piece of the page
                 // somewhere inside the menu. A menu that hangs past the window's edge has
                 // nothing of ours behind it there anyway.
+                ReturnsFocusOnClose(anchorRequester)
+                val keys = rememberMenuKeyboard(entries, table) {
+                    open.set(false)
+                    dismiss(node, dispatcher)
+                }
                 CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
                 Column(
                     Modifier
                         .testTag(menuPopupTestTag(node.id))
-                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Menu),
+                        .menuKeys(keys)
+                        .containerDecoration(node, style, theme, overlay = true, role = ContainerRole.Menu)
+                        .menuWidth(),
                 ) {
                     entries.forEach { childId ->
-                        key(childId) { RenderNode(childId, table, dispatcher) }
+                        key(childId) { RenderNode(childId, table, dispatcher, keys.entry(childId)) }
                     }
                 }
                 }
@@ -279,6 +315,132 @@ internal fun HostMenu(
         }
     }
 }
+
+/**
+ * Gives focus back to [opener] when the popup this is called in goes away, whichever way it
+ * was closed. An opener with nothing that can hold focus leaves focus where it was.
+ */
+@Composable
+internal fun ReturnsFocusOnClose(opener: FocusRequester) {
+    DisposableEffect(opener) {
+        onDispose {
+            try {
+                opener.requestFocus()
+            } catch (_: IllegalStateException) {
+                // The opener left the tree while the menu was open.
+            }
+        }
+    }
+}
+
+/**
+ * The keyboard of an open menu, as a desktop menu and a WAI-ARIA menu have it.
+ *
+ * Each entry is one stop. Opening the menu focuses the entry the Host marked selected, or
+ * the first entry that can take focus. The up and down arrows move to the previous and the
+ * next entry that can take focus and go round at the ends, and Home and End go to the first
+ * and the last. Enter and Space are the focused entry's own press. Escape closes the menu,
+ * as a press outside it does, and [ReturnsFocusOnClose] hands focus back to the anchor.
+ * The popup does not close on Escape by itself, so without this the key did nothing.
+ * An entry that cannot take focus, a divider or a disabled row, is passed over.
+ *
+ * None of these keys reaches the Host: moving among the entries is the menu's own state,
+ * like the scroll position of a list, and choosing one is that entry's ordinary click.
+ */
+internal class MenuKeyboard(private val table: NodeTable) {
+    var entries: List<Int> = emptyList()
+
+    /**
+     * The entry to focus on open when the selection is not marked on the entries themselves,
+     * as in a select field that keeps its choice by position.
+     */
+    var chosen: Int? = null
+
+    /** What Escape does: the same as a press outside the menu. */
+    var onEscape: () -> Unit = {}
+    private val requesters = mutableMapOf<Int, FocusRequester>()
+
+    /** The entry that has focus now, set by a move made here or by focus arriving another way. */
+    private var current: Int? = null
+
+    private fun requester(id: Int) = requesters.getOrPut(id) { FocusRequester() }
+
+    /** The modifier an entry is drawn with, so focus can be sent to it and seen arriving. */
+    fun entry(id: Int): Modifier = Modifier
+        .focusRequester(requester(id))
+        .onFocusChanged { if (it.hasFocus) current = id }
+
+    private fun focus(id: Int): Boolean {
+        val taken = try {
+            requester(id).requestFocus()
+        } catch (_: IllegalStateException) {
+            false
+        }
+        if (taken) current = id
+        return taken
+    }
+
+    /** Focuses the first entry that takes it, starting at [from] and stepping by [step]. */
+    private fun focusFrom(from: Int, step: Int): Boolean {
+        val count = entries.size
+        if (count == 0) return false
+        for (i in 0 until count) {
+            if (focus(entries[(from + step * i).mod(count)])) return true
+        }
+        return false
+    }
+
+    /** Where focus goes when the menu opens. */
+    fun focusOnOpen() {
+        val selected = chosen ?: entries.firstOrNull { table.node(it)?.isDeclaredSelected() == true }
+        if (selected != null && focus(selected)) return
+        focusFrom(0, 1)
+    }
+
+    fun handle(event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        // Android delivers its back button to a focused popup as Key.Back.
+        if (event.key == Key.Escape || event.key == Key.Back) {
+            onEscape()
+            return true
+        }
+        val count = entries.size
+        if (count == 0) return false
+        val at = current?.let { entries.indexOf(it) }?.takeIf { it >= 0 }
+        when (event.key) {
+            Key.DirectionDown -> focusFrom(if (at == null) 0 else at + 1, 1)
+            Key.DirectionUp -> focusFrom(if (at == null) count - 1 else at - 1, -1)
+            Key.MoveHome -> focusFrom(0, 1)
+            Key.MoveEnd -> focusFrom(count - 1, -1)
+            else -> return false
+        }
+        // Taken even when no other entry could take focus, so the key does not fall
+        // through to whatever is behind the menu.
+        return true
+    }
+}
+
+/**
+ * The keyboard of a menu whose popup shows [entries], focused on the selected one as it
+ * opens, or on [chosen] when that is given. [onEscape] is what closing the menu from the keyboard does.
+ */
+@Composable
+internal fun rememberMenuKeyboard(
+    entries: List<Int>,
+    table: NodeTable,
+    chosen: Int? = null,
+    onEscape: () -> Unit,
+): MenuKeyboard {
+    val keys = remember(table) { MenuKeyboard(table) }
+    keys.entries = entries
+    keys.chosen = chosen
+    keys.onEscape = onEscape
+    LaunchedEffect(keys) { keys.focusOnOpen() }
+    return keys
+}
+
+/** Moves focus among the entries for the keys a menu answers, after the focused entry declined them. */
+internal fun Modifier.menuKeys(keys: MenuKeyboard): Modifier = onKeyEvent { keys.handle(it) }
 
 /**
  * Whether what is being drawn is inside a menu's popup.
@@ -292,8 +454,13 @@ internal fun HostMenu(
 val LocalInAMenu = compositionLocalOf { false }
 
 /**
- * Places a menu or dropdown popup directly below its anchor's leading edge, flipping above
- * the anchor only when there is not enough room below in the window.
+ * Places a menu or dropdown popup directly below its anchor, flipping above the anchor only
+ * when there is not enough room below in the window.
+ *
+ * Across, the popup lines up with the anchor's leading edge when it fits that way, and with
+ * the anchor's trailing edge when it would otherwise run past the window, so a menu opened
+ * from a button at the end of a bar hangs under that button instead of being pushed
+ * against the window's edge. Whatever still does not fit is slid back inside the window.
  */
 internal object BelowAnchorPositionProvider : PopupPositionProvider {
     override fun calculatePosition(
@@ -302,20 +469,34 @@ internal object BelowAnchorPositionProvider : PopupPositionProvider {
         layoutDirection: LayoutDirection,
         popupContentSize: IntSize,
     ): IntOffset {
-        val x = if (layoutDirection == LayoutDirection.Ltr) {
-            anchorBounds.left.coerceAtMost((windowSize.width - popupContentSize.width).coerceAtLeast(0))
+        val fitsFromStart = if (layoutDirection == LayoutDirection.Ltr) {
+            anchorBounds.left + popupContentSize.width <= windowSize.width
         } else {
-            (anchorBounds.right - popupContentSize.width).coerceAtLeast(0)
+            anchorBounds.right - popupContentSize.width >= 0
         }
-        val belowY = anchorBounds.bottom
-        val y = if (belowY + popupContentSize.height <= windowSize.height || anchorBounds.top < popupContentSize.height) {
-            belowY
-        } else {
-            (anchorBounds.top - popupContentSize.height).coerceAtLeast(0)
-        }
-        return IntOffset(x, y)
+        return popoverPosition(
+            anchor = anchorBounds,
+            window = windowSize,
+            content = popupContentSize,
+            placement = PopoverPlacement.Bottom,
+            align = if (fitsFromStart) PopoverAlign.Start else PopoverAlign.End,
+            offset = 0,
+            margin = 0,
+            layoutDirection = layoutDirection,
+        )
     }
 }
+
+/**
+ * As wide as the widest entry, and no wider.
+ *
+ * A popup is measured against the whole window, so an entry that asks to fill the width,
+ * which is how a menu row is written, would otherwise make the menu as wide as the window:
+ * a band across the screen under the bar rather than a menu under its button. Measuring
+ * the entries' own widths first gives the column a width, and a filling entry then fills
+ * that, so every row is as wide as the widest one.
+ */
+internal fun Modifier.menuWidth(): Modifier = width(IntrinsicSize.Max)
 
 /** Test tag of the popup half of a menu, which is its own window, not part of the anchor. */
 fun menuPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-popup"

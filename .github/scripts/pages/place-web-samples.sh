@@ -12,7 +12,8 @@
 #
 # A page counts when it holds what a browser needs to draw it: the built page (not the
 # template with its `{{kotlin.scripts}}` placeholder), the renderer's module and its
-# loader, Skia's module, and the sample's own module with the generated forwarder.
+# loader, Skia's module, and the sample's own module with the generated loader that carries
+# the trampoline between the two.
 set -euo pipefail
 
 archive="${1:?usage: place-web-samples.sh <archive> <site-directory>}"

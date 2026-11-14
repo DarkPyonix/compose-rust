@@ -1,6 +1,5 @@
 package dev.darkpyonix.composerust.ui.platform
 
-import dev.darkpyonix.composerust.protocol.ProtocolException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.graalvm.nativeimage.PinnedObject
@@ -46,21 +45,19 @@ private external fun hostShutdown()
  * `release_batch` runs before returning. No batch is ever kept.
  */
 class NativeHostConnection : HostConnection {
-    // Reused so that steady-state event dispatch allocates nothing. The frame budget allows
-    // no allocation on the encode path, and a fresh buffer per event would be one.
-    //
-    // It grows when one event is larger than it, a field holding a pasted document for
-    // instance, and keeps the larger size: only that rare event allocates.
-    private var eventBytes = ByteArray(EVENT_BUFFER_BYTES)
-    private var eventBuffer: ByteBuffer =
-        ByteBuffer.wrap(eventBytes).order(ByteOrder.LITTLE_ENDIAN)
+    // Pinned for each call, so it is a plain array rather than a direct buffer.
+    private val events = GrowingEventBuffer(
+        GrowingEventBuffer.INITIAL_BYTES,
+        GrowingEventBuffer.MAX_BYTES,
+        allocate = { bytes -> ByteArray(bytes) },
+        view = { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN) },
+    )
 
     override fun init(onMutation: (Mutation) -> Unit) {
-        eventBuffer.clear()
-        val length = Protocol.handshake(eventBuffer)
+        val length = Protocol.handshake(events.cleared())
         // Word values never cross a method or lambda boundary here: native-image only
         // accepts them in straight-line code inside a single method.
-        val pinned = PinnedObject.create(eventBytes)
+        val pinned = PinnedObject.create(events.backing)
         try {
             val batch = StackValue.get<Pointer>(BATCH_BYTES)
             checkStatus(hostInit(pinned.addressOfArrayElement(0), length, batch), "init")
@@ -80,20 +77,9 @@ class NativeHostConnection : HostConnection {
 
     override fun dispatchEvent(event: HostEvent, onMutation: (Mutation) -> Unit): Long {
         dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("dispatch_event in")
-        eventBuffer.clear()
-        var encoded = -1
-        while (encoded < 0) {
-            try {
-                encoded = Protocol.encodeEvent(event, eventBuffer)
-            } catch (tooSmall: ProtocolException) {
-                if (eventBytes.size >= MAX_EVENT_BUFFER_BYTES) throw tooSmall
-                eventBytes = ByteArray(eventBytes.size * 2)
-                eventBuffer = ByteBuffer.wrap(eventBytes).order(ByteOrder.LITTLE_ENDIAN)
-            }
-        }
-        val length = encoded
+        val length = events.encode(event)
         var result = 0L
-        val pinned = PinnedObject.create(eventBytes)
+        val pinned = PinnedObject.create(events.backing)
         try {
             val batch = StackValue.get<Pointer>(BATCH_BYTES)
             checkStatus(
@@ -154,8 +140,6 @@ class NativeHostConnection : HostConnection {
         const val PTR_OFFSET = 0
         const val LENGTH_OFFSET = 8
         const val RESULT_OFFSET = 16
-        const val EVENT_BUFFER_BYTES = 4096
-        const val MAX_EVENT_BUFFER_BYTES = 64 * 1024 * 1024
     }
 }
 

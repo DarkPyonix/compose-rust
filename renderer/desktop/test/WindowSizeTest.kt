@@ -28,6 +28,7 @@ import dev.darkpyonix.composerust.protocol.WindowHeightClass
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.WindowSizeReporter
 import dev.darkpyonix.composerust.runtime.WindowSafeArea
 import dev.darkpyonix.composerust.runtime.WindowCaption
@@ -40,6 +41,11 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
+import dev.darkpyonix.composerust.runtime.WindowActions
+import dev.darkpyonix.composerust.runtime.LocalWindowActions
+import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -89,6 +95,33 @@ class WindowSizeTest {
         fullSize = false
         waitForIdle()
         assertEquals(32f, onNodeWithText("first child").fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    /**
+     * The window's size reaches the Host from the layout pass that measured it, the way an
+     * observed node's does, not from a recomposition that pass schedules. A window that
+     * draws only when something asks for a frame (macOS) may not draw that second frame for
+     * a while, and until then the Host lays its page out for a 0x0, compact window.
+     *
+     * One frame: composition and the first layout, and no recomposition after it.
+     */
+    @Test
+    fun fr20_first_measurement_reaches_the_host_in_the_frame_that_made_it() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("first")),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(1440.dp, 900.dp))
+            }
+        }
+        val sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().filter { it.nodeId == 0 }
+        assertEquals(1, sizes.size, "one report from the first layout: ${connection.events}")
+        assertEquals(1440f, sizes[0].widthDp)
+        assertEquals(900f, sizes[0].heightDp)
+        assertEquals(WindowSizeClass.Expanded, sizes[0].sizeClass)
     }
 
     @Test
@@ -208,6 +241,54 @@ class WindowSizeTest {
             moveTo(center); press(); moveBy(Offset(30f, 0f)); moveBy(Offset(30f, 0f)); release()
         }
         assertEquals(1, drags)
+    }
+
+    /** The safe area the Host is told about for a window whose buttons sit as [caption] says. */
+    private fun reportedSafeArea(
+        density: Float,
+        caption: WindowCaption,
+        renderedButtons: Boolean,
+    ): HostEvent.WindowSizeChanged {
+        lateinit var connection: FakeHostConnection
+        runComposeUiTest {
+            connection = FakeHostConnection(listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Fluent, DesignSystem.Fluent, ColorScheme.Light, adaptive = false)),
+                Mutation.Create(LABEL, WidgetKind.Column),
+            ))
+            setContent {
+                val actions = if (renderedButtons) WindowActions({}, {}, {}) else null
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(density),
+                    LocalWindowActions provides actions,
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(800.dp, 600.dp), caption = caption)
+                }
+            }
+            waitForIdle()
+        }
+        return connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().last { it.nodeId == 0 }
+    }
+
+    /**
+     * Where the window buttons are, as the application has to leave room for them. The
+     * platform's own buttons (macOS) are at the leading edge, as wide as the window measured
+     * them; buttons the renderer draws (Windows, Fluent: three of 46dp, no spacing) at the
+     * trailing edge. `top` is the caption's height either way, and every value is in dp, so
+     * it is the same at 100, 150 and 200%.
+     */
+    @Test
+    fun fr19_9_the_safe_area_is_leading_on_macos_and_trailing_on_windows_at_every_density() {
+        for (density in listOf(1f, 1.5f, 2f)) {
+            val mac = reportedSafeArea(
+                density,
+                WindowCaption(height = 28.dp, buttonsWidth = 70.dp, buttonsAtStart = true),
+                renderedButtons = false,
+            )
+            assertEquals(Triple(28f, 70f, 0f), Triple(mac.safeAreaTop, mac.safeAreaLeading, mac.safeAreaTrailing), "macOS at $density")
+            val windows = reportedSafeArea(density, WindowCaption(height = 32.dp), renderedButtons = true)
+            assertEquals(Triple(32f, 0f, 138f), Triple(windows.safeAreaTop, windows.safeAreaLeading, windows.safeAreaTrailing), "Windows at $density")
+        }
     }
 
     @Test
@@ -409,6 +490,33 @@ class WindowSizeTest {
         height = 700.dp
         waitForIdle()
         assertEquals(before + 1, sizes().size)
+    }
+
+    @Test
+    fun fr20_window_size_is_the_window_not_the_content() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(LABEL, WidgetKind.Text),
+                Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("one line")),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(
+                LocalFrameRequests provides frames,
+                LocalDensity provides Density(1f),
+            ) {
+                // The window, and what every platform window draws inside it, with no modifier.
+                androidx.compose.foundation.layout.Box(Modifier.requiredSize(900.dp, 1000.dp)) {
+                    WindowContent(rememberComposeRustHost(connection))
+                }
+            }
+        }
+        waitForIdle()
+        val event = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().last()
+        assertEquals(900f, event.widthDp)
+        assertEquals(1000f, event.heightDp)
+        assertEquals(WindowSizeClass.Expanded, event.sizeClass)
+        assertEquals(WindowHeightClass.Expanded, event.heightClass)
     }
 
     @Test

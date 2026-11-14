@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
 import dev.darkpyonix.composerust.protocol.Chrome
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalWindowActions
@@ -111,7 +111,7 @@ internal fun NativeWindowContent(
     ) {
         Box(Modifier.fillMaxSize()) {
             drag()
-            ComposeRustContent(host, Modifier.fillMaxSize(), caption = caption)
+            WindowContent(host, caption = caption)
             overlay()
         }
     }

@@ -246,8 +246,11 @@ echo "== 3b. Korean: found in a system font, shaped, wrapped and drawn"
 ls -la /c/Windows/Fonts/malgun* 2>&1 || echo "-- no Malgun Gothic in C:/Windows/Fonts"
 text_log="$scratch/text-self-check.log"
 status=0
-( cd "$scratch/alone" && COMPOSE_RUST_TEXT_SELF_CHECK=1 ./consumer.exe --self-check ) 2> "$text_log" || status=$?
+# A bound, so a check that hangs ends the step with its log printed rather than holding the
+# runner until the job is cancelled, which keeps no log at all.
+( cd "$scratch/alone" && COMPOSE_RUST_TEXT_SELF_CHECK=1 timeout 300 ./consumer.exe --self-check ) 2> "$text_log" || status=$?
 grep 'text self-check' -A6 "$text_log" || true
+[[ "$status" -eq 124 ]] && { echo "-- the Korean text self-check did not end within 300 s; its last lines:"; tail -40 "$text_log"; }
 if [[ "$status" -ne 0 ]] || ! grep -q '^compose-rust text self-check: ok' "$text_log"; then
     failed+=("the Korean text self-check (status $status; see the lines above)")
 fi
@@ -259,8 +262,10 @@ echo "== 3c. several windows in one process"
 # link has. The names are read from the Kotlin so the two cannot drift.
 fr53_log="$scratch/fr53-windows-check.log"
 status=0
-( cd "$scratch/alone" && COMPOSE_RUST_FR53_WINDOWS_CHECK=1 ./consumer.exe --self-check ) 2> "$fr53_log" || status=$?
+# Bounded like 3b: the check that was running when the time ran out is the last line below.
+( cd "$scratch/alone" && COMPOSE_RUST_FR53_WINDOWS_CHECK=1 timeout 600 ./consumer.exe --self-check ) 2> "$fr53_log" || status=$?
 grep 'fr53_windows' "$fr53_log" || true
+if [[ "$status" -ne 0 ]]; then echo "-- the several-windows checks ended with status $status; their last lines:"; tail -40 "$fr53_log"; fi
 fr53_names="$(grep -oE '"fr53_windows_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
 [[ -n "$fr53_names" ]] || failed+=("Fr53WindowsCheck.kt names no fr53_windows check")
 for name in $fr53_names; do

@@ -2,13 +2,13 @@
 //! The wasm shims for the web boundary.
 //!
 //! The Renderer owns the one linear memory and this module imports it, so a batch is read
-//! where it was written. That leaves the addresses: every argument below is an address or a
-//! length in that shared memory, and both buffers a call names belong to this side, because
-//! the Renderer has no allocator that can hold memory from one frame to the next.
+//! where it was written. That leaves the addresses: every address below is in that shared
+//! memory, and both buffers a call names belong to this side, because the Renderer has no
+//! allocator that can hold memory from one frame to the next.
 //!
-//! Every argument is 32 bits wide. A 64 bit one would reach the forwarder as a `BigInt`,
-//! which is a heap allocation on the call that happens every frame, so a frame timestamp
-//! arrives as its two halves and is put back together here.
+//! The Renderer reaches these through the generated trampoline, whose table holds them, so
+//! every call arrives from wasm with no JavaScript in between. A value arrives as the wasm
+//! type it is: an address or a length as an `i32`, a frame timestamp as one `i64`.
 
 use crate::boundary::{
     MutationBatch, RendererApi, STATUS_OK, STATUS_PROTOCOL_ERROR, install_renderer_api,
@@ -17,6 +17,7 @@ use crate::measure::MeasureResult;
 use crate::schema::{
     WEB_BATCH_BYTES, WEB_EVENT_BUFFER_BYTES, WEB_EVENT_BUFFER_OFFSET, WEB_RUST_REGION_BASE,
 };
+use crate::web_event_buffer::{LentEventBuffer, region_address};
 use crate::{LaunchBuilder, LoopMode, Runtime};
 use std::ffi::c_int;
 use std::mem::{offset_of, size_of};
@@ -158,16 +159,10 @@ pub extern "C" fn compose_rust_host_web_dispatch_event(
 
 /// `RenderFrame`, which calls `compose_rust_host_render_frame`.
 #[unsafe(no_mangle)]
-pub extern "C" fn compose_rust_host_web_render_frame(
-    frame_time_nanos_low: u32,
-    frame_time_nanos_high: u32,
-    out: u32,
-) -> i32 {
+pub extern "C" fn compose_rust_host_web_render_frame(frame_time_nanos: u64, out: u32) -> i32 {
     if !(lent(out)) {
         return STATUS_PROTOCOL_ERROR;
     }
-    let frame_time_nanos =
-        (u64::from(frame_time_nanos_high) << 32) | u64::from(frame_time_nanos_low);
     // SAFETY: every address above was checked to be inside this module's region,
     // which is where the only buffers the Renderer can name live.
     unsafe {
@@ -192,6 +187,35 @@ pub extern "C" fn compose_rust_host_web_release_batch(out: u32) -> i32 {
 pub extern "C" fn compose_rust_host_web_shutdown() -> i32 {
     crate::boundary::compose_rust_host_shutdown();
     STATUS_OK
+}
+
+thread_local! {
+    /// The larger event buffer, once an event has outgrown the one in [`BLOCK`].
+    ///
+    /// Kept here rather than in the block because its size is only known when an event
+    /// needs it, and kept until the next request because the Renderer goes on encoding into
+    /// it. A browser tab is one thread, so the thread's own copy is the only one.
+    static LENT_EVENT_BUFFER: std::cell::RefCell<LentEventBuffer> =
+        const { std::cell::RefCell::new(LentEventBuffer::new()) };
+}
+
+/// Lends the Renderer an event buffer of at least `min_len` bytes and answers with its
+/// address, or zero when the request is refused.
+///
+/// The Renderer calls this only when an event does not fit in the buffer it has, doubling
+/// what it asks for each time up to 67108864 bytes, and keeps encoding into what it gets.
+/// The buffer stays where it is until the next call, so a request it already satisfies
+/// answers with the same address and allocates nothing. Zero is the answer for a request
+/// past the ceiling, for memory that cannot be had, and for an address outside this
+/// module's region, which the Renderer would have to refuse anyway. A refused request
+/// leaves the buffer lent before it in place.
+///
+/// This is setup, like `compose_rust_host_web_start`, and not a boundary operation.
+#[unsafe(no_mangle)]
+pub extern "C" fn compose_rust_host_web_lend_event_buffer(min_len: u32) -> u32 {
+    LENT_EVENT_BUFFER
+        .with_borrow_mut(|buffer| buffer.lend(min_len))
+        .map_or(0, |pointer| region_address(pointer.cast_const()))
 }
 
 /// Starts the Host and reports where the block it lends the Renderer sits.

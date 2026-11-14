@@ -206,9 +206,9 @@ impl Eq for PickedFile {}
 /// What a `webfile:` reference starts with.
 const WEB_REFERENCE_PREFIX: &str = "webfile:";
 
-/// The bytes one answer from a browser Renderer can carry until events larger than its
-/// event buffer can cross: the buffer less the `IoAnswer` record in front of the bytes.
-const WEB_ANSWER_BYTES: u64 = crate::schema::WEB_EVENT_BUFFER_BYTES as u64 - 32;
+/// The bytes one answer from a browser Renderer can carry: the largest event buffer the Host
+/// lends it, less the `IoAnswer` record in front of the bytes.
+const WEB_ANSWER_BYTES: u64 = crate::schema::WEB_EVENT_BUFFER_MAX_BYTES as u64 - 32;
 
 impl PickedFile {
     /// The longest file [`PickedFile::read`] reads, in bytes. A longer one is
@@ -856,13 +856,16 @@ mod native {
             TEMPORARY.fetch_add(1, Ordering::Relaxed)
         ));
         let written = (|| {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            drop(file);
+            // The file is closed at the end of this block, before the rename: Windows
+            // will not rename a file that is still open.
+            {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temporary)?;
+                file.write_all(bytes)?;
+                file.sync_all()?;
+            }
             // The file keeps the permissions it had, not the new file's defaults.
             if let Some(metadata) = &existing {
                 std::fs::set_permissions(&temporary, metadata.permissions())?;

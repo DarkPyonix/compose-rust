@@ -4,7 +4,7 @@ package dev.darkpyonix.composerust.ui.platform
 
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.WindowMode
-import dev.darkpyonix.composerust.runtime.ComposeRustContent
+import dev.darkpyonix.composerust.runtime.WindowContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 
@@ -38,6 +38,11 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Started before there is a window, because what the window should look like is in the
     // first batch and a window cannot be told afterwards. Started on this thread, which is
     // the one every later call to it is made from and the one the frames are drawn on.
+    // Files let go over a window go to the node under them. Set before the Host starts, because
+    // its first batch may already contain a drop target.
+    dev.darkpyonix.composerust.ui.node.platformFileDrop = { modifier, node, dispatcher ->
+        modifier.nativeFileDrop(node, dispatcher)
+    }
     val host = ComposeRustHost(connection())
     host.start()
 
@@ -72,7 +77,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
     // The application's own tree, drawn by the same interpreter every other platform uses.
     if (systemChrome) {
-        window.setContent { ComposeRustContent(host) }
+        window.setContent { WindowContent(host) }
     } else {
         val actions = dev.darkpyonix.composerust.runtime.WindowActions(
             minimise = { Win32Window.action(0) },
@@ -84,7 +89,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
             androidx.compose.runtime.CompositionLocalProvider(
                 dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
             ) {
-                ComposeRustContent(
+                WindowContent(
                     host,
                     caption = dev.darkpyonix.composerust.runtime.WindowCaption(
                         height = WINDOWS_CAPTION_HEIGHT,

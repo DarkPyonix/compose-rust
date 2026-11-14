@@ -118,29 +118,12 @@ Workflow files and names, in `.github/workflows/`:
 - `release-sync.yml`, "Release sync": develop to main sync; its script is `.github/scripts/release/sync-release.sh`.
 - `publish-crates.yml`, "Publish to crates.io": the tag release, started by `workflow_run` once the renderer workflow has succeeded, or by hand with `workflow_dispatch` and an existing `v*` tag to re-run a failed publish.
 - `pages.yml`, "Pages": docs.
-- `cache-cleanup.yml`, "Cache cleanup": deletes a closed pull request's Actions caches.
-- `test-<target>.yml`, "<Target> test": a special check for one target.
-- `test-graalvm-renderer.yml`, "GraalVM renderer test": builds and smoke tests the GraalVM native-image renderer on macOS and Linux. It exists until the window code moves to the fork, then moves to the fork's CI and is deleted here.
-- `heavy-checks.yml`, "Heavy checks", job "Heavy checks passed on this head": the merge gate for the heavy workflows below.
+- `test-<target>.yml`, "<Target> test": reusable special checks for one target.
 
-Heavy workflows run on request, not on every push. They take half an hour to two hours a
-run, and starting all of them on every push to every pull request queued them for hours.
-They are `test-compose-from-fork.yml`, `test-kn-desktop-renderer.yml`,
-`test-native-renderer.yml` and the Windows resize workflows (`KNOWN_HEAVY` in
-`.github/scripts/heavy-checks.py`). Each has a job "Heavy checks requested" that every other
-job needs, and it only runs for the `run-heavy-ci` label or a manual dispatch. "Heavy checks"
-fails until each heavy workflow whose path filter the pull request matches has passed on
-the pull request's current head, so they still pass before every merge. Run them once the
-pull request is ready:
-
-```sh
-gh pr edit <number> --add-label run-heavy-ci
-```
-
-While the label is on, every push runs them again for the new head. Fast gates ("Test",
-"GraalVM renderer test", "Windows C compile") run on every pull request.
-`scripts/tests/ci-on-demand.test.sh` fails if a heavy workflow can run unasked or a workflow
-has no concurrency group. A new workflow of the same cost goes into `KNOWN_HEAVY`.
+**Development CI runs only by explicit dispatch, one run at a time** (owner, 2026-11-14).
+Only the leader dispatches `ci.yml` on the latest ref; teammates ask the leader. Batch suites
+and changes into one run. The `dev-ci` group lets a running run finish and replaces a queued
+run with the newest dispatch. Release tags, publishing, release-sync and Pages keep their triggers.
 
 Job names are English sentence case and say briefly what the job does. Matrix jobs read "<what> (<os>, <version>)". The same role keeps the same name across repos.
 
@@ -379,7 +362,7 @@ Never introduce anything that violates these. If a task seems to require it, sto
   - No extra frames of input latency.
   - Treat budget regressions as bugs.
 - **Crash isolation (NFR-7)**: protocol errors produce a `ProtocolError` event, never a process abort.
-- **Web (PR-6)**: Kotlin/Wasm owns the single `WebAssembly.Memory`; Rust imports it and both read the arena in place. Function calls cross a generated JS forwarder (about 12 ns) because a browser cannot give you both direct binding and a shared memory. Never add serialisation, a data copy, an async queue or a thread hop.
+- **Web (PR-6)**: Kotlin/Wasm owns the single `WebAssembly.Memory`; Rust imports it and both read the arena in place. Calls are direct wasm-to-wasm calls with no JavaScript on the path, in either direction (the owner's decision). Renderer to Host goes through a generated `call_indirect` trampoline module whose table the loader fills with the Host's exports once both modules exist (4.35 ns in Safari 26.5, 7.11 ns in Chrome 154); Host to Renderer binds a wasm import straight to a Kotlin export. Never put a JS forwarder, serialisation, a data copy, an async queue or a thread hop on a boundary call.
 
 ## Commits
 

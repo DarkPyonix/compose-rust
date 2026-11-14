@@ -13,6 +13,18 @@ pub fn suggested_name(name: &str) -> String {
     }
 }
 
+/// What a document is called on screen: its file's name without the extension.
+///
+/// A note is a thing with a name, and "note.txt" reads as a path rather than as one. The
+/// file keeps its full name, and a save offers it unchanged. A name that is all extension,
+/// like ".profile", keeps it, because without it there would be no name left.
+pub fn display_name(name: &str) -> &str {
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem,
+        _ => name,
+    }
+}
+
 /// The three numbers shown under the editor.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Counts {
@@ -208,6 +220,15 @@ mod tests {
             .expect("one document is a session");
         assert_eq!(restored.current, 0);
         assert_eq!(restored.documents[0].text, "b");
+    }
+
+    #[test]
+    fn fr22_a_document_is_shown_without_its_file_extension() {
+        assert_eq!(display_name("note.txt"), "note");
+        assert_eq!(display_name("plan.v2.md"), "plan.v2");
+        assert_eq!(display_name("메모.txt"), "메모");
+        assert_eq!(display_name(UNTITLED), UNTITLED);
+        assert_eq!(display_name(".profile"), ".profile");
     }
 
     #[test]

@@ -42,8 +42,15 @@ pub enum Brush {
     },
     Radial {
         center: (f32, f32),
-        /// As a fraction of the larger side, so a circle stays a circle.
+        /// As a fraction of the larger side, so a circle stays a circle. For an ellipse it
+        /// is the horizontal radius.
         radius: f32,
+        /// The vertical radius of an ellipse, as a fraction of the larger side like
+        /// `radius`. Zero is a circle of `radius`, which is what CSS `radial-gradient(circle
+        /// ...)` draws; anything above zero is an ellipse `radius` across and `radius_y`
+        /// tall, which is CSS's default shape. A negative or NaN value is refused by the
+        /// Renderer, which reports it and draws the circle.
+        radius_y: f32,
         stops: Vec<Stop>,
         tile: TileMode,
     },
@@ -81,6 +88,19 @@ impl Brush {
         Self::Radial {
             center: (0.5, 0.5),
             radius: 0.5,
+            radius_y: 0.0,
+            stops,
+            tile: TileMode::Clamp,
+        }
+    }
+
+    /// Out from the middle as an ellipse `radius_x` across and `radius_y` tall, each a
+    /// fraction of the larger side. CSS `radial-gradient(ellipse ...)`.
+    pub fn elliptical(radius_x: f32, radius_y: f32, stops: Vec<Stop>) -> Self {
+        Self::Radial {
+            center: (0.5, 0.5),
+            radius: radius_x,
+            radius_y,
             stops,
             tile: TileMode::Clamp,
         }
@@ -89,7 +109,8 @@ impl Brush {
     /// The bytes the Renderer reads, in this module's own layout.
     ///
     /// Fixed fields throughout: a kind, a stop count, four coordinates, and then eight
-    /// bytes per stop. Nothing is skipped for a brush that does not use a coordinate,
+    /// bytes per stop. A radial brush's four are the centre, the radius and the vertical
+    /// radius, which is zero for a circle. Nothing is skipped for a brush that does not use a coordinate,
     /// because a reader that has to know the kind before it knows where the stops start
     /// is a reader that can be walked off the end of a short buffer.
     pub fn to_bytes(&self) -> Vec<u8> {
@@ -108,11 +129,12 @@ impl Brush {
             Self::Radial {
                 center,
                 radius,
+                radius_y,
                 stops,
                 tile,
             } => (
                 KIND_RADIAL,
-                [center.0, center.1, *radius, 0.0],
+                [center.0, center.1, *radius, *radius_y],
                 stops.as_slice(),
                 *tile,
             ),

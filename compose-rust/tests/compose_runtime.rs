@@ -743,6 +743,63 @@ fn fr39_a_message_action_runs_without_dioxus() {
 }
 
 #[Composable]
+fn Copier() {
+    Button("Copy").on_click(|| {
+        Message::new("Copied")
+            .with_placement(MessagePlacement {
+                vertical: MessageVertical::Bottom,
+                horizontal: MessageHorizontal::Center,
+            })
+            .with_offset(96.0)
+            .show();
+        show_message("Plain");
+    });
+}
+
+/// A placed message carries its placement and offset out on the batch, and one that names
+/// neither carries neither, so the Renderer puts it where the design system would.
+#[test]
+fn fr21_message_placement_rides_out_on_the_batch() {
+    reset();
+    let (mut host, tree) = start(Copier);
+    let (node_id, handler_id) = tree.find("Button", Some("Copy"), 0, PropertyKind::OnClick);
+    let (batch, _) = host
+        .dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::Clicked,
+        })
+        .unwrap();
+    let said: Vec<_> = decode_batch(batch)
+        .unwrap()
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::ShowMessage {
+                text,
+                placement,
+                offset_dp,
+                ..
+            } => Some((text.to_owned(), placement, offset_dp)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        vec![
+            (
+                "Copied".to_owned(),
+                Some(MessagePlacement {
+                    vertical: MessageVertical::Bottom,
+                    horizontal: MessageHorizontal::Center,
+                }),
+                Some(96.0),
+            ),
+            ("Plain".to_owned(), None, None),
+        ]
+    );
+}
+
+#[Composable]
 fn Greeting(name: &'static str) {
     ran("greeting");
     Text(format!("Hello, {name}"));

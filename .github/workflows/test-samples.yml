@@ -62,38 +62,37 @@ name: Samples test
 on:
   push:
     tags:
-      - 'sample-v*'
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - samples/**
-      - scripts/build-sample-apks.sh
-      - scripts/build-sample-pages.sh
-      - renderer/desktop/scripts/build-sample-ios.sh
-      - .github/workflows/test-samples.yml
-      - .github/scripts/check-sample-bundles.py
+    - sample-v*
+  # A release path, so it keeps a dispatch of its own beside the development run's call: a
+  # samples release can be run again for an existing tag, or tried without releasing.
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing sample-v* tag to build a release for; empty builds without releasing'
+        description: Existing sample-v* tag to build a release for; empty builds without
+          releasing
         required: false
         type: string
         default: ''
       desktop_only:
-        description: 'Build the desktop targets only (skip Android, iOS and the web). A tag is ignored for release purposes: nothing is published'
+        description: 'Build the desktop targets only (skip Android, iOS and the web).
+          A tag is ignored for release purposes: nothing is published'
         required: false
         type: boolean
         default: false
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. A tag push or a dispatch
-  # is never cancelled, so a release is not cut short half way, and a second one for the
-  # same tag waits. A run started by some other label going on gets a group of its own, so
-  # it cannot cancel a heavy run.
-  group: test-samples-${{ github.event.pull_request.number || inputs.tag || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing sample-v* tag to build a release for; empty builds without
+          releasing
+        required: false
+        type: string
+        default: ''
+      desktop_only:
+        description: 'Build the desktop targets only (skip Android, iOS and the web).
+          A tag is ignored for release purposes: nothing is published'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -129,7 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Read the crate version and look for the release asset
         id: find
@@ -178,6 +177,11 @@ jobs:
 
   # The renderers macOS and Linux ship, from the same reusable workflow the release uses.
   # Only when the release does not carry them yet.
+  #
+  # Every checkout in this workflow takes the run's commit (github.sha), never the branch
+  # name. A branch name is read again when each job starts, and the sample builds start half
+  # an hour after the renderer builds: a merge in between gave them a newer crate than the
+  # renderer, and the build script refused the pair over the schema hash.
   static-renderer:
     name: renderer
     needs: resolve
@@ -189,7 +193,7 @@ jobs:
     uses: ./.github/workflows/static-renderer.yml
     with:
       target: ${{ matrix.target }}
-      ref: ${{ inputs.tag || github.ref }}
+      ref: ${{ inputs.tag || github.sha }}
 
   # The Windows renderer: Kotlin/Native, linked into the executable, so a Windows sample
   # is one file like the others. This replaces the GraalVM DLL the samples used to ship
@@ -230,7 +234,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
@@ -558,7 +562,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -631,7 +635,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -697,7 +701,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - name: Install the pinned Rust toolchain
         run: |
@@ -760,7 +764,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -811,6 +815,12 @@ jobs:
       (needs.web.result == 'success' || needs.web.result == 'skipped') &&
       (github.event_name == 'push' || (inputs.tag != '' && !inputs.desktop_only)) }}
     runs-on: ubuntu-latest
+    # One release per tag at a time, and never cut short half way: a second run for the same
+    # tag waits. On this job only, which runs only with a tag, so a development run that
+    # calls this workflow without one never shares a group with its caller.
+    concurrency:
+      group: test-samples-release-${{ inputs.tag || github.ref_name }}
+      cancel-in-progress: false
     permissions:
       contents: write
       # To start the Pages workflow once samples-latest holds the new pages.
@@ -818,7 +828,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.sha }}
           fetch-depth: 0
 
       - name: Check the tag names a main merge commit and the crate version

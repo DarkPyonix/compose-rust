@@ -3,6 +3,7 @@ package dev.darkpyonix.composerust.foundation
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -23,7 +25,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -44,6 +51,8 @@ import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.resolvedShape
+import dev.darkpyonix.composerust.ui.cornerCurve
+import dev.darkpyonix.composerust.ui.withCornerCurve
 
 /** The test tag of whatever a dropdown opens over the page. */
 fun dropdownPopupTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-options"
@@ -82,7 +91,10 @@ internal fun HostDropdown(
         }
     }
     val shown = selected.coerceIn(0, maxOf(0, options.lastIndex))
-    val closedField = node.flag(PropertyKind.Collapsible, default = false)
+    // A bare select is a closed field by definition: it sits inside a box that already
+    // drew the frame, so it has no wheel band of its own to draw either.
+    val bare = node.flag(PropertyKind.Bare, default = false)
+    val closedField = bare || node.flag(PropertyKind.Collapsible, default = false)
 
     when {
         closedField || theme.rules.pickers.choice == ChoicePresentation.ExposedMenu -> OpeningList(
@@ -152,7 +164,10 @@ private fun OpeningList(
     onChoose: (Int) -> Unit,
 ) {
     var open by remember(node.id) { mutableStateOf(false) }
+    val fieldRequester = remember(node.id) { FocusRequester() }
     val style = theme.rules.container(role, theme)
+    val bare = node.flag(PropertyKind.Bare, default = false)
+    val bareInteractions = remember(node.id) { MutableInteractionSource() }
     val ownFill = node.setsOwnBackground()
     val ownLine = node.modifiers.any {
         it is ProtocolModifier.Border || it is ProtocolModifier.BorderEach
@@ -167,16 +182,40 @@ private fun OpeningList(
             it is ProtocolModifier.PaddingEach ||
             it is ProtocolModifier.PaddingRole
     }
-    val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape
-    Box(modifier) {
+    val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape.withCornerCurve(node.modifiers.cornerCurve())
+    // The frame is as wide as the node: a field given a width draws its frame across all of
+    // it, and its marker sits inside that frame rather than past the end of a shorter one.
+    Box(modifier, propagateMinConstraints = true) {
         Box(
             Modifier
-                .clip(fieldShape)
-                .let { if (ownFill) it else it.background(theme.color(ColorRole.Surface), fieldShape) }
-                .let { if (ownLine || ownFill) it else it.border(1.dp, theme.color(ColorRole.Outline), fieldShape) }
-                .clickable(enabled = enabled) { open = true }
+                // A bare field clips only to a corner the node named itself.
+                .let { if (bare && !ownShape) it else it.clip(fieldShape) }
                 .let {
-                    if (ownRoom) {
+                    if (ownFill || bare) it else it.background(theme.color(ColorRole.Surface), fieldShape)
+                }
+                .let {
+                    if (ownLine || ownFill || bare) {
+                        it
+                    } else {
+                        it.border(1.dp, theme.color(ColorRole.Outline), fieldShape)
+                    }
+                }
+                .focusRequester(fieldRequester)
+                .let {
+                    // A bare field draws no focus or press layer: the box around it owns
+                    // the field's look in every state.
+                    if (bare) {
+                        it.clickable(
+                            interactionSource = bareInteractions,
+                            indication = null,
+                            enabled = enabled,
+                        ) { open = true }
+                    } else {
+                        it.clickable(enabled = enabled) { open = true }
+                    }
+                }
+                .let {
+                    if (ownRoom || bare) {
                         it
                     } else {
                         it.padding(horizontal = theme.space(SpaceRole.Sm), vertical = 6.dp)
@@ -186,10 +225,21 @@ private fun OpeningList(
             // The closed field shows the chosen option itself, drawn by the same node that
             // draws it in the list. An option is whatever the Host made it.
             options.getOrNull(shown)?.let { childId ->
-                key(childId) { RenderNode(childId, table, dispatcher) }
+                BeforeTheMarker(marker, theme) {
+                    key(childId) { RenderNode(childId, table, dispatcher) }
+                }
             }
         }
-        Box(Modifier.align(Alignment.CenterEnd).padding(end = theme.space(SpaceRole.Xs))) {
+        // On a bare field the marker takes no room of its own, so the field is as tall as
+        // the option it shows and not as tall as the marker.
+        Box(
+            if (bare) {
+                Modifier.matchParentSize().padding(end = theme.space(SpaceRole.Xs))
+            } else {
+                Modifier.align(Alignment.CenterEnd).padding(end = theme.space(SpaceRole.Xs))
+            },
+            contentAlignment = Alignment.CenterEnd,
+        ) {
             ThemedText(
                 text = marker,
                 style = theme.pickerTextStyle(color = theme.color(ColorRole.OnSurfaceVariant)),
@@ -224,20 +274,28 @@ private fun OpeningList(
                 onDismissRequest = { open = false },
                 properties = PopupProperties(focusable = true),
             ) {
+                // The options answer the keys a menu does, and closing the list from the
+                // keyboard gives focus back to the field.
+                ReturnsFocusOnClose(fieldRequester)
+                val keys = rememberMenuKeyboard(options, table, chosen = options.getOrNull(shown)) {
+                    open = false
+                }
                 CompositionLocalProvider(LocalGlassBackdrop provides null, LocalInAMenu provides true) {
                     Column(
                         Modifier
                             .testTag(dropdownPopupTestTag(node.id))
+                            .menuKeys(keys)
                             .then(popupRaised)
                             .clip(popupShape)
                             .background(style.container, popupShape)
                             .border(style.borderWidth, style.borderColor, popupShape)
-                            .then(popupPadding),
+                            .then(popupPadding)
+                            .menuWidth(),
                     ) {
                         options.forEachIndexed { index, childId ->
                             key(childId) {
                                 Box(
-                                    Modifier
+                                    keys.entry(childId)
                                         .fillMaxWidth()
                                         .background(
                                             if (index == shown) {
@@ -263,6 +321,40 @@ private fun OpeningList(
                 }
             }
         }
+    }
+}
+
+/** Whether the text below is a closed field's label, set on one line and cut short at its end. */
+internal val LocalOneLineLabel = compositionLocalOf { false }
+
+/**
+ * The chosen option of a closed field, laid out in the room the field has before its marker.
+ *
+ * The marker is drawn over the field's end, outside this layout, so the room it takes is
+ * kept free here: as wide as the marker, the marker's own end inset, and that inset again
+ * as the gap between the label and the marker. A label longer than what is left is set on
+ * one line and ends in an ellipsis, so it never runs under the marker and never wraps into
+ * a second line the field has no height for. The kept room has no height of its own, so a
+ * bare field stays as tall as its label.
+ */
+@Composable
+private fun BeforeTheMarker(marker: String, theme: ResolvedTheme, label: @Composable () -> Unit) {
+    val inset = theme.space(SpaceRole.Xs)
+    val measurer = rememberTextMeasurer(cacheSize = 1)
+    val style = theme.pickerTextStyle()
+    Layout(
+        content = { Box { CompositionLocalProvider(LocalOneLineLabel provides true) { label() } } },
+    ) { measurables, constraints ->
+        val kept = measurer.measure(marker, style).size.width + 2 * inset.roundToPx()
+        val room = if (constraints.hasBoundedWidth) {
+            (constraints.maxWidth - kept).coerceAtLeast(0)
+        } else {
+            Constraints.Infinity
+        }
+        val placed = measurables.first().measure(constraints.copy(minWidth = 0, maxWidth = room))
+        val width = (placed.width + kept).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = placed.height.coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) { placed.placeRelative(0, (height - placed.height) / 2) }
     }
 }
 

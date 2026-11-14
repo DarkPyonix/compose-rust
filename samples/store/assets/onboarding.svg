@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='100%' height='100%' viewBox='0 0 360 540' preserveAspectRatio='xMidYMid slice' fill='none'>
+  <rect x='0' y='0' width='360' height='170' fill='#bfe8f2'/>
+  <rect x='0' y='170' width='360' height='120' fill='#d9f2f6'/>
+  <rect x='0' y='290' width='360' height='12' fill='#6fbfcf'/>
+  <rect x='0' y='302' width='360' height='58' fill='#93d4df'/>
+  <rect x='0' y='360' width='360' height='180' fill='#efe7dc'/>
+  <path d='M0 372 Q90 362 180 370 Q270 378 360 366 L360 382 Q270 392 180 384 Q90 376 0 388 Z' fill='#e4d9ca'/>
+  <path d='M150 290 L180 290 L178 400 L184 494 L164 498 L156 400 Z' fill='#2b2f38'/>
+  <path d='M162 494 L188 492 L196 506 L160 508 Z' fill='#c98b62'/>
+  <path d='M176 270 L270 236 L282 262 L194 300 Z' fill='#2b2f38'/>
+  <path d='M262 240 L286 248 L304 330 L282 336 Z' fill='#2b2f38'/>
+  <path d='M282 332 L306 328 L312 346 L286 350 Z' fill='#c98b62'/>
+  <path d='M148 250 Q172 242 200 252 L200 292 Q174 300 148 292 Z' fill='#2b2f38'/>
+  <path d='M152 226 L196 226 L198 252 Q174 258 150 252 Z' fill='#c98b62'/>
+  <path d='M150 178 Q174 168 198 178 L198 228 Q174 234 150 228 Z' fill='#20232a'/>
+  <path d='M154 184 L132 216 L118 240 L128 248 L144 226 L164 196 Z' fill='#c98b62'/>
+  <path d='M114 236 L132 236 L132 254 L114 254 Z' fill='#20232a'/>
+  <path d='M194 184 L222 206 L240 214 L236 226 L214 220 L188 198 Z' fill='#c98b62'/>
+  <path d='M234 206 L250 210 L248 228 L232 226 Z' fill='#20232a'/>
+  <rect x='166' y='160' width='16' height='20' fill='#c98b62'/>
+  <circle cx='174' cy='144' r='22' fill='#c98b62'/>
+  <path d='M152 142 Q152 118 176 118 Q198 118 198 140 Q190 128 176 128 Q160 128 152 142 Z' fill='#20232a'/>
+  <path d='M156 128 Q130 116 120 140 Q112 162 126 182 Q112 158 130 142 Q144 132 156 138 Z' fill='#20232a'/>
+</svg>

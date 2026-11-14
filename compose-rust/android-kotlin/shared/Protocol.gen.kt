@@ -6,11 +6,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, CompactNavigation, OnScrollChanged, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, Progress }
 
-enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
+enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -32,7 +32,7 @@ enum class SemanticsRole { None, Button, Checkbox, Switch, RadioButton, Tab, Ima
 
 enum class SpaceRole { None, Xs, Sm, Md, Lg, Xl, Xxl }
 
-enum class TextAlign { Start, Center, End, Justify }
+enum class TextAlign { Start, Center, End, Justify, Left, Right }
 
 enum class TextOverflow { Clip, Ellipsis, Visible }
 
@@ -53,6 +53,10 @@ enum class AssetKind { Png, Jpeg, Svg, VectorIcon, Font, Brush }
 enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse }
 
 enum class MessageDuration { Short, Long }
+
+enum class MessageVertical { Top, Bottom }
+
+enum class MessageHorizontal { Start, Center, End }
 
 enum class Chrome { Modern, System, FullSize }
 
@@ -94,7 +98,9 @@ enum class AnimationEventKind { Ready, Active, Iteration, End }
 
 enum class ReducedMotion { Off, On, Unknown }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText }
+enum class SystemColorScheme { Light, Dark }
+
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground, AfterLine }
 
 enum class Severity { Error, Warning, Information, Hint }
 
@@ -122,7 +128,15 @@ enum class FileDialogKind { OpenFile, OpenFiles, OpenFolder, OpenFolders, Save }
 
 enum class FileDialogStatus { Chosen, Cancelled, Unavailable }
 
+enum class EditGroupStatus { Applied, Rejected, Invalid, TooOld }
+
 enum class CompactNavigation { Sidebar, None }
+
+enum class Snap { ItemStart }
+
+enum class MinimapSide { Right, Left }
+
+enum class WordWrapMode { Viewport, Column, Bounded }
 
 enum class StorageOp { Read, Write, Remove, Keys }
 
@@ -131,6 +145,20 @@ enum class IoStatus { Ok, NotFound, QuotaExceeded, Unavailable, PermissionDenied
 enum class FileDelivery { Handle, Upload, Download }
 
 enum class FileOp { Read, Write, Entries, Child }
+
+enum class HorizontalAlignment { Start, Center, End }
+
+enum class VerticalAlignment { Top, Center, Bottom }
+
+enum class PopoverPlacement { Top, Bottom, Start, End }
+
+enum class PopoverAlign { Start, Center, End }
+
+enum class ContentScale { Fit, Crop, FillBounds }
+
+enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
+
+enum class SheetPresentation { Edge, Centered }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -205,7 +233,10 @@ data class Theme(
 /** One role's colour in one scheme, as the application gave it. */
 data class PaletteEntry(val role: ColorRole, val dark: Boolean, val argb: Int)
 
-/** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
+/**
+ * Application-level overlay theme tokens for Dialog, Menu, Dropdown, Sheet and the transient
+ * message. Every measure is in dp, and 0 keeps the design system's own.
+ */
 data class OverlayTokens(
     val sheetCornerRadius: Int = 0,
     val dialogCornerRadius: Int = 0,
@@ -217,6 +248,18 @@ data class OverlayTokens(
     val dialogPadding: Int = 0,
     val popupPadding: Int = 0,
     val scrim: Long = 0L,
+    val toastElevation: Int = 0,
+    val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -612,14 +655,96 @@ data class GutterDecorationRecord(
     val glyph: Int,
 )
 
+/** The colours an application gives a code editor, one role for each part. A part              with no role keeps the design system's colour. */
+data class CodeEditorColorsRecord(
+    val container: ColorRole?,
+    val gutter: ColorRole?,
+    val lineNumber: ColorRole?,
+    val currentLineNumber: ColorRole?,
+    val currentLine: ColorRole?,
+)
+
+/** Room after a line of a code editor that is not text, `heightLines` rows high, with `text` drawn dimmed in it. `afterLine` is in the document as it is when the list arrives. */
+data class ViewZoneRecord(
+    val afterLine: Int,
+    val heightLines: kotlin.Float,
+    val text: String,
+)
+
+/**
+ * One edit of a grouped edit: a range of the document as it stood at the group's base
+ * version, and the text that replaces it.
+ */
+data class CodeEditRecord(
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val text: String,
+)
+
 /**
  * Reads the blobs a code editor carries.
  *
  * A record that cannot be read, a kind or a role this side does not know or a text that
  * points outside the blob, is reported through `onError` and left out. The rest of the list
- * is read regardless.
+ * is read regardless. A grouped edit is the exception: it goes in whole or not at all, so a
+ * blob with anything wrong in it is not read at all.
  */
 object CodeEditorRecords {
+    const val CODE_EDIT_LENGTH = 24
+
+    /**
+     * The edits of an `EditCodeGroup`, in the order they were sent, or null, with the
+     * reason given to [onError], where the blob is not one.
+     *
+     * The blob is a count, then one 24-byte record per edit (the range, then the text's
+     * offset and length), then the texts. A text's offset counts from the start of the
+     * texts. A count the blob is too short for, a text outside it or not UTF-8, or bytes
+     * after the last text make the blob unreadable.
+     */
+    fun decodeEditGroup(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditRecord>? {
+        if (bytes.size < 4) {
+            onError("a grouped edit is ${bytes.size} bytes, too short for its count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0).toLong() and 0xffff_ffffL
+        val textsStart = 4L + count * CODE_EDIT_LENGTH
+        if (textsStart > bytes.size) {
+            onError("a grouped edit says it has $count edits and is ${bytes.size} bytes")
+            return null
+        }
+        val edits = ArrayList<CodeEditRecord>(count.toInt())
+        var textsEnd = textsStart
+        for (index in 0 until count.toInt()) {
+            val at = 4 + index * CODE_EDIT_LENGTH
+            val start = textsStart + (buffer.getInt(at + 16).toLong() and 0xffff_ffffL)
+            val length = buffer.getInt(at + 20).toLong() and 0xffff_ffffL
+            if (start + length > bytes.size) {
+                onError("edit $index of a grouped edit names text outside it")
+                return null
+            }
+            val text = textOf(bytes, start.toInt(), length.toInt()) ?: run {
+                onError("edit $index of a grouped edit has text that is not UTF-8")
+                return null
+            }
+            textsEnd = maxOf(textsEnd, start + length)
+            edits += CodeEditRecord(
+                buffer.getInt(at),
+                buffer.getInt(at + 4),
+                buffer.getInt(at + 8),
+                buffer.getInt(at + 12),
+                text,
+            )
+        }
+        if (textsEnd != bytes.size.toLong()) {
+            onError("a grouped edit has ${bytes.size - textsEnd} bytes after its last text")
+            return null
+        }
+        return edits
+    }
+
     const val DECORATION_LENGTH = 44
 
     fun decodeDecorations(bytes: ByteArray, onError: (String) -> Unit): List<DecorationRecord> {
@@ -743,6 +868,65 @@ object CodeEditorRecords {
         return GutterDecorationRecord(version, line, kind, color, id, glyph)
     }
 
+    const val CODE_EDITOR_COLORS_LENGTH = 12
+
+    fun decodeCodeEditorColors(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditorColorsRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<CodeEditorColorsRecord>(bytes.size / CODE_EDITOR_COLORS_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + CODE_EDITOR_COLORS_LENGTH <= end) {
+            readCodeEditorColorsRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += CODE_EDITOR_COLORS_LENGTH
+            index += 1
+        }
+        if (offset != bytes.size) {
+            onError("${bytes.size - offset} bytes after the last whole record")
+        }
+        return records
+    }
+
+    private fun readCodeEditorColorsRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): CodeEditorColorsRecord? {
+        val containerTag = buffer.getShort(offset + 0).toInt() and 0xffff
+        val container = if (containerTag == 0) null else colorRoleOrNull(containerTag) ?: run { onError("record $index has an unknown container ${containerTag}"); return null }
+        val gutterTag = buffer.getShort(offset + 2).toInt() and 0xffff
+        val gutter = if (gutterTag == 0) null else colorRoleOrNull(gutterTag) ?: run { onError("record $index has an unknown gutter ${gutterTag}"); return null }
+        val lineNumberTag = buffer.getShort(offset + 4).toInt() and 0xffff
+        val lineNumber = if (lineNumberTag == 0) null else colorRoleOrNull(lineNumberTag) ?: run { onError("record $index has an unknown lineNumber ${lineNumberTag}"); return null }
+        val currentLineNumberTag = buffer.getShort(offset + 6).toInt() and 0xffff
+        val currentLineNumber = if (currentLineNumberTag == 0) null else colorRoleOrNull(currentLineNumberTag) ?: run { onError("record $index has an unknown currentLineNumber ${currentLineNumberTag}"); return null }
+        val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
+        val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
+        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
+    }
+
+    const val VIEW_ZONE_LENGTH = 16
+
+    fun decodeViewZones(bytes: ByteArray, onError: (String) -> Unit): List<ViewZoneRecord> {
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val records = ArrayList<ViewZoneRecord>(bytes.size / VIEW_ZONE_LENGTH)
+        var end = bytes.size
+        var offset = 0
+        var index = 0
+        while (offset + VIEW_ZONE_LENGTH <= end) {
+            val textOffset = buffer.getInt(offset + 8)
+            val textLength = buffer.getInt(offset + 12)
+            if (textLength != 0 && textOffset >= 0 && textOffset < end) end = textOffset
+            readViewZoneRecord(buffer, bytes, offset, index, onError)?.let(records::add)
+            offset += VIEW_ZONE_LENGTH
+            index += 1
+        }
+        return records
+    }
+
+    private fun readViewZoneRecord(buffer: ByteBuffer, bytes: ByteArray, offset: Int, index: Int, onError: (String) -> Unit): ViewZoneRecord? {
+        val afterLine = buffer.getInt(offset + 0)
+        val heightLines = kotlin.Float.fromBits(buffer.getInt(offset + 4))
+        val text = textOf(bytes, buffer.getInt(offset + 8), buffer.getInt(offset + 12)) ?: run { onError("record $index names text outside the list"); return null }
+        return ViewZoneRecord(afterLine, heightLines, text)
+    }
+
     /** UTF-8 text behind the records, or null where the range leaves the blob or is not text. */
     private fun textOf(bytes: ByteArray, offset: Int, length: Int): String? {
         if (length == 0) return ""
@@ -818,6 +1002,9 @@ object CodeEditorRecords {
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> null
     }
 
@@ -973,7 +1160,7 @@ object SpanFontRecords {
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
  */
 object MeasureRecords {
-    const val RECORD_LENGTH = 72
+    const val RECORD_LENGTH = 80
     const val RESULT_LENGTH = 32
     const val KIND_TEXT = 1
     const val KIND_NODE = 2
@@ -1001,6 +1188,8 @@ object MeasureRecords {
     const val TEXT_CONSTRAINT_AT = 60
     const val TEXT_WIDTH_AT = 64
     const val TEXT_ZOOM_AT = 68
+    const val TEXT_FONT_FEATURES_OFFSET_AT = 72
+    const val TEXT_FONT_FEATURES_COUNT_AT = 76
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
@@ -1061,6 +1250,13 @@ sealed interface Modifier {
     data class WindowDrag(val enabled: Boolean) : Modifier
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
     data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
+    data class CornerCurve(val smoothing: kotlin.Float) : Modifier
+    data class BackgroundBrush(val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float, val paint: Paint, val repeat: dev.darkpyonix.composerust.protocol.BackgroundRepeat, val tile_width: kotlin.Float, val tile_height: kotlin.Float) : Modifier
+    data class SizeIn(val minWidth: kotlin.Float, val maxWidth: kotlin.Float, val minHeight: kotlin.Float, val maxHeight: kotlin.Float) : Modifier
+    data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
+    data class MinTouchTarget(val size: kotlin.Float) : Modifier
+    data class Overlay(val paint: Paint) : Modifier
+    data object Sticky : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1203,12 +1399,18 @@ sealed interface Mutation {
      * still up are the Renderer's to decide.
      *
      * `handlerId` is 0 when the message has no action, and `action` is then empty.
+     *
+     * `vertical` and `horizontal` are where the application asked for it to be drawn and
+     * `offsetDp` how far from that edge; null leaves each to the design system.
      */
     data class ShowMessage(
         val handlerId: Long,
         val text: String,
         val action: String,
         val duration: MessageDuration,
+        val vertical: MessageVertical? = null,
+        val horizontal: MessageHorizontal? = null,
+        val offsetDp: Float? = null,
     ) : Mutation
 
     /**
@@ -1352,6 +1554,12 @@ sealed interface Mutation {
     data class ReadClipboard(val request: Int) : Mutation
 
     /**
+     * Scrolls a code editor so that [offsetPx] physical pixels of its document are above
+     * the top of its view. The same unit the `CodeScrolled` event reports.
+     */
+    data class SetScrollOffset(val nodeId: Int, val offsetPx: Double) : Mutation
+
+    /**
      * Asks something of the file the Renderer holds [handle] for: read it, write [data] to
      * it, list a folder, or find the child called [name] (making a file of that name when
      * [create]). Answered exactly once, later: by an `IoAnswer` carrying [request], or for a
@@ -1430,6 +1638,78 @@ sealed interface Mutation {
         val rectWidthPx: Double,
         val rectHeightPx: Double,
     ) : Mutation
+
+    /**
+     * Sets every selection of the code editor [nodeId] at once, the first the primary one,
+     * each read against the document as it stood at [baseVersion]. [selections] is 16-byte
+     * records: anchor line, anchor column, active line, active column.
+     */
+    data class SetSelections(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val selections: ByteArray,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SetSelections && nodeId == other.nodeId && baseVersion == other.baseVersion &&
+                    selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + baseVersion) * 31 + selections.contentHashCode()
+    }
+
+    /**
+     * Replaces a range of the code editor [nodeId]'s document, as it stood at
+     * [baseVersion], with [snippet], and opens its tab stops: `$1`, `${1:placeholder}`,
+     * `${1|one,two|}`, `$0`, and `\$` for a dollar sign. What it leaves is reported as
+     * ordinary changes. Lines and columns count from zero and columns are UTF-16 units.
+     */
+    data class InsertSnippet(
+        val nodeId: Int,
+        val baseVersion: Int,
+        val startLine: Int,
+        val startColumn: Int,
+        val endLine: Int,
+        val endColumn: Int,
+        val snippet: String,
+    ) : Mutation
+
+    /**
+     * Asks the code editor [nodeId] where a caret at [line] and [column] would be drawn.
+     * Answered once by a `PositionRect` event carrying [request].
+     */
+    data class QueryPositionRect(
+        val nodeId: Int,
+        val request: Int,
+        val line: Int,
+        val column: Int,
+    ) : Mutation
+
+    /**
+     * Several edits the application asks of a code editor as one: replace every range in
+     * [edits] with its text, all of them or none, and answer with one
+     * `CodeEditGroupResult` carrying [requestId].
+     *
+     * [edits] is the blob as it came, read by `CodeEditorRecords.decodeEditGroup`. Every
+     * range in it is in the document as it stood at [baseVersion]. [malformed] is set, and
+     * [edits] empty, where the record itself could not be read but its head could: the
+     * decoder reports the protocol error, and the editor still owes the group its answer.
+     */
+    data class EditCodeGroup(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val edits: ByteArray,
+        val malformed: String? = null,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is EditCodeGroup && nodeId == other.nodeId && requestId == other.requestId &&
+                    baseVersion == other.baseVersion && edits.contentEquals(other.edits) &&
+                    malformed == other.malformed)
+
+        override fun hashCode(): Int =
+            ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
+    }
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1503,6 +1783,7 @@ sealed interface HostEvent {
     data class FocusGained(override val nodeId: Int, override val handlerId: Long) : HostEvent
     data class KeyUp(override val nodeId: Int, override val handlerId: Long, val key: Key, val shiftKey: Boolean, val ctrlKey: Boolean, val altKey: Boolean, val metaKey: Boolean, val repeat: Boolean, val code: Int, val text: String) : HostEvent
     data class FileDialogResult(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val paths: String) : HostEvent
+    data class CodeEditGroupResult(override val nodeId: Int, override val handlerId: Long, val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int) : HostEvent
     data class ClipboardText(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: Int, val length: Int, val text: String) : HostEvent {
         override fun toString(): String =
             "ClipboardText(request=$request, status=$status, length=$length)"
@@ -1521,13 +1802,31 @@ sealed interface HostEvent {
     data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
+    data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
+    data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
+    data class CaretRect(override val nodeId: Int, override val handlerId: Long, val line: Int, val column: Int, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class PositionRect(override val nodeId: Int, override val handlerId: Long, val request: Int, val found: Boolean, val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float) : HostEvent
+    data class CodePointer(override val nodeId: Int, override val handlerId: Long, val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long, val line: Int, val column: Int) : HostEvent
+    data class ColorSchemeChanged(override val nodeId: Int, override val handlerId: Long, val scheme: SystemColorScheme) : HostEvent
+    data class SelectionsChanged(override val nodeId: Int, override val handlerId: Long, val version: Int, val selections: IntArray) : HostEvent {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is SelectionsChanged && nodeId == other.nodeId && handlerId == other.handlerId &&
+                    version == other.version && selections.contentEquals(other.selections))
+
+        override fun hashCode(): Int = (nodeId * 31 + version) * 31 + selections.contentHashCode()
+
+        override fun toString(): String =
+            "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
+    }
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -6140727414475670603L
+    const val SCHEMA_HASH: Long = -7418346875442805373L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1558,13 +1857,18 @@ object Protocol {
     private const val TAG_REQUEST_FOCUS = 25
     private const val TAG_SHOW_FILE_DIALOG = 26
     private const val TAG_SET_OVERLAY_TOKENS = 27
+    private const val TAG_EDIT_CODE_GROUP = 28
     private const val TAG_SET_CLIPBOARD_TEXT = 29
     private const val TAG_READ_CLIPBOARD = 31
+    private const val TAG_SET_SCROLL_OFFSET = 30
     private const val TAG_STORAGE_CALL = 32
     private const val TAG_FILE_CALL = 33
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_QUERY_POSITION_RECT = 39
+    private const val TAG_INSERT_SNIPPET = 40
+    private const val TAG_SET_SELECTIONS = 41
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -1732,7 +2036,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 28, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1745,6 +2049,17 @@ object Protocol {
                                 dialogPadding = readU16(batch, base, available, offset + 18),
                                 popupPadding = readU16(batch, base, available, offset + 20),
                                 scrim = readU32(batch, base, available, offset + 24),
+                                toastElevation = readU16(batch, base, available, offset + 28),
+                                toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -1810,6 +2125,73 @@ object Protocol {
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
                         )
                     }
+                    TAG_EDIT_CODE_GROUP -> {
+                        // A group that cannot be read is still answered. Where its head
+                        // can be, the node, the request and as much of the rest as is
+                        // there go to the editor first, so the result it owes follows the
+                        // protocol error this record raises.
+                        if (length != 24) {
+                            if (length >= 12) {
+                                onMutation(
+                                    Mutation.EditCodeGroup(
+                                        readU32(batch, base, available, offset + 4).toInt(),
+                                        readU32(batch, base, available, offset + 8).toInt(),
+                                        if (length >= 16) readU32(batch, base, available, offset + 12).toInt() else 0,
+                                        ByteArray(0),
+                                        malformed = "an EditCodeGroup record is $length bytes, not 24",
+                                    ),
+                                )
+                            }
+                            requireRecordLength(length, 24, offset)
+                        }
+                        val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                        val requestId = readU32(batch, base, available, offset + 8).toInt()
+                        val baseVersion = readU32(batch, base, available, offset + 12).toInt()
+                        val edits = try {
+                            readBytes(batch, base, available, offset + 16)
+                        } catch (error: ProtocolException) {
+                            onMutation(
+                                Mutation.EditCodeGroup(
+                                    nodeId,
+                                    requestId,
+                                    baseVersion,
+                                    ByteArray(0),
+                                    malformed = "an EditCodeGroup record names edits outside the batch",
+                                ),
+                            )
+                            throw error
+                        }
+                        Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
+                    TAG_SET_SELECTIONS -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.SetSelections(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            selections = readBytes(batch, base, available, offset + 12),
+                        )
+                    }
+                    TAG_INSERT_SNIPPET -> {
+                        requireRecordLength(length, 36, offset)
+                        Mutation.InsertSnippet(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            baseVersion = readU32(batch, base, available, offset + 8).toInt(),
+                            startLine = readU32(batch, base, available, offset + 12).toInt(),
+                            startColumn = readU32(batch, base, available, offset + 16).toInt(),
+                            endLine = readU32(batch, base, available, offset + 20).toInt(),
+                            endColumn = readU32(batch, base, available, offset + 24).toInt(),
+                            snippet = readString(batch, base, available, offset + 28),
+                        )
+                    }
+                    TAG_QUERY_POSITION_RECT -> {
+                        requireRecordLength(length, 20, offset)
+                        Mutation.QueryPositionRect(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            request = readU32(batch, base, available, offset + 8).toInt(),
+                            line = readU32(batch, base, available, offset + 12).toInt(),
+                            column = readU32(batch, base, available, offset + 16).toInt(),
+                        )
+                    }
                     TAG_SET_WINDOW -> {
                         requireRecordLength(length, 32, offset)
                         // Bit 0 is `resizable`, bit 1 asks for every whole-dp size change; the
@@ -1864,12 +2246,23 @@ object Protocol {
                         Mutation.ReleaseAsset(readU32(batch, base, available, offset + 4).toInt())
                     }
                     TAG_SHOW_MESSAGE -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 40, offset)
+                        // Tag 0 in either placement word is "the design system's place",
+                        // and a placement is both halves or neither.
+                        val rawVertical = readU16(batch, base, available, offset + 30)
+                        val rawHorizontal = readU16(batch, base, available, offset + 32)
+                        if ((rawVertical == 0) != (rawHorizontal == 0)) {
+                            throw ProtocolException("a message placement needs both an edge and an end", offset + 30)
+                        }
+                        val rawOffset = Float.fromBits(readU32(batch, base, available, offset + 36).toInt())
                         Mutation.ShowMessage(
                             readU64(batch, base, available, offset + 4),
                             readString(batch, base, available, offset + 12),
                             readString(batch, base, available, offset + 20),
                             messageDuration(readU16(batch, base, available, offset + 28), offset + 28),
+                            if (rawVertical == 0) null else messageVertical(rawVertical, offset + 30),
+                            if (rawHorizontal == 0) null else messageHorizontal(rawHorizontal, offset + 32),
+                            if (rawOffset.isNaN()) null else rawOffset,
                         )
                     }
                     TAG_POST_NOTIFICATION -> {
@@ -1952,6 +2345,13 @@ object Protocol {
                             readU32(batch, base, available, offset + 4).toInt(),
                             readU32(batch, base, available, offset + 8).toInt(),
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
+                        )
+                    }
+                    TAG_SET_SCROLL_OFFSET -> {
+                        requireRecordLength(length, 16, offset)
+                        Mutation.SetScrollOffset(
+                            readU32(batch, base, available, offset + 4).toInt(),
+                            kotlin.Double.fromBits(readU64(batch, base, available, offset + 8)),
                         )
                     }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
@@ -2088,11 +2488,20 @@ object Protocol {
                 is HostEvent.FocusGained -> null
                 is HostEvent.KeyUp -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.FileDialogResult -> event.paths.toByteArray(StandardCharsets.UTF_8)
+                is HostEvent.CodeEditGroupResult -> null
                 is HostEvent.ClipboardText -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.IoAnswer -> event.data
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ScrollChanged -> null
+                is HostEvent.CodeMetrics -> null
+                is HostEvent.CodeScrolled -> null
+                is HostEvent.MotionFinished -> null
+                is HostEvent.CaretRect -> null
+                is HostEvent.PositionRect -> null
+                is HostEvent.CodePointer -> null
+                is HostEvent.ColorSchemeChanged -> null
+                is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2138,11 +2547,20 @@ object Protocol {
                 is HostEvent.FocusGained -> 16
                 is HostEvent.KeyUp -> 32
                 is HostEvent.FileDialogResult -> 36
+                is HostEvent.CodeEditGroupResult -> 36
                 is HostEvent.ClipboardText -> 36
                 is HostEvent.IoAnswer -> 32
                 is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
                 is HostEvent.ScrollChanged -> 72
+                is HostEvent.CodeMetrics -> 24
+                is HostEvent.CodeScrolled -> 24
+                is HostEvent.MotionFinished -> 24
+                is HostEvent.CaretRect -> 40
+                is HostEvent.PositionRect -> 40
+                is HostEvent.CodePointer -> 80
+                is HostEvent.ColorSchemeChanged -> 20
+                is HostEvent.SelectionsChanged -> 28
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2192,11 +2610,20 @@ object Protocol {
                 is HostEvent.FocusGained -> 48
                 is HostEvent.KeyUp -> 49
                 is HostEvent.FileDialogResult -> 50
+                is HostEvent.CodeEditGroupResult -> 51
                 is HostEvent.ClipboardText -> 56
                 is HostEvent.IoAnswer -> 57
                 is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
                 is HostEvent.ScrollChanged -> 60
+                is HostEvent.CodeMetrics -> 54
+                is HostEvent.CodeScrolled -> 55
+                is HostEvent.MotionFinished -> 63
+                is HostEvent.CaretRect -> 64
+                is HostEvent.PositionRect -> 65
+                is HostEvent.CodePointer -> 66
+                is HostEvent.ColorSchemeChanged -> 52
+                is HostEvent.SelectionsChanged -> 67
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2385,6 +2812,13 @@ object Protocol {
                     out.putInt(event.filter)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.CodeEditGroupResult -> {
+                    out.putInt(event.requestId)
+                    out.putInt(editGroupStatusTag(event.status))
+                    out.putInt(event.baseVersion)
+                    out.putInt(event.currentVersion)
+                    out.putInt(event.index)
+                }
                 is HostEvent.ClipboardText -> {
                     out.putInt(event.request)
                     out.putInt(event.status)
@@ -2418,6 +2852,52 @@ object Protocol {
                     out.putDouble(event.maxYPx)
                     out.putDouble(event.viewportWidthPx)
                     out.putDouble(event.viewportHeightPx)
+                }
+                is HostEvent.CodeMetrics -> out.putDouble(event.value)
+                is HostEvent.CodeScrolled -> out.putDouble(event.value)
+                is HostEvent.MotionFinished -> {
+                    out.putFloat(event.widthDp)
+                    out.putFloat(event.heightDp)
+                }
+                is HostEvent.CaretRect -> {
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putFloat(event.width)
+                    out.putFloat(event.height)
+                }
+                is HostEvent.PositionRect -> {
+                    out.putInt(event.request)
+                    out.putInt(if (event.found) 1 else 0)
+                    out.putFloat(if (event.found) event.x else 0f)
+                    out.putFloat(if (event.found) event.y else 0f)
+                    out.putFloat(if (event.found) event.width else 0f)
+                    out.putFloat(if (event.found) event.height else 0f)
+                }
+                is HostEvent.CodePointer -> {
+                    out.putInt(pointerKindTag(event.kind))
+                    out.putInt(event.pointerId)
+                    out.putInt(pointerTypeTag(event.pointerType))
+                    out.putFloat(event.x)
+                    out.putFloat(event.y)
+                    out.putInt(event.buttons)
+                    out.putInt(event.button)
+                    out.putInt(event.modifiers)
+                    out.putInt(event.clickCount)
+                    out.putFloat(event.deltaX)
+                    out.putFloat(event.deltaY)
+                    out.putInt(wheelDeltaModeTag(event.deltaMode))
+                    out.putLong(event.timestampNanos)
+                    out.putInt(event.line)
+                    out.putInt(event.column)
+                }
+                is HostEvent.ColorSchemeChanged -> {
+                    out.putInt(systemColorSchemeTag(event.scheme))
+                }
+                is HostEvent.SelectionsChanged -> {
+                    out.putInt(event.version)
+                    writeStringReference(out, recordLength, text!!)
                 }
             }
             if (text != null) out.put(text)
@@ -2502,6 +2982,8 @@ object Protocol {
         43 -> WidgetKind.CodeEditor
         44 -> WidgetKind.AbsoluteBox
         45 -> WidgetKind.Window
+        46 -> WidgetKind.FlowRow
+        47 -> WidgetKind.Popover
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -2613,8 +3095,45 @@ object Protocol {
         126 -> PropertyKind.ControlSize
         127 -> PropertyKind.ReportSize
         128 -> PropertyKind.Scrim
+        169 -> PropertyKind.Bare
+        170 -> PropertyKind.HorizontalSpacing
+        171 -> PropertyKind.VerticalSpacing
+        172 -> PropertyKind.HorizontalAlignment
+        173 -> PropertyKind.VerticalAlignment
+        174 -> PropertyKind.MaxItemsInEachRow
+        175 -> PropertyKind.Placement
+        176 -> PropertyKind.Align
+        177 -> PropertyKind.OffsetDp
+        178 -> PropertyKind.LineNumbers
+        179 -> PropertyKind.GutterMinWidthDp
+        180 -> PropertyKind.GutterPaddingDp
+        181 -> PropertyKind.TextInsetDp
+        182 -> PropertyKind.CodeEditorColors
+        183 -> PropertyKind.OnCodeMetrics
+        184 -> PropertyKind.OnCodeScrolled
         185 -> PropertyKind.CompactNavigation
         186 -> PropertyKind.OnScrollChanged
+        91 -> PropertyKind.CollapseBelow
+        188 -> PropertyKind.Snap
+        189 -> PropertyKind.MaxHeightFraction
+        192 -> PropertyKind.FontFeatureSettings
+        193 -> PropertyKind.OnMotionFinished
+        194 -> PropertyKind.OnEditGroupResult
+        195 -> PropertyKind.OnCaretRect
+        196 -> PropertyKind.OnKeyPreview
+        197 -> PropertyKind.OnCodePointer
+        198 -> PropertyKind.RadioGroup
+        201 -> PropertyKind.Minimap
+        199 -> PropertyKind.ViewZones
+        200 -> PropertyKind.WordWrap
+        37 -> PropertyKind.ContentScale
+        202 -> PropertyKind.ThumbSize
+        203 -> PropertyKind.PlaceholderColor
+        204 -> PropertyKind.CaretColor
+        205 -> PropertyKind.IconAsset
+        206 -> PropertyKind.Presentation
+        207 -> PropertyKind.MaxWidth
+        208 -> PropertyKind.Separator
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -2634,6 +3153,19 @@ object Protocol {
         Key.End -> 12
         Key.PageUp -> 13
         Key.PageDown -> 14
+        Key.F1 -> 15
+        Key.F2 -> 16
+        Key.F3 -> 17
+        Key.F4 -> 18
+        Key.F5 -> 19
+        Key.F6 -> 20
+        Key.F7 -> 21
+        Key.F8 -> 22
+        Key.F9 -> 23
+        Key.F10 -> 24
+        Key.F11 -> 25
+        Key.F12 -> 26
+        Key.ContextMenu -> 27
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {
@@ -2693,6 +3225,13 @@ object Protocol {
         IoStatus.TooLarge -> 8
     }
 
+    private fun editGroupStatusTag(value: EditGroupStatus): Int = when (value) {
+        EditGroupStatus.Applied -> 1
+        EditGroupStatus.Rejected -> 2
+        EditGroupStatus.Invalid -> 3
+        EditGroupStatus.TooOld -> 4
+    }
+
     private fun animationEventKindTag(value: AnimationEventKind): Int = when (value) {
         AnimationEventKind.Ready -> 1
         AnimationEventKind.Active -> 2
@@ -2712,6 +3251,11 @@ object Protocol {
         ReducedMotion.Off -> 1
         ReducedMotion.On -> 2
         ReducedMotion.Unknown -> 3
+    }
+
+    private fun systemColorSchemeTag(value: SystemColorScheme): Int = when (value) {
+        SystemColorScheme.Light -> 0
+        SystemColorScheme.Dark -> 1
     }
 
     private fun pointerKindTag(value: PointerKind): Int = when (value) {
@@ -2921,6 +3465,8 @@ object Protocol {
         2 -> TextAlign.Center
         3 -> TextAlign.End
         4 -> TextAlign.Justify
+        5 -> TextAlign.Left
+        6 -> TextAlign.Right
         else -> throw ProtocolException("unknown TextAlign tag $tag", offset)
     }
 
@@ -3026,6 +3572,19 @@ object Protocol {
         1 -> MessageDuration.Short
         2 -> MessageDuration.Long
         else -> throw ProtocolException("unknown MessageDuration tag $tag", offset)
+    }
+
+    private fun messageVertical(tag: Int, offset: Int): MessageVertical = when (tag) {
+        1 -> MessageVertical.Top
+        2 -> MessageVertical.Bottom
+        else -> throw ProtocolException("unknown MessageVertical tag $tag", offset)
+    }
+
+    private fun messageHorizontal(tag: Int, offset: Int): MessageHorizontal = when (tag) {
+        1 -> MessageHorizontal.Start
+        2 -> MessageHorizontal.Center
+        3 -> MessageHorizontal.End
+        else -> throw ProtocolException("unknown MessageHorizontal tag $tag", offset)
     }
 
     private fun chrome(tag: Int, offset: Int): Chrome = when (tag) {
@@ -3174,11 +3733,20 @@ object Protocol {
         else -> throw ProtocolException("unknown ReducedMotion tag $tag", offset)
     }
 
+    private fun systemColorScheme(tag: Int, offset: Int): SystemColorScheme = when (tag) {
+        0 -> SystemColorScheme.Light
+        1 -> SystemColorScheme.Dark
+        else -> throw ProtocolException("unknown SystemColorScheme tag $tag", offset)
+    }
+
     private fun decorationKind(tag: Int, offset: Int): DecorationKind = when (tag) {
         1 -> DecorationKind.Underline
         2 -> DecorationKind.CodeLens
         3 -> DecorationKind.HoverAnchor
         4 -> DecorationKind.GhostText
+        5 -> DecorationKind.LineBackground
+        6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
     }
 
@@ -3312,10 +3880,36 @@ object Protocol {
         else -> throw ProtocolException("unknown FileDialogStatus tag $tag", offset)
     }
 
+    private fun editGroupStatus(tag: Int, offset: Int): EditGroupStatus = when (tag) {
+        1 -> EditGroupStatus.Applied
+        2 -> EditGroupStatus.Rejected
+        3 -> EditGroupStatus.Invalid
+        4 -> EditGroupStatus.TooOld
+        else -> throw ProtocolException("unknown EditGroupStatus tag $tag", offset)
+    }
+
     private fun compactNavigation(tag: Int, offset: Int): CompactNavigation = when (tag) {
         1 -> CompactNavigation.Sidebar
         2 -> CompactNavigation.None
         else -> throw ProtocolException("unknown CompactNavigation tag $tag", offset)
+    }
+
+    private fun snap(tag: Int, offset: Int): Snap = when (tag) {
+        1 -> Snap.ItemStart
+        else -> throw ProtocolException("unknown Snap tag $tag", offset)
+    }
+
+    private fun minimapSide(tag: Int, offset: Int): MinimapSide = when (tag) {
+        1 -> MinimapSide.Right
+        2 -> MinimapSide.Left
+        else -> throw ProtocolException("unknown MinimapSide tag $tag", offset)
+    }
+
+    private fun wordWrapMode(tag: Int, offset: Int): WordWrapMode = when (tag) {
+        1 -> WordWrapMode.Viewport
+        2 -> WordWrapMode.Column
+        3 -> WordWrapMode.Bounded
+        else -> throw ProtocolException("unknown WordWrapMode tag $tag", offset)
     }
 
     private fun storageOp(tag: Int, offset: Int): StorageOp = when (tag) {
@@ -3351,6 +3945,56 @@ object Protocol {
         3 -> FileOp.Entries
         4 -> FileOp.Child
         else -> throw ProtocolException("unknown FileOp tag $tag", offset)
+    }
+
+    private fun horizontalAlignment(tag: Int, offset: Int): HorizontalAlignment = when (tag) {
+        1 -> HorizontalAlignment.Start
+        2 -> HorizontalAlignment.Center
+        3 -> HorizontalAlignment.End
+        else -> throw ProtocolException("unknown HorizontalAlignment tag $tag", offset)
+    }
+
+    private fun verticalAlignment(tag: Int, offset: Int): VerticalAlignment = when (tag) {
+        1 -> VerticalAlignment.Top
+        2 -> VerticalAlignment.Center
+        3 -> VerticalAlignment.Bottom
+        else -> throw ProtocolException("unknown VerticalAlignment tag $tag", offset)
+    }
+
+    private fun popoverPlacement(tag: Int, offset: Int): PopoverPlacement = when (tag) {
+        1 -> PopoverPlacement.Top
+        2 -> PopoverPlacement.Bottom
+        3 -> PopoverPlacement.Start
+        4 -> PopoverPlacement.End
+        else -> throw ProtocolException("unknown PopoverPlacement tag $tag", offset)
+    }
+
+    private fun popoverAlign(tag: Int, offset: Int): PopoverAlign = when (tag) {
+        1 -> PopoverAlign.Start
+        2 -> PopoverAlign.Center
+        3 -> PopoverAlign.End
+        else -> throw ProtocolException("unknown PopoverAlign tag $tag", offset)
+    }
+
+    private fun contentScale(tag: Int, offset: Int): ContentScale = when (tag) {
+        1 -> ContentScale.Fit
+        2 -> ContentScale.Crop
+        3 -> ContentScale.FillBounds
+        else -> throw ProtocolException("unknown ContentScale tag $tag", offset)
+    }
+
+    private fun backgroundRepeat(tag: Int, offset: Int): BackgroundRepeat = when (tag) {
+        1 -> BackgroundRepeat.NoRepeat
+        2 -> BackgroundRepeat.Repeat
+        3 -> BackgroundRepeat.RepeatX
+        4 -> BackgroundRepeat.RepeatY
+        else -> throw ProtocolException("unknown BackgroundRepeat tag $tag", offset)
+    }
+
+    private fun sheetPresentation(tag: Int, offset: Int): SheetPresentation = when (tag) {
+        0 -> SheetPresentation.Edge
+        1 -> SheetPresentation.Centered
+        else -> throw ProtocolException("unknown SheetPresentation tag $tag", offset)
     }
 
     private fun paint(bits: Long, offset: Int): Paint {
@@ -3411,6 +4055,13 @@ object Protocol {
         32 -> 0
         33 -> 0
         34 -> 0
+        35 -> 0
+        28 -> 3
+        36 -> 0
+        37 -> 0
+        38 -> 0
+        39 -> 0
+        41 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -3450,6 +4101,13 @@ object Protocol {
             32 -> Modifier.WindowDrag(flag(first, offset))
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
+            35 -> Modifier.CornerCurve(kotlin.Float.fromBits(first.toInt()))
+            28 -> Modifier.BackgroundBrush(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), paint(readU64(batch, base, available, at + 16), offset), backgroundRepeat(readU64(batch, base, available, at + 24).toInt(), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset))
+            36 -> Modifier.SizeIn(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
+            38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
+            39 -> Modifier.Overlay(paint(first, offset))
+            41 -> Modifier.Sticky
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

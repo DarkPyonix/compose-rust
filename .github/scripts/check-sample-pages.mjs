@@ -143,7 +143,11 @@ async function fr22_web_every_sample_draws_without_a_page_error() {
     for (const sample of samples) {
         for (const [width, height] of SIZES) {
             const label = `${sample} at ${width}x${height}`;
-            const context = await browser.newContext({ viewport: { width, height } });
+            // A locale a real browser reports. Without one, Chromium takes its locale from
+            // the runner's environment, and Compose's Locale.current throws
+            // "RangeError: Incorrect locale information provided" on what it gets, before
+            // the first frame, so every page failed the same way.
+            const context = await browser.newContext({ viewport: { width, height }, locale: 'en-US' });
             const page = await context.newPage();
             const problems = [];
             page.on('pageerror', (error) => problems.push(`uncaught: ${String(error.stack || error)}`));

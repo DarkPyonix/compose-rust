@@ -4,7 +4,7 @@
 # Usage: publish-window.sh
 #
 # The window code is the Compose fork's, at the commit build-compose.sh pins. The renderer
-# depends on it as org.thisisthepy.compose.window:<module>:1.11.1-ext.2, so the modules are built
+# depends on it as org.thisisthepy.compose.window:<module>:1.11.1-ext.3, so the modules are built
 # from that commit and published under ~/.m2 before the renderer is, the same way the patched
 # Compose is. common is published on every machine. The GraalVM window modules and the scene
 # they name are published wherever the fork's desktop Compose is in the local repository, which
@@ -32,7 +32,7 @@ modules=(common)
 # published it has (build-compose.sh, or the compose-fork-desktop artifact in CI). A
 # Kotlin/Native build needs none of the three, and would fail resolving scene's Compose.
 if [[ -d "$HOME/.m2/repository/org/thisisthepy/compose/ui/ui-desktop" ]]; then
-    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux)
+    modules+=(scene graalvm/graalvm-macos graalvm/graalvm-linux graalvm/graalvm-windows)
 fi
 # native/macos compiles against the fork's Compose for macosArm64, which only a build that ran
 # build-compose.sh --target macosArm64 has; a desktop-only build has no use for it.

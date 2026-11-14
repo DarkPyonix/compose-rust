@@ -29,18 +29,19 @@ internal object TinyIconFont {
     /**
      * The font, with its one glyph at [codePoint] and at `A`.
      *
-     * [family] is the family name the file gives, [weight] the weight it declares, and
-     * [advance] how wide the glyph is in units, so a test can tell two faces apart by the
-     * width of what they draw.
+     * [family] is the family name the file gives, [weight] the weight it declares,
+     * [italic] whether it declares itself italic, and [advance] how wide the glyph is in
+     * units, so a test can tell two faces apart by the width of what they draw.
      */
     fun build(
         codePoint: Int = CODE_POINT,
         family: String = "Tiny Icons",
         weight: Int = 400,
         advance: Int = ADVANCE,
+        italic: Boolean = false,
     ): ByteArray {
         val tables = sortedMapOf(
-            "OS/2" to os2(codePoint, weight, advance),
+            "OS/2" to os2(codePoint, weight, advance, italic),
             "cmap" to cmap(codePoint),
             "glyf" to glyf(advance),
             "head" to head(advance),
@@ -243,7 +244,7 @@ internal object TinyIconFont {
         repeat(4) { putInt(0) }
     }
 
-    private fun os2(codePoint: Int, weight: Int, advance: Int) = table(96) {
+    private fun os2(codePoint: Int, weight: Int, advance: Int, italic: Boolean) = table(96) {
         short(4)
         short(advance)
         short(weight)
@@ -258,7 +259,8 @@ internal object TinyIconFont {
         putInt(0)
         putInt(0)
         put("NONE".encodeToByteArray())
-        short(0x0040)
+        // fsSelection: bit 0 is italic, bit 6 regular.
+        short(if (italic) 0x0001 else 0x0040)
         short(LATIN_A)
         short(codePoint)
         short(800)
