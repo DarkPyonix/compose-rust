@@ -7,9 +7,10 @@ concurrency:
   group: dev-ci
   cancel-in-progress: false
 
+# A called workflow may not ask for more than this: test-samples' release job needs actions: write.
 permissions:
   contents: write
-  actions: read
+  actions: write
 
 jobs:
   test:
