@@ -754,12 +754,15 @@ void dxc_native_set_appearance(void *window_pointer, int32_t scheme) {
 #endif
 
 /*
- * GNOME's text-scaling-factor as the Kotlin side read it, handed to the X11 window. Called on
- * every desktop through the Linux wrapper; only the X11 window uses it.
+ * The desktop's text size as the Kotlin side read it (GNOME's text-scaling-factor or KDE's forced
+ * fonts DPI), with the desktop scale it was read against, handed to the X11 window so that text
+ * is scaled once. Called on every desktop through the Linux wrapper when a window opens; only
+ * the X11 window uses it.
  */
 #ifndef __linux__
-void dxc_native_set_text_factor(float factor) {
+void dxc_native_set_text_factor_for(float factor, float desktop_scale) {
     (void)factor;
+    (void)desktop_scale;
 }
 #endif
 

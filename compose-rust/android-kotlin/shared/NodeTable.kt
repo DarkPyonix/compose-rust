@@ -1348,6 +1348,9 @@ class NodeTable {
                 // modifiers.
                 PropertyKind.Placeholder -> widget == WidgetKind.TextField
                 PropertyKind.Multiline -> widget == WidgetKind.TextField
+                PropertyKind.PlaceholderColor,
+                PropertyKind.CaretColor,
+                -> widget == WidgetKind.TextField
                 PropertyKind.Enabled -> widget != WidgetKind.Spacer
 
                 // Windowing properties belong to the lazy container alone.
@@ -1429,6 +1432,9 @@ class NodeTable {
                 // at registration and the id is what crosses per frame.
                 PropertyKind.Asset ->
                     widget == WidgetKind.Image || widget == WidgetKind.Icon
+
+                // A picture drawn as an icon, in the icon's colour.
+                PropertyKind.IconAsset -> widget == WidgetKind.Icon
 
                 // The pickers carry a value and the ends of the range it may take, in the
                 // widget's own unit; a slider carries a position between the same two

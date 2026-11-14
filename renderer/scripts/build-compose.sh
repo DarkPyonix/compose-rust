@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.2
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.3
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -29,10 +29,13 @@ set -euo pipefail
 # and main dispatcher, the AppKit pump on the main thread, the window modules, the design systems
 # under extended/design-systems (which scripts/fetch-design-systems.sh reads), and the
 # org.thisisthepy.compose coordinates with extended/compose/publish-local.sh, which this runs.
+# It is the fork's v1.11.1-ext.3 tag, which publishes as 1.11.1-ext.3. Its Compose sources are
+# the same as the ext.2 build's; the tag moves the version line, and the design systems now
+# sit in extended/design-systems/designsystem-<name>, published to Maven Central (fork #212).
 # compose-fork.changes lists what this commit must hold at every path it changes, and
 # scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
@@ -65,24 +68,31 @@ REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
 # Windows window skipping a stretched present when ResizeBuffers fails (fork #206, a header
 # `win32_resize.h` beside `win32_window.c`), the native view slot and both macOS windows following
 # a backing-scale change (fork #207), and the GNOME text scale applied once on Linux (fork #210).
-WINDOW_REVISION="7c7a907631c630cd71ff3ffeb81d360f13a28bc8"
+# It is the fork's v1.11.1-ext.3 tag. Since the window pin before it, it adds the KDE text scale
+# applied once when the fonts DPI is forced (fork #211), which hands the X11 window the desktop's
+# scale beside the text factor through `dxc_native_set_text_factor_for`, and pointer events timed
+# by the platform with its own double-click interval (fork #214), which grows the window's event
+# record and adds `dxc_native_double_click_millis` to the AppKit and Windows windows. The event
+# record is read only by the fork's Kotlin; the renderer's C stand-ins answer the new text factor
+# call on the desktops without an X11 window.
+WINDOW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
 # Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
 # commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="2eb80c12e7615ef80c7661ea63e0f20651f20a31"
+MINGW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.2"
-MATERIAL3_AS="1.11.1-ext.2"
+COMPOSE_AS="1.11.1-ext.3"
+MATERIAL3_AS="1.11.1-ext.3"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
 # scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
 # fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
-SKIKO_AWT_AS="1.11.1-ext.2"
+SKIKO_AWT_AS="1.11.1-ext.3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

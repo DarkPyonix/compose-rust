@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -27,6 +28,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -179,7 +183,9 @@ private fun OpeningList(
             it is ProtocolModifier.PaddingRole
     }
     val fieldShape = if (ownShape) node.modifiers.resolvedShape(theme) else style.shape.withCornerCurve(node.modifiers.cornerCurve())
-    Box(modifier) {
+    // The frame is as wide as the node: a field given a width draws its frame across all of
+    // it, and its marker sits inside that frame rather than past the end of a shorter one.
+    Box(modifier, propagateMinConstraints = true) {
         Box(
             Modifier
                 // A bare field clips only to a corner the node named itself.
@@ -219,7 +225,9 @@ private fun OpeningList(
             // The closed field shows the chosen option itself, drawn by the same node that
             // draws it in the list. An option is whatever the Host made it.
             options.getOrNull(shown)?.let { childId ->
-                key(childId) { RenderNode(childId, table, dispatcher) }
+                BeforeTheMarker(marker, theme) {
+                    key(childId) { RenderNode(childId, table, dispatcher) }
+                }
             }
         }
         // On a bare field the marker takes no room of its own, so the field is as tall as
@@ -313,6 +321,40 @@ private fun OpeningList(
                 }
             }
         }
+    }
+}
+
+/** Whether the text below is a closed field's label, set on one line and cut short at its end. */
+internal val LocalOneLineLabel = compositionLocalOf { false }
+
+/**
+ * The chosen option of a closed field, laid out in the room the field has before its marker.
+ *
+ * The marker is drawn over the field's end, outside this layout, so the room it takes is
+ * kept free here: as wide as the marker, the marker's own end inset, and that inset again
+ * as the gap between the label and the marker. A label longer than what is left is set on
+ * one line and ends in an ellipsis, so it never runs under the marker and never wraps into
+ * a second line the field has no height for. The kept room has no height of its own, so a
+ * bare field stays as tall as its label.
+ */
+@Composable
+private fun BeforeTheMarker(marker: String, theme: ResolvedTheme, label: @Composable () -> Unit) {
+    val inset = theme.space(SpaceRole.Xs)
+    val measurer = rememberTextMeasurer(cacheSize = 1)
+    val style = theme.pickerTextStyle()
+    Layout(
+        content = { Box { CompositionLocalProvider(LocalOneLineLabel provides true) { label() } } },
+    ) { measurables, constraints ->
+        val kept = measurer.measure(marker, style).size.width + 2 * inset.roundToPx()
+        val room = if (constraints.hasBoundedWidth) {
+            (constraints.maxWidth - kept).coerceAtLeast(0)
+        } else {
+            Constraints.Infinity
+        }
+        val placed = measurables.first().measure(constraints.copy(minWidth = 0, maxWidth = room))
+        val width = (placed.width + kept).coerceIn(constraints.minWidth, constraints.maxWidth)
+        val height = placed.height.coerceIn(constraints.minHeight, constraints.maxHeight)
+        layout(width, height) { placed.placeRelative(0, (height - placed.height) / 2) }
     }
 }
 

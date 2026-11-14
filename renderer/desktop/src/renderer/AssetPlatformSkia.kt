@@ -27,6 +27,7 @@ import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Image
 import org.jetbrains.skia.Matrix33
 import org.jetbrains.skia.svg.SVGDOM
+import org.jetbrains.skia.svg.SVGLength
 import org.jetbrains.skia.svg.SVGLengthUnit
 
 /**
@@ -172,6 +173,36 @@ internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     document.setContainerSize(size.width, size.height)
     drawIntoCanvas { canvas -> document.render(canvas.nativeCanvas) }
 }
+
+/**
+ * Draws the document scaled to the whole of the current drawing area, whatever size its
+ * root declares, the way an icon slot draws a picture.
+ *
+ * Many icon sets write a fixed size on the root (`width='24' height='24'`) beside the
+ * `viewBox`, and Skia draws such a root at that size, so a 24 unit icon stayed 24 pixels in
+ * a slot of 48. The root is given the whole area for this one draw and its own size is put
+ * back after, because the same document is also drawn as an `Image` at the size the file
+ * gave it.
+ */
+internal fun DrawScope.drawVectorDocumentFitted(document: VectorDocument) {
+    val root = document.root
+    if (root == null || root.viewBox == null) {
+        drawVectorDocument(document)
+        return
+    }
+    val width = root.width
+    val height = root.height
+    root.width = WHOLE_AREA
+    root.height = WHOLE_AREA
+    try {
+        drawVectorDocument(document)
+    } finally {
+        root.width = width
+        root.height = height
+    }
+}
+
+private val WHOLE_AREA = SVGLength(100f, SVGLengthUnit.PERCENTAGE)
 
 /**
  * A radial gradient [radiusX] across and [radiusY] tall around [center].

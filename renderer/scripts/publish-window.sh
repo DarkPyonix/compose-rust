@@ -4,7 +4,7 @@
 # Usage: publish-window.sh
 #
 # The window code is the Compose fork's, at the commit build-compose.sh pins. The renderer
-# depends on it as org.thisisthepy.compose.window:<module>:1.11.1-ext.2, so the modules are built
+# depends on it as org.thisisthepy.compose.window:<module>:1.11.1-ext.3, so the modules are built
 # from that commit and published under ~/.m2 before the renderer is, the same way the patched
 # Compose is. common is published on every machine. The GraalVM window modules and the scene
 # they name are published wherever the fork's desktop Compose is in the local repository, which
