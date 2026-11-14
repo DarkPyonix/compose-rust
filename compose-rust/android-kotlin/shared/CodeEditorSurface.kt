@@ -76,6 +76,8 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -622,7 +624,19 @@ internal class Insertion(
     val zone: Boolean = false,
     /** Whether this is where a long line breaks onto the next row: a break that is not text. */
     val soft: Boolean = false,
+    /**
+     * Whether this is muted text after the end of a line, which a caret at the end of that
+     * line stays in front of.
+     */
+    val trailing: Boolean = false,
 )
+
+/** What stands between the end of a line and the text an after-line decoration shows. */
+internal const val AFTER_LINE_GAP = "    "
+
+/** The ink an after-line decoration is drawn in: its role, or the muted ink of a lens. */
+internal fun CodeEditorLook.afterLineInk(role: ColorRole?): Color =
+    role?.let { paint(Paint.Role(it)) }?.takeIf { it != Color.Unspecified } ?: lens
 
 /**
  * The part of the document a field surface holds, and the bookkeeping that keeps the field,
@@ -867,7 +881,7 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
         var delta = 0
         for (insertion in insertions) {
             if (insertion.offset > offset) break
-            if (insertion.offset == offset && (asEnd || insertion.covers > 0 || insertion.zone)) break
+            if (insertion.offset == offset && (asEnd || insertion.covers > 0 || insertion.zone || insertion.trailing)) break
             if (insertion.text.isEmpty() && insertion.covers > 0 && offset < insertion.offset + insertion.covers) {
                 // Inside text a fold hides: nothing of it is shown, so it is where the fold is.
                 return insertion.offset + delta
@@ -981,6 +995,18 @@ internal class EditorDisplay(
                 insertions += Insertion(at, 0, ghost.text, SpanStyle(color = ink.copy(alpha = look.ghostTextAlpha)))
             }
         }
+        // Muted text after the end of a line, shown and never part of the text, so a copy
+        // leaves it out and the caret stays in front of it.
+        if (model.afterLinesPresent) {
+            for (line in start until end) {
+                if (model.isHidden(line)) continue
+                for (decoration in model.afterLineDecorations(line)) {
+                    val shown = AFTER_LINE_GAP + decoration.text.substringBefore('\n')
+                    val style = SpanStyle(color = look.afterLineInk(decoration.color))
+                    insertions += Insertion(lineEnd(line - start), 0, shown, style, trailing = true)
+                }
+            }
+        }
         // A long line breaks onto the rows below where the model says, with a line break that
         // is only shown, so the field's rows are the rows the gutter counts.
         if (model.wrapColumns > 0) {
@@ -1043,9 +1069,17 @@ internal class EditorDisplay(
             }
         }
         // Lens rows and suggestions go in front of the text at the same offset, and a tab
-        // after both. A zone goes after a suggestion at the end of its line, and in front of
-        // the lines a fold cuts out after it.
-        insertions.sortWith(compareBy<Insertion> { it.offset }.thenBy { it.covers }.thenBy { it.zone })
+        // after both. At the end of a line a suggestion comes first, then the text after the
+        // line, then a zone, and all of them in front of the lines a fold cuts out after it.
+        insertions.sortWith(
+            compareBy<Insertion> { it.offset }.thenBy { it.covers }.thenBy {
+                when {
+                    it.zone -> 2
+                    it.trailing -> 1
+                    else -> 0
+                }
+            },
+        )
         window.insertions = insertions
         for (index in insertions.indices.reversed()) {
             val insertion = insertions[index]
@@ -1294,6 +1328,7 @@ private fun FieldSurface(
     // keeping it in a state would recompose this surface once per layout for nothing. The
     // reader itself reads the field's layout state, so what draws from it still follows.
     val layoutHolder = remember { arrayOfNulls<() -> TextLayoutResult?>(1) }
+    val clipboard = LocalClipboardManager.current
     val focus = remember { FocusRequester() }
     val overlayFocusStack = dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack.current
     LaunchedEffect(focusRequest) {
@@ -1511,7 +1546,7 @@ private fun FieldSurface(
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
                                     callbacks.onKeyPreview(event, window.state.composition != null) ||
-                                        handleKey(event, window, look, callbacks) { layoutHolder[0]?.invoke() }
+                                        handleKey(event, window, look, callbacks, clipboard) { layoutHolder[0]?.invoke() }
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
@@ -1692,6 +1727,7 @@ private fun handleKey(
     window: FieldWindow,
     look: CodeEditorLook,
     callbacks: CodeEditorCallbacks,
+    clipboard: ClipboardManager,
     layout: () -> TextLayoutResult?,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
@@ -1727,6 +1763,23 @@ private fun handleKey(
         }
         command && event.key == Key.A -> {
             window.selectAll()
+            return true
+        }
+        // A copy is the document's own text. The field would copy what it shows, and it
+        // shows lenses, suggestions, zones and text after a line that are not the document.
+        command && (event.key == Key.C || event.key == Key.X) && !event.isShiftPressed && !event.isAltPressed &&
+            !window.caretOutside -> {
+            val selection = window.state.selection
+            if (selection.collapsed) return true
+            clipboard.setText(AnnotatedString(window.state.text.substring(selection.min, selection.max)))
+            if (event.key == Key.X) {
+                window.state.edit {
+                    replace(selection.min, selection.max, "")
+                    this.selection = TextRange(selection.min)
+                }
+                window.syncUserEdit()
+                callbacks.onOutput()
+            }
             return true
         }
         // The next place the selected text is, as another selection.

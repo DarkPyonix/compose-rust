@@ -399,6 +399,7 @@ class CodeEditorModel(
         if (wrapColumns > 0) rewrapAll()
         decorationList.clear()
         backgroundsPresent = false
+        afterLinesPresent = false
         spanList.clear()
         longestSpanLines = 0
         undoStack.clear()
@@ -420,6 +421,15 @@ class CodeEditorModel(
     fun setDecorations(records: List<DecorationRecord>) {
         decorationList.clear()
         for (record in records) {
+            if (record.kind == DecorationKind.AfterLine) {
+                // A line rather than a stretch of it, followed as a line the way a line
+                // background is. Without a role it is drawn in the muted ink a lens has.
+                val (line, _) = followLines(record.version, record.startLine, record.startLine, "an after-line decoration")
+                    ?: continue
+                val at = CodePosition(line, 0)
+                decorationList += LiveDecoration(record.kind, null, record.color, at, at, record.id, record.text)
+                continue
+            }
             if (record.kind == DecorationKind.LineBackground) {
                 // Whole lines, the first to the last, kept as the start of each. They are
                 // followed to where they are now as lines, the way a gutter mark's line is.
@@ -466,7 +476,7 @@ class CodeEditorModel(
                 DecorationKind.HoverAnchor ->
                     LiveDecoration(record.kind, null, null, start, end, record.id, "")
                 // Taken above.
-                DecorationKind.LineBackground -> continue
+                DecorationKind.LineBackground, DecorationKind.AfterLine -> continue
                 DecorationKind.RangeBackground -> {
                     val color = record.color
                     if (color == null) {
@@ -478,7 +488,18 @@ class CodeEditorModel(
             }
         }
         backgroundsPresent = decorationList.any { it.isBackground }
+        afterLinesPresent = decorationList.any { it.kind == DecorationKind.AfterLine }
         overlayRevision += 1
+    }
+
+    /** Whether any decoration is drawn after the end of a line, so a frame without one skips them. */
+    var afterLinesPresent = false
+        private set
+
+    /** The decorations drawn after the end of [line], in the order the Host sent them. */
+    fun afterLineDecorations(line: Int): List<LiveDecoration> {
+        if (!afterLinesPresent) return emptyList()
+        return decorationList.filter { it.kind == DecorationKind.AfterLine && it.start.line == line }
     }
 
     /** Whether any decoration is a line or a range background, so a frame without one skips them. */
@@ -2009,7 +2030,7 @@ class CodeEditorModel(
             val iterator = decorationList.iterator()
             while (iterator.hasNext()) {
                 val decoration = iterator.next()
-                if (decoration.kind == DecorationKind.LineBackground) {
+                if (decoration.kind == DecorationKind.LineBackground || decoration.kind == DecorationKind.AfterLine) {
                     // Lines rather than a stretch of text: a line typed in front of them
                     // pushes them down, and they go only when every one of them is deleted.
                     val lines = CodeDocument.mapRange(

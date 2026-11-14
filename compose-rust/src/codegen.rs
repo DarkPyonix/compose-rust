@@ -3053,7 +3053,7 @@ fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
-/// two backgrounds after them.
+/// two backgrounds and an after-line decoration after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -3065,6 +3065,7 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
         Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
         Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
+        Decoration::after_line(0, 1, "You, 2 days ago", ColorRole::OnSurfaceVariant),
     ])
 }
 
