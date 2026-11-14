@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A pill at any height is `ShapeRole::Full`
+
+`Modifier.shape_role(ShapeRole::Full)` gives a node fully round ends whatever its height: a node 40 dp tall gets 20 dp corners, the same node at 80 dp gets 40 dp, and the application never works out half the height. The background, border, clip, shadow and press feedback follow the same outline, in every design system, including the two whose other corners are continuous. The role was already in the schema (`Full`, tag 6) and already drawn this way; what is new is that tests hold it there, on the wire and in pixels, and the documentation says it. Nothing on the wire changes, so the schema hash does not move ([#310](https://github.com/DarkPyonix/compose-rust/issues/310)).
+
 ### The window's density reaches the Host
 
 The Renderer tells the Host how many device pixels one dp of a window covers with a new event, `DensityChanged` (event tag 53, one `f32`, a 20 byte record): once before the first frame, and again when the value changes, as when a window moves to a screen of another scale. `compose_rust::density()` reads it and is 1.0 until the first report. `compose_rust::density::subscribe` calls back on a change and not on a repeat of the same value, which is where a cache of measurements made at the old density is emptied. In a multi-window application the report names its `Window` node, and `WindowHandle::density()`, `density::density_of` and `density::subscribe_window` read and follow one window. The zoom is not part of the value and keeps its own report. A scale of zero, below zero or NaN is a protocol error. The new event moves the schema hash and adds a record to the `events.bin` protocol vector, so a Host and a renderer must come from the same release ([DarkPyonix/dioxus-compose#240](https://github.com/DarkPyonix/dioxus-compose/issues/240)).
