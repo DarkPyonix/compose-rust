@@ -39,6 +39,7 @@ import platform.AppKit.NSApplication
 import platform.AppKit.NSApplicationActivationPolicy
 import platform.AppKit.NSColor
 import platform.AppKit.NSEvent
+import platform.AppKit.NSEventMaskLeftMouseUp
 import platform.AppKit.NSEventType
 import platform.AppKit.NSEventTypeLeftMouseDown
 import platform.AppKit.NSEventTypeLeftMouseUp
@@ -46,6 +47,8 @@ import platform.AppKit.NSEventTypeMouseMoved
 import platform.AppKit.NSTextField
 import platform.AppKit.NSTextView
 import platform.AppKit.NSView
+import platform.AppKit.nextEventMatchingMask
+import platform.AppKit.postEvent
 import platform.CoreGraphics.CGImageRef
 import platform.CoreGraphics.CGPoint
 import platform.CoreGraphics.CGRect
@@ -58,6 +61,7 @@ import platform.Foundation.NSRunLoop
 import platform.Foundation.NSRunLoopCommonModes
 import platform.Foundation.NSTimer
 import platform.Foundation.dateWithTimeIntervalSinceNow
+import platform.Foundation.distantPast
 import platform.Foundation.runMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -261,8 +265,14 @@ private class Fixture(
         )!!
 
     fun click(x: Double, y: Double) {
+        // A view that follows the mouse itself, as a text field does, takes the mouse-up out of the
+        // event queue inside its mouse-down, so it is in the queue before the mouse-down is sent.
+        // Where nothing took it, the window is handed it after, as it would have been.
+        val application = NSApplication.sharedApplication()
+        application.postEvent(mouse(NSEventTypeLeftMouseUp, x, y), atStart = false)
         window.window.sendEvent(mouse(NSEventTypeLeftMouseDown, x, y))
-        window.window.sendEvent(mouse(NSEventTypeLeftMouseUp, x, y))
+        application.nextEventMatchingMask(NSEventMaskLeftMouseUp, NSDate.distantPast, NSDefaultRunLoopMode, true)
+            ?.let { window.window.sendEvent(it) }
         spin(0.2)
     }
 
