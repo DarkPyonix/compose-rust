@@ -325,6 +325,17 @@ val TypeToken.composeLetterSpacing: TextUnit get() = letterSpacing.sp
 var platformUiFamily: FontFamily = FontFamily.Default
 
 /**
+ * What CSS's `sans-serif` is on this machine, and what text that names no font it can find
+ * is set in.
+ *
+ * The toolkit's generic family wherever the machine has fonts to answer it with. A browser
+ * gives a canvas none, so the web renderer sets this to the family it carries, the same one
+ * it sets [platformUiFamily] to: without it a page asking for `sans-serif` in bold would get
+ * the one regular face Skia's web build has.
+ */
+var platformSansSerifFamily: FontFamily = FontFamily.SansSerif
+
+/**
  * The hand-written half of a design system: elevation rendering, `ButtonVariant` styling
  * and motion.
  *

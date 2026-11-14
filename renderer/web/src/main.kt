@@ -12,6 +12,7 @@ import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.m0DemoHost
 import dev.darkpyonix.composerust.ui.platform.WebHostConnection
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
 /**
@@ -69,7 +70,11 @@ fun main() {
     // which is the origin's own.
     dev.darkpyonix.composerust.runtime.platformZoomLevelStore = { LocalStorageZoomLevel }
     MainScope().launch {
+        // The default family's real faces, fetched while the Host is instantiated, so the
+        // first frame is already set in them: a canvas has none of the machine's fonts.
+        val fonts = async { dev.darkpyonix.composerust.ui.platform.installBundledFonts() }
         val connection: HostConnection = WebHostConnection.install() ?: m0DemoHost()
+        fonts.await()
         ComposeViewport {
             ComposeRustContent(rememberComposeRustHost(remember { connection }), Modifier.fillMaxSize())
         }
