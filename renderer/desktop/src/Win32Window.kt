@@ -8,6 +8,8 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.unit.IntSize
+import org.graalvm.nativeimage.c.type.CCharPointer
+import org.graalvm.nativeimage.c.type.CTypeConversion
 import org.graalvm.word.Pointer
 import org.graalvm.word.WordFactory
 import org.thisisthepy.compose.window.TextScale
@@ -39,6 +41,14 @@ private external fun configureWindow(
     systemChrome: Int,
     backdrop: Int,
 )
+
+/**
+ * The system's popup menu, built from the lines [items] holds (`packMenu`): up until it
+ * closes, answering the index of the entry chosen or -1. The window's C defines it on every
+ * desktop.
+ */
+@CFunction("dxc_native_context_menu")
+private external fun contextMenu(window: Pointer?, items: CCharPointer?): Int
 
 /** user32's IsZoomed on the window the C side opened (renderer_entry.c; 0 off Windows). */
 @CFunction("dxc_win32_window_zoomed")
@@ -155,9 +165,24 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     } else {
         dev.darkpyonix.composerust.runtime.WindowCaption(height = WIN32_CAPTION_HEIGHT, fullSize = asked?.chrome == dev.darkpyonix.composerust.protocol.Chrome.FullSize)
     }
+    // The right-click menu is the system's popup, holding what Compose's menu holds: a text
+    // field's Cut, Copy, Paste and Select All as the field allows them, and whatever an
+    // application added around them. Given as the default representation, so a part of the
+    // tree that provides its own replaces it and one menu comes up either way, as on the AppKit
+    // window. The window's own edit menu stays off: it would be a second menu.
+    // `DXC_MENU_OVERRIDE=drawn` stands in for an application that draws its own menu.
+    val menu = if (System.getenv("DXC_MENU_OVERRIDE") == "drawn") {
+        androidx.compose.foundation.LightDefaultContextMenuRepresentation
+    } else {
+        NativeContextMenuRepresentation { entries ->
+            val packed = (packMenu(entries).toByteArray(Charsets.UTF_8) + byteArrayOf(0))
+            CTypeConversion.toCBytes(packed).use { items -> contextMenu(WordFactory.pointer(window.window), items.get()) }
+        }
+    }
     @Suppress("DEPRECATION")
     scene.setContent {
         androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.foundation.LocalContextMenuRepresentation provides menu,
             androidx.compose.ui.platform.LocalClipboard provides WindowClipboard,
             androidx.compose.ui.platform.LocalClipboardManager provides WindowClipboardManagerInstance,
             dev.darkpyonix.composerust.runtime.LocalWindowActions provides actions,
