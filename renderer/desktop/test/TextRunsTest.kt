@@ -1,14 +1,18 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import dev.darkpyonix.composerust.foundation.TextRun
 import dev.darkpyonix.composerust.foundation.decodeRuns
 import dev.darkpyonix.composerust.foundation.runsProblem
+import dev.darkpyonix.composerust.foundation.textInput
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Mutation
@@ -20,6 +24,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -87,6 +92,7 @@ class TextRunsTest {
         color: Long = 0,
         background: Long = 0,
         flags: Int = 0,
+        handlerId: Long = 0,
     ): ByteArray = ByteBuffer.allocate(SpanRecords.SPAN_LENGTH).order(ByteOrder.LITTLE_ENDIAN)
         .putInt(start)
         .putInt(length)
@@ -94,7 +100,7 @@ class TextRunsTest {
         .putShort(flags.toShort())
         .putLong(color)
         .putLong(background)
-        .putLong(0)
+        .putLong(handlerId)
         .array()
 
     private fun role(role: ColorRole): Long = (1L shl 32) or (role.ordinal + 1L)
@@ -200,5 +206,73 @@ class TextRunsTest {
         assertEquals(2, errors.single().nodeId)
         assertTrue(errors.single().message.contains("text runs"))
         onNodeWithTag(nodeTestTag(2)).assertIsDisplayed()
+    }
+
+    /**
+     * A bold run and a link run inside one `Text` draw differently, and pressing each run
+     * reports a click only for the link.
+     */
+    @Test
+    fun fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click() = runComposeUiTest {
+        val blue = 0xFF0000FF.toInt()
+        val runs = record(0, 4, flags = 1) +
+            record(12, 4, color = literal(blue), flags = 4, handlerId = 7L)
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(1, WidgetKind.Column),
+                Mutation.Create(2, WidgetKind.Text),
+                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("WWWW        WWWW")),
+                Mutation.SetProp(2, PropertyKind.FontSize, PropertyValue.Float(40f)),
+                Mutation.SetProp(2, PropertyKind.Spans, PropertyValue.Bytes(runs)),
+                Mutation.Insert(1, 2, 0),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+
+        val node = onNodeWithTag(nodeTestTag(2))
+        val image = node.captureToImage().toAwtImage()
+        assertEquals(
+            0,
+            count(image, blue, 0, image.width / 4),
+            "the bold run on the left is not painted in the link colour",
+        )
+        assertTrue(
+            count(image, blue, image.width * 3 / 4, image.width) > 0,
+            "the link run on the right is painted in its colour",
+        )
+
+        node.performTouchInput { click(Offset(width * 0.1f, height / 2f)) }
+        waitForIdle()
+        assertTrue(
+            connection.events.filterIsInstance<HostEvent.Clicked>().isEmpty(),
+            "pressing the bold run must not report a click: ${connection.events}",
+        )
+
+        node.performTouchInput { click(Offset(width * 0.9f, height / 2f)) }
+        waitForIdle()
+        assertEquals(
+            listOf(HostEvent.Clicked(2, 7L)),
+            connection.events.filterIsInstance<HostEvent.Clicked>(),
+        )
+    }
+
+    /**
+     * A `Text` with no spans carries no `Spans` property in the node table, decodes no runs,
+     * and still takes `AppendText` on its plain string.
+     */
+    @Test
+    fun fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
+        val table = NodeTable()
+        table.apply(Mutation.Create(2, WidgetKind.Text))
+        table.apply(Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("hello")))
+        table.apply(Mutation.AppendText(2, " world"))
+        assertTrue(table.drainErrors().isEmpty())
+
+        val node = assertNotNull(table.node(2))
+        assertNull(node.property(PropertyKind.Spans))
+        val input = node.textInput()
+        assertEquals("hello world", input.text)
+        assertTrue(input.runs.isEmpty())
     }
 }

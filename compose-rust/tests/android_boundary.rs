@@ -57,6 +57,148 @@ fn pr3_a_missed_frame_request_does_not_silence_the_next() {
     assert_eq!(requests(), 3);
 }
 
+/// A worker posting through `NotificationSender` queues the command in the Host, asks the
+/// Renderer for a frame without user code touching the boundary, and delivers the record in
+/// the next `render_frame` batch, even while the UI lifecycle is stopped.
+#[test]
+fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_batch() {
+    use compose_rust::notification::reset_notifications;
+    use compose_rust::protocol::{HostEvent, Mutation, decode_batch, encode_event};
+    use compose_rust::schema::{EventPayload, NotificationImportance, NotificationPresentation};
+    use compose_rust::{ComposeHost, Notification, NotificationSender};
+
+    let _state = frame_state();
+    reset_notifications();
+
+    let mut host = ComposeHost::with_content(|| {
+        compose_rust::ui::Text("idle");
+    });
+    host.rebuild().expect("the initial tree builds");
+    FRAME_REQUESTS.store(0, Ordering::Release);
+
+    let sender = NotificationSender::new();
+    std::thread::spawn(move || {
+        sender.post(
+            Notification::new("Session finished")
+                .body("refactor-parser: 214 tests passed")
+                .key("session/7")
+                .channel("Sessions")
+                .presentation(NotificationPresentation::WhenInactive),
+        );
+    })
+    .join()
+    .expect("the worker thread finishes");
+
+    assert_eq!(
+        requests(),
+        1,
+        "posting from a worker asks the Renderer for a frame"
+    );
+
+    let batch = host
+        .render_frame(16_666_667)
+        .expect("the frame renders")
+        .to_vec();
+    assert_eq!(
+        decode_batch(&batch).expect("the frame batch decodes"),
+        vec![Mutation::PostNotification {
+            key: "session/7",
+            title: "Session finished",
+            body: "refactor-parser: 214 tests passed",
+            channel: "Sessions",
+            action_1: "",
+            action_2: "",
+            importance: NotificationImportance::Normal,
+            presentation: NotificationPresentation::WhenInactive,
+        }]
+    );
+
+    let empty = host
+        .render_frame(33_333_333)
+        .expect("the next frame renders")
+        .to_vec();
+    assert!(
+        decode_batch(&empty)
+            .expect("the empty batch decodes")
+            .is_empty(),
+        "the queue was drained by the frame that carried the notification"
+    );
+
+    // While the UI is off screen (`LifecycleStop`), ordinary worker wakes are held back,
+    // but a notification from a worker still asks for a frame immediately and goes out in
+    // the batch that answers it.
+    let mut stop_wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::LifecycleStop,
+        },
+        &mut stop_wire,
+    )
+    .expect("the stop event encodes");
+    host.dispatch_event(&stop_wire).expect("the host stops");
+    FRAME_REQUESTS.store(0, Ordering::Release);
+
+    request_frame_from_worker();
+    assert_eq!(
+        requests(),
+        0,
+        "ordinary worker frame requests are held while the UI is stopped"
+    );
+
+    std::thread::spawn(move || {
+        sender.post(
+            Notification::new("Waiting for approval")
+                .key("approval/3")
+                .importance(NotificationImportance::Urgent),
+        );
+        sender.withdraw("session/7");
+    })
+    .join()
+    .expect("the worker thread finishes");
+
+    assert_eq!(
+        requests(),
+        2,
+        "each notification command from a worker while stopped still requests a frame"
+    );
+
+    let stopped_batch = host
+        .render_frame(50_000_000)
+        .expect("the stopped frame flushes notifications")
+        .to_vec();
+    assert_eq!(
+        decode_batch(&stopped_batch).expect("the stopped batch decodes"),
+        vec![
+            Mutation::PostNotification {
+                key: "approval/3",
+                title: "Waiting for approval",
+                body: "",
+                channel: "",
+                action_1: "",
+                action_2: "",
+                importance: NotificationImportance::Urgent,
+                presentation: NotificationPresentation::Always,
+            },
+            Mutation::WithdrawNotification { key: "session/7" },
+        ]
+    );
+
+    let mut start_wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::LifecycleStart,
+        },
+        &mut start_wire,
+    )
+    .expect("the start event encodes");
+    host.dispatch_event(&start_wire).expect("the host restarts");
+    reset_notifications();
+}
+
 /// Both halves of the boundary are generated from one table, so they cannot drift, and
 /// what is checked in has to be what the generator produces today.
 #[test]

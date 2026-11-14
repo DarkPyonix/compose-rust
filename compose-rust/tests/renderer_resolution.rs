@@ -1814,6 +1814,126 @@ fn fr26_markdown_becomes_runs_and_never_crosses_the_boundary() {
     assert!(none.is_empty());
 }
 
+/// A bold run and a link run inside one `Text` encode distinct style records on the wire,
+/// and only the link run carries a click handler id.
+#[test]
+fn fr26_bold_and_link_runs_encode_distinct_styles_and_only_the_link_carries_a_handler() {
+    use compose_rust::ComposeHost;
+    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+    use compose_rust::schema::{ColorRole, Paint, PropertyKind};
+    use compose_rust::spans::{
+        FLAG_BOLD, FLAG_UNDERLINE, SPAN_FLAGS_AT, SPAN_HANDLER_AT, SPAN_LEN, TextSpan, TextSpans,
+    };
+
+    let mut host = ComposeHost::with_content(|| {
+        let mut link = TextSpan::new(5, 4)
+            .underline()
+            .with_color(Paint::Role(ColorRole::Primary));
+        link.on_click = Some(7);
+        let spans = TextSpans::new([TextSpan::new(0, 4).bold(), link]);
+        compose_rust::ui::Text("bold link").spans(spans);
+    });
+    let wire = host.rebuild().expect("the batch encodes").to_vec();
+    let mutations = decode_batch(&wire).expect("the batch decodes");
+    let raw = mutations
+        .iter()
+        .find_map(|mutation| match mutation {
+            Mutation::SetProp {
+                property: PropertyKind::Spans,
+                value: PropertyValue::Bytes(bytes),
+                ..
+            } => Some(*bytes),
+            _ => None,
+        })
+        .expect("a Text with spans emits a Spans property");
+    assert_eq!(raw.len(), 2 * SPAN_LEN);
+
+    let first = &raw[..SPAN_LEN];
+    let second = &raw[SPAN_LEN..];
+    assert_ne!(
+        first[SPAN_FLAGS_AT..SPAN_HANDLER_AT],
+        second[SPAN_FLAGS_AT..SPAN_HANDLER_AT],
+        "the bold run and the link run carry different style bytes"
+    );
+    let first_flags = u16::from_le_bytes([first[SPAN_FLAGS_AT], first[SPAN_FLAGS_AT + 1]]);
+    let second_flags = u16::from_le_bytes([second[SPAN_FLAGS_AT], second[SPAN_FLAGS_AT + 1]]);
+    assert_eq!(first_flags, FLAG_BOLD);
+    assert_eq!(second_flags, FLAG_UNDERLINE);
+
+    let handler_at = |record: &[u8]| {
+        u64::from_le_bytes([
+            record[SPAN_HANDLER_AT],
+            record[SPAN_HANDLER_AT + 1],
+            record[SPAN_HANDLER_AT + 2],
+            record[SPAN_HANDLER_AT + 3],
+            record[SPAN_HANDLER_AT + 4],
+            record[SPAN_HANDLER_AT + 5],
+            record[SPAN_HANDLER_AT + 6],
+            record[SPAN_HANDLER_AT + 7],
+        ])
+    };
+    assert_eq!(handler_at(first), 0, "the bold run carries no handler");
+    assert_eq!(handler_at(second), 7, "only the link run carries a handler");
+}
+
+/// A `Text` with no spans writes no `Spans` record on initial composition and keeps the
+/// plain-text `AppendText` streaming path when its string grows at the end.
+#[test]
+fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
+    use compose_rust::ComposeHost;
+    use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
+    use compose_rust::runtime::mutable_state_of;
+    use compose_rust::schema::{PropertyKind, WidgetKind};
+
+    let content = mutable_state_of("hello".to_owned());
+    let state = content;
+    let mut host = ComposeHost::with_content(move || {
+        compose_rust::ui::Text(state.get());
+    });
+    let initial = host.rebuild().expect("the initial batch encodes").to_vec();
+    let mutations = decode_batch(&initial).expect("the initial batch decodes");
+    assert!(
+        mutations.contains(&Mutation::Create {
+            node_id: 1,
+            widget: WidgetKind::Text,
+        }),
+        "the plain Text creates node 1"
+    );
+    assert!(
+        mutations.contains(&Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("hello"),
+        }),
+        "the plain Text sets its Text property"
+    );
+    assert!(
+        !mutations.iter().any(|mutation| matches!(
+            mutation,
+            Mutation::SetProp {
+                property: PropertyKind::Spans,
+                ..
+            }
+        )),
+        "a plain Text with no spans emits no Spans record on the wire"
+    );
+
+    content.set("hello world".to_owned());
+    let delta = host
+        .render_frame(16_666_667)
+        .expect("the frame batch encodes")
+        .to_vec();
+    // 12-byte envelope + 16-byte AppendText + 6-byte payload.
+    assert_eq!(delta.len(), 12 + 16 + 6);
+    assert_eq!(
+        decode_batch(&delta).expect("the frame batch decodes"),
+        vec![Mutation::AppendText {
+            node_id: 1,
+            text: " world",
+        }]
+    );
+}
+
 /// Paths arrive together and come apart again as they were.
 #[test]
 fn fr27_two_paths_arrive_as_one_event() {
