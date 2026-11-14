@@ -852,7 +852,7 @@ M0의 위젯 9개는 데모를 굴리는 데 필요했던 만큼이지 설계된
 | 13 | `RadioButton` | 공통 |
 | 14 | `Switch` | Material Switch / UISwitch / Fluent Toggle |
 | 15 | `Slider` | 공통 |
-| 16 | `ProgressIndicator` | 공통. `determinate: bool`, `circular: bool` |
+| 16 | `ProgressIndicator` | 공통. `determinate: bool`, `circular: bool`, `color: Paint`, `track_color: Paint` |
 | 17 | `Divider` | 공통. `vertical: bool` |
 | 18 | `Card` | Material Card / 그룹 박스 / Fluent Card |
 | 19 | `Surface` | 배경과 고도를 갖는 컨테이너. FR-13.5 Elevation을 씁니다 |
@@ -1076,6 +1076,10 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 두 갈래로 나눈 이유는 기본값이 없으면 새 시스템마다 컨트롤 여섯 개의 컴포저블을 처음부터 쓰게 되기 때문입니다. 그것은 "디자인 시스템 하나 = 구현 하나"라는 FR-14.2의 계약을 깨뜨립니다.
 
 **FR-11의 `LinearProgressIndicator`(태그 100)와는 다른 위젯입니다.** 그쪽은 확장 메커니즘이 동작한다는 것을 보이는 예제입니다. 가로 막대만 있고, 결정형만 있고, 어느 디자인 시스템이 켜져 있든 Material 3로 그려지며, 코어가 아니라 확장 태그 블록에 있습니다. 여기의 `ProgressIndicator`(태그 16)는 코어 어휘이고, 결정형과 부정형을 모두 그리며, `circular`로 막대와 링을 고르고, 생김새는 활성 디자인 시스템이 정합니다. 둘 다 남깁니다. 예제를 지우면 FR-11이 보여주는 것이 없어지고, 예제를 코어로 승격하면 확장 태그 블록을 실제로 쓰는 코드가 저장소에서 사라집니다.
+
+**진행 표시기의 색상 지정**(이슈 #540). `ProgressIndicator`는 `color(Paint)`와 `track_color(Paint)`를 받습니다. 지정하지 않으면 활성 디자인 시스템의 강조색(표시기)과 보조 표면색(트랙)으로 그려지고, 지정하면 해당 `Paint`로 그려집니다(기존 속성 `PropertyKind::Color`, `PropertyKind::TrackColor` 사용).
+- 수용 기준: `ProgressIndicator`가 `color`와 `track_color`를 지정하면 해당 속성을 보내고, 지정하지 않으면 보내지 않습니다(`fr15_progress_indicator_sends_color_and_track_color`, `fr15_progress_indicator_without_colors_sends_neither`, `fr15_indeterminate_progress_indicator_sends_color_and_track_color`).
+- 수용 기준: Kotlin 렌더러가 지정된 색상으로 표시기와 트랙을 그리고, 미지정 시 디자인 시스템 기본값을 씁니다(`fr15_progress_indicator_draws_named_colors`).
 
 #### 15.2.5 값 변경 이벤트 (`ValueChanged`, 태그 16)
 
@@ -1697,25 +1701,25 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 - **끌린 거리, 스냅 위치, 애니메이션은 경계를 넘지 않습니다(D5).** 사용자가 시트를 절반쯤 끌어내리는 동안 Rust는 아무것도 듣지 않습니다. 끝까지 내려가서 닫히면 그때 `OnDismiss` 한 번입니다.
 - **어느 가장자리에서 들어오는지는 Renderer가 정합니다.** 좁은 창에서는 아래에서, 넓은 창에서는 옆에서 들어오는 것이 여섯 시스템의 공통 관행입니다. 탐색과 같은 이유로 이 선택도 `ComponentRules`가 크기 클래스를 받아 답합니다. Host에 `bottom: bool` 같은 속성을 두지 않습니다.
 
-#### 21.3.1 가운데 시트 (FR-21.3a) (`Agreed`)
+#### 21.3.1 가운데 시트 (FR-21.3a) (`Done, 이슈 #344`)
 
 넓은 창에서 설정, 새 항목 만들기, 모니터처럼 **잠깐 다른 일을 하는 표면**은 가장자리에서 들어오는 서랍이 아니라 창 가운데에 뜨고, 그 뒤가 어두워집니다. Ember의 목업이 그렇게 그렸고, 오른쪽 서랍으로 그리면 같은 내용이 좁은 띠에 눌려 보입니다. 소유자의 결정입니다(2026-10-26, 질문 "가운데 모달(FR-21.3a)과 창 맨 위까지 쓰기(FR-19.8, Chrome::FullSize + WindowSafeArea)를 compose-rust SPEC에 넣는 것을 승인하시나요?"에 "둘 다 승인", 기록 #344, #345). 세부(폭은 일반 `max_width`, 전용 크기 등급 없음)는 같은 날 리더의 결정입니다.
 
-- `Sheet`에 속성 두 개를 더합니다. `Presentation`(태그 61, u32): `Edge=0`(기본, 지금까지의 21.3), `Centered=1`. `MaxWidth`(태그 62, u32, dp): 가운데 시트의 최대 폭이고 0은 "디자인 시스템 기본값"입니다. 모니터처럼 넓은 시트도 같은 속성을 씁니다. 크기 등급을 따로 두지 않습니다.
+- `Sheet`에 속성 두 개를 더합니다. `Presentation`(태그 206, u32): `Edge=0`(기본, 지금까지의 21.3), `Centered=1`. `MaxWidth`(태그 207, u32, dp): 가운데 시트의 최대 폭이고 0은 "디자인 시스템 기본값"입니다. 모니터처럼 넓은 시트도 같은 속성을 씁니다. 크기 등급을 따로 두지 않습니다.
 - **`Centered`의 모양**: 창 가운데에 놓이고, 폭은 `MaxWidth`와 창 폭에서 양쪽 여백을 뺀 값 중 작은 쪽, 높이는 내용 높이와 창 높이에서 위아래 여백을 뺀 값 중 작은 쪽이며 넘치면 시트 안이 스크롤됩니다. 모서리 반경, 여백, 스크림의 색과 불투명도는 디자인 시스템이 정합니다(FR-14). 다크 테마에서도 스크림이 있습니다.
 - **닫기**: 스크림을 누르거나 Esc를 누르면 `OnDismiss`가 한 번 갑니다(21.3과 같은 사건). 닫기 버튼은 내용이므로 애플리케이션이 둡니다.
 - **포커스**: 시트가 열려 있는 동안 키보드 포커스는 시트 안을 돕니다. 닫히면 연 쪽으로 돌아갑니다.
 - **좁은 창**: `Centered`여도 Compact 크기 클래스에서는 Renderer가 21.3의 가장자리 시트로 그립니다. 폰 폭에서 가운데 카드는 양옆이 남지 않습니다.
-- **와이어**: 속성 태그 61, 62는 21.5의 블록(60-69) 안이고, 추가 전용이며 스키마 해시가 움직입니다.
+- **와이어**: 속성 태그 206, 207이고, 추가 전용이며 스키마 해시가 움직입니다.
 
 수용 기준:
 
-1. `Presentation=Centered`로 연 시트는 Expanded 창에서 가운데에 놓이고, 폭이 `MaxWidth`(0이면 디자인 시스템 값)를 넘지 않으며, 그 뒤에 스크림이 그려집니다. 라이트와 다크 둘 다.
-2. 스크림 클릭과 Esc가 각각 `OnDismiss`를 정확히 한 번 보냅니다.
-3. 시트가 열린 동안 Tab 이동이 시트 밖으로 나가지 않습니다.
-4. 내용이 창보다 높으면 시트 안이 스크롤되고 시트 자체는 창을 넘지 않습니다.
-5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다.
-6. `Presentation`을 말하지 않은 시트는 지금과 같습니다.
+1. `Presentation=Centered`로 연 시트는 Expanded 창에서 가운데에 놓이고, 폭이 `MaxWidth`(0이면 디자인 시스템 값)를 넘지 않으며, 그 뒤에 스크림이 그려집니다. 라이트와 다크 둘 다(`fr21_centered_sheet_geometry`, `fr21_sheet_presentation_centered_emits_property`).
+2. 스크림 클릭과 Esc가 각각 `OnDismiss`를 정확히 한 번 보냅니다(`fr21_centered_sheet_dismisses_on_scrim_and_escape`).
+3. 시트가 열린 동안 Tab 이동이 시트 밖으로 나가지 않습니다(`fr21_centered_sheet_focus_trap_and_tab_cycle`).
+4. 내용이 창보다 높으면 시트 안이 스크롤되고 시트 자체는 창을 넘지 않습니다(`fr21_centered_sheet_scrolls_taller_content`).
+5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
+6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
@@ -4970,7 +4974,7 @@ pub mod storage {
 요청한 쪽: darkpyonix-ember#220. 14dp 고리가 디자인 시스템의 4dp 굵기로 그려져 목업의 12px 고리, 2px 획과 맞지 않았습니다.
 
 - 원형 `ProgressIndicator`가 `Size`, `Width`, `Height` 수정자로 크기를 말하면(둘 다면 작은 쪽) 획 굵기는 `min(시스템 굵기, 지름 x 0.15)`입니다. 크기를 말하지 않았거나 큰 고리는 시스템의 굵기 그대로입니다.
-- **`stroke_width` 속성과 트랙, 표시 색 속성은 만들지 않습니다.** 새 속성은 스키마 해시와 생성 파일을 바꾸는 일이고, 크기에 비례하는 굵기가 요청의 한 갈래(`thickness following the size`)를 채웁니다. 색은 디자인 시스템의 것입니다. 앱이 색까지 정해야 하는 사례가 나오면 별도 이슈로 다룹니다.
+- **`stroke_width` 속성은 만들지 않습니다.** 새 속성은 스키마 해시와 생성 파일을 바꾸는 일이고, 크기에 비례하는 굵기가 요청의 한 갈래(`thickness following the size`)를 채웁니다. 트랙과 표시 색은 이슈 #540에서 기존 속성(`Color`, `TrackColor`)을 사용하여 지원합니다.
 
 수용 기준.
 1. 지름 14dp, 시스템 굵기 4dp이면 획은 2.1dp입니다.
