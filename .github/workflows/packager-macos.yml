@@ -1,7 +1,4 @@
-# macOS packaging: the packager's tests.
-#
-# Direct distribution is packaged and updated with Velopack, so nothing here builds an
-# update feed.
+# macOS and Linux packaging: packager tests and Velopack self-update.
 
 name: macOS packaging
 
@@ -11,11 +8,15 @@ on:
     paths:
       - 'scripts/packager-macos/**'
       - 'scripts/bundle-renderer.sh'
+      - 'scripts/package-velopack.py'
+      - 'scripts/tests/fr22-velopack.test.sh'
       - '.github/workflows/packager-macos.yml'
   pull_request:
     paths:
       - 'scripts/packager-macos/**'
       - 'scripts/bundle-renderer.sh'
+      - 'scripts/package-velopack.py'
+      - 'scripts/tests/fr22-velopack.test.sh'
       - '.github/workflows/packager-macos.yml'
   workflow_dispatch:
 
@@ -46,3 +47,108 @@ jobs:
 
       - name: Run the packager's tests
         run: python -m unittest discover -s scripts/packager-macos/tests -v
+
+  velopack-macos:
+    name: Velopack packaging and self-update (macOS)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Velopack CLI
+        run: |
+          dotnet tool install -g vpk
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Run Velopack tests and Apple Silicon self-update
+        run: ./scripts/tests/fr22-velopack.test.sh
+
+  velopack-linux:
+    name: Velopack packaging and self-update (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Velopack CLI
+        run: |
+          dotnet tool install -g vpk
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Build Linux fixture and verify Velopack feed and deltas
+        run: |
+          mkdir -p /tmp/fixture-app /tmp/fixture-releases /tmp/fixture-releases-v2
+          cp samples/calculator/assets/icon.png /tmp/fixture-app/icon.png
+
+          cat << 'EOF' > /tmp/fixture-app/Dioxus.toml
+          [application]
+          name = "fixture-app"
+          default_platform = "desktop"
+
+          [bundle]
+          identifier = "dev.darkpyonix.fixtureapp"
+          publisher = "DarkPyonix"
+          icon = ["icon.png"]
+          EOF
+
+          cat << 'EOF' > /tmp/fixture-app/Cargo.toml
+          [package]
+          name = "fixture-app"
+          version = "1.0.0"
+          EOF
+
+          cc -o /tmp/fixture-app/fixture-app -x c - << 'EOF'
+          #include <stdio.h>
+          int main(void) {
+              printf("1.0.0\n");
+              return 0;
+          }
+          EOF
+
+          python3 scripts/package-velopack.py \
+            --project-dir /tmp/fixture-app \
+            --executable /tmp/fixture-app/fixture-app \
+            --pack-version 1.0.0 \
+            --output-dir /tmp/fixture-releases \
+            --channel linux \
+            --target-os linux
+
+          test -f /tmp/fixture-releases/releases.linux.json
+          test -f /tmp/fixture-releases/dev.darkpyonix.fixtureapp-1.0.0-linux-full.nupkg
+          test -n "$(ls /tmp/fixture-releases/*.AppImage 2>/dev/null)"
+
+          cc -o /tmp/fixture-app/fixture-app -x c - << 'EOF'
+          #include <stdio.h>
+          int main(void) {
+              printf("1.0.1\n");
+              return 0;
+          }
+          EOF
+
+          python3 scripts/package-velopack.py \
+            --project-dir /tmp/fixture-app \
+            --executable /tmp/fixture-app/fixture-app \
+            --pack-version 1.0.1 \
+            --delta-dir /tmp/fixture-releases \
+            --output-dir /tmp/fixture-releases-v2 \
+            --channel linux \
+            --target-os linux
+
+          test -f /tmp/fixture-releases-v2/releases.linux.json
+          test -f /tmp/fixture-releases-v2/dev.darkpyonix.fixtureapp-1.0.1-linux-full.nupkg
+          test -f /tmp/fixture-releases-v2/dev.darkpyonix.fixtureapp-1.0.1-linux-delta.nupkg
+          test -n "$(ls /tmp/fixture-releases-v2/*.AppImage 2>/dev/null)"

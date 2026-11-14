@@ -225,6 +225,12 @@ def sign(app):
     app = Path(app)
     contents = app / "Contents"
 
+    macos = contents / "MacOS"
+    if macos.is_dir():
+        for path in sorted(macos.rglob("*")):
+            if path.is_file() and not path.is_symlink() and is_mach_o(path):
+                _codesign(path)
+
     libraries = contents / "Frameworks" / "lib"
     if libraries.is_dir():
         for path in sorted(libraries.rglob("*")):
