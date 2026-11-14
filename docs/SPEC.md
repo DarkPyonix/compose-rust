@@ -1238,7 +1238,7 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
   2. `icon`과 `text`를 함께 단 `Button`은 둘 다 그립니다.
   3. 글자가 빈 아이콘 버튼도 접근성 이름을 갖습니다.
 
-**샘플 참조의 아이콘 역할** (이슈 #539, #602; [leader, provisional], 2026-11-15). 참조 화면에 필요한 뜻을 `IconRole`에 추가합니다. 기존 태그 1–21은 그대로 두고 다음 태그를 끝에 추가합니다: `Lock=22`, `Favorite=23`, `Book=24`, `Sleep=25`, `Play=26`, `Pause=27`, `Shuffle=28`, `ExpandMore=29`, `Person=30`, `Clock=31`, `Tune=32`, `Chat=33`, `Star=34`, `Calendar=35`, `Bag=36`, `Bell=37`, `Repeat=38`, `Alarm=39`, `Lightbulb=40`, `Hash=41`, `Undo=42`, `Share=43`, `Save=44`, `Format=45`, `Bold=46`, `Italic=47`, `Underline=48`, `Strikethrough=49`, `BulletedList=50`, `NumberedList=51`, `Indent=52`, `Outdent=53`, `Quote=54`, `Pin=55`, `Calculator=56`, `Language=57`. `Pin`은 창을 항상 위에 두는 동작이고 `Calculator`는 계산기 모드 선택입니다. `Favorite`은 하트, `Star`는 별입니다.
+**샘플 참조의 아이콘 역할** (이슈 #539, #602; [leader, provisional], 2026-11-15). 참조 화면에서 확인한 뜻을 `IconRole`에 추가합니다. 기존 태그 1–21은 그대로 두고 다음 태그를 끝에 추가합니다: `Lock=22`, `Favorite=23`, `Book=24`, `Play=25`, `Shuffle=26`, `ExpandMore=27`, `Person=28`, `Clock=29`, `Tune=30`, `Chat=31`, `Star=32`, `Bag=33`, `Bell=34`, `Share=35`, `Language=36`, `CompactOverlay=37`, `Calculator=38`. `CompactOverlay`는 계산기의 축소 오버레이, `Calculator`는 계산기 모드 선택입니다. `Favorite`은 하트, `Star`는 별입니다.
 
 수용 기준:
 1. 각 역할이 서로 다른 고정 태그로 인코딩·디코딩되며 기존 태그와 미지의 태그 동작이 변하지 않습니다.
