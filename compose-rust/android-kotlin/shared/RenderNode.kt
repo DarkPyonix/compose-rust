@@ -486,7 +486,14 @@ fun RenderNode(
                         .verticalScroll(scrollState, flingBehavior = snap?.fling),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides false,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
@@ -501,7 +508,14 @@ fun RenderNode(
                         .horizontalScroll(scrollState, flingBehavior = snap?.fling),
                     horizontalArrangement = node.horizontalArrangement(theme),
                     verticalAlignment = node.verticalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides true,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
@@ -673,6 +687,9 @@ fun RenderNode(
  * recomposed or sent a record of its own.
  */
 val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
+
+val LocalScrollState = compositionLocalOf<ScrollState?> { null }
+val LocalScrollIsHorizontal = compositionLocalOf { true }
 
 /** The layout containers whose `color` is what the text inside them inherits. */
 internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(

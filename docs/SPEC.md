@@ -5088,6 +5088,28 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 3. `Modifier.aspect_ratio` 메서드가 비율과 플래그를 올바르게 전달합니다 (`fr84_modifier_aspect_ratio_builder`).
 4. 렌더러 단위 테스트에서 `SizeIn`과 `AspectRatio`가 포함된 체인이 올바른 Compose 수치로 배치됩니다 (`fr84_size_in_and_aspect_ratio_applied`).
 
+### FR-89 스크롤 컨테이너의 고정 자식 (Sticky, 이슈 #424) (`Agreed`)
+
+요청한 쪽: Ember VCS diff 뷰(darkpyonix-ember#249, `TODO(compose-rust#424)`). 가로로 스크롤되는 코드 diff 행 안에서 줄 번호나 체크 열이 화면 밖으로 스크롤되어 사라지지 않고, 시작 가장자리에 고정(pinned)된 채 유지되어야 합니다.
+
+#### 89.1 규칙
+
+1. **`Modifier::sticky()`**: 스크롤 컨테이너(`ScrollRow`, `ScrollColumn`) 안의 자식을 스크롤 시작 가장자리에 고정합니다. 컨테이너가 스크롤되어도 고정된 자식은 원래 시작 위치에 머무르며, 다른 자식들은 고정 자식 아래로 스크롤됩니다.
+2. **와이어 인코딩**:
+   - `Sticky` 수정자 태그 41. 추가 워드 0(0 extra words), 필드 없음(2워드 0으로 전송).
+3. **렌더러 해석**:
+   - `ScrollRow`와 `ScrollColumn`은 자식에게 현재 스크롤 상태(`LocalScrollState`)와 스크롤 방향(`LocalScrollIsHorizontal`)을 제공합니다.
+   - `ModifierChain`은 `Sticky` 수정자를 감지하면 `LocalScrollState`의 현재 스크롤 오프셋을 역방향으로 상쇄(`offset { if (isHorizontal) IntOffset(scroll.value, 0) else IntOffset(0, scroll.value) }`)하고, 다른 요소 위에 표시되도록 `zIndex(1f)`를 부여합니다.
+   - 스크롤 컨테이너 밖에서 사용될 경우 부가 효과 없이 기본 수직/수평 배치에 머무릅니다.
+
+#### 89.2 수용 기준
+
+1. `Sticky` 수정자가 와이어 프로토콜에서 인코딩되고 왕복합니다 (`fr89_sticky_modifier_round_trips`).
+2. `Modifier::sticky()` 빌더가 올바른 수정자 속성을 생성합니다 (`fr89_modifier_sticky_builder`).
+3. Dioxus 작성기(`writer`)가 `"sticky"` 속성을 수신하여 `Modifier::Sticky`로 매핑합니다 (`fr89_writer_maps_sticky_attribute`).
+4. `ScrollRow`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 가로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 시작점에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_row`).
+5. `ScrollColumn`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 세로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 상단에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_column`).
+
 ## 4. 경계 프로토콜
 
 ### FR-86 오늘 날짜와 지역 시각 (`Agreed`, 이슈 #630, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
