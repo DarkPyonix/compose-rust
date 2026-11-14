@@ -601,7 +601,7 @@ fn pr6_the_page_answers_the_imports_the_host_carries() {
 /// browser timer asks for the frame at whose start it checks whether the date changed. The
 /// instantiation answers all three, or a Host that reads the date would not start.
 #[test]
-fn fr84_the_page_answers_the_time_imports() {
+fn fr86_the_page_answers_the_time_imports() {
     let kotlin = generate_web_bridge_kotlin();
     assert!(
         kotlin.contains("compose_rust_time: {"),

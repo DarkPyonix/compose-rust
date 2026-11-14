@@ -33,7 +33,7 @@ fn zone_three_seconds_before_midnight() -> String {
 
 /// A subscriber is woken once when local midnight passes, and not again after it.
 #[test]
-fn fr84_date_change_wakes_once() {
+fn fr86_date_change_wakes_once() {
     // SAFETY: this process runs this one test, and no other thread exists yet.
     unsafe { std::env::set_var("TZ", zone_three_seconds_before_midnight()) };
     let now = now_local();

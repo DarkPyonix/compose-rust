@@ -21,7 +21,7 @@ fn set_time_zone(zone: &str) {
 /// in one ten hours behind, 05:00 UTC on a Monday is 19:00 on Sunday: the date and the
 /// weekday are the time zone's, not UTC's. `today()` is the date the clock shows there now.
 #[test]
-fn fr84_today_in_the_user_time_zone() {
+fn fr86_today_in_the_user_time_zone() {
     set_time_zone("KST-9");
     let seoul = local_at(UNIX_EPOCH + Duration::from_secs(SUNDAY_EVENING_UTC));
     assert_eq!(
