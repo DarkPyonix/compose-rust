@@ -23,14 +23,25 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -45,15 +56,20 @@ import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.SheetEdge
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
+import dev.darkpyonix.composerust.protocol.SheetPresentation
+import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.LocalSystemBars
 import dev.darkpyonix.composerust.runtime.LocalWindowSizeClass
 import dev.darkpyonix.composerust.runtime.platformKeyboardInset
+import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.paintProp
+import dev.darkpyonix.composerust.ui.sheetPresentation
 import kotlin.math.roundToInt
 
 /** How far a sheet has to be pulled towards its edge before letting go closes it. */
@@ -167,8 +183,14 @@ internal fun HostSheet(
 ) {
     val open = rememberOverlayOpen(node)
     if (!open.value) return
-    val style = theme.rules.sheet(LocalWindowSizeClass.current, theme)
-    val bottom = style.edge == SheetEdge.Bottom
+    val presentation = node.sheetPresentation()
+    val sizeClass = LocalWindowSizeClass.current
+    val isCompact = sizeClass == WindowSizeClass.Compact
+    val isCentered = presentation == SheetPresentation.Centered && !isCompact
+    val maxWidthVal = node.intProp(PropertyKind.MaxWidth)
+    val maxWidthDp = if (maxWidthVal != null && maxWidthVal > 0L) maxWidthVal.toInt().dp else 560.dp
+    val style = theme.rules.sheet(sizeClass, theme)
+    val bottom = if (isCentered) false else (if (presentation == SheetPresentation.Centered) true else style.edge == SheetEdge.Bottom)
     val threshold = with(LocalDensity.current) { DISMISS_TRAVEL.toPx() }
     var travel by remember(node.id) { mutableFloatStateOf(0f) }
     val close = {
@@ -177,11 +199,19 @@ internal fun HostSheet(
         dismiss(node, dispatcher)
     }
     val surfaceRequester = remember(node.id) { FocusRequester() }
+    val focusRequesters = remember(node.id) { mutableMapOf<Int, FocusRequester>() }
+    var focusedChildId by remember(node.id) { mutableStateOf<Int?>(null) }
     val onEscape = { dismiss(node, dispatcher) }
+
+    val defaultScrim = if (presentation == SheetPresentation.Centered) {
+        androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f)
+    } else {
+        style.scrim
+    }
 
     val scrim = node.paintProp(PropertyKind.Scrim)?.let { theme.color(it) }
         ?: theme.overlay?.scrim?.takeIf { it != 0L }?.let { androidx.compose.ui.graphics.Color(it) }
-        ?: style.scrim
+        ?: defaultScrim
 
     val shape = if (node.setsOwnShape()) {
         node.containerShape(
@@ -207,7 +237,15 @@ internal fun HostSheet(
             } else {
                 androidx.compose.foundation.shape.RoundedCornerShape(it.dp, 0.dp, 0.dp, it.dp)
             }
-        } ?: style.shape
+        } ?: if (presentation == SheetPresentation.Centered) {
+            if (bottom) {
+                androidx.compose.foundation.shape.RoundedCornerShape(24.dp, 24.dp, 0.dp, 0.dp)
+            } else {
+                androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+            }
+        } else {
+            style.shape
+        }
     }
 
     val sheetElevation = if (node.setsOwnElevation()) {
@@ -243,6 +281,7 @@ internal fun HostSheet(
     }
 
     platformModalOverlayWindow(close, onEscape) {
+        val focusManager = LocalFocusManager.current
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.
@@ -257,7 +296,11 @@ internal fun HostSheet(
                 // than `clickable`, because a scrim is not a button and saying it is one
                 // puts it in the accessibility tree and merges everything under it.
                 .pointerInput(Unit) { detectTapGestures { close() } },
-            contentAlignment = if (bottom) Alignment.BottomCenter else Alignment.CenterEnd,
+            contentAlignment = when {
+                isCentered -> Alignment.Center
+                bottom -> Alignment.BottomCenter
+                else -> Alignment.CenterEnd
+            },
         ) {
             val top = LocalSystemBars.current.top
             // A sheet along the bottom is given its height here, against the whole window
@@ -269,8 +312,34 @@ internal fun HostSheet(
             // window is a ceiling rather than a height: the sheet is as tall as its content
             // up to it, and the content scrolls past it. The keyboard still moves it rather
             // than shrinking it, on either edge.
-            val tall = if (bottom || maxHeight != null) {
-                Modifier.layout { measurable, constraints ->
+            //
+            // A centered sheet is sized to its target width (up to available window width
+            // minus margins) and its content height up to available window height minus margins.
+            val tall = when {
+                isCentered -> Modifier.layout { measurable, constraints ->
+                    if (!constraints.hasBoundedHeight || !constraints.hasBoundedWidth) {
+                        val placeable = measurable.measure(constraints)
+                        return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                    }
+                    val maxAvailWidth = (constraints.maxWidth.toDp() - 32.dp).coerceAtLeast(0.dp)
+                    val targetWidth = maxWidthDp.coerceAtMost(maxAvailWidth).roundToPx()
+                    val maxAvailHeight = (constraints.maxHeight.toDp() - 32.dp).coerceAtLeast(0.dp)
+                    val maxHeightCap = if (maxHeight != null) {
+                        minOf(maxAvailHeight, constraints.maxHeight.toDp() * maxHeight)
+                    } else {
+                        maxAvailHeight
+                    }.roundToPx()
+
+                    val childConstraints = constraints.copy(
+                        minWidth = targetWidth,
+                        maxWidth = targetWidth,
+                        minHeight = 0,
+                        maxHeight = maxHeightCap,
+                    )
+                    val placeable = measurable.measure(childConstraints)
+                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                }
+                bottom || maxHeight != null -> Modifier.layout { measurable, constraints ->
                     if (!constraints.hasBoundedHeight) {
                         val placeable = measurable.measure(constraints)
                         return@layout layout(placeable.width, placeable.height) { placeable.place(0, 0) }
@@ -292,26 +361,53 @@ internal fun HostSheet(
                     )
                     layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                 }
-            } else {
-                Modifier
+                else -> Modifier
             }
             val sized = when {
+                isCentered -> Modifier
                 maxHeight != null && bottom -> Modifier.fillMaxWidth()
                 maxHeight != null -> Modifier.fillMaxWidth(style.widthFraction)
                 bottom -> Modifier.fillMaxWidth().fillMaxHeight()
                 else -> Modifier.fillMaxHeight().fillMaxWidth(style.widthFraction)
             }
-            val aboveKeyboard = Modifier.padding(bottom = keyboard)
-            // Two boxes rather than one: the outer is the sheet itself, which is what is
-            // dragged and what the design system sized, and the inner carries whatever
-            // Modifiers the Host put on the node, which belong inside its surface.
-            Box(
+            val aboveKeyboard = if (isCentered) Modifier else Modifier.padding(bottom = keyboard)
+            val focusTrap = if (isCentered) {
+                Modifier.onPreviewKeyEvent { event ->
+                    if (event.key == Key.Tab) {
+                        if (event.type == KeyEventType.KeyDown) {
+                            val children = node.children
+                            if (children.isNotEmpty()) {
+                                val direction = if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next
+                                val at = focusedChildId?.let { children.indexOf(it) } ?: -1
+                                if (direction == FocusDirection.Next) {
+                                    if (at >= 0 && at == children.size - 1) {
+                                        val first = children.first()
+                                        focusRequesters[first]?.requestFocus()
+                                        return@onPreviewKeyEvent true
+                                    }
+                                } else {
+                                    if (at == 0) {
+                                        val last = children.last()
+                                        focusRequesters[last]?.requestFocus()
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                if (!focusManager.moveFocus(direction)) {
+                                    val wrap = if (direction == FocusDirection.Next) children.first() else children.last()
+                                    focusRequesters[wrap]?.requestFocus()
+                                }
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } else {
                 Modifier
-                    .then(tall)
-                    .then(aboveKeyboard)
-                    .testTag(sheetTestTag(node.id))
-                    .modalOverlaySurface(node.id, surfaceRequester)
-                    .then(sized)
+            }
+            val dragModifier = if (!isCentered) {
+                Modifier
                     .offset {
                         if (bottom) {
                             IntOffset(0, travel.roundToInt())
@@ -319,10 +415,6 @@ internal fun HostSheet(
                             IntOffset(travel.roundToInt(), 0)
                         }
                     }
-                    .then(raised)
-                    .clip(shape)
-                    .then(containerBg)
-                    .then(outline)
                     .draggable(
                         orientation = if (bottom) Orientation.Vertical else Orientation.Horizontal,
                         state = rememberDraggableState { delta ->
@@ -332,23 +424,44 @@ internal fun HostSheet(
                         },
                         onDragStopped = { if (travel >= threshold) close() else travel = 0f },
                     )
+            } else {
+                Modifier
+            }
+            // Two boxes rather than one: the outer is the sheet itself, which is what is
+            // dragged and what the design system sized, and the inner carries whatever
+            // Modifiers the Host put on the node, which belong inside its surface.
+            Box(
+                Modifier
+                    .then(tall)
+                    .then(aboveKeyboard)
+                    .testTag(sheetTestTag(node.id))
+                    .then(focusTrap)
+                    .modalOverlaySurface(node.id, surfaceRequester)
+                    .then(sized)
+                    .then(dragModifier)
+                    .then(raised)
+                    .clip(shape)
+                    .then(containerBg)
+                    .then(outline)
                     // A press inside the sheet is not a press on what it covers, so it is
                     // swallowed here rather than reaching the scrim behind.
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
                 Column(modifier.fillMaxWidth().then(sheetPadding)) {
-                    style.handle?.let { handle ->
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Box(
-                                Modifier
-                                    .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
-                                    .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
-                                    .clip(theme.shape(ShapeRole.Full))
-                                    .background(handle),
-                            )
+                    if (!isCentered) {
+                        style.handle?.let { handle ->
+                            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                Box(
+                                    Modifier
+                                        .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
+                                        .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
+                                        .clip(theme.shape(ShapeRole.Full))
+                                        .background(handle),
+                                )
+                            }
                         }
                     }
-                    if (maxHeight == null) {
+                    if (maxHeight == null && !isCentered) {
                         node.children.forEach { childId ->
                             key(childId) { RenderNode(childId, table, dispatcher) }
                         }
@@ -362,7 +475,15 @@ internal fun HostSheet(
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             node.children.forEach { childId ->
-                                key(childId) { RenderNode(childId, table, dispatcher) }
+                                val requester = focusRequesters.getOrPut(childId) { FocusRequester() }
+                                val focusModifier = if (isCentered) {
+                                    Modifier
+                                        .focusRequester(requester)
+                                        .onFocusChanged { if (it.hasFocus) focusedChildId = childId }
+                                } else {
+                                    Modifier
+                                }
+                                key(childId) { RenderNode(childId, table, dispatcher, parentModifier = focusModifier) }
                             }
                         }
                     }
