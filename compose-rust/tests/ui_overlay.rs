@@ -94,7 +94,7 @@ fn fr60_overlay_removed_sends_one_modifier() {
         matches!(
             mutations[0],
             Mutation::SetModifier {
-                index: 31,
+                index: 34,
                 modifier: compose_rust::Modifier::Empty,
                 ..
             }
