@@ -10,12 +10,7 @@
 name: Cache cleanup
 
 on:
-  pull_request:
-    types: [closed]
-
-concurrency:
-  group: cache-cleanup-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  workflow_call: {}
 
 permissions: {}
 

@@ -103,11 +103,15 @@ class SvgDocument private constructor(
     private var fittedHeight = -1f
     private var fitted: Matrix? = null
 
-    internal fun draw(scope: DrawScope) {
+    /**
+     * Draws into the whole of [scope]'s area. With [fit], the root's own width and height
+     * are set aside and the viewport is the whole area, the way an icon slot sizes a picture.
+     */
+    internal fun draw(scope: DrawScope, fit: Boolean = false) {
         val area = scope.size
         if (area.width <= 0f || area.height <= 0f) return
-        val viewportWidth = width.resolve(area.width)
-        val viewportHeight = height.resolve(area.height)
+        val viewportWidth = if (fit) area.width else width.resolve(area.width)
+        val viewportHeight = if (fit) area.height else height.resolve(area.height)
         if (viewportWidth <= 0f || viewportHeight <= 0f) return
         val box = viewBox
         if (box == null) {

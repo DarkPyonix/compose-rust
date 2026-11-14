@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: dev-ci
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+  test_graalvm_renderer:
+    uses: ./.github/workflows/test-graalvm-renderer.yml
+    secrets: inherit
+  test_windows_resize_metrics:
+    uses: ./.github/workflows/test-windows-resize-metrics.yml
+    secrets: inherit
+  test_native_renderer:
+    uses: ./.github/workflows/test-native-renderer.yml
+    secrets: inherit
+  test_windows_resize_probe:
+    uses: ./.github/workflows/test-windows-resize-probe.yml
+    secrets: inherit
+  test_windows_c:
+    uses: ./.github/workflows/test-windows-c.yml
+    secrets: inherit
+  package_windows_host:
+    uses: ./.github/workflows/package-windows-host.yml
+    secrets: inherit
+  packager_linux:
+    uses: ./.github/workflows/packager-linux.yml
+    secrets: inherit
+  test_kn_desktop_renderer:
+    uses: ./.github/workflows/test-kn-desktop-renderer.yml
+    secrets: inherit
+  package_windows:
+    uses: ./.github/workflows/package-windows.yml
+    secrets: inherit
+  packager_macos:
+    uses: ./.github/workflows/packager-macos.yml
+    secrets: inherit
+  test_compose_from_fork:
+    uses: ./.github/workflows/test-compose-from-fork.yml
+    secrets: inherit
+  test_samples:
+    uses: ./.github/workflows/test-samples.yml
+    secrets: inherit

@@ -1913,3 +1913,47 @@ fn fr38_word_wrap_travels_as_an_integer() {
         )]
     );
 }
+
+/// Muted text after a line is decoration kind 7, appended, in the same 44 byte record: the
+/// line as an empty range at its start, the role it is drawn in, and its text behind the
+/// records. Read back, it is what was written, beside the kinds there were.
+#[test]
+fn fr38_after_line_decoration_round_trips_on_the_wire() {
+    assert_eq!(DecorationKind::AfterLine as u16, 7);
+    let after = Decoration::after_line(5, 3, "You, 2 days ago", ColorRole::OnSurfaceVariant);
+    assert_eq!(after.range, CodeRange::of(3, 0, 3, 0));
+    assert_eq!(after.color, Some(ColorRole::OnSurfaceVariant));
+    assert_eq!(after.id, 0);
+    let lens = Decoration::code_lens(5, 0, "Run", 41);
+    let list = Decorations::new([lens.clone(), after.clone()]);
+    assert_eq!(
+        list.as_bytes().len(),
+        2 * DECORATION_LEN + "Run".len() + "You, 2 days ago".len()
+    );
+    let record = &list.as_bytes()[DECORATION_LEN..2 * DECORATION_LEN];
+    assert_eq!(u16::from_le_bytes([record[4], record[5]]), 7);
+    assert_eq!(
+        u16::from_le_bytes([record[8], record[9]]),
+        ColorRole::OnSurfaceVariant as u16
+    );
+    assert_eq!(list.decorations(), vec![lens, after]);
+
+    // In a batch the blob travels as it was written.
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::Decorations,
+            value: PropertyValue::Bytes(list.as_bytes()),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![Record::Prop(
+            2,
+            PropertyKind::Decorations,
+            Value::Bytes(list.as_bytes().to_vec())
+        )]
+    );
+}
