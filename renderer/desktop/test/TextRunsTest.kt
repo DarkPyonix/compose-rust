@@ -1,11 +1,21 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
 import dev.darkpyonix.composerust.foundation.TextRun
 import dev.darkpyonix.composerust.foundation.decodeRuns
 import dev.darkpyonix.composerust.foundation.runsProblem
@@ -87,6 +97,7 @@ class TextRunsTest {
         color: Long = 0,
         background: Long = 0,
         flags: Int = 0,
+        handler: Long = 0,
     ): ByteArray = ByteBuffer.allocate(SpanRecords.SPAN_LENGTH).order(ByteOrder.LITTLE_ENDIAN)
         .putInt(start)
         .putInt(length)
@@ -94,7 +105,7 @@ class TextRunsTest {
         .putShort(flags.toShort())
         .putLong(color)
         .putLong(background)
-        .putLong(0)
+        .putLong(handler)
         .array()
 
     private fun role(role: ColorRole): Long = (1L shl 32) or (role.ordinal + 1L)
@@ -200,5 +211,78 @@ class TextRunsTest {
         assertEquals(2, errors.single().nodeId)
         assertTrue(errors.single().message.contains("text runs"))
         onNodeWithTag(nodeTestTag(2)).assertIsDisplayed()
+    }
+
+    /** Every text layout under a node, the way the node's own semantics hand them out. */
+    private fun ComposeUiTest.layoutsIn(nodeId: Int): List<TextLayoutResult> {
+        val found = mutableListOf<TextLayoutResult>()
+        fun visit(node: SemanticsNode) {
+            node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action?.invoke(found)
+            node.children.forEach(::visit)
+        }
+        visit(onNodeWithTag(nodeTestTag(nodeId), useUnmergedTree = true).fetchSemanticsNode())
+        return found
+    }
+
+    /**
+     * One string with a bold word and a link in it. The bold word is set in a weight the
+     * words around it are not, and a press reaches the Host only where the link is, under
+     * the handler that run named.
+     */
+    @Test
+    fun fr26_only_the_link_run_reports_a_click_and_bold_draws_bold() = runComposeUiTest {
+        val text = "plain bold link"
+        val linkHandler = 77L
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(1, WidgetKind.Column),
+                Mutation.Create(2, WidgetKind.Text),
+                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text(text)),
+                Mutation.SetProp(2, PropertyKind.FontSize, PropertyValue.Float(40f)),
+                Mutation.SetProp(
+                    2,
+                    PropertyKind.Spans,
+                    PropertyValue.Bytes(record(6, 4, flags = 1) + record(11, 4, handler = linkHandler)),
+                ),
+                Mutation.Insert(1, 2, 0),
+            ),
+        )
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        assertEquals(
+            emptyList(),
+            connection.events.filterIsInstance<HostEvent.ProtocolError>(),
+            "the runs fit the string",
+        )
+
+        val layout = layoutsIn(2).single { it.layoutInput.text.text == text }
+        val drawn = layout.layoutInput.text
+        // Only the bold run names a weight, so the words around it keep the text's own.
+        val weighted = drawn.spanStyles.filter { it.item.fontWeight != null }
+        assertEquals(
+            listOf(Triple(6, 10, FontWeight.Bold)),
+            weighted.map { Triple(it.start, it.end, it.item.fontWeight) },
+            "the weights the string is drawn in",
+        )
+        // Only the link run can be pressed.
+        val links = drawn.getLinkAnnotations(0, drawn.length)
+        assertEquals(listOf(11 to 15), links.map { it.start to it.end }, "the ranges that take a press")
+        assertTrue(links.single().item is LinkAnnotation.Clickable)
+
+        fun clicks() = connection.events.filterIsInstance<HostEvent.Clicked>()
+        fun pressLetter(index: Int) {
+            val at: Offset = layout.getBoundingBox(index).center
+            onNodeWithTag(nodeTestTag(2)).performMouseInput { click(at) }
+            waitForIdle()
+        }
+
+        pressLetter(2)
+        assertEquals(emptyList(), clicks(), "a press on the plain words reports nothing")
+        pressLetter(8)
+        assertEquals(emptyList(), clicks(), "a press on the bold word reports nothing")
+        pressLetter(13)
+        assertEquals(listOf(HostEvent.Clicked(2, linkHandler)), clicks(), "a press on the link reports its handler once")
+        pressLetter(8)
+        assertEquals(1, clicks().size, "and the bold word still reports nothing after it")
     }
 }
