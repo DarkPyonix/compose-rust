@@ -87,6 +87,12 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
  * Key events are never dispatched while composing: Enter during a Korean composition means
  * "commit the composition", not "submit".
  */
+/**
+ * Added to every text field's modifiers by a platform whose window puts up the text menu
+ * itself, so that Compose's own does not come up beside it. Nothing everywhere else.
+ */
+var platformTextMenuModifier: Modifier = Modifier
+
 @Composable
 internal fun HostTextField(
     node: Node,
@@ -257,6 +263,7 @@ internal fun HostTextField(
 
     val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
+        .then(platformTextMenuModifier)
         .focusRequester(focusRequester)
         .onFocusChanged { state ->
             overlayFocusStack.noteFocused(focusRequester, state.isFocused)
