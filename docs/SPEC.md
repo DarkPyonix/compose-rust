@@ -626,6 +626,17 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 - 수용 기준: GNOME에서 제목의 중심이 바의 중심과 일치합니다(`fr15_2_a_bar_centres_its_title_where_the_design_system_asks`). **(통과)**
 - 수용 기준: Material 3에서 제목이 바의 다른 자식보다 앞에 섭니다(`fr15_2_a_bar_leads_with_its_title_where_the_design_system_asks`). **(통과)**
 
+**상단 바의 구분선 제어(2026-11-14 구현, 이슈 #541).** 디자인 시스템 규칙이 `ContainerRole.TopAppBar`에 정한 구분선(`separator`: Cupertino의 `OutlineVariant`, Fluent의 스트로크, GNOME의 하이라인 등)을 Host가 끌 수 없었습니다. 배경색을 페이지 색으로 바꾼 통일 샘플(statistics 등)에서 상단 바의 하이라인이 남아 창 상단에 원치 않는 가로선이 그어졌습니다.
+
+`TopAppBar`가 `separator`(`Separator=208`, 불리언) 속성을 받습니다. 빌더는 `hairline(bool)`과 `separator(bool)`를 제공합니다.
+
+- 속성이 `false`로 지정되면 디자인 시스템의 구분선을 그리지 않습니다.
+- 속성이 `true`로 지정되면 디자인 시스템의 구분선(정의되지 않은 시스템은 테마의 `OutlineVariant`)을 그립니다.
+- 속성이 지정되지 않았을 때(`null`), `TopAppBar`가 자체 `Border` 또는 `BorderEach` 수식어를 가지고 있으면 기본 구분선을 생략하고, 그렇지 않으면 디자인 시스템의 기본 구분선 규칙(`style.separator`)을 따릅니다.
+- 수용 기준: Cupertino 테마에서 `TopAppBar`에 `PropertyKind.Separator = false`를 지정하면 구분선을 그리지 않습니다(`fr15_2_topappbar_hairline_false_omits_separator`).
+- 수용 기준: Cupertino 테마에서 자체 Border 수식어를 가진 `TopAppBar`는 별도 separator 속성이 없을 때 기본 구분선을 그리지 않습니다(`fr15_2_topappbar_own_border_omits_separator`).
+- 수용 기준: `TopAppBar().hairline(false)`가 와이어로 `PropertyKind::Separator` 불리언 `false`를 전달합니다(`fr15_2_topappbar_hairline_travels_on_wire`).
+
 #### 14.9 iOS 26의 네이티브 Liquid Glass 셸 (`Agreed`)
 
 14.1-2는 우리가 그릴 수 있는 것과 그릴 수 없는 것을 갈라 놓고, 그릴 수 없는 쪽(시스템이 탭 바와 내비게이션 바에 입히는 진짜 Liquid Glass)을 1.0 범위 밖에 두었습니다. 이 항목이 그 경계를 iOS에 한해 옮깁니다. **그 크롬을 우리가 그리지 않고 시스템의 것을 세우면 진짜 유리를 받습니다.** 결정과 그 근거는 INTENT D15입니다.

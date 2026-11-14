@@ -1701,6 +1701,10 @@ class NodeTable {
                 // optical size, so only an image has a box to lay it into.
                 PropertyKind.ContentScale -> widget == WidgetKind.Image
 
+                // Whether a bar across the top of a screen draws the design system's
+                // hairline separator underneath.
+                PropertyKind.Separator -> widget == WidgetKind.TopAppBar
+
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.
                 PropertyKind.Progress -> widget == WidgetKind.LinearProgressIndicator
