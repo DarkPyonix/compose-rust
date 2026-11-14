@@ -41,6 +41,11 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.platform.FrameRequestSource
 import dev.darkpyonix.composerust.ui.platform.LocalFrameRequests
+import dev.darkpyonix.composerust.runtime.WindowActions
+import dev.darkpyonix.composerust.runtime.LocalWindowActions
+import dev.darkpyonix.composerust.protocol.Theme
+import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.ColorScheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -236,6 +241,54 @@ class WindowSizeTest {
             moveTo(center); press(); moveBy(Offset(30f, 0f)); moveBy(Offset(30f, 0f)); release()
         }
         assertEquals(1, drags)
+    }
+
+    /** The safe area the Host is told about for a window whose buttons sit as [caption] says. */
+    private fun reportedSafeArea(
+        density: Float,
+        caption: WindowCaption,
+        renderedButtons: Boolean,
+    ): HostEvent.WindowSizeChanged {
+        lateinit var connection: FakeHostConnection
+        runComposeUiTest {
+            connection = FakeHostConnection(listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Fluent, DesignSystem.Fluent, ColorScheme.Light, adaptive = false)),
+                Mutation.Create(LABEL, WidgetKind.Column),
+            ))
+            setContent {
+                val actions = if (renderedButtons) WindowActions({}, {}, {}) else null
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(density),
+                    LocalWindowActions provides actions,
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(800.dp, 600.dp), caption = caption)
+                }
+            }
+            waitForIdle()
+        }
+        return connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().last { it.nodeId == 0 }
+    }
+
+    /**
+     * Where the window buttons are, as the application has to leave room for them. The
+     * platform's own buttons (macOS) are at the leading edge, as wide as the window measured
+     * them; buttons the renderer draws (Windows, Fluent: three of 46dp, no spacing) at the
+     * trailing edge. `top` is the caption's height either way, and every value is in dp, so
+     * it is the same at 100, 150 and 200%.
+     */
+    @Test
+    fun fr19_9_the_safe_area_is_leading_on_macos_and_trailing_on_windows_at_every_density() {
+        for (density in listOf(1f, 1.5f, 2f)) {
+            val mac = reportedSafeArea(
+                density,
+                WindowCaption(height = 28.dp, buttonsWidth = 70.dp, buttonsAtStart = true),
+                renderedButtons = false,
+            )
+            assertEquals(Triple(28f, 70f, 0f), Triple(mac.safeAreaTop, mac.safeAreaLeading, mac.safeAreaTrailing), "macOS at $density")
+            val windows = reportedSafeArea(density, WindowCaption(height = 32.dp), renderedButtons = true)
+            assertEquals(Triple(32f, 0f, 138f), Triple(windows.safeAreaTop, windows.safeAreaLeading, windows.safeAreaTrailing), "Windows at $density")
+        }
     }
 
     @Test
