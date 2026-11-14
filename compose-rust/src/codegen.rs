@@ -3053,7 +3053,7 @@ fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
-/// two backgrounds after them.
+/// two backgrounds and an after-line decoration after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -3065,6 +3065,7 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
         Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
         Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
+        Decoration::after_line(0, 1, "You, 2 days ago", ColorRole::OnSurfaceVariant),
     ])
 }
 
@@ -4117,6 +4118,30 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
+        // An icon drawn from a picture in the icon's colour. No record registers the id it
+        // names, so the Renderer reports it once when it draws the icon.
+        Mutation::Create {
+            node_id: 23,
+            widget: WidgetKind::Icon,
+        },
+        Mutation::SetProp {
+            node_id: 23,
+            property: PropertyKind::IconAsset,
+            value: PropertyValue::Integer(9),
+        },
+        // A button's least touch target, 44 dp, on a node of its own so the html element
+        // box keeps the modifiers it had.
+        Mutation::SetModifier {
+            node_id: 13,
+            index: 0,
+            modifier: Modifier::MinTouchTarget { size: 44.0 },
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4628,7 +4653,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 129,
+    "recordCount": 132,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -6615,6 +6640,13 @@ pub fn generate_web_trampoline_wasm() -> Vec<u8> {
 /// filled in before `main` runs. The page's part is the one thing this side cannot do,
 /// which is to finish an asynchronous fetch first.
 ///
+/// The instantiation is asynchronous and answers a promise. A browser refuses to
+/// instantiate a module larger than 8MB synchronously on its main thread (Chromium throws
+/// "WebAssembly.Instance is disallowed on the main thread, if the buffer size is larger
+/// than 8MB"), and a Host that carries an HTML engine is larger than that. Only start-up
+/// waits: nothing is in the table until the promise settles, and every call after it is the
+/// same wasm to wasm call through the trampoline.
+///
 /// It is also where the trampoline's table is filled, and only once the Host has reported
 /// its block inside its own region. Until then every slot is empty, and a boundary call
 /// traps inside wasm rather than reaching a Host that could not start.
@@ -6629,17 +6661,21 @@ pub fn generate_web_trampoline_wasm() -> Vec<u8> {
 /// ever saw it.
 const INSTALL_HOST_KOTLIN: &str = r##"/**
  * Instantiates the Host on this module's memory, points the trampoline at it, and answers
- * with the address of the block it lends back: the record a call reports into, and the
- * buffer an event is encoded in. Zero means there is no Host on this page.
+ * with a promise of the address of the block it lends back: the record a call reports into,
+ * and the buffer an event is encoded in. Zero means there is no Host on this page.
  *
  * Called once, from `main`. That is the first moment at which both halves exist: this
  * module's own instantiation created the memory the Host imports, and the page compiled the
  * Host's module before that started.
+ *
+ * A promise because a browser will not instantiate a module over 8MB synchronously on its
+ * main thread. The wait is start-up only: the table stays empty until the Host has checked
+ * out, and no call goes through a promise.
  */
 @JsFun(
     """() => {
   const compiled = globalThis.MODULE_GLOBAL;
-  if (!compiled) return 0;
+  if (!compiled) return Promise.resolve(0);
   const table = globalThis.TABLE_GLOBAL;
   if (!table) {
     throw new Error('compose-rust: the trampoline table is missing. The loader module ' +
@@ -6663,7 +6699,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
         'dependency rather than through the boundary.');
     },
   });
-  const host = new WebAssembly.Instance(compiled, {
+  return WebAssembly.instantiate(compiled, {
     env: { memory },
     RENDERER_IMPORT_MODULE: {
       // The exported function object itself, not a closure around it: bound this way the
@@ -6675,22 +6711,24 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
-  }).exports;
-  const block = host.START_SYMBOL();
-  if (block < REGION_BASE) {
-    // Either the Host could not start, or its data landed in the half of the memory this
-    // module's allocator uses. The second draws a wrong screen instead of failing, so
-    // neither is allowed to become the first boundary call: the table stays empty.
-    throw new Error('compose-rust: the Host reported its boundary block at ' + block +
-      ', which is not inside the region above REGION_BASE that it was linked into. ' +
-      'Check that it was linked with --import-memory and --global-base.');
-  }
-  // The trampoline's slots, in the order its functions call them. The exported function
-  // objects themselves, so a call through a slot is wasm to wasm.
-TABLE_SLOTS  return block;
+  }).then((instance) => {
+    const host = instance.exports;
+    const block = host.START_SYMBOL();
+    if (block < REGION_BASE) {
+      // Either the Host could not start, or its data landed in the half of the memory this
+      // module's allocator uses. The second draws a wrong screen instead of failing, so
+      // neither is allowed to become the first boundary call: the table stays empty.
+      throw new Error('compose-rust: the Host reported its boundary block at ' + block +
+        ', which is not inside the region above REGION_BASE that it was linked into. ' +
+        'Check that it was linked with --import-memory and --global-base.');
+    }
+    // The trampoline's slots, in the order its functions call them. The exported function
+    // objects themselves, so a call through a slot is wasm to wasm.
+TABLE_SLOTS    return block;
+  });
 }""",
 )
-external fun installHost(): Int
+external fun installHost(): kotlin.js.Promise<JsNumber>
 
 "##;
 
@@ -6698,7 +6736,7 @@ external fun installHost(): Int
 fn web_table_slots() -> String {
     let mut output = String::new();
     for (slot, call) in web_calls().iter().enumerate() {
-        writeln!(output, "  table.set({slot}, host.{});", call.symbol).unwrap();
+        writeln!(output, "    table.set({slot}, host.{});", call.symbol).unwrap();
     }
     output
 }
@@ -6913,8 +6951,10 @@ pub fn generate_web_loader_js() -> String {
 //   2. It compiles the Host. Compiling needs no imports.
 //   3. The Renderer's module is instantiated with its boundary imports bound to the
 //      trampoline's functions, which is what creates the memory.
-//   4. The Renderer's `main` instantiates the Host on that memory, synchronously, because
-//      the module was already compiled in step 2, and puts the Host's exports in the table.
+//   4. The Renderer's `main` instantiates the Host on that memory and puts the Host's
+//      exports in the table. The instantiation is asynchronous, because a browser refuses
+//      to instantiate a module over 8MB synchronously on its main thread; the Renderer
+//      starts drawing once it has settled.
 //
 // JavaScript wires the modules together here and is not on any call afterwards. Step 4
 // needs the memory and the Renderer's own exports, and only the Renderer's module can name

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Text after the end of a line in the code editor
+
+A decoration kind is appended: `Decoration::after_line(version, line, text, role)` (kind 7) draws muted text after the last character of a line, in the role given, the way an editor shows who last changed a line. It is not text: it cannot be selected or copied, the caret and End stop in front of it, a pointer over it is over no character, and it follows its line through the reader's edits. A copy from the code editor is now always the document's own text, on both paths, and never what the field shows of lenses, suggestions or view zones ([#528](https://github.com/DarkPyonix/compose-rust/issues/528)).
+
+### Layout modifiers: `size_in`, `width_in`, `height_in`, and `aspect_ratio`
+
+`Modifier` now supports bounded size constraints and aspect ratios: `Modifier.size_in(min_w, max_w, min_h, max_h)`, `Modifier.width_in(min, max)`, `Modifier.height_in(min, max)`, `Modifier.max_width(max)`, `Modifier.max_height(max)`, `Modifier.min_width(min)`, `Modifier.min_height(min)`, and `Modifier.aspect_ratio(ratio)` (with `aspect_ratio_match_height(ratio, match_height)`). Unconstrained bounds are passed as `f32::NAN` and map to `Dp.Unspecified` in Compose's `sizeIn` modifier.
+
+### Compose fork moved to 1.11.1-ext.3
+
+The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.
+
+## v0.0.10
+
+v0.0.8 and v0.0.9 were tagged but published no renderer: the Windows GraalVM renderer failed to link, so their releases carry no assets. v0.0.10 is the first release with everything listed under v0.0.9 and v0.0.8 below.
+
+### The Windows GraalVM renderer links again
+
+The window pin of v0.0.8 made the renderer call the macOS window's appearance setter and the Linux window's text factor on every desktop, but only macOS and Linux defined them, so the Windows native image failed to link with two unresolved names. Each is now defined, doing nothing, on the desktops that have no such window, and the symbol check counts both ([#730](https://github.com/DarkPyonix/compose-rust/pull/730)).
+
 ### Word wrap in the code editor
 
 The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.
