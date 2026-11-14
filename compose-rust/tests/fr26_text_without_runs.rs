@@ -84,3 +84,16 @@ fn fr26_a_text_without_runs_sends_no_runs_record() {
     // The checks above can only fail if a text that does have runs sends the record.
     assert_eq!(records_of(&first_batch(WithRuns), PropertyKind::Spans), 1);
 }
+
+/// The fonts runs name travel in a record of their own beside the runs, and a text with no
+/// runs has no use for that one either.
+#[test]
+fn fr26_a_text_without_runs_sends_no_run_font_record() {
+    let untouched = first_batch(Untouched);
+    assert_eq!(
+        records_of(&untouched, PropertyKind::SpanFonts),
+        0,
+        "a text that never mentioned runs sends no font table for them: {:?}",
+        decode_batch(&untouched).expect("the batch decodes")
+    );
+}
