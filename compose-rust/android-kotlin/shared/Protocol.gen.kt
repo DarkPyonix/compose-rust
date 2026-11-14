@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -100,7 +100,7 @@ enum class ReducedMotion { Off, On, Unknown }
 
 enum class SystemColorScheme { Light, Dark }
 
-enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground }
+enum class DecorationKind { Underline, CodeLens, HoverAnchor, GhostText, LineBackground, RangeBackground, AfterLine }
 
 enum class Severity { Error, Warning, Information, Hint }
 
@@ -992,6 +992,7 @@ object CodeEditorRecords {
         4 -> DecorationKind.GhostText
         5 -> DecorationKind.LineBackground
         6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> null
     }
 
@@ -1242,6 +1243,7 @@ sealed interface Modifier {
     data class SizeIn(val minWidth: kotlin.Float, val maxWidth: kotlin.Float, val minHeight: kotlin.Float, val maxHeight: kotlin.Float) : Modifier
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
+    data class Overlay(val paint: Paint) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1811,7 +1813,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3256379421868590627L
+    const val SCHEMA_HASH: Long = 6414914369107720771L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3106,6 +3108,7 @@ object Protocol {
         202 -> PropertyKind.ThumbSize
         203 -> PropertyKind.PlaceholderColor
         204 -> PropertyKind.CaretColor
+        205 -> PropertyKind.IconAsset
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3718,6 +3721,7 @@ object Protocol {
         4 -> DecorationKind.GhostText
         5 -> DecorationKind.LineBackground
         6 -> DecorationKind.RangeBackground
+        7 -> DecorationKind.AfterLine
         else -> throw ProtocolException("unknown DecorationKind tag $tag", offset)
     }
 
@@ -4025,6 +4029,7 @@ object Protocol {
         36 -> 0
         37 -> 0
         38 -> 0
+        39 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4069,6 +4074,7 @@ object Protocol {
             36 -> Modifier.SizeIn(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
+            39 -> Modifier.Overlay(paint(first, offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

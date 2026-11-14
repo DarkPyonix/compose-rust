@@ -102,7 +102,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -547,6 +550,17 @@ class ProtocolVectorsTest {
         )
     }
 
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
+        )
+    }
+
     /**
      * The text node's three font features, read from the bytes the Host wrote: tabular
      * figures on, ligatures off, and a character variant whose value is wider than a byte.
@@ -699,6 +713,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
                 ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
@@ -1012,6 +1027,7 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
                 DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
                 DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.AfterLine, null, ColorRole.OnSurfaceVariant, 1, 0, 1, 0, 0L, "You, 2 days ago"),
             ),
             decorations,
         )

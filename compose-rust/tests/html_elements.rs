@@ -180,6 +180,7 @@ fn every_modifier() -> Vec<Modifier> {
             match_height_constraints_first: true,
         },
         Modifier::MinTouchTarget { size: 44.0 },
+        Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
     ]
 }
 
