@@ -1569,7 +1569,7 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1755);
+    assert_eq!(events.len(), 1755 + 32 + 24);
     assert_eq!(&events[1623..1659], wire.as_slice());
 }
 
@@ -1855,7 +1855,7 @@ fn fr38_selections_round_trip_on_the_wire() {
 
     // The event vector ends with the selections of the mutation vector's editor.
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755);
+    assert_eq!(events.len(), 1755 + 32 + 24);
     let last = decode_event(&events[1679..]).unwrap();
     assert_eq!((last.node_id, last.handler_id), (12, 33));
     assert_eq!(

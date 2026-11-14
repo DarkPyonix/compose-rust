@@ -405,6 +405,10 @@ fn deliver(callback: &EventCallback, payload: &EventPayload<'_>) -> Result<i64, 
         (EventCallback::Value(handler), EventPayload::CompositionChanged { composing }) => {
             (*handler.borrow_mut())(if *composing { 1.0 } else { 0.0 })
         }
+        // A platform view's focus is a yes or a no, carried the way a composition's is.
+        (EventCallback::Value(handler), EventPayload::NativeViewFocus { focused }) => {
+            (*handler.borrow_mut())(if *focused { 1.0 } else { 0.0 })
+        }
         (EventCallback::Range(handler), EventPayload::RangeRequested { start, count }) => {
             (*handler.borrow_mut())(RangeRequest::new(*start, *count))
         }

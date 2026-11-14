@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### A place in the window for a platform view the application made
+
+`ui::NativeView(handle)` is a node over which the window places a platform view the application made itself, such as a web view, a video surface or a map: an `NSView` on macOS. Make the view against the handle the window reports in `compose_rust::native_view::native_parent(window)` (the `NativeViewParent` event, sent once a `NativeView` is in a window, again when its backing scale changes, and with a zero handle when it closes), then hand it over. `Batch::attach_native_view` and `Batch::focus_native_view` are the same two commands for a Host that writes its own batches.
+
+The Renderer moves the view with the layout and with every scroll, in the same frame as the content around it, cuts it to what its ancestors leave showing, and cuts out every popover, menu, dropdown list, dialog, sheet, tooltip and message drawn above it as a rounded hole with its shadow, so they show on top. `visible(false)` hides the view and keeps it, with its state. Keyboard focus moves into the view on a click or `focus_native_view(node, true)`, back to the scene on `false`, a Compose focus request, hiding or removing it, and `on_focus_change` hears each move. The view stays the application's: the Renderer never destroys it.
+
+macOS Kotlin/Native places views now. The GraalVM macOS renderer and the other platforms refuse an attach as `NATIVE_VIEW_UNSUPPORTED` (23); a node that is not a `NativeView` is `NOT_NATIVE_VIEW` (21), and a handle the window will not take, or one already attached elsewhere, is `NATIVE_VIEW_REJECTED` (22) ([#680](https://github.com/DarkPyonix/compose-rust/issues/680)).
+
 ### Today's date and the local time
 
 `compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).

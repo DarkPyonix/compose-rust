@@ -774,6 +774,8 @@ private fun ComposeRustTree(
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
+    // The platform views of this window, and the surfaces drawn above them.
+    val nativeViews = dev.darkpyonix.composerust.foundation.rememberNativeViews(host.table, windowNodeId, host)
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
@@ -793,6 +795,7 @@ private fun ComposeRustTree(
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
+        dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,

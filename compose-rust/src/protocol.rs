@@ -77,7 +77,7 @@ const TAG_RELEASE_FILE_HANDLE: u16 = 34;
 // the Renderer owns the position and reports what it did in `ScrollChanged`.
 const TAG_SCROLL_TO: u16 = 35;
 const TAG_SCROLL_INTO_VIEW: u16 = 36;
-// 37 and 38 are held by commands on other branches. 39 asks a code editor where a position
+// 37 and 38 are the platform view commands, below. 39 asks a code editor where a position
 // is on screen, answered by one `PositionRect` event carrying the same request number.
 const TAG_QUERY_POSITION_RECT: u16 = 39;
 /// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
@@ -97,6 +97,17 @@ const INSERT_SNIPPET_LEN: usize = 36;
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
 const SCROLL_INTO_VIEW_LEN: usize = 52;
+// 37 puts a platform view the Host made into a `NativeView` node's place, or takes it out
+// with handle 0. 38 moves keyboard focus into that view or back to the scene. Neither is
+// answered; focus moving is reported in `NativeViewFocus`.
+const TAG_ATTACH_NATIVE_VIEW: u16 = 37;
+const TAG_FOCUS_NATIVE_VIEW: u16 = 38;
+/// `AttachNativeView` in full: the 4 byte head, the node, two reserved words, and the handle
+/// as a `u64` on an eight byte boundary.
+const ATTACH_NATIVE_VIEW_LEN: usize = 24;
+/// `FocusNativeView` in full: the 4 byte head, the node, the focus word, and a trailing
+/// reserved word.
+const FOCUS_NATIVE_VIEW_LEN: usize = 16;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -404,6 +415,19 @@ pub enum Mutation<'a> {
         flags: u16,
         rect: crate::schema::Rect,
     },
+    /// Puts the platform view `handle` in the place of the `NativeView` node `node_id`,
+    /// replacing any view it had. `NativeHandle(0)` takes the node's view out. The view is
+    /// still the Host's: the Renderer never destroys it.
+    AttachNativeView {
+        node_id: u32,
+        handle: crate::schema::NativeHandle,
+    },
+    /// Gives keyboard focus to the platform view of the `NativeView` node `node_id`
+    /// (`focus` true), or hands it back to the scene.
+    FocusNativeView {
+        node_id: u32,
+        focus: bool,
+    },
     /// Asks the code editor `node_id` where a caret at `line` and `column` would be drawn.
     /// Answered exactly once, by a `PositionRect` event carrying `request`: a rectangle in
     /// the window's dp, or none where the position is not on screen.
@@ -571,7 +595,13 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
-// 61 and 62 are numbered for events that are not here yet.
+const EVENT_NATIVE_VIEW_PARENT: u16 = 61;
+/// `NativeViewParent` in full: the 16 byte header, the handle, the kind, a reserved half
+/// word and the scale.
+const NATIVE_VIEW_PARENT_LEN: usize = 32;
+const EVENT_NATIVE_VIEW_FOCUS: u16 = 62;
+/// `NativeViewFocus` in full: the 16 byte header, the focus word and its padding.
+const NATIVE_VIEW_FOCUS_LEN: usize = 24;
 const EVENT_MOTION_FINISHED: u16 = 63;
 /// `MotionFinished` in full: the 16 byte header and two `f32` in dp.
 const MOTION_FINISHED_LEN: usize = 24;
@@ -1071,6 +1101,34 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_NATIVE_VIEW_PARENT if record_len == NATIVE_VIEW_PARENT_LEN => {
+            let raw_kind = read_u16(bytes, 24)?;
+            let kind = crate::schema::NativeParentKind::try_from(raw_kind)
+                .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?;
+            let reserved = read_u16(bytes, 26)?;
+            if reserved != 0 {
+                // A newer Renderer saying something here that this Host cannot read.
+                return Err(ProtocolError::InvalidValueKind(reserved));
+            }
+            let scale = f32::from_bits(read_u32(bytes, 28)?);
+            if !scale.is_finite() || scale <= 0.0 {
+                // A view sized with this would be sized wrong or not at all.
+                return Err(ProtocolError::InvalidValueKind(0));
+            }
+            crate::schema::EventPayload::NativeViewParent {
+                handle: crate::schema::NativeHandle(read_u64(bytes, 16)?),
+                kind,
+                scale,
+            }
+        }
+        EVENT_NATIVE_VIEW_FOCUS if record_len == NATIVE_VIEW_FOCUS_LEN => {
+            crate::schema::EventPayload::NativeViewFocus {
+                focused: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_NATIVE_VIEW_PARENT | EVENT_NATIVE_VIEW_FOCUS => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         EVENT_MOTION_FINISHED if record_len == MOTION_FINISHED_LEN => {
             crate::schema::EventPayload::MotionFinished {
                 width_dp: f32::from_bits(read_u32(bytes, 16)?),
@@ -1800,6 +1858,35 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::NativeViewParent {
+        handle,
+        kind,
+        scale,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_NATIVE_VIEW_PARENT,
+            NATIVE_VIEW_PARENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&handle.0.to_le_bytes());
+        output.extend_from_slice(&(kind as u16).to_le_bytes());
+        output.extend_from_slice(&0_u16.to_le_bytes());
+        output.extend_from_slice(&scale.to_bits().to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::NativeViewFocus { focused } = event.payload {
+        put_event_header(
+            output,
+            EVENT_NATIVE_VIEW_FOCUS,
+            NATIVE_VIEW_FOCUS_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&u32::from(focused).to_le_bytes());
+        output.extend_from_slice(&0_u32.to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::MotionFinished {
         width_dp,
         height_dp,
@@ -1922,6 +2009,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
         | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::NativeViewParent { .. }
+        | crate::schema::EventPayload::NativeViewFocus { .. }
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
@@ -2405,6 +2494,19 @@ impl BatchEncoder {
                 self.put_u64(rect.y_px.to_bits());
                 self.put_u64(rect.width_px.to_bits());
                 self.put_u64(rect.height_px.to_bits());
+            }
+            Mutation::AttachNativeView { node_id, handle } => {
+                self.begin_record(TAG_ATTACH_NATIVE_VIEW, (ATTACH_NATIVE_VIEW_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(0);
+                self.put_u32(0);
+                self.put_u64(handle.0);
+            }
+            Mutation::FocusNativeView { node_id, focus } => {
+                self.begin_record(TAG_FOCUS_NATIVE_VIEW, (FOCUS_NATIVE_VIEW_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(u32::from(*focus));
+                self.put_u32(0);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2952,6 +3054,21 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     height_px: f64::from_bits(read_u64(bytes, payload + 40)?),
                 },
             },
+            TAG_ATTACH_NATIVE_VIEW if len == ATTACH_NATIVE_VIEW_LEN => {
+                require_zero_word(bytes, payload + 4)?;
+                require_zero_word(bytes, payload + 8)?;
+                Mutation::AttachNativeView {
+                    node_id: read_u32(bytes, payload)?,
+                    handle: crate::schema::NativeHandle(read_u64(bytes, payload + 12)?),
+                }
+            }
+            TAG_FOCUS_NATIVE_VIEW if len == FOCUS_NATIVE_VIEW_LEN => {
+                require_zero_word(bytes, payload + 8)?;
+                Mutation::FocusNativeView {
+                    node_id: read_u32(bytes, payload)?,
+                    focus: read_flag(bytes, payload + 4)?,
+                }
+            }
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -3181,7 +3298,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_FILE_CALL
             | TAG_RELEASE_FILE_HANDLE
             | TAG_SCROLL_TO
-            | TAG_SCROLL_INTO_VIEW => {
+            | TAG_SCROLL_INTO_VIEW
+            | TAG_ATTACH_NATIVE_VIEW
+            | TAG_FOCUS_NATIVE_VIEW => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -3922,6 +4041,17 @@ fn read_u32(bytes: &[u8], position: usize) -> Result<u32, ProtocolError> {
 }
 
 /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+/// Refuses a reserved word that is not zero: a record from a newer or a broken side, whose
+/// meaning here would be a guess.
+fn require_zero_word(bytes: &[u8], position: usize) -> Result<(), ProtocolError> {
+    match read_u32(bytes, position)? {
+        0 => Ok(()),
+        other => Err(ProtocolError::InvalidValueKind(
+            other.min(u32::from(u16::MAX)) as u16,
+        )),
+    }
+}
+
 fn read_flag(bytes: &[u8], position: usize) -> Result<bool, ProtocolError> {
     match read_u32(bytes, position)? {
         0 => Ok(false),

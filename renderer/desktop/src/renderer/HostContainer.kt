@@ -170,10 +170,17 @@ internal fun Modifier.containerDecoration(
     } else {
         style.elevation
     }
-    val raised = if (node.setsOwnElevation() || effectiveElevation.value <= 0f) {
-        this
+    // A sheet over the page is cut out of any platform view under it, with its shadow, so
+    // it shows on top of the view.
+    val above = if (overlay) {
+        this.nativeViewOverlay(shape, shadowReach(if (node.setsOwnElevation()) 0.dp else effectiveElevation))
     } else {
-        theme.rules.elevation(this, effectiveElevation, shape, theme)
+        this
+    }
+    val raised = if (node.setsOwnElevation() || effectiveElevation.value <= 0f) {
+        above
+    } else {
+        theme.rules.elevation(above, effectiveElevation, shape, theme)
     }
     val material = style.material
     // A Host that named its own Background has already had it applied, so painting the

@@ -271,6 +271,7 @@ internal fun HostMessages(
         Row(
             Modifier
                 .testTag(MESSAGE_CONTAINER_TEST_TAG)
+                .nativeViewOverlay(shape)
                 .then(lift)
                 .clip(shape)
                 .background(style.container)

@@ -236,7 +236,12 @@ internal fun HostDialog(
         // leaves, so a field inside it is not under the keyboard.
         val keyboard = overlayKeyboardInset()
         Box(
-            Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
+            Modifier
+                .fillMaxSize()
+                // A scrim that dims the window dims a platform view too: it is covered.
+                .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
+                .background(scrim)
+                .testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {

@@ -307,7 +307,14 @@ private fun PopoverScrim(node: Node, theme: ResolvedTheme) {
             // A menu's own scrim is clear, because a menu covers nothing. The one a dialog
             // dims the window with is the design system's answer to "dim the window".
             ?: theme.rules.container(ContainerRole.Dialog, theme).scrim
-        Box(Modifier.fillMaxSize().background(color).testTag(popoverScrimTestTag(node.id)))
+        Box(
+            Modifier
+                .fillMaxSize()
+                // A scrim that dims the window dims a platform view too: it is covered.
+                .nativeViewOverlay(coversWindow = color.alpha > 0f)
+                .background(color)
+                .testTag(popoverScrimTestTag(node.id)),
+        )
     }
 }
 
