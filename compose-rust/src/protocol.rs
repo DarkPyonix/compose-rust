@@ -52,7 +52,9 @@ const TAG_EDIT_CODE_GROUP: u16 = 28;
 const EDIT_CODE_GROUP_LEN: usize = 24;
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 56;
+/// What `toast_border_width` is sent as when the design system keeps its own line.
+const TOAST_BORDER_DESIGN_SYSTEM: u16 = u16::MAX;
 // 29 puts plain text on the platform clipboard. Nothing answers it.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
@@ -2284,6 +2286,20 @@ impl BatchEncoder {
                 self.put_u32(overlay.scrim);
                 self.put_u16(overlay.toast_elevation);
                 self.put_u16(overlay.toast_corner_radius);
+                self.put_u32(overlay.toast_container_light);
+                self.put_u32(overlay.toast_container_dark);
+                self.put_u32(overlay.toast_content_light);
+                self.put_u32(overlay.toast_content_dark);
+                self.put_u16(
+                    overlay
+                        .toast_border_width
+                        .unwrap_or(TOAST_BORDER_DESIGN_SYSTEM),
+                );
+                self.put_u16(overlay.toast_padding_horizontal);
+                self.put_u16(overlay.toast_padding_vertical);
+                self.put_u16(overlay.toast_font_size);
+                self.put_u16(overlay.toast_line_height);
+                self.put_u16(0);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2879,6 +2895,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let scrim = read_u32(bytes, payload + 20)?;
                 let toast_elevation = read_u16(bytes, payload + 24)?;
                 let toast_corner_radius = read_u16(bytes, payload + 26)?;
+                let border = read_u16(bytes, payload + 44)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2892,6 +2909,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     scrim,
                     toast_elevation,
                     toast_corner_radius,
+                    toast_container_light: read_u32(bytes, payload + 28)?,
+                    toast_container_dark: read_u32(bytes, payload + 32)?,
+                    toast_content_light: read_u32(bytes, payload + 36)?,
+                    toast_content_dark: read_u32(bytes, payload + 40)?,
+                    toast_border_width: (border != TOAST_BORDER_DESIGN_SYSTEM).then_some(border),
+                    toast_padding_horizontal: read_u16(bytes, payload + 46)?,
+                    toast_padding_vertical: read_u16(bytes, payload + 48)?,
+                    toast_font_size: read_u16(bytes, payload + 50)?,
+                    toast_line_height: read_u16(bytes, payload + 52)?,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
@@ -3553,6 +3579,31 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
                 0,
             ],
         ),
+        Modifier::SizeIn {
+            min_width,
+            max_width,
+            min_height,
+            max_height,
+        } => (
+            36,
+            two_words(
+                pack_floats(*min_width, *max_width),
+                pack_floats(*min_height, *max_height),
+            ),
+        ),
+        Modifier::AspectRatio {
+            ratio,
+            match_height_constraints_first,
+        } => (
+            37,
+            two_words(
+                pack_floats(*ratio, 0.0),
+                u64::from(*match_height_constraints_first),
+            ),
+        ),
+        Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
+        Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
+        Modifier::Sticky => (41, two_words(0, 0)),
         Modifier::Transform {
             a,
             b,
@@ -3826,6 +3877,28 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         35 => Ok(Modifier::CornerCurve {
             smoothing: unpack_low(first),
         }),
+        36 => Ok(Modifier::SizeIn {
+            min_width: unpack_low(first),
+            max_width: unpack_high(first),
+            min_height: unpack_low(second),
+            max_height: unpack_high(second),
+        }),
+        37 => {
+            let match_height_constraints_first = match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(37)),
+            };
+            Ok(Modifier::AspectRatio {
+                ratio: unpack_low(first),
+                match_height_constraints_first,
+            })
+        }
+        38 => Ok(Modifier::MinTouchTarget {
+            size: unpack_low(first),
+        }),
+        39 => Ok(Modifier::Overlay(decode_paint(first)?)),
+        41 => Ok(Modifier::Sticky),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

@@ -433,4 +433,31 @@ class ControlColoursTest {
             }
         }
     }
+
+    @Test
+    fun fr15_progress_indicator_draws_named_colors() {
+        listOf(DesignSystem.Material3, DesignSystem.Cupertino).forEach { system ->
+            render(
+                system,
+                WidgetKind.ProgressIndicator,
+                listOf(
+                    PropertyKind.Value to PropertyValue.Float(0.5f),
+                    PropertyKind.Determinate to PropertyValue.Bool(true),
+                    PropertyKind.Circular to PropertyValue.Bool(false),
+                    PropertyKind.Color to literal(ink),
+                    PropertyKind.TrackColor to literal(green),
+                ),
+                extra = listOf(Mutation.SetModifier(control, 0, ProtocolModifier.Size(200f, 10f))),
+            ) { image ->
+                var indicatorFound = false
+                var trackFound = false
+                for (y in 0 until 10) {
+                    if (image.getRGB(30, y) == ink) indicatorFound = true
+                    if (image.getRGB(170, y) == green) trackFound = true
+                }
+                check(indicatorFound) { "$system: indicator ink not found at x=30" }
+                check(trackFound) { "$system: track green not found at x=170" }
+            }
+        }
+    }
 }

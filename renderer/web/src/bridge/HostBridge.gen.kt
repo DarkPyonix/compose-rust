@@ -160,6 +160,16 @@ external fun hostLendEventBuffer(minLength: Int): Int
       compose_rust_renderer_measure:
         wasmExports.compose_rust_renderer_measure,
     },
+    // The date and the time zone, which the Host reads from the page's own clock. None of
+    // them goes to the Renderer; the timer only asks for a frame, at whose start the Host
+    // checks whether the date changed.
+    compose_rust_time: {
+      now_millis: () => Date.now(),
+      utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),
+      wake_after: (millis) => {
+        setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);
+      },
+    },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
   }).then((instance) => {

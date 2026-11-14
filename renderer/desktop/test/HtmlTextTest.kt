@@ -162,6 +162,42 @@ class HtmlTextTest {
         }
     }
 
+    @Test
+    fun fr40_normal_line_height_matches_the_drawn_text() {
+        installPlatformUiFamily()
+        val text = "Text with normal line height uses font metrics"
+        val sans = listOf(FontRef.Generic(GenericFamily.SansSerif))
+        val noRole = PropertyKind.TypeRole to PropertyValue.Integer(TYPE_ROLE_NONE.toLong())
+        runComposeUiTest {
+            val pinned = Density(1.5f, 1f)
+            startHost(
+                FakeHostConnection(
+                    htmlText(
+                        1000f,
+                        text,
+                        noRole,
+                        fonts(sans),
+                        PropertyKind.FontSize to PropertyValue.Float(16f),
+                        PropertyKind.LineHeight to PropertyValue.Float(Float.NaN),
+                    ),
+                ),
+                pinned,
+            )
+            val (status, results) = measure(
+                MeasureRequests().text(
+                    text,
+                    role = 0,
+                    width = 1000f,
+                    fonts = sans,
+                    fontSize = 16f,
+                    lineHeight = Float.NaN,
+                ),
+            )
+            assertEquals(MeasureRecords.CALL_OK, status)
+            assertSameAsDrawn(results.single(), drawnLayout(TEXT), pinned.density, "normal line height")
+        }
+    }
+
     /**
      * A CSS line box is exactly its line height, a single line included, with the room the
      * glyphs leave split evenly above and below them. The pairs are ones whose ratio a float

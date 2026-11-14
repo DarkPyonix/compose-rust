@@ -14,14 +14,16 @@ use super::{
     Attrs, Modifier, Mods, dp_or_zero, emit, optional_text, paint_or_zero, push_modifiers,
     role_or_zero, widget_key,
 };
+use crate::asset::AssetId;
 use crate::drawing::DrawList;
 use crate::font_features::FontFeature;
 use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
-    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
-    Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
+    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
@@ -447,7 +449,7 @@ macro_rules! linear {
             }
 
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let linear = std::mem::take(&mut self.linear);
                 let pointer = self.pointer.take();
                 let tear_off = self.tear_off.take();
@@ -558,7 +560,7 @@ impl FlowRowScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (horizontal_spacing, vertical_spacing) =
             (self.horizontal_spacing, self.vertical_spacing);
         let (horizontal_alignment, vertical_alignment) =
@@ -628,7 +630,7 @@ impl ComposeBox {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let (modifier, alignment) = (self.modifier, self.alignment);
+        let (modifier, alignment) = (std::mem::take(&mut self.modifier), self.alignment);
         let pointer = self.pointer.take();
         let tear_off = self.tear_off.take();
         let mut listeners = Vec::new();
@@ -682,7 +684,7 @@ macro_rules! plain_container {
 
         impl $name {
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let pointer = self.pointer.take();
                 let mut listeners = Vec::new();
                 let mut subscription = Attrs::new();
@@ -846,7 +848,7 @@ macro_rules! scroll_container {
             }
 
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let snap = self.snap;
                 let scroll_state = self.scroll_state.take();
                 let pointer = self.pointer.take();
@@ -1004,6 +1006,9 @@ impl TextScope {
         self
     }
 
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
@@ -1071,7 +1076,7 @@ impl TextScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let spans = std::mem::take(&mut self.spans);
         let font = std::mem::take(&mut self.font);
@@ -1172,6 +1177,8 @@ pub struct TextFieldScope {
     line_height: Option<f32>,
     letter_spacing: Option<f32>,
     color: Option<Paint>,
+    placeholder_color: Option<Paint>,
+    caret_color: Option<Paint>,
     font: FontRefs,
     font_features: OwnedAttr,
     word_break: Option<WordBreak>,
@@ -1205,6 +1212,8 @@ pub fn TextField() -> TextFieldScope {
         line_height: None,
         letter_spacing: None,
         color: None,
+        placeholder_color: None,
+        caret_color: None,
         font: FontRefs::default(),
         font_features: OwnedAttr::None,
         word_break: None,
@@ -1266,7 +1275,9 @@ impl TextFieldScope {
         self
     }
 
-    /// Explicit line height in sp.
+    /// Explicit line height in sp, or NaN (normal) to use the font's own metrics.
+    /// An unset line height (0 or never calling this) falls back to the type role's
+    /// line height.
     pub fn line_height(mut self, sp: f32) -> Self {
         self.line_height = Some(sp);
         self
@@ -1281,6 +1292,20 @@ impl TextFieldScope {
     /// Explicit text colour.
     pub fn color(mut self, paint: Paint) -> Self {
         self.color = Some(paint);
+        self
+    }
+
+    /// Explicit placeholder text colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn placeholder_color(mut self, paint: Paint) -> Self {
+        self.placeholder_color = Some(paint);
+        self
+    }
+
+    /// Explicit caret colour. Sent only when set; absent keeps the design
+    /// system's default.
+    pub fn caret_color(mut self, paint: Paint) -> Self {
+        self.caret_color = Some(paint);
         self
     }
 
@@ -1376,7 +1401,7 @@ impl TextFieldScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
@@ -1384,6 +1409,7 @@ impl TextFieldScope {
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
+        let (placeholder_color, caret_color) = (self.placeholder_color, self.caret_color);
         let font = std::mem::take(&mut self.font);
         let font_features = std::mem::replace(&mut self.font_features, OwnedAttr::None);
         let (word_break, overflow_wrap) = (self.word_break, self.overflow_wrap);
@@ -1446,6 +1472,12 @@ impl TextFieldScope {
                 }
                 if let Some(color) = color {
                     attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(placeholder_color) = placeholder_color {
+                    attrs.push(("placeholder_color", super::paint(Some(placeholder_color))));
+                }
+                if let Some(caret_color) = caret_color {
+                    attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
                 attrs.push(("font", font_bytes(&font)));
                 // Left out when no feature was asked for, as `Text` leaves it out.
@@ -1693,7 +1725,7 @@ impl ButtonScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, enabled, variant, kind, color) =
             (self.icon, self.enabled, self.variant, self.kind, self.color);
@@ -1781,7 +1813,7 @@ macro_rules! toggle {
             }
 
             fn compose(&mut self, content: impl FnOnce()) {
-                let modifier = self.modifier;
+                let modifier = std::mem::take(&mut self.modifier);
                 let (checked, enabled) = (self.checked, self.enabled);
                 let accessible_name = self.accessible_name.take();
                 let look = self.look;
@@ -1984,7 +2016,7 @@ impl SliderScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let thumb_size = self.thumb_size;
         let (color, value, min, max, steps, enabled) = (
             self.color,
@@ -2033,6 +2065,8 @@ pub struct ProgressIndicatorScope {
     value: f32,
     determinate: bool,
     circular: bool,
+    color: Option<Paint>,
+    track_color: Option<Paint>,
     done: bool,
 }
 
@@ -2043,6 +2077,8 @@ pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
         value,
         determinate: true,
         circular: false,
+        color: None,
+        track_color: None,
         done: false,
     }
 }
@@ -2064,9 +2100,39 @@ impl ProgressIndicatorScope {
         self
     }
 
+    /// The indicator's colour.
+    pub fn color(mut self, paint: Paint) -> Self {
+        self.color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no colour of its own.
+    pub fn color_if(mut self, paint: Option<Paint>) -> Self {
+        self.color = paint;
+        self
+    }
+
+    /// The indicator's colour.
+    pub fn indicator_color(self, paint: Paint) -> Self {
+        self.color(paint)
+    }
+
+    /// The track's colour.
+    pub fn track_color(mut self, paint: Paint) -> Self {
+        self.track_color = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no track colour of its own.
+    pub fn track_color_if(mut self, paint: Option<Paint>) -> Self {
+        self.track_color = paint;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, determinate, circular) = (self.value, self.determinate, self.circular);
+        let (color, track_color) = (self.color, self.track_color);
         emit(
             widget_key("compose_rust::ui::ProgressIndicator"),
             WidgetKind::ProgressIndicator,
@@ -2075,6 +2141,12 @@ impl ProgressIndicatorScope {
                 attrs.push(("value", OwnedAttr::Float(f64::from(value))));
                 attrs.push(("determinate", OwnedAttr::Bool(determinate)));
                 attrs.push(("circular", OwnedAttr::Bool(circular)));
+                if let Some(color) = color {
+                    attrs.push(("color", super::paint(Some(color))));
+                }
+                if let Some(track) = track_color {
+                    attrs.push(("track_color", super::paint(Some(track))));
+                }
             },
             Vec::new(),
             content,
@@ -2113,7 +2185,7 @@ impl DividerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let vertical = self.vertical;
         emit(
             widget_key("compose_rust::ui::Divider"),
@@ -2137,6 +2209,9 @@ pub struct AssetScope {
     modifier: Modifier,
     widget: WidgetKind,
     asset_id: u32,
+    // Whether the asset is a picture drawn as an icon: in the icon slot, at an icon's size,
+    // and in the icon's colour rather than its own.
+    tinted: bool,
     color: Option<Paint>,
     content_scale: Option<ContentScale>,
     done: bool,
@@ -2148,6 +2223,7 @@ pub fn Image(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Image,
         asset_id,
+        tinted: false,
         color: None,
         content_scale: None,
         done: false,
@@ -2160,9 +2236,40 @@ pub fn Icon(asset_id: u32) -> AssetScope {
         modifier: Modifier::new(),
         widget: WidgetKind::Icon,
         asset_id,
+        tinted: false,
         color: None,
         content_scale: None,
         done: false,
+    }
+}
+
+/// The other ways to make an `Icon`, beside [`Icon()`] with an id registered by role.
+pub enum Icon {}
+
+impl Icon {
+    /// An icon drawn from an SVG the application ships, registered with
+    /// [`asset`](crate::asset::asset) as [`AssetKind::Svg`](crate::schema::AssetKind::Svg).
+    ///
+    /// The picture is drawn in the icon slot at the size an [`IconRole`] icon has in the
+    /// design system, and in the icon's colour: every fill and every stroke takes the
+    /// [`color`](AssetScope::color) given, or the colour an icon has when none is, and keeps
+    /// its own alpha. A colour given as a role follows the light and the dark scheme.
+    ///
+    /// ```ignore
+    /// static BELL: &[u8] = include_bytes!("../icons/bell.svg");
+    ///
+    /// Icon::asset(asset(AssetKind::Svg, BELL)).color(Paint::Role(ColorRole::Primary));
+    /// ```
+    pub fn asset(asset_id: AssetId) -> AssetScope {
+        AssetScope {
+            modifier: Modifier::new(),
+            widget: WidgetKind::Icon,
+            asset_id,
+            tinted: true,
+            color: None,
+            content_scale: None,
+            done: false,
+        }
     }
 }
 
@@ -2184,8 +2291,9 @@ impl AssetScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
-        let (widget, asset_id, color) = (self.widget, self.asset_id, self.color);
+        let modifier = std::mem::take(&mut self.modifier);
+        let (widget, asset_id, tinted, color) =
+            (self.widget, self.asset_id, self.tinted, self.color);
         let content_scale = self.content_scale;
         let key = if widget == WidgetKind::Icon {
             widget_key("compose_rust::ui::Icon")
@@ -2197,7 +2305,8 @@ impl AssetScope {
             widget,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
-                attrs.push(("asset", OwnedAttr::Int(i64::from(asset_id))));
+                let property = if tinted { "icon_asset" } else { "asset" };
+                attrs.push((property, OwnedAttr::Int(i64::from(asset_id))));
                 if widget == WidgetKind::Icon {
                     attrs.push(("color", paint_or_zero(color)));
                 }
@@ -2251,7 +2360,7 @@ impl CanvasScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let commands = std::mem::take(&mut self.commands);
         let view_box = self.view_box;
         emit(
@@ -2321,7 +2430,7 @@ impl DatePickerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
@@ -2395,7 +2504,7 @@ impl TimePickerScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (value, min, max, enabled) = (self.value, self.min, self.max, self.enabled);
         let handler = match self.on_change.take() {
             Some(mut handler) => EventCallback::Value(Rc::new(RefCell::new(move |value: f64| {
@@ -2482,7 +2591,7 @@ impl DropdownScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (selected_index, enabled, closed) = (self.selected_index, self.enabled, self.closed);
         let bare = self.bare;
         let handler = match self.on_change.take() {
@@ -2576,7 +2685,7 @@ impl MenuItemScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
         let listeners = vec![("onclick", unit(self.on_click.take()))];
@@ -2611,6 +2720,8 @@ pub struct ModalScope {
     open: bool,
     scrim: Option<Paint>,
     max_height_fraction: Option<f32>,
+    presentation: SheetPresentation,
+    max_width: Option<u32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2624,6 +2735,8 @@ pub fn Dialog(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2638,6 +2751,8 @@ pub fn Sheet(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2668,12 +2783,31 @@ impl ModalScope {
         self
     }
 
+    /// What form the sheet takes: an edge drawer (`Edge`, the default) or a centered modal
+    /// (`Centered`). A `Dialog` is always centered and does not take this.
+    pub fn presentation(mut self, presentation: SheetPresentation) -> Self {
+        self.presentation = presentation;
+        self
+    }
+
+    /// The maximum width of a centered sheet in dp.
+    ///
+    /// Zero or absent leaves the width to the design system (560 dp). Content wider than
+    /// this or a window narrower than this shrinks the sheet to fit. An edge sheet sizes
+    /// its width by its edge and does not take this.
+    pub fn max_width(mut self, max_width_dp: u32) -> Self {
+        self.max_width = (max_width_dp > 0).then_some(max_width_dp);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (widget, open) = (self.widget, self.open);
         let max_height_fraction = self
             .max_height_fraction
             .filter(|_| widget == WidgetKind::Sheet);
+        let presentation = self.presentation;
+        let max_width = self.max_width.filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2691,6 +2825,15 @@ impl ModalScope {
                 }
                 if let Some(fraction) = max_height_fraction {
                     attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
+                }
+                if widget == WidgetKind::Sheet && presentation != SheetPresentation::Edge {
+                    attrs.push((
+                        "presentation",
+                        OwnedAttr::Int(i64::from(u16::from(presentation))),
+                    ));
+                }
+                if let Some(max_width) = max_width {
+                    attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],
@@ -2743,7 +2886,7 @@ impl<'a> MenuScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let expanded = self.expanded;
         let anchor = self.anchor.take();
         let scrim = self.scrim;
@@ -2862,7 +3005,7 @@ impl<'a> PopoverScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let open = self.open;
         let (placement, align, offset) = (self.placement, self.align, self.offset);
         let (scrim, scrim_color) = (self.scrim, self.scrim_color);
@@ -2933,7 +3076,7 @@ impl TabsScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (color, selected_index) = (self.color, self.selected_index);
         emit(
             widget_key("compose_rust::ui::Tabs"),
@@ -2955,6 +3098,7 @@ container!(TabsScope);
 pub struct TopAppBarScope {
     modifier: Modifier,
     title: String,
+    separator: Option<bool>,
     done: bool,
 }
 
@@ -2964,6 +3108,7 @@ pub fn TopAppBar() -> TopAppBarScope {
     TopAppBarScope {
         modifier: Modifier::new(),
         title: String::new(),
+        separator: None,
         done: false,
     }
 }
@@ -2974,15 +3119,34 @@ impl TopAppBarScope {
         self
     }
 
+    /// Whether to draw the design system's hairline separator under the bar.
+    ///
+    /// When unset, the active design system decides (e.g. Cupertino, Fluent and GNOME draw one;
+    /// Material 3 and Deepin do not; setting a custom border on the bar also suppresses it).
+    pub fn hairline(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
+    /// Alias for [`Self::hairline`].
+    pub fn separator(mut self, show: bool) -> Self {
+        self.separator = Some(show);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let title = std::mem::take(&mut self.title);
+        let separator = self.separator;
         emit(
             widget_key("compose_rust::ui::TopAppBar"),
             WidgetKind::TopAppBar,
             |attrs| {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("text", OwnedAttr::Text(title)));
+                if let Some(separator) = separator {
+                    attrs.push(("separator", OwnedAttr::Bool(separator)));
+                }
             },
             Vec::new(),
             content,
@@ -3011,7 +3175,7 @@ pub fn Tooltip(text: impl Into<String>) -> TooltipScope {
 
 impl TooltipScope {
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         emit(
             widget_key("compose_rust::ui::Tooltip"),
@@ -3084,7 +3248,7 @@ impl<'a> ScaffoldScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let (top_bar, bottom_bar, floating_action) = (
             self.top_bar.take(),
             self.bottom_bar.take(),
@@ -3180,7 +3344,7 @@ impl<'a> NavigationScope<'a> {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let selected_index = self.selected_index;
         let compact = self.compact;
         let (head, foot) = (self.head.take(), self.foot.take());
@@ -3280,7 +3444,7 @@ impl NavigationItemScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let section = self.section.take();
         let (icon, color, enabled) = (self.icon, self.color, self.enabled);
@@ -3342,7 +3506,7 @@ impl FileDropTargetScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let alignment = self.alignment;
         let dropped: EventCallback = match self.on_files_dropped.take() {
             Some(handler) => EventCallback::Files(Rc::new(RefCell::new(handler))),
@@ -3429,7 +3593,7 @@ impl ChipScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
@@ -3485,7 +3649,7 @@ impl FloatingActionScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let icon = self.icon;
         emit(
@@ -3544,7 +3708,7 @@ impl BadgeScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let text = self.text.take();
         let (value, color) = (self.value, self.color);
         emit(
@@ -3658,7 +3822,7 @@ impl SplitPaneScope {
     }
 
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let label = self.label.take();
         let (value, min, max, collapsible, collapse_below, selected_index) = (
             self.value,
@@ -3719,7 +3883,7 @@ pub fn LinearProgressIndicator(progress: f32) -> LinearProgressIndicatorScope {
 
 impl LinearProgressIndicatorScope {
     fn compose(&mut self, content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let progress = self.progress;
         emit(
             widget_key("compose_rust::ui::LinearProgressIndicator"),

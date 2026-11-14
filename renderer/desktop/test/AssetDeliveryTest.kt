@@ -2,6 +2,7 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -17,12 +18,15 @@ import kotlin.test.assertTrue
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.design.resolveTheme
 import dev.darkpyonix.composerust.protocol.AssetKind
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.Paint
+import dev.darkpyonix.composerust.protocol.PaletteEntry
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
@@ -67,6 +71,20 @@ private val SIZED_SQUARE_SVG = (
         "viewBox='0 0 8 8' fill='none'>" +
         "<rect width='8' height='8' fill='#336699'/></svg>"
     ).toByteArray(Charsets.UTF_8)
+
+/**
+ * Two black strokes across a 24 unit box, the way many icon sets write their icons: a
+ * `viewBox` and a fixed size of 24 on the root. The upper one is opaque and the lower one is
+ * at half opacity.
+ */
+private val STROKES_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none'>" +
+        "<path d='M2 7H22' stroke='black' stroke-width='4'/>" +
+        "<path d='M2 18H22' stroke='#000000' stroke-opacity='0.5' stroke-width='4'/></svg>"
+    ).toByteArray(Charsets.UTF_8)
+
+private const val BRAND_LIGHT = 0xFFE8590C.toInt()
+private const val BRAND_DARK = 0xFF2E7DFF.toInt()
 
 private fun iconBytes(role: IconRole): ByteArray {
     val tag = role.ordinal + 1
@@ -327,5 +345,77 @@ class AssetDeliveryTest {
             styles.map { it.size }.distinct().size > 1,
             "the optical sizes differ too",
         )
+    }
+    /**
+     * A picture the application shipped, drawn as an icon, is drawn in the icon's colour:
+     * the black strokes come out Primary, in the light scheme and again after the scheme
+     * turns dark, and a stroke at half opacity keeps its half. The picture fills the icon's
+     * slot, so the strokes are where the file puts them in it.
+     */
+    @Test
+    fun fr16_icon_asset_takes_the_icon_tint() = runComposeUiTest {
+        val page = 1
+        val icon = 2
+        val white = 0xFFFFFFFF.toInt()
+        val palette = listOf(
+            PaletteEntry(ColorRole.Primary, dark = false, argb = BRAND_LIGHT),
+            PaletteEntry(ColorRole.Primary, dark = true, argb = BRAND_DARK),
+        )
+        fun theme(scheme: ColorScheme) =
+            Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, false, palette = palette))
+        val primary = (1L shl 32) or (ColorRole.Primary.ordinal + 1).toLong()
+        val connection = FakeHostConnection(
+            listOf(
+                theme(ColorScheme.Light),
+                Mutation.RegisterAsset(ASSET, AssetKind.Svg.ordinal + 1, STROKES_SVG),
+                Mutation.Create(page, WidgetKind.Box),
+                Mutation.SetModifier(page, 0, ProtocolModifier.Size(80f, 80f)),
+                Mutation.SetModifier(page, 1, ProtocolModifier.Background(Paint.Literal(white))),
+                Mutation.Create(icon, WidgetKind.Icon),
+                Mutation.SetProp(icon, PropertyKind.IconAsset, PropertyValue.Integer(ASSET.toLong())),
+                Mutation.SetProp(icon, PropertyKind.Color, PropertyValue.Integer(primary)),
+                Mutation.Insert(page, icon, 0),
+            ),
+        )
+        lateinit var host: ComposeRustHost
+        setContent {
+            // Two pixels to the dp, so the icon's 24 unit picture has to be scaled to fill
+            // its slot rather than happening to match it one to one.
+            CompositionLocalProvider(LocalDensity provides Density(2f)) {
+                host = rememberComposeRustHost(connection)
+                ComposeRustContent(host)
+            }
+        }
+        waitForIdle()
+        assertTrue(connection.events.filterIsInstance<HostEvent.ProtocolError>().isEmpty())
+
+        fun check(expected: Int, scheme: String) {
+            val side = onNodeWithTag(nodeTestTag(icon)).fetchSemanticsNode().size.width
+            assertTrue(side >= 32, "$scheme: the icon is drawn at an icon's size, got $side px")
+            val picture = onNodeWithTag(nodeTestTag(page)).captureToImage().toAwtImage()
+            fun at(unitY: Float) = picture.getRGB(side / 2, (side * unitY / 24f).toInt())
+            assertEquals(
+                Integer.toHexString(expected),
+                Integer.toHexString(at(7f)),
+                "$scheme: the opaque stroke is the icon's colour, not the picture's black",
+            )
+            // Half of the tint over the white page, channel by channel.
+            val half = at(18f)
+            for (shift in listOf(16, 8, 0)) {
+                val want = (((expected shr shift) and 0xFF) + 0xFF) / 2
+                val got = (half shr shift) and 0xFF
+                assertTrue(
+                    kotlin.math.abs(want - got) <= 4,
+                    "$scheme: the half opacity stroke keeps its alpha, got ${Integer.toHexString(half)}",
+                )
+            }
+            assertEquals(white, picture.getRGB(side / 2, (side * 12.5f / 24f).toInt()), "$scheme: between the strokes")
+        }
+        check(BRAND_LIGHT, "light")
+
+        connection.scheduleFrame(listOf(theme(ColorScheme.Dark)))
+        host.renderFrame(0L)
+        waitForIdle()
+        check(BRAND_DARK, "dark")
     }
 }

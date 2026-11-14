@@ -1253,9 +1253,8 @@ class NodeTable {
                 PropertyKind.AccessibleName -> true
 
                 // Colours and size of the selection controls.
-                PropertyKind.TrackColor,
-                PropertyKind.ThumbColor,
-                -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
+                PropertyKind.TrackColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider || widget == WidgetKind.ProgressIndicator
+                PropertyKind.ThumbColor -> widget == WidgetKind.Switch || widget == WidgetKind.Slider
 
                 PropertyKind.ActiveTrackColor -> widget == WidgetKind.Slider
                 PropertyKind.ThumbSize -> widget == WidgetKind.Slider
@@ -1348,6 +1347,9 @@ class NodeTable {
                 // modifiers.
                 PropertyKind.Placeholder -> widget == WidgetKind.TextField
                 PropertyKind.Multiline -> widget == WidgetKind.TextField
+                PropertyKind.PlaceholderColor,
+                PropertyKind.CaretColor,
+                -> widget == WidgetKind.TextField
                 PropertyKind.Enabled -> widget != WidgetKind.Spacer
 
                 // Windowing properties belong to the lazy container alone.
@@ -1401,6 +1403,7 @@ class NodeTable {
                                     // colour instead.
                                     widget == WidgetKind.Tabs ||
                                     widget == WidgetKind.Slider ||
+                                    widget == WidgetKind.ProgressIndicator ||
                                     // A badge's fill. Only its role is read: a badge
                                     // has no literal colour.
                                     widget == WidgetKind.Badge ||
@@ -1429,6 +1432,9 @@ class NodeTable {
                 // at registration and the id is what crosses per frame.
                 PropertyKind.Asset ->
                     widget == WidgetKind.Image || widget == WidgetKind.Icon
+
+                // A picture drawn as an icon, in the icon's colour.
+                PropertyKind.IconAsset -> widget == WidgetKind.Icon
 
                 // The pickers carry a value and the ends of the range it may take, in the
                 // widget's own unit; a slider carries a position between the same two
@@ -1691,9 +1697,18 @@ class NodeTable {
                 // The tallest a sheet grows. A dialog sizes itself to its content.
                 PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
 
+                // The presentation of a sheet: edge drawer or centered modal, and its max width.
+                PropertyKind.Presentation,
+                PropertyKind.MaxWidth,
+                -> widget == WidgetKind.Sheet
+
                 // How a picture is laid into its box. An icon takes its design system's
                 // optical size, so only an image has a box to lay it into.
                 PropertyKind.ContentScale -> widget == WidgetKind.Image
+
+                // Whether a bar across the top of a screen draws the design system's
+                // hairline separator underneath.
+                PropertyKind.Separator -> widget == WidgetKind.TopAppBar
 
                 // A property declared by an extension package belongs to the widget
                 // that package declared it for.

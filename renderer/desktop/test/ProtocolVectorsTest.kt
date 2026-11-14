@@ -102,7 +102,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -518,9 +521,9 @@ class ProtocolVectorsTest {
     }
 
     /**
-     * The overlay tokens record with the transient message's two fields appended: every
-     * field the Rust encoder wrote reads back as the same value, the older ones where they
-     * always were and the two new ones after the scrim.
+     * The overlay tokens record with the transient message's fields appended: every field
+     * the Rust encoder wrote reads back as the same value, the older ones where they always
+     * were and the message's shadow, corner, colours, line, padding and type after the scrim.
      */
     @Test
     fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
@@ -540,10 +543,30 @@ class ProtocolVectorsTest {
                         scrim = 0x8000_0000L,
                         toastElevation = 7,
                         toastCornerRadius = 14,
+                        toastContainerLight = 0xFF1C1B19L,
+                        toastContainerDark = 0xFFF0EEE9L,
+                        toastContentLight = 0xFFFFFFFFL,
+                        toastContentDark = 0xFF151514L,
+                        toastBorderWidth = 0,
+                        toastPaddingHorizontal = 16,
+                        toastPaddingVertical = 10,
+                        toastFontSize = 13,
+                        toastLineHeight = 20,
                     ),
                 ),
             ),
             decodeVector("mutations.bin").filterIsInstance<Mutation.SetOverlayTokens>(),
+        )
+    }
+
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
         )
     }
 
@@ -568,6 +591,13 @@ class ProtocolVectorsTest {
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)
+    }
+
+    /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f)), mutations[mutations.size - 2])
     }
 
     /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
@@ -692,6 +722,8 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
+                ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
@@ -1004,6 +1036,7 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
                 DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
                 DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.AfterLine, null, ColorRole.OnSurfaceVariant, 1, 0, 1, 0, 0L, "You, 2 days ago"),
             ),
             decorations,
         )

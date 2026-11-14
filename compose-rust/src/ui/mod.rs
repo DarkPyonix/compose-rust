@@ -42,9 +42,9 @@ pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole,
-    TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
-    WindowSizeClass,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
+    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
+    WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -54,6 +54,7 @@ pub use crate::theme::{ThemeHandle, current_theme};
 pub fn theme() -> ThemeHandle {
     ThemeHandle::default()
 }
+pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
@@ -249,86 +250,86 @@ impl SemanticsState {
     }
 }
 
-/// The most distinct accessible names a program can keep. Names are kept for the life of
-/// the program so a `Modifier` can stay `Copy`; the cap keeps a name built from data
-/// (an id, a counter) from growing that memory without end.
-pub(crate) const MAX_LABELS: usize = 4096;
+use std::sync::Arc;
 
-/// The distinct accessible names seen so far, each leaked once.
-struct LabelTable {
-    kept: std::sync::RwLock<std::collections::HashSet<&'static str>>,
-    warned: std::sync::atomic::AtomicBool,
+/// A bounded cache of recent accessible names.
+pub(crate) struct LabelCache {
+    entries: Vec<Arc<str>>,
+    capacity: usize,
 }
 
-impl LabelTable {
-    fn new() -> Self {
+pub(crate) const DEFAULT_LABEL_CACHE_CAPACITY: usize = 128;
+
+impl LabelCache {
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(DEFAULT_LABEL_CACHE_CAPACITY)
+    }
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
-            kept: Default::default(),
-            warned: Default::default(),
+            entries: Vec::with_capacity(capacity),
+            capacity,
         }
     }
 
-    /// The kept copy of `label`. A name already kept is found under a shared lock with no
-    /// allocation. A new name is kept until the table holds `cap` names; past that it is
-    /// dropped (and reported in debug builds) so memory stays bounded.
-    fn intern(&self, label: &str, cap: usize) -> Option<&'static str> {
-        use std::sync::atomic::Ordering;
-
-        if label.is_empty() {
-            return None;
-        }
+    /// The kept copy of `label`. If present in the cache, it is moved to the most recently
+    /// used position and returned with no allocation. Otherwise a new `Arc<str>` is created,
+    /// the oldest entry is evicted if full, and the new entry is returned.
+    pub(crate) fn intern(&mut self, label: &str) -> Arc<str> {
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|entry| entry.as_ref() == label)
         {
-            let kept = self.kept.read().unwrap_or_else(|p| p.into_inner());
-            if let Some(found) = kept.get(label) {
-                return Some(*found);
-            }
+            let entry = self.entries.remove(pos);
+            self.entries.push(Arc::clone(&entry));
+            return entry;
         }
-        let mut kept = self.kept.write().unwrap_or_else(|p| p.into_inner());
-        if let Some(found) = kept.get(label) {
-            return Some(*found);
+        let entry: Arc<str> = Arc::from(label);
+        if self.entries.len() >= self.capacity && self.capacity > 0 {
+            self.entries.remove(0);
         }
-        if kept.len() >= cap {
-            if cfg!(debug_assertions) && !self.warned.swap(true, Ordering::Relaxed) {
-                eprintln!(
-                    "compose-rust: more than {cap} distinct accessible names; \
-                     names past the limit are left off. Use a fixed set of names."
-                );
-            }
-            return None;
+        if self.capacity > 0 {
+            self.entries.push(Arc::clone(&entry));
         }
-        let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
-        kept.insert(leaked);
-        Some(leaked)
+        entry
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
-        self.kept.read().unwrap_or_else(|p| p.into_inner()).len()
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
     }
 }
 
-fn keep_label(label: &str) -> Option<&'static str> {
-    use std::cell::Cell;
-    use std::sync::OnceLock;
+fn keep_label(label: &str) -> Option<Arc<str>> {
+    use std::cell::RefCell;
 
-    static LABELS: OnceLock<LabelTable> = OnceLock::new();
+    if label.is_empty() {
+        return None;
+    }
+
     thread_local! {
-        // The name this thread kept last. A name written on every frame is found here
-        // without taking any lock.
-        static LAST: Cell<Option<&'static str>> = const { Cell::new(None) };
+        static LAST: RefCell<Option<Arc<str>>> = const { RefCell::new(None) };
+        static CACHE: RefCell<LabelCache> = RefCell::new(LabelCache::new());
     }
-    if let Some(last) = LAST.with(Cell::get) {
-        if last == label {
-            return Some(last);
+
+    if let Some(last) = LAST.with(|cell| {
+        let borrowed = cell.borrow();
+        if let Some(last) = borrowed.as_ref() {
+            if last.as_ref() == label {
+                return Some(Arc::clone(last));
+            }
         }
+        None
+    }) {
+        return Some(last);
     }
-    let kept = LABELS
-        .get_or_init(LabelTable::new)
-        .intern(label, MAX_LABELS);
-    if kept.is_some() {
-        LAST.with(|last| last.set(kept));
-    }
-    kept
+
+    let kept = CACHE.with(|cache| cache.borrow_mut().intern(label));
+    LAST.with(|cell| {
+        *cell.borrow_mut() = Some(Arc::clone(&kept));
+    });
+    Some(kept)
 }
 
 /// One side of a node, for [`Modifier::border_side`].
@@ -354,7 +355,7 @@ pub enum Side {
 /// The order of the calls does not matter. Each kind of Modifier has a fixed slot in the
 /// node's chain, outside in: size, shape, fill, outline, lift, press, inset. That is what
 /// the `rsx!` attributes do too, so the same Modifier draws the same either way.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Modifier {
     observe_size: Option<i64>,
     observe_size_every_dp: bool,
@@ -370,6 +371,8 @@ pub struct Modifier {
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
     corner_curve: Option<f32>,
+    min_touch_target: Option<f32>,
+    overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     border_each: Option<[(f32, Paint); 4]>,
@@ -377,7 +380,7 @@ pub struct Modifier {
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
     semantics_role: Option<SemanticsRole>,
-    semantics_label: Option<&'static str>,
+    semantics_label: Option<Arc<str>>,
     semantics_state: SemanticsState,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
@@ -393,6 +396,9 @@ pub struct Modifier {
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    sticky: bool,
+    size_in: Option<[f32; 4]>,
+    aspect_ratio: Option<(f32, bool)>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -417,6 +423,8 @@ impl Modifier {
             corner_radius: None,
             corner_radii: None,
             corner_curve: None,
+            min_touch_target: None,
+            overlay: None,
             border_width: None,
             border_color: None,
             border_each: None,
@@ -440,6 +448,9 @@ impl Modifier {
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            sticky: false,
+            size_in: None,
+            aspect_ratio: None,
         }
     }
 
@@ -476,6 +487,13 @@ impl Modifier {
         self
     }
 
+    /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
+    /// while the rest of the content scrolls.
+    pub const fn sticky(mut self) -> Self {
+        self.sticky = true;
+        self
+    }
+
     pub const fn fill_max_width(mut self) -> Self {
         self.fill_max_width = true;
         self
@@ -488,6 +506,76 @@ impl Modifier {
 
     pub const fn fill_max_size(self) -> Self {
         self.fill_max_width().fill_max_height()
+    }
+
+    /// Constrains the size of the content within minimum and maximum bounds in dp.
+    ///
+    /// Pass `f32::NAN` for any bound that should remain unconstrained.
+    pub const fn size_in(
+        mut self,
+        min_width: f32,
+        max_width: f32,
+        min_height: f32,
+        max_height: f32,
+    ) -> Self {
+        self.size_in = Some([min_width, max_width, min_height, max_height]);
+        self
+    }
+
+    /// Constrains width within minimum and maximum bounds in dp, preserving any height constraints.
+    pub const fn width_in(mut self, min: f32, max: f32) -> Self {
+        let (min_h, max_h) = match self.size_in {
+            Some([_, _, min_h, max_h]) => (min_h, max_h),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min, max, min_h, max_h]);
+        self
+    }
+
+    /// Constrains height within minimum and maximum bounds in dp, preserving any width constraints.
+    pub const fn height_in(mut self, min: f32, max: f32) -> Self {
+        let (min_w, max_w) = match self.size_in {
+            Some([min_w, max_w, _, _]) => (min_w, max_w),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min_w, max_w, min, max]);
+        self
+    }
+
+    /// Constrains maximum width in dp, preserving any height constraints.
+    pub const fn max_width(self, max: f32) -> Self {
+        self.width_in(f32::NAN, max)
+    }
+
+    /// Constrains maximum height in dp, preserving any width constraints.
+    pub const fn max_height(self, max: f32) -> Self {
+        self.height_in(f32::NAN, max)
+    }
+
+    /// Constrains minimum width in dp, preserving any height constraints.
+    pub const fn min_width(self, min: f32) -> Self {
+        self.width_in(min, f32::NAN)
+    }
+
+    /// Constrains minimum height in dp, preserving any width constraints.
+    pub const fn min_height(self, min: f32) -> Self {
+        self.height_in(min, f32::NAN)
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio.
+    pub const fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.aspect_ratio = Some((ratio, false));
+        self
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio, optionally matching height constraints first.
+    pub const fn aspect_ratio_match_height(
+        mut self,
+        ratio: f32,
+        match_height_constraints_first: bool,
+    ) -> Self {
+        self.aspect_ratio = Some((ratio, match_height_constraints_first));
+        self
     }
 
     /// Fills the width only when `fill` is true.
@@ -522,6 +610,22 @@ impl Modifier {
     /// The same, when there may be no background.
     pub const fn background_if(mut self, paint: Option<Paint>) -> Self {
         self.background = paint;
+        self
+    }
+
+    /// A paint laid over the node: over its content and its background, in the box its
+    /// background fills and cut to the same corners (`corner_radius`, `corner_radii`,
+    /// `shape_role`, curved as `corner_curve` says). It takes no room, so a node sized by
+    /// its content keeps its size, and nothing has to restate the node's size or radius.
+    /// A press tint or a selection wash is one of these; give it a colour with alpha.
+    pub const fn overlay(mut self, paint: Paint) -> Self {
+        self.overlay = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no overlay.
+    pub const fn overlay_if(mut self, paint: Option<Paint>) -> Self {
+        self.overlay = paint;
         self
     }
 
@@ -720,6 +824,16 @@ impl Modifier {
         self
     }
 
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller, such as a 26 by 32 dp icon button, takes presses over a box grown to this
+    /// size around it. Its size, its place and how it is drawn stay as they are, so nothing
+    /// laid out beside it moves. Compose's `minimumInteractiveComponentSize` does the same
+    /// for Material's controls; 44 dp is the usual target for a finger. Off unless set.
+    pub const fn min_touch_target(mut self, dp: f32) -> Self {
+        self.min_touch_target = Some(dp);
+        self
+    }
+
     /// Sets the pressed scale and tint opacity.
     pub const fn press_feedback(mut self, scale: f32, tint_alpha: f32) -> Self {
         self.press_feedback = Some((scale, tint_alpha));
@@ -728,10 +842,6 @@ impl Modifier {
 
     /// The name assistive technology reads for this node. On a widget with a visible label
     /// it replaces that label; an empty name is the same as none.
-    ///
-    /// Names are kept for the life of the program, and at most 4096 distinct names are
-    /// kept. A name past that limit is left off (debug builds print a warning once), so
-    /// use a fixed set of names rather than one built from changing data.
     pub fn label(mut self, label: &str) -> Self {
         self.semantics_label = keep_label(label);
         self
@@ -976,6 +1086,8 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "corner_curve", float(modifier.corner_curve));
+    push(false, "min_touch_target", float(modifier.min_touch_target));
+    push(false, "overlay", paint(modifier.overlay));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,
@@ -1009,6 +1121,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "match_parent_size",
         OwnedAttr::Bool(modifier.match_parent_size),
     );
+    push(false, "sticky", OwnedAttr::Bool(modifier.sticky));
     push(
         chip,
         "fill_max_width",
@@ -1042,7 +1155,8 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "accessible_name",
         modifier
             .semantics_label
-            .map_or(OwnedAttr::None, OwnedAttr::Label),
+            .as_ref()
+            .map_or(OwnedAttr::None, |label| OwnedAttr::Label(Arc::clone(label))),
     );
     push(
         false,
@@ -1165,6 +1279,32 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             ))
         }),
     );
+    push(
+        false,
+        "size_in",
+        modifier
+            .size_in
+            .map_or(OwnedAttr::None, |[min_w, max_w, min_h, max_h]| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&min_w.to_le_bytes());
+                bytes.extend_from_slice(&max_w.to_le_bytes());
+                bytes.extend_from_slice(&min_h.to_le_bytes());
+                bytes.extend_from_slice(&max_h.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    push(
+        false,
+        "aspect_ratio",
+        modifier
+            .aspect_ratio
+            .map_or(OwnedAttr::None, |(ratio, match_height)| {
+                let mut bytes = Vec::with_capacity(5);
+                bytes.extend_from_slice(&ratio.to_le_bytes());
+                bytes.push(u8::from(match_height));
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
 }
 
 /// Composes one widget node: its group, its attributes and listeners, and its children.
@@ -1246,26 +1386,27 @@ mod fr68_label_tests {
     use super::*;
 
     #[test]
-    fn fr68_repeated_labels_do_not_grow_the_table() {
-        let table = LabelTable::new();
-        let first = table.intern("Refresh", MAX_LABELS).unwrap();
+    fn fr68_repeated_labels_do_not_grow_the_cache() {
+        let mut cache = LabelCache::new();
+        let first = cache.intern("Refresh");
         for _ in 0..10_000 {
-            let again = table.intern("Refresh", MAX_LABELS).unwrap();
-            assert!(std::ptr::eq(first, again));
+            let again = cache.intern("Refresh");
+            assert!(Arc::ptr_eq(&first, &again));
         }
-        assert_eq!(table.len(), 1);
+        assert_eq!(cache.len(), 1);
     }
 
     #[test]
-    fn fr68_labels_past_the_cap_are_dropped() {
-        let table = LabelTable::new();
-        for n in 0..MAX_LABELS {
-            assert!(table.intern(&format!("label {n}"), MAX_LABELS).is_some());
+    fn fr68_cache_evicts_old_entries_without_dropping_new_labels() {
+        let mut cache = LabelCache::with_capacity(32);
+        for n in 0..100 {
+            let label = cache.intern(&format!("label {n}"));
+            assert_eq!(label.as_ref(), format!("label {n}"));
         }
-        assert_eq!(table.len(), MAX_LABELS);
-        assert_eq!(table.intern("one too many", MAX_LABELS), None);
-        assert_eq!(table.len(), MAX_LABELS);
-        // A name already kept is still found.
-        assert!(table.intern("label 0", MAX_LABELS).is_some());
+        assert_eq!(cache.len(), 32);
+        // An old entry evicted earlier can still be interned again as new.
+        let re_interned = cache.intern("label 0");
+        assert_eq!(re_interned.as_ref(), "label 0");
+        assert_eq!(cache.len(), 32);
     }
 }

@@ -10,27 +10,16 @@
 name: Windows package host
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled]
-    paths:
-      - 'scripts/packager-windows/**'
-      - 'compose-rust/build.rs'
-      - 'compose-rust/build/**'
-      - '.github/workflows/package-windows-host.yml'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       project:
-        description: 'Application directory holding Dioxus.toml and Cargo.toml'
-        default: 'samples/notepad'
+        description: Application directory holding Dioxus.toml and Cargo.toml
+        default: samples/notepad
         type: string
 
 permissions:
   contents: read
   actions: read
-
-concurrency:
-  group: package-windows-host-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

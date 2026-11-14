@@ -90,6 +90,12 @@ fun windowReportKey(widthDp: Float, heightDp: Float, everyDpChange: Boolean): Lo
     return (1L shl 62) or (classes shl 48) or (width shl 24) or height
 }
 
+/** What a window's size report carries besides the size, kept where its layout can read it. */
+internal class WindowReportInputs {
+    var safeArea: WindowSafeArea = WindowSafeArea()
+    var everyDp: Boolean = false
+}
+
 class WindowSizeReporter(private val nodeId: Int = 0) {
     private var lastClass: WindowSizeClass = WindowSizeClass.Compact
     private var lastSafeArea = WindowSafeArea()

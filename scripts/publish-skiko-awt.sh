@@ -27,8 +27,9 @@ published="$(sed -n 's/^PUBLISHED_AS="\([^"]*\)"$/\1/p' "$fork/extended/skiko/bu
 }
 "$fork/extended/skiko/build-skiko-awt.sh" "$1"
 
-# The fork's metadata lists JetBrains' skiko-awt as a second capability of every variant, so Gradle
-# keeps one of the two. Amper takes a variant only when its capabilities are exactly its own
+# Up to 1.11.1-ext.3 the fork's metadata listed JetBrains' skiko-awt as a second capability of every
+# variant, so Gradle kept one of the two; since 1.11.1-ext.4 it lists its own only (fork #167), and
+# this leaves such metadata as it is. Amper takes a variant only when its capabilities are exactly its own
 # coordinate, so with the second one it finds no variant and stops with "Platform is not supported
 # by the library". The renderer is resolved by Amper alone and filters JetBrains' skiko-awt off
 # its class path itself, so the extra capability is dropped from the published copy.

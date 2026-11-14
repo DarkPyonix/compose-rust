@@ -167,6 +167,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -1131,7 +1141,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1146,6 +1156,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -3053,7 +3072,7 @@ fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
-/// two backgrounds after them.
+/// two backgrounds and an after-line decoration after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -3065,6 +3084,7 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
         Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
         Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
+        Decoration::after_line(0, 1, "You, 2 days ago", ColorRole::OnSurfaceVariant),
     ])
 }
 
@@ -4048,7 +4068,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .popup_padding(10)
                 .scrim_argb(0x8000_0000)
                 .toast_elevation(7)
-                .toast_corner_radius(14),
+                .toast_corner_radius(14)
+                .toast_container(
+                    crate::schema::Color::argb(0xFF1C_1B19),
+                    crate::schema::Color::argb(0xFFF0_EEE9),
+                )
+                .toast_content(
+                    crate::schema::Color::argb(0xFFFF_FFFF),
+                    crate::schema::Color::argb(0xFF15_1514),
+                )
+                .toast_border_width(0)
+                .toast_padding(16, 10)
+                .toast_type(13, 20),
         ),
         // A text with three font features, one of them a value above one byte, after
         // every older record but the last.
@@ -4116,6 +4147,30 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 12,
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
+        },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
+        // An icon drawn from a picture in the icon's colour. No record registers the id it
+        // names, so the Renderer reports it once when it draws the icon.
+        Mutation::Create {
+            node_id: 23,
+            widget: WidgetKind::Icon,
+        },
+        Mutation::SetProp {
+            node_id: 23,
+            property: PropertyKind::IconAsset,
+            value: PropertyValue::Integer(9),
+        },
+        // A button's least touch target, 44 dp, on a node of its own so the html element
+        // box keeps the modifiers it had.
+        Mutation::SetModifier {
+            node_id: 13,
+            index: 0,
+            modifier: Modifier::MinTouchTarget { size: 44.0 },
         },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
@@ -4628,7 +4683,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 129,
+    "recordCount": 132,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -5667,6 +5722,14 @@ object MeasureRecords {
         ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
         ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
         ("TEXT_ZOOM_AT", m::TEXT_ZOOM_AT as i64),
+        (
+            "TEXT_FONT_FEATURES_OFFSET_AT",
+            m::TEXT_FONT_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_FONT_FEATURES_COUNT_AT",
+            m::TEXT_FONT_FEATURES_COUNT_AT as i64,
+        ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
         ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),
@@ -6683,6 +6746,16 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
         wasmExports.compose_rust_renderer_request_frame,
       compose_rust_renderer_measure:
         wasmExports.compose_rust_renderer_measure,
+    },
+    // The date and the time zone, which the Host reads from the page's own clock. None of
+    // them goes to the Renderer; the timer only asks for a frame, at whose start the Host
+    // checks whether the date changed.
+    compose_rust_time: {
+      now_millis: () => Date.now(),
+      utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),
+      wake_after: (millis) => {
+        setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);
+      },
     },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),

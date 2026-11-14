@@ -7,24 +7,7 @@
 name: Resize metrics
 
 on:
-  workflow_dispatch:
-  # A new workflow cannot be dispatched until it is on the default branch, so it also runs
-  # on the pull request that changes it.
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - ".github/workflows/test-windows-resize-metrics.yml"
-      - ".github/scripts/resize-metrics-run.sh"
-      - ".github/scripts/resize-real-drag-run.sh"
-      - ".github/scripts/resize-probe.c"
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop,
-  # dispatches and tag runs are never cancelled.
-  group: test-windows-resize-metrics-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read

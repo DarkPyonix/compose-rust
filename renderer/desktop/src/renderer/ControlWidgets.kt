@@ -139,6 +139,8 @@ interface ControlWidgets {
          * with a 4 dp line.
          */
         diameter: Dp? = null,
+        color: Color? = null,
+        trackColor: Color? = null,
     )
 
     /** A rule, along whichever axis [vertical] names. */
@@ -428,8 +430,12 @@ internal object DrawnControlWidgets : ControlWidgets {
         modifier: Modifier,
         theme: ResolvedTheme,
         diameter: Dp?,
+        color: Color?,
+        trackColor: Color?,
     ) {
         val style = theme.rules.controls(theme).progress
+        val indicator = color ?: style.indicator
+        val track = trackColor ?: style.track
         val thickness = ringThickness(style.thickness, diameter)
         val sweep by rememberInfiniteTransition(label = "progress").animateFloat(
             initialValue = 0f,
@@ -452,7 +458,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                     val inset = thickness.toPx() / 2f
                     val box = Size(size.width - inset * 2f, size.height - inset * 2f)
                     drawArc(
-                        color = style.track,
+                        color = track,
                         startAngle = 0f,
                         sweepAngle = FULL_TURN,
                         useCenter = false,
@@ -461,7 +467,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         style = stroke,
                     )
                     drawArc(
-                        color = style.indicator,
+                        color = indicator,
                         // A determinate ring starts at twelve o'clock; an indeterminate one
                         // chases its own tail from wherever the sweep has reached.
                         startAngle = if (determinate) QUARTER_TURN_BACK else phase * FULL_TURN,
@@ -486,7 +492,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                     } else {
                         CornerRadius.Zero
                     }
-                    drawRoundRect(color = style.track, cornerRadius = radius)
+                    drawRoundRect(color = track, cornerRadius = radius)
                     val width = if (determinate) {
                         size.width * value
                     } else {
@@ -499,7 +505,7 @@ internal object DrawnControlWidgets : ControlWidgets {
                         (size.width + width) * phase - width
                     }
                     drawRoundRect(
-                        color = style.indicator,
+                        color = indicator,
                         topLeft = Offset(left, 0f),
                         size = Size(width.coerceAtMost(size.width), size.height),
                         cornerRadius = radius,
