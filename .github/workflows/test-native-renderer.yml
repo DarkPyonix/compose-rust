@@ -64,6 +64,9 @@ on:
       - compose-rust/tests/fixtures/consumer/**
       - compose-rust/tests/fixtures/consumer-mixed-runtime/**
       - compose-rust/tests/fixtures/multi-window/**
+      - compose-rust/tests/fixtures/hidpi/**
+      - .github/scripts/hidpi-windows-check.sh
+      - .github/scripts/set-display-scale.c
       - .github/scripts/check-linux-input-access.sh
       - .github/scripts/atspi-walk.py
       - scripts/parity/**
@@ -147,7 +150,7 @@ jobs:
             exit 0
           fi
           if git diff --name-only HEAD^ HEAD |
-              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|compose-rust/tests/fixtures/(consumer|consumer-mixed-runtime|multi-window)/|scripts/(install-nik|check-windows-consumer)\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access)\.sh|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
+              grep -qE '^(renderer/|compose-rust/build(\.rs|/)|compose-rust/tests/fixtures/(consumer|consumer-mixed-runtime|multi-window|hidpi)/|scripts/(install-nik|check-windows-consumer)\.sh|\.github/scripts/(check-single-executable|package-static-renderer|check-linux-input-access|hidpi-windows-check)\.sh|\.github/scripts/set-display-scale\.c|\.github/scripts/atspi-walk\.py|scripts/parity/|\.github/workflows/(test-native|static)-renderer\.yml)'; then
             echo "the renderer changed"
             echo "renderer=true" >> "$GITHUB_OUTPUT"
           else
@@ -390,6 +393,84 @@ jobs:
     needs: changed
     if: needs.changed.outputs.renderer == 'true'
     uses: ./.github/workflows/windows-static.yml
+
+  # Whether that renderer's window is sharp at every display scale: the renderer checks its own
+  # marker scene against the screen at 100%, 125%, 150% and 200%, built with and without the
+  # application manifest, and once more while the scale goes from 200% to 125% and back.
+  # .github/scripts/hidpi-windows-check.sh says what each line it prints measures.
+  windows-hidpi:
+    needs: [changed, windows-static]
+    if: needs.changed.outputs.renderer == 'true'
+    name: HiDPI sharpness at four display scales and a change of scale (Windows, x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Receive the renderer kit
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Enter the Visual Studio developer environment
+        # The linker the application is linked with, and cl.exe for the display scale tool.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Build the HiDPI fixture with and without the manifest, and the display scale tool
+        run: |
+          set -euo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          fixture=compose-rust/tests/fixtures/hidpi
+          cargo build --release --manifest-path "$fixture/Cargo.toml"
+          # Its own target directory, so the second build does not write over the first.
+          CARGO_TARGET_DIR="$fixture/target/no-manifest" \
+            cargo build --release --no-default-features --manifest-path "$fixture/Cargo.toml"
+          tools="$(cygpath -u "$RUNNER_TEMP")/tools"
+          mkdir -p "$tools"
+          source="$(cygpath -w "$PWD/.github/scripts/set-display-scale.c")"
+          (cd "$tools" && MSYS_NO_PATHCONV=1 cl /nologo /O2 /W3 "$source")
+          ls -la "$fixture/target/release/hidpi.exe" "$fixture/target/no-manifest/release/hidpi.exe" "$tools/set-display-scale.exe"
+
+      - name: The window draws in device pixels at every scale and follows a change of scale
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          set -o pipefail
+          fixture=compose-rust/tests/fixtures/hidpi
+          ./.github/scripts/hidpi-windows-check.sh "$(cygpath -u "$RUNNER_TEMP")/hidpi" \
+            "$(cygpath -u "$RUNNER_TEMP")/tools/set-display-scale.exe" \
+            "$fixture/target/release/hidpi.exe" "$fixture/target/no-manifest/release/hidpi.exe" |
+            tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hidpi-windows-kn
+          path: ${{ runner.temp }}/hidpi/
+          if-no-files-found: ignore
+          retention-days: 14
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above
   # except the interpreter source. It builds both slices (simulator and device) and

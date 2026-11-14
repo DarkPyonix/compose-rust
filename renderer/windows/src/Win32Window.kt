@@ -13,17 +13,24 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.Chrome
 import dev.darkpyonix.composerust.ui.node.LayoutProfile
 import java.lang.System
+import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.COpaquePointer
+import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.staticCFunction
 import kotlin.math.roundToInt
 import org.jetbrains.skia.BackendRenderTarget
+import org.jetbrains.skia.Canvas
+import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorSpace
+import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.DirectContext
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.PixelGeometry
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.SurfaceColorFormat
@@ -170,6 +177,55 @@ internal class Win32Window private constructor(
     private var painted = false
     private var drew = false
 
+    /**
+     * Keeps a copy of every frame's pixels in [lastFrame], read back from the buffer after it
+     * was drawn, for the check that compares the screen with what was drawn
+     * (`HiDpiCheck.kt`). Off otherwise: the read back costs a copy of the whole frame.
+     */
+    internal var keepFrames = false
+
+    /** The pixels of the last frame, as drawn, while [keepFrames] is on. */
+    internal var lastFrame: HiDpiImage? = null
+        private set
+
+    /** How many frames reached the window. */
+    internal var framesDrawn = 0
+        private set
+
+    /** The size of the buffer the last frame was drawn into, in pixels. */
+    internal var drawnSize = IntSize.Zero
+        private set
+
+    /** How many times the scene's density changed, which a change of the display scale does once. */
+    internal var densityChanges = 0
+        private set
+
+    /** The density the scene is drawn at now. */
+    internal val sceneDensity: Density get() = scene.density
+
+    /**
+     * Draws [paint] into a texture of [width] by [height] pixels on this window's own Direct3D
+     * context, in the swapchain's colour type, colour space, origin and pixel geometry, and
+     * reads it back; null where the texture could not be made or read. For the check that
+     * compares the screen with Compose drawn off the screen, which has to draw that reference
+     * with the rasteriser the window's frames use (`HiDpiCheck.kt`).
+     */
+    internal fun drawOnContext(width: Int, height: Int, paint: (Canvas) -> Unit): HiDpiImage? {
+        if (gone || width <= 0 || height <= 0) return null
+        select()
+        val info = ImageInfo(width, height, ColorType.BGRA_8888, ColorAlphaType.PREMUL, ColorSpace.sRGB)
+        val surface = runCatching {
+            Surface.makeRenderTarget(context, false, info, 0, SurfaceOrigin.TOP_LEFT, SurfaceProps(PixelGeometry.RGB_H))
+        }.getOrNull() ?: return null
+        try {
+            paint(surface.canvas)
+            surface.flushAndSubmit(true)
+            return readSurface(surface, width, height)
+        } finally {
+            surface.close()
+        }
+    }
+
     fun setContent(content: @Composable () -> Unit) {
         scene.setContent(content)
         if (!multi) WindowStartReport.sceneCreated(size.width, size.height, scene.density.density)
@@ -177,54 +233,66 @@ internal class Win32Window private constructor(
 
     /** Holds the window until it closes. */
     fun run() {
-        resizing = this
-        installResizeCallback()
+        begin()
         // Rests only when the last turn found nothing to do. A frame that drew has already
         // waited for the screen inside Present, and waiting again would halve the rate of
         // anything that animates.
         var busy = true
         if (System.getenv("DXC_HITTEST_CHECK") == "1") native.debugHitTest()
-        while (!Win32Loop.closed) {
-            drew = false
-            // The window's own turn, before anything is read from it. This thread is the one
-            // Windows delivers to, so the messages of this frame arrive here or not at all.
-            Win32Loop.pump(if (busy) 0.0 else FRAME_SECONDS)
-            work.runPending()
-            if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
-            if (ResizeMetrics.due()) {
-                ResizeMetrics.run(
-                    phase = { name ->
-                        System.err.println(
-                            "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
-                                "skia_cache_limit_mb=${context.resourceCacheLimit / 1048576}",
-                        )
-                        Win32Loop.reportMetrics(name)
-                    },
-                    resize = { from, to, steps ->
-                        native.debugResize(from.first, from.second, to.first, to.second, steps, 0)
-                    },
-                )
-            }
-            var heard = false
-            for (event in Win32Loop.drainEvents()) {
-                if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
-                    System.err.println("compose-rust: window heard $event")
-                }
-                textScale.receive(event)
-                // Files let go over the window go to the node under them.
-                routeFileDrop(event)
-                // Told which desktop it is, because the key numbers are Windows' own.
-                scene.receive(event, win32 = true)
-                textInput.receive(event)
-                heard = true
-            }
-            if (!painted || heard || scene.hasInvalidations()) {
-                draw()
-            }
-            // After the drawing, because that is when what is in the window has been placed.
-            semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
-            busy = heard || drew
+        while (!Win32Loop.closed) busy = step(busy)
+    }
+
+    /** What [run] does before its loop: from here on a resize draws this window. */
+    internal fun begin() {
+        resizing = this
+        installResizeCallback()
+    }
+
+    /**
+     * One turn of [run]'s loop. [busy] is what the turn before answered, and a turn that
+     * follows one with nothing to do waits a frame's length for the system first. True when
+     * this turn heard something or drew.
+     */
+    internal fun step(busy: Boolean): Boolean {
+        drew = false
+        // The window's own turn, before anything is read from it. This thread is the one
+        // Windows delivers to, so the messages of this frame arrive here or not at all.
+        Win32Loop.pump(if (busy) 0.0 else FRAME_SECONDS)
+        work.runPending()
+        if (DrawBench.due()) DrawBench.run(scene, context) { nanos }
+        if (ResizeMetrics.due()) {
+            ResizeMetrics.run(
+                phase = { name ->
+                    System.err.println(
+                        "compose-rust: metrics phase $name ${ResizeMetrics.summary()} " +
+                            "skia_cache_limit_mb=${context.resourceCacheLimit / 1048576}",
+                    )
+                    Win32Loop.reportMetrics(name)
+                },
+                resize = { from, to, steps ->
+                    native.debugResize(from.first, from.second, to.first, to.second, steps, 0)
+                },
+            )
         }
+        var heard = false
+        for (event in Win32Loop.drainEvents()) {
+            if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
+                System.err.println("compose-rust: window heard $event")
+            }
+            textScale.receive(event)
+            // Files let go over the window go to the node under them.
+            routeFileDrop(event)
+            // Told which desktop it is, because the key numbers are Windows' own.
+            scene.receive(event, win32 = true)
+            textInput.receive(event)
+            heard = true
+        }
+        if (!painted || heard || scene.hasInvalidations()) {
+            draw()
+        }
+        // After the drawing, because that is when what is in the window has been placed.
+        semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
+        return heard || drew
     }
 
     /**
@@ -373,6 +441,8 @@ internal class Win32Window private constructor(
             if (drawn) {
                 painted = true
                 drew = true
+                framesDrawn++
+                drawnSize = size
                 if (!multi) WindowStartReport.frameDrawn(size.width, size.height)
                 afterFrame?.invoke(nanos)
             }
@@ -400,6 +470,7 @@ internal class Win32Window private constructor(
         val fitted = IntSize(measured.width, measured.height)
         val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
+            if (scene.density.density != density.density) densityChanges++
             scene.density = density
             scene.size = fitted
         }
@@ -432,6 +503,8 @@ internal class Win32Window private constructor(
         // Submitted, not only recorded: a buffer presented before Skia's command list runs is
         // a buffer with nothing in it.
         surface.flushAndSubmit(true)
+        // Before the buffer is given to the screen, which takes it away.
+        if (keepFrames) lastFrame = readSurface(surface, measured.width, measured.height)
         surface.close()
         target.close()
         // Waits for the screen, so there is no sleep after this.
@@ -453,12 +526,18 @@ internal class Win32Window private constructor(
         val fitted = IntSize(target.width, target.height)
         val density = textScale.density(measured.scale)
         if (scene.size != fitted || scene.density != density) {
+            if (scene.density.density != density.density) densityChanges++
             scene.density = density
             scene.size = fitted
         }
         size = fitted
         RasterDraw.draw(RasterVariant.chosen, target.pixels, target.rowBytes, fitted.width, fitted.height) { canvas ->
             scene.render(canvas.asComposeCanvas(), nanos)
+        }
+        if (keepFrames) {
+            // The C side's DIB, in blue, green, red, alpha order, rows from the top.
+            val bytes = target.pixels.reinterpret<ByteVar>().readBytes(target.rowBytes * fitted.height)
+            lastFrame = HiDpiImage.fromBgra(bytes, fitted.width, fitted.height, target.rowBytes)
         }
         Win32Loop.endRasterFrame()
         return true

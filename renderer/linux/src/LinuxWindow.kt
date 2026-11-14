@@ -216,6 +216,32 @@ internal class LinuxWindow private constructor(
     /** Whether anything has been drawn yet, so the first turn always draws one. */
     private var painted = false
 
+    /**
+     * Keeps a copy of every frame's pixels in [lastFrame], read back from the back buffer
+     * before it is presented, for the check that compares the screen with what was drawn
+     * (`HiDpiCheck.kt`). Off otherwise: the read back costs a copy of the whole frame.
+     */
+    internal var keepFrames = false
+
+    /** The pixels of the last frame, as drawn, while [keepFrames] is on. */
+    internal var lastFrame: HiDpiImage? = null
+        private set
+
+    /** How many frames reached the window. */
+    internal var framesDrawn = 0
+        private set
+
+    /** The size of the back buffer the last frame was drawn into, in pixels. */
+    internal var drawnSize = IntSize.Zero
+        private set
+
+    /** How many times the scene's density changed, which a change of the display scale does once. */
+    internal var densityChanges = 0
+        private set
+
+    /** The density the scene is drawn at now. */
+    internal val sceneDensity: Density get() = scene.density
+
     // The window says when each frame is drawn, on the monotonic clock the Host reads too, so
     // an animation moves at the speed of the wall clock whatever the refresh rate.
     private val frameClock = FrameClock(x11::frameTimeNanos)
@@ -234,6 +260,7 @@ internal class LinuxWindow private constructor(
         // a framebuffer that fits and a scene that does not is a window drawing its old size
         // into a corner of its new one.
         if (scene.size != size || scene.density != density) {
+            if (scene.density.density != density.density) densityChanges++
             scene.density = density
             scene.size = size
         }
@@ -245,9 +272,12 @@ internal class LinuxWindow private constructor(
             } else {
                 scene.render(canvas.asComposeCanvas(), nanos)
             }
+            if (keepFrames) lastFrame = readCanvas(canvas, width, height)
         }
         if (drew) {
             painted = true
+            framesDrawn++
+            drawnSize = size
             LatencyTrace.frameDrawn(System.nanoTime() - begun)
             // The drawing goes to the server and then the manager is told, in that order. This
             // is the whole of what keeps a dragged edge attached to what is inside it.
@@ -270,6 +300,16 @@ internal class LinuxWindow private constructor(
             return
         }
         heard.add(event)
+    }
+
+    /**
+     * The display's scale changed (`Xft.dpi`, read again by the window when the desktop writes
+     * it). Nothing in the scene has invalidated, so the next turn is told to draw: the frame
+     * reads the new scale from the window and lays the scene out at the new density. Without
+     * this the old frame stays on the screen until something else asks for one.
+     */
+    override fun onScaleChanged(scale: Float) {
+        zoomDirty = true
     }
 
     /**
@@ -401,6 +441,19 @@ internal class LinuxWindow private constructor(
         }
     }
 
+    /**
+     * One turn of [run]'s loop for a check that drives the window itself: the server, the
+     * scene's work, and [processTurn]. Waits up to a frame's length for the server first.
+     */
+    internal fun stepOnce() {
+        x11.pump(FRAME_MILLISECONDS)
+        focused = x11.isFocused
+        onTurn()
+        val woken = work.takeWake()
+        work.runPending()
+        processTurn(woken)
+    }
+
     /** Reads whether the server says the window has the keyboard, for a loop that drives [processTurn]. */
     internal fun pollFocus() {
         focused = x11.isFocused
@@ -510,6 +563,10 @@ internal class LinuxWindow private constructor(
 
             override fun onEvent(event: WindowEvent) {
                 target?.onEvent(event)
+            }
+
+            override fun onScaleChanged(scale: Float) {
+                target?.onScaleChanged(scale)
             }
 
             override fun onCloseRequested(): Boolean = target?.onCloseRequested() ?: true
