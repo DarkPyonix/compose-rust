@@ -84,10 +84,11 @@ jobs:
 
       - name: Install squashfs-tools and libfuse2
         # vpk builds the AppImage's file system with mksquashfs, and the AppImage runtime
-        # vpk uses mounts itself through libfuse2, which Ubuntu 24.04 ships as libfuse2t64.
+        # vpk uses (AppImageKit's) mounts itself through libfuse2, which Ubuntu 24.04 ships
+        # as libfuse2t64. libfuse2 mounts by running fusermount, which fuse3 provides.
         run: |
           sudo apt-get update
-          sudo apt-get install -y squashfs-tools libfuse2t64
+          sudo apt-get install -y squashfs-tools libfuse2t64 fuse3
 
       - name: Install vpk
         run: |
