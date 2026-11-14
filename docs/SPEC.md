@@ -1238,6 +1238,14 @@ iOS 메모의 뒤로·실행 취소·공유·더 보기·완료, Gemini의 새 �
   2. `icon`과 `text`를 함께 단 `Button`은 둘 다 그립니다.
   3. 글자가 빈 아이콘 버튼도 접근성 이름을 갖습니다.
 
+**샘플 참조의 아이콘 역할** (이슈 #539, #602; [leader, provisional], 2026-11-15). 참조 화면에 필요한 뜻을 `IconRole`에 추가합니다. 기존 태그 1–21은 그대로 두고 다음 태그를 끝에 추가합니다: `Lock=22`, `Favorite=23`, `Book=24`, `Sleep=25`, `Play=26`, `Pause=27`, `Shuffle=28`, `ExpandMore=29`, `Person=30`, `Clock=31`, `Tune=32`, `Chat=33`, `Star=34`, `Calendar=35`, `Bag=36`, `Bell=37`, `Repeat=38`, `Alarm=39`, `Lightbulb=40`, `Hash=41`, `Undo=42`, `Share=43`, `Save=44`, `Format=45`, `Bold=46`, `Italic=47`, `Underline=48`, `Strikethrough=49`, `BulletedList=50`, `NumberedList=51`, `Indent=52`, `Outdent=53`, `Quote=54`, `Pin=55`, `Calculator=56`, `Language=57`. `Pin`은 창을 항상 위에 두는 동작이고 `Calculator`는 계산기 모드 선택입니다. `Favorite`은 하트, `Star`는 별입니다.
+
+수용 기준:
+1. 각 역할이 서로 다른 고정 태그로 인코딩·디코딩되며 기존 태그와 미지의 태그 동작이 변하지 않습니다.
+2. 일곱 디자인 시스템 모두 각 역할에 알아볼 수 있는 아이콘을 그리며, 버튼과 탐색 항목에서 빈 글리프로 남지 않습니다. 각 시스템의 크기·선 두께·끝 모양과 색을 따릅니다.
+3. iOS 시스템 탭 막대도 각 역할을 시스템 심볼로 변환합니다. 아이콘 버튼은 빈 글자일 때도 역할에 맞는 접근성 이름을 갖습니다.
+4. 가벼운 테마와 어두운 테마에서 전 역할을 검사하고, 계산기와 팟캐스트 참조에 필요한 역할을 각 화면이 사용할 수 있습니다.
+
 **SVG 에셋 아이콘**(이슈 #303, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Icon::asset(AssetId)`(속성 `IconAsset`, 속성 태그 205): FR-16의 SVG 에셋을 아이콘 자리에 그리고, 아이콘의 색(역할 또는 `color`)으로 칠합니다. 채움과 선의 색을 그 색으로 바꾸고 알파는 유지합니다. 아이콘 크기 규칙은 `IconRole` 아이콘과 같습니다. 수용 기준: 검은 선의 SVG를 `ColorRole::Primary` 아이콘으로 그리면 선 픽셀이 Primary 색이고, 밝음과 어두움에서 각각 그 색입니다(fr16_icon_asset_takes_the_icon_tint).
 
 ### FR-17 커스텀 드로잉 (`Agreed`)
