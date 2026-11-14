@@ -87,8 +87,8 @@ fn sheet_property_records(
 
 #[test]
 fn fr21_sheet_default_presentation_is_edge() {
-    assert_eq!(PropertyKind::Presentation as u16, 203);
-    assert_eq!(PropertyKind::MaxWidth as u16, 204);
+    assert_eq!(PropertyKind::Presentation as u16, 206);
+    assert_eq!(PropertyKind::MaxWidth as u16, 207);
     assert_eq!(SheetPresentation::try_from(0), Ok(SheetPresentation::Edge));
     assert_eq!(
         SheetPresentation::try_from(1),

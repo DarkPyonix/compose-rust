@@ -185,7 +185,6 @@ internal fun HostSheet(
     val isCentered = presentation == SheetPresentation.Centered && !isCompact
     val maxWidthVal = node.intProp(PropertyKind.MaxWidth)
     val maxWidthDp = if (maxWidthVal != null && maxWidthVal > 0L) maxWidthVal.toInt().dp else 560.dp
-    val focusManager = LocalFocusManager.current
     val style = theme.rules.sheet(sizeClass, theme)
     val bottom = if (isCentered) false else (if (presentation == SheetPresentation.Centered) true else style.edge == SheetEdge.Bottom)
     val threshold = with(LocalDensity.current) { DISMISS_TRAVEL.toPx() }
@@ -276,6 +275,7 @@ internal fun HostSheet(
     }
 
     platformModalOverlayWindow(close, onEscape) {
+        val focusManager = LocalFocusManager.current
         ModalOverlayFocus(node.id, surfaceRequester, onEscape)
         // The scrim covers the whole window, keyboard or not. Only the sheet moves up, so
         // the field inside it is above the keyboard.

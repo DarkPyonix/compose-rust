@@ -58,6 +58,7 @@ import dev.darkpyonix.composerust.design.FieldUnderline
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.letterSpacingProp
 import dev.darkpyonix.composerust.ui.role
@@ -358,6 +359,7 @@ internal fun HostTextField(
             it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
     }
     val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
+    val caretColor = node.paintProp(PropertyKind.CaretColor)?.let { theme.color(it) } ?: frame.cursor
 
     BasicTextField(
         value = value,
@@ -367,7 +369,7 @@ internal fun HostTextField(
         singleLine = !multiline,
         textStyle = textStyle,
         visualTransformation = fieldText,
-        cursorBrush = SolidColor(frame.cursor),
+        cursorBrush = SolidColor(caretColor),
         decorationBox = { inner ->
             Box(
                 Modifier
@@ -404,11 +406,12 @@ internal fun HostTextField(
                 contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
+                    val placeholderColor = node.paintProp(PropertyKind.PlaceholderColor)?.let { theme.color(it) }
+                        ?: theme.color(ColorRole.OnSurfaceVariant).copy(alpha = PLACEHOLDER_ALPHA)
                     ThemedText(
                         brokenPlaceholder,
                         style = textStyle.copy(
-                            color = theme.color(ColorRole.OnSurfaceVariant)
-                                .copy(alpha = PLACEHOLDER_ALPHA),
+                            color = placeholderColor,
                         ),
                     )
                 }

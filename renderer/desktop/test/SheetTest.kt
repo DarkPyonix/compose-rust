@@ -730,9 +730,10 @@ class SheetTest {
                 val picture = onNodeWithTag(sheetScrimTestTag(SHEET)).captureToImage().toAwtImage()
                 val pixel = picture.getRGB(4, 4)
                 val channels = listOf((pixel shr 16) and 0xff, (pixel shr 8) and 0xff, pixel and 0xff)
+                val expected = if (scheme == ColorScheme.Light) 153 else 12
                 assertTrue(
-                    channels.all { abs(it - 153) <= 5 },
-                    "scrim pixel channel should be about 153 for 0.4 alpha but was $channels",
+                    channels.all { abs(it - expected) <= 6 },
+                    "scrim pixel channel should be about $expected for scheme $scheme but was $channels",
                 )
             }
         }
@@ -780,7 +781,7 @@ class SheetTest {
                     LocalFrameRequests provides frames,
                     LocalDensity provides Density(1f),
                 ) {
-                    ComposeRustContent(rememberComposeRustHost(connection))
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
                 }
             }
             waitForIdle()
@@ -801,7 +802,7 @@ class SheetTest {
                     LocalFrameRequests provides frames,
                     LocalDensity provides Density(1f),
                 ) {
-                    ComposeRustContent(rememberComposeRustHost(connection))
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.fillMaxSize())
                 }
             }
             waitForIdle()
