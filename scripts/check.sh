@@ -33,7 +33,9 @@ else
 fi
 
 cargo fmt --all -- --check
-cargo clippy --workspace -- -D warnings
+# Test targets too, so a lint in a test cannot sit unnoticed until someone runs
+# --all-targets by hand (#572).
+cargo clippy --workspace --all-targets -- -D warnings
 # The token tables are compared with the design systems in the Compose fork, at the commit
 # the renderer is built from. The test reads them from .scratch and fails if they are absent.
 ./scripts/fetch-design-systems.sh > /dev/null
