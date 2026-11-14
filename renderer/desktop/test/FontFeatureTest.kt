@@ -14,6 +14,7 @@ import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.FontRef
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -21,6 +22,7 @@ import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.TableError
@@ -262,19 +264,75 @@ class FontFeatureTest {
         // Reading the node's text costs the same with features as without.
         fun perRead(node: dev.darkpyonix.composerust.ui.node.Node): Long {
             var sink = 0
-            repeat(20_000) { sink += node.textInput().fontFeatures?.length ?: 0 }
+            repeat(50_000) { sink += node.textInput().fontFeatures?.length ?: 0 }
             val before = threads.currentThreadAllocatedBytes
             repeat(50_000) { sink += node.textInput().fontFeatures?.length ?: 0 }
             val bytes = (threads.currentThreadAllocatedBytes - before) / 50_000L
             check(sink >= 0)
             return bytes
         }
+        perRead(plain)
+        perRead(featured)
         val withFeatures = perRead(featured)
         val without = perRead(plain)
         assertTrue(
             withFeatures <= without + 8,
             "reading a text with features allocated $withFeatures bytes where one without took $without",
         )
+    }
+
+    @Test
+    fun fr83_measured_font_features_match_drawn_text() = runComposeUiTest {
+        val featured = listOf(noRole, ownFont, size, tnum)
+        val plain = listOf(noRole, ownFont, size)
+        startHost(
+            FakeHostConnection(
+                screen(WidgetKind.Text, 0, "1111" to featured, "0000" to featured, "1111" to plain, "0000" to plain),
+            ),
+            Density(1f),
+        )
+        val drawnFeaturedOnes = width(drawnLayout(FIRST))
+        val drawnFeaturedZeros = width(drawnLayout(FIRST + 1))
+        val drawnPlainOnes = width(drawnLayout(FIRST + 2))
+        val drawnPlainZeros = width(drawnLayout(FIRST + 3))
+
+        val requests = MeasureRequests()
+            .text("1111", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), fontFeatures = record("tnum", 1))
+            .text("0000", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), fontFeatures = record("tnum", 1))
+            .text("1111", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)))
+            .text("0000", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)))
+
+        val out = resultBuffer(requests.count)
+        var status = 0
+        var results: List<MeasuredResult> = emptyList()
+        runOnIdle {
+            status = RendererMeasure.measure(requests.encode(), requests.count, out)
+            results = out.results(requests.count)
+        }
+        assertEquals(MeasureRecords.CALL_OK, status)
+
+        assertEquals(MeasureRecords.STATUS_OK, results[0].status)
+        assertEquals(MeasureRecords.STATUS_OK, results[1].status)
+        assertEquals(MeasureRecords.STATUS_OK, results[2].status)
+        assertEquals(MeasureRecords.STATUS_OK, results[3].status)
+
+        assertEquals(drawnFeaturedOnes.toRawBits(), results[0].width.toRawBits(), "1111 with tnum measured vs drawn")
+        assertEquals(drawnFeaturedZeros.toRawBits(), results[1].width.toRawBits(), "0000 with tnum measured vs drawn")
+        assertEquals(drawnPlainOnes.toRawBits(), results[2].width.toRawBits(), "1111 plain measured vs drawn")
+        assertEquals(drawnPlainZeros.toRawBits(), results[3].width.toRawBits(), "0000 plain measured vs drawn")
+
+        assertEquals(results[0].width, results[1].width, "with tnum 1111 and 0000 measure the same width")
+        assertTrue(results[3].width - results[2].width > 10f, "without features 0000 is wider than 1111")
+
+        val malformedRequests = MeasureRequests()
+            .text("1234", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), fontFeatures = byteArrayOf(0, 0, 0, 0, 1, 0, 0, 0))
+        val malformedOut = resultBuffer(1)
+        var malformedStatus = 0
+        runOnIdle {
+            malformedStatus = RendererMeasure.measure(malformedRequests.encode(), 1, malformedOut)
+        }
+        assertEquals(MeasureRecords.CALL_OK, malformedStatus)
+        assertEquals(MeasureRecords.STATUS_MALFORMED, malformedOut.results(1).single().status)
     }
 
     private val threads = java.lang.management.ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean

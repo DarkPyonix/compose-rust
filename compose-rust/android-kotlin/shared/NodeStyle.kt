@@ -61,6 +61,18 @@ internal fun Node.letterSpacingProp(): Float? =
         else -> null
     }
 
+/**
+ * The line height the Host set, in sp, or null where it set none or NaN (normal).
+ * CSS `line-height: normal` travels as NaN so the drawing side uses the font's own
+ * metrics (TextUnit.Unspecified), matching the measure side.
+ */
+internal fun Node.lineHeightProp(): Float? =
+    when (val value = props[PropertyKind.LineHeight]) {
+        is PropertyValue.Float -> value.value.takeUnless { it.isNaN() || it == 0f }
+        is PropertyValue.Integer -> value.value.toFloat().takeIf { it != 0f }
+        else -> null
+    }
+
 internal fun Node.intProp(kind: PropertyKind): Long? =
     (props[kind] as? PropertyValue.Integer)?.value?.takeIf { it != 0L }
 
@@ -102,7 +114,7 @@ internal fun Node.textStyle(theme: ResolvedTheme, defaultRole: TypeRole = TypeRo
         fontWeight = intProp(PropertyKind.FontWeight)
             ?.let { androidx.compose.ui.text.font.FontWeight(it.toInt()) }
             ?: token.composeWeight,
-        lineHeight = floatProp(PropertyKind.LineHeight)?.sp ?: token.composeLineHeight,
+        lineHeight = lineHeightProp()?.sp ?: token.composeLineHeight,
         letterSpacing = letterSpacingProp()?.sp ?: token.composeLetterSpacing,
         fontFamily = theme.family(role),
         textAlign = when (role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray())) {
