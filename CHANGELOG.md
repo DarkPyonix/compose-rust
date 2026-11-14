@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Symbols the web's default family lacks draw as glyphs
+
+On the web, a character Roboto has no glyph for was an empty box, because a canvas in a browser has none of the machine's fonts to fall back on: the backspace sign `U+232B`, the small down triangle `U+25BE` and the play triangle `U+25B6` drew as glyphs on every target but that one. The web bundle now carries a fallback face beside the Roboto faces, a cut of Noto Sans Symbols 2 (SIL Open Font License 1.1, `renderer/web/resources/fonts/OFL.txt`) with all of Geometric Shapes and the keyboard and media signs of Arrows and Miscellaneous Technical. Text in the default family (a role's face, `system-ui`, `sans-serif`, `ui-sans-serif`, and text that names no font), a font list of registered faces, a registered stack and a role set in a registered face all draw a letter none of their families has from it. Other targets are unchanged: they have no fallback faces of their own and leave such a letter to the machine's fonts ([#525](https://github.com/DarkPyonix/compose-rust/issues/525)).
+
 ### The window's density reaches the Host
 
 The Renderer tells the Host how many device pixels one dp of a window covers with a new event, `DensityChanged` (event tag 53, one `f32`, a 20 byte record): once before the first frame, and again when the value changes, as when a window moves to a screen of another scale. `compose_rust::density()` reads it and is 1.0 until the first report. `compose_rust::density::subscribe` calls back on a change and not on a repeat of the same value, which is where a cache of measurements made at the old density is emptied. In a multi-window application the report names its `Window` node, and `WindowHandle::density()`, `density::density_of` and `density::subscribe_window` read and follow one window. The zoom is not part of the value and keeps its own report. A scale of zero, below zero or NaN is a protocol error. The new event moves the schema hash and adds a record to the `events.bin` protocol vector, so a Host and a renderer must come from the same release ([DarkPyonix/dioxus-compose#240](https://github.com/DarkPyonix/dioxus-compose/issues/240)).
