@@ -6,9 +6,9 @@
 #   release check) still runs every job.
 # - Its plan job runs scripts/ci-suites.sh, and every other job runs only when the plan says so,
 #   and so every job is named in the script and every name in the script is a job.
-# - The script's answers: `all` is every job, `fast` the three short ones, a list exactly the
-#   jobs it names plus the Windows kit for a job that downloads it, and an unknown name is an
-#   error, not a smaller run.
+# - The script's answers: `all` is every job but the measurements, `measure` those, `fast` the
+#   three short ones, a list exactly the suites and jobs it names plus the Windows kit for a job
+#   that downloads it, and an unknown name is an error, not a smaller run.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 suites="$root/scripts/ci-suites.sh"
@@ -56,9 +56,13 @@ print('ok    ci.yml runs each job on the plan, the default is all, and the scrip
 PY
 
 on() { "$suites" "$1" | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
-all_jobs="$("$suites" all | sed 's/=.*//' | sort | tr '\n' ' ')"
-[[ "$(on all)" == "$all_jobs" ]] && ok "all runs every job" || fail "all ran $(on all), not $all_jobs"
-[[ "$(on '')" == "$all_jobs" ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
+every_job="$("$suites" all | sed 's/=.*//' | sort | tr '\n' ' ')"
+measuring="test_windows_resize_metrics test_windows_resize_probe "
+gating="$(printf '%s\n' $every_job | grep -vxE 'test_windows_resize_metrics|test_windows_resize_probe' | tr '\n' ' ')"
+[[ "$(on all)" == "$gating" ]] && ok "all runs every job but the measurements" || fail "all ran $(on all), not $gating"
+[[ "$(on '')" == "$gating" ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
+[[ "$(on measure)" == "$measuring" ]] && ok "measure runs the jobs that only report numbers" || fail "measure ran $(on measure)"
+[[ "$(on all,measure)" == "$every_job" ]] && ok "all,measure is every job" || fail "all,measure ran $(on all,measure)"
 [[ "$(on fast)" == "test test_graalvm_renderer test_windows_c " ]] &&
     ok "fast is the tests, the GraalVM renderer smoke and the Windows C compile" || fail "fast ran $(on fast)"
 [[ "$(on 'test_windows_c, test')" == "test test_windows_c " ]] &&
