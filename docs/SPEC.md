@@ -2955,7 +2955,8 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
-8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
+8. 그릴 때의 `line_height`(이슈 #91). 지정하지 않은 값과 NaN은 역할의 행간(역할이 없으면 폰트 자체의 행간 normal, Compose의 `TextUnit.Unspecified`)을 씁니다. 측정 요청의 `line_height`(PR-2.1, "NaN이면 normal")와 같은 규칙이며, CSS `line-height: normal`이 역할을 가진 텍스트에는 역할의 행간으로, `TypeRole::None` 텍스트에는 폰트 자체의 행간으로 그려지게 합니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
+9. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
   - 곁 표 속성 `SpanMetrics`, 속성 태그 187입니다(121은 `TrackColor`가 이미 써서 옮겼습니다, [leader, provisional] (darkpyonix leader, 2026-11-13)). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
   - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
   - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
@@ -2976,6 +2977,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
 7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
 8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
+9. 그릴 때 `line_height = NaN`은 역할이 없는 텍스트에서 폰트 자체의 행간(normal)으로 그려지고, 측정한 값과 그린 값이 비트 단위로 같습니다(`fr40_normal_line_height_matches_the_drawn_text`).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
