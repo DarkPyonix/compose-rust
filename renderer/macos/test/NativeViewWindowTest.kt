@@ -276,8 +276,19 @@ private class Fixture(
         spin(0.2)
     }
 
+    /** The scene's own view: what the window finds under a point of the page away from every native view. */
+    val sceneView: NSView
+        get() {
+            val content = window.window.contentView!!
+            val point = content.superview!!.convertPoint(inWindow(COLUMN_W + 150.0, COLUMN_H + 40.0), fromView = null)
+            return content.hitTest(point)!!
+        }
+
     fun move(x: Double, y: Double) {
-        window.window.sendEvent(mouse(NSEventTypeMouseMoved, x, y))
+        // A pointer move reaches a view through its tracking area, from the window server; one
+        // made here and sent to the window reaches no view. The scene's tracking area covers the
+        // whole window, native views included, so the scene's view is given it, as AppKit would.
+        sceneView.mouseMoved(mouse(NSEventTypeMouseMoved, x, y))
         spin(0.1)
     }
 
@@ -399,6 +410,13 @@ private fun withWindow(initial: List<Mutation>, body: (Fixture) -> Unit) {
         NSRunLoop.mainRunLoop.addTimer(timer, forMode = NSRunLoopCommonModes)
         window.window.makeKeyAndOrderFront(null)
         spin(0.6)
+        if (!window.window.keyWindow) {
+            // No key window to be had: this process is not the active application, and macOS
+            // does not let a process take the front from another by asking. The window is told
+            // it is key, as AppKit would tell it, so it reports focus as a key window does.
+            println("native view: the window cannot become key here; told it is key directly")
+            window.window.becomeKeyWindow()
+        }
         body(Fixture(window, slot, connection, host))
     } finally {
         timer.invalidate()
