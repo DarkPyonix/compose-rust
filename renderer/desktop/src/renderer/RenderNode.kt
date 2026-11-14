@@ -1,6 +1,12 @@
 package dev.darkpyonix.composerust.ui.node
 
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import dev.darkpyonix.composerust.ui.HitArea
+import dev.darkpyonix.composerust.ui.minimumHitArea
 import androidx.compose.foundation.gestures.TargetedFlingBehavior
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -218,7 +224,10 @@ fun RenderNode(
     // Observation point for the recomposition test; null in production.
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
-    val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // Outside everything else the node has, so the larger area is centred on the box the
+    // node is drawn in and its neighbours are laid out against that box as before.
+    val profiled = measured.minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -1401,3 +1410,56 @@ object LayoutProfile {
 
 /** The containers that become focus targets when they listen for keys. */
 private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
+
+/**
+ * Grows the area that takes a node's presses to the size its `MinTouchTarget` asks for.
+ *
+ * Only the margin around the drawn box is handled here. A press on the box itself is the
+ * node's own, through the press handling it always had; a press in the margin is turned
+ * into the event a press on the box would have sent: a click for a node with a click
+ * handler, and for a selection control the state a press would ask for. A node with no
+ * such handler, or disabled, takes nothing in the margin. Nothing is attached to a node
+ * without the modifier.
+ */
+@Composable
+private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Modifier {
+    val target = node.modifiers.lastOrNull {
+        it is dev.darkpyonix.composerust.protocol.Modifier.MinTouchTarget
+    } as? dev.darkpyonix.composerust.protocol.Modifier.MinTouchTarget ?: return this
+    val size = target.size.takeIf { it.isFinite() && it > 0f } ?: return this
+    val area = remember(node.id) { HitArea() }
+    val enabled = node.flag(PropertyKind.Enabled, default = true)
+    val clickHandler = (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+        as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
+        ?: node.handler(PropertyKind.OnClick)
+    val valueHandler = node.handler(PropertyKind.OnValueChange)
+    val press: (() -> Unit)? = when {
+        !enabled -> null
+        node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
+            {
+                val checked = node.flag(PropertyKind.Checked, default = false)
+                dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
+            }
+        }
+        node.widget == WidgetKind.RadioButton -> valueHandler?.let { id ->
+            { dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, 1.0)) }
+        }
+        else -> clickHandler?.let { id -> { dispatcher.dispatch(HostEvent.Clicked(node.id, id)) } }
+    }
+    val latest = rememberUpdatedState(press)
+    val margin = Modifier.pointerInput(area) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (area.isOnDrawnBox(down.position) || latest.value == null) return@awaitEachGesture
+            down.consume()
+            val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+            up.consume()
+            val position = up.position
+            val inside = position.x >= 0f && position.y >= 0f &&
+                position.x < this.size.width && position.y < this.size.height
+            if (inside) latest.value?.invoke()
+        }
+    }
+    return minimumHitArea(size.dp, area, margin)
+}
+

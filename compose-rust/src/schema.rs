@@ -249,8 +249,8 @@ pub struct EventSchema {
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
     "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,native_visible,on_native_view_focus;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,native_visible,on_native_view_focus;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay;",
     "keys=Enter,Other;",
     "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
@@ -690,6 +690,20 @@ define_wire_enum!(KEY_SCHEMA, Key {
     End = 12,
     PageUp = 13,
     PageDown = 14,
+    // The function keys and the key that opens a context menu, appended after the rest.
+    F1 = 15,
+    F2 = 16,
+    F3 = 17,
+    F4 = 18,
+    F5 = 19,
+    F6 = 20,
+    F7 = 21,
+    F8 = 22,
+    F9 = 23,
+    F10 = 24,
+    F11 = 25,
+    F12 = 26,
+    ContextMenu = 27,
 });
 
 define_wire_enum!(WINDOW_SIZE_CLASS_SCHEMA, WindowSizeClass {
@@ -1221,7 +1235,8 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
 // language server or an extension host already speaks in, so an application can pass its
 // answers through without inventing its own. After them, the two backgrounds a diff view
 // is drawn with: a tint across whole lines, the width of the editor, and a stronger one
-// over the characters that changed. Values are only appended.
+// over the characters that changed. Then muted text after the end of a line, which is not
+// text: a blame annotation, an inline value. Values are only appended.
 define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     Underline = 1,
     CodeLens = 2,
@@ -1229,6 +1244,7 @@ define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     GhostText = 4,
     LineBackground = 5,
     RangeBackground = 6,
+    AfterLine = 7,
 });
 
 // How serious an underlined diagnostic is. The four a language server reports, in its
@@ -1722,6 +1738,14 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "PopoverAlign",
         variants: POPOVER_ALIGN_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "ContentScale",
+        variants: CONTENT_SCALE_SCHEMA,
+    },
+    RoleEnumSchema {
+        name: "BackgroundRepeat",
+        variants: BACKGROUND_REPEAT_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1848,6 +1872,29 @@ define_wire_enum!(SNAP_SCHEMA, Snap {
     ItemStart = 1,
 } unlisted {
     None = 0,
+});
+
+// How an `Image` lays its picture into the box it was given, as Compose's `ContentScale`.
+//
+// `Fit` keeps the picture's proportions and shows all of it, centred, leaving the rest of
+// the box empty. `Crop` keeps the proportions and covers the whole box, centred, cutting
+// off what falls outside. `FillBounds` stretches the picture to the box in each direction
+// on its own, which is CSS `object-fit: fill`. Not sending the property draws `Fit`.
+define_wire_enum!(CONTENT_SCALE_SCHEMA, ContentScale {
+    Fit = 1,
+    Crop = 2,
+    FillBounds = 3,
+});
+
+// How a `BackgroundBrush` repeats its rectangle across the node, as CSS
+// `background-repeat` does: not at all, in both directions, along the width only, or
+// along the height only. A repeat runs both ways from the rectangle, so a node is covered
+// to its edges whichever corner the rectangle sits in.
+define_wire_enum!(BACKGROUND_REPEAT_SCHEMA, BackgroundRepeat {
+    NoRepeat = 1,
+    Repeat = 2,
+    RepeatX = 3,
+    RepeatY = 4,
 });
 
 // How the application uses windows. `Single` is every application until now: the
@@ -2556,6 +2603,54 @@ pub enum Modifier {
     CornerCurve {
         smoothing: f32,
     },
+    /// A brush laid into a rectangle of this node and repeated across it, the way CSS
+    /// draws one `background-image` layer with its `background-position`,
+    /// `background-size` and `background-repeat`.
+    ///
+    /// `x`, `y`, `width` and `height` are the rectangle in dp from the node's top left
+    /// corner, which is one tile: a gradient is measured against it, not against the node.
+    /// `repeat` says which ways the tile repeats and `tile_width` and `tile_height` how far
+    /// apart the copies are, in dp; a plain CSS repeat sends the rectangle's own size, and
+    /// `space` or `round` the step the Host worked out. The layer is cut to the node's
+    /// outline, its corners included. Several layers are several of these, the first
+    /// drawn at the bottom, so a Host sends a CSS list last to first. A tile width or
+    /// height of zero or less, and any value that is not a finite number, is refused.
+    BackgroundBrush {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        paint: Paint,
+        repeat: BackgroundRepeat,
+        tile_width: f32,
+        tile_height: f32,
+    },
+    /// Constrains the layout size between minimum and maximum bounds in dp.
+    /// Unconstrained bounds are `f32::NAN`.
+    SizeIn {
+        min_width: f32,
+        max_width: f32,
+        min_height: f32,
+        max_height: f32,
+    },
+    /// Attempts to size content to match an aspect ratio (width / height).
+    AspectRatio {
+        ratio: f32,
+        match_height_constraints_first: bool,
+    },
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller takes presses over a box grown to this size around it, centred on it; its
+    /// size, its place and how it is drawn do not change, so neither does anything laid out
+    /// beside it. A node already this large is not changed.
+    MinTouchTarget {
+        size: f32,
+    },
+    /// A paint laid over the node, over its content and its background, in the outline its
+    /// background fills: the box the node is drawn in, cut to the same corners (`Shape`,
+    /// `ShapeRole` or `CornerEach`, curved as `CornerCurve` says). It takes no room, so a
+    /// node sized by its content stays the size it was. A press tint or a selection wash is
+    /// one of these.
+    Overlay(Paint),
 }
 
 /// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
@@ -3174,6 +3269,55 @@ const CORNER_CURVE_FIELDS: &[FieldSchema] = &[FieldSchema {
     slot: FieldSlot::FirstLow,
 }];
 
+const BACKGROUND_BRUSH_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "x",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "y",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::SecondHigh,
+    },
+    FieldSchema {
+        name: "paint",
+        ty: FieldType::Paint,
+        slot: FieldSlot::Third,
+    },
+    FieldSchema {
+        name: "repeat",
+        ty: FieldType::Role("BackgroundRepeat"),
+        slot: FieldSlot::FourthLow,
+    },
+    FieldSchema {
+        name: "tile_width",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthLow,
+    },
+    FieldSchema {
+        name: "tile_height",
+        ty: FieldType::FiniteFloat,
+        slot: FieldSlot::FifthHigh,
+    },
+];
+
+const MIN_TOUCH_TARGET_FIELDS: &[FieldSchema] = &[FieldSchema {
+    name: "size",
+    ty: FieldType::Float,
+    slot: FieldSlot::FirstLow,
+}];
+
 const SEMANTICS_FIELDS: &[FieldSchema] = &[
     FieldSchema {
         name: "role",
@@ -3184,6 +3328,42 @@ const SEMANTICS_FIELDS: &[FieldSchema] = &[
         name: "state",
         ty: FieldType::U32,
         slot: FieldSlot::SecondLow,
+    },
+];
+
+const SIZE_IN_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "minWidth",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "maxWidth",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstHigh,
+    },
+    FieldSchema {
+        name: "minHeight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondLow,
+    },
+    FieldSchema {
+        name: "maxHeight",
+        ty: FieldType::Float,
+        slot: FieldSlot::SecondHigh,
+    },
+];
+
+const ASPECT_RATIO_FIELDS: &[FieldSchema] = &[
+    FieldSchema {
+        name: "ratio",
+        ty: FieldType::Float,
+        slot: FieldSlot::FirstLow,
+    },
+    FieldSchema {
+        name: "matchHeightConstraintsFirst",
+        ty: FieldType::Bool,
+        slot: FieldSlot::Second,
     },
 ];
 
@@ -3394,6 +3574,38 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         tag: 35,
         extra_words: 0,
         fields: CORNER_CURVE_FIELDS,
+    },
+    // 28, the first of the tags set aside above. The rectangle, the paint, the repeat and
+    // the step take five words, three past the two every record has.
+    VariantSchema {
+        name: "BackgroundBrush",
+        tag: 28,
+        extra_words: 3,
+        fields: BACKGROUND_BRUSH_FIELDS,
+    },
+    VariantSchema {
+        name: "SizeIn",
+        tag: 36,
+        extra_words: 0,
+        fields: SIZE_IN_FIELDS,
+    },
+    VariantSchema {
+        name: "AspectRatio",
+        tag: 37,
+        extra_words: 0,
+        fields: ASPECT_RATIO_FIELDS,
+    },
+    VariantSchema {
+        name: "MinTouchTarget",
+        tag: 38,
+        extra_words: 0,
+        fields: MIN_TOUCH_TARGET_FIELDS,
+    },
+    VariantSchema {
+        name: "Overlay",
+        tag: 39,
+        extra_words: 0,
+        fields: PAINT_FIELD,
     },
 ];
 
@@ -3775,6 +3987,22 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // the `WordWrapMode` tag in the low 16 bits and the column count above them. Absent or
     // 0 breaks no line.
     WordWrap = 200,
+    // How an `Image` lays its picture into its box, as a `ContentScale` tag. Absent or 0
+    // is `Fit`, which is how every picture was drawn before there was a choice. 37 is the
+    // next place in the 28 to 39 block, after the divider's `Vertical`.
+    ContentScale = 37,
+    // The diameter in dp a Slider draws its thumb at, an f32. Absent is the design system's
+    // size. The track and the area that takes a press stay as they are.
+    ThumbSize = 202,
+    // The placeholder text colour and caret colour of a TextField as Paint bits.
+    // Absent leaves the design system's defaults.
+    PlaceholderColor = 203,
+    CaretColor = 204,
+    // The id of an SVG asset an `Icon` draws in its icon slot, tinted with the icon's
+    // colour: every fill and stroke in the picture takes that colour and keeps its own
+    // alpha. It is sized as an `IconRole` icon is, so a row of icons lines up whichever kind
+    // each one is.
+    IconAsset = 205,
     // A `NativeView`'s two properties. 187 is held by a property on another branch.
     //
     // Whether the platform view shows, a boolean. Absent is yes. A hidden view stays in the

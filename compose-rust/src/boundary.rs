@@ -1018,6 +1018,10 @@ impl Host {
         FRAME_REQUESTED.store(false, Ordering::Release);
         EVENT_DISPATCH_ACTIVE.store(false, Ordering::Release);
         DEFERRED_FRAME_REQUEST.store(false, Ordering::Release);
+        // A browser has no thread to wait for midnight on, so the date is checked here,
+        // before the components render, and a reader it wakes renders in this frame.
+        #[cfg(target_family = "wasm")]
+        crate::time::on_frame();
         self.batch().begin();
         self.runtime.render(Some(frame_time_nanos));
         self.flush_pending_appends();

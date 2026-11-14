@@ -39,11 +39,12 @@ pub use crate::message::{Message, show_message};
 pub use crate::runtime::{application, launch};
 pub use crate::schema::SemanticsRole as Role;
 pub use crate::schema::{
-    Alignment, Arrangement, ButtonKind, ButtonVariant, Color, ColorRole, ColorScheme,
-    CompactNavigation, DesignSystem, HorizontalAlignment, IconRole, Key, MaterialRole,
-    MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical, MotionRole, Paint,
-    PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole, TextAlign,
-    TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass, WindowSizeClass,
+    Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
+    ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
+    MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole,
+    TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
+    WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -53,6 +54,7 @@ pub use crate::theme::{ThemeHandle, current_theme};
 pub fn theme() -> ThemeHandle {
     ThemeHandle::default()
 }
+pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
@@ -89,6 +91,57 @@ impl Shadow {
             spread,
             paint,
         }
+    }
+}
+
+/// The most background brush layers one node can carry through this API.
+pub const MAX_BACKGROUND_BRUSHES: usize = 4;
+
+/// One background layer, as CSS draws a `background-image` with its position, size and
+/// repeat: a brush laid into a rectangle of the node, in dp from its top left corner, and
+/// repeated from there. A gradient is measured against the rectangle, not the node. The
+/// layer is cut to the node's outline and painted over its background colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BackgroundBrush {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub paint: Paint,
+    pub repeat: BackgroundRepeat,
+    /// How far apart the copies are, in dp. The rectangle's own size is CSS `repeat`.
+    pub tile_width: f32,
+    pub tile_height: f32,
+}
+
+impl BackgroundBrush {
+    /// One copy of `paint` in the rectangle, not repeated.
+    pub const fn new(x: f32, y: f32, width: f32, height: f32, paint: Paint) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+            paint,
+            repeat: BackgroundRepeat::NoRepeat,
+            tile_width: width,
+            tile_height: height,
+        }
+    }
+
+    /// Repeats the rectangle the given ways, a rectangle's size apart unless
+    /// [`BackgroundBrush::step`] says otherwise.
+    pub const fn repeat(mut self, repeat: BackgroundRepeat) -> Self {
+        self.repeat = repeat;
+        self
+    }
+
+    /// How far apart the copies are, in dp, for CSS `space` and `round`. A step of zero or
+    /// less is not a step, and a layer with one is not sent.
+    pub const fn step(mut self, width: f32, height: f32) -> Self {
+        self.tile_width = width;
+        self.tile_height = height;
+        self
     }
 }
 
@@ -318,6 +371,8 @@ pub struct Modifier {
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
     corner_curve: Option<f32>,
+    min_touch_target: Option<f32>,
+    overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
     border_each: Option<[(f32, Paint); 4]>,
@@ -337,9 +392,12 @@ pub struct Modifier {
     window_drag: Option<bool>,
     offset: Option<(f32, f32)>,
     shadows: [Option<Shadow>; MAX_SHADOWS],
+    background_brushes: [Option<BackgroundBrush>; MAX_BACKGROUND_BRUSHES],
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    size_in: Option<[f32; 4]>,
+    aspect_ratio: Option<(f32, bool)>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -364,6 +422,8 @@ impl Modifier {
             corner_radius: None,
             corner_radii: None,
             corner_curve: None,
+            min_touch_target: None,
+            overlay: None,
             border_width: None,
             border_color: None,
             border_each: None,
@@ -383,9 +443,12 @@ impl Modifier {
             window_drag: None,
             offset: None,
             shadows: [None; MAX_SHADOWS],
+            background_brushes: [None; MAX_BACKGROUND_BRUSHES],
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            size_in: None,
+            aspect_ratio: None,
         }
     }
 
@@ -436,6 +499,76 @@ impl Modifier {
         self.fill_max_width().fill_max_height()
     }
 
+    /// Constrains the size of the content within minimum and maximum bounds in dp.
+    ///
+    /// Pass `f32::NAN` for any bound that should remain unconstrained.
+    pub const fn size_in(
+        mut self,
+        min_width: f32,
+        max_width: f32,
+        min_height: f32,
+        max_height: f32,
+    ) -> Self {
+        self.size_in = Some([min_width, max_width, min_height, max_height]);
+        self
+    }
+
+    /// Constrains width within minimum and maximum bounds in dp, preserving any height constraints.
+    pub const fn width_in(mut self, min: f32, max: f32) -> Self {
+        let (min_h, max_h) = match self.size_in {
+            Some([_, _, min_h, max_h]) => (min_h, max_h),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min, max, min_h, max_h]);
+        self
+    }
+
+    /// Constrains height within minimum and maximum bounds in dp, preserving any width constraints.
+    pub const fn height_in(mut self, min: f32, max: f32) -> Self {
+        let (min_w, max_w) = match self.size_in {
+            Some([min_w, max_w, _, _]) => (min_w, max_w),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min_w, max_w, min, max]);
+        self
+    }
+
+    /// Constrains maximum width in dp, preserving any height constraints.
+    pub const fn max_width(self, max: f32) -> Self {
+        self.width_in(f32::NAN, max)
+    }
+
+    /// Constrains maximum height in dp, preserving any width constraints.
+    pub const fn max_height(self, max: f32) -> Self {
+        self.height_in(f32::NAN, max)
+    }
+
+    /// Constrains minimum width in dp, preserving any height constraints.
+    pub const fn min_width(self, min: f32) -> Self {
+        self.width_in(min, f32::NAN)
+    }
+
+    /// Constrains minimum height in dp, preserving any width constraints.
+    pub const fn min_height(self, min: f32) -> Self {
+        self.height_in(min, f32::NAN)
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio.
+    pub const fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.aspect_ratio = Some((ratio, false));
+        self
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio, optionally matching height constraints first.
+    pub const fn aspect_ratio_match_height(
+        mut self,
+        ratio: f32,
+        match_height_constraints_first: bool,
+    ) -> Self {
+        self.aspect_ratio = Some((ratio, match_height_constraints_first));
+        self
+    }
+
     /// Fills the width only when `fill` is true.
     pub const fn fill_max_width_if(mut self, fill: bool) -> Self {
         self.fill_max_width = fill;
@@ -468,6 +601,22 @@ impl Modifier {
     /// The same, when there may be no background.
     pub const fn background_if(mut self, paint: Option<Paint>) -> Self {
         self.background = paint;
+        self
+    }
+
+    /// A paint laid over the node: over its content and its background, in the box its
+    /// background fills and cut to the same corners (`corner_radius`, `corner_radii`,
+    /// `shape_role`, curved as `corner_curve` says). It takes no room, so a node sized by
+    /// its content keeps its size, and nothing has to restate the node's size or radius.
+    /// A press tint or a selection wash is one of these; give it a colour with alpha.
+    pub const fn overlay(mut self, paint: Paint) -> Self {
+        self.overlay = Some(paint);
+        self
+    }
+
+    /// The same, when there may be no overlay.
+    pub const fn overlay_if(mut self, paint: Option<Paint>) -> Self {
+        self.overlay = paint;
         self
     }
 
@@ -625,6 +774,30 @@ impl Modifier {
         self
     }
 
+    /// Adds a background brush layer. Layers are drawn in the order they are added, the
+    /// first at the bottom, all of them over the background colour. A node takes at most
+    /// [`MAX_BACKGROUND_BRUSHES`]; a layer past that is ignored.
+    pub const fn background_brush(mut self, layer: BackgroundBrush) -> Self {
+        let mut index = 0;
+        while index < MAX_BACKGROUND_BRUSHES {
+            if self.background_brushes[index].is_none() {
+                self.background_brushes[index] = Some(layer);
+                break;
+            }
+            index += 1;
+        }
+        self
+    }
+
+    /// Adds several background brush layers, in order. CSS writes its list top first, so
+    /// a list taken from CSS is added last to first.
+    pub fn background_brushes(mut self, layers: impl IntoIterator<Item = BackgroundBrush>) -> Self {
+        for layer in layers {
+            self = self.background_brush(layer);
+        }
+        self
+    }
+
     /// An opacity for the node and everything in it, faded as one group.
     pub const fn alpha(mut self, alpha: f32) -> Self {
         self.alpha = Some(alpha);
@@ -639,6 +812,16 @@ impl Modifier {
     /// nearer end, and NaN as 0.
     pub fn corner_curve(mut self, smoothing: f32) -> Self {
         self.corner_curve = Some(crate::schema::corner_smoothing(smoothing));
+        self
+    }
+
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller, such as a 26 by 32 dp icon button, takes presses over a box grown to this
+    /// size around it. Its size, its place and how it is drawn stay as they are, so nothing
+    /// laid out beside it moves. Compose's `minimumInteractiveComponentSize` does the same
+    /// for Material's controls; 44 dp is the usual target for a finger. Off unless set.
+    pub const fn min_touch_target(mut self, dp: f32) -> Self {
+        self.min_touch_target = Some(dp);
         self
     }
 
@@ -898,6 +1081,8 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "corner_curve", float(modifier.corner_curve));
+    push(false, "min_touch_target", float(modifier.min_touch_target));
+    push(false, "overlay", paint(modifier.overlay));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
         true,
@@ -1034,6 +1219,28 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(
         false,
+        "background_brushes",
+        if modifier.background_brushes[0].is_none() {
+            OwnedAttr::None
+        } else {
+            let mut bytes = Vec::new();
+            for layer in modifier.background_brushes.iter().flatten() {
+                for value in [layer.x, layer.y, layer.width, layer.height] {
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                bytes.extend_from_slice(&layer.paint.to_bits().to_le_bytes());
+                bytes.extend_from_slice(&u32::from(u16::from(layer.repeat)).to_le_bytes());
+                bytes.extend_from_slice(&layer.tile_width.to_le_bytes());
+                bytes.extend_from_slice(&layer.tile_height.to_le_bytes());
+                // Padding to the layer's 40 bytes, so a layer starts on an eight byte
+                // boundary as the writer reads it.
+                bytes.extend_from_slice(&[0; 4]);
+            }
+            OwnedAttr::Bytes(bytes)
+        },
+    );
+    push(
+        false,
         "animated_alpha",
         modifier.animated_alpha.map_or(OwnedAttr::None, |value| {
             OwnedAttr::Bytes(crate::animation::animated_bytes(
@@ -1064,6 +1271,32 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                 &value.spec,
             ))
         }),
+    );
+    push(
+        false,
+        "size_in",
+        modifier
+            .size_in
+            .map_or(OwnedAttr::None, |[min_w, max_w, min_h, max_h]| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&min_w.to_le_bytes());
+                bytes.extend_from_slice(&max_w.to_le_bytes());
+                bytes.extend_from_slice(&min_h.to_le_bytes());
+                bytes.extend_from_slice(&max_h.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    push(
+        false,
+        "aspect_ratio",
+        modifier
+            .aspect_ratio
+            .map_or(OwnedAttr::None, |(ratio, match_height)| {
+                let mut bytes = Vec::with_capacity(5);
+                bytes.extend_from_slice(&ratio.to_le_bytes());
+                bytes.push(u8::from(match_height));
+                OwnedAttr::Bytes(bytes)
+            }),
     );
 }
 

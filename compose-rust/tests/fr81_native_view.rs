@@ -43,7 +43,7 @@ fn vector_parent() -> HostEvent<'static> {
 
 fn vector_focus() -> HostEvent<'static> {
     HostEvent {
-        node_id: 23,
+        node_id: 24,
         handler_id: 301,
         payload: EventPayload::NativeViewFocus { focused: true },
     }
@@ -115,11 +115,11 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     let handle = NativeHandle(codegen::NATIVE_VIEW_VECTOR_HANDLE);
     let expected = vec![
         Mutation::AttachNativeView {
-            node_id: 23,
+            node_id: 24,
             handle,
         },
         Mutation::FocusNativeView {
-            node_id: 23,
+            node_id: 24,
             focus: true,
         },
     ];
@@ -127,16 +127,16 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The node they name is a NativeView, hidden, with a focus handler.
     let all = decode_batch(MUTATIONS).unwrap();
     assert!(all.contains(&Mutation::Create {
-        node_id: 23,
+        node_id: 24,
         widget: WidgetKind::NativeView
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 23,
+        node_id: 24,
         property: PropertyKind::NativeVisible,
         value: PropertyValue::Bool(false),
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 23,
+        node_id: 24,
         property: PropertyKind::OnNativeViewFocus,
         value: PropertyValue::Integer(301),
     }));

@@ -102,7 +102,10 @@ class ProtocolVectorsTest {
         val created = mutations.filterIsInstance<Mutation.Create>().map { it.nodeId }.toSet()
         val badRecords = mutations.count { mutation ->
             when (mutation) {
-                is Mutation.SetProp -> mutation.nodeId !in created
+                // The vector's picture icon names an id nothing registers, so drawing it is
+                // reported once.
+                is Mutation.SetProp -> mutation.nodeId !in created ||
+                    mutation.property == PropertyKind.IconAsset
                 is Mutation.SetModifier -> mutation.nodeId !in created
                 is Mutation.Insert -> mutation.nodeId !in created
                 is Mutation.Move -> mutation.nodeId !in created
@@ -465,16 +468,16 @@ class ProtocolVectorsTest {
     fun fr81_native_view_records_round_trip_through_the_protocol_vectors() {
         val mutations = decodeVector("mutations.bin")
         assertEquals(
-            listOf(Mutation.AttachNativeView(nodeId = 23, handle = 0x0000_7f8a_1234_5670L)),
+            listOf(Mutation.AttachNativeView(nodeId = 24, handle = 0x0000_7f8a_1234_5670L)),
             mutations.filterIsInstance<Mutation.AttachNativeView>(),
         )
         assertEquals(
-            listOf(Mutation.FocusNativeView(nodeId = 23, focus = true)),
+            listOf(Mutation.FocusNativeView(nodeId = 24, focus = true)),
             mutations.filterIsInstance<Mutation.FocusNativeView>(),
         )
-        assertTrue(Mutation.Create(23, WidgetKind.NativeView) in mutations)
-        assertTrue(Mutation.SetProp(23, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
-        assertTrue(Mutation.SetProp(23, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
+        assertTrue(Mutation.Create(24, WidgetKind.NativeView) in mutations)
+        assertTrue(Mutation.SetProp(24, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
+        assertTrue(Mutation.SetProp(24, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
         assertEquals(1787 + 24, bytes.size, "the two events are the last in the vector")
@@ -492,7 +495,7 @@ class ProtocolVectorsTest {
         assertEquals(32, parentLength)
         assertEquals(bytes.copyOfRange(1755, 1755 + 32).toList(), out.array().copyOf(parentLength).toList())
         out.clear()
-        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 23, handlerId = 301L, focused = true), out)
+        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 24, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
         assertEquals(bytes.copyOfRange(1787, 1787 + 24).toList(), out.array().copyOf(focusLength).toList())
     }
@@ -622,6 +625,17 @@ class ProtocolVectorsTest {
         )
     }
 
+    /** The icon drawn from a picture in its own colour names the picture by its own property. */
+    @Test
+    fun fr16_icon_asset_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(23, WidgetKind.Icon) in mutations)
+        assertEquals(
+            listOf(Mutation.SetProp(23, PropertyKind.IconAsset, PropertyValue.Integer(9L))),
+            mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 23 },
+        )
+    }
+
     /**
      * The text node's three font features, read from the bytes the Host wrote: tabular
      * figures on, ligatures off, and a character variant whose value is wider than a byte.
@@ -643,6 +657,18 @@ class ProtocolVectorsTest {
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)
+    }
+
+    /**
+     * The Rust encoder wrote one `MinTouchTarget { size: 44.0 }` on node 13. Found by its
+     * kind, because records appended later follow it.
+     */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val targets = decodeVector("mutations.bin").filter { mutation ->
+            mutation is Mutation.SetModifier && mutation.modifier is ProtocolModifier.MinTouchTarget
+        }
+        assertEquals(listOf<Mutation>(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f))), targets)
     }
 
     /**
@@ -772,6 +798,8 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.Overlay(Paint.Literal(0x1F000000)),
+                ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,
@@ -1084,6 +1112,7 @@ class ProtocolVectorsTest {
                 DecorationRecord(0, DecorationKind.GhostText, null, null, 2, 1, 2, 1, 43L, " // end"),
                 DecorationRecord(0, DecorationKind.LineBackground, null, ColorRole.DiffAdded, 1, 0, 2, 0, 0L, ""),
                 DecorationRecord(0, DecorationKind.RangeBackground, null, ColorRole.DiffAdded, 1, 8, 1, 9, 0L, ""),
+                DecorationRecord(0, DecorationKind.AfterLine, null, ColorRole.OnSurfaceVariant, 1, 0, 1, 0, 0L, "You, 2 days ago"),
             ),
             decorations,
         )

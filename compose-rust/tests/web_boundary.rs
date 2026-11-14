@@ -266,12 +266,65 @@ fn pr6_renderer_to_host_calls_are_wasm_imports_with_no_javascript() {
         "the only JavaScript in the Kotlin bridge is installHost; a second @JsFun is a \
          JavaScript forwarder on a call into the Host"
     );
-    assert!(kotlin.contains("external fun installHost(): Int"));
-    for forbidden in ["await", "Promise", "new Uint8Array", "JSON", "BigInt"] {
+    assert!(kotlin.contains("external fun installHost(): kotlin.js.Promise<JsNumber>"));
+    // Start-up is the one asynchronous step, and it is all inside installHost. Everything
+    // else in the bridge is on the call path, where nothing waits, encodes or copies.
+    let install = kotlin
+        .find("@JsFun(")
+        .expect("installHost's @JsFun is missing");
+    let install_end = kotlin[install..]
+        .find("external fun installHost()")
+        .map(|at| install + at)
+        .expect("installHost's declaration is missing");
+    let calls = format!("{}{}", &kotlin[..install], &kotlin[install_end..]);
+    for forbidden in [
+        "await",
+        "Promise.",
+        ".then(",
+        "new Uint8Array",
+        "JSON",
+        "BigInt",
+    ] {
         assert!(
-            !kotlin.contains(forbidden),
-            "the Kotlin bridge mentions {forbidden}, which nothing on the boundary may do"
+            !calls.contains(forbidden),
+            "the Kotlin bridge mentions {forbidden} outside the start-up, which nothing on \
+             the boundary may do"
         );
+    }
+    for forbidden in ["new Uint8Array", "JSON", "BigInt"] {
+        assert!(
+            !kotlin[install..install_end].contains(forbidden),
+            "installHost mentions {forbidden}, which the start-up has no use for"
+        );
+    }
+}
+
+/// A browser refuses to instantiate a module over 8MB synchronously on its main thread, and
+/// a Host that carries an HTML engine is larger than that. So the Host is instantiated with
+/// the asynchronous form and no synchronous compile or instantiation is generated anywhere.
+#[test]
+fn pr6_the_host_is_instantiated_asynchronously() {
+    let kotlin = generate_web_bridge_kotlin();
+    let loader = generate_web_loader_js();
+    assert!(
+        kotlin.contains("return WebAssembly.instantiate(compiled, {"),
+        "the Host has to be instantiated with the asynchronous WebAssembly.instantiate"
+    );
+    assert!(
+        kotlin.contains("}).then((instance) => {"),
+        "and the table filled once that has settled"
+    );
+    assert!(
+        kotlin.contains("if (!compiled) return Promise.resolve(0);"),
+        "a page without a Host still answers a promise, so main has one shape to wait for"
+    );
+    for generated in [&kotlin, &loader] {
+        for synchronous in ["new WebAssembly.Instance", "new WebAssembly.Module"] {
+            assert!(
+                !generated.contains(synchronous),
+                "{synchronous} is generated, which a browser refuses for a module over 8MB"
+            );
+        }
     }
 }
 
@@ -544,6 +597,25 @@ fn pr6_the_page_answers_the_imports_the_host_carries() {
     );
 }
 
+/// In a browser the Host reads the date and the time zone from the page's `Date`, and a
+/// browser timer asks for the frame at whose start it checks whether the date changed. The
+/// instantiation answers all three, or a Host that reads the date would not start.
+#[test]
+fn fr86_the_page_answers_the_time_imports() {
+    let kotlin = generate_web_bridge_kotlin();
+    assert!(
+        kotlin.contains("compose_rust_time: {"),
+        "the instantiation has to answer the compose_rust_time imports"
+    );
+    for answer in [
+        "now_millis: () => Date.now(),",
+        "utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),",
+        "setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);",
+    ] {
+        assert!(kotlin.contains(answer), "missing {answer}");
+    }
+}
+
 /// A page that serves the renderer with no Host beside it still has to come up, because
 /// the renderer is worked on without the other side being built.
 #[test]
@@ -551,7 +623,7 @@ fn nfr5_a_page_without_a_host_says_so_and_carries_on() {
     let kotlin = generate_web_bridge_kotlin();
     let loader = generate_web_loader_js();
     assert!(
-        kotlin.contains("if (!compiled) return 0;"),
+        kotlin.contains("if (!compiled) return Promise.resolve(0);"),
         "a missing Host has to answer zero rather than throw"
     );
     assert!(

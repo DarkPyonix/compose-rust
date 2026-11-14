@@ -77,6 +77,19 @@ class SvgDocument private constructor(
         ?.let { Rect(it[0], it[1], it[0] + it[2], it[1] + it[3]) }
     private val aspect = SvgAspectRatio.parse(root.attributes["preserveAspectRatio"])
 
+    /**
+     * The size the document says it is, in its own units: its viewBox, or where it has none,
+     * a width and a height given as plain numbers. Null where it says neither. Skia's
+     * document answers the same question the same way on the other platforms.
+     */
+    internal val intrinsicSize: Size? = viewBox?.takeIf { it.width > 0f && it.height > 0f }
+        ?.let { Size(it.width, it.height) }
+        ?: run {
+            val w = root.length("width")?.takeIf { it.unit == SvgLengthUnit.Number }?.value
+            val h = root.length("height")?.takeIf { it.unit == SvgLengthUnit.Number }?.value
+            if (w != null && h != null && w > 0f && h > 0f) Size(w, h) else null
+        }
+
     // The picture built for the last viewport it was drawn in. Percentages in it resolve
     // against the viewport, which is the viewBox when there is one and the drawing area when
     // not, so a document with a viewBox is built once and every later frame reuses it.
@@ -90,11 +103,15 @@ class SvgDocument private constructor(
     private var fittedHeight = -1f
     private var fitted: Matrix? = null
 
-    internal fun draw(scope: DrawScope) {
+    /**
+     * Draws into the whole of [scope]'s area. With [fit], the root's own width and height
+     * are set aside and the viewport is the whole area, the way an icon slot sizes a picture.
+     */
+    internal fun draw(scope: DrawScope, fit: Boolean = false) {
         val area = scope.size
         if (area.width <= 0f || area.height <= 0f) return
-        val viewportWidth = width.resolve(area.width)
-        val viewportHeight = height.resolve(area.height)
+        val viewportWidth = if (fit) area.width else width.resolve(area.width)
+        val viewportHeight = if (fit) area.height else height.resolve(area.height)
         if (viewportWidth <= 0f || viewportHeight <= 0f) return
         val box = viewBox
         if (box == null) {

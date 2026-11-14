@@ -6,11 +6,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, NativeVisible, OnNativeViewFocus, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Progress }
 
-enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown }
+enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
 enum class WindowSizeClass { Compact, Medium, Expanded }
 
@@ -153,6 +153,10 @@ enum class VerticalAlignment { Top, Center, Bottom }
 enum class PopoverPlacement { Top, Bottom, Start, End }
 
 enum class PopoverAlign { Start, Center, End }
+
+enum class ContentScale { Fit, Crop, FillBounds }
+
+enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
 
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
@@ -1232,6 +1236,11 @@ sealed interface Modifier {
     data class PressFeedback(val scale: kotlin.Float, val tintAlpha: kotlin.Float) : Modifier
     data class Semantics(val role: dev.darkpyonix.composerust.protocol.SemanticsRole, val state: Int) : Modifier
     data class CornerCurve(val smoothing: kotlin.Float) : Modifier
+    data class BackgroundBrush(val x: kotlin.Float, val y: kotlin.Float, val width: kotlin.Float, val height: kotlin.Float, val paint: Paint, val repeat: dev.darkpyonix.composerust.protocol.BackgroundRepeat, val tile_width: kotlin.Float, val tile_height: kotlin.Float) : Modifier
+    data class SizeIn(val minWidth: kotlin.Float, val maxWidth: kotlin.Float, val minHeight: kotlin.Float, val maxHeight: kotlin.Float) : Modifier
+    data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
+    data class MinTouchTarget(val size: kotlin.Float) : Modifier
+    data class Overlay(val paint: Paint) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1685,25 +1694,6 @@ sealed interface Mutation {
         override fun hashCode(): Int =
             ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
     }
-
-    /**
-     * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
-     * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
-     * takes the node's view out. The view is the Host's: it is never destroyed here.
-     */
-    data class AttachNativeView(val nodeId: Int, val handle: Long) : Mutation
-
-    /** Gives keyboard focus to the platform view of [nodeId] ([focus] true), or back to the scene. */
-    data class FocusNativeView(val nodeId: Int, val focus: Boolean) : Mutation
-}
-
-/** The words of the platform view records: the kinds of window handle a view is made against. */
-object NativeViewWire {
-    const val PARENT_APPKIT = 1
-    const val PARENT_WIN32 = 2
-    const val PARENT_X11 = 3
-    const val PARENT_ANDROID = 4
-    const val PARENT_UIKIT = 5
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1796,8 +1786,6 @@ sealed interface HostEvent {
     data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
-    data class NativeViewParent(override val nodeId: Int, override val handlerId: Long, val handle: Long, val kind: Int, val scale: kotlin.Float) : HostEvent
-    data class NativeViewFocus(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
@@ -1822,7 +1810,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 3742296632135944513L
+    const val SCHEMA_HASH: Long = -8048661024003252955L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1862,8 +1850,6 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
-    private const val TAG_ATTACH_NATIVE_VIEW = 37
-    private const val TAG_FOCUS_NATIVE_VIEW = 38
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
@@ -2112,35 +2098,6 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
-                        )
-                    }
-                    TAG_ATTACH_NATIVE_VIEW -> {
-                        requireRecordLength(length, 24, offset)
-                        // Two reserved words between the node and the handle, which keep the
-                        // handle on an eight byte boundary. A record that sets either is one
-                        // the sides disagree on.
-                        for (reserved in intArrayOf(offset + 8, offset + 12)) {
-                            if (readU32(batch, base, available, reserved) != 0L) {
-                                throw ProtocolException("reserved word is not zero", reserved)
-                            }
-                        }
-                        Mutation.AttachNativeView(
-                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
-                            handle = readU64(batch, base, available, offset + 16),
-                        )
-                    }
-                    TAG_FOCUS_NATIVE_VIEW -> {
-                        requireRecordLength(length, 16, offset)
-                        val focus = readU32(batch, base, available, offset + 8)
-                        if (focus != 0L && focus != 1L) {
-                            throw ProtocolException("invalid focus word $focus", offset + 8)
-                        }
-                        if (readU32(batch, base, available, offset + 12) != 0L) {
-                            throw ProtocolException("reserved word is not zero", offset + 12)
-                        }
-                        Mutation.FocusNativeView(
-                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
-                            focus = focus == 1L,
                         )
                     }
                     TAG_EDIT_CODE_GROUP -> {
@@ -2512,8 +2469,6 @@ object Protocol {
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ScrollChanged -> null
-                is HostEvent.NativeViewParent -> null
-                is HostEvent.NativeViewFocus -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
                 is HostEvent.MotionFinished -> null
@@ -2573,8 +2528,6 @@ object Protocol {
                 is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
                 is HostEvent.ScrollChanged -> 72
-                is HostEvent.NativeViewParent -> 32
-                is HostEvent.NativeViewFocus -> 24
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
                 is HostEvent.MotionFinished -> 24
@@ -2638,8 +2591,6 @@ object Protocol {
                 is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
                 is HostEvent.ScrollChanged -> 60
-                is HostEvent.NativeViewParent -> 61
-                is HostEvent.NativeViewFocus -> 62
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
                 is HostEvent.MotionFinished -> 63
@@ -2877,16 +2828,6 @@ object Protocol {
                     out.putDouble(event.viewportWidthPx)
                     out.putDouble(event.viewportHeightPx)
                 }
-                is HostEvent.NativeViewParent -> {
-                    out.putLong(event.handle)
-                    out.putShort(event.kind.toShort())
-                    out.putShort(0)
-                    out.putFloat(event.scale)
-                }
-                is HostEvent.NativeViewFocus -> {
-                    out.putInt(if (event.focused) 1 else 0)
-                    out.putInt(0)
-                }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
                 is HostEvent.MotionFinished -> {
@@ -3018,7 +2959,6 @@ object Protocol {
         45 -> WidgetKind.Window
         46 -> WidgetKind.FlowRow
         47 -> WidgetKind.Popover
-        48 -> WidgetKind.NativeView
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -3161,8 +3101,11 @@ object Protocol {
         201 -> PropertyKind.Minimap
         199 -> PropertyKind.ViewZones
         200 -> PropertyKind.WordWrap
-        190 -> PropertyKind.NativeVisible
-        191 -> PropertyKind.OnNativeViewFocus
+        37 -> PropertyKind.ContentScale
+        202 -> PropertyKind.ThumbSize
+        203 -> PropertyKind.PlaceholderColor
+        204 -> PropertyKind.CaretColor
+        205 -> PropertyKind.IconAsset
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3182,6 +3125,19 @@ object Protocol {
         Key.End -> 12
         Key.PageUp -> 13
         Key.PageDown -> 14
+        Key.F1 -> 15
+        Key.F2 -> 16
+        Key.F3 -> 17
+        Key.F4 -> 18
+        Key.F5 -> 19
+        Key.F6 -> 20
+        Key.F7 -> 21
+        Key.F8 -> 22
+        Key.F9 -> 23
+        Key.F10 -> 24
+        Key.F11 -> 25
+        Key.F12 -> 26
+        Key.ContextMenu -> 27
     }
 
     private fun windowSizeClassTag(sizeClass: WindowSizeClass): Int = when (sizeClass) {
@@ -3991,6 +3947,21 @@ object Protocol {
         else -> throw ProtocolException("unknown PopoverAlign tag $tag", offset)
     }
 
+    private fun contentScale(tag: Int, offset: Int): ContentScale = when (tag) {
+        1 -> ContentScale.Fit
+        2 -> ContentScale.Crop
+        3 -> ContentScale.FillBounds
+        else -> throw ProtocolException("unknown ContentScale tag $tag", offset)
+    }
+
+    private fun backgroundRepeat(tag: Int, offset: Int): BackgroundRepeat = when (tag) {
+        1 -> BackgroundRepeat.NoRepeat
+        2 -> BackgroundRepeat.Repeat
+        3 -> BackgroundRepeat.RepeatX
+        4 -> BackgroundRepeat.RepeatY
+        else -> throw ProtocolException("unknown BackgroundRepeat tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -4050,6 +4021,11 @@ object Protocol {
         33 -> 0
         34 -> 0
         35 -> 0
+        28 -> 3
+        36 -> 0
+        37 -> 0
+        38 -> 0
+        39 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4090,6 +4066,11 @@ object Protocol {
             33 -> Modifier.PressFeedback(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             34 -> Modifier.Semantics(semanticsRole(first.toInt(), offset), second.toInt())
             35 -> Modifier.CornerCurve(kotlin.Float.fromBits(first.toInt()))
+            28 -> Modifier.BackgroundBrush(finite(kotlin.Float.fromBits(first.toInt()), offset), finite(kotlin.Float.fromBits((first ushr 32).toInt()), offset), finite(kotlin.Float.fromBits(second.toInt()), offset), finite(kotlin.Float.fromBits((second ushr 32).toInt()), offset), paint(readU64(batch, base, available, at + 16), offset), backgroundRepeat(readU64(batch, base, available, at + 24).toInt(), offset), finite(kotlin.Float.fromBits(readU64(batch, base, available, at + 32).toInt()), offset), finite(kotlin.Float.fromBits((readU64(batch, base, available, at + 32) ushr 32).toInt()), offset))
+            36 -> Modifier.SizeIn(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
+            38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
+            39 -> Modifier.Overlay(paint(first, offset))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
