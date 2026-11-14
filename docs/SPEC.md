@@ -626,6 +626,17 @@ LaunchBuilder::new().with_theme(Theme::adaptive(DesignSystem::Material3)).launch
 - 수용 기준: GNOME에서 제목의 중심이 바의 중심과 일치합니다(`fr15_2_a_bar_centres_its_title_where_the_design_system_asks`). **(통과)**
 - 수용 기준: Material 3에서 제목이 바의 다른 자식보다 앞에 섭니다(`fr15_2_a_bar_leads_with_its_title_where_the_design_system_asks`). **(통과)**
 
+**상단 바의 구분선 제어(2026-11-14 구현, 이슈 #541).** 디자인 시스템 규칙이 `ContainerRole.TopAppBar`에 정한 구분선(`separator`: Cupertino의 `OutlineVariant`, Fluent의 스트로크, GNOME의 하이라인 등)을 Host가 끌 수 없었습니다. 배경색을 페이지 색으로 바꾼 통일 샘플(statistics 등)에서 상단 바의 하이라인이 남아 창 상단에 원치 않는 가로선이 그어졌습니다.
+
+`TopAppBar`가 `separator`(`Separator=208`, 불리언) 속성을 받습니다. 빌더는 `hairline(bool)`과 `separator(bool)`를 제공합니다.
+
+- 속성이 `false`로 지정되면 디자인 시스템의 구분선을 그리지 않습니다.
+- 속성이 `true`로 지정되면 디자인 시스템의 구분선(정의되지 않은 시스템은 테마의 `OutlineVariant`)을 그립니다.
+- 속성이 지정되지 않았을 때(`null`), `TopAppBar`가 자체 `Border` 또는 `BorderEach` 수식어를 가지고 있으면 기본 구분선을 생략하고, 그렇지 않으면 디자인 시스템의 기본 구분선 규칙(`style.separator`)을 따릅니다.
+- 수용 기준: Cupertino 테마에서 `TopAppBar`에 `PropertyKind.Separator = false`를 지정하면 구분선을 그리지 않습니다(`fr15_2_topappbar_hairline_false_omits_separator`).
+- 수용 기준: Cupertino 테마에서 자체 Border 수식어를 가진 `TopAppBar`는 별도 separator 속성이 없을 때 기본 구분선을 그리지 않습니다(`fr15_2_topappbar_own_border_omits_separator`).
+- 수용 기준: `TopAppBar().hairline(false)`가 와이어로 `PropertyKind::Separator` 불리언 `false`를 전달합니다(`fr15_2_topappbar_hairline_travels_on_wire`).
+
 #### 14.9 iOS 26의 네이티브 Liquid Glass 셸 (`Agreed`)
 
 14.1-2는 우리가 그릴 수 있는 것과 그릴 수 없는 것을 갈라 놓고, 그릴 수 없는 쪽(시스템이 탭 바와 내비게이션 바에 입히는 진짜 Liquid Glass)을 1.0 범위 밖에 두었습니다. 이 항목이 그 경계를 iOS에 한해 옮깁니다. **그 크롬을 우리가 그리지 않고 시스템의 것을 세우면 진짜 유리를 받습니다.** 결정과 그 근거는 INTENT D15입니다.
@@ -5035,6 +5046,11 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
   - 글꼴에 그 기능이 없으면 아무 일도 일어나지 않고 오류도 아닙니다(브라우저와 같습니다). 일곱 디자인 시스템의 기본 글꼴(SF Pro, Segoe UI, Roboto, Cantarell, Noto Sans 등)이 `tnum`을 갖는지는 수용 기준 7에서 기록합니다.
 - **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702에서 따로 다룹니다(리더 결정, 2026-11-13).
+- **호스트 텍스트 측정(이슈 #708).** 호스트에서 `tnum` 등 글꼴 기능이 지정된 텍스트를 측정할 때도 렌더러가 그릴 때와 같은 폭을 얻을 수 있도록, `MeasureText` 요청 레코드에 글꼴 기능 목록을 싣습니다.
+  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(레코드 80바이트: `font_features_offset@72 u32`, `font_features_count@76 u32`).
+  - 페이로드 영역에 8바이트 고정 레코드(`tag: [u8; 4]`, `value: u32`) 목록을 싣고, 렌더러의 `Measurement.kt`는 `textInput`에서 이를 읽어 `TextInput.fontFeatures`로 전달합니다.
+  - `TextStyle`에 `font_features: Vec<FontFeature>`를 둘 수 있으며, 기본값은 빈 목록입니다. 기능이 없는 텍스트는 빈 목록(count = 0)으로 보내며 기존과 동일하게 측정됩니다.
+  - 오류: 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니거나 16개를 넘으면 해당 레코드의 상태는 `STATUS_MALFORMED`입니다.
 
 수용 기준.
 1. `font_feature_settings(&[FontFeature::TABULAR_NUMS])`인 `Text`는 `FontFeatureSettings` 속성 하나를 보내고, 부르지 않은 `Text`는 보내지 않습니다(`fr83_font_feature_settings_writes_one_property_only_when_set`).
@@ -5045,6 +5061,8 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 6. 길이가 8의 배수가 아닌 blob과 출력 불가능한 태그는 `ProtocolError`를 보내고 프로세스가 죽지 않으며 글은 그려집니다(`fr83_malformed_font_features_are_a_protocol_error`).
 7. 일곱 디자인 시스템의 기본 글꼴에서 `tnum`이 숫자 폭을 같게 하는지 플랫폼마다 기록합니다. 없는 글꼴은 그렇다고 적습니다. 이 항목은 앱을 실행해 확인하는 수동 확인입니다.
 8. 기능을 준 `Text`의 값만 바뀌는 프레임에서 Host와 Renderer 모두 정상 상태 할당이 없습니다(`fr83_font_features_do_not_allocate_in_steady_state`).
+9. `tnum 1` 기능을 준 숫자 문자열(`"1111"`, `"0000"`)을 `MeasureRequests::text`로 측정한 폭과 `Text` 노드로 그린 너비가 비트 단위로 같고, `tnum` 유무에 따른 측정 너비의 변화가 렌더러의 실제 그리기 폭 변화와 일치합니다(`fr83_measured_font_features_match_drawn_text`).
+10. `MeasureRequests::text`에 `font_features`가 전달되면 `font_features_offset@72`와 `font_features_count@76`에 인코딩되어 페이로드의 기능 레코드와 왕복합니다(`fr83_measure_record_carries_font_features`).
 
 ### FR-84 레이아웃 제약 수정자: 크기 범위(`sizeIn`)와 종횡비(`aspectRatio`) (`Done`, 이슈 #603)
 

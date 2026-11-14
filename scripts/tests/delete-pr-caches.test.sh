@@ -36,7 +36,15 @@ for arg in "" "abc" "42; rm -rf /" "../x"; do
     [[ $rc -eq 0 && "$out" == *"::warning"* && ! -s "$work/log" ]] && ok "refuses '$arg'" || bad "accepted '$arg'"
 done
 wf="$repo_root/.github/workflows/cache-cleanup.yml"
-grep -q 'types: \[closed\]' "$wf" && ok "runs on closed pull requests" || bad "trigger"
+# Development CI no longer runs on pull requests, so it saves no refs/pull/N/merge caches,
+# and cache-cleanup.yml stays only as a reusable definition. It reads the pull request from
+# the event payload, which a dispatch does not have, so the dispatched CI must not call it.
+cc_on="$(awk '/^on:/{f=1;next} /^[^ #]/{f=0} f' "$wf")"
+grep -qE '^  workflow_call:' <<<"$cc_on" \
+    && ! grep -qE '^  (pull_request|push|schedule|workflow_dispatch):' <<<"$cc_on" \
+    && ok "is started by no event of its own" || bad "trigger"
+! grep -q 'uses: ./.github/workflows/cache-cleanup.yml' "$repo_root/.github/workflows/ci.yml" \
+    && ok "the dispatched CI, which has no pull request payload, does not call it" || bad "called from ci.yml"
 grep -q 'actions: write' "$wf" && ! grep -qE 'contents: write|pull-requests: write' "$wf" && ok "only actions: write" || bad "permissions"
 grep -q 'base.sha' "$wf" && ok "checks out the base commit's script" || bad "checkout is not base.sha"
 ! grep -q 'pull_request_target' "$wf" && ok "no pull_request_target" || bad "pull_request_target"
