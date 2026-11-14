@@ -87,16 +87,21 @@ have_tools() {
 
 exe_suffix() { [[ "$target" == windows ]] && printf '.exe'; }
 
-# Builds the fixture as $1 and copies it to $2.
+# Builds the fixture as $1 and copies it to $2. The fixture's Cargo.lock is checked in, so
+# the build uses exactly it. FIXTURE_VERSION is read with option_env!, which cargo tracks, so
+# the second build recompiles the fixture with the new version.
 build_fixture() {
     local version="$1" dest="$2"
-    FIXTURE_VERSION="$version" cargo build --release --manifest-path "$fixture_dir/Cargo.toml" >&2 ||
+    FIXTURE_VERSION="$version" cargo build --release --locked --manifest-path "$fixture_dir/Cargo.toml" >&2 ||
         return 1
     cp "$fixture_dir/target/release/velopack-fixture$(exe_suffix)" "$dest"
 }
 
 # Packs $1 (an executable) as version $2 into $3, against the previous release in $4 if
-# given; any further arguments go to the packager. Its JSON goes to $3.json.
+# given; any further arguments go to the packager. Its JSON goes to $3.json. The copy is
+# named after its version, so the packaged name is given: otherwise it would be
+# fixture-1.0.0, a different main executable in each release, and not the
+# velopack-fixture the checks run.
 pack() {
     local executable="$1" version="$2" out="$3" previous="${4:-}"
     shift 4 || shift $#
@@ -104,6 +109,7 @@ pack() {
         scripts/package-velopack.py
         --pack-id "$pack_id" --pack-title VelopackFixture --pack-authors DarkPyonix
         --pack-version "$version"
+        --main-exe velopack-fixture
         --executable "$(to_native "$executable")"
         --output-dir "$(to_native "$out")"
     )
@@ -238,7 +244,7 @@ fr22_6_7_windows_setup_installs_and_a_delta_update_applies() {
     got="$(await_version "$installed" 1.0.1)"
     if [[ "$got" != 1.0.1 ]]; then
         fail "$name" "after the update the installed app printed '$got', not 1.0.1" \
-            "$(find "$root" -maxdepth 2 -name '*.log' -exec tail -n 40 {} \; 2>/dev/null)"
+            "$(tail -n 40 "$(to_unix "$LOCALAPPDATA")/velopack/velopack_$pack_id.log" 2>/dev/null)"
         return 1
     fi
     got="$("$installed" --installed-version | tr -d '\r')"
@@ -319,7 +325,7 @@ fr22_6_12_adhoc_signed_app_receives_velopack_update_and_launches() {
     got="$(await_version "$executable" 1.0.1)"
     if [[ "$got" != 1.0.1 ]]; then
         fail "$name" "after the update the app printed '$got', not 1.0.1" \
-            "$(tail -n 40 "$HOME/Library/Logs/velopack/$pack_id.log" 2>/dev/null)"
+            "$(tail -n 40 "$HOME/Library/Logs/velopack_$pack_id.log" 2>/dev/null)"
         return 1
     fi
     if ! verify="$(codesign --verify --deep --strict --verbose=2 "$app" 2>&1)"; then
@@ -369,7 +375,7 @@ fr22_6_7_linux_appimage_replaces_itself_with_the_update() {
     got="$(await_version "$installed" 1.0.1)"
     if [[ "$got" != 1.0.1 ]]; then
         fail "$name" "after the update the AppImage printed '$got', not 1.0.1" \
-            "$(tail -n 40 "/var/tmp/velopack/$pack_id/"*.log 2>/dev/null)"
+            "$(tail -n 40 "${TMPDIR:-/tmp}/velopack_$pack_id.log" 2>/dev/null)"
         return 1
     fi
     if ! cmp -s "$installed" "$image2"; then
