@@ -3099,7 +3099,7 @@ impl NativeViewScope {
     }
 
     fn compose(&mut self, _content: impl FnOnce()) {
-        let modifier = self.modifier;
+        let modifier = std::mem::take(&mut self.modifier);
         let visible = self.visible;
         let handle = self.handle;
         let mut listeners = Vec::new();
