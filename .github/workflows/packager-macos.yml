@@ -50,7 +50,7 @@ jobs:
 
   velopack-macos:
     name: Velopack packaging and self-update (macOS)
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -120,7 +120,7 @@ jobs:
           EOF
 
           python3 scripts/package-velopack.py \
-            --project-dir /tmp/fixture-app \
+            --project /tmp/fixture-app \
             --executable /tmp/fixture-app/fixture-app \
             --pack-version 1.0.0 \
             --output-dir /tmp/fixture-releases \
@@ -140,7 +140,7 @@ jobs:
           EOF
 
           python3 scripts/package-velopack.py \
-            --project-dir /tmp/fixture-app \
+            --project /tmp/fixture-app \
             --executable /tmp/fixture-app/fixture-app \
             --pack-version 1.0.1 \
             --delta-dir /tmp/fixture-releases \

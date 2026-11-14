@@ -473,7 +473,7 @@ def main(argv=None) -> int:
         prog="package-velopack",
         description="Package application with Velopack and generate delta feeds",
     )
-    parser.add_argument("--project", type=Path, help="Directory containing Cargo.toml and/or Dioxus.toml")
+    parser.add_argument("--project", "--project-dir", dest="project", type=Path, help="Directory containing Cargo.toml and/or Dioxus.toml")
     parser.add_argument("--executable", type=Path, required=True, help="Path to compiled application binary")
     parser.add_argument("--output-dir", type=Path, required=True, help="Directory to write releases and feed")
     parser.add_argument("--delta-dir", type=Path, help="Directory holding previous release for delta generation")
@@ -483,13 +483,17 @@ def main(argv=None) -> int:
     parser.add_argument("--pack-authors", help="Application authors")
     parser.add_argument("--icon", type=Path, help="Icon path")
     parser.add_argument("--channel", help="Velopack channel (default based on OS)")
-    parser.add_argument("--target-os", choices=["macos", "linux", "windows"], help="Target OS override")
+    parser.add_argument("--target-os", choices=["macos", "osx", "linux", "windows", "win"], help="Target OS override")
     parser.add_argument("--vpk", default="vpk", help="Path to vpk CLI binary")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without executing")
 
     args = parser.parse_args(argv)
 
     target_os = args.target_os
+    if target_os == "osx":
+        target_os = "macos"
+    elif target_os == "win":
+        target_os = "windows"
     if not target_os:
         sys_name = platform.system().lower()
         if sys_name == "darwin":
