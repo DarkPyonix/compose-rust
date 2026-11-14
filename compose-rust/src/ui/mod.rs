@@ -54,6 +54,7 @@ pub use crate::theme::{ThemeHandle, current_theme};
 pub fn theme() -> ThemeHandle {
     ThemeHandle::default()
 }
+pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
@@ -370,6 +371,7 @@ pub struct Modifier {
     corner_radius: Option<f32>,
     corner_radii: Option<[f32; 4]>,
     corner_curve: Option<f32>,
+    min_touch_target: Option<f32>,
     overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
@@ -394,6 +396,8 @@ pub struct Modifier {
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    size_in: Option<[f32; 4]>,
+    aspect_ratio: Option<(f32, bool)>,
 }
 
 /// The empty Modifier, to start a chain from: `Modifier.padding(8.0)`.
@@ -418,6 +422,7 @@ impl Modifier {
             corner_radius: None,
             corner_radii: None,
             corner_curve: None,
+            min_touch_target: None,
             overlay: None,
             border_width: None,
             border_color: None,
@@ -442,6 +447,8 @@ impl Modifier {
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            size_in: None,
+            aspect_ratio: None,
         }
     }
 
@@ -490,6 +497,76 @@ impl Modifier {
 
     pub const fn fill_max_size(self) -> Self {
         self.fill_max_width().fill_max_height()
+    }
+
+    /// Constrains the size of the content within minimum and maximum bounds in dp.
+    ///
+    /// Pass `f32::NAN` for any bound that should remain unconstrained.
+    pub const fn size_in(
+        mut self,
+        min_width: f32,
+        max_width: f32,
+        min_height: f32,
+        max_height: f32,
+    ) -> Self {
+        self.size_in = Some([min_width, max_width, min_height, max_height]);
+        self
+    }
+
+    /// Constrains width within minimum and maximum bounds in dp, preserving any height constraints.
+    pub const fn width_in(mut self, min: f32, max: f32) -> Self {
+        let (min_h, max_h) = match self.size_in {
+            Some([_, _, min_h, max_h]) => (min_h, max_h),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min, max, min_h, max_h]);
+        self
+    }
+
+    /// Constrains height within minimum and maximum bounds in dp, preserving any width constraints.
+    pub const fn height_in(mut self, min: f32, max: f32) -> Self {
+        let (min_w, max_w) = match self.size_in {
+            Some([min_w, max_w, _, _]) => (min_w, max_w),
+            None => (f32::NAN, f32::NAN),
+        };
+        self.size_in = Some([min_w, max_w, min, max]);
+        self
+    }
+
+    /// Constrains maximum width in dp, preserving any height constraints.
+    pub const fn max_width(self, max: f32) -> Self {
+        self.width_in(f32::NAN, max)
+    }
+
+    /// Constrains maximum height in dp, preserving any width constraints.
+    pub const fn max_height(self, max: f32) -> Self {
+        self.height_in(f32::NAN, max)
+    }
+
+    /// Constrains minimum width in dp, preserving any height constraints.
+    pub const fn min_width(self, min: f32) -> Self {
+        self.width_in(min, f32::NAN)
+    }
+
+    /// Constrains minimum height in dp, preserving any width constraints.
+    pub const fn min_height(self, min: f32) -> Self {
+        self.height_in(min, f32::NAN)
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio.
+    pub const fn aspect_ratio(mut self, ratio: f32) -> Self {
+        self.aspect_ratio = Some((ratio, false));
+        self
+    }
+
+    /// Attempts to size the content to match a specified aspect ratio, optionally matching height constraints first.
+    pub const fn aspect_ratio_match_height(
+        mut self,
+        ratio: f32,
+        match_height_constraints_first: bool,
+    ) -> Self {
+        self.aspect_ratio = Some((ratio, match_height_constraints_first));
+        self
     }
 
     /// Fills the width only when `fill` is true.
@@ -735,6 +812,16 @@ impl Modifier {
     /// nearer end, and NaN as 0.
     pub fn corner_curve(mut self, smoothing: f32) -> Self {
         self.corner_curve = Some(crate::schema::corner_smoothing(smoothing));
+        self
+    }
+
+    /// The least size, in dp, of the area that takes this node's presses. A node drawn
+    /// smaller, such as a 26 by 32 dp icon button, takes presses over a box grown to this
+    /// size around it. Its size, its place and how it is drawn stay as they are, so nothing
+    /// laid out beside it moves. Compose's `minimumInteractiveComponentSize` does the same
+    /// for Material's controls; 44 dp is the usual target for a finger. Off unless set.
+    pub const fn min_touch_target(mut self, dp: f32) -> Self {
+        self.min_touch_target = Some(dp);
         self
     }
 
@@ -994,6 +1081,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         }),
     );
     push(false, "corner_curve", float(modifier.corner_curve));
+    push(false, "min_touch_target", float(modifier.min_touch_target));
     push(false, "overlay", paint(modifier.overlay));
     push(false, "clip", OwnedAttr::Bool(modifier.clip));
     push(
@@ -1183,6 +1271,32 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
                 &value.spec,
             ))
         }),
+    );
+    push(
+        false,
+        "size_in",
+        modifier
+            .size_in
+            .map_or(OwnedAttr::None, |[min_w, max_w, min_h, max_h]| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&min_w.to_le_bytes());
+                bytes.extend_from_slice(&max_w.to_le_bytes());
+                bytes.extend_from_slice(&min_h.to_le_bytes());
+                bytes.extend_from_slice(&max_h.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    push(
+        false,
+        "aspect_ratio",
+        modifier
+            .aspect_ratio
+            .map_or(OwnedAttr::None, |(ratio, match_height)| {
+                let mut bytes = Vec::with_capacity(5);
+                bytes.extend_from_slice(&ratio.to_le_bytes());
+                bytes.push(u8::from(match_height));
+                OwnedAttr::Bytes(bytes)
+            }),
     );
 }
 

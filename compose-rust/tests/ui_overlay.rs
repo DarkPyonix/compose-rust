@@ -19,7 +19,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
     (host, tree)
 }
 
-/// The record is tag 37 and comes back from the decoder as it was written, for a literal and
+/// The record is tag 39 and comes back from the decoder as it was written, for a literal and
 /// for a role.
 #[test]
 fn fr60_overlay_round_trips() {
@@ -27,7 +27,7 @@ fn fr60_overlay_round_trips() {
         .iter()
         .find(|variant| variant.name == "Overlay")
         .expect("the schema names the overlay");
-    assert_eq!(schema.tag, 37);
+    assert_eq!(schema.tag, 39);
     for paint in [WASH, Paint::Role(ColorRole::Primary)] {
         let expected = [Mutation::SetModifier {
             node_id: 3,

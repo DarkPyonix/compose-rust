@@ -169,6 +169,17 @@ fn every_modifier() -> Vec<Modifier> {
             tile_width: 56.0,
             tile_height: 30.0,
         },
+        Modifier::SizeIn {
+            min_width: 10.0,
+            max_width: 200.0,
+            min_height: 20.0,
+            max_height: 120.0,
+        },
+        Modifier::AspectRatio {
+            ratio: 1.5,
+            match_height_constraints_first: true,
+        },
+        Modifier::MinTouchTarget { size: 44.0 },
         Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
     ]
 }

@@ -159,6 +159,12 @@ internal fun fontTracking(family: FontFamily?, weight: Int, italic: Boolean): Fo
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) = drawSvgDocument(document)
 
 /**
+ * Draws the document scaled to the whole of the current drawing area, whatever size its
+ * root declares, the way an icon slot draws a picture.
+ */
+internal fun DrawScope.drawVectorDocumentFitted(document: VectorDocument) = document.draw(this, fit = true)
+
+/**
  * A radial gradient [radiusX] across and [radiusY] tall around [center]: the circle of
  * [radiusX], squashed vertically about its centre by the shader's local matrix.
  */
