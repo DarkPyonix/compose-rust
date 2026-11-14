@@ -5100,7 +5100,7 @@ DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 �
 수용 기준.
 1. 상자 자신이 포커스를 가지면 키 하나에 그 핸들러가 한 번 실행된다. 포커스를 가진 자손 `TextField`가 소비하지 않은 키는 상자에 닿고, 소비한 키는 닿지 않는다(시험 이름 `fr85_a_focused_box_receives_its_own_keys`).
 
-### FR-89 스크롤 컨테이너의 고정 자식 (Sticky) (`Agreed`, 이슈 #424, [leader, provisional] (darkpyonix leader, 2026-11-15))
+### FR-89 스크롤 컨테이너의 고정 자식 (Sticky) (`Done`, 이슈 #424, [leader, provisional] (darkpyonix leader, 2026-11-15))
 
 요청한 쪽: Ember VCS diff 뷰(darkpyonix-ember#249, `TODO(compose-rust#424)`). 가로로 스크롤되는 코드 diff 행 안에서 줄 번호나 체크 열이 화면 밖으로 스크롤되어 사라지지 않고, 시작 가장자리에 고정(pinned)된 채 유지되어야 합니다.
 
