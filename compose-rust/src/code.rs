@@ -331,7 +331,7 @@ pub struct Decoration {
     /// The application's own name for this decoration, reported when it is pressed,
     /// accepted or hovered. Zero means it cannot be pressed and is never reported.
     pub id: u64,
-    /// What a lens or a suggestion shows. Empty for the other two kinds.
+    /// What a lens, a suggestion or an after-line decoration shows. Empty for the other kinds.
     pub text: String,
 }
 
@@ -416,6 +416,22 @@ impl Decoration {
             range,
             id: 0,
             text: String::new(),
+        }
+    }
+
+    /// Muted `text` after the last character of `line`, in the role `color`: who last
+    /// changed the line, or the value a debugger read for it. It is not text. It cannot be
+    /// selected or copied, the caret and End stop before it, a pointer over it is over no
+    /// character, and it moves with its line through the reader's edits.
+    pub fn after_line(version: u32, line: u32, text: impl Into<String>, color: ColorRole) -> Self {
+        Self {
+            version,
+            kind: DecorationKind::AfterLine,
+            severity: None,
+            color: Some(color),
+            range: CodeRange::at(Position::new(line, 0)),
+            id: 0,
+            text: text.into(),
         }
     }
 

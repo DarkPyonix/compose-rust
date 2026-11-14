@@ -183,6 +183,20 @@ internal fun win32ComposeKey(virtualKey: Int): Key = when (virtualKey) {
     0x23 -> Key.MoveEnd
     0x21 -> Key.PageUp
     0x22 -> Key.PageDown
+    // VK_F1 to VK_F12 run in order, and VK_APPS is the context-menu key.
+    0x70 -> Key.F1
+    0x71 -> Key.F2
+    0x72 -> Key.F3
+    0x73 -> Key.F4
+    0x74 -> Key.F5
+    0x75 -> Key.F6
+    0x76 -> Key.F7
+    0x77 -> Key.F8
+    0x78 -> Key.F9
+    0x79 -> Key.F10
+    0x7A -> Key.F11
+    0x7B -> Key.F12
+    0x5D -> Key.Menu
     else -> Key.Unknown
 }
 

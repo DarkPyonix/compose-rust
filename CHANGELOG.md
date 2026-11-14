@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### Compose fork moved to 1.11.1-ext.4
+
+The renderer now builds with the Compose fork's `1.11.1-ext.4` (tag `v1.11.1-ext.4`) for Compose, and with the tip of the fork's `extended` past that tag for the window modules and skiko-awt, all published as `1.11.1-ext.4`. The Compose itself is unchanged from `ext.3` apart from its version. The design systems and the window modules are Java 11 class files (graalvm-linux Java 17), so a JDK 17 or 21 application can load them, and skiko-awt declares its own capability only. The windows gain F1 to F12 and the Menu key everywhere, a single text menu on a right click in a macOS field, an X11 window keeping its size in dp when the scale changes, and on Windows a new size drawn before it is shown after a maximise, restore or snap. Beyond the tag, a macOS native view moves in the same frame as the content under it, and an application can declare a node's accessible role to the Kotlin/Native macOS window.
+
+### A sticky child in a scrolling row or column
+
+`Modifier::sticky()` holds a child of a `ScrollRow` or `ScrollColumn`, at any depth, at the container's start edge while the rest scrolls under it: a diff line's check or line number stays on the screen when the line is scrolled sideways. Its background, border and clip stay with it. `LazyRow` and `LazyColumn` are not covered. A new modifier (tag 41) moves the schema hash ([#424](https://github.com/DarkPyonix/compose-rust/issues/424)).
+### A window's size reaches the Host from its first layout
+
+The window's size is reported to the Host from the layout pass that measured it, as an observed node's already was, rather than from the recomposition that pass schedules. On macOS a window draws only when something asks for a frame, so the Host could stay at 0x0, the compact class, for a long time after the first frame of a 1440x900 window, and lay its page out for a phone ([#773](https://github.com/DarkPyonix/compose-rust/issues/773)).
+
+### A single-line field's placeholder stays on one line
+
+A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).
+### The transient message's colours, line, padding and type
+
+`OverlayTokens` gains the message's fill and text colour for the light and the dark scheme (`toast_container(light, dark)`, `toast_content(light, dark)`), the width of its line (`toast_border_width`, where 0 draws none), its padding (`toast_padding(horizontal, vertical)`) and its text size and line height (`toast_type(size, line_height)`). Each left unset keeps the design system's, so a message with none of them is drawn as before. The renderer takes the colour for the scheme it draws in, so a message can stay inverted against the page in both. The `SetOverlayTokens` record grows from 28 to 56 bytes and the schema hash moves, so a Host and a renderer must come from the same release ([#781](https://github.com/DarkPyonix/compose-rust/issues/781)).
+### Centered Sheet presentation with scrim and focus trap
+
+A `Sheet` can now be presented in the center of the window rather than as an edge drawer: `.presentation(SheetPresentation::Centered)` sets the new `Presentation` property (tag 206) to `Centered` (1). In expanded and medium windows, the sheet appears centered in the window with 24dp rounded corners, a scrim with alpha about 0.4 behind it in both light and dark themes, and no drag handle or drag-to-dismiss gesture. The sheet's width defaults to 560dp and can be configured with `.max_width(dp)` on the new `MaxWidth` property (tag 207), clamped to available window width minus margins. Its height follows content height up to available window height minus margins, scrolling internally when content overflows. Keyboard focus is trapped inside the centered sheet while open, cycling between its focusable controls on Tab and Shift+Tab, and Esc or clicking the scrim dispatches `OnDismiss` once. On compact windows, a centered sheet falls back to bottom sheet presentation with grab handle and drag-to-dismiss ([#344](https://github.com/DarkPyonix/compose-rust/issues/344)).
+
+### Today's date and the local time
+
+`compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).
+
+### Text after the end of a line in the code editor
+
+A decoration kind is appended: `Decoration::after_line(version, line, text, role)` (kind 7) draws muted text after the last character of a line, in the role given, the way an editor shows who last changed a line. It is not text: it cannot be selected or copied, the caret and End stop in front of it, a pointer over it is over no character, and it follows its line through the reader's edits. A copy from the code editor is now always the document's own text, on both paths, and never what the field shows of lenses, suggestions or view zones ([#528](https://github.com/DarkPyonix/compose-rust/issues/528)).
+
+### Layout modifiers: `size_in`, `width_in`, `height_in`, and `aspect_ratio`
+
+`Modifier` now supports bounded size constraints and aspect ratios: `Modifier.size_in(min_w, max_w, min_h, max_h)`, `Modifier.width_in(min, max)`, `Modifier.height_in(min, max)`, `Modifier.max_width(max)`, `Modifier.max_height(max)`, `Modifier.min_width(min)`, `Modifier.min_height(min)`, and `Modifier.aspect_ratio(ratio)` (with `aspect_ratio_match_height(ratio, match_height)`). Unconstrained bounds are passed as `f32::NAN` and map to `Dp.Unspecified` in Compose's `sizeIn` modifier.
+
+### Compose fork moved to 1.11.1-ext.3
+
+The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.
+
+## v0.0.10
+
+v0.0.8 and v0.0.9 were tagged but published no renderer: the Windows GraalVM renderer failed to link, so their releases carry no assets. v0.0.10 is the first release with everything listed under v0.0.9 and v0.0.8 below.
+
+### The Windows GraalVM renderer links again
+
+The window pin of v0.0.8 made the renderer call the macOS window's appearance setter and the Linux window's text factor on every desktop, but only macOS and Linux defined them, so the Windows native image failed to link with two unresolved names. Each is now defined, doing nothing, on the desktops that have no such window, and the symbol check counts both ([#730](https://github.com/DarkPyonix/compose-rust/pull/730)).
+
 ### Word wrap in the code editor
 
 The new `WordWrap` property (tag 200) breaks lines too long for a code editor onto the rows below: `WordWrap::Viewport` at the edge of the view, `WordWrap::Column(n)` at `n` columns, `WordWrap::Bounded(n)` at whichever of the two comes first, and `WordWrap::Off` (the default) at none. It travels as one integer, the `WordWrapMode` tag in the low 16 bits and the columns above them (`WordWrap::to_value`). A row breaks after the last space that fits, or inside a word longer than the row; a tab advances to its stop and an East Asian wide letter takes two columns. A broken line keeps its number on its first row only, Up, Down, Home and End follow the rows, selections and decorations are drawn on the rows, and the lines on screen are still reported as the document's.

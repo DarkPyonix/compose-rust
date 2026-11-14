@@ -38,6 +38,7 @@ pub const SCHEMA_HASH_RELATIVE_PATH: &str = "schema-hash.txt";
 pub const MUTATION_VECTOR_RELATIVE_PATH: &str = "tests/vectors/mutations.bin";
 pub const EVENT_VECTOR_RELATIVE_PATH: &str = "tests/vectors/events.bin";
 pub const TRANSFORM_3D_VECTOR_RELATIVE_PATH: &str = "tests/vectors/transform3d.bin";
+pub const BACKGROUND_BRUSH_VECTOR_RELATIVE_PATH: &str = "tests/vectors/background_brush.bin";
 pub const VECTOR_DESCRIPTION_RELATIVE_PATH: &str = "tests/vectors/vectors.json";
 const KOTLIN_PACKAGE: &str = "dev.darkpyonix.composerust.protocol";
 
@@ -166,6 +167,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -1130,7 +1141,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1145,6 +1156,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -1604,11 +1624,12 @@ object Protocol {
                 )
                 .unwrap();
             }
-            // The selections as little-endian words behind the record.
+            // The selections as little-endian words behind the record, written byte by byte:
+            // the Kotlin/Native buffer this runs on has no `allocate` and no `array`.
             EventPayloadType::CodeSelections => {
                 writeln!(
                     output,
-                    "                is HostEvent.{} -> ByteBuffer.allocate(event.selections.size * 4).order(ByteOrder.LITTLE_ENDIAN).also {{ buffer -> for (value in event.selections) buffer.putInt(value) }}.array()",
+                    "                is HostEvent.{} -> ByteArray(event.selections.size * 4).also {{ bytes -> event.selections.forEachIndexed {{ index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() }} }}",
                     event.name
                 )
                 .unwrap();
@@ -3051,7 +3072,7 @@ fn code_edit_group_vector() -> Result<Vec<u8>, ProtocolError> {
 }
 
 /// One decoration of each kind, with a colour role on one of them and text on two, and the
-/// two backgrounds after them.
+/// two backgrounds and an after-line decoration after them.
 fn code_decoration_vector() -> crate::code::Decorations {
     use crate::code::{CodeRange, Decoration, Position};
     use crate::schema::Severity;
@@ -3063,6 +3084,7 @@ fn code_decoration_vector() -> crate::code::Decorations {
         Decoration::ghost_text(0, Position::new(2, 1), " // end", 43),
         Decoration::line_background(0, 1, 2, ColorRole::DiffAdded),
         Decoration::range_background(0, CodeRange::of(1, 8, 1, 9), ColorRole::DiffAdded),
+        Decoration::after_line(0, 1, "You, 2 days ago", ColorRole::OnSurfaceVariant),
     ])
 }
 
@@ -4046,7 +4068,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .popup_padding(10)
                 .scrim_argb(0x8000_0000)
                 .toast_elevation(7)
-                .toast_corner_radius(14),
+                .toast_corner_radius(14)
+                .toast_container(
+                    crate::schema::Color::argb(0xFF1C_1B19),
+                    crate::schema::Color::argb(0xFFF0_EEE9),
+                )
+                .toast_content(
+                    crate::schema::Color::argb(0xFFFF_FFFF),
+                    crate::schema::Color::argb(0xFF15_1514),
+                )
+                .toast_border_width(0)
+                .toast_padding(16, 10)
+                .toast_type(13, 20),
         ),
         // A text with three font features, one of them a value above one byte, after
         // every older record but the last.
@@ -4115,6 +4148,30 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
+        // An icon drawn from a picture in the icon's colour. No record registers the id it
+        // names, so the Renderer reports it once when it draws the icon.
+        Mutation::Create {
+            node_id: 23,
+            widget: WidgetKind::Icon,
+        },
+        Mutation::SetProp {
+            node_id: 23,
+            property: PropertyKind::IconAsset,
+            value: PropertyValue::Integer(9),
+        },
+        // A button's least touch target, 44 dp, on a node of its own so the html element
+        // box keeps the modifiers it had.
+        Mutation::SetModifier {
+            node_id: 13,
+            index: 0,
+            modifier: Modifier::MinTouchTarget { size: 44.0 },
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4147,6 +4204,29 @@ pub fn generate_transform_3d_vector() -> Result<Vec<u8>, ProtocolError> {
             origin_x: 0.5,
             origin_y: 0.25,
             backface_hidden: true,
+        },
+    })?;
+    Ok(encoder.finish()?.to_vec())
+}
+
+/// One batch holding one `BackgroundBrush` on node 4, the only record 52 bytes long. It is a
+/// file of its own, as the 3D transform is, so that every byte of the main mutation vector
+/// stays where it was. Every field is a different value, so a field read from the wrong
+/// half of the wrong word cannot pass.
+pub fn generate_background_brush_vector() -> Result<Vec<u8>, ProtocolError> {
+    let mut encoder = BatchEncoder::default();
+    encoder.encode(&Mutation::SetModifier {
+        node_id: 4,
+        index: 2,
+        modifier: Modifier::BackgroundBrush {
+            x: 12.5,
+            y: -4.0,
+            width: 48.0,
+            height: 24.0,
+            paint: Paint::Asset(9),
+            repeat: crate::schema::BackgroundRepeat::RepeatX,
+            tile_width: 56.0,
+            tile_height: 30.0,
         },
     })?;
     Ok(encoder.finish()?.to_vec())
@@ -4603,7 +4683,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 129,
+    "recordCount": 132,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4622,6 +4702,19 @@ pub fn generate_vector_description() -> String {
     "originX": 0.5,
     "originY": 0.25,
     "backfaceHidden": true
+  }},
+  "backgroundBrush": {{
+    "file": "background_brush.bin",
+    "description": "One batch with one 52 byte BackgroundBrush modifier on node 4 at chain position 2: the rectangle (12.5, -4, 48, 24), the brush asset 9, RepeatX and the step (56, 30)",
+    "recordCount": 1,
+    "x": 12.5,
+    "y": -4.0,
+    "width": 48.0,
+    "height": 24.0,
+    "paintAsset": 9,
+    "repeat": "RepeatX",
+    "tileWidth": 56.0,
+    "tileHeight": 30.0
   }},
   "events": {{
     "file": "events.bin",
@@ -5314,7 +5407,9 @@ object CodeEditorRecords {
                 RecordFieldType::F32 => {
                     writeln!(
                         output,
-                        "        val {} = buffer.getFloat(offset + {at})",
+                        // Read as the word it is and turned into a float, because the
+                        // Kotlin/Native buffer this runs on reads no floats.
+                        "        val {} = kotlin.Float.fromBits(buffer.getInt(offset + {at}))",
                         field.name
                     )
                     .unwrap();
@@ -5627,6 +5722,14 @@ object MeasureRecords {
         ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
         ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
         ("TEXT_ZOOM_AT", m::TEXT_ZOOM_AT as i64),
+        (
+            "TEXT_FONT_FEATURES_OFFSET_AT",
+            m::TEXT_FONT_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_FONT_FEATURES_COUNT_AT",
+            m::TEXT_FONT_FEATURES_COUNT_AT as i64,
+        ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
         ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),
@@ -6575,6 +6678,13 @@ pub fn generate_web_trampoline_wasm() -> Vec<u8> {
 /// filled in before `main` runs. The page's part is the one thing this side cannot do,
 /// which is to finish an asynchronous fetch first.
 ///
+/// The instantiation is asynchronous and answers a promise. A browser refuses to
+/// instantiate a module larger than 8MB synchronously on its main thread (Chromium throws
+/// "WebAssembly.Instance is disallowed on the main thread, if the buffer size is larger
+/// than 8MB"), and a Host that carries an HTML engine is larger than that. Only start-up
+/// waits: nothing is in the table until the promise settles, and every call after it is the
+/// same wasm to wasm call through the trampoline.
+///
 /// It is also where the trampoline's table is filled, and only once the Host has reported
 /// its block inside its own region. Until then every slot is empty, and a boundary call
 /// traps inside wasm rather than reaching a Host that could not start.
@@ -6589,17 +6699,21 @@ pub fn generate_web_trampoline_wasm() -> Vec<u8> {
 /// ever saw it.
 const INSTALL_HOST_KOTLIN: &str = r##"/**
  * Instantiates the Host on this module's memory, points the trampoline at it, and answers
- * with the address of the block it lends back: the record a call reports into, and the
- * buffer an event is encoded in. Zero means there is no Host on this page.
+ * with a promise of the address of the block it lends back: the record a call reports into,
+ * and the buffer an event is encoded in. Zero means there is no Host on this page.
  *
  * Called once, from `main`. That is the first moment at which both halves exist: this
  * module's own instantiation created the memory the Host imports, and the page compiled the
  * Host's module before that started.
+ *
+ * A promise because a browser will not instantiate a module over 8MB synchronously on its
+ * main thread. The wait is start-up only: the table stays empty until the Host has checked
+ * out, and no call goes through a promise.
  */
 @JsFun(
     """() => {
   const compiled = globalThis.MODULE_GLOBAL;
-  if (!compiled) return 0;
+  if (!compiled) return Promise.resolve(0);
   const table = globalThis.TABLE_GLOBAL;
   if (!table) {
     throw new Error('compose-rust: the trampoline table is missing. The loader module ' +
@@ -6623,7 +6737,7 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
         'dependency rather than through the boundary.');
     },
   });
-  const host = new WebAssembly.Instance(compiled, {
+  return WebAssembly.instantiate(compiled, {
     env: { memory },
     RENDERER_IMPORT_MODULE: {
       // The exported function object itself, not a closure around it: bound this way the
@@ -6633,24 +6747,36 @@ const INSTALL_HOST_KOTLIN: &str = r##"/**
       compose_rust_renderer_measure:
         wasmExports.compose_rust_renderer_measure,
     },
+    // The date and the time zone, which the Host reads from the page's own clock. None of
+    // them goes to the Renderer; the timer only asks for a frame, at whose start the Host
+    // checks whether the date changed.
+    compose_rust_time: {
+      now_millis: () => Date.now(),
+      utc_offset_minutes: (millis) => -new Date(millis).getTimezoneOffset(),
+      wake_after: (millis) => {
+        setTimeout(() => wasmExports.compose_rust_renderer_request_frame(), millis);
+      },
+    },
     __wbindgen_placeholder__: unbound('__wbindgen_placeholder__'),
     __wbindgen_externref_xform__: unbound('__wbindgen_externref_xform__'),
-  }).exports;
-  const block = host.START_SYMBOL();
-  if (block < REGION_BASE) {
-    // Either the Host could not start, or its data landed in the half of the memory this
-    // module's allocator uses. The second draws a wrong screen instead of failing, so
-    // neither is allowed to become the first boundary call: the table stays empty.
-    throw new Error('compose-rust: the Host reported its boundary block at ' + block +
-      ', which is not inside the region above REGION_BASE that it was linked into. ' +
-      'Check that it was linked with --import-memory and --global-base.');
-  }
-  // The trampoline's slots, in the order its functions call them. The exported function
-  // objects themselves, so a call through a slot is wasm to wasm.
-TABLE_SLOTS  return block;
+  }).then((instance) => {
+    const host = instance.exports;
+    const block = host.START_SYMBOL();
+    if (block < REGION_BASE) {
+      // Either the Host could not start, or its data landed in the half of the memory this
+      // module's allocator uses. The second draws a wrong screen instead of failing, so
+      // neither is allowed to become the first boundary call: the table stays empty.
+      throw new Error('compose-rust: the Host reported its boundary block at ' + block +
+        ', which is not inside the region above REGION_BASE that it was linked into. ' +
+        'Check that it was linked with --import-memory and --global-base.');
+    }
+    // The trampoline's slots, in the order its functions call them. The exported function
+    // objects themselves, so a call through a slot is wasm to wasm.
+TABLE_SLOTS    return block;
+  });
 }""",
 )
-external fun installHost(): Int
+external fun installHost(): kotlin.js.Promise<JsNumber>
 
 "##;
 
@@ -6658,7 +6784,7 @@ external fun installHost(): Int
 fn web_table_slots() -> String {
     let mut output = String::new();
     for (slot, call) in web_calls().iter().enumerate() {
-        writeln!(output, "  table.set({slot}, host.{});", call.symbol).unwrap();
+        writeln!(output, "    table.set({slot}, host.{});", call.symbol).unwrap();
     }
     output
 }
@@ -6873,8 +6999,10 @@ pub fn generate_web_loader_js() -> String {
 //   2. It compiles the Host. Compiling needs no imports.
 //   3. The Renderer's module is instantiated with its boundary imports bound to the
 //      trampoline's functions, which is what creates the memory.
-//   4. The Renderer's `main` instantiates the Host on that memory, synchronously, because
-//      the module was already compiled in step 2, and puts the Host's exports in the table.
+//   4. The Renderer's `main` instantiates the Host on that memory and puts the Host's
+//      exports in the table. The instantiation is asynchronous, because a browser refuses
+//      to instantiate a module over 8MB synchronously on its main thread; the Renderer
+//      starts drawing once it has settled.
 //
 // JavaScript wires the modules together here and is not on any call afterwards. Step 4
 // needs the memory and the Renderer's own exports, and only the Renderer's module can name

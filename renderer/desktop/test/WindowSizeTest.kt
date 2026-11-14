@@ -92,6 +92,33 @@ class WindowSizeTest {
         assertEquals(32f, onNodeWithText("first child").fetchSemanticsNode().boundsInRoot.top)
     }
 
+    /**
+     * The window's size reaches the Host from the layout pass that measured it, the way an
+     * observed node's does, not from a recomposition that pass schedules. A window that
+     * draws only when something asks for a frame (macOS) may not draw that second frame for
+     * a while, and until then the Host lays its page out for a 0x0, compact window.
+     *
+     * One frame: composition and the first layout, and no recomposition after it.
+     */
+    @Test
+    fun fr20_first_measurement_reaches_the_host_in_the_frame_that_made_it() = runComposeUiTest {
+        mainClock.autoAdvance = false
+        val connection = FakeHostConnection(listOf(
+            Mutation.Create(LABEL, WidgetKind.Text),
+            Mutation.SetProp(LABEL, PropertyKind.Text, PropertyValue.Text("first")),
+        ))
+        setContent {
+            CompositionLocalProvider(LocalFrameRequests provides frames, LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(1440.dp, 900.dp))
+            }
+        }
+        val sizes = connection.events.filterIsInstance<HostEvent.WindowSizeChanged>().filter { it.nodeId == 0 }
+        assertEquals(1, sizes.size, "one report from the first layout: ${connection.events}")
+        assertEquals(1440f, sizes[0].widthDp)
+        assertEquals(900f, sizes[0].heightDp)
+        assertEquals(WindowSizeClass.Expanded, sizes[0].sizeClass)
+    }
+
     @Test
     fun fr19_9_window_drag_modifier_arm() = runComposeUiTest {
         var drags = 0

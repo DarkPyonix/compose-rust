@@ -1,4 +1,4 @@
-@file:OptIn(kotlin.wasm.unsafe.UnsafeWasmMemoryApi::class)
+@file:OptIn(kotlin.wasm.unsafe.UnsafeWasmMemoryApi::class, kotlin.js.ExperimentalWasmJsInterop::class)
 
 package dev.darkpyonix.composerust.ui.platform
 
@@ -14,6 +14,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.wasm.unsafe.Pointer
 import kotlin.wasm.unsafe.withScopedMemoryAllocator
+import kotlinx.coroutines.await
 
 /**
  * The Host as seen from the browser.
@@ -166,10 +167,15 @@ class WebHostConnection private constructor(block: Int) : HostConnection {
          *
          * Called once, from `main`: it is the first moment at which both halves exist, and
          * the Host's `web_start` registers the application's root component on the way.
+         *
+         * It suspends while the browser instantiates the Host. A browser will not
+         * instantiate a module over 8MB synchronously on its main thread, and a Host that
+         * carries an HTML engine is larger than that. Only start-up waits: once this
+         * returns, every call is a wasm call through the trampoline again.
          */
-        fun install(): WebHostConnection? {
+        suspend fun install(): WebHostConnection? {
             requireSeparateRegions()
-            val block = installHost()
+            val block = installHost().await<JsNumber>().toInt()
             if (block < RUST_REGION_BASE) return null
             return WebHostConnection(block)
         }

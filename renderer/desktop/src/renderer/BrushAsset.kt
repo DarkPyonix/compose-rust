@@ -28,8 +28,16 @@ private const val KIND_IMAGE = 3
  * [imageOf] answers what a picture id was registered as, because an image brush names one
  * that was registered separately: the picture is a picture in its own right and may also
  * be drawn as one.
+ *
+ * [report] hears about a field that could not be honoured in a brush that is still drawn,
+ * such as a vertical radius that is negative or not a number: the brush is drawn as the
+ * circle it would be without one, and the report says why.
  */
-internal fun decodeBrushAsset(bytes: ByteArray, imageOf: (Int) -> Asset?): Brush? {
+internal fun decodeBrushAsset(
+    bytes: ByteArray,
+    report: (String) -> Unit = {},
+    imageOf: (Int) -> Asset?,
+): Brush? {
     if (bytes.size < HEADER_LENGTH) return null
     val kind = bytes.u16(0)
     val stopCount = bytes.u16(2)
@@ -51,6 +59,16 @@ internal fun decodeBrushAsset(bytes: ByteArray, imageOf: (Int) -> Asset?): Brush
     }
     // A gradient with nothing in it is not a fill. Reported rather than drawn as black.
     if (stops.isEmpty()) return null
+
+    if (kind == KIND_RADIAL) {
+        // The fourth coordinate is the vertical radius: zero is a circle, above zero an
+        // ellipse. A radius that is negative or not a number has no ellipse to draw.
+        val radiusY = coordinates[3]
+        if (radiusY.isNaN() || radiusY < 0f) {
+            report("a radial brush's vertical radius must be zero or more, not $radiusY; it is drawn as a circle")
+            coordinates[3] = 0f
+        }
+    }
 
     return when (kind) {
         KIND_LINEAR -> FractionalGradient(stops, coordinates, tile, radial = false)
@@ -92,14 +110,30 @@ private class FractionalGradient(
 ) : ShaderBrush() {
 
     override fun createShader(size: Size): Shader = if (radial) {
-        androidx.compose.ui.graphics.RadialGradientShader(
-            center = Offset(coordinates[0] * size.width, coordinates[1] * size.height),
-            // Of the larger side, so a circle stays a circle in a wide surface.
-            radius = coordinates[2] * maxOf(size.width, size.height),
-            colors = stops.map { it.second },
-            colorStops = stops.map { it.first },
-            tileMode = tile,
-        )
+        val center = Offset(coordinates[0] * size.width, coordinates[1] * size.height)
+        // Of the larger side, so a circle stays a circle in a wide surface. The vertical
+        // radius of an ellipse is measured the same way.
+        val side = maxOf(size.width, size.height)
+        val radius = coordinates[2] * side
+        val radiusY = coordinates[3] * side
+        if (radiusY > 0f && radius > 0f && radiusY != radius) {
+            ellipticalRadialShader(
+                center = center,
+                radiusX = radius,
+                radiusY = radiusY,
+                colors = stops.map { it.second },
+                colorStops = stops.map { it.first },
+                tileMode = tile,
+            )
+        } else {
+            androidx.compose.ui.graphics.RadialGradientShader(
+                center = center,
+                radius = radius,
+                colors = stops.map { it.second },
+                colorStops = stops.map { it.first },
+                tileMode = tile,
+            )
+        }
     } else {
         androidx.compose.ui.graphics.LinearGradientShader(
             from = Offset(coordinates[0] * size.width, coordinates[1] * size.height),

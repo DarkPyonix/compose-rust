@@ -38,6 +38,8 @@ class ControlLook(
     val height: Dp? = null,
     /** The corner shape the node asked for, or null where the design system's applies. */
     val shape: Shape? = null,
+    /** A Slider thumb's diameter. The track and the area that takes presses keep theirs. */
+    val thumbSize: Dp? = null,
 ) {
     /** Whether a toggle has to be drawn from this look rather than by default. */
     fun appliesTo(role: ToggleRole): Boolean = when (role) {
@@ -53,7 +55,7 @@ class ControlLook(
 /**
  * The look of [node], rebuilt only when something it reads has changed.
  *
- * A recomposition that changes none of the six properties, the corner modifier or the theme
+ * A recomposition that changes none of the seven properties, the corner modifier or the theme
  * hands back the look it made last time, and a node that sends none of them gets the shared
  * [ControlLook.None], so the steady state allocates nothing. A property that is removed
  * makes its slot null, which differs from the value it held, so the look returns to the
@@ -74,6 +76,7 @@ private class ControlLookCache {
     private var container: PropertyValue? = null
     private var check: PropertyValue? = null
     private var size: PropertyValue? = null
+    private var thumbSize: PropertyValue? = null
     private var corner: dev.darkpyonix.composerust.protocol.Modifier? = null
     private var named = false
     private var curve: Float? = null
@@ -87,6 +90,7 @@ private class ControlLookCache {
         val newContainer = props[PropertyKind.ContainerColor]
         val newCheck = props[PropertyKind.CheckColor]
         val newSize = props[PropertyKind.ControlSize]
+        val newThumbSize = props[PropertyKind.ThumbSize]
         var newNamed = false
         var newCorner: dev.darkpyonix.composerust.protocol.Modifier? = null
         val modifiers = node.modifiers
@@ -100,17 +104,18 @@ private class ControlLookCache {
         }
         if (primed && theme === current && track == newTrack && thumb == newThumb &&
             activeTrack == newActive && container == newContainer && check == newCheck &&
-            size == newSize && named == newNamed && corner == newCorner && curve == newCurve
+            size == newSize && thumbSize == newThumbSize && named == newNamed && corner == newCorner && curve == newCurve
         ) {
             return look
         }
         primed = true
         theme = current
         track = newTrack; thumb = newThumb; activeTrack = newActive
-        container = newContainer; check = newCheck; size = newSize
+        container = newContainer; check = newCheck; size = newSize; thumbSize = newThumbSize
         named = newNamed; corner = newCorner; curve = newCurve
         val empty = newTrack == null && newThumb == null && newActive == null &&
-            newContainer == null && newCheck == null && newSize == null && !newNamed
+            newContainer == null && newCheck == null && newSize == null && newThumbSize == null &&
+            !newNamed
         look = if (empty) ControlLook.None else node.controlLook(current)
         return look
     }
@@ -135,6 +140,7 @@ internal fun Node.controlLook(theme: ResolvedTheme): ControlLook {
         width = width,
         height = height,
         shape = if (named) modifiers.resolvedShape(theme) else null,
+        thumbSize = number(PropertyKind.ThumbSize)?.takeIf { it > 0f }?.dp,
     )
 }
 

@@ -1,12 +1,12 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
-    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, MessageHorizontal,
-    MessagePlacement, MessageVertical, Modifier, MotionRole, NotificationImportance,
-    NotificationPermission, NotificationPresentation, Paint, PropertyKind, SEMANTICS_STATE_MASK,
-    Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
-    modifier_extra_words,
+    AssetKind, BackgroundRepeat, ColorScheme, DesignSystem, FileDelivery, FileDialogKind,
+    FileDialogStatus, FileOp, IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
+    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
+    WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -52,7 +52,9 @@ const TAG_EDIT_CODE_GROUP: u16 = 28;
 const EDIT_CODE_GROUP_LEN: usize = 24;
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 56;
+/// What `toast_border_width` is sent as when the design system keeps its own line.
+const TOAST_BORDER_DESIGN_SYSTEM: u16 = u16::MAX;
 // 29 puts plain text on the platform clipboard. Nothing answers it.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
@@ -2284,6 +2286,20 @@ impl BatchEncoder {
                 self.put_u32(overlay.scrim);
                 self.put_u16(overlay.toast_elevation);
                 self.put_u16(overlay.toast_corner_radius);
+                self.put_u32(overlay.toast_container_light);
+                self.put_u32(overlay.toast_container_dark);
+                self.put_u32(overlay.toast_content_light);
+                self.put_u32(overlay.toast_content_dark);
+                self.put_u16(
+                    overlay
+                        .toast_border_width
+                        .unwrap_or(TOAST_BORDER_DESIGN_SYSTEM),
+                );
+                self.put_u16(overlay.toast_padding_horizontal);
+                self.put_u16(overlay.toast_padding_vertical);
+                self.put_u16(overlay.toast_font_size);
+                self.put_u16(overlay.toast_line_height);
+                self.put_u16(0);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2879,6 +2895,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let scrim = read_u32(bytes, payload + 20)?;
                 let toast_elevation = read_u16(bytes, payload + 24)?;
                 let toast_corner_radius = read_u16(bytes, payload + 26)?;
+                let border = read_u16(bytes, payload + 44)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2892,6 +2909,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     scrim,
                     toast_elevation,
                     toast_corner_radius,
+                    toast_container_light: read_u32(bytes, payload + 28)?,
+                    toast_container_dark: read_u32(bytes, payload + 32)?,
+                    toast_content_light: read_u32(bytes, payload + 36)?,
+                    toast_content_dark: read_u32(bytes, payload + 40)?,
+                    toast_border_width: (border != TOAST_BORDER_DESIGN_SYSTEM).then_some(border),
+                    toast_padding_horizontal: read_u16(bytes, payload + 46)?,
+                    toast_padding_vertical: read_u16(bytes, payload + 48)?,
+                    toast_font_size: read_u16(bytes, payload + 50)?,
+                    toast_line_height: read_u16(bytes, payload + 52)?,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
@@ -3529,6 +3555,55 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
+        Modifier::BackgroundBrush {
+            x,
+            y,
+            width,
+            height,
+            paint,
+            repeat,
+            tile_width,
+            tile_height,
+        } => (
+            28,
+            [
+                pack_floats(*x, *y),
+                pack_floats(*width, *height),
+                paint.to_bits(),
+                u64::from(u16::from(*repeat)),
+                pack_floats(*tile_width, *tile_height),
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::SizeIn {
+            min_width,
+            max_width,
+            min_height,
+            max_height,
+        } => (
+            36,
+            two_words(
+                pack_floats(*min_width, *max_width),
+                pack_floats(*min_height, *max_height),
+            ),
+        ),
+        Modifier::AspectRatio {
+            ratio,
+            match_height_constraints_first,
+        } => (
+            37,
+            two_words(
+                pack_floats(*ratio, 0.0),
+                u64::from(*match_height_constraints_first),
+            ),
+        ),
+        Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
+        Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
+        Modifier::Sticky => (41, two_words(0, 0)),
         Modifier::Transform {
             a,
             b,
@@ -3769,11 +3844,61 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 state,
             })
         }
+        28 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(fifth),
+                unpack_high(fifth),
+            ];
+            // A tile that is not a size has no copies to place, and a value that is not a
+            // number would be drawn by one side and not the other. Refused here, as the
+            // Renderer refuses them.
+            if values.iter().any(|value| !value.is_finite()) || values[4] <= 0.0 || values[5] <= 0.0
+            {
+                return Err(ProtocolError::InvalidModifier(28));
+            }
+            let [x, y, width, height, tile_width, tile_height] = values;
+            Ok(Modifier::BackgroundBrush {
+                x,
+                y,
+                width,
+                height,
+                paint: decode_paint(third)?,
+                repeat: decode_role::<BackgroundRepeat>(fourth)?,
+                tile_width,
+                tile_height,
+            })
+        }
         // Carried as sent. An out-of-range value is not an error; the Renderer draws it as
         // the nearer end of 0..=1.
         35 => Ok(Modifier::CornerCurve {
             smoothing: unpack_low(first),
         }),
+        36 => Ok(Modifier::SizeIn {
+            min_width: unpack_low(first),
+            max_width: unpack_high(first),
+            min_height: unpack_low(second),
+            max_height: unpack_high(second),
+        }),
+        37 => {
+            let match_height_constraints_first = match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(37)),
+            };
+            Ok(Modifier::AspectRatio {
+                ratio: unpack_low(first),
+                match_height_constraints_first,
+            })
+        }
+        38 => Ok(Modifier::MinTouchTarget {
+            size: unpack_low(first),
+        }),
+        39 => Ok(Modifier::Overlay(decode_paint(first)?)),
+        41 => Ok(Modifier::Sticky),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -5298,7 +5423,60 @@ mod tests {
             assert_eq!(read_u16(&wire, 16).unwrap(), tag);
             assert_eq!(decode_event(&wire).unwrap(), event);
         }
-        assert_eq!(Key::try_from(15), Err(()));
+        assert_eq!(Key::try_from(15), Ok(Key::F1));
+    }
+
+    /// The function keys and the menu key have their own name after `PageDown`, so no
+    /// earlier tag moves. Shift+F10, the other way to open a context menu, is `F10` with
+    /// Shift held rather than a key of its own.
+    #[test]
+    fn fr12_function_and_context_menu_keys() {
+        let functions = [
+            Key::F1,
+            Key::F2,
+            Key::F3,
+            Key::F4,
+            Key::F5,
+            Key::F6,
+            Key::F7,
+            Key::F8,
+            Key::F9,
+            Key::F10,
+            Key::F11,
+            Key::F12,
+        ];
+        for (index, key) in functions.into_iter().enumerate() {
+            assert_eq!(Key::try_from(15 + index as u16), Ok(key), "F{}", index + 1);
+        }
+        assert_eq!(Key::try_from(27), Ok(Key::ContextMenu));
+        assert_eq!(Key::try_from(28), Err(()));
+
+        let presses = [
+            (Key::F2, 16u16, false, 0x3Bu32, "F2"),
+            (Key::F12, 26, false, 0x45, "F12"),
+            (Key::F10, 24, true, 0x43, "F10"),
+            (Key::ContextMenu, 27, false, 0x65, "ContextMenu"),
+        ];
+        let mut wire = Vec::new();
+        for (key, tag, shift_key, code, text) in presses {
+            let event = HostEvent {
+                node_id: 4,
+                handler_id: 9,
+                payload: crate::EventPayload::KeyDown {
+                    key,
+                    shift_key,
+                    ctrl_key: false,
+                    alt_key: false,
+                    meta_key: false,
+                    repeat: false,
+                    code,
+                    text,
+                },
+            };
+            encode_event(&event, &mut wire).unwrap();
+            assert_eq!(read_u16(&wire, 16).unwrap(), tag, "{text}");
+            assert_eq!(decode_event(&wire).unwrap(), event);
+        }
     }
 
     /// A drawer or a popup menu is a container, not a `Dialog` or a `Sheet`, so the

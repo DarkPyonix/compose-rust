@@ -4,6 +4,8 @@
 
 소유자 결정(2026-10-04): 데스크톱 창 코드는 구현 둘(GraalVM 경로, Kotlin/Native 경로)에 공통 로직과 일치 테스트를 더한 것이다. 경로마다 OS를 부르는 얇은 층만 따로 두고 나머지는 한 벌이다. 이후 결정(INTENT D19)으로 창, 입력, IME, 메뉴, 크롬, 크기 조절, 접근성 코드는 모두 포크 `thisisthepy/compose-multiplatform-core-extended`의 `extended/window/`에 있다. 이 저장소에는 장면을 창에 붙이는 연결 코드만 남는다.
 
+인용한 INTENT(D19)는 `docs/INTENT.md`로, 개발 브랜치(develop)에만 있고 릴리스에는 들어 있지 않다.
+
 ## 어디에 무엇이 있나
 
 | 모듈 | 내용 |

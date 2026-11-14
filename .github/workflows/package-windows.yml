@@ -17,34 +17,16 @@
 name: Windows package
 
 on:
-  push:
-    paths:
-      - 'scripts/packager-windows/**'
-      - 'compose-rust/build.rs'
-      - 'compose-rust/build/**'
-      - 'compose-rust/tests/windows_manifest.rs'
-      - '.github/workflows/package-windows.yml'
-  pull_request:
-    paths:
-      - 'scripts/packager-windows/**'
-      - 'compose-rust/build.rs'
-      - 'compose-rust/build/**'
-      - 'compose-rust/tests/windows_manifest.rs'
-      - '.github/workflows/package-windows.yml'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       project:
-        description: 'Application directory holding Dioxus.toml and Cargo.toml'
-        default: 'samples/notepad'
+        description: Application directory holding Dioxus.toml and Cargo.toml
+        default: samples/notepad
         type: string
 
 permissions:
   contents: read
   actions: read
-
-concurrency:
-  group: package-windows-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

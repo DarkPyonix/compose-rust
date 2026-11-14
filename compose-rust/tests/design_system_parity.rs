@@ -92,15 +92,15 @@ fn ported() -> [Ported; 3] {
     [
         read(
             DesignSystem::Gnome,
-            "gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt",
+            "designsystem-gnome/src/org/thisisthepy/compose/gnome/Adwaita.kt",
         ),
         read(
             DesignSystem::Breeze,
-            "breeze/src/org/thisisthepy/compose/breeze/Breeze.kt",
+            "designsystem-breeze/src/org/thisisthepy/compose/breeze/Breeze.kt",
         ),
         read(
             DesignSystem::Deepin,
-            "deepin/src/org/thisisthepy/compose/deepin/Deepin.kt",
+            "designsystem-deepin/src/org/thisisthepy/compose/deepin/Deepin.kt",
         ),
     ]
 }

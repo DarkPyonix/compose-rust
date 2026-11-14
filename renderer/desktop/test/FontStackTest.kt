@@ -21,6 +21,8 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
+import dev.darkpyonix.composerust.ui.node.DeclaredFaceStyle
+import dev.darkpyonix.composerust.ui.node.declaredFaceStyle
 import dev.darkpyonix.composerust.ui.node.TableError
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -240,6 +242,84 @@ class FontStackTest {
         assertTrue(abs(width - size) <= 0.5f + 0.01f, "the bold face is one em wide, drew $width at $size")
     }
 
+    /**
+     * A family the way an application ships Inter or Pretendard: a file for each weight,
+     * here 400, 500 and 600 and no 700. Each face's glyph has its own width, so the width of
+     * a line says which face drew it.
+     *
+     * Bold has no face of its own, and CSS sets it in the nearest heavier face there is,
+     * then the nearest lighter one: 600. A family that set every weight in its regular
+     * face, which is what Android did when it could not group faces by weight, draws all
+     * four lines one and a half em wide.
+     */
+    @Test
+    fun fr48_each_weight_of_a_family_is_set_in_its_own_face() = runComposeUiTest {
+        val regular = TinyIconFont.build(family = "Tiny Family", weight = 400, advance = 1500)
+        val medium = TinyIconFont.build(family = "Tiny Family", weight = 500, advance = 1250)
+        val semibold = TinyIconFont.build(family = "Tiny Family", weight = 600, advance = 1000)
+        val weights = listOf(400, 500, 600, 700)
+        val nodes = weights.indices.map { NODE + 10 + it }
+        val batch = buildList {
+            add(register(LATIN, regular))
+            add(register(HANGUL, medium))
+            add(register(SECOND_FACE, semibold))
+            add(register(STACK, stack(listOf(LATIN, HANGUL, SECOND_FACE))))
+            add(themeIn(STACK))
+            add(Mutation.Create(COLUMN, WidgetKind.Column))
+            weights.zip(nodes).forEachIndexed { at, (weight, node) ->
+                add(Mutation.Create(node, WidgetKind.Text))
+                add(Mutation.SetProp(node, PropertyKind.Text, PropertyValue.Text("A")))
+                add(Mutation.SetProp(node, PropertyKind.TypeRole, PropertyValue.Integer(TypeRole.Body.ordinal + 1L)))
+                add(Mutation.SetProp(node, PropertyKind.FontWeight, PropertyValue.Integer(weight.toLong())))
+                add(Mutation.Insert(COLUMN, node, at))
+            }
+        }
+        startHost(FakeHostConnection(batch), Density(1f))
+        val expected = listOf(1.5f, 1.25f, 1f, 1f)
+        weights.zip(nodes).zip(expected) { (weight, node), ems ->
+            val layout = drawnLayout(node)
+            val size = layout.layoutInput.style.fontSize.value
+            val width = layout.getLineRight(0) - layout.getLineLeft(0)
+            assertTrue(abs(width - ems * size) <= 0.5f + 0.01f, "weight $weight: drew $width at $size, its face gives ${ems * size}")
+        }
+    }
+
+    /** What a face is, read from the file, which every platform takes the same way. */
+    @Test
+    fun fr48_a_font_file_declares_its_own_weight_and_slant() {
+        for (weight in listOf(100, 400, 500, 600, 700, 900)) {
+            val style = assertNotNull(declaredFaceStyle(TinyIconFont.build(weight = weight)), "weight $weight")
+            assertEquals(weight, style.weight)
+            assertEquals(false, style.italic)
+        }
+        assertEquals(DeclaredFaceStyle(600, true), declaredFaceStyle(TinyIconFont.build(weight = 600, italic = true)))
+        assertNull(declaredFaceStyle("not a font at all".encodeToByteArray()))
+        assertNull(declaredFaceStyle(ByteArray(0)))
+    }
+
+    /** A collection is read by its first face, the one a loader opens when given the file. */
+    @Test
+    fun fr48_a_font_collection_declares_its_first_face() {
+        val face = TinyIconFont.build(weight = 700)
+        val header = 16
+        val collection = ByteBuffer.allocate(header + face.size).order(ByteOrder.BIG_ENDIAN)
+        collection.put("ttcf".encodeToByteArray())
+        collection.putInt(0x00010000)
+        collection.putInt(1)
+        collection.putInt(header)
+        // The face's own table offsets count from the start of its file, so they move by
+        // the header as well.
+        val moved = face.copyOf()
+        val tables = ((moved[4].toInt() and 0xFF) shl 8) or (moved[5].toInt() and 0xFF)
+        val view = ByteBuffer.wrap(moved).order(ByteOrder.BIG_ENDIAN)
+        for (at in 0 until tables) {
+            val record = 12 + 16 * at
+            view.putInt(record + 8, view.getInt(record + 8) + header)
+        }
+        collection.put(moved)
+        assertEquals(DeclaredFaceStyle(700, false), declaredFaceStyle(collection.array()))
+    }
+
     @Test
     fun fr52_a_stack_naming_an_unregistered_face_is_refused() {
         val cache = AssetCache()
@@ -273,5 +353,6 @@ class FontStackTest {
         const val LATIN = 41
         const val HANGUL = 42
         const val STACK = 43
+        const val SECOND_FACE = 44
     }
 }
