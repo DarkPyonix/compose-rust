@@ -1223,7 +1223,8 @@ define_wire_enum!(SLOT_ROLE_SCHEMA, SlotRole {
 // language server or an extension host already speaks in, so an application can pass its
 // answers through without inventing its own. After them, the two backgrounds a diff view
 // is drawn with: a tint across whole lines, the width of the editor, and a stronger one
-// over the characters that changed. Values are only appended.
+// over the characters that changed. Then muted text after the end of a line, which is not
+// text: a blame annotation, an inline value. Values are only appended.
 define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     Underline = 1,
     CodeLens = 2,
@@ -1231,6 +1232,7 @@ define_wire_enum!(DECORATION_KIND_SCHEMA, DecorationKind {
     GhostText = 4,
     LineBackground = 5,
     RangeBackground = 6,
+    AfterLine = 7,
 });
 
 // How serious an underlined diagnostic is. The four a language server reports, in its
