@@ -510,15 +510,22 @@ impl Modifier {
         self.fill_max_width().fill_max_height()
     }
 
-    /// Measures the node with an unbounded width constraint so [`Modifier::observe_size`]
-    /// or [`Modifier::observe_size_every_dp`] reports its unconstrained width, while
-    /// still laying out within the parent's constraints.
+    /// Measures the node with no maximum width, so [`Modifier::observe_size`] or
+    /// [`Modifier::observe_size_every_dp`] reports the width its content asks for instead
+    /// of the width its parent offered.
+    ///
+    /// Only the measurement changes. The node still takes the width its parent offered,
+    /// its content starts at the start edge, and whatever is wider than that is clipped.
+    /// A table column sized to its widest cell uses it: a cell wider than the column
+    /// reports its own width, and the column grows on the next frame.
     pub const fn unbounded_width(mut self) -> Self {
         self.unbounded_width = true;
         self
     }
 
-    /// Measures the node with an unbounded width constraint when `unbounded` is `true`.
+    /// [`Modifier::unbounded_width`] when `unbounded` is `true`, and nothing when it is
+    /// `false`: the node is measured inside its parent's width as usual. The last call of
+    /// the two decides.
     pub const fn wrap_content_width(mut self, unbounded: bool) -> Self {
         self.unbounded_width = unbounded;
         self

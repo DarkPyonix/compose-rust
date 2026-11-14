@@ -2721,8 +2721,9 @@ pub enum Modifier {
     /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
     /// while the rest of the content scrolls.
     Sticky,
-    /// Measures the node with an unbounded width constraint so `ObserveSize` reports its
-    /// unconstrained width, while still laying out within the parent's constraints.
+    /// Measures the node with no maximum width, so `ObserveSize` reports the width its
+    /// content asks for. The node still takes the width its parent offered, and what is
+    /// wider than that is clipped.
     UnboundedWidth,
 }
 
