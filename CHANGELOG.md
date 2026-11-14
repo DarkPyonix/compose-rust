@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A window's size reaches the Host from its first layout
+
+The window's size is reported to the Host from the layout pass that measured it, as an observed node's already was, rather than from the recomposition that pass schedules. On macOS a window draws only when something asks for a frame, so the Host could stay at 0x0, the compact class, for a long time after the first frame of a 1440x900 window, and lay its page out for a phone ([#773](https://github.com/DarkPyonix/compose-rust/issues/773)).
+
 ### A single-line field's placeholder stays on one line
 
 A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).
