@@ -521,9 +521,9 @@ class ProtocolVectorsTest {
     }
 
     /**
-     * The overlay tokens record with the transient message's two fields appended: every
-     * field the Rust encoder wrote reads back as the same value, the older ones where they
-     * always were and the two new ones after the scrim.
+     * The overlay tokens record with the transient message's fields appended: every field
+     * the Rust encoder wrote reads back as the same value, the older ones where they always
+     * were and the message's shadow, corner, colours, line, padding and type after the scrim.
      */
     @Test
     fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
@@ -543,6 +543,15 @@ class ProtocolVectorsTest {
                         scrim = 0x8000_0000L,
                         toastElevation = 7,
                         toastCornerRadius = 14,
+                        toastContainerLight = 0xFF1C1B19L,
+                        toastContainerDark = 0xFFF0EEE9L,
+                        toastContentLight = 0xFFFFFFFFL,
+                        toastContentDark = 0xFF151514L,
+                        toastBorderWidth = 0,
+                        toastPaddingHorizontal = 16,
+                        toastPaddingVertical = 10,
+                        toastFontSize = 13,
+                        toastLineHeight = 20,
                     ),
                 ),
             ),

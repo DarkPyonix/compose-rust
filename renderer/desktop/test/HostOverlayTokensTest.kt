@@ -162,6 +162,7 @@ class HostOverlayTokensTest {
     private fun messagePicture(
         tokens: OverlayTokens?,
         system: DesignSystem = DesignSystem.Material3,
+        scheme: ColorScheme = ColorScheme.Light,
     ): PixelMap {
         lateinit var pixels: PixelMap
         runComposeUiTest {
@@ -169,7 +170,7 @@ class HostOverlayTokensTest {
             val batch = buildList {
                 add(
                     Mutation.SetTheme(
-                        Theme(system, system, ColorScheme.Light, adaptive = false),
+                        Theme(system, system, scheme, adaptive = false),
                     ),
                 )
                 if (tokens != null) add(Mutation.SetOverlayTokens(tokens))
@@ -302,6 +303,50 @@ class HostOverlayTokensTest {
         val (left, _, _, bottom) = containerBounds(plain).toList()
         assertTrue(isDark(plain, left + 3, bottom - 3), "the design system's corner keeps that pixel: ${plain[left + 3, bottom - 3]}")
         assertTrue(!isDark(round, left + 3, bottom - 3), "a 20dp corner cuts it away: ${round[left + 3, bottom - 3]}")
+    }
+
+    /**
+     * The message's fill, text, line, padding and type come from the overlay tokens where the
+     * application set them. Ember's inverted pill: an ink fill in the light scheme and a
+     * light one in the dark, 10dp above and below a 20sp line, so the container is 40 tall.
+     * Tokens left at their defaults (a zero colour, the design system's line) draw the
+     * design system's message pixel for pixel.
+     */
+    @Test
+    fun fr74_toast_style_tokens_draw() {
+        val ink = 0xFF1C1B19L
+        val paper = 0xFFF0EEE9L
+        val styled = OverlayTokens(
+            toastContainerLight = ink,
+            toastContainerDark = paper,
+            toastContentLight = 0xFFFFFFFFL,
+            toastContentDark = 0xFF151514L,
+            toastBorderWidth = 0,
+            toastPaddingHorizontal = 16,
+            toastPaddingVertical = 10,
+            toastFontSize = 13,
+            toastLineHeight = 20,
+        )
+        val light = messagePicture(styled)
+        val (left, top, _, bottom) = containerBounds(light).toList()
+        assertEquals(40, bottom - top + 1, "10dp padding around a 20sp line")
+        val inside = light[left + 2, (top + bottom) / 2]
+        assertEquals(androidx.compose.ui.graphics.Color(ink), inside, "the light scheme's fill")
+
+        val dark = messagePicture(styled, scheme = ColorScheme.Dark)
+        assertEquals(
+            androidx.compose.ui.graphics.Color(paper),
+            dark[left + 2, (top + bottom) / 2],
+            "the dark scheme's fill, at the same place",
+        )
+
+        val plain = messagePicture(null)
+        val unset = messagePicture(OverlayTokens())
+        for (y in 0 until plain.height) {
+            for (x in 0 until plain.width) {
+                assertEquals(plain[x, y], unset[x, y], "default tokens draw the design system's message, at ($x, $y)")
+            }
+        }
     }
 }
 
