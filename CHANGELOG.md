@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Compose fork moved to 1.11.1-ext.3
+
+The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.
+
 ## v0.0.10
 
 v0.0.8 and v0.0.9 were tagged but published no renderer: the Windows GraalVM renderer failed to link, so their releases carry no assets. v0.0.10 is the first release with everything listed under v0.0.9 and v0.0.8 below.
