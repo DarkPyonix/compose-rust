@@ -17,6 +17,7 @@ import dev.darkpyonix.composerust.protocol.HorizontalAlignment as ProtocolHorizo
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SheetPresentation
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.TextOverflow
@@ -81,6 +82,11 @@ internal fun Node.variant(): ButtonVariant =
 
 internal fun Node.buttonKind(): ButtonKind =
     role(PropertyKind.ButtonKind, ButtonKind.entries.toTypedArray()) ?: ButtonKind.Standard
+
+internal fun Node.sheetPresentation(): SheetPresentation = when (intProp(PropertyKind.Presentation)) {
+    1L -> SheetPresentation.Centered
+    else -> SheetPresentation.Edge
+}
 
 /**
  * The text style for a node: the design system's rung of the ladder, with each override

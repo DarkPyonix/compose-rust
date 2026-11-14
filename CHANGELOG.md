@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Centered Sheet presentation with scrim and focus trap
+
+A `Sheet` can now be presented in the center of the window rather than as an edge drawer: `.presentation(SheetPresentation::Centered)` sets the new `Presentation` property (tag 203) to `Centered` (1). In expanded and medium windows, the sheet appears centered in the window with 24dp rounded corners, a scrim with alpha about 0.4 behind it in both light and dark themes, and no drag handle or drag-to-dismiss gesture. The sheet's width defaults to 560dp and can be configured with `.max_width(dp)` on the new `MaxWidth` property (tag 204), clamped to available window width minus margins. Its height follows content height up to available window height minus margins, scrolling internally when content overflows. Keyboard focus is trapped inside the centered sheet while open, cycling between its focusable controls on Tab and Shift+Tab, and Esc or clicking the scrim dispatches `OnDismiss` once. On compact windows, a centered sheet falls back to bottom sheet presentation with grab handle and drag-to-dismiss ([#344](https://github.com/DarkPyonix/compose-rust/issues/344)).
+
 ### Compose fork moved to 1.11.1-ext.3
 
 The renderer now builds with the Compose fork's `1.11.1-ext.3` (tag `v1.11.1-ext.3`), for Compose, the window modules and skiko-awt alike, and the Compose itself is unchanged from `ext.2` apart from its version. The windows gain right and middle clicks, double clicks timed by when the platform says the press happened and by the system's double-click interval, a key typed once rather than twice on macOS, a slot for native views, HiDPI fixes (Xft.dpi on X11, the backing scale on macOS, a skipped stretched present on Windows, and text scaled once under GNOME and under KDE with forced fonts DPI), file dialogs, and the Windows caption buttons with Snap Layouts. The design systems are now published to Maven Central from `extended/design-systems/designsystem-<name>`.

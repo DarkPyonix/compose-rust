@@ -20,8 +20,9 @@ use crate::fonts::FontRefs;
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::schema::{
     Alignment, Arrangement, ButtonKind, ButtonVariant, ColorRole, CompactNavigation, ContentScale,
-    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement, SlotRole,
-    Snap, SpaceRole, TextAlign, TextOverflow, TypeRole, VerticalAlignment, WidgetKind, WordBreak,
+    HorizontalAlignment, IconRole, OverflowWrap, Paint, PopoverAlign, PopoverPlacement,
+    SheetPresentation, SlotRole, Snap, SpaceRole, TextAlign, TextOverflow, TypeRole,
+    VerticalAlignment, WidgetKind, WordBreak,
 };
 use crate::spans::TextSpans;
 use crate::{FileDrop, KeyEvent, MotionFinished, PointerEvent, PointerKinds};
@@ -2611,6 +2612,8 @@ pub struct ModalScope {
     open: bool,
     scrim: Option<Paint>,
     max_height_fraction: Option<f32>,
+    presentation: SheetPresentation,
+    max_width: Option<u32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     done: bool,
 }
@@ -2624,6 +2627,8 @@ pub fn Dialog(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2638,6 +2643,8 @@ pub fn Sheet(open: bool) -> ModalScope {
         open,
         scrim: None,
         max_height_fraction: None,
+        presentation: SheetPresentation::Edge,
+        max_width: None,
         on_dismiss: None,
         done: false,
     }
@@ -2668,12 +2675,31 @@ impl ModalScope {
         self
     }
 
+    /// What form the sheet takes: an edge drawer (`Edge`, the default) or a centered modal
+    /// (`Centered`). A `Dialog` is always centered and does not take this.
+    pub fn presentation(mut self, presentation: SheetPresentation) -> Self {
+        self.presentation = presentation;
+        self
+    }
+
+    /// The maximum width of a centered sheet in dp.
+    ///
+    /// Zero or absent leaves the width to the design system (560 dp). Content wider than
+    /// this or a window narrower than this shrinks the sheet to fit. An edge sheet sizes
+    /// its width by its edge and does not take this.
+    pub fn max_width(mut self, max_width_dp: u32) -> Self {
+        self.max_width = (max_width_dp > 0).then_some(max_width_dp);
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = self.modifier;
         let (widget, open) = (self.widget, self.open);
         let max_height_fraction = self
             .max_height_fraction
             .filter(|_| widget == WidgetKind::Sheet);
+        let presentation = self.presentation;
+        let max_width = self.max_width.filter(|_| widget == WidgetKind::Sheet);
         let key = if widget == WidgetKind::Dialog {
             widget_key("compose_rust::ui::Dialog")
         } else {
@@ -2691,6 +2717,15 @@ impl ModalScope {
                 }
                 if let Some(fraction) = max_height_fraction {
                     attrs.push(("max_height_fraction", OwnedAttr::Float(f64::from(fraction))));
+                }
+                if widget == WidgetKind::Sheet && presentation != SheetPresentation::Edge {
+                    attrs.push((
+                        "presentation",
+                        OwnedAttr::Int(i64::from(u16::from(presentation))),
+                    ));
+                }
+                if let Some(max_width) = max_width {
+                    attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
                 }
             },
             vec![("ondismiss", unit(self.on_dismiss.take()))],

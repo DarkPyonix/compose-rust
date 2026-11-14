@@ -1732,6 +1732,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "BackgroundRepeat",
         variants: BACKGROUND_REPEAT_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "SheetPresentation",
+        variants: SHEET_PRESENTATION_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1822,6 +1826,13 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     None = 2,
 } unlisted {
     Default = 0,
+});
+
+// How a `Sheet` is presented: entering from an edge (`Edge = 0`, the default) or centered in
+// the window (`Centered = 1`).
+define_wire_enum!(SHEET_PRESENTATION_SCHEMA, SheetPresentation {
+    Edge = 0,
+    Centered = 1,
 });
 
 // Where a scroll container comes to rest once a drag or a fling ends.
@@ -3889,6 +3900,12 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // The diameter in dp a Slider draws its thumb at, an f32. Absent is the design system's
     // size. The track and the area that takes a press stay as they are.
     ThumbSize = 202,
+    // The presentation of a `Sheet`: whether it enters from an edge (`Edge = 0`) or appears
+    // in the centre of the window (`Centered = 1`). Absent or 0 is `Edge`.
+    Presentation = 203,
+    // The maximum width of a centered `Sheet` in dp, an integer. 0 leaves it to the design
+    // system (560 dp).
+    MaxWidth = 204,
 });
 
 #[derive(Clone, Debug, PartialEq)]
