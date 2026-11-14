@@ -5,6 +5,8 @@ name: Desktop packaging
 
 on:
   workflow_call: {}
+  # Manual only: lets the leader run packaging alone on a branch without the whole CI.
+  workflow_dispatch: {}
 
 permissions:
   contents: read
