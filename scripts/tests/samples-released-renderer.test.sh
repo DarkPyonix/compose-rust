@@ -100,8 +100,9 @@ nfr15_samples_build_windows_against_the_verified_release() {
         || fail "macOS and Linux do not verify the released renderer"
 }
 
-# The workflow is a suite the dispatched development CI calls, with its sample-v* tag push
-# kept, so the tag input lives under workflow_call and there is no workflow_dispatch.
+# The workflow is a suite the dispatched development CI calls, and a release path of its own:
+# a sample-v* tag push starts a release, and a dispatch naming a tag runs one again or, with
+# no tag or desktop_only, builds without releasing. Both ways in take the same two inputs.
 nfr15_samples_dispatch_keeps_the_tag_input() {
     local on
     on="$(awk '/^on:/{f=1;next} /^[^ #]/{f=0} f' "$samples")"
@@ -109,8 +110,14 @@ nfr15_samples_dispatch_keeps_the_tag_input() {
         && ok "workflow_call still takes a tag" || fail "workflow_call lost its tag input"
     grep -qE "^    - '?sample-v\*'?$" <<<"$on" \
         && ok "a sample-v* tag push still starts a release" || fail "the sample-v* tag push trigger is gone"
-    ! grep -qE '^  workflow_dispatch:' <<<"$on" \
-        && ok "it has no dispatch of its own" || fail "it has a workflow_dispatch besides ci.yml's"
+    local dispatch
+    dispatch="$(awk '/^  workflow_dispatch:/{f=1;next} /^  [^ ]/{f=0} f' <<<"$on")"
+    grep -qE '^      tag:$' <<<"$dispatch" \
+        && ok "a dispatch can name a tag to release again" || fail "workflow_dispatch has no tag input"
+    grep -qE '^      desktop_only:$' <<<"$dispatch" \
+        && ok "a dispatch can build the desktop targets only" || fail "workflow_dispatch has no desktop_only input"
+    awk '/^  workflow_call:/{f=1;next} /^  [^ ]/{f=0} f' <<<"$on" | grep -qE '^      desktop_only:$' \
+        && ok "workflow_call still takes desktop_only" || fail "workflow_call lost its desktop_only input"
     local refs
     refs="$(grep -c 'ref: \${{ inputs.tag || github.sha }}' "$samples")"
     [[ "$refs" -ge 2 ]] && ok "the resolve and build checkouts follow the tag" \
