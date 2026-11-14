@@ -100,9 +100,17 @@ nfr15_samples_build_windows_against_the_verified_release() {
         || fail "macOS and Linux do not verify the released renderer"
 }
 
+# The workflow is a suite the dispatched development CI calls, with its sample-v* tag push
+# kept, so the tag input lives under workflow_call and there is no workflow_dispatch.
 nfr15_samples_dispatch_keeps_the_tag_input() {
-    awk '/^  workflow_dispatch:/,/^concurrency:/' "$samples" | grep -qE '^      tag:$' \
-        && ok "workflow_dispatch still takes a tag" || fail "workflow_dispatch lost its tag input"
+    local on
+    on="$(awk '/^on:/{f=1;next} /^[^ #]/{f=0} f' "$samples")"
+    awk '/^  workflow_call:/{f=1;next} /^  [^ ]/{f=0} f' <<<"$on" | grep -qE '^      tag:$' \
+        && ok "workflow_call still takes a tag" || fail "workflow_call lost its tag input"
+    grep -qE "^    - '?sample-v\*'?$" <<<"$on" \
+        && ok "a sample-v* tag push still starts a release" || fail "the sample-v* tag push trigger is gone"
+    ! grep -qE '^  workflow_dispatch:' <<<"$on" \
+        && ok "it has no dispatch of its own" || fail "it has a workflow_dispatch besides ci.yml's"
     local refs
     refs="$(grep -c 'ref: \${{ inputs.tag || github.sha }}' "$samples")"
     [[ "$refs" -ge 2 ]] && ok "the resolve and build checkouts follow the tag" \
