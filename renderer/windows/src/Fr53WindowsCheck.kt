@@ -57,6 +57,10 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr53_windows_window_theme_sets_the_color_scheme_of_one_window",
     "fr53_windows_window_color_scheme_darkens_its_own_caption",
     "fr53_windows_zoom_level_reaches_its_window_and_reports_its_node",
+    // The text edit menu, which these windows are the place to check: a focused field turns
+    // the window's own menu on, and an application that draws its own keeps it off.
+    "fr33_1_windows_focused_field_turns_the_system_edit_menu_on",
+    "fr33_1_windows_drawn_menu_leaves_the_system_edit_menu_off",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -82,6 +86,8 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::windowThemeSetsTheColorSchemeOfOneWindow,
         ::windowColorSchemeDarkensItsOwnCaption,
         ::zoomLevelReachesItsWindowAndReportsItsNode,
+        ::focusedFieldTurnsTheSystemEditMenuOn,
+        ::drawnMenuLeavesTheSystemEditMenuOff,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -107,6 +113,58 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/** A text field holding [value] in window [windowId]. */
+private fun textFieldIn(windowId: Int, id: Int, value: String): List<Mutation> = listOf(
+    Mutation.Create(id, WidgetKind.TextField),
+    Mutation.SetProp(id, PropertyKind.Text, text(value)),
+    Mutation.Insert(windowId, id, APPEND),
+)
+
+private fun focusedFieldTurnsTheSystemEditMenuOn() {
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + textFieldIn(1, 10, "hello"))
+    try {
+        h.forMillis(200)
+        val window = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        window.focus()
+        check(window.editMenuFlags == 0) { "the edit menu is on with no field focused (flags ${window.editMenuFlags})" }
+        h.batch(Mutation.RequestFocus(10))
+        h.until("the text field to take the keyboard") { window.textFieldFocused }
+        // The caret stands in the text and nothing is selected: Paste and Select All can run,
+        // Cut and Copy cannot, and the window is told so.
+        val expected = Win32EditMenu.flagsFor(FocusedTextField(hasSelection = false, editable = true, hasText = true))
+        h.until("the window's edit menu to come on as $expected") { window.editMenuFlags == expected }
+        h.batch(Mutation.Remove(10))
+        h.until("the window's edit menu to go off once the field is gone") { window.editMenuFlags == 0 }
+    } finally {
+        h.close()
+    }
+}
+
+private fun drawnMenuLeavesTheSystemEditMenuOff() {
+    val before = Win32EditMenu.systemMenu
+    // What DXC_MENU_OVERRIDE=drawn says: the application draws its menu, so the window must not
+    // put up its own beside it. Read when a window opens, so it is set before the harness opens one.
+    Win32EditMenu.systemMenu = false
+    try {
+        val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + textFieldIn(1, 10, "hello"))
+        try {
+            h.forMillis(200)
+            val window = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+            window.focus()
+            h.batch(Mutation.RequestFocus(10))
+            h.until("the text field to take the keyboard") { window.textFieldFocused }
+            h.forMillis(300)
+            check(window.editMenuFlags == 0) {
+                "the window's edit menu is on (flags ${window.editMenuFlags}) where the application draws its own"
+            }
+        } finally {
+            h.close()
+        }
+    } finally {
+        Win32EditMenu.systemMenu = before
+    }
+}
 
 private fun twoWindowNodesOpenTwoHwndsAndCloseOne() {
     val h = Fr53Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowTitle to text("One")) + windowNode(2))

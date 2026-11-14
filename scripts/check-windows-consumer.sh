@@ -257,16 +257,17 @@ fi
 
 echo "== 3c. several windows in one process"
 # The renderer runs the checks itself when asked (Fr53WindowsCheck.kt): the real window
-# manager and the real Win32 windows under a scripted Host, one `fr53_windows_*` line each.
+# manager and the real Win32 windows under a scripted Host, one `fr53_windows_*` line each,
+# and the text edit menu of those windows, one `fr33_1_windows_*` line each.
 # A Kotlin/Native test executable cannot hold them, because the window is C that only an MSVC
 # link has. The names are read from the Kotlin so the two cannot drift.
 fr53_log="$scratch/fr53-windows-check.log"
 status=0
 # Bounded like 3b: the check that was running when the time ran out is the last line below.
 ( cd "$scratch/alone" && COMPOSE_RUST_FR53_WINDOWS_CHECK=1 timeout 600 ./consumer.exe --self-check ) 2> "$fr53_log" || status=$?
-grep 'fr53_windows' "$fr53_log" || true
+grep -E 'fr53_windows|fr33_1_windows' "$fr53_log" || true
 if [[ "$status" -ne 0 ]]; then echo "-- the several-windows checks ended with status $status; their last lines:"; tail -40 "$fr53_log"; fi
-fr53_names="$(grep -oE '"fr53_windows_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
+fr53_names="$(grep -oE '"(fr53_windows|fr33_1_windows)_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
 [[ -n "$fr53_names" ]] || failed+=("Fr53WindowsCheck.kt names no fr53_windows check")
 for name in $fr53_names; do
     grep -q "^compose-rust: $name: ok" "$fr53_log" || failed+=("$name (see the lines above)")

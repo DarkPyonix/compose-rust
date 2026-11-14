@@ -27,9 +27,12 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     // Toasts, before the Host starts: its first batch may already post one. A press on the
     // body of one brings this application's window forward, which the C side does itself
     // because it is the side that knows the window.
-    // The menu a selection offers goes through the platform's TextToolbar
-    // (Win32TextToolbar), as on macOS; the new context menu path would draw Compose's own.
+    // Compose's old context menu path. On this target the new one has no default provider
+    // and composes nothing in a text field's place. On the old one a field draws a menu of
+    // its own on a right click, and the window puts up the system's instead (Win32EditMenu),
+    // keeping Compose's shut while it does.
     androidx.compose.foundation.ComposeFoundationFlags.isNewContextMenuEnabled = false
+    Win32EditMenu.install()
     Notifications.platform = Win32Notifications()
     // Asked for by the build that proves several windows work here (see
     // `Fr53WindowsCheck.kt`). Like the text check, it ends the run when it fails and lets the
