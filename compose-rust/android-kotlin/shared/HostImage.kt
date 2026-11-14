@@ -5,10 +5,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -30,6 +36,7 @@ import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.drawVectorDocument
+import dev.darkpyonix.composerust.ui.node.drawVectorDocumentFitted
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.TableError
 import dev.darkpyonix.composerust.ui.node.vectorIntrinsicSize
@@ -89,11 +96,18 @@ internal fun HostIcon(
     dispatcher: EventDispatcher,
     theme: ResolvedTheme,
 ) {
+    val paint = node.paintProp(PropertyKind.Color)
+    val tint = if (paint != null) theme.color(paint) else theme.color(ColorRole.OnSurface)
+    val pictureId = node.intProp(PropertyKind.IconAsset)?.toInt()
+    if (pictureId != null) {
+        val picture = assets.asset(pictureId)
+        ReportMissingAsset(node.id, pictureId, picture, dispatcher)
+        TintedIcon(picture, tint, theme, modifier)
+        return
+    }
     val assetId = node.intProp(PropertyKind.Asset)?.toInt()
     val asset = assetId?.let(assets::asset)
     ReportMissingAsset(node.id, assetId, asset, dispatcher)
-    val paint = node.paintProp(PropertyKind.Color)
-    val tint = if (paint != null) theme.color(paint) else theme.color(ColorRole.OnSurface)
     when (asset) {
         is Asset.Symbol -> {
             val style = theme.rules.icon(asset.role, theme)
@@ -115,6 +129,42 @@ internal fun HostIcon(
         is Asset.Font, is Asset.Brush -> Box(modifier)
 
         null -> Box(modifier)
+    }
+}
+
+/**
+ * A picture the application shipped, drawn as an icon: in the icon slot, at the optical
+ * size of this design system's icons, and in the icon's colour.
+ *
+ * The picture is drawn into a layer of its own and the layer is put down through a tint,
+ * which keeps what the picture covered and how opaque it was there, and replaces its colour.
+ * So a black stroke comes out in the tint, a stroke at half opacity comes out in the tint at
+ * half opacity, and a fill and a stroke are treated alike. The tint is resolved from the
+ * theme on every composition, so a role follows the light and the dark scheme.
+ */
+@Composable
+private fun TintedIcon(picture: Asset?, tint: Color, theme: ResolvedTheme, modifier: Modifier) {
+    val sized = modifier.size(theme.rules.icon(fallbackRole, theme).size)
+    val layer = remember(tint) { Paint().apply { colorFilter = ColorFilter.tint(tint, BlendMode.SrcIn) } }
+    when (picture) {
+        is Asset.Vector -> Canvas(sized) { tinted(layer) { drawVectorDocumentFitted(picture.document) } }
+        is Asset.Raster -> Canvas(sized) { tinted(layer) { drawRaster(picture) } }
+        // A meaning has its own artwork, which already takes the icon's colour.
+        is Asset.Symbol -> {
+            val style = theme.rules.icon(picture.role, theme)
+            Canvas(modifier.size(style.size)) { drawSymbol(picture, style, tint) }
+        }
+        // Neither a face nor a fill is a picture, and a missing id has been reported.
+        is Asset.Font, is Asset.Brush, null -> Box(sized)
+    }
+}
+
+/** Draws [content] in a layer put down through [layer]'s tint, keeping the content's alpha. */
+private inline fun DrawScope.tinted(layer: Paint, content: DrawScope.() -> Unit) {
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(Rect(Offset.Zero, size), layer)
+        content()
+        canvas.restore()
     }
 }
 

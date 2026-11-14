@@ -4117,6 +4117,30 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::ViewZones,
             value: PropertyValue::Bytes(view_zones.as_bytes()),
         },
+        // A translucent overlay on the root, in the slot the Host's writer gives it.
+        Mutation::SetModifier {
+            node_id: 1,
+            index: 27,
+            modifier: Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        },
+        // An icon drawn from a picture in the icon's colour. No record registers the id it
+        // names, so the Renderer reports it once when it draws the icon.
+        Mutation::Create {
+            node_id: 23,
+            widget: WidgetKind::Icon,
+        },
+        Mutation::SetProp {
+            node_id: 23,
+            property: PropertyKind::IconAsset,
+            value: PropertyValue::Integer(9),
+        },
+        // A button's least touch target, 44 dp, on a node of its own so the html element
+        // box keeps the modifiers it had.
+        Mutation::SetModifier {
+            node_id: 13,
+            index: 0,
+            modifier: Modifier::MinTouchTarget { size: 44.0 },
+        },
         // Last, so every byte before it is where it was.
         Mutation::SetModifier {
             node_id: 8,
@@ -4628,7 +4652,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 129,
+    "recordCount": 132,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
