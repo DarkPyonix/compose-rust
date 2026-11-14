@@ -167,6 +167,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -1131,7 +1141,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1146,6 +1156,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -4049,7 +4068,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .popup_padding(10)
                 .scrim_argb(0x8000_0000)
                 .toast_elevation(7)
-                .toast_corner_radius(14),
+                .toast_corner_radius(14)
+                .toast_container(
+                    crate::schema::Color::argb(0xFF1C_1B19),
+                    crate::schema::Color::argb(0xFFF0_EEE9),
+                )
+                .toast_content(
+                    crate::schema::Color::argb(0xFFFF_FFFF),
+                    crate::schema::Color::argb(0xFF15_1514),
+                )
+                .toast_border_width(0)
+                .toast_padding(16, 10)
+                .toast_type(13, 20),
         ),
         // A text with three font features, one of them a value above one byte, after
         // every older record but the last.

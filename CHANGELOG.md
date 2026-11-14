@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### A single-line field's placeholder stays on one line
+
+A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).
+### The transient message's colours, line, padding and type
+
+`OverlayTokens` gains the message's fill and text colour for the light and the dark scheme (`toast_container(light, dark)`, `toast_content(light, dark)`), the width of its line (`toast_border_width`, where 0 draws none), its padding (`toast_padding(horizontal, vertical)`) and its text size and line height (`toast_type(size, line_height)`). Each left unset keeps the design system's, so a message with none of them is drawn as before. The renderer takes the colour for the scheme it draws in, so a message can stay inverted against the page in both. The `SetOverlayTokens` record grows from 28 to 56 bytes and the schema hash moves, so a Host and a renderer must come from the same release ([#781](https://github.com/DarkPyonix/compose-rust/issues/781)).
+### Centered Sheet presentation with scrim and focus trap
+
+A `Sheet` can now be presented in the center of the window rather than as an edge drawer: `.presentation(SheetPresentation::Centered)` sets the new `Presentation` property (tag 206) to `Centered` (1). In expanded and medium windows, the sheet appears centered in the window with 24dp rounded corners, a scrim with alpha about 0.4 behind it in both light and dark themes, and no drag handle or drag-to-dismiss gesture. The sheet's width defaults to 560dp and can be configured with `.max_width(dp)` on the new `MaxWidth` property (tag 207), clamped to available window width minus margins. Its height follows content height up to available window height minus margins, scrolling internally when content overflows. Keyboard focus is trapped inside the centered sheet while open, cycling between its focusable controls on Tab and Shift+Tab, and Esc or clicking the scrim dispatches `OnDismiss` once. On compact windows, a centered sheet falls back to bottom sheet presentation with grab handle and drag-to-dismiss ([#344](https://github.com/DarkPyonix/compose-rust/issues/344)).
+
 ### Today's date and the local time
 
 `compose_rust::time::today()` answers today's date in the user's time zone as a `LocalDate { year, month, day, weekday }`, `now_local()` the date and the time of day with the offset from UTC, and `local_at(instant)` the same for any `SystemTime`. `subscribe_date_change(notify)` calls `notify` once each time the date changes, at local midnight or when the user moves to a time zone where it is another day. The Host reads them itself, with no boundary call: the C library's local time on desktop, iOS and Android, where a `TZ` in the environment wins as it does for every program there, and the page's `Date` in a browser, whose Host instantiation answers three `compose_rust_time` imports ([#630](https://github.com/DarkPyonix/compose-rust/issues/630)).
