@@ -39,7 +39,7 @@ fn fr_42_shadows_from_an_iterator_keep_their_order_and_stop_at_the_limit() {
     let layers = (0..6).map(|n| Shadow::new(0.0, n as f32, 1.0, 0.0, ink()));
     let modifier = Modifier.shadows(layers);
     let (_host, tree) = start(move || {
-        Column().modifier(modifier).content(|| {});
+        Column().modifier(modifier.clone()).content(|| {});
     });
     let dump = tree.dump();
     assert_eq!(dump.matches("Shadow").count(), MAX_SHADOWS, "{dump}");

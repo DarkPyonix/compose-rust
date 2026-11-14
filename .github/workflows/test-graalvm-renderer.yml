@@ -12,62 +12,7 @@
 name: GraalVM renderer test
 
 on:
-  pull_request:
-    paths:
-      - 'renderer/desktop/**'
-      - 'renderer/libs.versions.toml'
-      - 'renderer/kotlin'
-      - 'renderer/**/module.yaml'
-      - 'scripts/install-nik.sh'
-      - 'scripts/fetch-fork-window.sh'
-      - 'scripts/fetch-fork-skiko.sh'
-      - 'scripts/publish-skiko-awt.sh'
-      - 'experiments/static-library/**'
-      - 'renderer/scripts/publish-window.sh'
-      - 'renderer/scripts/build-compose.sh'
-      - 'renderer/scripts/compose-fork.changes'
-      - 'scripts/tests/renderer/**'
-      - '.github/scripts/resize-metrics-run.sh'
-      - '.github/scripts/resize-memory-check.sh'
-      - '.github/scripts/resize-soak-check.sh'
-      - '.github/scripts/idle-soak-check.sh'
-      - 'scripts/parity/**'
-      - '.github/scripts/check-linux-input-access.sh'
-      - '.github/scripts/atspi-walk.py'
-      - '.github/workflows/test-graalvm-renderer.yml'
-      - '.github/scripts/vertical-resize-run.sh'
-      - '.github/scripts/vertical-resize-check.sh'
-  push:
-    branches: [develop]
-    paths:
-      - 'renderer/desktop/**'
-      - 'renderer/libs.versions.toml'
-      - 'renderer/kotlin'
-      - 'renderer/**/module.yaml'
-      - 'scripts/install-nik.sh'
-      - 'scripts/fetch-fork-window.sh'
-      - 'scripts/fetch-fork-skiko.sh'
-      - 'scripts/publish-skiko-awt.sh'
-      - 'experiments/static-library/**'
-      - 'renderer/scripts/publish-window.sh'
-      - 'renderer/scripts/build-compose.sh'
-      - 'renderer/scripts/compose-fork.changes'
-      - 'scripts/tests/renderer/**'
-      - '.github/scripts/resize-metrics-run.sh'
-      - '.github/scripts/resize-memory-check.sh'
-      - '.github/scripts/resize-soak-check.sh'
-      - '.github/scripts/idle-soak-check.sh'
-      - 'scripts/parity/**'
-      - '.github/scripts/check-linux-input-access.sh'
-      - '.github/scripts/atspi-walk.py'
-      - '.github/workflows/test-graalvm-renderer.yml'
-      - '.github/scripts/vertical-resize-run.sh'
-      - '.github/scripts/vertical-resize-check.sh'
-  workflow_dispatch:
-
-concurrency:
-  group: test-graalvm-renderer-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read

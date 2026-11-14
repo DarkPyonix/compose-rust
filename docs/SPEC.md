@@ -2955,7 +2955,8 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 5. `absolute_size: bool`. 참이면 시스템 글꼴 배율을 적용하지 않습니다(CSS px). 측정과 그리기에 똑같이 적용됩니다. **구현은 `fontScale = 1`인 `Density`입니다.** 글자 크기를 글꼴 배율로 나누는 방식은 쓰지 않습니다. Android 14부터 글꼴 배율이 비선형이라 나눗셈으로 되돌릴 수 없기 때문입니다. HTML 텍스트의 접근성 배율은 FR-43의 확대 배율 `k`가 맡습니다.
 6. 공백 규칙: Renderer는 받은 문자열의 공백을 자르거나 접지 않습니다. 접기는 Host의 일입니다.
 7. 그릴 때의 `letter_spacing`(소유자 승인 2026-10-25, 이슈 #90). 지정하지 않은 값은 NaN이고, 그러면 역할의 값을 씁니다. 명시한 0은 진짜 0이라 자간을 더하지 않습니다. 측정 요청의 `letter_spacing`(PR-2.1)과 같은 규칙이며, CSS `letter-spacing: 0`과 `normal`이 역할의 자간으로 바뀌지 않게 하려는 것입니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
-8. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
+8. 그릴 때의 `line_height`(이슈 #91). 지정하지 않은 값과 NaN은 역할의 행간(역할이 없으면 폰트 자체의 행간 normal, Compose의 `TextUnit.Unspecified`)을 씁니다. 측정 요청의 `line_height`(PR-2.1, "NaN이면 normal")와 같은 규칙이며, CSS `line-height: normal`이 역할을 가진 텍스트에는 역할의 행간으로, `TypeRole::None` 텍스트에는 폰트 자체의 행간으로 그려지게 합니다. 와이어의 칸은 그대로이고 값의 뜻만 정합니다.
+9. 구간마다 크기와 자간이 다른 텍스트(소유자 승인 2026-10-25). `<p>본문 <span style="font-size:2em">큰 글자</span></p>`처럼 한 덩이 안에서 구간마다 크기가 다른 경우를 재고 그립니다. 지금은 크기와 자간이 노드 전체에 하나뿐이고, 구간이 크기를 가질 수 있는 길은 `type_role`뿐입니다. 크기가 다른 덩어리를 별도 `Text`로 쪼개면 줄바꿈이 이음매에서 끊겨 FR-26이 막으려던 문제(문단이 한 줄을 공유하지 못함)가 그대로 생기므로 쓰지 않습니다.
   - 곁 표 속성 `SpanMetrics`, 속성 태그 187입니다(121은 `TrackColor`가 이미 써서 옮겼습니다, [leader, provisional] (darkpyonix leader, 2026-11-13)). `SpanFonts`(116)와 같은 모양이고, 스팬 레코드는 36바이트로 그대로 둡니다. 쓰는 텍스트만 비용을 냅니다.
   - blob은 `count: u32`와 항목들이고, 항목은 16바이트입니다: `span: u32`(몇 번째 구간), `font_size: f32`(NaN이면 지정 없음, 단위 dp), `letter_spacing: f32`(NaN이면 지정 없음), `reserved: u32`(0). `absolute_size`와 `zoom`은 노드 쪽 규칙을 그대로 따릅니다. 숫자 굵기는 `bold` 플래그로 이미 되므로 이 표에 넣지 않고, 필요해지면 `reserved`를 씁니다.
   - 이 표는 `TypeRole::None`인 텍스트에서만 읽습니다. 구간에 `type_role`이 있으면 역할이 이깁니다(`SpanFonts`와 같은 규칙).
@@ -2976,6 +2977,7 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
 6. 명시한 `letter_spacing = 0`은 역할의 자간 없이 그려지고, NaN은 역할의 값으로 그려집니다. 측정값과 그린 값이 두 경우 모두 같습니다(fr40_explicit_zero_letter_spacing_is_not_unset).
 7. `SpanMetrics`가 오고 가고(곁 표 인코딩과 디코딩, 프로토콜 벡터), 범위 밖 구간 번호는 `ProtocolError`입니다(fr40_span_metrics_round_trip, fr40_span_metrics_out_of_range_is_protocol_error).
 8. 본문 14와 구간 28, 구간 자간 2dp가 섞인 문단, 한국어 줄바꿈, `absolute_size`, `zoom` 1.5에서 측정한 너비, 높이, 첫 기준선, 줄 수, 마지막 줄 폭이 그린 값과 비트 단위로 같습니다(pr2_measured_text_matches_the_drawn_text의 확장). 구간의 크기는 더 크게 그려지고 구간의 자간은 구간을 넓히며, 역할을 가진 텍스트에서는 무시됩니다(fr40_span_font_size_draws_larger, fr40_span_letter_spacing_widens_the_run, fr40_span_metrics_ignored_when_text_has_a_role).
+9. 그릴 때 `line_height = NaN`은 역할이 없는 텍스트에서 폰트 자체의 행간(normal)으로 그려지고, 측정한 값과 그린 값이 비트 단위로 같습니다(`fr40_normal_line_height_matches_the_drawn_text`). Rust 호스트에서 `line_height(f32::NAN)`은 NaN으로 전달되며 매 프레임 재전송되지 않습니다(`fr40_normal_line_height_does_not_reemit_every_frame`).
 
 - HTML 화면의 접근성 배율(시스템 글꼴 배율을 `absolute_size` 텍스트에 어떻게 반영할지)은 아직 정하지 않았습니다. 검토 문서를 만들어 소유자가 정합니다. `absolute_size` 칸 자체는 어느 결정에서도 필요합니다.
 ### FR-41 Transform과 렌더러가 재생하는 애니메이션 (`Agreed`, 진행 중, 이슈 #105, PR #83)
@@ -4188,6 +4190,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`가 있습니다. 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
 - `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+- `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
 
 수용 기준.
 1. 화면 트리를 그려 접근성 트리를 뽑는 시험에서, 포커스를 받을 수 있는 모든 노드(Button, 누를 수 있는 컨테이너, 토글, Slider)가 비어 있지 않은 이름을 가진다는 검사가 있고, 이름 없는 노드가 있으면 실패하며 노드를 알려 줍니다.
@@ -4195,6 +4198,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Button("").icon(Refresh).accessible_name("가져오기")`의 접근성 이름이 "가져오기"입니다.
 4. 이름을 준 `Switch(true)`의 접근성 노드가 이름과 켜짐 상태를 가집니다.
 5. 이름을 준 노드에서 `accessible_name`을 제거하면(제거 전달 뒤) 접근성 이름이 위젯의 기본(보이는 라벨이나 아이콘의 뜻)으로 돌아옵니다.
+6. 100,000 프레임 동안 매 프레임 다른 라벨을 주어도 메모리가 평평하게 유지되고(fr68_dynamic_labels_do_not_leak_across_frames), 같은 라벨을 반복할 때 정상 상태 추가 할당이 0회입니다(fr68_repeated_labels_do_not_allocate_in_steady_state).
 
 ### FR-69 비활성 Button의 라벨 대비 (`Done`, 이슈 #432)
 
@@ -5382,7 +5386,7 @@ Rust(wasm32)와 Kotlin/Wasm 모듈을 메모리 공유와 직접 호출로 연�
 - **`web_start`는 Host가 Renderer에게 빌려주는 블록의 주소를 돌려줍니다.** 앞 16바이트가 `MutationBatch` out 레코드이고, 그 뒤 4KiB가 이벤트 버퍼입니다. Host가 소유하는 이유는 Renderer가 붙잡아 둘 수 없기 때문입니다. `kotlin.wasm.unsafe`의 할당자는 `withScopedMemoryAllocator` 블록 안에서만 살아 있어서, 프레임을 넘겨 쓸 주소를 얻는 방법이 없습니다. 호출마다 스코프를 열면 정상 상태 할당 0회(NFR-9)를 잃습니다. 그래서 두 버퍼는 Rust 영역에 정적으로 놓이고, Renderer는 주소만 기억합니다. 0이 돌아오면 Host가 없는 것이고, Renderer는 경계 호출을 시작하지 않습니다.
 - **Host가 페이지에서 받는 시각**(이슈 #630, FR-86, [leader, provisional] (darkpyonix leader, 2026-11-13)). 브라우저의 Host는 자기 시계와 시간대가 없으므로, Host wasm 모듈은 페이지에서 가져오기 모듈 `compose_rust_time`의 세 함수를 받습니다: `now_millis`(`Date.now()`), `utc_offset_minutes`(`getTimezoneOffset`), `wake_after`(`setTimeout`으로 프레임을 요청). 생성된 `HostBridge.gen.kt`가 이 세 함수를 줍니다. 페이지에서 Host로만 가고 Renderer로는 건너지 않으며, 경계 호출이 아니므로 PR-2의 경계 함수 목록은 늘지 않습니다.
 - **이벤트 버퍼는 자랍니다**(이슈 #583, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 4KiB에 들어가지 않는 이벤트가 오면 Renderer는 `compose_rust_host_web_lend_event_buffer(min_len)`을 불러 Host에게서 더 큰 버퍼를 빌립니다. Host는 자기 영역 안에 `min_len` 이상인 버퍼를 두고 그 주소를 돌려주며, 다음 호출 전까지 그 버퍼를 유지합니다. 0이 돌아오면 거절된 것입니다. Renderer는 크기를 두 배씩 키우다가 64MiB에서 멈추고, 그보다 큰 이벤트는 잘라 보내지 않고 거절합니다. 키운 버퍼는 계속 쓰므로 큰 이벤트 하나만 할당하고, 정상 상태 할당 0회(NFR-9)는 그대로입니다. 이 함수는 `web_start`처럼 Web에서만 쓰는 준비 함수이고 경계 연산이 아니므로, PR-2의 경계 함수 목록은 늘지 않습니다. 그래도 Renderer에서 Host로 가는 호출이므로 경계 연산과 같은 트램펄린을 거치며, 경계 연산 슬롯 바로 다음 슬롯에 놓입니다. 이 호출에도 JS가 없습니다. 빌린 주소도 Host 영역 안에 있으므로 "건너는 주소는 모두 Host 영역 안"이라는 규칙은 바뀌지 않습니다.
-- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 동기로 인스턴스화하고(`new WebAssembly.Instance`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣습니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
+- **인스턴스화 순서.** 코드젠이 만든 로더 모듈(`compose-rust-host.gen.mjs`)이 테이블을 만들고, 트램펄린을 인스턴스화하고, Rust 모듈을 `compileStreaming`으로 컴파일해 둡니다. Kotlin의 `@WasmImport`가 이 로더를 모듈 이름으로 가리키므로, Kotlin 모듈은 로더가 평가된 뒤에야 인스턴스화됩니다. Kotlin 인스턴스화가 메모리를 만들고, Kotlin `main`이 그 메모리 위에 Rust를 비동기로 인스턴스화하고(`await WebAssembly.instantiate`), Rust가 자기 블록을 올바른 영역에 보고한 경우에만 Rust의 경계 export를 테이블 슬롯에 넣으며, 그 뒤에 첫 화면을 구성합니다. 동기 형태(`new WebAssembly.Instance`)는 Chromium이 메인 스레드에서 8MB가 넘는 모듈에 거부하므로 쓰지 않습니다. [리더, 잠정 2026-11-14, 이슈 #565] 비동기는 시작할 때뿐이고, 경계 호출은 여전히 동기 직접 호출입니다. 슬롯이 비어 있는 동안 경계 호출은 JS 쪽 무엇에도 닿지 않고 trap합니다. Renderer 쪽에 새 진입점은 없습니다.
 - 수용 기준(M7):
   1. Kotlin이 정의해 export한 메모리 하나를 Rust가 import하고, 한쪽이 쓴 arena를 다른 쪽이 제자리에서 읽습니다. 복사한 바이트가 없습니다.
   2. 이벤트 하나가 경계 호출 2회로 끝납니다(PR-4와 같은 기준).
