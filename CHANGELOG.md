@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### A single-line field's placeholder stays on one line
+
+A `TextField` that is not multiline now lays its placeholder out on one line, ending in an ellipsis where it is wider than the field. Before, a long placeholder wrapped onto further lines that a one-line field clipped away. A multiline field's placeholder wraps as before. This changes how existing single-line fields draw a long placeholder ([#786](https://github.com/DarkPyonix/compose-rust/issues/786)).
 ### The transient message's colours, line, padding and type
 
 `OverlayTokens` gains the message's fill and text colour for the light and the dark scheme (`toast_container(light, dark)`, `toast_content(light, dark)`), the width of its line (`toast_border_width`, where 0 draws none), its padding (`toast_padding(horizontal, vertical)`) and its text size and line height (`toast_type(size, line_height)`). Each left unset keeps the design system's, so a message with none of them is drawn as before. The renderer takes the colour for the scheme it draws in, so a message can stay inverted against the page in both. The `SetOverlayTokens` record grows from 28 to 56 bytes and the schema hash moves, so a Host and a renderer must come from the same release ([#781](https://github.com/DarkPyonix/compose-rust/issues/781)).
