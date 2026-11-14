@@ -1,12 +1,12 @@
 //! Fixed-layout little-endian boundary protocol.
 
 use crate::schema::{
-    AssetKind, ColorScheme, DesignSystem, FileDelivery, FileDialogKind, FileDialogStatus, FileOp,
-    IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration, MessageHorizontal,
-    MessagePlacement, MessageVertical, Modifier, MotionRole, NotificationImportance,
-    NotificationPermission, NotificationPresentation, Paint, PropertyKind, SEMANTICS_STATE_MASK,
-    Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme, WidgetKind,
-    modifier_extra_words,
+    AssetKind, BackgroundRepeat, ColorScheme, DesignSystem, FileDelivery, FileDialogKind,
+    FileDialogStatus, FileOp, IoStatus, Key, MAX_MODIFIER_WORDS, MaterialRole, MessageDuration,
+    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
+    NotificationImportance, NotificationPermission, NotificationPresentation, Paint, PropertyKind,
+    SEMANTICS_STATE_MASK, Selection, SemanticsRole, ShapeRole, SpaceRole, TYPE_ROLE_COUNT, Theme,
+    WidgetKind, modifier_extra_words,
 };
 use core::fmt;
 
@@ -3529,6 +3529,53 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         }
         Modifier::Semantics { role, state } => (34, two_words(*role as u64, u64::from(*state))),
         Modifier::CornerCurve { smoothing } => (35, two_words(float_word(*smoothing), 0)),
+        Modifier::BackgroundBrush {
+            x,
+            y,
+            width,
+            height,
+            paint,
+            repeat,
+            tile_width,
+            tile_height,
+        } => (
+            28,
+            [
+                pack_floats(*x, *y),
+                pack_floats(*width, *height),
+                paint.to_bits(),
+                u64::from(u16::from(*repeat)),
+                pack_floats(*tile_width, *tile_height),
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::SizeIn {
+            min_width,
+            max_width,
+            min_height,
+            max_height,
+        } => (
+            36,
+            two_words(
+                pack_floats(*min_width, *max_width),
+                pack_floats(*min_height, *max_height),
+            ),
+        ),
+        Modifier::AspectRatio {
+            ratio,
+            match_height_constraints_first,
+        } => (
+            37,
+            two_words(
+                pack_floats(*ratio, 0.0),
+                u64::from(*match_height_constraints_first),
+            ),
+        ),
+        Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
         Modifier::Transform {
             a,
             b,
@@ -3769,10 +3816,58 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
                 state,
             })
         }
+        28 => {
+            let values = [
+                unpack_low(first),
+                unpack_high(first),
+                unpack_low(second),
+                unpack_high(second),
+                unpack_low(fifth),
+                unpack_high(fifth),
+            ];
+            // A tile that is not a size has no copies to place, and a value that is not a
+            // number would be drawn by one side and not the other. Refused here, as the
+            // Renderer refuses them.
+            if values.iter().any(|value| !value.is_finite()) || values[4] <= 0.0 || values[5] <= 0.0
+            {
+                return Err(ProtocolError::InvalidModifier(28));
+            }
+            let [x, y, width, height, tile_width, tile_height] = values;
+            Ok(Modifier::BackgroundBrush {
+                x,
+                y,
+                width,
+                height,
+                paint: decode_paint(third)?,
+                repeat: decode_role::<BackgroundRepeat>(fourth)?,
+                tile_width,
+                tile_height,
+            })
+        }
         // Carried as sent. An out-of-range value is not an error; the Renderer draws it as
         // the nearer end of 0..=1.
         35 => Ok(Modifier::CornerCurve {
             smoothing: unpack_low(first),
+        }),
+        36 => Ok(Modifier::SizeIn {
+            min_width: unpack_low(first),
+            max_width: unpack_high(first),
+            min_height: unpack_low(second),
+            max_height: unpack_high(second),
+        }),
+        37 => {
+            let match_height_constraints_first = match second {
+                0 => false,
+                1 => true,
+                _ => return Err(ProtocolError::InvalidModifier(37)),
+            };
+            Ok(Modifier::AspectRatio {
+                ratio: unpack_low(first),
+                match_height_constraints_first,
+            })
+        }
+        38 => Ok(Modifier::MinTouchTarget {
+            size: unpack_low(first),
         }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }

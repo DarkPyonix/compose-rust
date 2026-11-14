@@ -141,7 +141,9 @@ jobs:
     name: Windows x64 Kotlin/Native static renderer and an application that depends on the crate
     needs: compose
     runs-on: windows-latest
-    timeout-minutes: 180
+    # The renderer build and the application checks together took 170-185 minutes on
+    # 2026-11-13, and the release run for v0.0.10 was ended at 180 with no log at all.
+    timeout-minutes: 300
     defaults:
       run:
         shell: bash

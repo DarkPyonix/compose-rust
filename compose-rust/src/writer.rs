@@ -28,13 +28,22 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 27;
+const MODIFIER_SLOTS: usize = 34;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
 const SHADOW_LAYERS: usize = 4;
 /// Bytes one shadow layer takes in the `shadows` attribute: four floats and a paint.
 const SHADOW_BYTES: usize = 24;
+
+/// The first of the slots a node's background brush layers take, and how many there are.
+/// They come right after the background colour, so a layer is painted over the colour and
+/// under the border, as CSS paints `background-image` over `background-color`.
+const BACKGROUND_BRUSH_BASE: u16 = 15;
+const BACKGROUND_BRUSH_LAYERS: usize = 4;
+/// Bytes one layer takes in the `background_brushes` attribute: the rectangle as four
+/// floats, the paint, the repeat as a u32 and the step as two floats.
+const BACKGROUND_BRUSH_BYTES: usize = 40;
 
 /// Node id 0 is the "no node" sentinel: a placeholder, which draws nothing and takes no
 /// slot in the Compose tree. It is also the root every top-level node is inserted under.
@@ -227,6 +236,10 @@ impl NodeWriter {
             self.set_shadows(node_id, value);
             return;
         }
+        if name == "background_brushes" {
+            self.set_background_brushes(node_id, value);
+            return;
+        }
         if let Some(slot) = self.modifier_for(node_id, name, value) {
             if let Some((index, modifier)) = slot {
                 self.write(Mutation::SetModifier {
@@ -271,6 +284,78 @@ impl NodeWriter {
                 owners[slot] = "shadows";
                 writes.push((slot as u16, modifier.clone()));
             } else if owners[slot] == "shadows" {
+                owners[slot] = "";
+                writes.push((slot as u16, crate::Modifier::Empty));
+            }
+        }
+        for (index, modifier) in writes {
+            self.write(Mutation::SetModifier {
+                node_id,
+                index,
+                modifier,
+            });
+        }
+    }
+
+    /// Writes a node's background brush layers, one modifier slot each, the first at the
+    /// bottom, and clears the slots a shorter list leaves behind. A layer the Renderer
+    /// would refuse, with a repeat it does not know or a step that is not a size, is left
+    /// out here rather than sent.
+    fn set_background_brushes(&mut self, node_id: u32, value: &AttrValue<'_>) {
+        let mut layers: Vec<crate::Modifier> = Vec::new();
+        if let AttrValue::Bytes(bytes) = value {
+            for chunk in bytes
+                .chunks_exact(BACKGROUND_BRUSH_BYTES)
+                .take(BACKGROUND_BRUSH_LAYERS)
+            {
+                let float = |at: usize| f32::from_le_bytes(chunk[at..at + 4].try_into().unwrap());
+                let bits = u64::from_le_bytes(chunk[16..24].try_into().unwrap());
+                let repeat = u32::from_le_bytes(chunk[24..28].try_into().unwrap());
+                let (Some(paint), Ok(repeat)) = (
+                    crate::Paint::from_bits(bits),
+                    u16::try_from(repeat)
+                        .map_err(|_| ())
+                        .and_then(crate::BackgroundRepeat::try_from),
+                ) else {
+                    continue;
+                };
+                let values = [
+                    float(0),
+                    float(4),
+                    float(8),
+                    float(12),
+                    float(28),
+                    float(32),
+                ];
+                if values.iter().any(|value| !value.is_finite())
+                    || values[4] <= 0.0
+                    || values[5] <= 0.0
+                {
+                    continue;
+                }
+                layers.push(crate::Modifier::BackgroundBrush {
+                    x: values[0],
+                    y: values[1],
+                    width: values[2],
+                    height: values[3],
+                    paint,
+                    repeat,
+                    tile_width: values[4],
+                    tile_height: values[5],
+                });
+            }
+        }
+        let mut writes = Vec::new();
+        let owners = self
+            .modifier_slots
+            .entry(node_id)
+            .or_insert([""; MODIFIER_SLOTS]);
+        for layer in 0..BACKGROUND_BRUSH_LAYERS {
+            let slot = BACKGROUND_BRUSH_BASE as usize + layer;
+            if let Some(modifier) = layers.get(layer) {
+                owners[slot] = "background_brushes";
+                writes.push((slot as u16, modifier.clone()));
+            } else if owners[slot] == "background_brushes" {
                 owners[slot] = "";
                 writes.push((slot as u16, crate::Modifier::Empty));
             }
@@ -340,18 +425,23 @@ impl NodeWriter {
         const SHAPE: u16 = 12;
         const CLIP: u16 = 13;
         const BACKGROUND: u16 = 14;
-        const BORDER: u16 = 15;
-        const ELEVATION: u16 = 16;
-        const CLICKABLE: u16 = 17;
-        const PADDING: u16 = 18;
-        const OBSERVE_SIZE: u16 = 19;
-        const MOTION: u16 = 20;
-        const MATERIAL: u16 = 21;
-        const MATCH_PARENT_SIZE: u16 = 22;
-        const WINDOW_DRAG: u16 = 23;
-        const PRESS_FEEDBACK: u16 = 24;
-        const SEMANTICS: u16 = 25;
-        const CORNER_CURVE: u16 = 26;
+        // The background brush layers (15 to 18) lie over the background colour and under
+        // the border.
+        const BORDER: u16 = 19;
+        const ELEVATION: u16 = 20;
+        const CLICKABLE: u16 = 21;
+        const PADDING: u16 = 22;
+        const OBSERVE_SIZE: u16 = 23;
+        const MOTION: u16 = 24;
+        const MATERIAL: u16 = 25;
+        const MATCH_PARENT_SIZE: u16 = 26;
+        const WINDOW_DRAG: u16 = 27;
+        const PRESS_FEEDBACK: u16 = 28;
+        const SEMANTICS: u16 = 29;
+        const CORNER_CURVE: u16 = 30;
+        const SIZE_IN: u16 = 31;
+        const ASPECT_RATIO: u16 = 32;
+        const MIN_TOUCH_TARGET: u16 = 33;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -388,6 +478,9 @@ impl NodeWriter {
             "press_feedback" => Some(PRESS_FEEDBACK),
             "semantics" => Some(SEMANTICS),
             "corner_curve" => Some(CORNER_CURVE),
+            "size_in" => Some(SIZE_IN),
+            "aspect_ratio" => Some(ASPECT_RATIO),
+            "min_touch_target" => Some(MIN_TOUCH_TARGET),
             _ => None,
         };
         let slot = slot_of(name)?;
@@ -586,6 +679,51 @@ impl NodeWriter {
                 CORNER_CURVE,
                 Modifier::CornerCurve {
                     smoothing: crate::schema::corner_smoothing(float(value)?),
+                },
+            ))),
+            "size_in" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut words = [0.0_f32; 4];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word =
+                        f32::from_le_bytes(bytes.get(4 * index..4 * index + 4)?.try_into().ok()?);
+                }
+                let [min_width, max_width, min_height, max_height] = words;
+                Some(Some((
+                    SIZE_IN,
+                    Modifier::SizeIn {
+                        min_width,
+                        max_width,
+                        min_height,
+                        max_height,
+                    },
+                )))
+            }
+            "aspect_ratio" => {
+                let (ratio, match_height_constraints_first) = match value {
+                    AttrValue::Float(r) => (*r as f32, false),
+                    AttrValue::Int(r) => (*r as f32, false),
+                    AttrValue::Bytes(bytes) => {
+                        let ratio = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                        let match_height = *bytes.get(4)? != 0;
+                        (ratio, match_height)
+                    }
+                    _ => return Some(None),
+                };
+                Some(Some((
+                    ASPECT_RATIO,
+                    Modifier::AspectRatio {
+                        ratio,
+                        match_height_constraints_first,
+                    },
+                )))
+            }
+            "min_touch_target" => Some(Some((
+                MIN_TOUCH_TARGET,
+                Modifier::MinTouchTarget {
+                    size: float(value)?,
                 },
             ))),
             "press_feedback" => {

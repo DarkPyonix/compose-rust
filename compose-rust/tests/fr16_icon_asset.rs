@@ -26,7 +26,7 @@ fn Icons() {
 /// The icon's property records: what `Icon::asset` sends, and what `Icon` still sends.
 #[test]
 fn fr16_icon_asset_travels_as_its_own_property() {
-    assert_eq!(PropertyKind::IconAsset as u16, 203);
+    assert_eq!(PropertyKind::IconAsset as u16, 205);
     assert_eq!(
         PropertyKind::from_name("icon_asset"),
         Ok(PropertyKind::IconAsset)

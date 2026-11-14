@@ -1019,6 +1019,17 @@ class NodeTable {
             return
         }
         val modifier = mutation.modifier
+        if (modifier is ProtocolModifier.BackgroundBrush && !(modifier.tile_width > 0f && modifier.tile_height > 0f)) {
+            // A step that is not a size has no copies to place: a repeat would never end and
+            // a single copy has no tile to be. The modifier is refused and the slot keeps
+            // what it held.
+            fail(
+                TableError.INVALID_MODIFIER,
+                "BackgroundBrush modifier on node ${mutation.nodeId} repeats every " +
+                    "${modifier.tile_width} by ${modifier.tile_height} dp; both must be more than zero",
+            )
+            return
+        }
         if (modifier is ProtocolModifier.Semantics && modifier.state and SEMANTICS_STATE_MASK.inv() != 0) {
             // A bit this renderer has no meaning for is a newer or a broken Host. Guessing
             // would announce a control as something it is not, so the modifier is refused
@@ -1337,6 +1348,9 @@ class NodeTable {
                 // modifiers.
                 PropertyKind.Placeholder -> widget == WidgetKind.TextField
                 PropertyKind.Multiline -> widget == WidgetKind.TextField
+                PropertyKind.PlaceholderColor,
+                PropertyKind.CaretColor,
+                -> widget == WidgetKind.TextField
                 PropertyKind.Enabled -> widget != WidgetKind.Spacer
 
                 // Windowing properties belong to the lazy container alone.

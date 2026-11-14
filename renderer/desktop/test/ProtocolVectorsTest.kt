@@ -584,6 +584,13 @@ class ProtocolVectorsTest {
         assertEquals(emptyList(), errors)
     }
 
+    /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f)), mutations[mutations.size - 2])
+    }
+
     /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
     @Test
     fun fr50_corner_curve_round_trips() {
@@ -706,6 +713,7 @@ class ProtocolVectorsTest {
                 ProtocolModifier.Alpha(0.5f),
                 ProtocolModifier.Transform(0.75f, 0.5f, -0.25f, 1.25f, 12f, -6f, 0.5f, 0.25f),
                 ProtocolModifier.MatchParentSize,
+                ProtocolModifier.MinTouchTarget(44f),
                 ProtocolModifier.CornerCurve(0.6f),
             ),
             modifiers,

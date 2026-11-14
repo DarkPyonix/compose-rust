@@ -159,6 +159,27 @@ fn every_modifier() -> Vec<Modifier> {
             state: 0b0110,
         },
         Modifier::CornerCurve { smoothing: 0.6 },
+        Modifier::BackgroundBrush {
+            x: 12.5,
+            y: -4.0,
+            width: 48.0,
+            height: 24.0,
+            paint: Paint::Asset(9),
+            repeat: compose_rust::BackgroundRepeat::RepeatX,
+            tile_width: 56.0,
+            tile_height: 30.0,
+        },
+        Modifier::SizeIn {
+            min_width: 10.0,
+            max_width: 200.0,
+            min_height: 20.0,
+            max_height: 120.0,
+        },
+        Modifier::AspectRatio {
+            ratio: 1.5,
+            match_height_constraints_first: true,
+        },
+        Modifier::MinTouchTarget { size: 44.0 },
     ]
 }
 
@@ -169,7 +190,7 @@ fn tag_of(modifier: &Modifier) -> u16 {
 
 /// Each new modifier round-trips, and its record is as long as its tag says: 28 bytes for
 /// a value of two words, 36 for the shadow's three, 60 for the border's six and 92 for the
-/// 3D transform's ten.
+/// 3D transform's ten and 52 for the background brush's five.
 #[test]
 fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
     let modifiers = every_modifier();
@@ -206,6 +227,7 @@ fn fr42_every_modifier_round_trips_at_the_length_its_tag_fixes() {
         (25, 28),
         (26, 44),
         (27, 92),
+        (28, 52),
     ] {
         assert_eq!(
             28 + 8 * usize::from(modifier_extra_words(tag).unwrap()),
@@ -222,7 +244,7 @@ fn fr_matchparent_round_trips_with_sparse_tag() {
     assert_eq!(u16::from_le_bytes([bytes[22], bytes[23]]), 31);
     assert_eq!(bytes.len(), 40);
     assert_eq!(decode_batch(&bytes), Ok(vec![record]));
-    for tag in 28..31 {
+    for tag in 29..31 {
         assert_eq!(modifier_extra_words(tag), None);
     }
 }

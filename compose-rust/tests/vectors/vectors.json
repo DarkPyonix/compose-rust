@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "6685291096421800049",
+  "schemaHashUnsigned": "1787926241858154318",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -24,6 +24,19 @@
     "originX": 0.5,
     "originY": 0.25,
     "backfaceHidden": true
+  },
+  "backgroundBrush": {
+    "file": "background_brush.bin",
+    "description": "One batch with one 52 byte BackgroundBrush modifier on node 4 at chain position 2: the rectangle (12.5, -4, 48, 24), the brush asset 9, RepeatX and the step (56, 30)",
+    "recordCount": 1,
+    "x": 12.5,
+    "y": -4.0,
+    "width": 48.0,
+    "height": 24.0,
+    "paintAsset": 9,
+    "repeat": "RepeatX",
+    "tileWidth": 56.0,
+    "tileHeight": 30.0
   },
   "events": {
     "file": "events.bin",
