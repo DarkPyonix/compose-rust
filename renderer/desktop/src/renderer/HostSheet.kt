@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isShiftPressed
@@ -54,6 +57,7 @@ import dev.darkpyonix.composerust.design.SheetEdge
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.ShapeRole
 import dev.darkpyonix.composerust.protocol.SheetPresentation
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.protocol.WindowSizeClass
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.runtime.LocalSystemBars
@@ -195,6 +199,8 @@ internal fun HostSheet(
         dismiss(node, dispatcher)
     }
     val surfaceRequester = remember(node.id) { FocusRequester() }
+    val focusRequesters = remember(node.id) { mutableMapOf<Int, FocusRequester>() }
+    var focusedChildId by remember(node.id) { mutableStateOf<Int?>(null) }
     val onEscape = { dismiss(node, dispatcher) }
 
     val defaultScrim = if (presentation == SheetPresentation.Centered) {
@@ -369,14 +375,26 @@ internal fun HostSheet(
                 Modifier.onPreviewKeyEvent { event ->
                     if (event.key == Key.Tab) {
                         if (event.type == KeyEventType.KeyDown) {
-                            val direction = if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next
-                            if (!focusManager.moveFocus(direction)) {
-                                focusManager.clearFocus()
+                            val children = node.children
+                            if (children.isNotEmpty()) {
+                                val direction = if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next
+                                val at = focusedChildId?.let { children.indexOf(it) } ?: -1
                                 if (direction == FocusDirection.Next) {
-                                    surfaceRequester.requestFocus()
-                                    focusManager.moveFocus(direction)
+                                    if (at >= 0 && at == children.size - 1) {
+                                        val first = children.first()
+                                        focusRequesters[first]?.requestFocus()
+                                        return@onPreviewKeyEvent true
+                                    }
                                 } else {
-                                    focusManager.moveFocus(direction)
+                                    if (at == 0) {
+                                        val last = children.last()
+                                        focusRequesters[last]?.requestFocus()
+                                        return@onPreviewKeyEvent true
+                                    }
+                                }
+                                if (!focusManager.moveFocus(direction)) {
+                                    val wrap = if (direction == FocusDirection.Next) children.first() else children.last()
+                                    focusRequesters[wrap]?.requestFocus()
                                 }
                             }
                         }
@@ -457,7 +475,15 @@ internal fun HostSheet(
                                 .verticalScroll(rememberScrollState()),
                         ) {
                             node.children.forEach { childId ->
-                                key(childId) { RenderNode(childId, table, dispatcher) }
+                                val requester = focusRequesters.getOrPut(childId) { FocusRequester() }
+                                val focusModifier = if (isCentered) {
+                                    Modifier
+                                        .focusRequester(requester)
+                                        .onFocusChanged { if (it.hasFocus) focusedChildId = childId }
+                                } else {
+                                    Modifier
+                                }
+                                key(childId) { RenderNode(childId, table, dispatcher, parentModifier = focusModifier) }
                             }
                         }
                     }
