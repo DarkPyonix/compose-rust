@@ -27,13 +27,7 @@
 name: Heavy checks
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
-
-concurrency:
-  # One gate per pull request; a newer event replaces the waiting one.
-  group: heavy-checks-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read

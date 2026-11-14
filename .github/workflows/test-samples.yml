@@ -62,38 +62,21 @@ name: Samples test
 on:
   push:
     tags:
-      - 'sample-v*'
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - samples/**
-      - scripts/build-sample-apks.sh
-      - scripts/build-sample-pages.sh
-      - renderer/desktop/scripts/build-sample-ios.sh
-      - .github/workflows/test-samples.yml
-      - .github/scripts/check-sample-bundles.py
-  workflow_dispatch:
+    - sample-v*
+  workflow_call:
     inputs:
       tag:
-        description: 'Existing sample-v* tag to build a release for; empty builds without releasing'
+        description: Existing sample-v* tag to build a release for; empty builds without
+          releasing
         required: false
         type: string
         default: ''
       desktop_only:
-        description: 'Build the desktop targets only (skip Android, iOS and the web). A tag is ignored for release purposes: nothing is published'
+        description: 'Build the desktop targets only (skip Android, iOS and the web).
+          A tag is ignored for release purposes: nothing is published'
         required: false
         type: boolean
         default: false
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. A tag push or a dispatch
-  # is never cancelled, so a release is not cut short half way, and a second one for the
-  # same tag waits. A run started by some other label going on gets a group of its own, so
-  # it cannot cancel a heavy run.
-  group: test-samples-${{ github.event.pull_request.number || inputs.tag || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

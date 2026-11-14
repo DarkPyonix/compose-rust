@@ -15,7 +15,7 @@
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
 #      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
-#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.2) where the old build
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.3) where the old build
 #      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
 #      old names: its paths, its metadata and the module names inside its klibs. It also
 #      publishes every sibling its modules name, which the old build took from JetBrains, so
@@ -42,23 +42,7 @@
 name: Compose from fork test
 
 on:
-  workflow_dispatch:
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    # The request job below decides; heavy-checks.yml holds the merge until it has passed.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - renderer/scripts/build-compose.sh
-      - renderer/scripts/compose-fork.changes
-      - .github/workflows/test-compose-from-fork.yml
-      - .github/scripts/compare-maven-repos.py
-
-concurrency:
-  # One run per pull request: a new commit cancels the older run. Pushes to develop and main,
-  # dispatches and tag runs are never cancelled, so a release is never cut short. A run started
-  # by some other label going on gets a group of its own, so it cannot cancel a heavy run.
-  group: test-compose-from-fork-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -318,7 +302,7 @@ jobs:
         # does not hide the other's result. This is where a difference fails the job.
         if: always() && steps.compare.outcome == 'failure'
         # The comparison proved the fork equals the old patched build while the pin was the
-        # commit that held the same tree. The pin has moved on to the fork's ext.2 line, whose
+        # commit that held the same tree. The pin has moved on to the fork's ext line, whose
         # Compose differs on purpose (new metadata, new sources), so a difference is reported
         # in the comparison step and no longer fails the job. The renderer built against the
         # fork's publication below is the proof that matters now. The guard is to come back as a
