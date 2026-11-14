@@ -24,6 +24,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.design.MessagePlacement
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.composeLetterSpacing
@@ -254,8 +257,17 @@ internal fun HostMessages(
     val shape = overlay?.toastCornerRadius?.takeIf { it > 0 }?.let { RoundedCornerShape(it.dp) } ?: style.shape
     val elevation = overlay?.toastElevation?.takeIf { it > 0 }?.dp ?: style.elevation
     val lift = if (elevation.value > 0f) Modifier.shadow(elevation, shape, clip = false) else Modifier
-    val outline = if (style.borderWidth.value > 0f) {
-        Modifier.border(style.borderWidth, style.borderColor, shape)
+    // Colours come in a light and a dark pair, so a message can stay inverted against the
+    // page in either scheme. A zero colour, size or padding is the design system's.
+    fun argb(light: Long?, dark: Long?): Color? =
+        (if (theme.dark) dark else light)?.takeIf { it != 0L }?.let { Color(it) }
+    val container = argb(overlay?.toastContainerLight, overlay?.toastContainerDark) ?: style.container
+    val content = argb(overlay?.toastContentLight, overlay?.toastContentDark) ?: style.content
+    val borderWidth = overlay?.toastBorderWidth?.takeIf { it != 0xFFFF }?.dp ?: style.borderWidth
+    val horizontalPadding = overlay?.toastPaddingHorizontal?.takeIf { it > 0 }?.dp ?: style.horizontalPadding
+    val verticalPadding = overlay?.toastPaddingVertical?.takeIf { it > 0 }?.dp ?: style.verticalPadding
+    val outline = if (borderWidth.value > 0f) {
+        Modifier.border(borderWidth, style.borderColor, shape)
     } else {
         Modifier
     }
@@ -273,25 +285,32 @@ internal fun HostMessages(
                 .testTag(MESSAGE_CONTAINER_TEST_TAG)
                 .then(lift)
                 .clip(shape)
-                .background(style.container)
+                .background(container)
                 .then(outline)
                 .padding(
-                    horizontal = style.horizontalPadding,
-                    vertical = style.verticalPadding,
+                    horizontal = horizontalPadding,
+                    vertical = verticalPadding,
                 ),
-            horizontalArrangement = Arrangement.spacedBy(style.horizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(horizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val base = TextStyle(
-                fontSize = token.fontSize,
+                fontSize = overlay?.toastFontSize?.takeIf { it > 0 }?.sp ?: token.fontSize,
                 fontFamily = theme.family(style.typeRole),
-                lineHeight = token.composeLineHeight,
+                lineHeight = overlay?.toastLineHeight?.takeIf { it > 0 }?.sp ?: token.composeLineHeight,
+                // A line height the application set is the height the line takes, even on a
+                // message of one line, which Compose would otherwise trim back to the text.
+                lineHeightStyle = if ((overlay?.toastLineHeight ?: 0) > 0) {
+                    LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)
+                } else {
+                    null
+                },
                 letterSpacing = token.composeLetterSpacing,
             )
             ThemedText(
                 text = message.text,
                 modifier = Modifier.testTag(MESSAGE_TEST_TAG),
-                style = base.copy(color = style.content),
+                style = base.copy(color = content),
             )
             if (message.action.isNotEmpty()) {
                 ThemedText(

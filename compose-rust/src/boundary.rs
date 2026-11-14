@@ -358,6 +358,8 @@ impl Host {
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
+        // The density is reported again at start as well, before the first frame.
+        crate::density::reset_density();
         // The windows' commands and registrations belong to the Host that queued them.
         crate::windows::reset_windows();
         // The assets do not go with them. The Renderer this Host is about to talk to has
@@ -549,6 +551,26 @@ impl Host {
     ) -> Result<(&[u8], i64), ProtocolError> {
         let level = i8::try_from(level).map_err(|_| ProtocolError::InvalidValueKind(0))?;
         if crate::zoom::publish_window(window, crate::zoom::Zoom { k, os, level }) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
+    /// Records how many device pixels one dp covers, and wakes whoever reads it.
+    fn publish_density(&mut self, scale: f32) -> Result<(&[u8], i64), ProtocolError> {
+        if crate::density::publish(scale) {
+            return self.render_and_finish(0);
+        }
+        self.empty_batch()
+    }
+
+    /// Records the density of one window, and wakes whoever reads it for that window.
+    fn publish_window_density(
+        &mut self,
+        window: u32,
+        scale: f32,
+    ) -> Result<(&[u8], i64), ProtocolError> {
+        if crate::density::publish_window(window, scale) {
             return self.render_and_finish(0);
         }
         self.empty_batch()
@@ -818,6 +840,22 @@ impl Host {
                     return self.publish_window_zoom(event.node_id, k, os, level);
                 }
                 return self.publish_zoom(k, os, level);
+            }
+            // The same kind of report as the zoom: no handler, the window it is about in
+            // a multi-window application and node 0 otherwise. The record's decoder
+            // refuses a scale that is not a positive number, and an event built in
+            // process has not been through it, so it is refused here as well.
+            EventPayload::DensityChanged { scale } => {
+                if event.handler_id != 0 || scale.is_nan() || scale <= 0.0 {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                if event.node_id != 0 {
+                    if !self.runtime.is_window(event.node_id) {
+                        return Err(ProtocolError::InvalidValueKind(0));
+                    }
+                    return self.publish_window_density(event.node_id, scale);
+                }
+                return self.publish_density(scale);
             }
             // The two events that belong to the application and to no window: no node and
             // no handler, and an answer before anything is looked up.

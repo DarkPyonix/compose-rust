@@ -521,9 +521,9 @@ class ProtocolVectorsTest {
     }
 
     /**
-     * The overlay tokens record with the transient message's two fields appended: every
-     * field the Rust encoder wrote reads back as the same value, the older ones where they
-     * always were and the two new ones after the scrim.
+     * The overlay tokens record with the transient message's fields appended: every field
+     * the Rust encoder wrote reads back as the same value, the older ones where they always
+     * were and the message's shadow, corner, colours, line, padding and type after the scrim.
      */
     @Test
     fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
@@ -543,6 +543,15 @@ class ProtocolVectorsTest {
                         scrim = 0x8000_0000L,
                         toastElevation = 7,
                         toastCornerRadius = 14,
+                        toastContainerLight = 0xFF1C1B19L,
+                        toastContainerDark = 0xFFF0EEE9L,
+                        toastContentLight = 0xFFFFFFFFL,
+                        toastContentDark = 0xFF151514L,
+                        toastBorderWidth = 0,
+                        toastPaddingHorizontal = 16,
+                        toastPaddingVertical = 10,
+                        toastFontSize = 13,
+                        toastLineHeight = 20,
                     ),
                 ),
             ),
@@ -895,7 +904,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -907,6 +916,29 @@ class ProtocolVectorsTest {
         assertEquals(52, light.getShort(0).toInt())
         assertEquals(0, light.getInt(16))
         assertEquals(1, out.getInt(16))
+    }
+
+    /**
+     * The density report encodes to the 20 bytes the Host decodes: the header, then the
+     * scale as one `f32`. It is the vector's last record, under event tag 53.
+     */
+    @Test
+    fun fr43_density_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
+        assertEquals(20, length)
+        assertEquals(1775, bytes.size)
+        assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
+        assertEquals(53, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(2f, out.getFloat(16))
+        val window = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
+        assertEquals(20, window.getInt(4))
+        assertEquals(1.25f, window.getFloat(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -1092,7 +1124,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
     }
 
     /**
@@ -1107,7 +1139,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

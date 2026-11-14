@@ -52,7 +52,9 @@ const TAG_EDIT_CODE_GROUP: u16 = 28;
 const EDIT_CODE_GROUP_LEN: usize = 24;
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 56;
+/// What `toast_border_width` is sent as when the design system keeps its own line.
+const TOAST_BORDER_DESIGN_SYSTEM: u16 = u16::MAX;
 // 29 puts plain text on the platform clipboard. Nothing answers it.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
@@ -549,10 +551,11 @@ const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 const EVENT_CODE_EDIT_GROUP_RESULT: u16 = 51;
 /// `CodeEditGroupResult` in full: the 16 byte header and five words.
 const CODE_EDIT_GROUP_RESULT_LEN: usize = 36;
-// 52 is the system's light or dark appearance, one `u32` after the header. 53 is numbered
-// for an event that is not here yet. 54 and 55 are the code editor's row height and scroll
+// 52 is the system's light or dark appearance, one `u32` after the header. 53 is a
+// window's density, one `f32`. 54 and 55 are the code editor's row height and scroll
 // offset, each one `f64` of physical pixels.
 const EVENT_COLOR_SCHEME_CHANGED: u16 = 52;
+const EVENT_DENSITY_CHANGED: u16 = 53;
 const EVENT_CODE_METRICS: u16 = 54;
 const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
@@ -802,6 +805,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                     raw.min(u32::from(u16::MAX)) as u16,
                 ))?;
             crate::schema::EventPayload::ColorSchemeChanged(scheme)
+        }
+        EVENT_DENSITY_CHANGED if record_len == 20 => {
+            let scale = f32::from_bits(read_u32(bytes, 16)?);
+            // A density is a positive number of pixels. Zero, a negative number and NaN
+            // are not, and a layout that divided by one would not recover.
+            if scale.is_nan() || scale <= 0.0 {
+                return Err(ProtocolError::InvalidValueKind(0));
+            }
+            crate::schema::EventPayload::DensityChanged { scale }
         }
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
@@ -1187,6 +1199,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
         | EVENT_COLOR_SCHEME_CHANGED
+        | EVENT_DENSITY_CHANGED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1449,6 +1462,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(scheme)).to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::DensityChanged { scale } = event.payload {
+        output.extend_from_slice(&EVENT_DENSITY_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&scale.to_bits().to_le_bytes());
         return Ok(());
     }
     match event.payload {
@@ -1932,6 +1953,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
         | crate::schema::EventPayload::ColorSchemeChanged(_)
+        | crate::schema::EventPayload::DensityChanged { .. }
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
@@ -2284,6 +2306,20 @@ impl BatchEncoder {
                 self.put_u32(overlay.scrim);
                 self.put_u16(overlay.toast_elevation);
                 self.put_u16(overlay.toast_corner_radius);
+                self.put_u32(overlay.toast_container_light);
+                self.put_u32(overlay.toast_container_dark);
+                self.put_u32(overlay.toast_content_light);
+                self.put_u32(overlay.toast_content_dark);
+                self.put_u16(
+                    overlay
+                        .toast_border_width
+                        .unwrap_or(TOAST_BORDER_DESIGN_SYSTEM),
+                );
+                self.put_u16(overlay.toast_padding_horizontal);
+                self.put_u16(overlay.toast_padding_vertical);
+                self.put_u16(overlay.toast_font_size);
+                self.put_u16(overlay.toast_line_height);
+                self.put_u16(0);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2879,6 +2915,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let scrim = read_u32(bytes, payload + 20)?;
                 let toast_elevation = read_u16(bytes, payload + 24)?;
                 let toast_corner_radius = read_u16(bytes, payload + 26)?;
+                let border = read_u16(bytes, payload + 44)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2892,6 +2929,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     scrim,
                     toast_elevation,
                     toast_corner_radius,
+                    toast_container_light: read_u32(bytes, payload + 28)?,
+                    toast_container_dark: read_u32(bytes, payload + 32)?,
+                    toast_content_light: read_u32(bytes, payload + 36)?,
+                    toast_content_dark: read_u32(bytes, payload + 40)?,
+                    toast_border_width: (border != TOAST_BORDER_DESIGN_SYSTEM).then_some(border),
+                    toast_padding_horizontal: read_u16(bytes, payload + 46)?,
+                    toast_padding_vertical: read_u16(bytes, payload + 48)?,
+                    toast_font_size: read_u16(bytes, payload + 50)?,
+                    toast_line_height: read_u16(bytes, payload + 52)?,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
@@ -3577,6 +3623,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         ),
         Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
         Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
+        Modifier::Sticky => (41, two_words(0, 0)),
         Modifier::UnboundedWidth => (40, two_words(0, 0)),
         Modifier::Transform {
             a,
@@ -3872,6 +3919,7 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             size: unpack_low(first),
         }),
         39 => Ok(Modifier::Overlay(decode_paint(first)?)),
+        41 => Ok(Modifier::Sticky),
         40 => Ok(Modifier::UnboundedWidth),
         other => Err(ProtocolError::InvalidModifier(other)),
     }

@@ -42,9 +42,9 @@ pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole,
-    TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
-    WindowSizeClass,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
+    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
+    WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -396,6 +396,7 @@ pub struct Modifier {
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    sticky: bool,
     unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
@@ -448,6 +449,7 @@ impl Modifier {
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            sticky: false,
             unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
@@ -484,6 +486,13 @@ impl Modifier {
     /// Matches the bounds of a Box parent without affecting its size.
     pub const fn match_parent_size(mut self) -> Self {
         self.match_parent_size = true;
+        self
+    }
+
+    /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
+    /// while the rest of the content scrolls.
+    pub const fn sticky(mut self) -> Self {
+        self.sticky = true;
         self
     }
 
@@ -1128,6 +1137,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "match_parent_size",
         OwnedAttr::Bool(modifier.match_parent_size),
     );
+    push(false, "sticky", OwnedAttr::Bool(modifier.sticky));
     push(
         chip,
         "fill_max_width",

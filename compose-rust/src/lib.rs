@@ -31,6 +31,7 @@ pub mod contrast;
 pub use boundary_wasm::web_start as __web_start;
 #[doc(hidden)]
 pub mod codegen;
+pub mod density;
 pub mod design;
 pub mod drawing;
 mod extensions;
@@ -79,6 +80,7 @@ pub use code::{
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
+pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
@@ -102,8 +104,9 @@ pub use schema::{
     LoopMode, MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
     Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
     OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
-    Selection, SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme,
-    TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    Selection, SemanticsRole, Severity, ShapeRole, SheetPresentation, Snap, SpaceRole, TextAlign,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
