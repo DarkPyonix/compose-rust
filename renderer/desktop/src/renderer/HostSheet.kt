@@ -373,6 +373,9 @@ internal fun HostSheet(
                             if (!focusManager.moveFocus(direction)) {
                                 focusManager.clearFocus()
                                 focusManager.moveFocus(direction)
+                                if (direction == FocusDirection.Next) {
+                                    focusManager.moveFocus(direction)
+                                }
                             }
                         }
                         true
