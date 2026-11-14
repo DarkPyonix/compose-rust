@@ -409,6 +409,7 @@ fun ComposeRustContent(
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
+        DensityReporter(host)
         ComposeRustTree(host, modifier, caption)
         return
     }
@@ -423,8 +424,10 @@ fun ComposeRustContent(
     CompositionLocalProvider(
         LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
         LocalZoom provides zoom,
+        LocalDisplayScale provides base.density,
     ) {
         ZoomReporter(host, zoom)
+        DensityReporter(host)
         // `onKeyEvent` rather than the preview: it runs after everything inside has had the
         // key, so a key the application consumed never reaches it.
         ComposeRustTree(

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### The window's density reaches the Host
+
+The Renderer tells the Host how many device pixels one dp of a window covers with a new event, `DensityChanged` (event tag 53, one `f32`, a 20 byte record): once before the first frame, and again when the value changes, as when a window moves to a screen of another scale. `compose_rust::density()` reads it and is 1.0 until the first report. `compose_rust::density::subscribe` calls back on a change and not on a repeat of the same value, which is where a cache of measurements made at the old density is emptied. In a multi-window application the report names its `Window` node, and `WindowHandle::density()`, `density::density_of` and `density::subscribe_window` read and follow one window. The zoom is not part of the value and keeps its own report. A scale of zero, below zero or NaN is a protocol error. The new event moves the schema hash and adds a record to the `events.bin` protocol vector, so a Host and a renderer must come from the same release ([DarkPyonix/dioxus-compose#240](https://github.com/DarkPyonix/dioxus-compose/issues/240)).
+
 ### A sticky child in a scrolling row or column
 
 `Modifier::sticky()` holds a child of a `ScrollRow` or `ScrollColumn`, at any depth, at the container's start edge while the rest scrolls under it: a diff line's check or line number stays on the screen when the line is scrolled sideways. Its background, border and clip stay with it. `LazyRow` and `LazyColumn` are not covered. A new modifier (tag 41) moves the schema hash ([#424](https://github.com/DarkPyonix/compose-rust/issues/424)).
