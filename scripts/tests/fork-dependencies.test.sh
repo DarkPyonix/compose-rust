@@ -3,7 +3,7 @@
 # its own (COMPOSE_AS in renderer/scripts/build-compose.sh), and every module names its siblings
 # at that version. A sibling that is not there, because a build stopped half way or a module was
 # left off the fork's publish-local.sh, sends the Kotlin toolchain to the network for a coordinate
-# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.3.pom", kept in
+# nobody published: "Unable to download checksums of file foundation-1.11.1-ext.4.pom", kept in
 # its own cache after that.
 #
 # This runs build-compose.sh in a copy of the tree with git stubbed and a fake fork checkout
@@ -17,6 +17,8 @@
 #     published, names it and the command that publishes it, and accepts the complete one
 #   a constraint (an atomic group naming every module in it) is not a missing sibling, and
 #     neither is a dependency of a root's variant for a target that was not built
+#   a published module built for one platform alone (skiko-awt) is not a missing sibling, and a
+#     multiplatform root without the target's publication is
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -184,6 +186,36 @@ else
         fail "require-fork-artifacts.sh reported ui-test-junit4, which only a constraint names"
     grep -q "ui-uikit" "$work/out" &&
         fail "require-fork-artifacts.sh reported ui-uikit, which only the root's iOS and shared metadata variants name"
+fi
+
+# A desktop publication naming a module built for one platform alone, as the fork's desktop
+# modules name its skiko-awt since 1.11.1-ext.4: that module's root is all there is, and it is
+# published. A multiplatform root (one whose variants point at target publications) without
+# its desktop publication is still not.
+# single <home> <dependency> <with available-at: 0 or 1>: writes ui-desktop naming the dependency.
+single() {
+    local m2="$1/.m2/repository/org/thisisthepy/compose" dependency="$2" multiplatform="$3"
+    mkdir -p "$m2/ui/ui-desktop/$fork_as" "$m2/skiko/$dependency/$fork_as"
+    printf '{"formatVersion":"1.1","variants":[{"name":"desktopApiElements-published","dependencies":[{"group":"org.thisisthepy.compose.skiko","module":"%s","version":{"requires":"%s"}}]}]}\n' \
+        "$dependency" "$fork_as" > "$m2/ui/ui-desktop/$fork_as/ui-desktop-$fork_as.module"
+    if [[ "$multiplatform" == 1 ]]; then
+        printf '{"formatVersion":"1.1","variants":[{"name":"desktopApiElements-published","available-at":{"url":"../../%s-desktop/%s/%s-desktop-%s.module","group":"org.thisisthepy.compose.skiko","module":"%s-desktop","version":"%s"}}]}\n' \
+            "$dependency" "$fork_as" "$dependency" "$fork_as" "$dependency" "$fork_as"
+    else
+        printf '{"formatVersion":"1.1","variants":[{"name":"apiElements","files":[]}]}\n'
+    fi > "$m2/skiko/$dependency/$fork_as/$dependency-$fork_as.module"
+}
+home="$work/home-single"
+single "$home" skiko-awt 0
+HOME="$home" bash "$tree/renderer/scripts/fork-dependencies.sh" check "$fork_as" desktop > "$work/out" 2>&1 ||
+    fail "fork-dependencies.sh refused a single-platform module that is published: $(head -1 "$work/out")"
+home="$work/home-multi"
+single "$home" skiko 1
+if HOME="$home" bash "$tree/renderer/scripts/fork-dependencies.sh" check "$fork_as" desktop > "$work/out" 2>&1; then
+    fail "fork-dependencies.sh accepted a multiplatform root whose desktop publication nobody published"
+else
+    grep -q "org.thisisthepy.compose.skiko:skiko:$fork_as" "$work/out" ||
+        fail "fork-dependencies.sh refused without naming skiko $fork_as: $(head -1 "$work/out")"
 fi
 
 if [[ "$failures" -eq 0 ]]; then echo "  ok"; else exit 1; fi

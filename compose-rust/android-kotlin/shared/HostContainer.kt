@@ -1,7 +1,9 @@
 package dev.darkpyonix.composerust.foundation
 
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.graphics.Color
 import dev.darkpyonix.composerust.design.CaptionTitleAlignment
+import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.ui.textStyle
@@ -353,11 +355,33 @@ internal fun HostTopAppBar(
                 }
             }
         }
-        val separator = style.separator
+        val separator = topAppBarSeparator(node, style, theme)
         if (separator != null) {
             Box(Modifier.fillMaxWidth().height(HAIRLINE).background(separator))
         }
     }
+}
+
+/**
+ * Decides whether the top app bar draws a hairline separator underneath.
+ *
+ * An explicit separator property on the node takes precedence. When unset,
+ * setting a custom border on the bar suppresses the hairline; otherwise the
+ * active design system's default separator is used.
+ */
+internal fun topAppBarSeparator(
+    node: Node,
+    style: ContainerStyle,
+    theme: ResolvedTheme,
+): Color? = when {
+    node.property(PropertyKind.Separator) != null ->
+        if (node.flag(PropertyKind.Separator, default = true)) {
+            style.separator ?: theme.color(ColorRole.OutlineVariant)
+        } else {
+            null
+        }
+    node.setsOwnBorder() -> null
+    else -> style.separator
 }
 
 @Composable

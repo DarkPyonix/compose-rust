@@ -13,6 +13,7 @@ import dev.darkpyonix.composerust.design.resolveTheme
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
@@ -144,6 +145,49 @@ class TextFieldColorsTest {
                 "unconfigured placeholder color is OnSurfaceVariant with 55% alpha",
             )
         }
+    }
+
+    /**
+     * A single-line field 120dp wide has one line for a placeholder far wider than that: the
+     * placeholder is laid out on one line and ends in an ellipsis. The same placeholder in a
+     * multiline field of the same width wraps onto more lines, as before.
+     */
+    @Test
+    fun fr56_single_line_placeholder_ends_in_an_ellipsis() {
+        val long = "Search files by name, by symbol and by the text inside them"
+        fun placeholderLayout(multiline: Boolean): TextLayoutResult {
+            val mutations = listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Cupertino, DesignSystem.Cupertino, ColorScheme.Light, false)),
+                Mutation.Create(root, WidgetKind.Box),
+                Mutation.Create(field, WidgetKind.TextField),
+                Mutation.SetProp(field, PropertyKind.Placeholder, PropertyValue.Text(long)),
+                Mutation.SetProp(field, PropertyKind.Multiline, PropertyValue.Bool(multiline)),
+                Mutation.SetModifier(field, 0, ProtocolModifier.Width(120f)),
+                Mutation.Insert(root, field, 0),
+            )
+            lateinit var found: TextLayoutResult
+            runComposeUiTest {
+                setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+                waitForIdle()
+                val layouts = mutableListOf<TextLayoutResult>()
+                collectLayouts(field, layouts)
+                found = assertNotNull(layouts.find { it.layoutInput.text.text == long }, "placeholder layout")
+            }
+            return found
+        }
+
+        val single = placeholderLayout(multiline = false)
+        assertEquals(1, single.lineCount, "one line in a single-line field")
+        assertEquals(1, single.layoutInput.maxLines)
+        assertEquals(androidx.compose.ui.text.style.TextOverflow.Ellipsis, single.layoutInput.overflow)
+        assertTrue(single.hasVisualOverflow, "the placeholder is cut at the field's edge")
+        assertTrue(
+            single.getLineEnd(0, visibleEnd = true) < long.length,
+            "only the start of the placeholder is on its one line",
+        )
+
+        val multi = placeholderLayout(multiline = true)
+        assertTrue(multi.lineCount > 1, "a multiline field's placeholder wraps: ${multi.lineCount} lines")
     }
 
     private fun androidx.compose.ui.test.ComposeUiTest.collectLayouts(nodeId: Int, out: MutableList<TextLayoutResult>) {

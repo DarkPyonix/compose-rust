@@ -235,6 +235,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.MinTouchTarget -> chain
             // Laid over the node where its padding starts, through `beforePadding` above.
             is ProtocolModifier.Overlay -> chain
+            // Applied round the whole node where it is rendered, outside every other modifier,
+            // so its background, border and clip stay with it while the rest scrolls.
+            is ProtocolModifier.Sticky -> chain
             is ProtocolModifier.Empty -> chain
             is ProtocolModifier.Padding ->
                 if (allowPadding) beforePadding(chain).padding(value.value.dp) else chain

@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
+import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
 import dev.darkpyonix.composerust.protocol.FontRef
@@ -41,6 +42,7 @@ import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.floatProp
 import dev.darkpyonix.composerust.ui.letterSpacingProp
+import dev.darkpyonix.composerust.ui.lineHeightProp
 import dev.darkpyonix.composerust.ui.intProp
 import dev.darkpyonix.composerust.ui.maxLines
 import dev.darkpyonix.composerust.ui.node.Asset
@@ -376,7 +378,7 @@ internal fun resolveFontChain(
             }
         }
     }
-    if (members.isEmpty()) members += FontChain.Member(FontFamily.SansSerif, null)
+    if (members.isEmpty()) members += FontChain.Member(platformSansSerifFamily, null)
     return FontChain(members)
 }
 
@@ -435,7 +437,7 @@ internal fun ignoredFontsProblem(input: TextInput): String? {
 /** Which installed family each generic name is, which is the platform's answer. */
 internal fun genericFontFamily(family: GenericFamily): FontFamily = when (family) {
     GenericFamily.SystemUi -> platformUiFamily
-    GenericFamily.SansSerif -> FontFamily.SansSerif
+    GenericFamily.SansSerif -> platformSansSerifFamily
     GenericFamily.Serif -> FontFamily.Serif
     GenericFamily.Monospace -> FontFamily.Monospace
 }
@@ -722,7 +724,7 @@ internal fun Node.textInput(): TextInput {
         fontSize = floatProp(PropertyKind.FontSize),
         fontWeight = intProp(PropertyKind.FontWeight)?.toInt(),
         letterSpacing = letterSpacingProp(),
-        lineHeight = floatProp(PropertyKind.LineHeight),
+        lineHeight = lineHeightProp(),
         maxLines = maxLines(),
         softWrap = (property(PropertyKind.SoftWrap) as? PropertyValue.Bool)?.value != false,
         tabSize = intProp(PropertyKind.TabSize)?.toInt() ?: TextInput.DEFAULT_TAB_SIZE,

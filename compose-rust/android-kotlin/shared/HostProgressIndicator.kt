@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.paintProp
 
 /**
  * A ProgressIndicator.
@@ -21,6 +22,8 @@ import dev.darkpyonix.composerust.ui.node.Node
 @Composable
 internal fun HostProgressIndicator(node: Node, modifier: Modifier, theme: ResolvedTheme) {
     val determinate = node.flag(PropertyKind.Determinate, default = true)
+    val color = node.paintProp(PropertyKind.Color)?.let { theme.color(it) }
+    val trackColor = node.paintProp(PropertyKind.TrackColor)?.let { theme.color(it) }
     theme.rules.controlWidgets.ProgressIndicator(
         determinate = determinate,
         // An indeterminate indicator does not read the value at all, so an absent one is
@@ -30,6 +33,8 @@ internal fun HostProgressIndicator(node: Node, modifier: Modifier, theme: Resolv
         modifier = modifier,
         theme = theme,
         diameter = node.namedDiameter(),
+        color = color,
+        trackColor = trackColor,
     )
 }
 

@@ -26,22 +26,10 @@
 name: Linux packaging
 
 on:
-  pull_request:
-    # Only when asked: the run-heavy-ci label going on, or a push or reopen while it is on.
-    types: [synchronize, reopened, labeled]
-    paths:
-      - scripts/packager-linux/**
-      - .github/workflows/packager-linux.yml
-  workflow_dispatch:
+  workflow_call: {}
 
 permissions:
   contents: read
-
-concurrency:
-  # A run started by some other label going on gets a group of its own, so it cannot
-  # cancel a heavy run.
-  group: packager-linux-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'run-heavy-ci' && format('-other-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

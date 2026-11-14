@@ -116,7 +116,8 @@ enum class UnderlineShape { Wavy, Straight, Dotted }
 /**
  * The ways an editor can draw its text and take input. Which one is used is decided by
  * measuring all three against a document of a hundred thousand lines; the harness that does
- * it is `experiments/code-editor-frames`. Every one of them takes input through Compose's own
+ * it is `experiments/code-editor-frames`, kept on the development branch only (a release does
+ * not carry experiments/). Every one of them takes input through Compose's own
  * platform text input, so an input method composes exactly as it does in a text field.
  */
 enum class CodeEditorPath {

@@ -181,6 +181,7 @@ fn every_modifier() -> Vec<Modifier> {
         },
         Modifier::MinTouchTarget { size: 44.0 },
         Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
+        Modifier::Sticky,
     ]
 }
 

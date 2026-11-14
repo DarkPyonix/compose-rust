@@ -367,49 +367,60 @@ class KeyEventTest {
     }
 
     /**
-     * A focusable box with `OnKeyDown` receives the keys pressed while the box itself has
-     * focus, not only keys that bubble up from a focused descendant (issue 101). The box has
-     * no children, so the only way a key can reach the handler is through the box's own
-     * focus target.
+     * A focusable box with `OnKeyDown` hears keys from two places, the way a DOM element with
+     * tabindex and onkeydown does. While the box itself has focus, every key it is pressed
+     * reaches its handler once. While a TextField inside it has focus, a key the field leaves
+     * unconsumed bubbles up to the box, and a key the field's handler consumes stops there.
      */
     @Test
-    fun fr12_a_focused_box_receives_its_own_keys() = runComposeUiTest {
+    fun fr85_a_focused_box_receives_its_own_keys() = runComposeUiTest {
         val box = 2
+        val boxKeys = 51L
         val connection = FakeHostConnection(
             listOf(
                 Mutation.Create(box, WidgetKind.Box),
-                Mutation.SetModifier(box, 0, ProtocolModifier.Size(40f, 40f)),
+                Mutation.SetModifier(box, 0, ProtocolModifier.Size(240f, 120f)),
                 Mutation.SetModifier(box, 1, ProtocolModifier.Clickable(77L)),
-                Mutation.SetProp(box, PropertyKind.OnKeyDown, PropertyValue.Integer(KEY_HANDLER)),
+                Mutation.SetProp(box, PropertyKind.OnKeyDown, PropertyValue.Integer(boxKeys)),
+                *keyField().toTypedArray(),
+                Mutation.Insert(box, FIELD, 0),
+                Mutation.Insert(0, box, 0),
             ),
         )
+        // The field's handler consumes F3 and nothing else.
+        connection.respondWith { event ->
+            val consumed = event is HostEvent.KeyDown && event.nodeId == FIELD && event.text == "F3"
+            HostResponse(result = if (consumed) 1 else 0)
+        }
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
 
         // A box with a key handler is made focusable but may expose no RequestFocus action,
-        // so it is focused the way a keyboard user does it.
+        // so it is focused the way a keyboard user does it. Tab comes before the box's child.
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Tab) }
         waitForIdle()
         onNodeWithTag(nodeTestTag(box)).assertIsFocused()
         onNodeWithTag(nodeTestTag(box)).performKeyInput { pressKey(Key.Enter) }
         waitForIdle()
 
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        onNodeWithTag(nodeTestTag(FIELD)).performKeyInput {
+            pressKey(Key.F2)
+            pressKey(Key.F3)
+        }
+        waitForIdle()
+
+        val keys = connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().filter { it.key != ProtocolKey.Tab }
         assertEquals(
             listOf(
-                HostEvent.KeyDown(
-                    nodeId = box,
-                    handlerId = KEY_HANDLER,
-                    key = ProtocolKey.Enter,
-                    shiftKey = false,
-                    ctrlKey = false,
-                    altKey = false,
-                    metaKey = false,
-                    repeat = false,
-                    code = 0x28,
-                    text = "Enter",
-                ),
+                Triple(box, boxKeys, "Enter"),
+                Triple(FIELD, KEY_HANDLER, "F2"),
+                Triple(box, boxKeys, "F2"),
+                Triple(FIELD, KEY_HANDLER, "F3"),
             ),
-            connection.nodeEvents.filterIsInstance<HostEvent.KeyDown>().filter { it.key == ProtocolKey.Enter },
+            keys.map { Triple(it.nodeId, it.handlerId, it.text) },
         )
+        assertEquals(ProtocolKey.Enter, keys.first().key)
+        assertEquals(0x28, keys.first().code)
     }
 
     /**
