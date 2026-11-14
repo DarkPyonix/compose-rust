@@ -5100,19 +5100,18 @@ DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 �
 수용 기준.
 1. 상자 자신이 포커스를 가지면 키 하나에 그 핸들러가 한 번 실행된다. 포커스를 가진 자손 `TextField`가 소비하지 않은 키는 상자에 닿고, 소비한 키는 닿지 않는다(시험 이름 `fr85_a_focused_box_receives_its_own_keys`).
 
-### FR-89 스크롤 컨테이너의 고정 자식 (Sticky, 이슈 #424) (`Agreed`)
+### FR-89 스크롤 컨테이너의 고정 자식 (Sticky) (`Agreed`, 이슈 #424, [leader, provisional] (darkpyonix leader, 2026-11-15))
 
 요청한 쪽: Ember VCS diff 뷰(darkpyonix-ember#249, `TODO(compose-rust#424)`). 가로로 스크롤되는 코드 diff 행 안에서 줄 번호나 체크 열이 화면 밖으로 스크롤되어 사라지지 않고, 시작 가장자리에 고정(pinned)된 채 유지되어야 합니다.
 
 #### 89.1 규칙
 
-1. **`Modifier::sticky()`**: 스크롤 컨테이너(`ScrollRow`, `ScrollColumn`) 안의 자식을 스크롤 시작 가장자리에 고정합니다. 컨테이너가 스크롤되어도 고정된 자식은 원래 시작 위치에 머무르며, 다른 자식들은 고정 자식 아래로 스크롤됩니다.
-2. **와이어 인코딩**:
-   - `Sticky` 수정자 태그 41. 추가 워드 0(0 extra words), 필드 없음(2워드 0으로 전송).
+1. **`Modifier::sticky()`**: 스크롤 컨테이너(`ScrollRow`, `ScrollColumn`) 안의 자식을, 깊이와 관계없이, 컨테이너의 시작 가장자리에 고정합니다. 컨테이너가 스크롤되어도 고정된 자식은 그 자리에 머무르고, 나머지는 그 아래로 스크롤됩니다.
+2. **와이어 인코딩**: `Sticky` 수정자 태그 41, 필드 없음.
 3. **렌더러 해석**:
-   - `ScrollRow`와 `ScrollColumn`은 자식에게 현재 스크롤 상태(`LocalScrollState`)와 스크롤 방향(`LocalScrollIsHorizontal`)을 제공합니다.
-   - `ModifierChain`은 `Sticky` 수정자를 감지하면 `LocalScrollState`의 현재 스크롤 오프셋을 역방향으로 상쇄(`offset { if (isHorizontal) IntOffset(scroll.value, 0) else IntOffset(0, scroll.value) }`)하고, 다른 요소 위에 표시되도록 `zIndex(1f)`를 부여합니다.
-   - 스크롤 컨테이너 밖에서 사용될 경우 부가 효과 없이 기본 수직/수평 배치에 머무릅니다.
+   - `ScrollRow`와 `ScrollColumn`은 내용에 자신의 스크롤 상태를 제공합니다.
+   - 렌더러는 `Sticky`를 노드가 그려지는 자리에서 노드의 다른 모든 수정자 바깥에 적용하므로, 배경과 테두리와 잘라내기가 노드와 함께 머뭅니다. 적용하는 것은 배치 시점에 읽은 스크롤 위치만큼의 오프셋(재구성 없음)과, 그 아래로 스크롤되는 것 위에 그려지도록 하는 `zIndex(1)`입니다.
+   - 스크롤 컨테이너 밖에서는 아무 일도 하지 않습니다. `LazyRow`와 `LazyColumn`은 이 항목에 들어 있지 않습니다.
 
 #### 89.2 수용 기준
 
@@ -5121,6 +5120,7 @@ DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 �
 3. Dioxus 작성기(`writer`)가 `"sticky"` 속성을 수신하여 `Modifier::Sticky`로 매핑합니다 (`fr89_writer_maps_sticky_attribute`).
 4. `ScrollRow`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 가로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 시작점에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_row`).
 5. `ScrollColumn`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 세로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 상단에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_column`).
+6. `ScrollRow` 안에 중첩된 줄마다 자기 배경을 가진 고정 칸이 있을 때, 스크롤한 뒤에도 각 칸은 뷰포트 시작 가장자리에 머물고 그 자리에 자기 배경을 그립니다 (`fr89_sticky_cell_in_a_nested_line_keeps_its_background`).
 
 ## 4. 경계 프로토콜
 
