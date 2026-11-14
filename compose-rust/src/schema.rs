@@ -254,7 +254,7 @@ pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect,InsertSnippet,SetSelections;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
-    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius;",
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius,toast_container_light,toast_container_dark,toast_content_light,toast_content_dark,toast_border_width,toast_padding_horizontal,toast_padding_vertical,toast_font_size,toast_line_height;",
     // The fields of the message record in wire order, appended to in the same way.
     "showmessage=handler_id,text,action,duration,vertical,horizontal,offset_dp"
 );
@@ -2212,6 +2212,25 @@ pub struct OverlayTokens {
     pub toast_elevation: u16,
     /// The corner radius of the transient message.
     pub toast_corner_radius: u16,
+    /// The transient message's fill in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_light: u32,
+    /// The transient message's fill in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_dark: u32,
+    /// The transient message's text in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_light: u32,
+    /// The transient message's text in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_dark: u32,
+    /// The width of the line around the transient message in dp. `None` keeps the design
+    /// system's line, and `Some(0)` draws none.
+    pub toast_border_width: Option<u16>,
+    /// The space left and right of the transient message's text, in dp.
+    pub toast_padding_horizontal: u16,
+    /// The space above and below the transient message's text, in dp.
+    pub toast_padding_vertical: u16,
+    /// The size of the transient message's text, in sp.
+    pub toast_font_size: u16,
+    /// The line height of the transient message's text, in sp.
+    pub toast_line_height: u16,
 }
 
 impl OverlayTokens {
@@ -2229,6 +2248,15 @@ impl OverlayTokens {
             scrim: 0,
             toast_elevation: 0,
             toast_corner_radius: 0,
+            toast_container_light: 0,
+            toast_container_dark: 0,
+            toast_content_light: 0,
+            toast_content_dark: 0,
+            toast_border_width: None,
+            toast_padding_horizontal: 0,
+            toast_padding_vertical: 0,
+            toast_font_size: 0,
+            toast_line_height: 0,
         }
     }
 
@@ -2298,6 +2326,43 @@ impl OverlayTokens {
     /// The transient message's corner radius in dp.
     pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
         self.toast_corner_radius = radius;
+        self
+    }
+
+    /// The transient message's fill, one colour for the light scheme and one for the dark.
+    /// The renderer takes the one for the scheme it is drawing in, so a message can be
+    /// drawn inverted (dark on a light page, light on a dark one).
+    pub const fn toast_container(mut self, light: Color, dark: Color) -> Self {
+        self.toast_container_light = light.to_argb();
+        self.toast_container_dark = dark.to_argb();
+        self
+    }
+
+    /// The transient message's text colour for the light scheme and for the dark.
+    pub const fn toast_content(mut self, light: Color, dark: Color) -> Self {
+        self.toast_content_light = light.to_argb();
+        self.toast_content_dark = dark.to_argb();
+        self
+    }
+
+    /// The width of the line around the transient message in dp; 0 draws none.
+    pub const fn toast_border_width(mut self, width: u16) -> Self {
+        self.toast_border_width = Some(width);
+        self
+    }
+
+    /// The space around the transient message's text in dp: left and right, then above and
+    /// below.
+    pub const fn toast_padding(mut self, horizontal: u16, vertical: u16) -> Self {
+        self.toast_padding_horizontal = horizontal;
+        self.toast_padding_vertical = vertical;
+        self
+    }
+
+    /// The transient message's text size and line height in sp.
+    pub const fn toast_type(mut self, font_size: u16, line_height: u16) -> Self {
+        self.toast_font_size = font_size;
+        self.toast_line_height = line_height;
         self
     }
 }
