@@ -1697,6 +1697,11 @@ class NodeTable {
                 // The tallest a sheet grows. A dialog sizes itself to its content.
                 PropertyKind.MaxHeightFraction -> widget == WidgetKind.Sheet
 
+                // The presentation of a sheet: edge drawer or centered modal, and its max width.
+                PropertyKind.Presentation,
+                PropertyKind.MaxWidth,
+                -> widget == WidgetKind.Sheet
+
                 // How a picture is laid into its box. An icon takes its design system's
                 // optical size, so only an image has a box to lay it into.
                 PropertyKind.ContentScale -> widget == WidgetKind.Image
