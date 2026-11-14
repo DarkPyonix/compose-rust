@@ -38,10 +38,13 @@ check_wf "single-executable takes its matrix from changed" 'fromJSON\(needs.chan
 [[ "$(grep -c "needs.changed.outputs.macos != 'false'" "$wf")" -eq 2 ]] && echo "ok   - exactly macos-static and ios follow it" || { echo "FAIL - the macOS decision is used by other jobs than macos-static and ios"; failures=$((failures + 1)); }
 
 # The macOS Kotlin/Native renderer test is not started by the Windows build's own files.
+# It used to leave them out of its pull_request path filter. It now runs only when the
+# dispatched development CI calls it, so no changed file starts it at all: it has neither a
+# pull_request trigger nor a path filter.
 kn="$repo_root/.github/workflows/test-kn-desktop-renderer.yml"
-for excluded in build-windows.sh '*.ps1' windows-build-contract.test.sh 'windows-metadata/**'; do
-    if grep -qF "'!renderer/desktop/scripts/$excluded'" "$kn"; then echo "ok   - kn-desktop filter leaves out $excluded"
-    else echo "FAIL - kn-desktop filter does not exclude $excluded"; failures=$((failures + 1)); fi
-done
+kn_on="$(awk '/^on:/{f=1;next} /^[^ #]/{f=0} f' "$kn")"
+if grep -qE '^  workflow_call:' <<<"$kn_on" && ! grep -qE '^  (pull_request|push):|^    paths' <<<"$kn_on"; then
+    echo "ok   - kn-desktop is started by no file change, the Windows build's included"
+else echo "FAIL - kn-desktop is started by changed files again"; failures=$((failures + 1)); fi
 [[ "$failures" -eq 0 ]] || exit 1
 echo "all passed"
