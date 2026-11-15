@@ -143,4 +143,362 @@ mod tests {
         assert_eq!(role_for_highlight("keywords"), None);
         assert!(highlight_span(0, 3, "none").is_none());
     }
+
+    /// Highlighting a Rust snippet into a `Text` sends every coloured run as a colour role on
+    /// the wire and never stamps a literal ARGB colour into the batch.
+    #[test]
+    fn fr13_1_3_highlighted_rust_text_carries_no_literal_colour_on_the_wire() {
+        use crate::protocol::{Mutation, PropertyValue, decode_batch};
+        use crate::schema::{Modifier as WireModifier, PropertyKind};
+        use crate::spans::{SPAN_COLOR_AT, SPAN_LEN, TextSpans};
+
+        let source = "pub fn total(items: &[u32]) -> u32 { // forty-two\n    items.len() + 42\n}";
+        let tokens = [
+            ("pub", "keyword", Some(ColorRole::SyntaxKeyword)),
+            ("fn", "keyword", Some(ColorRole::SyntaxKeyword)),
+            ("total", "function", Some(ColorRole::SyntaxFunction)),
+            (
+                "items",
+                "variable.parameter",
+                Some(ColorRole::SyntaxVariable),
+            ),
+            ("&", "operator", Some(ColorRole::SyntaxOperator)),
+            (
+                "[",
+                "punctuation.bracket",
+                Some(ColorRole::SyntaxPunctuation),
+            ),
+            ("u32", "type.builtin", Some(ColorRole::SyntaxType)),
+            (
+                "]",
+                "punctuation.bracket",
+                Some(ColorRole::SyntaxPunctuation),
+            ),
+            ("->", "operator", Some(ColorRole::SyntaxOperator)),
+            ("// forty-two", "comment", Some(ColorRole::SyntaxComment)),
+            ("items", "spell", None),
+            ("len", "function.method", Some(ColorRole::SyntaxFunction)),
+            ("+", "operator", Some(ColorRole::SyntaxOperator)),
+            ("42", "number", Some(ColorRole::SyntaxNumber)),
+        ];
+        let mut cursor = 0;
+        let mut spans = Vec::new();
+        let mut expected_spans = Vec::new();
+        for (lexeme, capture, expected_role) in tokens {
+            let relative = source[cursor..]
+                .find(lexeme)
+                .unwrap_or_else(|| panic!("missing token {lexeme} after byte {cursor}"));
+            let start = (cursor + relative) as u32;
+            let length = lexeme.len() as u32;
+            cursor = start as usize + lexeme.len();
+            let span = highlight_span(start, length, capture);
+            assert_eq!(
+                span.as_ref().and_then(|s| s.color),
+                expected_role.map(Paint::Role),
+                "unexpected paint for {lexeme} ({capture})"
+            );
+            if let Some(span) = span {
+                expected_spans.push((lexeme, expected_role.unwrap()));
+                spans.push(span);
+            }
+        }
+        assert_eq!(spans.len(), 13);
+
+        let mut host = crate::ComposeHost::with_content(move || {
+            let encoded_spans = TextSpans::new(spans.clone());
+            crate::ui::Text(source).spans(encoded_spans);
+        });
+        let wire = host.rebuild().expect("the batch encodes").to_vec();
+        let mutations = decode_batch(&wire).expect("the batch decodes");
+
+        let mut blobs = Vec::new();
+        for mutation in &mutations {
+            match mutation {
+                Mutation::SetProp {
+                    property: PropertyKind::Spans,
+                    value: PropertyValue::Bytes(bytes),
+                    ..
+                } => {
+                    blobs.push(*bytes);
+                }
+                Mutation::SetProp {
+                    property: PropertyKind::Color,
+                    value: PropertyValue::Integer(bits),
+                    ..
+                } => {
+                    assert_ne!(
+                        Paint::from_bits(*bits as u64),
+                        None,
+                        "any colour property on the wire must decode as a valid paint"
+                    );
+                    assert!(
+                        !matches!(Paint::from_bits(*bits as u64), Some(Paint::Literal(_))),
+                        "a highlighted Text must not send a literal node colour"
+                    );
+                }
+                Mutation::SetModifier {
+                    modifier: WireModifier::Background(paint),
+                    ..
+                } => {
+                    assert!(
+                        !matches!(paint, Paint::Literal(_)),
+                        "a highlighted Text must not send a literal background"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(blobs.len(), 1, "one text, one list of runs: {mutations:?}");
+        let span_bytes = blobs[0];
+        assert_eq!(span_bytes.len(), expected_spans.len() * SPAN_LEN);
+
+        for (record, (lexeme, _)) in span_bytes.chunks_exact(SPAN_LEN).zip(&expected_spans) {
+            let start = u32::from_le_bytes([record[0], record[1], record[2], record[3]]) as usize;
+            let len = u32::from_le_bytes([record[4], record[5], record[6], record[7]]) as usize;
+            assert_eq!(&source[start..start + len], *lexeme);
+            let paint_kind = u32::from_le_bytes([
+                record[SPAN_COLOR_AT + 4],
+                record[SPAN_COLOR_AT + 5],
+                record[SPAN_COLOR_AT + 6],
+                record[SPAN_COLOR_AT + 7],
+            ]);
+            assert_eq!(
+                paint_kind, 1,
+                "every highlighted run must carry Paint::Role (tag 1) on the wire, never a literal colour"
+            );
+        }
+
+        let decoded: Vec<_> = TextSpans::from_bytes(span_bytes).spans().collect();
+        assert_eq!(decoded.len(), expected_spans.len());
+        for (span, (lexeme, role)) in decoded.iter().zip(&expected_spans) {
+            assert_eq!(
+                span.color,
+                Some(Paint::Role(*role)),
+                "decoded span for {lexeme} must carry role {role:?}"
+            );
+            assert!(
+                span.background.is_none(),
+                "syntax highlighting sets ink roles only, got {:?}",
+                span.background
+            );
+        }
+    }
+
+    /// Adding the twenty-two code colour roles extends `ColorRole` and the token tables
+    /// without altering the widget definitions, the property schema or the modifier schema.
+    #[test]
+    fn fr13_1_3_code_roles_leave_widget_property_and_modifier_schemas_unchanged() {
+        use crate::protocol::{BatchEncoder, Mutation, PropertyValue};
+        use crate::schema::{
+            COLOR_ROLE_COUNT, COLOR_ROLE_SCHEMA, EnumVariantSchema, FieldSlot, FieldType,
+            MODIFIER_SCHEMA, Modifier, PROPERTY_SCHEMA, PropertyKind, SCHEMA_DESCRIPTOR,
+            WIDGET_SCHEMA,
+        };
+
+        assert_eq!(COLOR_ROLE_COUNT, 45);
+        assert_eq!(COLOR_ROLE_SCHEMA.len(), COLOR_ROLE_COUNT);
+        assert_eq!(COLOR_ROLE_SCHEMA[22].name, "OnTertiaryContainer");
+        assert_eq!(COLOR_ROLE_SCHEMA[22].tag, 23);
+        assert_eq!(COLOR_ROLE_SCHEMA[23].name, "SyntaxKeyword");
+        assert_eq!(COLOR_ROLE_SCHEMA[23].tag, 24);
+        assert_eq!(COLOR_ROLE_SCHEMA[44].name, "DiffRemovedEmphasis");
+        assert_eq!(COLOR_ROLE_SCHEMA[44].tag, 45);
+        for (index, entry) in COLOR_ROLE_SCHEMA.iter().enumerate() {
+            assert_eq!(
+                entry.tag as usize,
+                index + 1,
+                "colour roles are append-only with contiguous tags"
+            );
+        }
+
+        let hash_bytes = |mut hash: u64, bytes: &[u8]| -> u64 {
+            for &byte in bytes {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            hash
+        };
+        let hash_enum = |mut hash: u64, schema: &[EnumVariantSchema]| -> u64 {
+            for entry in schema {
+                hash = hash_bytes(hash, entry.name.as_bytes());
+                hash = hash_bytes(hash, &entry.tag.to_le_bytes());
+            }
+            hash
+        };
+        let mut tables_hash = 0xcbf2_9ce4_8422_2325_u64;
+        tables_hash = hash_enum(tables_hash, WIDGET_SCHEMA);
+        tables_hash = hash_enum(tables_hash, PROPERTY_SCHEMA);
+        for modifier in MODIFIER_SCHEMA {
+            tables_hash = hash_bytes(tables_hash, modifier.name.as_bytes());
+            tables_hash = hash_bytes(tables_hash, &modifier.tag.to_le_bytes());
+            tables_hash = hash_bytes(tables_hash, &[modifier.extra_words]);
+            for field in modifier.fields {
+                tables_hash = hash_bytes(tables_hash, field.name.as_bytes());
+                tables_hash = hash_bytes(
+                    tables_hash,
+                    &[match field.ty {
+                        FieldType::Float => 1,
+                        FieldType::U32 => 2,
+                        FieldType::U64 => 3,
+                        FieldType::Paint => 4,
+                        FieldType::Role(_) => 5,
+                        FieldType::Bool => 6,
+                        FieldType::FiniteFloat => 7,
+                    }],
+                );
+                if let FieldType::Role(role) = field.ty {
+                    tables_hash = hash_bytes(tables_hash, role.as_bytes());
+                }
+                tables_hash = hash_bytes(
+                    tables_hash,
+                    &[match field.slot {
+                        FieldSlot::FirstLow => 0,
+                        FieldSlot::FirstHigh => 1,
+                        FieldSlot::First => 2,
+                        FieldSlot::SecondLow => 3,
+                        FieldSlot::SecondHigh => 4,
+                        FieldSlot::Second => 5,
+                        FieldSlot::ThirdLow => 6,
+                        FieldSlot::ThirdHigh => 7,
+                        FieldSlot::Third => 8,
+                        FieldSlot::FourthLow => 9,
+                        FieldSlot::FourthHigh => 10,
+                        FieldSlot::Fourth => 11,
+                        FieldSlot::FifthLow => 12,
+                        FieldSlot::FifthHigh => 13,
+                        FieldSlot::Fifth => 14,
+                        FieldSlot::SixthLow => 15,
+                        FieldSlot::SixthHigh => 16,
+                        FieldSlot::Sixth => 17,
+                        FieldSlot::SeventhLow => 18,
+                        FieldSlot::SeventhHigh => 19,
+                        FieldSlot::Seventh => 20,
+                        FieldSlot::EighthLow => 21,
+                        FieldSlot::EighthHigh => 22,
+                        FieldSlot::Eighth => 23,
+                        FieldSlot::NinthLow => 24,
+                        FieldSlot::NinthHigh => 25,
+                        FieldSlot::Ninth => 26,
+                        FieldSlot::TenthLow => 27,
+                        FieldSlot::TenthHigh => 28,
+                        FieldSlot::Tenth => 29,
+                    }],
+                );
+            }
+        }
+        // A recorded value, not a rule: a change that means to add a widget, a property or a
+        // modifier updates the numbers below in the same commit. What this catches is a
+        // change that moves them without meaning to, as adding a colour role must not.
+        let on_purpose = "if this change adds or alters a widget, a property or a modifier on \
+                          purpose, record the new value here; a change to colour roles alone \
+                          must leave it as it is";
+        assert_eq!(
+            WIDGET_SCHEMA.len(),
+            48,
+            "the number of widgets moved: {on_purpose}"
+        );
+        assert_eq!(
+            PROPERTY_SCHEMA.len(),
+            147,
+            "the number of properties moved: {on_purpose}"
+        );
+        assert_eq!(
+            MODIFIER_SCHEMA.len(),
+            40,
+            "the number of modifiers moved: {on_purpose}"
+        );
+        assert_eq!(
+            tables_hash, 0x64c5_5cfe_93a8_5a58,
+            "the names, tags or modifier fields of the widget, property and modifier tables \
+             moved, and now hash to {tables_hash:#018x}: {on_purpose}"
+        );
+
+        let folded = |name: &str| -> String {
+            name.chars()
+                .filter(|ch| *ch != '_')
+                .map(|ch| ch.to_ascii_lowercase())
+                .collect()
+        };
+        let mut entries = Vec::new();
+        for section in SCHEMA_DESCRIPTOR.split(';') {
+            if let Some(rest) = section.strip_prefix("widgets=") {
+                for name in rest.split(',') {
+                    entries.push(("widgets", name));
+                }
+            } else if let Some(rest) = section.strip_prefix("properties=") {
+                for name in rest.split(',') {
+                    entries.push(("properties", name));
+                }
+            } else if let Some(rest) = section.strip_prefix("modifiers=") {
+                for name in rest.split(',') {
+                    entries.push(("modifiers", name));
+                }
+            }
+        }
+        for widget in WIDGET_SCHEMA {
+            entries.push(("widgets", widget.name));
+        }
+        for property in PROPERTY_SCHEMA {
+            entries.push(("properties", property.name));
+        }
+        for modifier in MODIFIER_SCHEMA {
+            entries.push(("modifiers", modifier.name));
+            for field in modifier.fields {
+                entries.push(("modifiers", field.name));
+            }
+        }
+        let about_code: Vec<_> = entries
+            .iter()
+            .copied()
+            .filter(|(_, name)| {
+                let name = folded(name);
+                (name.contains("syntax") || name.contains("diff")) && name != "syntaxspans"
+            })
+            .collect();
+        assert_eq!(about_code, Vec::<(&str, &str)>::new());
+
+        for modifier in MODIFIER_SCHEMA {
+            for field in modifier.fields {
+                assert_ne!(
+                    field.ty,
+                    FieldType::Role("ColorRole"),
+                    "modifier {} field {} should take a Paint rather than a dedicated ColorRole slot",
+                    modifier.name,
+                    field.name
+                );
+            }
+        }
+
+        let encode_one = |mutation: Mutation<'_>| -> Vec<u8> {
+            let mut encoder = BatchEncoder::default();
+            encoder.encode(&mutation).expect("encodes");
+            encoder.finish().expect("finishes").to_vec()
+        };
+        let base_prop = encode_one(Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::Color,
+            value: PropertyValue::Integer(Paint::Role(ColorRole::Primary).to_bits() as i64),
+        });
+        let code_prop = encode_one(Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::Color,
+            value: PropertyValue::Integer(Paint::Role(ColorRole::SyntaxKeyword).to_bits() as i64),
+        });
+        assert_eq!(base_prop.len(), 36);
+        assert_eq!(code_prop.len(), 36);
+
+        let base_mod = encode_one(Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::Background(Paint::Role(ColorRole::SurfaceContainer)),
+        });
+        let code_mod = encode_one(Mutation::SetModifier {
+            node_id: 1,
+            index: 0,
+            modifier: Modifier::Background(Paint::Role(ColorRole::DiffAddedContainer)),
+        });
+        assert_eq!(base_mod.len(), 40);
+        assert_eq!(code_mod.len(), 40);
+    }
 }
