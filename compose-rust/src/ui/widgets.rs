@@ -1531,13 +1531,20 @@ impl TextFieldScope {
                 if let Some(caret_color) = caret_color {
                     attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
-                attrs.push(("font", font_bytes(&font)));
-                // Left out when no feature was asked for, as `Text` leaves it out.
+                // The font list, the features and the break rules are each left out when
+                // unset, as `Text` leaves them out, and cleared once when they go away.
+                if !font.is_empty() {
+                    attrs.push(("font", font_bytes(&font)));
+                }
                 if font_features != OwnedAttr::None {
                     attrs.push(("font_feature_settings", font_features));
                 }
-                attrs.push(("word_break", super::role(word_break)));
-                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                if word_break.is_some() {
+                    attrs.push(("word_break", super::role(word_break)));
+                }
+                if overflow_wrap.is_some() {
+                    attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                }
                 // Written only for a bare field, so a framed one sends what it always did.
                 if bare {
                     attrs.push(("bare", OwnedAttr::Bool(true)));
