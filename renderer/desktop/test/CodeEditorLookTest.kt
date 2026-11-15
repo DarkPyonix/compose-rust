@@ -68,8 +68,8 @@ private fun float(value: Float) = PropertyValue.Float(value)
 
 /**
  * One colour record as the Rust schema lays it out: a role tag in each of five halves, in
- * the order container, gutter, line number, current line number, current line, then two
- * reserved bytes. Zero leaves a part to the design system.
+ * the order container, gutter, line number, current line number, current line, then the
+ * current line's gutter, left at zero here. Zero leaves a part to the design system.
  */
 private fun colourRecord(
     container: Int = 0,

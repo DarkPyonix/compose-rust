@@ -46,13 +46,15 @@ fn fr15_2_topappbar_hairline_travels_on_wire() {
             _ => None,
         })
         .expect("TopAppBar node created");
-    let has_prop_false = mutations.iter().any(|m| match m {
-        Mutation::SetProp {
-            node_id,
-            property: PropertyKind::Separator,
-            value: PropertyValue::Bool(false),
-        } if *node_id == bar_node => true,
-        _ => false,
+    let has_prop_false = mutations.iter().any(|m| {
+        matches!(
+            m,
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Separator,
+                value: PropertyValue::Bool(false),
+            } if *node_id == bar_node
+        )
     });
     assert!(
         has_prop_false,
@@ -73,13 +75,15 @@ fn fr15_2_topappbar_hairline_travels_on_wire() {
             _ => None,
         })
         .expect("TopAppBar node created");
-    let has_prop_false = mutations.iter().any(|m| match m {
-        Mutation::SetProp {
-            node_id,
-            property: PropertyKind::Separator,
-            value: PropertyValue::Bool(false),
-        } if *node_id == bar_node => true,
-        _ => false,
+    let has_prop_false = mutations.iter().any(|m| {
+        matches!(
+            m,
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Separator,
+                value: PropertyValue::Bool(false),
+            } if *node_id == bar_node
+        )
     });
     assert!(
         has_prop_false,
@@ -100,13 +104,15 @@ fn fr15_2_topappbar_hairline_travels_on_wire() {
             _ => None,
         })
         .expect("TopAppBar node created");
-    let has_prop_true = mutations.iter().any(|m| match m {
-        Mutation::SetProp {
-            node_id,
-            property: PropertyKind::Separator,
-            value: PropertyValue::Bool(true),
-        } if *node_id == bar_node => true,
-        _ => false,
+    let has_prop_true = mutations.iter().any(|m| {
+        matches!(
+            m,
+            Mutation::SetProp {
+                node_id,
+                property: PropertyKind::Separator,
+                value: PropertyValue::Bool(true),
+            } if *node_id == bar_node
+        )
     });
     assert!(
         has_prop_true,
@@ -117,12 +123,14 @@ fn fr15_2_topappbar_hairline_travels_on_wire() {
     let mut host = ComposeHost::with_content(BarDefault);
     let batch = host.rebuild().expect("encodes").to_vec();
     let mutations = decode_batch(&batch).expect("decodes");
-    let has_separator = mutations.iter().any(|m| match m {
-        Mutation::SetProp {
-            property: PropertyKind::Separator,
-            ..
-        } => true,
-        _ => false,
+    let has_separator = mutations.iter().any(|m| {
+        matches!(
+            m,
+            Mutation::SetProp {
+                property: PropertyKind::Separator,
+                ..
+            }
+        )
     });
     assert!(
         !has_separator,

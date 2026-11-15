@@ -81,6 +81,12 @@ on:
         default: false
   workflow_call:
     inputs:
+      windows_kit_built:
+        # ci.yml builds the Windows renderer kit once for the whole run and sets this, so this
+        # workflow uses that kit instead of building its own copy of the same commit.
+        description: The Windows renderer kit is already an artifact of this run
+        type: boolean
+        default: false
       tag:
         description: Existing sample-v* tag to build a release for; empty builds without
           releasing
@@ -202,7 +208,7 @@ jobs:
   windows-static:
     name: renderer (windows-x64)
     needs: resolve
-    if: needs.resolve.outputs.windows_released != 'true'
+    if: needs.resolve.outputs.windows_released != 'true' && !inputs.windows_kit_built
     uses: ./.github/workflows/windows-static.yml
 
   build:

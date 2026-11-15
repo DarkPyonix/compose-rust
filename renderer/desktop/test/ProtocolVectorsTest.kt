@@ -143,6 +143,10 @@ class ProtocolVectorsTest {
                 // A scroll request names the container it asks.
                 is Mutation.ScrollTo -> mutation.nodeId !in created
                 is Mutation.ScrollIntoView -> mutation.nodeId !in created
+                // The vector's platform view node exists, but no window on this renderer has
+                // a place for a platform view, so both are refused as unsupported.
+                is Mutation.AttachNativeView -> true
+                is Mutation.FocusNativeView -> true
                 is Mutation.EditCode -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
@@ -455,6 +459,77 @@ class ProtocolVectorsTest {
     }
 
     /**
+     * The platform view commands and events, read from and encoded to the bytes the Host
+     * wrote: a node, two reserved words and a `u64` handle at offset 16; a node, a focus word
+     * and a reserved word; a `u64` handle, a kind, a reserved half word and a scale; and a
+     * focus word and its padding.
+     */
+    @Test
+    fun fr81_native_view_records_round_trip_through_the_protocol_vectors() {
+        val mutations = decodeVector("mutations.bin")
+        assertEquals(
+            listOf(Mutation.AttachNativeView(nodeId = 25, handle = 0x0000_7f8a_1234_5670L)),
+            mutations.filterIsInstance<Mutation.AttachNativeView>(),
+        )
+        assertEquals(
+            listOf(Mutation.FocusNativeView(nodeId = 25, focus = true)),
+            mutations.filterIsInstance<Mutation.FocusNativeView>(),
+        )
+        assertTrue(Mutation.Create(25, WidgetKind.NativeView) in mutations)
+        assertTrue(Mutation.SetProp(25, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
+        assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
+
+        val bytes = vectorFile("events.bin").readBytes()
+        assertEquals(1807 + 24, bytes.size, "the two events are the last in the vector")
+        val out = ByteBuffer.allocate(64)
+        val parentLength = Protocol.encodeEvent(
+            HostEvent.NativeViewParent(
+                nodeId = 20,
+                handlerId = 0L,
+                handle = 0x0000_6000_0abc_def0L,
+                kind = dev.darkpyonix.composerust.protocol.NativeViewWire.PARENT_APPKIT,
+                scale = 2.0f,
+            ),
+            out,
+        )
+        assertEquals(32, parentLength)
+        assertEquals(bytes.copyOfRange(1775, 1775 + 32).toList(), out.array().copyOf(parentLength).toList())
+        out.clear()
+        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 25, handlerId = 301L, focused = true), out)
+        assertEquals(24, focusLength)
+        assertEquals(bytes.copyOfRange(1807, 1807 + 24).toList(), out.array().copyOf(focusLength).toList())
+    }
+
+    /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
+    @Test
+    fun fr81_native_view_records_that_cannot_be_read_are_protocol_errors() {
+        val batch = vectorFile("mutations.bin").readBytes()
+        val view = ByteBuffer.wrap(batch).order(ByteOrder.LITTLE_ENDIAN)
+        // The envelope's length word counts the envelope too.
+        val recordsLength = view.getInt(4)
+        fun recordAt(tag: Int): Int {
+            var offset = 12
+            while (offset < recordsLength) {
+                if (view.getShort(offset).toInt() == tag) return offset
+                offset += view.getShort(offset + 2).toInt()
+            }
+            error("no record with tag $tag in the vector")
+        }
+        val attach = recordAt(37)
+        val focus = recordAt(38)
+        assertEquals(24, view.getShort(attach + 2).toInt())
+        assertEquals(16, view.getShort(focus + 2).toInt())
+        for ((offset, value) in listOf(attach + 8 to 1, attach + 12 to 1, focus + 8 to 2, focus + 12 to 1)) {
+            val bad = batch.copyOf()
+            ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN).putInt(offset, value)
+            val failure = runCatching {
+                Protocol.decode(ByteBuffer.wrap(bad).order(ByteOrder.LITTLE_ENDIAN)) { }
+            }.exceptionOrNull()
+            assertTrue(failure is ProtocolException, "a word of $value at $offset was read, got $failure")
+        }
+    }
+
+    /**
      * The file dialog request and its result, read from and encoded to the bytes the Host
      * wrote: four string references, a kind and a default filter, and three words and a
      * string reference.
@@ -593,18 +668,62 @@ class ProtocolVectorsTest {
         assertEquals(emptyList(), errors)
     }
 
-    /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
+    /**
+     * The font features two runs of a text name for themselves, read from the table the
+     * Host laid out: tabular figures on the second run, and on the fifth ligatures off and
+     * a stylistic set whose value is wider than a byte.
+     */
     @Test
-    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+    fun fr88_span_font_features_encode_decode_round_trip() {
         val mutations = decodeVector("mutations.bin")
-        assertEquals(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f)), mutations[mutations.size - 2])
+        assertTrue(Mutation.Create(24, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 24 }
+        // The text and its five runs come first, so the runs the table names are runs it has.
+        assertEquals(
+            listOf(PropertyKind.Text, PropertyKind.Spans, PropertyKind.SpanFontFeatures),
+            props.map { it.property },
+        )
+        val bytes = (props.single { it.property == PropertyKind.SpanFontFeatures }.value as PropertyValue.Bytes).value
+        fun word(value: Int) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
+        val expected = word(2) +
+            word(1) + word(28) + word(1) +
+            word(4) + word(36) + word(2) +
+            "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "ss01".encodeToByteArray() + byteArrayOf(2, 3, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        val decoded = dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(bytes, errors::add)
+        assertEquals(listOf(1, 4), decoded?.keys?.toList())
+        assertEquals(
+            mapOf(1 to "tnum 1", 4 to "liga 0, ss01 770"),
+            dev.darkpyonix.composerust.foundation.spanFontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
     }
 
-    /** The Rust encoder wrote `CornerCurve { smoothing: 0.6 }` last; this side reads the same value. */
+    /**
+     * The Rust encoder wrote one `MinTouchTarget { size: 44.0 }` on node 13. Found by its
+     * kind, because records appended later follow it.
+     */
+    @Test
+    fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
+        val targets = decodeVector("mutations.bin").filter { mutation ->
+            mutation is Mutation.SetModifier && mutation.modifier is ProtocolModifier.MinTouchTarget
+        }
+        assertEquals(listOf<Mutation>(Mutation.SetModifier(13, 0, ProtocolModifier.MinTouchTarget(44f))), targets)
+    }
+
+    /**
+     * The Rust encoder wrote one `CornerCurve { smoothing: 0.6 }` on node 8; this side reads
+     * the same value. Found by its kind, because records appended later follow it.
+     */
     @Test
     fun fr50_corner_curve_round_trips() {
-        val last = decodeVector("mutations.bin").last()
-        assertEquals(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f)), last)
+        val curves = decodeVector("mutations.bin").filter { mutation ->
+            mutation is Mutation.SetModifier && mutation.modifier is ProtocolModifier.CornerCurve
+        }
+        assertEquals(listOf<Mutation>(Mutation.SetModifier(8, 9, ProtocolModifier.CornerCurve(0.6f))), curves)
     }
 
     /**
@@ -904,7 +1023,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1755, bytes.size)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -916,6 +1035,29 @@ class ProtocolVectorsTest {
         assertEquals(52, light.getShort(0).toInt())
         assertEquals(0, light.getInt(16))
         assertEquals(1, out.getInt(16))
+    }
+
+    /**
+     * The density report encodes to the 20 bytes the Host decodes: the header, then the
+     * scale as one `f32`. It is the vector's last record, under event tag 53.
+     */
+    @Test
+    fun fr43_density_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
+        assertEquals(20, length)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
+        assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
+        assertEquals(53, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(2f, out.getFloat(16))
+        val window = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
+        assertEquals(20, window.getInt(4))
+        assertEquals(1.25f, window.getFloat(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -967,7 +1109,7 @@ class ProtocolVectorsTest {
     fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
         val runs = decodeVector("mutations.bin")
             .filterIsInstance<Mutation.SetProp>()
-            .single { it.property == PropertyKind.Spans }
+            .single { it.property == PropertyKind.Spans && it.nodeId == 2 }
             .value as PropertyValue.Bytes
         val records = SpanRecords.decode(runs.value)
         assertEquals(
@@ -1101,7 +1243,8 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1755, bytes.size)
+        // The platform view events follow the density report, two records of 32 and 24 bytes.
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
     }
 
     /**
@@ -1116,7 +1259,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1755, bytes.size)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.
