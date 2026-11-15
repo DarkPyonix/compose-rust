@@ -220,16 +220,22 @@ fn fr81_tree_without_native_view_is_unchanged() {
         }
     }
     // The events before the two new ones are where they were: they were appended after
-    // the last of them, which ends at the parent report.
+    // the last of them, the density report of 20 bytes, which ends at the parent report.
     assert_eq!(
         decode_event(&EVENTS[1415..1439]).unwrap().payload,
         EventPayload::CodeScrolled { offset_px: 1234.5 }
     );
     assert!(matches!(
-        decode_event(&EVENTS[PARENT_AT - 76..PARENT_AT])
+        decode_event(&EVENTS[PARENT_AT - 20 - 76..PARENT_AT - 20])
             .unwrap()
             .payload,
         EventPayload::SelectionsChanged { .. }
+    ));
+    assert!(matches!(
+        decode_event(&EVENTS[PARENT_AT - 20..PARENT_AT])
+            .unwrap()
+            .payload,
+        EventPayload::DensityChanged { .. }
     ));
 }
 

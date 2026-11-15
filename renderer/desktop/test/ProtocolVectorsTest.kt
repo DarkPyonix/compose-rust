@@ -1013,7 +1013,7 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1775, bytes.size)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
         assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
