@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A plain `Text` sends no empty font records
+
+A `Text` that names no run fonts, no font list, no `word_break` and no `overflow_wrap` no longer sends a `SetProp` of nothing for each of them on its first composition: `SpanFonts` (tag 116), `Font` (110), `WordBreak` (111) and `OverflowWrap` (112) are now listed only when set, as `SpanFontFeatures` already was. A `TextField` leaves out `Font`, `WordBreak` and `OverflowWrap` the same way. Such a text sends four records fewer, and its records are those an `rsx!` text sends. One that was set and is taken away is still cleared by exactly one record. The Renderer removes a property on a record of nothing, the same state as one never sent, so nothing it draws changes, and the schema hash does not move ([#824](https://github.com/DarkPyonix/compose-rust/issues/824)).
+
 ### Per-span font features
 
 OpenType font features can now be set on single runs inside a `Text`: `TextSpans::new_with_features` gives each run its own list, and `spans::encode_feature_table` with `TextSpans::with_feature_table` attaches an already built table. The table travels beside the runs as the new `SpanFontFeatures` property (tag 209), and a `Text` none of whose runs names a feature sends no such record. A run that names features is set with the text's own `FontFeatureSettings` first and its own after them, so a tag both name takes the run's value, and a run that names none is drawn with the text's. Runs take features with or without a type role. A table the Renderer cannot read, or one that names a run the text does not have, is one `ProtocolError` and the text is drawn without span features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
