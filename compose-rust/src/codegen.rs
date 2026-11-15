@@ -3307,6 +3307,19 @@ pub fn span_font_feature_vector() -> Vec<(u32, Vec<crate::font_features::FontFea
     ]
 }
 
+/// The five runs the text with span font features is cut into, so the runs the feature
+/// table names (the second and the fifth) are runs the text has.
+pub fn span_font_feature_runs() -> crate::spans::TextSpans {
+    use crate::spans::{TextSpan, TextSpans};
+    TextSpans::new([
+        TextSpan::new(0, 2),
+        TextSpan::new(2, 2),
+        TextSpan::new(4, 2),
+        TextSpan::new(6, 2),
+        TextSpan::new(8, 2),
+    ])
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -3318,6 +3331,7 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let span_font_feature_runs = span_font_feature_runs();
     let span_font_features = crate::spans::encode_feature_table(&span_font_feature_vector())
         .expect("the vector names features");
     let edit_group = code_edit_group_vector()?;
@@ -4199,6 +4213,16 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
         Mutation::Create {
             node_id: 24,
             widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("1234567890"),
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Spans,
+            value: PropertyValue::Bytes(span_font_feature_runs.as_bytes()),
         },
         Mutation::SetProp {
             node_id: 24,

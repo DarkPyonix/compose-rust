@@ -603,8 +603,12 @@ class ProtocolVectorsTest {
         val mutations = decodeVector("mutations.bin")
         assertTrue(Mutation.Create(24, WidgetKind.Text) in mutations)
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 24 }
-        assertEquals(listOf(PropertyKind.SpanFontFeatures), props.map { it.property })
-        val bytes = (props.single().value as PropertyValue.Bytes).value
+        // The text and its five runs come first, so the runs the table names are runs it has.
+        assertEquals(
+            listOf(PropertyKind.Text, PropertyKind.Spans, PropertyKind.SpanFontFeatures),
+            props.map { it.property },
+        )
+        val bytes = (props.single { it.property == PropertyKind.SpanFontFeatures }.value as PropertyValue.Bytes).value
         fun word(value: Int) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
         val expected = word(2) +
             word(1) + word(28) + word(1) +
@@ -1020,7 +1024,7 @@ class ProtocolVectorsTest {
     fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
         val runs = decodeVector("mutations.bin")
             .filterIsInstance<Mutation.SetProp>()
-            .single { it.property == PropertyKind.Spans }
+            .single { it.property == PropertyKind.Spans && it.nodeId == 2 }
             .value as PropertyValue.Bytes
         val records = SpanRecords.decode(runs.value)
         assertEquals(
