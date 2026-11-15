@@ -255,7 +255,11 @@ jobs:
 
       - name: Build the static renderer
         id: renderer
-        run: ./renderer/desktop/scripts/build-windows.sh
+        # --release, as the macOS and Linux kits are built (static-renderer.yml). Without it
+        # konanc compiles with -g and without -opt, and that debug renderer was what the
+        # windows-x64 release asset carried: larger frames on the UI thread's stack, and slower
+        # code than the other platforms ship.
+        run: ./renderer/desktop/scripts/build-windows.sh --release
 
       - name: Keep the Kotlin toolchain for the next run
         if: github.event_name != 'pull_request' && (always() && steps.toolchain-cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
