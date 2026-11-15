@@ -1407,7 +1407,7 @@ LaunchBuilder::new()
   압니다.
 - `chrome`: `Chrome::Modern`(기본) 또는 `Chrome::System`(플랫폼 기본 타이틀바)
 - `Chrome::System`은 없애지 않습니다. 시스템 타이틀바가 필요한 도구형 앱이 있고, 무엇보다 **Modern이 깨졌을 때 돌아갈 곳**이 있어야 합니다.
-- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 그것은 디자인 시스템과 플랫폼의 몫입니다(FR-14).
+- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 버튼의 종류, 크기, 순서, 붙는 끝은 실제 운영체제의 몫이고, 디자인 시스템이 정하는 것은 그 버튼을 칠하는 색뿐입니다(19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule)).
 
 **어떻게 건너가는가: 경계 함수는 바뀌지 않습니다.** `compose_rust_renderer_run`에 인자를 붙이는 길은 PR-2에 걸리고, C 심과 iOS의 `@CName`과 스모크 하네스와 Rust 선언을 모두 따라가야 합니다. 그럴 필요가 없습니다.
 
@@ -1474,7 +1474,7 @@ Window::new().chrome(Chrome::FullSize)
 ```
 
 - **`Chrome::FullSize`**: 콘텐츠가 창 맨 위에서 시작하고, Renderer는 바를 찾지 않으며 캡션 띠를 남기지 않습니다. 창 버튼(macOS 신호등, Windows 캡션 버튼)은 그대로 그 자리에 그려집니다. 그 밖은 `Chrome::Modern`과 같습니다(19.5, 19.7).
-- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(디자인 시스템 값, 지금 46dp x 3)이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
+- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(Windows의 값 46dp x 3 = 138dp이고 어느 디자인 시스템에서나 같습니다, 19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule))이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. Renderer가 버튼을 그리는 Linux 창에서는 그 데스크톱의 버튼이 오른쪽 끝에 있으므로 `trailing`이 그 묶음의 폭이고 `leading`은 0입니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
 - **전달**: Renderer는 창 크기를 Host에 알릴 때 같은 기록에 이 세 값을 함께 싣고, 값이 바뀔 때(창 모드, DPI, 최대화) 다시 보냅니다. 추가 전용이고 스키마 해시가 움직입니다. Host 쪽 읽는 방법은 dioxus-compose가 둡니다.
 - **기본 드래그 영역**: `FullSize`에서 창 맨 위 `top` 높이의 띠 가운데 상호작용 위젯이 없는 곳은 창을 끄는 영역입니다(19.2의 드래그 규칙과 같습니다). 애플리케이션은 노드에 `WindowDrag(bool)` 모디파이어를 달아 그 노드를 드래그 영역으로 만들거나(true) 빼낼 수 있습니다(false).
 - **macOS**: 창은 이미 콘텐츠를 타이틀바 아래까지 그리고 타이틀바를 투명하게 둡니다(19.1). 이 모드는 Renderer의 배치 규칙만 바꾼다는 판단이며, 포크의 창 코드 변경이 필요 없음을 테스트로 확인합니다. 필요하다고 드러나면 19.8대로 포크가 먼저입니다.
@@ -1487,9 +1487,18 @@ Window::new().chrome(Chrome::FullSize)
 4. 맨 위 띠의 빈 곳을 끌면 창이 움직이고, 버튼 위에서는 움직이지 않습니다. `WindowDrag(false)`를 단 노드 위에서는 움직이지 않고, `WindowDrag(true)`를 단 노드 위에서는 그 띠 밖이어도 움직입니다.
 5. `FullSize`를 고르지 않은 앱은 지금과 같습니다.
 
-#### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
+#### 19.5 창 버튼의 모양은 운영체제가 정합니다
 
-19.3이 "창 버튼의 색·위치·모양은 디자인 시스템과 플랫폼의 몫"이라고 정한 것의 구현 자리는 `ComponentRules.caption()`입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬.
+**[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 창 버튼은 디자인 시스템이 아니라 실제 운영체제를 따릅니다.** Windows에서는 어느 디자인 시스템이든 Windows 11의 캡션 버튼을 그립니다. 각 46×32dp이고 오른쪽 끝에 최소화·최대화·닫기 순서로 붙으며, 최대화 버튼은 포크의 네이티브 히트 테스트가 `HTMAXBUTTON`을 돌려주는 자리, 곧 Snap Layouts가 열리는 자리에 있습니다. Linux에서는 그 데스크톱의 버튼을 그립니다. GNOME 세션은 Adwaita, KDE 세션은 Breeze, 그 밖의 세션은 Deepin의 버튼입니다. macOS는 시스템이 신호등을 그리고 Renderer는 아무것도 그리지 않습니다(19.1). Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 애플리케이션이 Windows와 Linux에서 신호등을 얻던 것이 이 규칙이 고치는 것입니다. Windows에서 그 신호등은 왼쪽에 그려졌지만 네이티브는 오른쪽 끝의 138dip을 버튼으로 답했으므로, 보이는 버튼은 눌리지 않고 보이지 않는 버튼이 오른쪽에 있었습니다.
+
+구현 자리는 `ComponentRules.caption()`이고, 어느 시스템의 규칙을 물을지는 플랫폼이 고릅니다. Windows는 Fluent 2의 캡션, Linux는 그 데스크톱의 디자인 시스템의 캡션입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬. 붙는 끝, 너비와 높이, 모양, 간격과 가장자리 여백, 글리프 두께는 그 플랫폼의 값입니다. 채움과 글리프의 색은 애플리케이션이 고른 디자인 시스템의 토큰을 그 플랫폼의 규칙대로 씁니다. 제목 정렬은 막대의 일이므로 계속 애플리케이션의 디자인 시스템이 답합니다. Renderer가 창 버튼을 그리지 않는 플랫폼(macOS, iOS, Android, 브라우저)에서는 디자인 시스템 자신의 답이 남지만 그려지지 않습니다.
+
+수용 기준:
+
+1. Windows: 일곱 디자인 시스템(Cupertino와 Liquid Glass를 포함해) 어느 것을 고른 창이든 각 46×32dp 버튼 셋이 오른쪽 끝에 최소화·최대화·닫기 순서로 놓이고, 최대화 버튼은 창 오른쪽 끝에서 46dp부터 92dp까지, 위에서 32dp 안에 있어 네이티브가 `HTMAXBUTTON`을 돌려주는 사각형과 같습니다. `WindowSafeArea`는 `leading=0`, `trailing=138`입니다(`fr19_5_windows_draws_windows_caption_buttons_under_every_design_system`).
+2. Linux: GNOME, KDE, 그 밖의 세션에서 일곱 디자인 시스템 어느 것을 고른 창이든 각각 Adwaita, Breeze, Deepin의 버튼 모양과 크기와 간격으로 오른쪽 끝에 놓이고, `WindowSafeArea`는 `leading=0`, `trailing`이 그 묶음의 폭입니다(`fr19_5_linux_draws_the_desktops_caption_buttons_under_every_design_system`).
+3. macOS: Apple 디자인 시스템이든 아니든 Renderer가 창 버튼을 그리지 않고, `WindowSafeArea`는 시스템이 잰 신호등의 폭을 `leading`에 싣고 `trailing=0`입니다(`fr19_5_macos_leaves_the_traffic_lights_to_the_system`).
+4. 플랫폼 자신의 디자인 시스템(Windows의 Fluent 2, GNOME의 Adwaita, KDE의 Breeze, 그 밖의 Linux의 Deepin)을 고른 창의 버튼은 이 규칙 전과 같습니다(`fr19_5_the_platforms_own_design_system_draws_the_caption_it_drew_before`).
 
 버튼의 **순서는 붙는 끝을 따라갑니다**. 앞쪽 끝은 닫기·최소화·확대, 뒤쪽 끝은 최소화·최대화·닫기입니다. 같은 줄을 반대쪽으로 옮기기만 하면 읽는 사람이 최소화를 찾는 자리에 닫기가 놓입니다.
 
@@ -1505,6 +1514,7 @@ Window::new().chrome(Chrome::FullSize)
 - 네이티브 진입점이 창 절차를 바꿔 끼웁니다. 창은 AWT가 자기 스레드에서 나중에 만들므로, Kotlin과 이 파일 사이에 손으로 쓴 다리를 놓지 않기 위해 진입점이 스레드 하나를 띄워 `SunAwtFrame` 클래스의 우리 창이 나타나기를 기다린 뒤 한 번 바꿔 끼웁니다. 실패하면 평범한 시스템 타이틀바가 남습니다. 더 나쁜 모습이고 동작하는 창이므로 시작을 거부할 일이 아닙니다.
 - 캡션 띠의 버튼 자리는 클라이언트 영역으로 남기고 나머지는 `HTCAPTION`을 돌려줍니다. 그래서 끌기, 두 번 눌러 최대화, 오른쪽 눌러 시스템 메뉴가 전부 시스템 것으로 돌아옵니다.
 - **Snap Layouts의 최대화 버튼 호버 플라이아웃은 아직 없습니다.** 그것은 `HTMAXBUTTON`을 최대화 버튼의 사각형에서만 돌려줘야 하는데, 그 사각형은 디자인 시스템이 정하고 Kotlin이 압니다. 네이티브가 그것을 알려면 Kotlin에서 네이티브로 값을 보내는 경로가 필요하고 지금은 없습니다. 끌어서 스냅하는 것과 키보드 스냅은 프레임이 그대로이므로 동작합니다.
+  - [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 최대화 버튼의 사각형은 이제 디자인 시스템이 아니라 Windows가 정합니다(19.5). 포크의 `win32_caption.h`가 오른쪽 끝에서 두 번째 46dip에서 `HTMAXBUTTON`을 돌려주고, Renderer는 어느 디자인 시스템에서나 최대화 버튼을 그 자리에 그리므로, Kotlin에서 네이티브로 사각형을 보내는 경로가 필요하지 않습니다.
 
 #### 19.8 데스크톱 창 코드는 Compose의 포크가 가집니다 (`Agreed`)
 
