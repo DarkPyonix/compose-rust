@@ -1367,6 +1367,8 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 
 **macOS에서 신호등 버튼을 직접 그리지 않습니다.** 위치, 모양, 호버 동작, 전체화면 전환, 접근성 레이블이 전부 시스템 소유입니다. 흉내 내면 반드시 어긋나고, 그건 네이티브를 표방하는 프로젝트에서 가장 눈에 띄는 실패입니다. AWT가 제공하는 클라이언트 속성(`apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`)으로 충분하며 JNI가 필요 없습니다.
 
+**macOS 창의 제목은 시스템이 보여 줍니다** ([leader, provisional] (darkpyonix leader, 2026-11-16)). 시스템 캡션이 있는 macOS 창은 창 제목을 시스템을 통해 보여 줍니다(`windowTitleVisible`이 참). `FullSize` 창은 시스템 제목을 보여 주지 않으며, 제목이 필요하면 애플리케이션이 직접 그립니다. 30.2의 `SystemCaption`은 이 값에 기댑니다.
+
 #### 19.2 콘텐츠 안전 영역
 
 콘텐츠가 타이틀바 아래까지 확장되면 **그 영역과 겹치는 문제**가 생깁니다. macOS 신호등 버튼 자리에 앱의 버튼을 그리면 둘 다 못 쓰게 됩니다.
