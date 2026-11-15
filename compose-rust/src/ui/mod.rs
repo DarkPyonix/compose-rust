@@ -652,7 +652,8 @@ impl Modifier {
         self
     }
 
-    /// A shape from the design system's ladder.
+    /// A shape from the design system's ladder. `ShapeRole::Full` is a pill at whatever
+    /// height the node has, so round ends need no radius worked out from the height.
     pub const fn shape_role(mut self, role: ShapeRole) -> Self {
         self.shape_role = Some(role);
         self

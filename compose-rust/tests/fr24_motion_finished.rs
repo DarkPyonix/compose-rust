@@ -189,3 +189,292 @@ fn fr24_no_handler_means_no_listener() {
         1
     );
 }
+
+/// Every report a family's handlers heard, each with the name of the builder that heard it.
+type Heard = Arc<Mutex<Vec<(&'static str, MotionFinished)>>>;
+
+/// A handler that writes what it is told under `name`.
+fn hears(heard: &Heard, name: &'static str) -> impl FnMut(MotionFinished) + 'static {
+    let heard = Arc::clone(heard);
+    move |finished| heard.lock().unwrap().push((name, finished))
+}
+
+/// Composes `content`, whose builders each carry a motion role and a handler made by
+/// `hears`, and checks every one of `expected`: its node has the handler property, and a
+/// report sent to that node reaches its own closure once, with the size the report holds.
+///
+/// `expected` names each builder with the widget its node is on the wire, in the order
+/// `content` composes them.
+fn assert_each_reports(
+    content: impl Fn(&Heard) + Send + Sync + 'static,
+    expected: &[(&'static str, &'static str)],
+) {
+    let heard: Heard = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&heard);
+    let (mut host, tree) = start(move || content(&sink));
+    for (index, (name, widget)) in expected.iter().enumerate() {
+        let earlier = expected[..index]
+            .iter()
+            .filter(|(_, other)| other == widget)
+            .count();
+        let total = expected.iter().filter(|(_, other)| other == widget).count();
+        let handled = tree.handled(widget, PropertyKind::OnMotionFinished);
+        assert_eq!(
+            handled.len(),
+            total,
+            "{name}: {widget} nodes with a motion handler\n{}",
+            tree.dump()
+        );
+        let (node_id, handler_id) = handled[earlier];
+        let size = MotionFinished {
+            width_dp: 100.0 + index as f32,
+            height_dp: 20.0 + index as f32,
+        };
+        host.dispatch(HostEvent {
+            node_id,
+            handler_id,
+            payload: EventPayload::MotionFinished {
+                width_dp: size.width_dp,
+                height_dp: size.height_dp,
+            },
+        })
+        .unwrap_or_else(|error| panic!("{name}: the report was refused: {error:?}"));
+        let heard = heard.lock().unwrap();
+        assert_eq!(
+            heard.len(),
+            index + 1,
+            "{name}: one report is one call: {heard:?}"
+        );
+        assert_eq!(heard[index], (*name, size), "{name}: {heard:?}");
+    }
+}
+
+fn moving() -> Modifier {
+    Modifier.motion(MotionRole::Standard)
+}
+
+#[test]
+fn fr24_1_text_reports_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            Text("settles")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Text"));
+        },
+        &[("Text", "Text")],
+    );
+}
+
+#[test]
+fn fr24_1_controls_report_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            Button("go")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Button"));
+            MenuItem("entry")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "MenuItem"));
+            Checkbox(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Checkbox"));
+            RadioButton(false)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "RadioButton"));
+            Switch(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Switch"));
+            Slider(0.5)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Slider"));
+            Chip("tag")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Chip"));
+            FloatingAction("add")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "FloatingAction"));
+            NavigationItem("home")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "NavigationItem"));
+        },
+        &[
+            ("Button", "Button"),
+            // A menu item is a button on the wire.
+            ("MenuItem", "Button"),
+            ("Checkbox", "Checkbox"),
+            ("RadioButton", "RadioButton"),
+            ("Switch", "Switch"),
+            ("Slider", "Slider"),
+            ("Chip", "Chip"),
+            ("FloatingAction", "FloatingAction"),
+            ("NavigationItem", "NavigationItem"),
+        ],
+    );
+}
+
+#[test]
+fn fr24_1_pickers_report_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            DatePicker(0)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "DatePicker"));
+            TimePicker(90)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "TimePicker"));
+            Dropdown(0)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Dropdown"))
+                .content(|| {});
+        },
+        &[
+            ("DatePicker", "DatePicker"),
+            ("TimePicker", "TimePicker"),
+            ("Dropdown", "Dropdown"),
+        ],
+    );
+}
+
+#[test]
+fn fr24_1_indicators_and_media_report_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            ProgressIndicator(0.25)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "ProgressIndicator"));
+            LinearProgressIndicator(0.5)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "LinearProgressIndicator"));
+            Divider()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Divider"));
+            Image(1)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Image"));
+            Icon(2)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Icon"));
+            Canvas(DrawList::default())
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Canvas"));
+            Badge()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Badge"))
+                .content(|| {});
+        },
+        &[
+            ("ProgressIndicator", "ProgressIndicator"),
+            ("LinearProgressIndicator", "LinearProgressIndicator"),
+            ("Divider", "Divider"),
+            ("Image", "Image"),
+            ("Icon", "Icon"),
+            ("Canvas", "Canvas"),
+            ("Badge", "Badge"),
+        ],
+    );
+}
+
+#[test]
+fn fr24_1_overlays_report_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            Dialog(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Dialog"))
+                .content(|| {});
+            Sheet(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Sheet"))
+                .content(|| {});
+            Menu(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Menu"))
+                .content(|| {});
+            Popover(true)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Popover"))
+                .content(|| {});
+            Tooltip("hint")
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Tooltip"))
+                .content(|| {});
+        },
+        &[
+            ("Dialog", "Dialog"),
+            ("Sheet", "Sheet"),
+            ("Menu", "Menu"),
+            ("Popover", "Popover"),
+            ("Tooltip", "Tooltip"),
+        ],
+    );
+}
+
+#[test]
+fn fr24_1_structure_reports_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            FlowRow()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "FlowRow"))
+                .content(|| {});
+            Tabs(0)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Tabs"))
+                .content(|| {});
+            TopAppBar()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "TopAppBar"))
+                .content(|| {});
+            Scaffold()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Scaffold"))
+                .content(|| {});
+            Navigation(0)
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "Navigation"))
+                .content(|| {});
+            FileDropTarget()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "FileDropTarget"))
+                .content(|| {});
+            SplitPane()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "SplitPane"))
+                .content(|| {});
+        },
+        &[
+            ("FlowRow", "FlowRow"),
+            ("Tabs", "Tabs"),
+            ("TopAppBar", "TopAppBar"),
+            ("Scaffold", "Scaffold"),
+            ("Navigation", "Navigation"),
+            ("FileDropTarget", "FileDropTarget"),
+            ("SplitPane", "SplitPane"),
+        ],
+    );
+}
+
+#[test]
+fn fr24_1_lazy_lists_report_motion_finished() {
+    assert_each_reports(
+        |heard| {
+            LazyColumn()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "LazyColumn"))
+                .content(|_| {});
+            LazyRow()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "LazyRow"))
+                .content(|_| {});
+            LazyGrid()
+                .modifier(moving())
+                .on_motion_finished(hears(heard, "LazyGrid"))
+                .content(|_| {});
+        },
+        &[
+            ("LazyColumn", "LazyColumn"),
+            ("LazyRow", "LazyRow"),
+            ("LazyGrid", "LazyGrid"),
+        ],
+    );
+}
