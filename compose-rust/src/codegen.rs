@@ -5887,6 +5887,14 @@ object MeasureRecords {
             "TEXT_FONT_FEATURES_COUNT_AT",
             m::TEXT_FONT_FEATURES_COUNT_AT as i64,
         ),
+        (
+            "TEXT_SPAN_FEATURES_OFFSET_AT",
+            m::TEXT_SPAN_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FEATURES_LENGTH_AT",
+            m::TEXT_SPAN_FEATURES_LENGTH_AT as i64,
+        ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
         ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),

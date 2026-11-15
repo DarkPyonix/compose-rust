@@ -476,3 +476,52 @@ fn fr88_span_font_features_do_not_allocate_in_steady_state() {
         "a text whose runs name features allocated {featured} times over the frames one whose runs name none took {plain}"
     );
 }
+
+#[test]
+fn fr88_measure_record_carries_span_font_features() {
+    use compose_rust::measure::{
+        MEASURE_RECORD_LEN, MeasureRequests, TEXT_SPAN_FEATURES_LENGTH_AT,
+        TEXT_SPAN_FEATURES_OFFSET_AT, TextConstraint, TextStyle,
+    };
+
+    assert_eq!(MEASURE_RECORD_LEN, 88);
+    let featured = TextSpans::new_with_features([
+        (TextSpan::new(0, 6), vec![]),
+        (TextSpan::new(6, 4), vec![FontFeature::TABULAR_NUMS]),
+    ]);
+    let table = featured.feature_table().to_vec();
+    assert!(!table.is_empty());
+
+    let mut requests = MeasureRequests::new();
+    let style = TextStyle::default();
+    requests.text(
+        "Total 1111",
+        &featured,
+        &style,
+        TextConstraint::MaxContent,
+    );
+    requests.text(
+        "Total 1111",
+        &TextSpans::new([TextSpan::new(0, 6), TextSpan::new(6, 4)]),
+        &style,
+        TextConstraint::MaxContent,
+    );
+    let buffer = requests.encoded();
+    let word = |at: usize| u32::from_le_bytes(buffer[at..at + 4].try_into().unwrap()) as usize;
+
+    let at = word(TEXT_SPAN_FEATURES_OFFSET_AT);
+    let length = word(TEXT_SPAN_FEATURES_LENGTH_AT);
+    assert!(at >= 2 * MEASURE_RECORD_LEN, "the table sits after the records");
+    assert_eq!(length, table.len());
+    assert_eq!(
+        &buffer[at..at + length],
+        &table[..],
+        "the measure request carries the same bytes as the SpanFontFeatures property"
+    );
+
+    assert_eq!(
+        word(MEASURE_RECORD_LEN + TEXT_SPAN_FEATURES_LENGTH_AT),
+        0,
+        "a text whose runs name no feature sends no table"
+    );
+}

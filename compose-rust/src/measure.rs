@@ -26,7 +26,7 @@ use crate::spans::{SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_LEN, TextSpans
 use std::marker::PhantomData;
 
 /// Bytes of one request record, whichever kind it is.
-pub const MEASURE_RECORD_LEN: usize = 80;
+pub const MEASURE_RECORD_LEN: usize = 88;
 /// Bytes of one result record.
 pub const MEASURE_RESULT_LEN: usize = 32;
 
@@ -63,6 +63,11 @@ pub const TEXT_WIDTH_AT: usize = 64;
 pub const TEXT_ZOOM_AT: usize = 68;
 pub const TEXT_FONT_FEATURES_OFFSET_AT: usize = 72;
 pub const TEXT_FONT_FEATURES_COUNT_AT: usize = 76;
+/// Where the runs' own font feature table starts: the `SpanFontFeatures` blob as it is,
+/// its entry count first and every offset inside it counted from its own start.
+pub const TEXT_SPAN_FEATURES_OFFSET_AT: usize = 80;
+/// How many bytes that table takes. Zero where no run names a feature.
+pub const TEXT_SPAN_FEATURES_LENGTH_AT: usize = 84;
 
 pub const NODE_ID_AT: usize = 4;
 pub const NODE_MIN_WIDTH_AT: usize = 8;
@@ -111,11 +116,11 @@ pub const MEASURE_UNAVAILABLE: i32 = -5;
 /// Hash input for the record layouts above, so a Renderer generated from another layout
 /// is refused at the handshake rather than reading the wrong bytes.
 pub(crate) const SCHEMA_DESCRIPTOR: &str = concat!(
-    "measure=v1;record=80;result=32;",
+    "measure=v1;record=88;result=32;",
     "text=kind@0,type_role@2,text@4,spans@12,span_fonts@20,font@28,font_size@36,",
     "font_weight@40,italic@42,wrap@43,letter_spacing@44,line_height@48,max_lines@52,",
     "tab_size@56,word_break@57,overflow_wrap@58,absolute_size@59,constraint@60,width@64,",
-    "zoom@68,font_features@72;",
+    "zoom@68,font_features@72,span_features@80;",
     "node=kind@0,node@4,min_width@8,max_width@12,min_height@16,max_height@20,zoom@24;",
     "result=width@0,height@4,first_baseline@8,last_baseline@12,last_line_width@16,",
     "line_count@20,flags@24,status@28;",
@@ -433,6 +438,14 @@ impl MeasureRequests {
             TEXT_FONT_FEATURES_COUNT_AT,
             style.font_features.len() as u32,
         );
+        // The run feature table travels whole: its offsets count from its own start, so
+        // it is copied as it is and the Renderer reads it with the same function it reads
+        // the `SpanFontFeatures` property with.
+        let table = spans.feature_table();
+        let span_features_at = self.payload.len() as u32;
+        self.payload.extend_from_slice(table);
+        put_u32(&mut record, TEXT_SPAN_FEATURES_OFFSET_AT, span_features_at);
+        put_u32(&mut record, TEXT_SPAN_FEATURES_LENGTH_AT, table.len() as u32);
         self.records.push(PendingRecord { bytes: record });
         self.records.len() - 1
     }
@@ -548,6 +561,7 @@ impl MeasureRequests {
                     TEXT_SPAN_FONTS_OFFSET_AT,
                     TEXT_FONT_OFFSET_AT,
                     TEXT_FONT_FEATURES_OFFSET_AT,
+                    TEXT_SPAN_FEATURES_OFFSET_AT,
                 ] {
                     let value = read_u32(&bytes, field) + base;
                     put_u32(&mut bytes, field, value);

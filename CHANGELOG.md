@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Run font features are measured as they are drawn
+
+A `MeasureText` request now carries the text's run font feature table, the same bytes the `SpanFontFeatures` property (tag 209) sends, and the Renderer measures each run with the features it is drawn with. Before, only the text's own `FontFeatureSettings` reached the measurement, so a run with `tnum 1` was measured with proportional figures and drawn with tabular ones, and a Host laying out a page placed it at the wrong width. The request record grows from 80 to 88 bytes: `span_features_offset@80 u32` and `span_features_length@84 u32`, the offset and byte length of the table as it is, its entry count first and its offsets counted from its own start. A length of zero is no table. A table the Renderer cannot read answers that request as malformed. A Host that writes measure records by hand writes 88-byte records, and the schema hash moves, so a Renderer from before this is refused at the handshake ([#823](https://github.com/DarkPyonix/compose-rust/issues/823)).
+
 ### A plain `Text` sends no empty font records
 
 A `Text` that names no run fonts, no font list, no `word_break` and no `overflow_wrap` no longer sends a `SetProp` of nothing for each of them on its first composition: `SpanFonts` (tag 116), `Font` (110), `WordBreak` (111) and `OverflowWrap` (112) are now listed only when set, as `SpanFontFeatures` already was. A `TextField` leaves out `Font`, `WordBreak` and `OverflowWrap` the same way. Such a text sends four records fewer, and its records are those an `rsx!` text sends. One that was set and is taken away is still cleared by exactly one record. The Renderer removes a property on a record of nothing, the same state as one never sent, so nothing it draws changes, and the schema hash does not move ([#824](https://github.com/DarkPyonix/compose-rust/issues/824)).
