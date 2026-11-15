@@ -258,7 +258,10 @@ class AccessibilityModifierTest {
             show(labelled(Mutation.SetProp(button, PropertyKind.AccessibleName, name("새 파일 만들기"))))
             onAllNodes(isButton and hasContentDescription("새 파일 만들기"), useUnmergedTree = true)
                 .assertCountEquals(1)
-            onAllNodes(hasText("만들기"), useUnmergedTree = true).assertCountEquals(0)
+            // The merged tree is the one a reader walks. A cleared label still sits in the
+            // unmerged tree, which keeps every node whatever its ancestors cleared, so that
+            // tree cannot say whether a reader meets it.
+            onAllNodes(hasText("만들기", substring = true)).assertCountEquals(0)
             val merged = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode().config
             assertEquals(listOf("새 파일 만들기"), merged.getOrNull(SemanticsProperties.ContentDescription))
             assertEquals(null, merged.getOrNull(SemanticsProperties.Text), "the label is still read beside the name")
