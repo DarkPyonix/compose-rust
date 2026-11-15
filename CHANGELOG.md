@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Crossing a window size class no longer composes the whole tree
+
+A window that crossed 600 dp or 840 dp wide, or 480 dp tall, composed every node again in that one frame, because the class was part of the resolved theme and every node reads the theme. The theme is now kept until one of its real inputs changes (the design system, colour scheme, fonts, brushes, material backdrop, high contrast, overlay tokens), and the few things that answer by class (a navigation's bar, rail or drawer; Liquid Glass cards and the dark desktop page) ask for it where they draw. A page of 81 nodes composes none of them again when it crosses a class, where it composed all 81 before. Nothing on the wire changes ([#757](https://github.com/DarkPyonix/compose-rust/issues/757)).
+
 ### A pill at any height is `ShapeRole::Full`
 
 `Modifier.shape_role(ShapeRole::Full)` gives a node fully round ends whatever its height: a node 40 dp tall gets 20 dp corners, the same node at 80 dp gets 40 dp, and the application never works out half the height. The background, border, clip, shadow and press feedback follow the same outline, in every design system, including the two whose other corners are continuous. The role was already in the schema (`Full`, tag 6) and already drawn this way; what is new is that tests hold it there, on the wire and in pixels, and the documentation says it. Nothing on the wire changes, so the schema hash does not move ([#310](https://github.com/DarkPyonix/compose-rust/issues/310)).

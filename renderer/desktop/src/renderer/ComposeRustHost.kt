@@ -65,7 +65,9 @@ import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalReduceTransparency
 import dev.darkpyonix.composerust.design.detectHostPlatform
 import dev.darkpyonix.composerust.design.ResolvedTheme
-import dev.darkpyonix.composerust.design.resolveTheme
+import dev.darkpyonix.composerust.design.themeFontChains
+import dev.darkpyonix.composerust.design.themeFonts
+import dev.darkpyonix.composerust.design.themeOf
 import dev.darkpyonix.composerust.protocol.MaterialRole
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.Node
@@ -441,6 +443,22 @@ fun ComposeRustContent(
 }
 
 /**
+ * How a theme reaches the assets the application registered, made once for a Host.
+ *
+ * Three lookups written where the theme is resolved were three new objects on every pass,
+ * and the theme holding one of them was a new theme with them. Each still reads the cache
+ * when it is called, so an asset registered later is found by whoever asks next.
+ */
+private class ThemeAssets(assets: dev.darkpyonix.composerust.ui.node.AssetCache) {
+    val fontOf: (Int) -> androidx.compose.ui.text.font.FontFamily? =
+        { asset -> (assets.asset(asset) as? Asset.Font)?.family }
+    val chainOf: (Int) -> dev.darkpyonix.composerust.ui.node.FontChain? =
+        { asset -> (assets.asset(asset) as? Asset.Font)?.chain }
+    val brushOf: (Int) -> androidx.compose.ui.graphics.Brush? =
+        { asset -> (assets.asset(asset) as? Asset.Brush)?.brush }
+}
+
+/**
  * Whether the content below serves the Host's frame requests itself. True for a single window,
  * which has always done so; a multi-window renderer provides false and serves them once for
  * every window.
@@ -567,9 +585,10 @@ private fun ComposeRustTree(
     // change shape with the window read it from the CompositionLocal, because they are
     // drawn on this side and a round trip to ask would cost a boundary call, a
     // VirtualDom pass and a rebuilt subtree for a layout this side can already reach;
-    // and the design system is resolved against it, because a system is allowed to
-    // answer differently in a desktop window than on a phone.
-    var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    // and the design system asks it, because a system is allowed to answer differently
+    // in a desktop window than on a phone.
+    val sizeClassState = remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    var sizeClass by sizeClassState
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
     // What the report carries besides the size, as the last composition left it. Read by
     // the layout callback below, which runs after that composition's effects.
@@ -593,17 +612,43 @@ private fun ComposeRustTree(
     // told the answer, because chrome that sits straight on the desktop is drawn
     // differently from chrome over the application's own page.
     val asked = host.table.asksForWindowMaterial(pageRoots)
-    val theme = resolveTheme(
-        host.table.themeFor(windowNodeId),
-        platform,
-        systemDark,
-        sizeClass,
-        fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
-        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
-        brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
-        windowBackdrop = asked && platformBacksWindowWithMaterial(),
-        overlay = host.table.overlayTokens,
-    )
+    // The theme is the same object until something it is made from changes. Every node
+    // reads it, so a theme made again on each pass through here composed the whole tree
+    // again whenever this function ran: on every change of window class, which is one
+    // frame of a drag of the window's edge, and that frame took several times the others.
+    //
+    // What it is made from is read on every pass and compared, not read inside the
+    // remembered block: a font that arrives after the theme that names it has to be seen,
+    // and a read that only happens when the block runs is forgotten the first time it
+    // does not. The window's class is not one of the inputs. The theme asks for it where
+    // an answer depends on it, and only what asked follows it.
+    val themeAssets = remember(host) { ThemeAssets(host.table.assets) }
+    val themeRecord = host.table.themeFor(windowNodeId)
+    val themeFonts = themeFonts(themeRecord, themeAssets.fontOf)
+    val themeFontChains = themeFontChains(themeRecord, themeAssets.chainOf)
+    val windowBackdrop = asked && platformBacksWindowWithMaterial()
+    // Asked only of an application that brought a palette, which is the only thing a high
+    // contrast mode changes here.
+    val highContrast = themeRecord?.palette?.isNotEmpty() == true &&
+        dev.darkpyonix.composerust.ui.node.platformHighContrast()
+    val overlayTokens = host.table.overlayTokens
+    val theme = remember(
+        themeAssets, themeRecord, platform, systemDark, sizeClassState, themeFonts,
+        themeFontChains, windowBackdrop, highContrast, overlayTokens,
+    ) {
+        themeOf(
+            themeRecord,
+            platform,
+            systemDark,
+            sizeClass = { sizeClassState.value },
+            fonts = themeFonts,
+            chains = themeFontChains,
+            brushOf = themeAssets.brushOf,
+            windowBackdrop = windowBackdrop,
+            highContrast = { highContrast },
+            overlay = overlayTokens,
+        )
+    }
     // The animations the Host handed over are played here, on this side's frame clock, and
     // the Host is not called while they play unless one asked for events. The loop waits
     // for frames only while something is waiting to start or still running, so a screen
