@@ -2261,18 +2261,27 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 시스템 캡션에 맡길지는 `CaptionStyle`의 `titlePlacement`가 답합니다. 값은 `Bar`와
 `SystemCaption`입니다.
 
-- Cupertino와 Liquid Glass는 캡션 높이가 있는 창에서 `SystemCaption`을 답하고 막대 안에는
-  제목을 그리지 않습니다. 캡션이 없는 모바일 화면에서는 막대가 제목을 그립니다.
-- 나머지 다섯 시스템은 `Bar`를 답하고, 기존 `titleAlignment`에 따라 앞쪽 또는 가운데에
-  제목을 놓습니다.
+[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 그 답은 디자인 시스템이 아니라
+플랫폼이 정합니다. 제목을 시스템 캡션에 맡길 수 있는 것은 운영체제가 캡션을 그리는 창뿐이고,
+19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows와 Linux에서는 Renderer가 캡션을 그리므로
+제목을 받아 줄 시스템 캡션이 없습니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
+막대에도 캡션에도 제목이 없는 창이 됩니다.
+
+- macOS에서 캡션 높이가 있는 창은 어느 디자인 시스템이든 `SystemCaption`을 답하고 막대 안에는
+  제목을 그리지 않습니다.
+- Windows와 Linux의 창은 어느 디자인 시스템이든 `Bar`를 답하고, 기존 `titleAlignment`에 따라
+  앞쪽 또는 가운데에 제목을 놓습니다. Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 창도
+  제목을 막대에 둡니다.
+- 캡션이 없는 화면(캡션 높이가 0인 창, 모바일 화면)에서는 막대가 제목을 그립니다.
 - 자식 콘텐츠와 막대의 캡션 띠 점유는 바뀌지 않습니다. 달라지는 것은 제목 한 줄의 배치뿐입니다.
 
 수용 기준:
 
-1. 캡션 높이가 같은 `TopAppBar(title)`를 Cupertino와 Fluent 2로 그리면 Cupertino 막대에는
-   제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
-2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
-3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+1. 캡션 높이가 같은 `TopAppBar(title)`를 macOS와 Windows에서 그리면 macOS 막대에는 제목 노드가
+   없고 Windows 막대에는 하나 있습니다. Cupertino와 Fluent 2 어느 쪽을 골라도 같습니다.
+2. Windows와 Linux에서 Cupertino와 Liquid Glass를 고른 창의 막대에 제목 노드가 하나 있습니다.
+3. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
+4. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
 
 #### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
 
