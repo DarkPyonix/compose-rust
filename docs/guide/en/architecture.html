@@ -331,6 +331,68 @@
       <code>main</code>.
     </p>
 
+    <h2 id="windows-ui-thread">The UI thread on Windows</h2>
+    <p>
+      On Windows <code>launch</code> runs the renderer on a thread compose-rust creates, named
+      <code>compose-rust-ui</code>, with a 64 MB stack. The calling thread waits for it and
+      returns what it always returned. The reason is the stack: Compose composes, measures and
+      draws a tree by recursion, and a Windows main thread has 1 MB unless the executable's own
+      link asks for more, where macOS and Linux give 8 MB. The 64 MB is reserved address space,
+      and Windows commits only the pages a screen really uses.
+    </p>
+    <p>
+      Code before <code>launch</code> runs on the main thread, and composables and their
+      handlers run on the UI thread. On macOS and Linux the calling thread is the UI thread, so
+      a program that does UI-thread work before <code>launch</code> runs there and loses that
+      work on Windows. The rule is therefore the same on every platform: before
+      <code>launch</code>, only what the first list names.
+    </p>
+    <p>Before <code>launch</code> a program may:</p>
+    <ul>
+      <li>Create state with <code>mutable_state_of</code>, and read and write it. A state
+        belongs to the process, not to a thread, so the UI reads the same one.</li>
+      <li>Make the <code>LaunchBuilder</code> choices: <code>with_theme</code>,
+        <code>with_window</code>, <code>windows</code> and <code>identifier</code>, which
+        names the storage.</li>
+      <li>Register assets with <code>asset::asset</code> or <code>register_owned</code> for
+        that theme and window, such as the window's icon and the theme's fonts. They keep
+        their ids on the UI thread.</li>
+      <li>Post, withdraw or ask permission for notifications, and ask for a file dialog
+        through <code>FileDialogSender</code>. Both queue for the Host from any thread.</li>
+    </ul>
+    <p>
+      From the root composable or later, because these live on the UI thread:
+    </p>
+    <ul>
+      <li>The theme and zoom setters (<code>set_theme</code>, <code>set_zoom_level</code>) and
+        their subscriptions.</li>
+      <li>Messages: <code>show_message</code> and <code>Message::show</code>.</li>
+      <li>Storage reads and writes: <code>storage::read</code>, <code>read_string</code>,
+        <code>write</code>, <code>remove</code> and <code>keys</code>.</li>
+      <li>The clipboard: <code>clipboard::set_text</code> and <code>read_text</code>.</li>
+      <li><code>FileDialog::show</code>, whose callback is not <code>Send</code>.</li>
+      <li>Handlers: <code>notification::on_activation</code>,
+        <code>windows::on_window_request</code>,
+        <code>windows::on_application_reopen_handler</code> and
+        <code>animation::on_animation_event</code>.</li>
+      <li>Subscriptions to what the renderer reports: the design system, the density, the
+        window and node sizes, reduced motion and the notification permission. Their values
+        are only defaults until the renderer has reported.</li>
+      <li>Any thread-local of the application's own that a composable reads.</li>
+    </ul>
+    <ul>
+      <li>A stack overflow or a panic in the UI names <code>compose-rust-ui</code>, not
+        <code>main</code>.</li>
+      <li><code>COMPOSE_RUST_UI_STACK_BYTES</code> sets another size in bytes. It is for
+        diagnosis, such as finding how much stack a screen needs.</li>
+      <li>An application that calls <code>compose_rust_renderer_run</code> itself, without
+        <code>launch</code>, gets no such thread and must provide the stack. On the main thread
+        that means the linker's <code>/STACK</code> on the executable, from the application's
+        own build script: <code>println!("cargo:rustc-link-arg-bins=/STACK:67108864")</code>.
+        A library's build script cannot set it for the application that depends on it, which
+        is why <code>launch</code> makes a thread instead.</li>
+    </ul>
+
     <nav class="pagenav" aria-label="Pagination">
       <a class="prev" href="design-systems.html"><span>Previous</span>&larr; Design systems</a>
       <a class="next" href="troubleshooting.html"><span>Next</span>Troubleshooting &rarr;</a>
