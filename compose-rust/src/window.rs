@@ -11,6 +11,12 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
 /// Insets in dp needed to avoid the window controls.
+///
+/// The controls are the operating system's, whatever design system the application chose,
+/// so which side is non-zero follows the platform: `leading` on macOS, where the system
+/// draws its traffic lights, and `trailing` on Windows (three 46 dp buttons, 138 dp) and on
+/// a Linux window whose buttons the Renderer draws (the desktop's own set). `top` is the
+/// caption's height. All three are zero where the window has no caption to share.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WindowSafeArea {
     pub top: f32,
