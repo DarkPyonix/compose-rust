@@ -82,6 +82,13 @@ class UnboundedWidthTest {
      * width 3, where the fixed sizes stand here, the background 14, the size report 23, the
      * unbounded width 37), so the size report comes ahead of the modifier in the list, as it
      * does on a real node.
+     *
+     * The content fills whatever it is given up to 120dp rather than standing at a fixed
+     * 120dp. A weighted cell is never made narrower than its content's minimum intrinsic
+     * width, the way a flex item keeps its min-content width, so content fixed at 120dp
+     * would widen the slot itself to 120 and leave nothing for the cell to be clamped to.
+     * Filling up to 120 has a minimum of zero: in the slot it is 50, and measured without a
+     * maximum it is 120.
      */
     private fun weightedCellRow(unbounded: Boolean): List<Mutation> = buildList {
         add(Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false)))
@@ -93,7 +100,9 @@ class UnboundedWidthTest {
         add(Mutation.SetModifier(CELL, 23, ProtocolModifier.ObserveSize(TOKEN, true)))
         if (unbounded) add(Mutation.SetModifier(CELL, 37, ProtocolModifier.UnboundedWidth))
         add(Mutation.Create(CONTENT, WidgetKind.Box))
-        add(Mutation.SetModifier(CONTENT, 3, ProtocolModifier.Size(120f, 30f)))
+        add(Mutation.SetModifier(CONTENT, 2, ProtocolModifier.SizeIn(0f, 120f, Float.NaN, Float.NaN)))
+        add(Mutation.SetModifier(CONTENT, 3, ProtocolModifier.Height(30f)))
+        add(Mutation.SetModifier(CONTENT, 4, ProtocolModifier.FillMaxWidth))
         add(Mutation.SetModifier(CONTENT, 14, ProtocolModifier.Background(Paint.Literal(CONTENT_ARGB))))
         add(Mutation.Create(SIBLING, WidgetKind.Box))
         add(Mutation.SetModifier(SIBLING, 3, ProtocolModifier.Size(40f, 30f)))
