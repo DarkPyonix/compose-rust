@@ -70,7 +70,7 @@ fn fr43_density_event_round_trips() {
     }
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1775);
+    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
     assert_eq!(decode_event(&events[1755..1775]), Ok(density_changed(2.0)));
     let mut encoded = Vec::new();
     encode_event(&density_changed(2.0), &mut encoded).unwrap();
