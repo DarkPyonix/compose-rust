@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Crossing a window size class no longer composes the whole tree
+
+A window that crossed 600 dp or 840 dp wide, or 480 dp tall, composed every node again in that one frame, because the class was part of the resolved theme and every node reads the theme. The theme is now kept until one of its real inputs changes (the design system, colour scheme, fonts, brushes, material backdrop, high contrast, overlay tokens), and the few things that answer by class (a navigation's bar, rail or drawer; Liquid Glass cards and the dark desktop page) ask for it where they draw. A page of 81 nodes composes none of them again when it crosses a class, where it composed all 81 before. Nothing on the wire changes ([#757](https://github.com/DarkPyonix/compose-rust/issues/757)).
+
 ### `on_motion_finished` on every `ui` builder
 
 Every widget builder in the `ui` API that takes `.modifier(...)` now has `on_motion_finished`, with the signature and the behaviour the containers and `TextField` already had: `Text`, `Button`, `MenuItem`, `Checkbox`, `RadioButton`, `Switch`, `Slider`, `Chip`, `FloatingAction`, `NavigationItem`, `ProgressIndicator`, `LinearProgressIndicator`, `Divider`, `Image`, `Icon`, `Canvas`, `Badge`, `DatePicker`, `TimePicker`, `Dropdown`, `Dialog`, `Sheet`, `Menu`, `Popover`, `Tooltip`, `FlowRow`, `Tabs`, `TopAppBar`, `Scaffold`, `Navigation`, `FileDropTarget`, `SplitPane`, `LazyColumn`, `LazyRow` and `LazyGrid`. A builder given no handler writes nothing new, so its wire is unchanged. `Window` has no Modifier and so no size motion to report. Nothing changes in the schema or the Renderer, which already took the handler on any node ([#707](https://github.com/DarkPyonix/compose-rust/issues/707)).
