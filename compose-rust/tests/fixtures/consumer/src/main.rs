@@ -23,9 +23,9 @@
 //! recursion, so the depth it can hold is the stack of the thread it runs on. Released
 //! applications overflowed a 1 MB Windows main thread on their first frames, and nothing
 //! had ever drawn a tree deeper than three levels to notice. `scripts/check-windows-consumer.sh`
-//! runs it twice: as it is, where it has to draw, and with the UI thread's stack held to the
-//! megabyte it used to have (`COMPOSE_RUST_UI_STACK_BYTES`), where it has to overflow, or the
-//! depth proves nothing.
+//! finds the first depth that overflows with the UI thread's stack held to the megabyte it
+//! used to have (`COMPOSE_RUST_UI_STACK_BYTES`), and that depth then has to draw as the
+//! application is.
 //!
 //! `--input-check` opens a window with a text field and a button, for a person typing Korean
 //! into it and for `.github/scripts/check-linux-input-access.sh`, which drives it with a real
@@ -126,11 +126,10 @@ impl Screen {
             node_id: DEEP_SCROLL,
             widget: WidgetKind::ScrollColumn,
         });
-        self.batch.write(Mutation::SetModifier {
-            node_id: DEEP_SCROLL,
-            index: 0,
-            modifier: Modifier::FillMaxWidth,
-        });
+        // Nothing here fills its parent's width. A child that does makes the column above
+        // it ask for its narrowest width first, and the renderer answers that by asking
+        // every level three questions, each of which asks the level below three more: a
+        // tree 400 levels deep did not finish its first frame in two minutes that way.
         let mut parent = DEEP_SCROLL;
         // Where in its parent the next level goes: after the parent's text, if it has one.
         let mut slot = 0;

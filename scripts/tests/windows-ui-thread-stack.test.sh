@@ -41,25 +41,37 @@ variable="$(sed -n 's/^const UI_THREAD_STACK_VARIABLE: &str = "\([A-Z_]*\)";$/\1
 name="$(sed -n 's/^const UI_THREAD_NAME: &str = "\([a-z-]*\)";$/\1/p' "$boundary")"
 [[ -n "$name" ]] || fail "boundary.rs gives the UI thread no name"
 
-# The script holds the stack down with that variable and looks for that thread's overflow.
+# The script holds the stack down with that variable and looks for that thread's overflow,
+# in both forms Rust prints it: with the thread's id after the name, and without.
 if [[ -n "$variable" ]]; then
     grep -Fq "export $variable=" "$script" ||
         fail "check-windows-consumer.sh does not set $variable, so it never shows the small stack overflowing"
 fi
-if [[ -n "$name" ]]; then
-    grep -Fq "thread '$name' has overflowed its stack" "$script" ||
-        fail "check-windows-consumer.sh does not look for the overflow of the thread named $name"
+pattern="$(sed -n 's/^overflow_of_ui_thread="\(.*\)"$/\1/p' "$script" | sed 's/\\\\/\\/g')"
+[[ -n "$pattern" ]] || fail "check-windows-consumer.sh has no pattern for the UI thread's overflow"
+if [[ -n "$pattern" && -n "$name" ]]; then
+    for line in "thread '$name' has overflowed its stack" "thread '$name' (9356) has overflowed its stack"; do
+        grep -Eq "$pattern" <<< "$line" ||
+            fail "check-windows-consumer.sh does not recognise: $line"
+    done
+    for line in "thread 'main' has overflowed its stack" "thread 'main' (4) has overflowed its stack"; do
+        ! grep -Eq "$pattern" <<< "$line" ||
+            fail "check-windows-consumer.sh takes another thread's overflow for the UI thread's: $line"
+    done
 fi
 grep -Fq 'old_stack_bytes=1048576' "$script" ||
     fail "check-windows-consumer.sh no longer tries the 1 MB a Windows main thread has"
 grep -Fq -- '--self-check "--deep-tree=$depth"' "$script" ||
     fail "check-windows-consumer.sh does not ask the fixture for the deep tree"
-grep -Fq 'deep_tree "$deep_depth" || status=$?' "$script" ||
-    fail "check-windows-consumer.sh does not draw the deep tree on the stack the Host gives"
-grep -Fq 'deep_tree "$deep_depth" "$old_stack_bytes" || status=$?' "$script" ||
-    fail "check-windows-consumer.sh does not draw the deep tree on the old stack"
-grep -Fq 'drew on a $old_stack_bytes byte stack' "$script" ||
-    fail "check-windows-consumer.sh accepts a depth the old stack already held"
+# The depth is found, not written down: the first rung the old stack cannot hold.
+grep -Fq 'deep_tree "$depth" "$deep_rung_seconds" "$old_stack_bytes"' "$script" ||
+    fail "check-windows-consumer.sh does not look for the depth the old stack overflows at"
+grep -Fq 'deep_tree "$deep_depth" "$deep_draw_seconds"' "$script" ||
+    fail "check-windows-consumer.sh does not draw that depth on the stack the Host gives"
+grep -Fq 'extend the ladder' "$script" ||
+    fail "check-windows-consumer.sh passes when no depth overflowed the old stack"
+grep -Fq 'timeout "$seconds" ./consumer.exe' "$script" ||
+    fail "check-windows-consumer.sh runs the deep tree with no bound on its time"
 
 # The fixture knows the argument and counts frames for it as for any self-check.
 grep -Fq 'strip_prefix("--deep-tree=")' "$fixture" ||
