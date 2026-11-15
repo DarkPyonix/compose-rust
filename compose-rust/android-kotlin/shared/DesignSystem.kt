@@ -116,14 +116,20 @@ class ResolvedTheme(
     val rules: ComponentRules,
     val dark: Boolean,
     /**
-     * The class of window this theme is being resolved for.
+     * The class of window this theme is drawn in, asked each time an answer depends on it.
      *
      * A design system is allowed to answer differently at different widths, and Apple's
      * does: macOS 26 puts glass on chrome over opaque document content, while a phone
      * sized window carries it much further. Nothing on the wire says this; the Renderer
      * already measures the window for `WindowSizeChanged`, and this is the same reading.
+     *
+     * A question rather than a value, because the class is not part of what a theme is.
+     * Every node reads the theme, and a theme that held the class was a different theme
+     * each time a window crossed 600 dp or 840 dp, which composed the whole tree again in
+     * the one frame that crossed. The window answers from snapshot state, so only whoever
+     * asked is composed or drawn again: a glass card, or the page of a dark Apple window.
      */
-    val sizeClass: WindowSizeClass = WindowSizeClass.Compact,
+    private val sizeClassOf: () -> WindowSizeClass = { WindowSizeClass.Compact },
     /**
      * The faces the application registered, by the role each was registered for.
      *
@@ -188,6 +194,12 @@ class ResolvedTheme(
     val overlay: OverlayTokens? = null,
 ) {
     /**
+     * The class of the window right now. Reading it is what makes the reader follow the
+     * class, so it is read only where the answer differs by class.
+     */
+    val sizeClass: WindowSizeClass get() = sizeClassOf()
+
+    /**
      * The stack [family] is the first family of, or null where it is not one. The family
      * the platform carries for itself answers with [platformDefaultChain].
      *
@@ -211,7 +223,7 @@ class ResolvedTheme(
 
     /** What the design system alone says a role is, before the application's palette. */
     fun systemColor(role: ColorRole): Color =
-        rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
+        rules.color(role, dark, sizeClassOf) ?: Color(tokens.color(role, dark))
 
     /**
      * A literal paints itself, a role goes through the table, a brush answers with the
@@ -377,8 +389,11 @@ interface ComponentRules {
      * This is not a way for a system to redecorate at will. A role answered here is one
      * the platform vendor specifies twice; anything else belongs in the table, where the
      * Host's own colour resolution can see it.
+     *
+     * [sizeClass] is asked only for a role that is answered by class. Asking it is what
+     * makes the caller follow the window's class, and every node asks for colours.
      */
-    fun color(role: ColorRole, dark: Boolean, sizeClass: WindowSizeClass): Color? = null
+    fun color(role: ColorRole, dark: Boolean, sizeClass: () -> WindowSizeClass): Color? = null
 
     /** How `Modifier::Elevation(dp)` is drawn. The Host sends a dp value and nothing else. */
     fun elevation(
@@ -1661,6 +1676,7 @@ fun resolveTheme(
     theme: Theme?,
     platform: HostPlatform,
     systemDark: Boolean,
+    /** The class of a window that stays the class it is, which is what a test resolves for. */
     sizeClass: WindowSizeClass = WindowSizeClass.Compact,
     /**
      * What a registered font asset became, or null where nothing was registered.
@@ -1686,6 +1702,59 @@ fun resolveTheme(
     chainOf: (Int) -> FontChain? = { null },
     /** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     overlay: OverlayTokens? = null,
+): ResolvedTheme = themeOf(
+    theme,
+    platform,
+    systemDark,
+    { sizeClass },
+    themeFonts(theme, fontOf),
+    themeFontChains(theme, chainOf),
+    brushOf,
+    windowBackdrop,
+    highContrast,
+    overlay,
+)
+
+/**
+ * The face each role the application named is written in.
+ *
+ * Only the roles the application actually named. A role whose asset is missing or is not
+ * a font is left out, so it stays on the machine's own face rather than on nothing, and
+ * the report of the missing asset is what says it happened.
+ */
+internal fun themeFonts(theme: Theme?, fontOf: (Int) -> FontFamily?): Map<TypeRole, FontFamily> = buildMap {
+    theme?.let { asked ->
+        for (role in TypeRole.entries) {
+            val family = asked.font(role)?.let(fontOf) ?: continue
+            put(role, family)
+        }
+    }
+}
+
+/** The font stacks the application's roles are set in: each stack once, however many roles are set in it. */
+internal fun themeFontChains(theme: Theme?, chainOf: (Int) -> FontChain?): List<FontChain> =
+    theme?.let { asked ->
+        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
+    }.orEmpty()
+
+/**
+ * [resolveTheme] from the faces and stacks the assets have already been read into.
+ *
+ * Everything here is a value that can be compared, which is what lets a window keep the
+ * theme it has until one of them really changes. A theme made again from the same inputs
+ * is still a different object, and every node in the tree reads the theme.
+ */
+internal fun themeOf(
+    theme: Theme?,
+    platform: HostPlatform,
+    systemDark: Boolean,
+    sizeClass: () -> WindowSizeClass,
+    fonts: Map<TypeRole, FontFamily>,
+    chains: List<FontChain>,
+    brushOf: (Int) -> ComposeBrush?,
+    windowBackdrop: Boolean,
+    highContrast: () -> Boolean,
+    overlay: OverlayTokens?,
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1697,26 +1766,13 @@ fun resolveTheme(
         ColorScheme.Dark -> true
         ColorScheme.FollowSystem -> systemDark
     }
-    // Only the roles the application actually named. A role whose asset is missing or is
-    // not a font is left out, so it stays on the machine's own face rather than on
-    // nothing, and the report of the missing asset is what says it happened.
-    val fonts = buildMap {
-        theme?.let { asked ->
-            for (role in TypeRole.entries) {
-                val family = asked.font(role)?.let(fontOf) ?: continue
-                put(role, family)
-            }
-        }
-    }
-    // Each stack once, however many roles are set in it.
-    val chains = theme?.let { asked ->
-        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
-    }.orEmpty()
     val tokens = DesignTokens.of(system)
     val rules = rulesFor(system)
     // The same palette goes onto whichever system was chosen, and both of its schemes are
     // already here, so following the platform from light to dark reads the other half
-    // rather than asking the Host for anything.
+    // rather than asking the Host for anything. The palette is worked out once, against
+    // the inks of the system, and an ink is not one of the colours a system answers by
+    // window class.
     val application = applicationColors(theme, dark, highContrast) { role ->
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
     }
