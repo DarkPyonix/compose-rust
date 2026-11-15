@@ -324,7 +324,7 @@ jobs:
           echo "-- unwind sections in the renderer object, by name and COMDAT kind"
           grep -c "^SECTION HEADER" renderer-headers.txt || true
           grep -A1 "^SECTION HEADER" renderer-headers.txt | grep -oE "\.pdata[^ ]*" | sed 's/\$.*/$NAME/' | sort | uniq -c
-          grep -B2 -A12 "^SECTION HEADER" renderer-headers.txt | grep -B3 -A10 " \.pdata$" | head -40
+          grep -B2 -A12 "^SECTION HEADER" renderer-headers.txt | grep -B3 -A10 " \.pdata$" | head -40 || true
 
       - name: Keep the renderer object for the LNK1223 analysis
         uses: actions/upload-artifact@v4
