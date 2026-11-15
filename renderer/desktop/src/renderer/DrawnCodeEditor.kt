@@ -171,6 +171,10 @@ private class DrawnState(
     /** The room above the first line, in pixels, which scrolls away with it. */
     var padTopPx = 0
 
+    /** The room below the last line, and the view's height, both in pixels. */
+    var padBottomPx = 0
+    var viewportHeight = 0
+
     /** How far down the document the top of the view is: the offset less the room above the first line. */
     val docOffset: Int get() = (scroll?.offset ?: 0) - padTopPx
 
@@ -254,6 +258,21 @@ private class DrawnState(
         return LineView(layout, caretAt, charAt, model.wrapBreaksOf(line))
     }
 
+    /**
+     * Scrolls the least that shows the whole row the caret is on, after a key or an input
+     * method moved it. The rows are read again, since the key may have added a line.
+     */
+    fun followCaretMove() {
+        val vertical = scroll ?: return
+        if (viewportHeight <= 0) return
+        val now = RowMap.of(model)
+        vertical.max = now.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
+        val caret = model.selection.caret
+        val row = view(caret.line).rowOf(caret.column, caretAtRowEnd)
+        val top = now.textTopPx(caret.line, rowPx) + row * rowPx + padTopPx
+        followCaret(vertical, top, top + rowPx, viewportHeight)
+    }
+
     fun moved() {
         caretAtRowEnd = false
         moves += 1
@@ -287,6 +306,7 @@ private class DrawnState(
         composing = ""
         if (text.isNotEmpty()) replaceSelection(text, EditOrigin.Typing)
         composingChanged()
+        followCaretMove()
     }
 
     override fun compose(text: String) {
@@ -475,6 +495,7 @@ private fun DrawnSurface(
     // The room above the first line and below the last, inside what scrolls.
     val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
     state.padTopPx = padTopPx
+    state.padBottomPx = padBottomPx
     val extent = rows.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
@@ -556,6 +577,7 @@ private fun DrawnSurface(
             .onSizeChanged {
                 viewportHeight = it.height
                 viewportWidth = it.width
+                state.viewportHeight = it.height
             },
     ) {
         Box(
@@ -580,7 +602,15 @@ private fun DrawnSurface(
                     callbacks.onOutput()
                 }
                 .focusable()
-                .onKeyEvent { event -> drawnKey(event, state) }
+                .onKeyEvent { event ->
+                    // A key that moved the caret or changed the text brings the caret's row
+                    // into view; one that did neither leaves the view where the reader put it.
+                    val selection = model.selection
+                    val revision = model.contentRevision
+                    drawnKey(event, state).also {
+                        if (model.selection != selection || model.contentRevision != revision) state.followCaretMove()
+                    }
+                }
                 .pointerInput(state) {
                     awaitPointerEventScope {
                         var dragging = false
