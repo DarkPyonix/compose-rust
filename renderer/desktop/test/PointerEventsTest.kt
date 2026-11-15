@@ -22,6 +22,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.design.HostPlatform
 import dev.darkpyonix.composerust.foundation.hostWheelDeltaMode
+import dev.darkpyonix.composerust.foundation.platformContextMenuTaken
 import dev.darkpyonix.composerust.foundation.pointerKindBit
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Mutation
@@ -116,6 +117,7 @@ class PointerEventsTest {
     fun restore() {
         hostPlatformOverride = null
         hostWheelDeltaMode = WheelDeltaMode.Line
+        platformContextMenuTaken = {}
     }
 
     /** Whether each press had been consumed by the time every node had seen it. */
@@ -347,6 +349,44 @@ class PointerEventsTest {
                 // Consumed by the handler means consumed for Compose, so nothing opens a menu on it.
                 assertEquals(listOf(answer != 0L), pressesConsumed, "answer $answer")
             }
+        }
+    }
+
+    @Test
+    fun fr33_1_a_menu_press_the_application_took_tells_the_platform() {
+        // A window that puts up a text menu of its own on a right click stands back when the
+        // application consumed the press, which is the application showing its own menu.
+        listOf(0L, 1L).forEach { answer ->
+            var told = 0
+            platformContextMenuTaken = { told++ }
+            runComposeUiTest {
+                val connection = FakeHostConnection(single(kinds(PointerKind.Down, PointerKind.Up, PointerKind.ContextMenu)))
+                connection.respondWith { HostResponse(result = answer) }
+                show(connection)
+                onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
+                    moveTo(at(50f, 50f))
+                    press(MouseButton.Secondary)
+                    release(MouseButton.Secondary)
+                }
+                waitForIdle()
+                assertEquals(PointerKind.ContextMenu, connection.pointers().first().kind)
+                assertEquals(if (answer != 0L) 1 else 0, told, "answer $answer: told once only when the press was consumed")
+            }
+        }
+        // A primary press the application consumed is a click, not a menu: nothing to tell.
+        var told = 0
+        platformContextMenuTaken = { told++ }
+        runComposeUiTest {
+            val connection = FakeHostConnection(single(kinds(PointerKind.Down, PointerKind.Up)))
+            connection.respondWith { HostResponse(result = 1L) }
+            show(connection)
+            onNodeWithTag(nodeTestTag(OUTER)).performMouseInput {
+                moveTo(at(50f, 50f))
+                press()
+                release()
+            }
+            waitForIdle()
+            assertEquals(0, told, "a consumed primary press is not a menu the application took")
         }
     }
 
