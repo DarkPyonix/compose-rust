@@ -358,6 +358,7 @@ impl Host {
         // The Renderer reports its zoom again at start, and a level the last Host asked for
         // and never sent is that Host's business.
         crate::zoom::reset_zoom();
+        crate::native_view::reset_native_parents();
         // The density is reported again at start as well, before the first frame.
         crate::density::reset_density();
         // The windows' commands and registrations belong to the Host that queued them.
@@ -941,6 +942,29 @@ impl Host {
             }
             // Where Android keeps the application's files. Operations that were waiting for
             // it go to the storage thread, which wakes them when they finish.
+            // Where one window's platform views are made: the Host's own business, named by
+            // the window it is about. Whoever subscribed is woken and the change rendered.
+            EventPayload::NativeViewParent {
+                handle,
+                kind,
+                scale,
+            } => {
+                if event.handler_id != 0
+                    || (event.node_id != 0 && !self.runtime.is_window(event.node_id))
+                {
+                    return Err(ProtocolError::InvalidValueKind(0));
+                }
+                let parent = crate::native_view::NativeParent {
+                    window: event.node_id,
+                    handle,
+                    kind,
+                    scale,
+                };
+                if crate::native_view::publish(parent) {
+                    return self.render_and_finish(0);
+                }
+                return self.empty_batch();
+            }
             EventPayload::StorageLocation(path) => {
                 if event.node_id != 0 || event.handler_id != 0 {
                     return Err(ProtocolError::InvalidValueKind(0));
