@@ -1,14 +1,17 @@
 package dev.darkpyonix.composerust.ui
 
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.focused
+import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.requestFocus
 import androidx.compose.ui.semantics.role
@@ -101,6 +104,23 @@ private fun SemanticsRole.word(): String? = when (this) {
 }
 
 /**
+ * Whether a node with this role holds other nodes a reader visits one by one: a menu and its
+ * items, a list and its rows. Such a node is a group to walk into, never a single piece of
+ * text that stands for everything inside it.
+ */
+internal fun SemanticsRole.isContainer(): Boolean = when (this) {
+    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.Group,
+    SemanticsRole.TabList, SemanticsRole.Tree, SemanticsRole.Navigation -> true
+    else -> false
+}
+
+/** Whether a reader is told how many items a container with this role holds, as a list is. */
+private fun SemanticsRole.countsItems(): Boolean = when (this) {
+    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.TabList, SemanticsRole.Tree -> true
+    else -> false
+}
+
+/**
  * The role the Host declared for a node, kept beside Compose's own [Role] because most of
  * them have no Compose name. A window that can give a reader the platform's own word for the
  * role (a tab group, an outline, a menu) reads it from here.
@@ -179,6 +199,7 @@ internal fun Modifier.accessibility(
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
     val handler = clickHandlerId.takeIf { pressable && state and CLICK_ACTION_BIT != 0 }
+    val rows = node.children.size
     return semantics {
         if (name != null) contentDescription = name
         if (role != null) this.role = role
@@ -193,6 +214,13 @@ internal fun Modifier.accessibility(
         if (isDisabled == true) disabled()
         if (focused != null) this.focused = focused
         if (hidden) hideFromAccessibility()
+        // A container is a group the reader walks into, the way a popover menu is, so its
+        // rows stay nodes of their own. Nothing here merges them. A platform with a list or
+        // a collection of its own (TalkBack's "list, 3 items") is told how many rows there are.
+        if (declaredRole != null && declaredRole.isContainer()) {
+            isTraversalGroup = true
+            if (declaredRole.countsItems()) collectionInfo = CollectionInfo(rowCount = rows, columnCount = 1)
+        }
         if (handler != null && dispatcher != null) {
             onClick(label = null) {
                 dispatcher.dispatch(HostEvent.Clicked(node.id, handler))

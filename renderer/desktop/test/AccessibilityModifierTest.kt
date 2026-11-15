@@ -14,6 +14,9 @@ import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.runComposeUiTest
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
@@ -239,6 +242,37 @@ class AccessibilityModifierTest {
             )
             val node = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode()
             assertEquals(listOf("Import"), node.config.getOrNull(SemanticsProperties.ContentDescription))
+        }
+    }
+
+    @Test
+    fun fr68_a_button_with_its_own_name_is_read_once_by_that_name() {
+        val button = 1
+        fun labelled(vararg extra: Mutation) = listOf(
+            Mutation.Create(button, WidgetKind.Button),
+            Mutation.SetProp(button, PropertyKind.Text, name("만들기")),
+            Mutation.SetProp(button, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+        ) + extra
+        val isButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
+        runComposeUiTest {
+            show(labelled(Mutation.SetProp(button, PropertyKind.AccessibleName, name("새 파일 만들기"))))
+            onAllNodes(isButton and hasContentDescription("새 파일 만들기"), useUnmergedTree = true)
+                .assertCountEquals(1)
+            // The merged tree is the one a reader walks. A cleared label still sits in the
+            // unmerged tree, which keeps every node whatever its ancestors cleared, so that
+            // tree cannot say whether a reader meets it.
+            onAllNodes(hasText("만들기", substring = true)).assertCountEquals(0)
+            val merged = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode().config
+            assertEquals(listOf("새 파일 만들기"), merged.getOrNull(SemanticsProperties.ContentDescription))
+            assertEquals(null, merged.getOrNull(SemanticsProperties.Text), "the label is still read beside the name")
+            assertTrue(merged.contains(SemanticsActions.OnClick), "the named button lost its press action")
+        }
+        runComposeUiTest {
+            // A button without a name of its own is still read by its label.
+            show(labelled())
+            onAllNodes(hasText("만들기"), useUnmergedTree = true).assertCountEquals(1)
+            val merged = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode().config
+            assertEquals(listOf("만들기"), merged.getOrNull(SemanticsProperties.Text)?.map { it.text })
         }
     }
 
