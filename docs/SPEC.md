@@ -5024,6 +5024,8 @@ pub mod storage {
 
 **모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 39): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
 
+**점선 테두리**(이슈 #817, [leader, provisional] (darkpyonix leader, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Modifier::border_dashed(width_dp: f32, paint: impl Into<Paint>, dash_dp: f32, gap_dp: f32)`: 기존 `Border(width_dp, paint)` 수정자에 더해 `BorderDash { dash_dp: f32, gap_dp: f32 }`(수정자 태그 42, 첫 64비트 워드에 `dash_dp`와 `gap_dp` 두 `f32` 패킹)를 보냅니다. 실선 테두리(`border`, `border_each`, `border_side`)만 쓴 노드는 `BorderDash`를 보내지 않습니다. 렌더러는 `Border`와 함께 양수인 `BorderDash`가 있으면 노드의 모양(`Shape`, `CornerEach`, `CornerCurve`) 외곽선을 따라 `PathEffect.dashPathEffect([dash_px, gap_px], 0f)`로 점선 스트로크를 그리고, `dash_dp <= 0` 또는 `gap_dp <= 0`이면 실선 테두리로 그립니다. 수용 기준: `border_dashed(1.5, paint, 4.0, 4.0)`인 둥근 상자는 `Border`와 `BorderDash(4.0, 4.0)`를 보내고, 테두리 경로에 채워진 구간과 배경색 그대로인 빈 구간이 번갈아 나타나며, 실선 `border`를 다시 부르면 `BorderDash` 슬롯이 비워집니다(`fr60_border_dashed_round_trips_and_clears_when_replaced_by_solid`, `fr60_border_dashed_draws_alternating_stroke_and_gaps`).
+
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 
 요청한 쪽: dioxus-compose(HTML 마운트된 요소의 `focus()`, `blur()`와 `TextField`의 `oncompositionstart`, `oncompositionend`). Host가 특정 노드에 키보드 포커스를 요청하거나 현재 포커스를 거두고, `TextField`에서도 `CodeEditor`(FR-38.9)와 같은 조합 상태 이벤트를 받을 수 있어야 합니다.
