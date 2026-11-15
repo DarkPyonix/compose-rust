@@ -46,7 +46,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.composed
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import dev.darkpyonix.composerust.protocol.WindowHeightClass
@@ -55,6 +57,7 @@ import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -186,6 +189,29 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             ?: chain.composed { reportUnknownBrush(nodeId, overlay.paint, dispatcher) }
     }
     fun beforePadding(chain: Modifier): Modifier = attachOverlayIfNeeded(attachPressableIfNeeded(chain))
+    // A node that asks for its natural width is measured with no maximum width, and still
+    // takes only the width its parent offered. What comes after this in the chain, the size
+    // report included, sees the natural width; the parent sees the clamped one. The content
+    // is placed at the start edge and may be wider than the slot, so the clip goes ahead of
+    // the layout: only the measurement is unbounded, and nothing is drawn or hit outside
+    // the slot.
+    var unboundedWidthAttached = !any { it is ProtocolModifier.UnboundedWidth }
+    fun attachUnboundedWidthIfNeeded(chain: Modifier): Modifier {
+        if (unboundedWidthAttached) return chain
+        unboundedWidthAttached = true
+        return chain.clipToBounds().layout { measurable, constraints ->
+            val childConstraints = constraints.copy(
+                minWidth = 0,
+                maxWidth = Constraints.Infinity,
+            )
+            val placeable = measurable.measure(childConstraints)
+            val width = placeable.width.coerceIn(constraints.minWidth, constraints.maxWidth)
+            val height = placeable.height.coerceIn(constraints.minHeight, constraints.maxHeight)
+            layout(width, height) {
+                placeable.placeRelative(0, 0)
+            }
+        }
+    }
     // A node's pointer subscription listens over the whole node, so it goes ahead of everything
     // else. A node drawn through a transform is the exception: there it goes just inside the
     // last one, where Compose has already taken the pointer back through the transform, so
@@ -300,11 +326,18 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
 
+            // Attached once: here, or ahead of the size report if that comes first in the
+            // list, so the report is always of the width measured without a maximum.
+            is ProtocolModifier.UnboundedWidth ->
+                attachUnboundedWidthIfNeeded(chain)
+
             // Only a node that asked is measured. Nothing is attached to a node without
             // this modifier, so a tree that observes nothing is laid out exactly as it
             // was before any of this existed.
-            is ProtocolModifier.ObserveSize ->
-                if (value.everyDp) chain.reportEveryDpTo(nodeId, dispatcher) else chain.reportSizeTo(nodeId, dispatcher)
+            is ProtocolModifier.ObserveSize -> {
+                val base = attachUnboundedWidthIfNeeded(chain)
+                if (value.everyDp) base.reportEveryDpTo(nodeId, dispatcher) else base.reportSizeTo(nodeId, dispatcher)
+            }
 
             // How important this node's changes are. What that means in milliseconds and
             // along which curve is the running design system's answer, and a system the
@@ -422,7 +455,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
         }
         if (index == pointerAfter && pointerEvents != null) next.then(pointerEvents) else next
     }
-    return beforePadding(folded)
+    return beforePadding(attachUnboundedWidthIfNeeded(folded))
 }
 
 /**

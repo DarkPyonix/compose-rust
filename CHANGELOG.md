@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Per-span font features
+
+OpenType font features can now be set on single runs inside a `Text`: `TextSpans::new_with_features` gives each run its own list, and `spans::encode_feature_table` with `TextSpans::with_feature_table` attaches an already built table. The table travels beside the runs as the new `SpanFontFeatures` property (tag 209), and a `Text` none of whose runs names a feature sends no such record. A run that names features is set with the text's own `FontFeatureSettings` first and its own after them, so a tag both name takes the run's value, and a run that names none is drawn with the text's. Runs take features with or without a type role. A table the Renderer cannot read, or one that names a run the text does not have, is one `ProtocolError` and the text is drawn without span features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
+### A Button's content padding
+
+`Button::content_padding(horizontal, vertical)` sets the room between a button's edge and its label, in dp, for that button only. It replaces the design system's label padding and, like it, gives way when the button is too small for the label and the padding together. A button that never calls it sends nothing and is drawn as before. `Modifier::padding` is still the room around the button. No tag is added and the schema hash does not move: the value goes out as the existing `PaddingEach` modifier, in a slot of its own, and the renderer now reads `PaddingEach` on a `Button` as the room inside it. A Host that writes records itself and sent `PaddingEach` to a `Button` for room around it sees that room move inside; `Padding` and `PaddingRole` are unchanged ([#789](https://github.com/DarkPyonix/compose-rust/issues/789)).
 ### Crossing a window size class no longer composes the whole tree
 
 A window that crossed 600 dp or 840 dp wide, or 480 dp tall, composed every node again in that one frame, because the class was part of the resolved theme and every node reads the theme. The theme is now kept until one of its real inputs changes (the design system, colour scheme, fonts, brushes, material backdrop, high contrast, overlay tokens), and the few things that answer by class (a navigation's bar, rail or drawer; Liquid Glass cards and the dark desktop page) ask for it where they draw. A page of 81 nodes composes none of them again when it crosses a class, where it composed all 81 before. Nothing on the wire changes ([#757](https://github.com/DarkPyonix/compose-rust/issues/757)).
