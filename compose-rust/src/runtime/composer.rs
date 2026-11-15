@@ -135,6 +135,9 @@ pub(crate) enum OwnedAttr {
     /// A blob kept for the life of the program, such as an interned font feature list, so
     /// writing it again on every composition costs no allocation.
     Blob(&'static [u8]),
+    /// A blob its widget shares with the value it was built from, such as the font
+    /// feature table kept beside a list of text runs, so writing it costs no copy.
+    Shared(Rc<[u8]>),
 }
 
 impl OwnedAttr {
@@ -150,6 +153,7 @@ impl OwnedAttr {
             Self::Spans(spans) => AttrValue::Bytes(spans.as_bytes()),
             Self::Bytes(bytes) => AttrValue::Bytes(bytes),
             Self::Blob(bytes) => AttrValue::Bytes(bytes),
+            Self::Shared(bytes) => AttrValue::Bytes(bytes),
         }
     }
 

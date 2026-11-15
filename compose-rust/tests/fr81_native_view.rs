@@ -45,7 +45,7 @@ fn vector_parent() -> HostEvent<'static> {
 
 fn vector_focus() -> HostEvent<'static> {
     HostEvent {
-        node_id: 24,
+        node_id: 25,
         handler_id: 301,
         payload: EventPayload::NativeViewFocus { focused: true },
     }
@@ -117,11 +117,11 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     let handle = NativeHandle(codegen::NATIVE_VIEW_VECTOR_HANDLE);
     let expected = vec![
         Mutation::AttachNativeView {
-            node_id: 24,
+            node_id: 25,
             handle,
         },
         Mutation::FocusNativeView {
-            node_id: 24,
+            node_id: 25,
             focus: true,
         },
     ];
@@ -129,16 +129,16 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The node they name is a NativeView, hidden, with a focus handler.
     let all = decode_batch(MUTATIONS).unwrap();
     assert!(all.contains(&Mutation::Create {
-        node_id: 24,
+        node_id: 25,
         widget: WidgetKind::NativeView
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 24,
+        node_id: 25,
         property: PropertyKind::NativeVisible,
         value: PropertyValue::Bool(false),
     }));
     assert!(all.contains(&Mutation::SetProp {
-        node_id: 24,
+        node_id: 25,
         property: PropertyKind::OnNativeViewFocus,
         value: PropertyValue::Integer(301),
     }));
@@ -146,8 +146,8 @@ fn fr81_native_view_records_round_trip_through_the_protocol_vectors() {
     // The Batch methods write the same two records, byte for byte.
     let mut batch = Batch::new();
     batch.begin();
-    batch.attach_native_view(24, handle);
-    batch.focus_native_view(24, true);
+    batch.attach_native_view(25, handle);
+    batch.focus_native_view(25, true);
     let written = batch.finish().expect("the batch encodes").to_vec();
     assert_eq!(native_records(&written), expected);
 

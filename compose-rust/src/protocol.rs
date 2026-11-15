@@ -3743,6 +3743,7 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
         Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
         Modifier::Sticky => (41, two_words(0, 0)),
+        Modifier::UnboundedWidth => (40, two_words(0, 0)),
         Modifier::Transform {
             a,
             b,
@@ -4038,6 +4039,7 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         }),
         39 => Ok(Modifier::Overlay(decode_paint(first)?)),
         41 => Ok(Modifier::Sticky),
+        40 => Ok(Modifier::UnboundedWidth),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -4231,7 +4233,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x4000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -4259,7 +4261,8 @@ mod tests {
             | (1 << SEMANTICS_FOCUSED_SHIFT)
             | SEMANTICS_HIDDEN_BIT
             | SEMANTICS_CLICK_ACTION_BIT
-            | SEMANTICS_FOCUS_ACTION_BIT;
+            | SEMANTICS_FOCUS_ACTION_BIT
+            | SEMANTICS_HAS_POPUP_BIT;
         assert_eq!(state & !SEMANTICS_STATE_MASK, 0);
         for (role, value) in roles {
             assert_eq!(role as u64, value, "{role:?} changed its wire value");
@@ -4282,14 +4285,14 @@ mod tests {
 
     #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
-        // Bit 13 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Bit 14 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 

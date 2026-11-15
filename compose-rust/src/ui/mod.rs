@@ -157,6 +157,7 @@ pub struct SemanticsState {
     pub hidden: bool,
     pub click_action: bool,
     pub focus_action: bool,
+    pub has_popup: bool,
 }
 
 impl SemanticsState {
@@ -169,6 +170,7 @@ impl SemanticsState {
         hidden: false,
         click_action: false,
         focus_action: false,
+        has_popup: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -227,6 +229,13 @@ impl SemanticsState {
         }
     }
 
+    pub const fn has_popup(has_popup: bool) -> Self {
+        Self {
+            has_popup,
+            ..Self::NONE
+        }
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -244,6 +253,11 @@ impl SemanticsState {
             }
             | if self.focus_action {
                 SEMANTICS_FOCUS_ACTION_BIT
+            } else {
+                0
+            }
+            | if self.has_popup {
+                SEMANTICS_HAS_POPUP_BIT
             } else {
                 0
             }
@@ -397,6 +411,7 @@ pub struct Modifier {
     match_parent_size: bool,
     fill_max_height: bool,
     sticky: bool,
+    unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
 }
@@ -449,6 +464,7 @@ impl Modifier {
             match_parent_size: false,
             fill_max_height: false,
             sticky: false,
+            unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
         }
@@ -506,6 +522,27 @@ impl Modifier {
 
     pub const fn fill_max_size(self) -> Self {
         self.fill_max_width().fill_max_height()
+    }
+
+    /// Measures the node with no maximum width, so [`Modifier::observe_size`] or
+    /// [`Modifier::observe_size_every_dp`] reports the width its content asks for instead
+    /// of the width its parent offered.
+    ///
+    /// Only the measurement changes. The node still takes the width its parent offered,
+    /// its content starts at the start edge, and whatever is wider than that is clipped.
+    /// A table column sized to its widest cell uses it: a cell wider than the column
+    /// reports its own width, and the column grows on the next frame.
+    pub const fn unbounded_width(mut self) -> Self {
+        self.unbounded_width = true;
+        self
+    }
+
+    /// [`Modifier::unbounded_width`] when `unbounded` is `true`, and nothing when it is
+    /// `false`: the node is measured inside its parent's width as usual. The last call of
+    /// the two decides.
+    pub const fn wrap_content_width(mut self, unbounded: bool) -> Self {
+        self.unbounded_width = unbounded;
+        self
     }
 
     /// Constrains the size of the content within minimum and maximum bounds in dp.
@@ -903,6 +940,12 @@ impl Modifier {
         self
     }
 
+    /// Whether the node opens a popup, as a menu button announces it.
+    pub const fn has_popup(mut self, has_popup: bool) -> Self {
+        self.semantics_state.has_popup = has_popup;
+        self
+    }
+
     /// The role, the name and the state in one call.
     pub fn semantics(self, role: Role, label: &str, state: SemanticsState) -> Self {
         let mut named = self.role(role).label(label);
@@ -1132,6 +1175,11 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         standard,
         "fill_max_height",
         OwnedAttr::Bool(modifier.fill_max_height),
+    );
+    push(
+        false,
+        "unbounded_width",
+        OwnedAttr::Bool(modifier.unbounded_width),
     );
     // The layer and the values the Renderer animates, written only when they are set. An
     // animated value owns its slot while it is set, as an animated background does above.

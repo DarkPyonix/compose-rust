@@ -137,6 +137,7 @@ import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
 import dev.darkpyonix.composerust.foundation.HostPopover
 import dev.darkpyonix.composerust.foundation.HostNativeView
+import dev.darkpyonix.composerust.foundation.LocalMenuKeyboard
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -292,13 +293,24 @@ fun RenderNode(
     // It is also ahead of the focus target a key listener is given, and behind the key
     // handlers. That target is then the one a request focuses, so the node keeps a single
     // focus target that reports it is focused and whose keys pass the node's handlers.
-    val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
+    val menuKeyboard = LocalMenuKeyboard.current
+    val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
+        keyed.then(menuKeyboard.entry(nodeId))
+    } else {
+        keyed
+    }
+    val requested = (if (focusRequester == null) menuEntry else menuEntry.focusRequester(focusRequester))
         .let { if (keyFocusTarget) it.focusable() else it }
     // A popover's material is what its floating box is made of, and the popover draws it
     // in that box's own corner. Left in the chain it would be drawn a second time, square.
+    //
+    // A button's four-sided padding is the room between its edge and its label, which the
+    // button lays out itself. Left in the chain it would be added round the button as well.
     val ownModifiers: List<dev.darkpyonix.composerust.protocol.Modifier> =
         if (node.widget == WidgetKind.Popover) {
             node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
+        } else if (node.widget == WidgetKind.Button) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach }
         } else {
             node.modifiers
         }

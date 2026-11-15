@@ -15,6 +15,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.AnnotatedString
 import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.ui.DeclaredExpanded
+import dev.darkpyonix.composerust.ui.DeclaredHasPopup
 import dev.darkpyonix.composerust.ui.DeclaredRole
 import dev.darkpyonix.composerust.ui.declaredStateDescription
 import org.thisisthepy.compose.window.AccessibleAction
@@ -72,11 +73,12 @@ internal fun SemanticsRole.elementRole(): Int? = when (this) {
 }
 
 /**
- * The [AccessibleState] bits for a node the Host declared open or closed. A node that said
- * neither is not expandable at all, which is different from being closed.
+ * The [AccessibleState] bits for a node the Host declared open or closed, or that opens a
+ * popup. A node that said none of those is not expandable at all, which is different from
+ * being closed.
  */
-internal fun expandedStates(expanded: Boolean?): Int = when (expanded) {
-    null -> 0
+internal fun expandedStates(expanded: Boolean?, hasPopup: Boolean = false): Int = when (expanded) {
+    null -> if (hasPopup) AccessibleState.EXPANDABLE else 0
     false -> AccessibleState.EXPANDABLE
     true -> AccessibleState.EXPANDABLE or AccessibleState.EXPANDED
 }
@@ -114,6 +116,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     val canSetProgress = config.getOrNull(SemanticsActions.SetProgress) != null
     val declaredRole = config.getOrNull(DeclaredRole)
     val declaredExpanded = config.getOrNull(DeclaredExpanded)
+    val declaredHasPopup = config.getOrNull(DeclaredHasPopup) == true
     // A role the Host declared is what the node is, even with nothing to read out: an empty
     // menu is still a menu, and a reader moving through the window has to be told so.
     val platformRole = declaredRole?.elementRole()
@@ -133,7 +136,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
         config.getOrNull(SemanticsProperties.Heading) != null && label != null -> ElementRole.HEADING
         label != null -> ElementRole.TEXT
         // Something that opens and closes is worth announcing without a name or a role.
-        declaredExpanded != null -> ElementRole.GROUP
+        declaredExpanded != null || declaredHasPopup -> ElementRole.GROUP
         else -> return null
     }
 
@@ -153,7 +156,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
         }
     }
     if (config.getOrNull(SemanticsProperties.Selected) == true) states = states or AccessibleState.SELECTED
-    states = states or expandedStates(declaredExpanded)
+    states = states or expandedStates(declaredExpanded, declaredHasPopup)
     val password = config.getOrNull(SemanticsProperties.Password) != null
     if (editable != null) {
         states = states or if (canSetText) AccessibleState.EDITABLE else AccessibleState.READ_ONLY
@@ -176,7 +179,7 @@ internal fun SemanticsNode.describe(parentId: Int, density: Float): AccessibleEl
     // readers that have no other way to hear them. This window says both in the platform's
     // own words, so the text is left out rather than heard twice.
     val stateDescription = config.getOrNull(SemanticsProperties.StateDescription)
-        ?.takeUnless { it == declaredStateDescription(declaredRole, declaredExpanded) }
+        ?.takeUnless { it == declaredStateDescription(declaredRole, declaredExpanded, declaredHasPopup) }
     val value = when {
         // A password is announced by its length, never its letters.
         editable != null && password -> "\u2022".repeat(editable.text.length)

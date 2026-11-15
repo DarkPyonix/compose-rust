@@ -468,16 +468,16 @@ class ProtocolVectorsTest {
     fun fr81_native_view_records_round_trip_through_the_protocol_vectors() {
         val mutations = decodeVector("mutations.bin")
         assertEquals(
-            listOf(Mutation.AttachNativeView(nodeId = 24, handle = 0x0000_7f8a_1234_5670L)),
+            listOf(Mutation.AttachNativeView(nodeId = 25, handle = 0x0000_7f8a_1234_5670L)),
             mutations.filterIsInstance<Mutation.AttachNativeView>(),
         )
         assertEquals(
-            listOf(Mutation.FocusNativeView(nodeId = 24, focus = true)),
+            listOf(Mutation.FocusNativeView(nodeId = 25, focus = true)),
             mutations.filterIsInstance<Mutation.FocusNativeView>(),
         )
-        assertTrue(Mutation.Create(24, WidgetKind.NativeView) in mutations)
-        assertTrue(Mutation.SetProp(24, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
-        assertTrue(Mutation.SetProp(24, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
+        assertTrue(Mutation.Create(25, WidgetKind.NativeView) in mutations)
+        assertTrue(Mutation.SetProp(25, PropertyKind.NativeVisible, PropertyValue.Bool(false)) in mutations)
+        assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
         assertEquals(1807 + 24, bytes.size, "the two events are the last in the vector")
@@ -495,7 +495,7 @@ class ProtocolVectorsTest {
         assertEquals(32, parentLength)
         assertEquals(bytes.copyOfRange(1775, 1775 + 32).toList(), out.array().copyOf(parentLength).toList())
         out.clear()
-        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 24, handlerId = 301L, focused = true), out)
+        val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 25, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
         assertEquals(bytes.copyOfRange(1807, 1807 + 24).toList(), out.array().copyOf(focusLength).toList())
     }
@@ -664,6 +664,40 @@ class ProtocolVectorsTest {
         assertEquals(
             "tnum 1, liga 0, cv01 258",
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
+    }
+
+    /**
+     * The font features two runs of a text name for themselves, read from the table the
+     * Host laid out: tabular figures on the second run, and on the fifth ligatures off and
+     * a stylistic set whose value is wider than a byte.
+     */
+    @Test
+    fun fr88_span_font_features_encode_decode_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(24, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 24 }
+        // The text and its five runs come first, so the runs the table names are runs it has.
+        assertEquals(
+            listOf(PropertyKind.Text, PropertyKind.Spans, PropertyKind.SpanFontFeatures),
+            props.map { it.property },
+        )
+        val bytes = (props.single { it.property == PropertyKind.SpanFontFeatures }.value as PropertyValue.Bytes).value
+        fun word(value: Int) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
+        val expected = word(2) +
+            word(1) + word(28) + word(1) +
+            word(4) + word(36) + word(2) +
+            "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "ss01".encodeToByteArray() + byteArrayOf(2, 3, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        val decoded = dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(bytes, errors::add)
+        assertEquals(listOf(1, 4), decoded?.keys?.toList())
+        assertEquals(
+            mapOf(1 to "tnum 1", 4 to "liga 0, ss01 770"),
+            dev.darkpyonix.composerust.foundation.spanFontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)
     }
@@ -1075,7 +1109,7 @@ class ProtocolVectorsTest {
     fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
         val runs = decodeVector("mutations.bin")
             .filterIsInstance<Mutation.SetProp>()
-            .single { it.property == PropertyKind.Spans }
+            .single { it.property == PropertyKind.Spans && it.nodeId == 2 }
             .value as PropertyValue.Bytes
         val records = SpanRecords.decode(runs.value)
         assertEquals(
