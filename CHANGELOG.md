@@ -5,6 +5,9 @@
 ### Releasing bytes registered at run time
 
 `asset::release_owned(asset_id, kind)` pairs with `asset::register_owned`: it takes the bytes out of the registry and sends the Renderer one `ReleaseAsset` record on the next batch, the same record `release_brush` sends. Registering the same bytes again afterwards gives a new id and a new `RegisterAsset`. An id that is not registered as that kind, or was already released, returns false and sends nothing. A screen that builds pictures at run time, such as an SVG drawn once per colour, can now keep the Renderer's cache from growing for the life of the app ([DarkPyonix/dioxus-compose#273](https://github.com/DarkPyonix/dioxus-compose/issues/273)).
+### A plain `Text` sends no empty font records
+
+A `Text` that names no run fonts, no font list, no `word_break` and no `overflow_wrap` no longer sends a `SetProp` of nothing for each of them on its first composition: `SpanFonts` (tag 116), `Font` (110), `WordBreak` (111) and `OverflowWrap` (112) are now listed only when set, as `SpanFontFeatures` already was. A `TextField` leaves out `Font`, `WordBreak` and `OverflowWrap` the same way. Such a text sends four records fewer, and its records are those an `rsx!` text sends. One that was set and is taken away is still cleared by exactly one record. The Renderer removes a property on a record of nothing, the same state as one never sent, so nothing it draws changes, and the schema hash does not move ([#824](https://github.com/DarkPyonix/compose-rust/issues/824)).
 
 ### Per-span font features
 
