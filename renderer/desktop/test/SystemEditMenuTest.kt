@@ -63,7 +63,7 @@ class SystemEditMenuTest {
         gate.update(focused = true, hasSelection = false, hasText = true)
         gate.update(focused = true, hasSelection = false, hasText = false)
         assertEquals(
-            listOf(
+            listOf<FocusedTextField?>(
                 FocusedTextField(hasSelection = true, editable = true, hasText = true),
                 FocusedTextField(hasSelection = false, editable = true, hasText = true),
                 FocusedTextField(hasSelection = false, editable = true, hasText = false),
