@@ -299,12 +299,12 @@ fun RenderNode(
     // A button's four-sided padding is the room between its edge and its label, which the
     // button lays out itself. Left in the chain it would be added round the button as well.
     val ownModifiers: List<dev.darkpyonix.composerust.protocol.Modifier> =
-        when (node.widget) {
-            WidgetKind.Popover ->
-                node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
-            WidgetKind.Button ->
-                node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach }
-            else -> node.modifiers
+        if (node.widget == WidgetKind.Popover) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
+        } else if (node.widget == WidgetKind.Button) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach }
+        } else {
+            node.modifiers
         }
     // Only a node that was given a motion handler hears its size motion settle. The
     // listener is made once per handler, so the chain stays equal across compositions.
