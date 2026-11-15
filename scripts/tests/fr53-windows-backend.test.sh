@@ -23,8 +23,8 @@ done
 (( red == 0 )) || exit 1
 
 # Every check the Kotlin names is read back by the build script, and the lines it prints have
-# the shape the script greps.
-names="$(grep -oE '"fr53_windows_[a-z0-9_]+"' "$src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
+# the shape the script greps. The wheel check rides in the same harness under its own number.
+names="$(grep -oE '"fr[0-9]+_windows_[a-z0-9_]+"' "$src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
 [[ -n "$names" ]] || fail "Fr53WindowsCheck.kt names no fr53_windows check"
 for required in \
     fr53_windows_two_window_nodes_open_two_hwnds_and_close_one \
@@ -36,7 +36,8 @@ for required in \
     fr53_windows_resizable_change_toggles_the_frame_of_an_open_window \
     fr53_windows_window_theme_sets_the_color_scheme_of_one_window \
     fr53_windows_window_color_scheme_darkens_its_own_caption \
-    fr53_windows_zoom_level_reaches_its_window_and_reports_its_node; do
+    fr53_windows_zoom_level_reaches_its_window_and_reports_its_node \
+    fr13_windows_a_wheel_turned_forward_scrolls_toward_the_top; do
     grep -qx "$required" <<< "$names" || fail "Fr53WindowsCheck.kt has no check named $required"
 done
 grep -Fq 'compose-rust: $name: ok' "$src/Fr53WindowsCheck.kt" ||
