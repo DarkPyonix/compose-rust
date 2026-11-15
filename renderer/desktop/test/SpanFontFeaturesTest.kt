@@ -510,7 +510,10 @@ class SpanFontFeaturesTest {
             ),
             Density(1f),
         )
-        fun lineWidth(layout: TextLayoutResult) = layout.getLineRight(0) - layout.getLineLeft(0)
+        // The measure answers a text's max-content width, so it is compared with the drawn
+        // paragraph's own max-content width rather than its laid-out line, which can differ
+        // by a fraction of a pixel once a text holds more than one run.
+        fun lineWidth(layout: TextLayoutResult) = layout.multiParagraph.maxIntrinsicWidth
         val drawnFeatured = lineWidth(drawnLayout(FIRST))
         val drawnPlain = lineWidth(drawnLayout(FIRST + 1))
 
