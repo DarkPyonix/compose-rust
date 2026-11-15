@@ -305,6 +305,11 @@ impl WindowHandle {
         crate::zoom::zoom_of(self.node)
     }
 
+    /// How many device pixels one dp of this window covers, or 1.0 before it has reported.
+    pub fn density(&self) -> f32 {
+        crate::density::density_of(self.node)
+    }
+
     /// Asks for an application zoom level for this window, kept inside its range.
     pub fn set_zoom_level(&self, level: i8) {
         queue_zoom_level(self.node, crate::zoom::clamp_level(level));
@@ -369,6 +374,7 @@ pub(crate) fn drain_commands(mut each: impl FnMut(Command)) {
 pub(crate) fn forget_window(window: u32) {
     crate::window::forget_window(window);
     crate::zoom::forget_window(window);
+    crate::density::forget_window(window);
     APPLIED_THEMES.with_borrow_mut(|applied| applied.retain(|(id, _)| *id != window));
     COMMANDS.with_borrow_mut(|commands| {
         commands.retain(|command| match command {
@@ -377,13 +383,14 @@ pub(crate) fn forget_window(window: u32) {
     });
 }
 
-/// How many entries the per-window registries hold: sizes, zooms, subscriptions, themes and
+/// How many entries the per-window registries hold: sizes, zooms, densities, subscriptions, themes and
 /// waiting commands. Zero once every window has closed. For the test that opens and closes
 /// windows to watch it not grow.
 #[doc(hidden)]
 pub fn window_state_len() -> usize {
     crate::window::window_state_len()
         + crate::zoom::window_state_len()
+        + crate::density::window_state_len()
         + APPLIED_THEMES.with_borrow(Vec::len)
         + COMMANDS.with_borrow(Vec::len)
 }

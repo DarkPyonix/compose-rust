@@ -177,6 +177,17 @@ internal fun HostRichText(
         else -> null
     }
     if (problem != null) ReportRuns(node.id, problem, dispatcher)
+    // Said apart from the runs, which are still drawn, and under the code every other
+    // unreadable feature list is reported with.
+    val runFeatures = resolved.runFeaturesProblem
+    if (runs == null && runFeatures != null) {
+        ReportRuns(
+            node.id,
+            "span font features on node ${node.id}: $runFeatures; the text is drawn without span font features",
+            dispatcher,
+            TableError.INVALID_FONT_FEATURES,
+        )
+    }
     // A node selected whole shows it the way a selection does: every letter on the
     // selection colour.
     val text = if (LocalSelectedWhole.current) {
@@ -238,7 +249,12 @@ private class MinContentWidth(private val width: Int) : LayoutModifier {
  * composition runs on, which is the thread the Host was started on.
  */
 @Composable
-internal fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatcher) {
+internal fun ReportRuns(
+    nodeId: Int,
+    problem: String,
+    dispatcher: EventDispatcher,
+    code: Int = TableError.UNSUPPORTED_PROPERTY,
+) {
     val said = remember(nodeId) { arrayOfNulls<String>(1) }
     SideEffect {
         if (said[0] == problem) return@SideEffect
@@ -247,7 +263,7 @@ internal fun ReportRuns(nodeId: Int, problem: String, dispatcher: EventDispatche
             HostEvent.ProtocolError(
                 nodeId = nodeId,
                 handlerId = 0,
-                code = TableError.UNSUPPORTED_PROPERTY,
+                code = code,
                 message = problem,
             ),
         )
