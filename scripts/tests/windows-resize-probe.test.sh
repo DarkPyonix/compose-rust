@@ -51,25 +51,71 @@ else
 fi
 
 # Development CI is one manual dispatch of ci.yml, which calls every suite on the commit it is
-# dispatched for. So the pin that commit carries is dragged when the resize metrics suite is
-# one of those calls, with no condition of its own, and when nothing in the suite lets the
-# probe job be skipped while the build it waits for ran. A trigger or a path filter in the
-# suite would be a second way in that the dispatch does not cover.
+# dispatched for. So the pin that commit carries is dragged when the resize suite is one of
+# those calls, with no condition of its own, and when nothing in the suite lets the probe job,
+# or a job it waits for, be skipped while the run goes on. The suite's metrics input only
+# turns the measurements on and off: the probe and its builds must never read it, and the
+# measuring parts must. A trigger or a path filter in the suite would be a second way in that
+# the dispatch does not cover.
 name=fr19_8_4_every_ci_dispatch_drags_the_window_pin
-ci_job="$(awk '/^  test_windows_resize_metrics:$/ { on = 1; print; next } on && /^  [a-z][a-z_]*:/ { exit } on { print }' "$ci")"
+ci_job="$(awk '/^  test_windows_resize:$/ { on = 1; print; next } on && /^  [a-z][a-z_]*:/ { exit } on { print }' "$ci")"
 workflow_on="$(awk '/^on:/ { on = 1; next } /^[^ #]/ { on = 0 } on' "$workflow")"
+job() { awk -v key="  $1:" '$0 == key { on = 1; print; next } on && /^  [a-z][a-z-]*:$/ { exit } on { print }' "$workflow"; }
+# Each step of a job, flattened to one line per step: its name and its if, if any.
+step_ifs() { awk '/^      - (name|uses):/ { if (n) print n " | " c; n = $0; c = ""; next } /^        if:/ { c = $0 } END { if (n) print n " | " c }' <<<"$1"; }
+gate_problem=""
+for key in compose windows probe; do
+    body="$(job "$key")"
+    [[ -n "$body" ]] || { gate_problem="the $key job is missing"; break; }
+    if grep -qE '^    (if|continue-on-error):' <<<"$body"; then
+        gate_problem="the $key job can be skipped, or can fail without failing the run"; break
+    fi
+done
+grep -qF 'inputs.metrics' <<<"$(job requested)" && gate_problem="the requested job reads inputs.metrics"
+grep -qE '^    needs: requested$' <<<"$(job compose)" || gate_problem="${gate_problem:-the compose job does not wait for the requested job}"
+grep -qE '^    needs: compose$' <<<"$(job windows)" || gate_problem="${gate_problem:-the windows job does not wait for compose}"
+# The steps the gate judges, and the steps whose output it judges, read no switch.
+for step in "Build the static renderer" "Build hand-check against the renderer" "Scripted resize, measured" \
+    "What is on screen during a resize must be the frame drawn for it" "CPU and GPU frames must match"; do
+    line="$(step_ifs "$(job windows)" | grep -F "name: $step |")"
+    [[ -n "$line" ]] || { gate_problem="${gate_problem:-the windows job has no step \"$step\"}"; continue; }
+    grep -qE '\| .+' <<<"$line" && gate_problem="${gate_problem:-the windows step \"$step\" has a condition}"
+done
+for step in "Real drags at 100%" "Set the display to 200%" "Real drags at 200%" \
+    "The probe can tell late from prompt, and the CPU path shows no fault"; do
+    line="$(step_ifs "$(job probe)" | grep -F "name: $step |")"
+    [[ -n "$line" ]] || { gate_problem="${gate_problem:-the probe job has no step \"$step\"}"; continue; }
+    grep -qE '\| .+' <<<"$line" && gate_problem="${gate_problem:-the probe step \"$step\" has a condition}"
+done
+# The scripted step may only cut its own timing runs short, after the real drags.
+scripted="$(awk '/^      - name: Scripted resize, measured$/ { on = 1; print; next } on && /^      - / { exit } on { print }' <<<"$(job windows)")"
+if [[ "$(grep -n 'METRICS" = true' <<<"$scripted" | tail -1 | cut -d: -f1)" -lt "$(grep -n 'resize-real-drag-run.sh' <<<"$scripted" | head -1 | cut -d: -f1)" ]] 2>/dev/null; then
+    gate_problem="${gate_problem:-the scripted resize step stops before the real drags it is judged on}"
+fi
+# The measuring parts are behind the switch.
+measure_problem=""
+grep -qE '^    if: inputs\.metrics$' <<<"$(job macos)" || measure_problem="the macos job runs without metrics"
+for pair in "windows|Resize frames on the CPU at 200%, each way of drawing them" "probe|Report the drags" "probe|Report memory"; do
+    line="$(step_ifs "$(job "${pair%%|*}")" | grep -F "name: ${pair#*|} |")"
+    grep -qF 'inputs.metrics' <<<"$line" || measure_problem="${measure_problem:-the ${pair%%|*} step \"${pair#*|}\" runs without metrics}"
+done
+grep -qF 'METRICS: ${{ inputs.metrics }}' <<<"$scripted" || measure_problem="${measure_problem:-the scripted resize step does not read metrics}"
 if ! grep -qE '^WINDOW_REVISION=' "$compose_pin"; then
     fail "$name" "renderer/scripts/build-compose.sh no longer sets WINDOW_REVISION"
 elif ! grep -qE '^    uses: \./\.github/workflows/test-windows-resize-metrics\.yml$' <<<"$ci_job"; then
-    fail "$name" "ci.yml does not call the resize metrics workflow, so a dispatch drags nothing"
+    fail "$name" "ci.yml does not call the resize workflow, so a dispatch drags nothing"
 elif grep -qE '^    (if|needs):' <<<"$ci_job"; then
-    fail "$name" "ci.yml calls the resize metrics workflow on a condition or after another suite"
+    fail "$name" "ci.yml calls the resize workflow on a condition or after another suite"
 elif ! grep -qE '^  workflow_call:' <<<"$workflow_on"; then
-    fail "$name" "the resize metrics workflow cannot be called by ci.yml"
+    fail "$name" "the resize workflow cannot be called by ci.yml"
+elif ! grep -qE '^      metrics:' <<<"$workflow_on" || ! grep -qE '^        default: false$' <<<"$workflow_on"; then
+    fail "$name" "the resize workflow has no metrics input that defaults to off"
 elif grep -qE '^  (pull_request|pull_request_target|push|schedule|workflow_dispatch):' <<<"$workflow_on"; then
-    fail "$name" "the resize metrics workflow has a trigger of its own; only a ci.yml dispatch starts it"
-elif grep -qE '^    (if|continue-on-error):' <<<"$probe_job"; then
-    fail "$name" "the probe job can be skipped, or can fail without failing the run"
+    fail "$name" "the resize workflow has a trigger of its own; only a ci.yml dispatch starts it"
+elif [[ -n "$gate_problem" ]]; then
+    fail "$name" "$gate_problem"
+elif [[ -n "$measure_problem" ]]; then
+    fail "$name" "$measure_problem"
 else
     ok "$name"
 fi

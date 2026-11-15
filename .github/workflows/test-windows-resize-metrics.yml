@@ -1,10 +1,21 @@
-# Resize metrics -- the Kotlin/Native renderers, Windows and macOS, measured the same way:
-# the hand-check application with DXC_METRICS=1, which reports memory and the collector,
-# dirties the heap and then takes the window through 100 scripted sizes, printing every
-# frame's time and the collections among them. Builds as windows-static.yml does. Run by
-# hand, once per question; the Compose builds behind it are long.
+# Windows resize probe and resize metrics. Two parts, told apart by the metrics input.
 #
-# The probe job then drags the hand-check this run built, from another process, on Windows
+# The gate always runs: every dispatch of ci.yml builds Compose and skiko from the pinned
+# fork (compose), builds the Kotlin/Native hand-check against them and checks it under a
+# scripted resize (windows), then drags that same hand-check from another process (probe).
+# Those three jobs assert, and nothing here can skip them except the heavy-checks request
+# that every job waits for.
+#
+# The measurements run only with metrics: true: the timings and summaries that fail
+# nothing (the paced and GPU scripted runs, the CPU resize frame draw bench, the probe's
+# drag and memory tables) and the macOS job, which only times its own scripted resize.
+#
+# windows: hand-check with DXC_METRICS=1 dirties the heap and takes the window through 100
+# scripted sizes, then real modal drags at three mouse rates; the job fails on a probe
+# failure, a hit test failure, a CPU resize step that presented or did not validate, or CPU
+# and GPU frames that differ. Builds as windows-static.yml does.
+#
+# probe: drags the hand-check this run built, on Windows
 # Server 2022 and 2025, at 100% and at 200%: its right, bottom and left edges and its bottom
 # right corner at three mouse rates, and the window states (maximise, restore, the left half
 # of the screen, back), with resize frames on the CPU (the default) and on the GPU
@@ -17,10 +28,17 @@
 # fault. The frames it kept, and contact sheets of them, are the resize-probe-frames artifact.
 # The runners draw with WARP on the Basic Render Driver.
 
-name: Resize metrics
+name: Resize probe and metrics
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      metrics:
+        description: >-
+          Also run the jobs and steps that only measure and report resize timings. The probe
+          and the builds it needs run either way.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -389,15 +407,17 @@ jobs:
           DXC_PIXEL_COMPARE: '1'
           DXC_CAPTURE_CHECK: '1'
           DXC_HITTEST_CHECK: '1'
+          METRICS: ${{ inputs.metrics }}
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/resize-metrics"
           ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn
-          cat "$out/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
-          # Variants: paced (one more composition before each capture, in the test hook),
-          # and a real modal drag from posted mouse input at 16 ms and at 1 ms.
-          DXC_CAPTURE_PACE=1 ./.github/scripts/resize-metrics-run.sh \
-            compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-paced
+          if [ "$METRICS" = true ]; then
+            cat "$out/windows-kn.md" >> "$GITHUB_STEP_SUMMARY"
+            # Paced: one more composition before each capture, in the test hook. Timings only.
+            DXC_CAPTURE_PACE=1 ./.github/scripts/resize-metrics-run.sh \
+              compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-paced
+          fi
           # Real modal drags from another process at three mouse rates: 16 ms / 8 px,
           # 8 ms / 4 px and 1 ms / 1 px. The runner has "show window contents while dragging"
           # off, which makes the sizing loop resize only on release, so the probe turns it on
@@ -409,6 +429,9 @@ jobs:
               compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$probe" "$out" \
               "windows-kn-real-$1" "$1" "$2"
           done
+          # Everything below reports and judges nothing; the gate reads windows-kn and the
+          # real drags only.
+          [ "$METRICS" = true ] || exit 0
           # The same drag with resize frames on the GPU, for comparison.
           DXC_RASTER_RESIZE=0 ./.github/scripts/resize-metrics-run.sh \
             compose-rust/tests/fixtures/hand-check/target/release/hand-check.exe "$out" windows-kn-gpu
@@ -427,6 +450,7 @@ jobs:
           done
 
       - name: Resize frames on the CPU at 200%, each way of drawing them
+        if: inputs.metrics
         # Times the scene at the sizes a drag at 200% passes (density 2, 961 to 1157 by 1400
         # pixels), drawn each way the renderer offers, and compares each with the GPU frame.
         # Run a second time with every node's measuring timed by kind, which slows layout
@@ -632,7 +656,7 @@ jobs:
 
       - name: Report the drags
         # The table run-probe-v2 wrote for each scale, then each drag's own lines.
-        if: always()
+        if: always() && inputs.metrics
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           results="$out/results-${{ matrix.os }}.md"
@@ -677,7 +701,7 @@ jobs:
         # From outside each app (the probe reads its private bytes, working set and the GPU
         # process counters) before the right edge drag, at its peak and settled after it, and
         # from inside it the window's own breakdown (DXC_METRICS memory-breakdown lines).
-        if: always()
+        if: always() && inputs.metrics
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           num() { sed -n "s/.*resize-probe: memory $2 .*$3=\([-0-9.]*\).*/\1/p" "$1" | head -1; }
@@ -856,8 +880,10 @@ jobs:
           done
           exit $status
 
+  # Measurement only: times the same scripted resize on macOS and asserts nothing.
   macos:
     needs: requested
+    if: inputs.metrics
     name: Kotlin/Native renderer, hand-check under a scripted resize (macOS, arm64)
     runs-on: macos-latest
     timeout-minutes: 360

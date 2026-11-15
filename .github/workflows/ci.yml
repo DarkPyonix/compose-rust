@@ -19,9 +19,11 @@ jobs:
   test_graalvm_renderer:
     uses: ./.github/workflows/test-graalvm-renderer.yml
     secrets: inherit
-  test_windows_resize_metrics:
+  test_windows_resize:
     uses: ./.github/workflows/test-windows-resize-metrics.yml
     secrets: inherit
+    with:
+      metrics: true
   test_native_renderer:
     uses: ./.github/workflows/test-native-renderer.yml
     secrets: inherit
