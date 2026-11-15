@@ -127,6 +127,26 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
     // While the UI is off screen (`LifecycleStop`), ordinary worker wakes are held back,
     // but a notification from a worker still asks for a frame immediately and goes out in
     // the batch that answers it.
+    struct LifecycleStartGuard<'a>(&'a mut ComposeHost);
+    impl Drop for LifecycleStartGuard<'_> {
+        fn drop(&mut self) {
+            let mut start_wire = Vec::new();
+            if encode_event(
+                &HostEvent {
+                    node_id: 0,
+                    handler_id: 0,
+                    payload: EventPayload::LifecycleStart,
+                },
+                &mut start_wire,
+            )
+            .is_ok()
+            {
+                let _ = self.0.dispatch_event(&start_wire);
+            }
+            reset_notifications();
+        }
+    }
+
     let mut stop_wire = Vec::new();
     encode_event(
         &HostEvent {
@@ -138,6 +158,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
     )
     .expect("the stop event encodes");
     host.dispatch_event(&stop_wire).expect("the host stops");
+    let guard = LifecycleStartGuard(&mut host);
     FRAME_REQUESTS.store(0, Ordering::Release);
 
     request_frame_from_worker();
@@ -164,7 +185,8 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
         "each notification command from a worker while stopped still requests a frame"
     );
 
-    let stopped_batch = host
+    let stopped_batch = guard
+        .0
         .render_frame(50_000_000)
         .expect("the stopped frame flushes notifications")
         .to_vec();
@@ -184,19 +206,6 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
             Mutation::WithdrawNotification { key: "session/7" },
         ]
     );
-
-    let mut start_wire = Vec::new();
-    encode_event(
-        &HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::LifecycleStart,
-        },
-        &mut start_wire,
-    )
-    .expect("the start event encodes");
-    host.dispatch_event(&start_wire).expect("the host restarts");
-    reset_notifications();
 }
 
 /// Both halves of the boundary are generated from one table, so they cannot drift, and

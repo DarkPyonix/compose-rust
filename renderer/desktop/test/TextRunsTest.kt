@@ -2,6 +2,8 @@ package dev.darkpyonix.composerust.test
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -9,6 +11,11 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import dev.darkpyonix.composerust.foundation.TextRun
 import dev.darkpyonix.composerust.foundation.decodeRuns
 import dev.darkpyonix.composerust.foundation.runsProblem
@@ -208,71 +215,150 @@ class TextRunsTest {
         onNodeWithTag(nodeTestTag(2)).assertIsDisplayed()
     }
 
+    private fun drawnLayout(nodeTag: String, rule: androidx.compose.ui.test.ComposeUiTest): TextLayoutResult {
+        val layouts = mutableListOf<TextLayoutResult>()
+        val ok = rule.onNodeWithTag(nodeTag)
+            .fetchSemanticsNode()
+            .config[SemanticsActions.GetTextLayoutResult]
+            .action
+            ?.invoke(layouts)
+        assertEquals(true, ok)
+        return layouts.single()
+    }
+
     /**
      * A bold run and a link run inside one `Text` draw differently, and pressing each run
      * reports a click only for the link.
      */
+    @OptIn(ExperimentalTextApi::class)
     @Test
     fun fr26_bold_and_link_runs_draw_differently_and_only_the_link_reports_a_click() = runComposeUiTest {
-        val blue = 0xFF0000FF.toInt()
-        val runs = record(0, 4, flags = 1) +
-            record(12, 4, color = literal(blue), flags = 4, handlerId = 7L)
+        val black = 0xFF000000.toInt()
+        // "plain WWWW link":
+        //   0..5   -> "plain" (plain)
+        //   6..10  -> "WWWW"  (bold)
+        //   11..15 -> "link"  (underlined link with handler 7)
+        val runs = record(6, 4, flags = 1) +
+            record(11, 4, flags = 4, handlerId = 7L)
         val connection = FakeHostConnection(
             listOf(
                 Mutation.Create(1, WidgetKind.Column),
                 Mutation.Create(2, WidgetKind.Text),
-                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("WWWW        WWWW")),
+                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("plain WWWW link")),
+                Mutation.SetProp(2, PropertyKind.Color, PropertyValue.Integer(literal(black))),
                 Mutation.SetProp(2, PropertyKind.FontSize, PropertyValue.Float(40f)),
                 Mutation.SetProp(2, PropertyKind.Spans, PropertyValue.Bytes(runs)),
+                Mutation.Create(3, WidgetKind.Text),
+                Mutation.SetProp(3, PropertyKind.Text, PropertyValue.Text("WWWW")),
+                Mutation.SetProp(3, PropertyKind.Color, PropertyValue.Integer(literal(black))),
+                Mutation.SetProp(3, PropertyKind.FontSize, PropertyValue.Float(40f)),
                 Mutation.Insert(1, 2, 0),
+                Mutation.Insert(1, 3, 1),
             ),
         )
         setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
         waitForIdle()
 
+        val layout = drawnLayout(nodeTestTag(2), this)
+        val plainLayout = drawnLayout(nodeTestTag(3), this)
+        val drawn: AnnotatedString = layout.layoutInput.text
+
+        val weighted = drawn.spanStyles.filter { it.item.fontWeight != null }
+        assertEquals(
+            listOf(Triple(6, 10, FontWeight.Bold)),
+            weighted.map { Triple(it.start, it.end, it.item.fontWeight) },
+        )
+        val decorated = drawn.spanStyles.filter { it.item.textDecoration != null }
+        assertEquals(
+            listOf(Triple(11, 15, TextDecoration.Underline)),
+            decorated.map { Triple(it.start, it.end, it.item.textDecoration) },
+        )
+        val links = drawn.getLinkAnnotations(0, drawn.length)
+        assertEquals(listOf(11 to 15), links.map { it.start to it.end })
+
+        // Compare the bold "WWWW" against the unstyled "WWWW" below it so removing bold
+        // from the renderer fails both the advance width and the ink pixel count.
+        val boldWidth = layout.getHorizontalPosition(10, usePrimaryDirection = true) -
+            layout.getHorizontalPosition(6, usePrimaryDirection = true)
+        val plainWidth = plainLayout.getHorizontalPosition(4, usePrimaryDirection = true) -
+            plainLayout.getHorizontalPosition(0, usePrimaryDirection = true)
         val node = onNodeWithTag(nodeTestTag(2))
         val image = node.captureToImage().toAwtImage()
-        assertEquals(
-            0,
-            count(image, blue, 0, image.width / 4),
-            "the bold run on the left is not painted in the link colour",
-        )
+        val plainImage = onNodeWithTag(nodeTestTag(3)).captureToImage().toAwtImage()
+        val boldFrom = layout.getBoundingBox(6).left.toInt().coerceIn(0, image.width)
+        val boldTo = kotlin.math.ceil(layout.getBoundingBox(9).right).toInt().coerceIn(boldFrom, image.width)
+        val boldInk = count(image, black, boldFrom, boldTo)
+        val plainInk = count(plainImage, black, 0, plainImage.width)
         assertTrue(
-            count(image, blue, image.width * 3 / 4, image.width) > 0,
-            "the link run on the right is painted in its colour",
+            boldInk > plainInk || boldWidth > plainWidth,
+            "the bold run must draw heavier or wider than the plain run (boldInk=$boldInk plainInk=$plainInk boldWidth=$boldWidth plainWidth=$plainWidth)",
         )
 
-        node.performTouchInput { click(Offset(width * 0.1f, height / 2f)) }
-        waitForIdle()
-        assertTrue(
-            connection.events.filterIsInstance<HostEvent.Clicked>().isEmpty(),
-            "pressing the bold run must not report a click: ${connection.events}",
-        )
+        fun pressLetter(offset: Int) {
+            val box = layout.getBoundingBox(offset)
+            node.performTouchInput { click(box.center) }
+            waitForIdle()
+        }
+        fun clicks(): List<HostEvent.Clicked> = connection.events.filterIsInstance<HostEvent.Clicked>()
 
-        node.performTouchInput { click(Offset(width * 0.9f, height / 2f)) }
-        waitForIdle()
-        assertEquals(
-            listOf(HostEvent.Clicked(2, 7L)),
-            connection.events.filterIsInstance<HostEvent.Clicked>(),
-        )
+        pressLetter(2)
+        assertEquals(emptyList(), clicks(), "pressing the plain word reports nothing")
+
+        pressLetter(7)
+        assertEquals(emptyList(), clicks(), "pressing the bold word reports nothing")
+
+        pressLetter(13)
+        assertEquals(listOf(HostEvent.Clicked(2, 7L)), clicks())
+
+        pressLetter(7)
+        assertEquals(1, clicks().size, "pressing the bold word after the link still reports nothing")
     }
 
     /**
-     * A `Text` with no spans carries no `Spans` property in the node table, decodes no runs,
-     * and still takes `AppendText` on its plain string.
+     * A `Text` with no spans carries no `Spans` property in the node table, draws an
+     * unannotated string with no span styles or links, and takes `AppendText` on its plain
+     * string.
      */
+    @OptIn(ExperimentalTextApi::class)
     @Test
-    fun fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
-        val table = NodeTable()
-        table.apply(Mutation.Create(2, WidgetKind.Text))
-        table.apply(Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("hello")))
-        table.apply(Mutation.AppendText(2, " world"))
-        assertTrue(table.drainErrors().isEmpty())
+    fun fr26_a_text_with_no_spans_keeps_its_record_size_and_path() = runComposeUiTest {
+        val connection = FakeHostConnection(
+            listOf(
+                Mutation.Create(1, WidgetKind.Column),
+                Mutation.Create(2, WidgetKind.Text),
+                Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("hello")),
+                Mutation.Insert(1, 2, 0),
+            ),
+        )
+        connection.scheduleFrame(listOf(Mutation.AppendText(2, " world")))
+        lateinit var host: dev.darkpyonix.composerust.runtime.ComposeRustHost
+        setContent {
+            host = rememberComposeRustHost(connection)
+            ComposeRustContent(host)
+        }
+        waitForIdle()
 
-        val node = assertNotNull(table.node(2))
+        val initialLayout = drawnLayout(nodeTestTag(2), this)
+        assertEquals("hello", initialLayout.layoutInput.text.text)
+        assertEquals(emptyList(), initialLayout.layoutInput.text.spanStyles)
+        assertEquals(emptyList(), initialLayout.layoutInput.text.getLinkAnnotations(0, 5))
+
+        runOnIdle { host.renderFrame(16_666_667L) }
+        waitForIdle()
+
+        val node = assertNotNull(host.table.node(2))
         assertNull(node.property(PropertyKind.Spans))
         val input = node.textInput()
         assertEquals("hello world", input.text)
-        assertTrue(input.runs.isEmpty())
+        assertEquals(emptyList(), input.runs)
+
+        val appendedLayout = drawnLayout(nodeTestTag(2), this)
+        assertEquals("hello world", appendedLayout.layoutInput.text.text)
+        assertEquals(emptyList(), appendedLayout.layoutInput.text.spanStyles)
+        assertEquals(emptyList(), appendedLayout.layoutInput.text.getLinkAnnotations(0, 11))
+        assertEquals(
+            listOf(AnnotatedString("hello world")),
+            onNodeWithTag(nodeTestTag(2)).fetchSemanticsNode().config[SemanticsProperties.Text],
+        )
     }
 }

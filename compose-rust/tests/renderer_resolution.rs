@@ -1884,6 +1884,20 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
     use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
     use compose_rust::runtime::mutable_state_of;
     use compose_rust::schema::{PropertyKind, WidgetKind};
+    use compose_rust::spans::{TextSpan, TextSpans};
+
+    let records_of = |batch: &[u8], kind: PropertyKind| -> usize {
+        decode_batch(batch)
+            .expect("the batch decodes")
+            .into_iter()
+            .filter(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetProp { property, .. } if *property == kind
+                )
+            })
+            .count()
+    };
 
     let content = mutable_state_of("hello".to_owned());
     let state = content;
@@ -1907,15 +1921,19 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
         }),
         "the plain Text sets its Text property"
     );
-    assert!(
-        !mutations.iter().any(|mutation| matches!(
-            mutation,
-            Mutation::SetProp {
-                property: PropertyKind::Spans,
-                ..
-            }
-        )),
-        "a plain Text with no spans emits no Spans record on the wire"
+    assert_eq!(records_of(&initial, PropertyKind::Spans), 0);
+
+    let mut empty_host = ComposeHost::with_content(|| {
+        compose_rust::ui::Text("hello").spans(TextSpans::new(Vec::<TextSpan>::new()));
+    });
+    let empty_initial = empty_host
+        .rebuild()
+        .expect("the empty-spans batch encodes")
+        .to_vec();
+    assert_eq!(records_of(&empty_initial, PropertyKind::Spans), 0);
+    assert_eq!(
+        empty_initial, initial,
+        "an empty spans list adds neither a record nor a byte to the batch"
     );
 
     content.set("hello world".to_owned());

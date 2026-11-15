@@ -154,38 +154,55 @@ mod tests {
 
         let source = "pub fn total(items: &[u32]) -> u32 { // forty-two\n    items.len() + 42\n}";
         let tokens = [
-            ("pub", "keyword"),
-            ("fn", "keyword"),
-            ("total", "function"),
-            ("items", "variable.parameter"),
-            ("&", "operator"),
-            ("[", "punctuation.bracket"),
-            ("u32", "type.builtin"),
-            ("]", "punctuation.bracket"),
-            ("->", "operator"),
-            ("// forty-two", "comment"),
-            ("len", "function.method"),
-            ("+", "operator"),
-            ("42", "number"),
-            ("items", "spell"),
+            ("pub", "keyword", Some(ColorRole::SyntaxKeyword)),
+            ("fn", "keyword", Some(ColorRole::SyntaxKeyword)),
+            ("total", "function", Some(ColorRole::SyntaxFunction)),
+            (
+                "items",
+                "variable.parameter",
+                Some(ColorRole::SyntaxVariable),
+            ),
+            ("&", "operator", Some(ColorRole::SyntaxOperator)),
+            (
+                "[",
+                "punctuation.bracket",
+                Some(ColorRole::SyntaxPunctuation),
+            ),
+            ("u32", "type.builtin", Some(ColorRole::SyntaxType)),
+            (
+                "]",
+                "punctuation.bracket",
+                Some(ColorRole::SyntaxPunctuation),
+            ),
+            ("->", "operator", Some(ColorRole::SyntaxOperator)),
+            ("// forty-two", "comment", Some(ColorRole::SyntaxComment)),
+            ("items", "spell", None),
+            ("len", "function.method", Some(ColorRole::SyntaxFunction)),
+            ("+", "operator", Some(ColorRole::SyntaxOperator)),
+            ("42", "number", Some(ColorRole::SyntaxNumber)),
         ];
         let mut cursor = 0;
         let mut spans = Vec::new();
-        for (lexeme, capture) in tokens {
-            let Some(relative) = source[cursor..].find(lexeme) else {
-                continue;
-            };
+        let mut expected_spans = Vec::new();
+        for (lexeme, capture, expected_role) in tokens {
+            let relative = source[cursor..]
+                .find(lexeme)
+                .unwrap_or_else(|| panic!("missing token {lexeme} after byte {cursor}"));
             let start = (cursor + relative) as u32;
             let length = lexeme.len() as u32;
-            if let Some(span) = highlight_span(start, length, capture) {
+            cursor = start as usize + lexeme.len();
+            let span = highlight_span(start, length, capture);
+            assert_eq!(
+                span.as_ref().and_then(|s| s.color),
+                expected_role.map(Paint::Role),
+                "unexpected paint for {lexeme} ({capture})"
+            );
+            if let Some(span) = span {
+                expected_spans.push((lexeme, expected_role.unwrap()));
                 spans.push(span);
-                cursor = start as usize + lexeme.len();
             }
         }
-        assert!(
-            !spans.is_empty(),
-            "the highlighted snippet must produce runs"
-        );
+        assert_eq!(spans.len(), 13);
 
         let mut host = crate::ComposeHost::with_content(move || {
             let encoded_spans = TextSpans::new(spans.clone());
@@ -194,7 +211,7 @@ mod tests {
         let wire = host.rebuild().expect("the batch encodes").to_vec();
         let mutations = decode_batch(&wire).expect("the batch decodes");
 
-        let mut raw_spans: Option<&[u8]> = None;
+        let mut blobs = Vec::new();
         for mutation in &mutations {
             match mutation {
                 Mutation::SetProp {
@@ -202,7 +219,7 @@ mod tests {
                     value: PropertyValue::Bytes(bytes),
                     ..
                 } => {
-                    raw_spans = Some(bytes);
+                    blobs.push(*bytes);
                 }
                 Mutation::SetProp {
                     property: PropertyKind::Color,
@@ -232,11 +249,14 @@ mod tests {
             }
         }
 
-        let span_bytes = raw_spans.expect("the highlighted Text must emit a Spans property");
-        assert_eq!(span_bytes.len() % SPAN_LEN, 0);
-        assert!(!span_bytes.is_empty());
+        assert_eq!(blobs.len(), 1, "one text, one list of runs: {mutations:?}");
+        let span_bytes = blobs[0];
+        assert_eq!(span_bytes.len(), expected_spans.len() * SPAN_LEN);
 
-        for record in span_bytes.chunks_exact(SPAN_LEN) {
+        for (record, (lexeme, _)) in span_bytes.chunks_exact(SPAN_LEN).zip(&expected_spans) {
+            let start = u32::from_le_bytes([record[0], record[1], record[2], record[3]]) as usize;
+            let len = u32::from_le_bytes([record[4], record[5], record[6], record[7]]) as usize;
+            assert_eq!(&source[start..start + len], *lexeme);
             let paint_kind = u32::from_le_bytes([
                 record[SPAN_COLOR_AT + 4],
                 record[SPAN_COLOR_AT + 5],
@@ -249,11 +269,13 @@ mod tests {
             );
         }
 
-        for span in TextSpans::from_bytes(span_bytes).spans() {
-            assert!(
-                matches!(span.color, Some(Paint::Role(_))),
-                "every decoded span must use a colour role, got {:?}",
-                span.color
+        let decoded: Vec<_> = TextSpans::from_bytes(span_bytes).spans().collect();
+        assert_eq!(decoded.len(), expected_spans.len());
+        for (span, (lexeme, role)) in decoded.iter().zip(&expected_spans) {
+            assert_eq!(
+                span.color,
+                Some(Paint::Role(*role)),
+                "decoded span for {lexeme} must carry role {role:?}"
             );
             assert!(
                 span.background.is_none(),
@@ -269,8 +291,9 @@ mod tests {
     fn fr13_1_3_code_roles_leave_widget_property_and_modifier_schemas_unchanged() {
         use crate::protocol::{BatchEncoder, Mutation, PropertyValue};
         use crate::schema::{
-            COLOR_ROLE_COUNT, COLOR_ROLE_SCHEMA, FieldType, MODIFIER_SCHEMA, Modifier,
-            PROPERTY_SCHEMA, PropertyKind, SCHEMA_DESCRIPTOR, WIDGET_SCHEMA,
+            COLOR_ROLE_COUNT, COLOR_ROLE_SCHEMA, EnumVariantSchema, FieldSlot, FieldType,
+            MODIFIER_SCHEMA, Modifier, PROPERTY_SCHEMA, PropertyKind, SCHEMA_DESCRIPTOR,
+            WIDGET_SCHEMA,
         };
 
         assert_eq!(COLOR_ROLE_COUNT, 45);
@@ -289,31 +312,132 @@ mod tests {
             );
         }
 
-        for code_role in &COLOR_ROLE_SCHEMA[23..] {
-            assert!(
-                !SCHEMA_DESCRIPTOR.contains(code_role.name),
-                "the widget, property and modifier descriptor does not list colour role {}",
-                code_role.name
-            );
-            assert!(
-                WIDGET_SCHEMA
-                    .iter()
-                    .all(|widget| widget.name != code_role.name),
-                "code colour roles add no widget definition"
-            );
-            assert!(
-                PROPERTY_SCHEMA
-                    .iter()
-                    .all(|property| property.name != code_role.name),
-                "code colour roles add no property kind"
-            );
-            assert!(
-                MODIFIER_SCHEMA
-                    .iter()
-                    .all(|modifier| modifier.name != code_role.name),
-                "code colour roles add no modifier variant"
-            );
+        let hash_bytes = |mut hash: u64, bytes: &[u8]| -> u64 {
+            for &byte in bytes {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            hash
+        };
+        let hash_enum = |mut hash: u64, schema: &[EnumVariantSchema]| -> u64 {
+            for entry in schema {
+                hash = hash_bytes(hash, entry.name.as_bytes());
+                hash = hash_bytes(hash, &entry.tag.to_le_bytes());
+            }
+            hash
+        };
+        let mut tables_hash = 0xcbf2_9ce4_8422_2325_u64;
+        tables_hash = hash_enum(tables_hash, WIDGET_SCHEMA);
+        tables_hash = hash_enum(tables_hash, PROPERTY_SCHEMA);
+        for modifier in MODIFIER_SCHEMA {
+            tables_hash = hash_bytes(tables_hash, modifier.name.as_bytes());
+            tables_hash = hash_bytes(tables_hash, &modifier.tag.to_le_bytes());
+            tables_hash = hash_bytes(tables_hash, &[modifier.extra_words]);
+            for field in modifier.fields {
+                tables_hash = hash_bytes(tables_hash, field.name.as_bytes());
+                tables_hash = hash_bytes(
+                    tables_hash,
+                    &[match field.ty {
+                        FieldType::Float => 1,
+                        FieldType::U32 => 2,
+                        FieldType::U64 => 3,
+                        FieldType::Paint => 4,
+                        FieldType::Role(_) => 5,
+                        FieldType::Bool => 6,
+                        FieldType::FiniteFloat => 7,
+                    }],
+                );
+                if let FieldType::Role(role) = field.ty {
+                    tables_hash = hash_bytes(tables_hash, role.as_bytes());
+                }
+                tables_hash = hash_bytes(
+                    tables_hash,
+                    &[match field.slot {
+                        FieldSlot::FirstLow => 0,
+                        FieldSlot::FirstHigh => 1,
+                        FieldSlot::First => 2,
+                        FieldSlot::SecondLow => 3,
+                        FieldSlot::SecondHigh => 4,
+                        FieldSlot::Second => 5,
+                        FieldSlot::ThirdLow => 6,
+                        FieldSlot::ThirdHigh => 7,
+                        FieldSlot::Third => 8,
+                        FieldSlot::FourthLow => 9,
+                        FieldSlot::FourthHigh => 10,
+                        FieldSlot::Fourth => 11,
+                        FieldSlot::FifthLow => 12,
+                        FieldSlot::FifthHigh => 13,
+                        FieldSlot::Fifth => 14,
+                        FieldSlot::SixthLow => 15,
+                        FieldSlot::SixthHigh => 16,
+                        FieldSlot::Sixth => 17,
+                        FieldSlot::SeventhLow => 18,
+                        FieldSlot::SeventhHigh => 19,
+                        FieldSlot::Seventh => 20,
+                        FieldSlot::EighthLow => 21,
+                        FieldSlot::EighthHigh => 22,
+                        FieldSlot::Eighth => 23,
+                        FieldSlot::NinthLow => 24,
+                        FieldSlot::NinthHigh => 25,
+                        FieldSlot::Ninth => 26,
+                        FieldSlot::TenthLow => 27,
+                        FieldSlot::TenthHigh => 28,
+                        FieldSlot::Tenth => 29,
+                    }],
+                );
+            }
         }
+        assert_eq!(WIDGET_SCHEMA.len(), 48);
+        assert_eq!(PROPERTY_SCHEMA.len(), 147);
+        assert_eq!(MODIFIER_SCHEMA.len(), 40);
+        assert_eq!(
+            tables_hash, 0x64c5_5cfe_93a8_5a58,
+            "the widget, property and modifier schemas are pinned: {tables_hash:#018x}"
+        );
+
+        let folded = |name: &str| -> String {
+            name.chars()
+                .filter(|ch| *ch != '_')
+                .map(|ch| ch.to_ascii_lowercase())
+                .collect()
+        };
+        let mut entries = Vec::new();
+        for section in SCHEMA_DESCRIPTOR.split(';') {
+            if let Some(rest) = section.strip_prefix("widgets=") {
+                for name in rest.split(',') {
+                    entries.push(("widgets", name));
+                }
+            } else if let Some(rest) = section.strip_prefix("properties=") {
+                for name in rest.split(',') {
+                    entries.push(("properties", name));
+                }
+            } else if let Some(rest) = section.strip_prefix("modifiers=") {
+                for name in rest.split(',') {
+                    entries.push(("modifiers", name));
+                }
+            }
+        }
+        for widget in WIDGET_SCHEMA {
+            entries.push(("widgets", widget.name));
+        }
+        for property in PROPERTY_SCHEMA {
+            entries.push(("properties", property.name));
+        }
+        for modifier in MODIFIER_SCHEMA {
+            entries.push(("modifiers", modifier.name));
+            for field in modifier.fields {
+                entries.push(("modifiers", field.name));
+            }
+        }
+        let about_code: Vec<_> = entries
+            .iter()
+            .copied()
+            .filter(|(_, name)| {
+                let name = folded(name);
+                (name.contains("syntax") || name.contains("diff")) && name != "syntaxspans"
+            })
+            .collect();
+        assert_eq!(about_code, Vec::<(&str, &str)>::new());
 
         for modifier in MODIFIER_SCHEMA {
             for field in modifier.fields {
@@ -342,7 +466,8 @@ mod tests {
             property: PropertyKind::Color,
             value: PropertyValue::Integer(Paint::Role(ColorRole::SyntaxKeyword).to_bits() as i64),
         });
-        assert_eq!(base_prop.len(), code_prop.len());
+        assert_eq!(base_prop.len(), 36);
+        assert_eq!(code_prop.len(), 36);
 
         let base_mod = encode_one(Mutation::SetModifier {
             node_id: 1,
@@ -354,6 +479,7 @@ mod tests {
             index: 0,
             modifier: Modifier::Background(Paint::Role(ColorRole::DiffAddedContainer)),
         });
-        assert_eq!(base_mod.len(), code_mod.len());
+        assert_eq!(base_mod.len(), 40);
+        assert_eq!(code_mod.len(), 40);
     }
 }
