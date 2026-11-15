@@ -6,7 +6,8 @@
 # was too small showed no backdrop and read as a narrower window, not as a fault.
 #
 # What this checks, without Windows:
-#   - the probe job drags the hand-check its own run built, and moving the pin runs it;
+#   - the probe job drags the hand-check its own run built, and every dispatch of ci.yml
+#     runs it, so a moved pin is dragged by the run that checks the move;
 #   - every edge, the window states, the markers and the frames are asked for, at 100% and
 #     200%, and the job fails when the late control passes or the CPU path shows a fault;
 #   - hand-check and the control draw the markers the probe looks for, in the colours it
@@ -16,6 +17,7 @@ set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 workflow="$repo_root/.github/workflows/test-windows-resize-metrics.yml"
+ci="$repo_root/.github/workflows/ci.yml"
 probe="$repo_root/.github/scripts/resize-probe.c"
 control="$repo_root/.github/scripts/resize-control.c"
 kit_script="$repo_root/.github/scripts/run-probe-v2.ps1"
@@ -27,7 +29,7 @@ red=0
 ok() { echo "ok    $1"; }
 fail() { echo "FAIL  $1: $2"; red=1; }
 
-for file in "$workflow" "$probe" "$control" "$kit_script" "$sheets" "$hand_check" "$compose_pin"; do
+for file in "$workflow" "$ci" "$probe" "$control" "$kit_script" "$sheets" "$hand_check" "$compose_pin"; do
     [[ -f "$file" ]] || { echo "missing $file"; exit 1; }
 done
 
@@ -47,15 +49,26 @@ else
     ok "$name"
 fi
 
-name=fr19_8_4_moving_the_window_pin_runs_the_drags
+# Development CI is one manual dispatch of ci.yml, which calls every suite on the commit it is
+# dispatched for. So the pin that commit carries is dragged when the resize metrics suite is
+# one of those calls, with no condition of its own, and when nothing in the suite lets the
+# probe job be skipped while the build it waits for ran. A trigger or a path filter in the
+# suite would be a second way in that the dispatch does not cover.
+name=fr19_8_4_every_ci_dispatch_drags_the_window_pin
+ci_job="$(awk '/^  test_windows_resize_metrics:$/ { on = 1; print; next } on && /^  [a-z][a-z_]*:/ { exit } on { print }' "$ci")"
+workflow_on="$(awk '/^on:/ { on = 1; next } /^[^ #]/ { on = 0 } on' "$workflow")"
 if ! grep -qE '^WINDOW_REVISION=' "$compose_pin"; then
     fail "$name" "renderer/scripts/build-compose.sh no longer sets WINDOW_REVISION"
-elif ! awk '/^  pull_request:/ { on = 1 } on && /^concurrency:/ { exit } on' "$workflow" |
-        grep -qF '"renderer/scripts/build-compose.sh"'; then
-    fail "$name" "the workflow's pull_request paths leave out renderer/scripts/build-compose.sh"
-elif ! awk '/^  pull_request:/ { on = 1 } on && /^concurrency:/ { exit } on' "$workflow" |
-        grep -qF '"compose-rust/tests/fixtures/hand-check/**"'; then
-    fail "$name" "the workflow's pull_request paths leave out the hand-check fixture"
+elif ! grep -qE '^    uses: \./\.github/workflows/test-windows-resize-metrics\.yml$' <<<"$ci_job"; then
+    fail "$name" "ci.yml does not call the resize metrics workflow, so a dispatch drags nothing"
+elif grep -qE '^    (if|needs):' <<<"$ci_job"; then
+    fail "$name" "ci.yml calls the resize metrics workflow on a condition or after another suite"
+elif ! grep -qE '^  workflow_call:' <<<"$workflow_on"; then
+    fail "$name" "the resize metrics workflow cannot be called by ci.yml"
+elif grep -qE '^  (pull_request|pull_request_target|push|schedule|workflow_dispatch):' <<<"$workflow_on"; then
+    fail "$name" "the resize metrics workflow has a trigger of its own; only a ci.yml dispatch starts it"
+elif grep -qE '^    (if|continue-on-error):' <<<"$probe_job"; then
+    fail "$name" "the probe job can be skipped, or can fail without failing the run"
 else
     ok "$name"
 fi
