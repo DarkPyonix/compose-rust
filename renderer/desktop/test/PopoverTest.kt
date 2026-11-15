@@ -44,6 +44,7 @@ import dev.darkpyonix.composerust.protocol.PopoverAlign
 import dev.darkpyonix.composerust.protocol.PopoverPlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -62,6 +63,12 @@ private const val POPOVER = 2
 private const val ANCHOR = 3
 private const val CONTENT = 4
 private const val DISMISS = 77L
+private const val MENU_COLUMN = 10
+private const val MENU_HEADER = 11
+private val MENU_ITEMS = listOf(12, 13, 14)
+private const val DISABLED_MENU_ITEM = 15
+
+private fun menuClickHandler(id: Int) = 200L + id
 
 private const val WINDOW_WIDTH = 800
 private const val WINDOW_HEIGHT = 600
@@ -107,6 +114,64 @@ private fun popoverBatch(
     Mutation.Insert(POPOVER, CONTENT, 1),
     Mutation.Insert(FRAME, POPOVER, 0),
 ) + extra
+
+/**
+ * An open popover holding a menu: a header text followed by three pressable rows inside a
+ * column, matching how an option menu popover is authored. [selected] marks the chosen row
+ * through its `Semantics` modifier (`selected(true)` at bit 2).
+ */
+private fun popoverMenuBatch(
+    selected: Int?,
+    leadHeader: Boolean = true,
+): List<Mutation> = buildList {
+    add(Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, adaptive = false)))
+    add(Mutation.Create(FRAME, WidgetKind.Box))
+    add(Mutation.SetModifier(FRAME, 0, ProtocolModifier.FillMaxWidth))
+    add(Mutation.SetModifier(FRAME, 1, ProtocolModifier.FillMaxHeight))
+    add(Mutation.Create(POPOVER, WidgetKind.Popover))
+    add(Mutation.SetProp(POPOVER, PropertyKind.Open, PropertyValue.Bool(true)))
+    add(Mutation.SetProp(POPOVER, PropertyKind.OnDismiss, PropertyValue.Integer(DISMISS)))
+    add(Mutation.SetModifier(POPOVER, 0, ProtocolModifier.Semantics(SemanticsRole.Menu, 0)))
+    add(Mutation.Create(ANCHOR, WidgetKind.Button))
+    add(Mutation.SetProp(ANCHOR, PropertyKind.Text, PropertyValue.Text("IDE")))
+    add(Mutation.SetProp(ANCHOR, PropertyKind.OnClick, PropertyValue.Integer(menuClickHandler(ANCHOR))))
+    add(Mutation.Insert(POPOVER, ANCHOR, 0))
+    add(Mutation.Create(MENU_COLUMN, WidgetKind.Column))
+    add(Mutation.Insert(POPOVER, MENU_COLUMN, 1))
+    var childIndex = 0
+    if (leadHeader) {
+        add(Mutation.Create(MENU_HEADER, WidgetKind.Text))
+        add(Mutation.SetProp(MENU_HEADER, PropertyKind.Text, PropertyValue.Text("Open in IDE")))
+        add(Mutation.Insert(MENU_COLUMN, MENU_HEADER, childIndex++))
+    }
+    listOf("Ember", "VS Code", "Gateway").forEachIndexed { i, label ->
+        val id = MENU_ITEMS[i]
+        val textId = id + 20
+        val state = (if (id == selected) 2 shl 2 else 1 shl 2) or (1 shl 11)
+        add(Mutation.Create(id, WidgetKind.Box))
+        add(Mutation.SetProp(id, PropertyKind.OnClick, PropertyValue.Integer(menuClickHandler(id))))
+        add(Mutation.SetModifier(id, 0, ProtocolModifier.FillMaxWidth))
+        add(Mutation.SetModifier(id, 1, ProtocolModifier.Semantics(SemanticsRole.MenuItem, state)))
+        add(Mutation.Create(textId, WidgetKind.Text))
+        add(Mutation.SetProp(textId, PropertyKind.Text, PropertyValue.Text(label)))
+        add(Mutation.Insert(id, textId, 0))
+        add(Mutation.Insert(MENU_COLUMN, id, childIndex++))
+        if (i == 1) {
+            val disabledTextId = DISABLED_MENU_ITEM + 20
+            val disabledState = (1 shl 2) or (2 shl 6) or (1 shl 11)
+            add(Mutation.Create(DISABLED_MENU_ITEM, WidgetKind.Box))
+            add(Mutation.SetProp(DISABLED_MENU_ITEM, PropertyKind.Enabled, PropertyValue.Bool(false)))
+            add(Mutation.SetProp(DISABLED_MENU_ITEM, PropertyKind.OnClick, PropertyValue.Integer(menuClickHandler(DISABLED_MENU_ITEM))))
+            add(Mutation.SetModifier(DISABLED_MENU_ITEM, 0, ProtocolModifier.FillMaxWidth))
+            add(Mutation.SetModifier(DISABLED_MENU_ITEM, 1, ProtocolModifier.Semantics(SemanticsRole.MenuItem, disabledState)))
+            add(Mutation.Create(disabledTextId, WidgetKind.Text))
+            add(Mutation.SetProp(disabledTextId, PropertyKind.Text, PropertyValue.Text("Xcode (unavailable)")))
+            add(Mutation.Insert(DISABLED_MENU_ITEM, disabledTextId, 0))
+            add(Mutation.Insert(MENU_COLUMN, DISABLED_MENU_ITEM, childIndex++))
+        }
+    }
+    add(Mutation.Insert(FRAME, POPOVER, 0))
+}
 
 @OptIn(ExperimentalTestApi::class)
 class PopoverTest {
@@ -429,5 +494,94 @@ class PopoverTest {
             }
             waitForIdle()
             assertEquals(listOf(HostEvent.Clicked(POPOVER, DISMISS)), dismissals(connection))
+        }
+
+    // ----- a popover holding a menu ------------------------------------------------------
+
+    private fun ComposeUiTest.press(key: Key) {
+        onAllNodes(isRoot()).onLast().performKeyInput { pressKey(key) }
+        waitForIdle()
+    }
+
+    private fun ComposeUiTest.assertFocused(id: Int, what: String) {
+        try {
+            onNodeWithTag(nodeTestTag(id)).assertIsFocused()
+        } catch (failure: AssertionError) {
+            throw AssertionError("$what: item $id does not have focus", failure)
+        }
+    }
+
+    /**
+     * When a popover holds a menu, opening focuses the item marked selected, Up and Down move
+     * between items and wrap at the ends, and Enter or Space presses the focused item once
+     * without leaking keys to the Host.
+     */
+    @Test
+    fun fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item() =
+        runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+            val connection = FakeHostConnection(popoverMenuBatch(selected = MENU_ITEMS[1]))
+            show(connection)
+            mainClock.advanceTimeByFrame()
+            waitForIdle()
+            assertFocused(MENU_ITEMS[1], "on open, the selected menu item")
+
+            press(Key.DirectionDown)
+            assertFocused(MENU_ITEMS[2], "after one Down, skipping the disabled item")
+            press(Key.DirectionUp)
+            assertFocused(MENU_ITEMS[1], "Up from the last skips the disabled item back to the second")
+            press(Key.DirectionDown)
+            assertFocused(MENU_ITEMS[2], "Down again skips the disabled item to the last")
+            press(Key.DirectionDown)
+            assertFocused(MENU_ITEMS[0], "after another Down, round to the first")
+            press(Key.DirectionUp)
+            assertFocused(MENU_ITEMS[2], "Up from the first goes round to the last")
+            press(Key.DirectionDown)
+            assertFocused(MENU_ITEMS[0], "and Down comes back")
+
+            press(Key.Enter)
+            assertEquals(
+                listOf(HostEvent.Clicked(MENU_ITEMS[0], menuClickHandler(MENU_ITEMS[0]))),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+                "Enter is one click of the focused menu item",
+            )
+            press(Key.Spacebar)
+            assertEquals(
+                listOf(
+                    HostEvent.Clicked(MENU_ITEMS[0], menuClickHandler(MENU_ITEMS[0])),
+                    HostEvent.Clicked(MENU_ITEMS[0], menuClickHandler(MENU_ITEMS[0])),
+                ),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+                "Space is one click of the focused menu item",
+            )
+            assertTrue(
+                connection.events.none { it is HostEvent.KeyDown || it is HostEvent.KeyUp },
+                "a menu popover's navigation keys must not reach the Host: ${connection.events}",
+            )
+        }
+
+    /**
+     * Home and End jump to the first and last menu items, and when no item is marked
+     * selected, opening focuses the first focusable item past any non-focusable header.
+     */
+    @Test
+    fun fr77_popover_menu_home_and_end_and_default_focus_on_first_item() =
+        runDesktopComposeUiTest(WINDOW_WIDTH, WINDOW_HEIGHT) {
+            val connection = FakeHostConnection(popoverMenuBatch(selected = null, leadHeader = true))
+            show(connection)
+            mainClock.advanceTimeByFrame()
+            waitForIdle()
+            assertFocused(MENU_ITEMS[0], "on open with no selection, the first menu item")
+
+            press(Key.MoveEnd)
+            assertFocused(MENU_ITEMS[2], "End moves to the last menu item")
+            press(Key.MoveHome)
+            assertFocused(MENU_ITEMS[0], "Home moves to the first menu item")
+
+            press(Key.Escape)
+            assertEquals(
+                listOf(HostEvent.Clicked(POPOVER, DISMISS)),
+                dismissals(connection),
+                "Escape in a menu popover dispatches one dismissal to the Host",
+            )
         }
 }

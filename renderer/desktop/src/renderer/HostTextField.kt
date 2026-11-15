@@ -34,6 +34,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.AssetCache
@@ -382,7 +383,9 @@ internal fun HostTextField(
                     .let {
                         if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    // A bare field clips only to a corner the node named itself.
+                    // A bare field clips only to a corner the node named itself. Its scrolled
+                    // text needs no clip of its own: the text field already draws only inside
+                    // its bounds, scrolled or not.
                     .let { if (bare && !ownShape) it else it.clip(frameShape) }
                     .let {
                         if (ownFill || bare) {
@@ -408,11 +411,16 @@ internal fun HostTextField(
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     val placeholderColor = node.paintProp(PropertyKind.PlaceholderColor)?.let { theme.color(it) }
                         ?: theme.color(ColorRole.OnSurfaceVariant).copy(alpha = PLACEHOLDER_ALPHA)
+                    // A single-line field has one line to show a placeholder on, so a longer
+                    // one ends in an ellipsis there rather than wrapping onto lines the field
+                    // clips away. A multiline field has room for it to wrap.
                     ThemedText(
                         brokenPlaceholder,
                         style = textStyle.copy(
                             color = placeholderColor,
                         ),
+                        maxLines = if (multiline) Int.MAX_VALUE else 1,
+                        overflow = if (multiline) TextOverflow.Clip else TextOverflow.Ellipsis,
                     )
                 }
                 inner()

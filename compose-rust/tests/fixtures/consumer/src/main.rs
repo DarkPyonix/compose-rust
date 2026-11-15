@@ -49,7 +49,7 @@ static STEP: AtomicU32 = AtomicU32::new(0);
 
 /// How many frames the renderer has to have driven before the check passes.
 ///
-/// Each step after the first is rendered inside `compose_rust_host_render_frame`, which
+/// Each step is rendered inside `compose_rust_host_render_frame`, which
 /// the renderer calls only from its window's frame clock, and the next step is asked for
 /// while that frame is being produced. So reaching step 2 means the renderer applied step
 /// 1's changes, drew that frame, and came back for another one: a whole frame went
@@ -130,8 +130,15 @@ impl Runtime for Screen {
         });
     }
 
-    fn render(&mut self, _frame_time_nanos: Option<u64>) {
-        if self.counting && self.step < FRAMES {
+    /// Moves the text one step on, but only inside a frame.
+    ///
+    /// The Host also renders when an event arrives, with no frame time. The window's size is
+    /// one such event, and the renderer reports it from the layout of the first frame, before
+    /// that frame is on screen. Counting it as a step reached `FRAMES` within the first
+    /// frame, and the check then ended the process before the window had shown anything: the
+    /// macOS window had not presented its first frame yet, so it never said it had.
+    fn render(&mut self, frame_time_nanos: Option<u64>) {
+        if self.counting && frame_time_nanos.is_some() && self.step < FRAMES {
             self.step += 1;
             STEP.fetch_max(self.step, Ordering::SeqCst);
             self.label();
@@ -348,4 +355,27 @@ fn main() {
         return;
     }
     println!("the renderer was loaded and this program started");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A render with no frame time is an event's, not a frame's, and must not count. The
+    /// window's first size report renders that way from inside the first frame, so counting
+    /// it ended the self-check before the first frame was presented.
+    #[test]
+    fn nfr15_self_check_counts_only_frames_the_renderer_drove() {
+        let mut screen = Screen::new(true);
+        screen.render(None);
+        assert_eq!(screen.step, 0, "a render outside a frame advanced the self-check");
+        screen.render(Some(1));
+        assert_eq!(screen.step, 1);
+        screen.render(None);
+        assert_eq!(screen.step, 1, "a render outside a frame advanced the self-check");
+        assert!(screen.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_ready());
+        screen.render(Some(2));
+        assert_eq!(screen.step, FRAMES);
+        assert!(screen.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_pending());
+    }
 }

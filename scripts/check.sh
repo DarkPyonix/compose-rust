@@ -33,10 +33,23 @@ else
 fi
 
 cargo fmt --all -- --check
-cargo clippy --workspace -- -D warnings
+# Test targets too, so a lint in a test cannot sit unnoticed until someone runs
+# --all-targets by hand (#572).
+cargo clippy --workspace --all-targets -- -D warnings
 # The token tables are compared with the design systems in the Compose fork, at the commit
 # the renderer is built from. The test reads them from .scratch and fails if they are absent.
 ./scripts/fetch-design-systems.sh > /dev/null
+# Built first and apart from the run, so cargo's own warnings can be read. Two builds of one
+# library that write the same file make the tests fail on some runs and pass on others,
+# depending on which finished last; cargo names the pair, and that is refused here.
+mkdir -p target
+cargo test --workspace --no-run 2> target/check-test-build.log || { cat target/check-test-build.log >&2; exit 1; }
+if grep -q 'output filename collision' target/check-test-build.log; then
+    grep -A4 'output filename collision' target/check-test-build.log >&2
+    echo "check: two builds in this workspace write the same file (see above)." >&2
+    echo "Give the library one feature set across the workspace members." >&2
+    exit 1
+fi
 cargo test --workspace
 # The renderer is a default feature, so the run above never builds the crate the way a
 # headless or documentation build gets it. That build has to compile, and the tests that

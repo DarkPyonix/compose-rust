@@ -521,9 +521,9 @@ class ProtocolVectorsTest {
     }
 
     /**
-     * The overlay tokens record with the transient message's two fields appended: every
-     * field the Rust encoder wrote reads back as the same value, the older ones where they
-     * always were and the two new ones after the scrim.
+     * The overlay tokens record with the transient message's fields appended: every field
+     * the Rust encoder wrote reads back as the same value, the older ones where they always
+     * were and the message's shadow, corner, colours, line, padding and type after the scrim.
      */
     @Test
     fun fr74_toast_elevation_token_round_trips_through_the_protocol_vectors() {
@@ -543,6 +543,15 @@ class ProtocolVectorsTest {
                         scrim = 0x8000_0000L,
                         toastElevation = 7,
                         toastCornerRadius = 14,
+                        toastContainerLight = 0xFF1C1B19L,
+                        toastContainerDark = 0xFFF0EEE9L,
+                        toastContentLight = 0xFFFFFFFFL,
+                        toastContentDark = 0xFF151514L,
+                        toastBorderWidth = 0,
+                        toastPaddingHorizontal = 16,
+                        toastPaddingVertical = 10,
+                        toastFontSize = 13,
+                        toastLineHeight = 20,
                     ),
                 ),
             ),
@@ -580,6 +589,40 @@ class ProtocolVectorsTest {
         assertEquals(
             "tnum 1, liga 0, cv01 258",
             dev.darkpyonix.composerust.foundation.fontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
+    }
+
+    /**
+     * The font features two runs of a text name for themselves, read from the table the
+     * Host laid out: tabular figures on the second run, and on the fifth ligatures off and
+     * a stylistic set whose value is wider than a byte.
+     */
+    @Test
+    fun fr88_span_font_features_encode_decode_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(24, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 24 }
+        // The text and its five runs come first, so the runs the table names are runs it has.
+        assertEquals(
+            listOf(PropertyKind.Text, PropertyKind.Spans, PropertyKind.SpanFontFeatures),
+            props.map { it.property },
+        )
+        val bytes = (props.single { it.property == PropertyKind.SpanFontFeatures }.value as PropertyValue.Bytes).value
+        fun word(value: Int) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
+        val expected = word(2) +
+            word(1) + word(28) + word(1) +
+            word(4) + word(36) + word(2) +
+            "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "ss01".encodeToByteArray() + byteArrayOf(2, 3, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        val decoded = dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(bytes, errors::add)
+        assertEquals(listOf(1, 4), decoded?.keys?.toList())
+        assertEquals(
+            mapOf(1 to "tnum 1", 4 to "liga 0, ss01 770"),
+            dev.darkpyonix.composerust.foundation.spanFontFeatureSettings(bytes, errors::add),
         )
         assertEquals(emptyList(), errors)
     }
@@ -895,7 +938,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -907,6 +950,29 @@ class ProtocolVectorsTest {
         assertEquals(52, light.getShort(0).toInt())
         assertEquals(0, light.getInt(16))
         assertEquals(1, out.getInt(16))
+    }
+
+    /**
+     * The density report encodes to the 20 bytes the Host decodes: the header, then the
+     * scale as one `f32`. It is the vector's last record, under event tag 53.
+     */
+    @Test
+    fun fr43_density_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
+        assertEquals(20, length)
+        assertEquals(1775, bytes.size)
+        assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
+        assertEquals(53, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(2f, out.getFloat(16))
+        val window = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
+        assertEquals(20, window.getInt(4))
+        assertEquals(1.25f, window.getFloat(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -958,7 +1024,7 @@ class ProtocolVectorsTest {
     fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
         val runs = decodeVector("mutations.bin")
             .filterIsInstance<Mutation.SetProp>()
-            .single { it.property == PropertyKind.Spans }
+            .single { it.property == PropertyKind.Spans && it.nodeId == 2 }
             .value as PropertyValue.Bytes
         val records = SpanRecords.decode(runs.value)
         assertEquals(
@@ -1092,7 +1158,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
     }
 
     /**
@@ -1107,7 +1173,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1755, bytes.size)
+        assertEquals(1775, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

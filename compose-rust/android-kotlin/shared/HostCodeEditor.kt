@@ -39,6 +39,8 @@ import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.ui.textStyle
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * A code editor bound to its node.
@@ -90,6 +92,8 @@ internal fun HostCodeEditor(
         node.bytes(PropertyKind.CodeEditorColors),
         node.property(PropertyKind.Minimap),
         node.property(PropertyKind.WordWrap),
+        node.bytes(PropertyKind.ContentPaddingDp),
+        node.property(PropertyKind.FixedGutterColumns),
     ) { codeEditorLook(node, theme, tabWidth, fontChain) }
     val currentDispatcher by rememberUpdatedState(dispatcher)
     val keyPreview = remember(node) { codeEditorKeyPreview(node, { currentDispatcher }) }
@@ -209,6 +213,23 @@ private fun Node.lengthOrNull(kind: PropertyKind): Dp? = when (val value = prope
 }?.takeIf { it >= 0f && it.isFinite() }?.dp
 
 /**
+ * The room above the first line and below the last an application gave an editor, in dp,
+ * or null where it gave none or the bytes are not eight of two lengths of zero or more.
+ */
+internal fun contentPaddingDp(bytes: ByteArray): Pair<Float, Float>? {
+    if (bytes.size != CONTENT_PADDING_BYTES) return null
+    // Read as bits: the byte buffer the iOS renderer shares this file with has no getFloat.
+    val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+    val top = Float.fromBits(buffer.getInt(0))
+    val bottom = Float.fromBits(buffer.getInt(4))
+    if (!top.isFinite() || !bottom.isFinite() || top < 0f || bottom < 0f) return null
+    return top to bottom
+}
+
+/** Two `f32` lengths in dp: above the first line, then below the last. */
+internal const val CONTENT_PADDING_BYTES = 8
+
+/**
  * What an editor looks like here, resolved to plain values: the design system's editor,
  * with the type, the gutter and the colours the application set on the node over it.
  */
@@ -220,6 +241,8 @@ internal fun codeEditorLook(
 ): CodeEditorLook {
     val style = theme.rules.codeEditor(theme)
     val colors = node.codeEditorColors()
+    // What cannot be read was reported when the property arrived; here it is left at none.
+    val padding = node.bytes(PropertyKind.ContentPaddingDp)?.let(::contentPaddingDp)
     // The role, the size and the row height are the node's where it has them, and the
     // monospace rung of the type ladder where it does not.
     val type = node.textStyle(theme, TypeRole.Mono)
@@ -261,6 +284,10 @@ internal fun codeEditorLook(
         rangeBackground = { role -> diffTint(role, theme, strong = true) },
         minimapSide = node.role(PropertyKind.Minimap, MinimapSide.entries.toTypedArray()),
         wordWrap = node.wordWrap(),
+        contentPaddingTop = padding?.first?.dp ?: 0.dp,
+        contentPaddingBottom = padding?.second?.dp ?: 0.dp,
+        fixedGutterColumns = node.flag(PropertyKind.FixedGutterColumns, default = false),
+        currentLineGutter = colors?.currentLineGutter?.let { theme.color(it) } ?: Color.Unspecified,
     )
 }
 

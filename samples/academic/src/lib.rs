@@ -451,7 +451,10 @@ fn progress_page() {
                     Text(format!("{done} of {} lessons open", LESSONS.len()))
                         .type_role(TypeRole::Body)
                         .color(palette::TEXT);
-                    ProgressIndicator(overall).modifier(Modifier.fill_max_width());
+                    ProgressIndicator(overall)
+                        .color(palette::ACCENT)
+                        .track_color(palette::PAGE)
+                        .modifier(Modifier.fill_max_width());
                 });
 
             Column()
@@ -489,6 +492,8 @@ fn progress_page() {
                                         .type_role(TypeRole::Caption)
                                         .color(palette::TEXT);
                                     ProgressIndicator(subject.progress)
+                                        .color(palette::TEXT)
+                                        .track_color(palette::PAGE)
                                         .modifier(Modifier.fill_max_width());
                                 });
                         });
@@ -947,7 +952,7 @@ mod tests {
                     } => Some((*node_id, *paint)),
                     Mutation::SetProp {
                         node_id,
-                        property: PropertyKind::Color,
+                        property: PropertyKind::Color | PropertyKind::TrackColor,
                         value: PropertyValue::Integer(bits),
                     } => Paint::from_bits(*bits as u64).map(|paint| (*node_id, paint)),
                     _ => None,

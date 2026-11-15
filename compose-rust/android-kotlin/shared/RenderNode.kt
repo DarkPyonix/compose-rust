@@ -24,6 +24,9 @@ import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -133,6 +136,7 @@ import dev.darkpyonix.composerust.foundation.HostLazyColumn
 import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
 import dev.darkpyonix.composerust.foundation.HostPopover
+import dev.darkpyonix.composerust.foundation.LocalMenuKeyboard
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -226,7 +230,7 @@ fun RenderNode(
     val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
     // Outside everything else the node has, so the larger area is centred on the box the
     // node is drawn in and its neighbours are laid out against that box as before.
-    val profiled = measured.minTouchTarget(node, dispatcher)
+    val profiled = measured.sticky(node).minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -288,13 +292,24 @@ fun RenderNode(
     // It is also ahead of the focus target a key listener is given, and behind the key
     // handlers. That target is then the one a request focuses, so the node keeps a single
     // focus target that reports it is focused and whose keys pass the node's handlers.
-    val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
+    val menuKeyboard = LocalMenuKeyboard.current
+    val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
+        keyed.then(menuKeyboard.entry(nodeId))
+    } else {
+        keyed
+    }
+    val requested = (if (focusRequester == null) menuEntry else menuEntry.focusRequester(focusRequester))
         .let { if (keyFocusTarget) it.focusable() else it }
     // A popover's material is what its floating box is made of, and the popover draws it
     // in that box's own corner. Left in the chain it would be drawn a second time, square.
+    //
+    // A button's four-sided padding is the room between its edge and its label, which the
+    // button lays out itself. Left in the chain it would be added round the button as well.
     val ownModifiers: List<dev.darkpyonix.composerust.protocol.Modifier> =
         if (node.widget == WidgetKind.Popover) {
             node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.Material }
+        } else if (node.widget == WidgetKind.Button) {
+            node.modifiers.filterNot { it is dev.darkpyonix.composerust.protocol.Modifier.PaddingEach }
         } else {
             node.modifiers
         }
@@ -486,7 +501,14 @@ fun RenderNode(
                         .verticalScroll(scrollState, flingBehavior = snap?.fling),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides false,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
@@ -501,7 +523,14 @@ fun RenderNode(
                         .horizontalScroll(scrollState, flingBehavior = snap?.fling),
                     horizontalArrangement = node.horizontalArrangement(theme),
                     verticalAlignment = node.verticalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides true,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
@@ -673,6 +702,9 @@ fun RenderNode(
  * recomposed or sent a record of its own.
  */
 val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
+
+val LocalScrollState = compositionLocalOf<ScrollState?> { null }
+val LocalScrollIsHorizontal = compositionLocalOf { true }
 
 /** The layout containers whose `color` is what the text inside them inherits. */
 internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
@@ -1406,6 +1438,27 @@ object LayoutProfile {
 
 /** The containers that become focus targets when they listen for keys. */
 private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
+
+/**
+ * Holds a node with the `Sticky` modifier at the start edge of the scrolling container it is
+ * in, however far that container has scrolled, and draws it over what scrolls under it.
+ *
+ * Outside every other modifier the node has, so its background, border and clip move with
+ * it; applied inside them, the content stayed while its background scrolled away. The scroll
+ * position is read at placement, so scrolling moves the node without recomposing it. A
+ * node nested deeper in the container (a cell in one line of a table) is held the same way,
+ * because its line starts where the container's content starts. Outside a scrolling
+ * container the modifier does nothing.
+ */
+@Composable
+private fun Modifier.sticky(node: Node): Modifier {
+    if (node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Sticky }) return this
+    val scroll = LocalScrollState.current ?: return this
+    val horizontal = LocalScrollIsHorizontal.current
+    return this
+        .zIndex(1f)
+        .offset { if (horizontal) IntOffset(scroll.value, 0) else IntOffset(0, scroll.value) }
+}
 
 /**
  * Grows the area that takes a node's presses to the size its `MinTouchTarget` asks for.

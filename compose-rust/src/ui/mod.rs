@@ -42,9 +42,9 @@ pub use crate::schema::{
     Alignment, Arrangement, BackgroundRepeat, ButtonKind, ButtonVariant, Color, ColorRole,
     ColorScheme, CompactNavigation, ContentScale, DesignSystem, HorizontalAlignment, IconRole, Key,
     MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
-    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, Snap, SpaceRole,
-    TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment, WindowHeightClass,
-    WindowSizeClass,
+    MotionRole, Paint, PopoverAlign, PopoverPlacement, SemanticsRole, ShapeRole, SheetPresentation,
+    Snap, SpaceRole, TextAlign, TextOverflow, Theme, TypeRole, VerticalAlignment,
+    WindowHeightClass, WindowSizeClass,
 };
 pub use crate::spans::TextSpans;
 pub use crate::theme::{ThemeHandle, current_theme};
@@ -157,6 +157,7 @@ pub struct SemanticsState {
     pub hidden: bool,
     pub click_action: bool,
     pub focus_action: bool,
+    pub has_popup: bool,
 }
 
 impl SemanticsState {
@@ -169,6 +170,7 @@ impl SemanticsState {
         hidden: false,
         click_action: false,
         focus_action: false,
+        has_popup: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -227,6 +229,13 @@ impl SemanticsState {
         }
     }
 
+    pub const fn has_popup(has_popup: bool) -> Self {
+        Self {
+            has_popup,
+            ..Self::NONE
+        }
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -247,89 +256,94 @@ impl SemanticsState {
             } else {
                 0
             }
+            | if self.has_popup {
+                SEMANTICS_HAS_POPUP_BIT
+            } else {
+                0
+            }
     }
 }
 
-/// The most distinct accessible names a program can keep. Names are kept for the life of
-/// the program so a `Modifier` can stay `Copy`; the cap keeps a name built from data
-/// (an id, a counter) from growing that memory without end.
-pub(crate) const MAX_LABELS: usize = 4096;
+use std::sync::Arc;
 
-/// The distinct accessible names seen so far, each leaked once.
-struct LabelTable {
-    kept: std::sync::RwLock<std::collections::HashSet<&'static str>>,
-    warned: std::sync::atomic::AtomicBool,
+/// A bounded cache of recent accessible names.
+pub(crate) struct LabelCache {
+    entries: Vec<Arc<str>>,
+    capacity: usize,
 }
 
-impl LabelTable {
-    fn new() -> Self {
+pub(crate) const DEFAULT_LABEL_CACHE_CAPACITY: usize = 128;
+
+impl LabelCache {
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(DEFAULT_LABEL_CACHE_CAPACITY)
+    }
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
-            kept: Default::default(),
-            warned: Default::default(),
+            entries: Vec::with_capacity(capacity),
+            capacity,
         }
     }
 
-    /// The kept copy of `label`. A name already kept is found under a shared lock with no
-    /// allocation. A new name is kept until the table holds `cap` names; past that it is
-    /// dropped (and reported in debug builds) so memory stays bounded.
-    fn intern(&self, label: &str, cap: usize) -> Option<&'static str> {
-        use std::sync::atomic::Ordering;
-
-        if label.is_empty() {
-            return None;
-        }
+    /// The kept copy of `label`. If present in the cache, it is moved to the most recently
+    /// used position and returned with no allocation. Otherwise a new `Arc<str>` is created,
+    /// the oldest entry is evicted if full, and the new entry is returned.
+    pub(crate) fn intern(&mut self, label: &str) -> Arc<str> {
+        if let Some(pos) = self
+            .entries
+            .iter()
+            .position(|entry| entry.as_ref() == label)
         {
-            let kept = self.kept.read().unwrap_or_else(|p| p.into_inner());
-            if let Some(found) = kept.get(label) {
-                return Some(*found);
-            }
+            let entry = self.entries.remove(pos);
+            self.entries.push(Arc::clone(&entry));
+            return entry;
         }
-        let mut kept = self.kept.write().unwrap_or_else(|p| p.into_inner());
-        if let Some(found) = kept.get(label) {
-            return Some(*found);
+        let entry: Arc<str> = Arc::from(label);
+        if self.entries.len() >= self.capacity && self.capacity > 0 {
+            self.entries.remove(0);
         }
-        if kept.len() >= cap {
-            if cfg!(debug_assertions) && !self.warned.swap(true, Ordering::Relaxed) {
-                eprintln!(
-                    "compose-rust: more than {cap} distinct accessible names; \
-                     names past the limit are left off. Use a fixed set of names."
-                );
-            }
-            return None;
+        if self.capacity > 0 {
+            self.entries.push(Arc::clone(&entry));
         }
-        let leaked: &'static str = Box::leak(label.to_owned().into_boxed_str());
-        kept.insert(leaked);
-        Some(leaked)
+        entry
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
-        self.kept.read().unwrap_or_else(|p| p.into_inner()).len()
+    pub(crate) fn len(&self) -> usize {
+        self.entries.len()
     }
 }
 
-fn keep_label(label: &str) -> Option<&'static str> {
-    use std::cell::Cell;
-    use std::sync::OnceLock;
+fn keep_label(label: &str) -> Option<Arc<str>> {
+    use std::cell::RefCell;
 
-    static LABELS: OnceLock<LabelTable> = OnceLock::new();
+    if label.is_empty() {
+        return None;
+    }
+
     thread_local! {
-        // The name this thread kept last. A name written on every frame is found here
-        // without taking any lock.
-        static LAST: Cell<Option<&'static str>> = const { Cell::new(None) };
+        static LAST: RefCell<Option<Arc<str>>> = const { RefCell::new(None) };
+        static CACHE: RefCell<LabelCache> = RefCell::new(LabelCache::new());
     }
-    if let Some(last) = LAST.with(Cell::get) {
-        if last == label {
-            return Some(last);
+
+    if let Some(last) = LAST.with(|cell| {
+        let borrowed = cell.borrow();
+        if let Some(last) = borrowed.as_ref() {
+            if last.as_ref() == label {
+                return Some(Arc::clone(last));
+            }
         }
+        None
+    }) {
+        return Some(last);
     }
-    let kept = LABELS
-        .get_or_init(LabelTable::new)
-        .intern(label, MAX_LABELS);
-    if kept.is_some() {
-        LAST.with(|last| last.set(kept));
-    }
-    kept
+
+    let kept = CACHE.with(|cache| cache.borrow_mut().intern(label));
+    LAST.with(|cell| {
+        *cell.borrow_mut() = Some(Arc::clone(&kept));
+    });
+    Some(kept)
 }
 
 /// One side of a node, for [`Modifier::border_side`].
@@ -355,7 +369,7 @@ pub enum Side {
 /// The order of the calls does not matter. Each kind of Modifier has a fixed slot in the
 /// node's chain, outside in: size, shape, fill, outline, lift, press, inset. That is what
 /// the `rsx!` attributes do too, so the same Modifier draws the same either way.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Modifier {
     observe_size: Option<i64>,
     observe_size_every_dp: bool,
@@ -380,7 +394,7 @@ pub struct Modifier {
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
     semantics_role: Option<SemanticsRole>,
-    semantics_label: Option<&'static str>,
+    semantics_label: Option<Arc<str>>,
     semantics_state: SemanticsState,
     transform: Option<[f32; 8]>,
     animated_alpha: Option<crate::Animated<f32>>,
@@ -396,6 +410,8 @@ pub struct Modifier {
     fill_max_width: bool,
     match_parent_size: bool,
     fill_max_height: bool,
+    sticky: bool,
+    unbounded_width: bool,
     size_in: Option<[f32; 4]>,
     aspect_ratio: Option<(f32, bool)>,
 }
@@ -447,6 +463,8 @@ impl Modifier {
             fill_max_width: false,
             match_parent_size: false,
             fill_max_height: false,
+            sticky: false,
+            unbounded_width: false,
             size_in: None,
             aspect_ratio: None,
         }
@@ -485,6 +503,13 @@ impl Modifier {
         self
     }
 
+    /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
+    /// while the rest of the content scrolls.
+    pub const fn sticky(mut self) -> Self {
+        self.sticky = true;
+        self
+    }
+
     pub const fn fill_max_width(mut self) -> Self {
         self.fill_max_width = true;
         self
@@ -497,6 +522,27 @@ impl Modifier {
 
     pub const fn fill_max_size(self) -> Self {
         self.fill_max_width().fill_max_height()
+    }
+
+    /// Measures the node with no maximum width, so [`Modifier::observe_size`] or
+    /// [`Modifier::observe_size_every_dp`] reports the width its content asks for instead
+    /// of the width its parent offered.
+    ///
+    /// Only the measurement changes. The node still takes the width its parent offered,
+    /// its content starts at the start edge, and whatever is wider than that is clipped.
+    /// A table column sized to its widest cell uses it: a cell wider than the column
+    /// reports its own width, and the column grows on the next frame.
+    pub const fn unbounded_width(mut self) -> Self {
+        self.unbounded_width = true;
+        self
+    }
+
+    /// [`Modifier::unbounded_width`] when `unbounded` is `true`, and nothing when it is
+    /// `false`: the node is measured inside its parent's width as usual. The last call of
+    /// the two decides.
+    pub const fn wrap_content_width(mut self, unbounded: bool) -> Self {
+        self.unbounded_width = unbounded;
+        self
     }
 
     /// Constrains the size of the content within minimum and maximum bounds in dp.
@@ -620,7 +666,8 @@ impl Modifier {
         self
     }
 
-    /// A shape from the design system's ladder.
+    /// A shape from the design system's ladder. `ShapeRole::Full` is a pill at whatever
+    /// height the node has, so round ends need no radius worked out from the height.
     pub const fn shape_role(mut self, role: ShapeRole) -> Self {
         self.shape_role = Some(role);
         self
@@ -833,10 +880,6 @@ impl Modifier {
 
     /// The name assistive technology reads for this node. On a widget with a visible label
     /// it replaces that label; an empty name is the same as none.
-    ///
-    /// Names are kept for the life of the program, and at most 4096 distinct names are
-    /// kept. A name past that limit is left off (debug builds print a warning once), so
-    /// use a fixed set of names rather than one built from changing data.
     pub fn label(mut self, label: &str) -> Self {
         self.semantics_label = keep_label(label);
         self
@@ -894,6 +937,12 @@ impl Modifier {
     /// Exposes a focus action on the node.
     pub const fn focus_action(mut self, exposed: bool) -> Self {
         self.semantics_state.focus_action = exposed;
+        self
+    }
+
+    /// Whether the node opens a popup, as a menu button announces it.
+    pub const fn has_popup(mut self, has_popup: bool) -> Self {
+        self.semantics_state.has_popup = has_popup;
         self
     }
 
@@ -1116,6 +1165,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "match_parent_size",
         OwnedAttr::Bool(modifier.match_parent_size),
     );
+    push(false, "sticky", OwnedAttr::Bool(modifier.sticky));
     push(
         chip,
         "fill_max_width",
@@ -1125,6 +1175,11 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         standard,
         "fill_max_height",
         OwnedAttr::Bool(modifier.fill_max_height),
+    );
+    push(
+        false,
+        "unbounded_width",
+        OwnedAttr::Bool(modifier.unbounded_width),
     );
     // The layer and the values the Renderer animates, written only when they are set. An
     // animated value owns its slot while it is set, as an animated background does above.
@@ -1149,7 +1204,8 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         "accessible_name",
         modifier
             .semantics_label
-            .map_or(OwnedAttr::None, OwnedAttr::Label),
+            .as_ref()
+            .map_or(OwnedAttr::None, |label| OwnedAttr::Label(Arc::clone(label))),
     );
     push(
         false,
@@ -1379,26 +1435,27 @@ mod fr68_label_tests {
     use super::*;
 
     #[test]
-    fn fr68_repeated_labels_do_not_grow_the_table() {
-        let table = LabelTable::new();
-        let first = table.intern("Refresh", MAX_LABELS).unwrap();
+    fn fr68_repeated_labels_do_not_grow_the_cache() {
+        let mut cache = LabelCache::new();
+        let first = cache.intern("Refresh");
         for _ in 0..10_000 {
-            let again = table.intern("Refresh", MAX_LABELS).unwrap();
-            assert!(std::ptr::eq(first, again));
+            let again = cache.intern("Refresh");
+            assert!(Arc::ptr_eq(&first, &again));
         }
-        assert_eq!(table.len(), 1);
+        assert_eq!(cache.len(), 1);
     }
 
     #[test]
-    fn fr68_labels_past_the_cap_are_dropped() {
-        let table = LabelTable::new();
-        for n in 0..MAX_LABELS {
-            assert!(table.intern(&format!("label {n}"), MAX_LABELS).is_some());
+    fn fr68_cache_evicts_old_entries_without_dropping_new_labels() {
+        let mut cache = LabelCache::with_capacity(32);
+        for n in 0..100 {
+            let label = cache.intern(&format!("label {n}"));
+            assert_eq!(label.as_ref(), format!("label {n}"));
         }
-        assert_eq!(table.len(), MAX_LABELS);
-        assert_eq!(table.intern("one too many", MAX_LABELS), None);
-        assert_eq!(table.len(), MAX_LABELS);
-        // A name already kept is still found.
-        assert!(table.intern("label 0", MAX_LABELS).is_some());
+        assert_eq!(cache.len(), 32);
+        // An old entry evicted earlier can still be interned again as new.
+        let re_interned = cache.intern("label 0");
+        assert_eq!(re_interned.as_ref(), "label 0");
+        assert_eq!(cache.len(), 32);
     }
 }

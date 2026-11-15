@@ -35,6 +35,8 @@ internal class MeasureRequests {
         val spanFonts: Map<Int, List<FontRef>>,
         val fonts: List<FontRef>,
         val zoom: Float,
+        val fontFeatures: ByteArray,
+        val spanFeatures: ByteArray,
     ) : Request
 
     private class Node(
@@ -71,11 +73,13 @@ internal class MeasureRequests {
         spanFonts: Map<Int, List<FontRef>> = emptyMap(),
         fonts: List<FontRef> = emptyList(),
         zoom: Float = 0f,
+        fontFeatures: ByteArray = ByteArray(0),
+        spanFeatures: ByteArray = ByteArray(0),
     ): MeasureRequests {
         requests += Text(
             text, role, fontSize, fontWeight, italic, wrap, letterSpacing, lineHeight, maxLines,
             tabSize, wordBreak, overflowWrap, absoluteSize, constraint, width, spans, spanFonts, fonts,
-            zoom,
+            zoom, fontFeatures, spanFeatures,
         )
         return this
     }
@@ -144,6 +148,10 @@ internal class MeasureRequests {
                     records.putInt(at + MeasureRecords.TEXT_CONSTRAINT_AT, request.constraint)
                     records.putFloat(at + MeasureRecords.TEXT_WIDTH_AT, request.width)
                     records.putFloat(at + MeasureRecords.TEXT_ZOOM_AT, request.zoom)
+                    records.putInt(at + MeasureRecords.TEXT_FONT_FEATURES_OFFSET_AT, payload.add(request.fontFeatures))
+                    records.putInt(at + MeasureRecords.TEXT_FONT_FEATURES_COUNT_AT, request.fontFeatures.size / 8)
+                    records.putInt(at + MeasureRecords.TEXT_SPAN_FEATURES_OFFSET_AT, payload.add(request.spanFeatures))
+                    records.putInt(at + MeasureRecords.TEXT_SPAN_FEATURES_LENGTH_AT, request.spanFeatures.size)
                 }
             }
         }
