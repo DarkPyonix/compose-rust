@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Releasing bytes registered at run time
+
+`asset::release_owned(asset_id, kind)` pairs with `asset::register_owned`: it takes the bytes out of the registry and sends the Renderer one `ReleaseAsset` record on the next batch, the same record `release_brush` sends. Registering the same bytes again afterwards gives a new id and a new `RegisterAsset`. An id that is not registered as that kind, or was already released, returns false and sends nothing. A screen that builds pictures at run time, such as an SVG drawn once per colour, can now keep the Renderer's cache from growing for the life of the app ([DarkPyonix/dioxus-compose#273](https://github.com/DarkPyonix/dioxus-compose/issues/273)).
+
 ### Per-span font features
 
 OpenType font features can now be set on single runs inside a `Text`: `TextSpans::new_with_features` gives each run its own list, and `spans::encode_feature_table` with `TextSpans::with_feature_table` attaches an already built table. The table travels beside the runs as the new `SpanFontFeatures` property (tag 209), and a `Text` none of whose runs names a feature sends no such record. A run that names features is set with the text's own `FontFeatureSettings` first and its own after them, so a tag both name takes the run's value, and a run that names none is drawn with the text's. Runs take features with or without a type role. A table the Renderer cannot read, or one that names a run the text does not have, is one `ProtocolError` and the text is drawn without span features ([#702](https://github.com/DarkPyonix/compose-rust/issues/702)).
