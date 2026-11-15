@@ -435,6 +435,23 @@ static int rest_lead_width, rest_trail_width, rest_bottom_height;
 static double ruler_first, ruler_period;
 static long marker_gap_in_drag, marker_stretch_in_drag, marker_missing_in_drag;
 static int worst_gap_px, worst_ruler_error_px;
+/*
+ * The window states, one size change at a time: when each was asked for, and how many frames
+ * from then until the next one showed a fault. The gate judges the states by how many size
+ * changes had a faulty frame, so it needs them counted per change, not per run.
+ */
+#define STATE_CHANGES 4
+static volatile long long state_change_qpc[STATE_CHANGES];
+static volatile LONG state_changes_made;
+static long state_faulty_frames[STATE_CHANGES];
+
+/* Called just before each state is asked for, so a frame is counted against the change it shows. */
+static void note_state_change(void) {
+    LONG i = state_changes_made;
+    if (i >= STATE_CHANGES) return;
+    state_change_qpc[i] = now_qpc();
+    InterlockedExchange(&state_changes_made, i + 1);
+}
 
 /*
  * One line of pixels, a row (vertical 0, at = y, i = x) or a column (vertical 1, at = x,
@@ -984,6 +1001,13 @@ static void analyse_latest(long long present, UINT accumulated, int calibrating)
         marker_gap_in_drag += marker_gap;
         marker_stretch_in_drag += marker_stretch;
         marker_missing_in_drag += marks.judged && marks.missing;
+        if (edge_mode == EDGE_STATES && what[0] != 0) {
+            int change = 0;
+            for (int i = 0; i < state_changes_made; i++) {
+                if (present >= state_change_qpc[i]) change = i;
+            }
+            state_faulty_frames[change]++;
+        }
         if (marks.judged && marks.gap_px > worst_gap_px) worst_gap_px = marks.gap_px;
         if (marks.judged && marks.ruler_error_px > worst_ruler_error_px) worst_ruler_error_px = marks.ruler_error_px;
         if (inferred > 0) note_width(inferred);
@@ -1700,17 +1724,21 @@ int main(int argc, char **argv) {
         say("move-size loop not used: window states");
         RECT half = work.rcWork;
         half.right = half.left + (half.right - half.left) / 2;
+        note_state_change();
         BOOL done = ShowWindowAsync(window, SW_MAXIMIZE);
         say("state maximise qpc=%lld %s", now_qpc(), done ? "sent" : "FAILED");
         Sleep(1500);
+        note_state_change();
         done = ShowWindowAsync(window, SW_RESTORE);
         say("state restore qpc=%lld %s", now_qpc(), done ? "sent" : "FAILED");
         Sleep(1500);
+        note_state_change();
         done = SetWindowPos(window, NULL, half.left, half.top, half.right - half.left, half.bottom - half.top,
                             SWP_NOZORDER | SWP_NOACTIVATE);
         say("state left-half qpc=%lld %ld,%ld %ldx%ld %s", now_qpc(), half.left, half.top, half.right - half.left,
             half.bottom - half.top, done ? "set" : "FAILED");
         Sleep(1500);
+        note_state_change();
         done = SetWindowPos(window, NULL, outer.left, outer.top, outer.right - outer.left, outer.bottom - outer.top,
                             SWP_NOZORDER | SWP_NOACTIVATE);
         say("state back qpc=%lld %ld,%ld %ldx%ld %s", now_qpc(), outer.left, outer.top, outer.right - outer.left,
@@ -1794,6 +1822,12 @@ int main(int argc, char **argv) {
         frames_with_hole, torn_in_drag, strip_holes_in_drag, strip_black_in_drag, stale_in_drag,
         markers_calibrated ? "judged" : "off", marker_gap_in_drag, marker_missing_in_drag, marker_stretch_in_drag,
         worst_gap_px, worst_ruler_error_px, edge_name);
+    if (edge_mode == EDGE_STATES) {
+        int faulty = 0;
+        for (int i = 0; i < state_changes_made; i++) faulty += state_faulty_frames[i] > 0;
+        say("states changes=%ld faulty=%d faulty_frames=%ld,%ld,%ld,%ld", (long)state_changes_made, faulty,
+            state_faulty_frames[0], state_faulty_frames[1], state_faulty_frames[2], state_faulty_frames[3]);
+    }
     say("verdict %s (%s, loop %s, %d sizes seen, %ld frames with desktop inside the window, %ld with black; "
         "full height: %ld torn, %ld with desktop, %ld with black; %ld stale; markers %s: %ld with a gap, "
         "%ld stretched)",

@@ -9,7 +9,8 @@
 #   - the probe job drags the hand-check its own run built, and every dispatch of ci.yml
 #     runs it, so a moved pin is dragged by the run that checks the move;
 #   - every edge, the window states, the markers and the frames are asked for, at 100% and
-#     200%, and the job fails when the late control passes or the CPU path shows a fault;
+#     200%, and the job fails when the late control passes or a CPU path drag shows a
+#     fault, or when more than 10% of the CPU path's window state changes show one;
 #   - hand-check and the control draw the markers the probe looks for, in the colours it
 #     takes for them. That half compiles the probe's colour tests with whatever C compiler is
 #     here, and skips without one.
@@ -120,6 +121,30 @@ elif ! grep -qF 'for edge in right bottom corner left' <<<"$gate" || ! grep -qF 
     fail "$name" "the gate does not look at every edge and the window states"
 elif ! grep -qF 'exit $status' <<<"$gate"; then
     fail "$name" "the gate does not exit with what it found"
+else
+    ok "$name"
+fi
+
+name=fr19_8_4_the_window_states_are_judged_by_rate_and_the_drags_strictly
+# The window states fail above 10% of their size changes with a faulty frame, and a short
+# count fails too; every drag on the CPU path still has to PASS outright.
+states_case="$(grep -F 'case "$label:$verdict" in' -A 3 <<<"$cpu_branch")"
+if ! grep -qF 'states_limit_percent=10' <<<"$gate" || ! grep -qF 'states_runs=25' <<<"$gate" ||
+    ! grep -qF 'states_changes_per_run=4' <<<"$gate"; then
+    fail "$name" "the gate does not judge 25 runs of 4 window state changes at a 10% limit"
+elif ! grep -qF '[ $((faulty * 100)) -le $((changes * states_limit_percent)) ]' <<<"$gate"; then
+    fail "$name" "the gate does not fail above the states limit"
+elif ! grep -qF '[ "$changes" -ge "$expected" ] || {' <<<"$gate" ||
+    ! grep -qF 'fewer size changes were counted' <<<"$gate"; then
+    fail "$name" "a short count of window state changes does not fail the job"
+elif [[ "$(grep -c -- '-StatesRuns 25 ' <<<"$probe_job")" != 2 ]] || ! grep -qF '[int]$StatesRuns = 1' "$kit_script" ||
+    ! grep -qF 'kn-new-states-r' "$kit_script"; then
+    fail "$name" "the kit is not asked for 25 window state runs at both scales"
+elif ! grep -qF 'say("states changes=%ld faulty=%d' "$probe" || ! grep -qF 'note_state_change();' "$probe"; then
+    fail "$name" "the probe does not count faulty window state changes"
+elif ! grep -qF 'kn-new-states:*|*"verdict PASS"*) ;;' <<<"$states_case" ||
+    grep -qE 'kn-new-\*:|\*:\*\|' <<<"$states_case"; then
+    fail "$name" "the drags on the CPU path are no longer held to verdict PASS"
 else
     ok "$name"
 fi

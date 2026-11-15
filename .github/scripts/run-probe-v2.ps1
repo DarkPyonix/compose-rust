@@ -23,12 +23,15 @@
 #
 # -NoPause skips the closing prompt (CI). -Out puts the logs somewhere else. -Apps picks which
 # of kn, graalvm and control run (all that are present, by default). -Edges picks the drags
-# (right, bottom, corner, left and states, by default).
+# (right, bottom, corner, left and states, by default). -StatesRuns runs the window states of
+# kn on the new path that many times (1, by default), labelled kn-new-states, kn-new-states-r2
+# and on: its few size changes a run are too few for a rate, and CI judges them by one.
 param(
     [switch]$NoPause,
     [string]$Out = '',
     [string[]]$Apps = @('kn', 'graalvm', 'control'),
-    [string[]]$Edges = @('right', 'bottom', 'corner', 'left', 'states')
+    [string[]]$Edges = @('right', 'bottom', 'corner', 'left', 'states'),
+    [int]$StatesRuns = 1
 )
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -51,12 +54,18 @@ foreach ($app in $all) {
     }
     foreach ($path in $app.Paths) {
         foreach ($edge in $Edges) {
-            # The window states are not a drag, so they have no mouse rate: one run each.
+            # The window states are not a drag, so they have no mouse rate: one run each, or
+            # -StatesRuns runs for kn on the new path.
             $edgeRates = $rates
-            if ($edge -eq 'states') { $edgeRates = @(, @(16, 8)) }
+            if ($edge -eq 'states') {
+                $repeat = if ($app.Name -eq 'kn' -and $path -eq 'new') { [Math]::Max(1, $StatesRuns) } else { 1 }
+                $edgeRates = @(1..$repeat | ForEach-Object { , @(16, 8, $_) })
+            }
             foreach ($r in $edgeRates) {
                 $rate = if ($edge -eq 'states') { 'states' } else { "$($r[0])" }
-                $label = if ($edge -eq 'states') { "$($app.Name)-$path-states" } else { "$($app.Name)-$path-$edge-$($r[0])" }
+                $label = if ($edge -ne 'states') { "$($app.Name)-$path-$edge-$($r[0])" }
+                    elseif ($r[2] -eq 1) { "$($app.Name)-$path-states" }
+                    else { "$($app.Name)-$path-states-r$($r[2])" }
                 $probeLog = Join-Path $out "$label-probe.log"
                 $appLog = Join-Path $out "$label.log"
                 $frames = Join-Path $out "frames\$label"

@@ -605,7 +605,7 @@ jobs:
         run: |
           kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
           out="$(cygpath -w "$RUNNER_TEMP/probe-logs/1x")"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -StatesRuns 25 -Out "$out"
 
       - name: Set the display to 200%
         # The runner's display is 1024x768, where Windows offers no scale but 100%, and
@@ -628,7 +628,7 @@ jobs:
         run: |
           kit="$(cygpath -w "$RUNNER_TEMP/probe-kit")"
           out="$(cygpath -w "$RUNNER_TEMP/probe-logs/2x")"
-          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -Out "$out"
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$kit\\run-probe-v2.ps1" -NoPause -StatesRuns 25 -Out "$out"
 
       - name: Report the drags
         # The table run-probe-v2 wrote for each scale, then each drag's own lines.
@@ -744,6 +744,18 @@ jobs:
         # black, torn, stale, marker gap or stretched frame, judged by the markers, and every
         # CPU step blitted and validated in the same words from the same C. With resize frames
         # on the GPU it must have taken that path; its verdicts are in the summary, not gated.
+        #
+        # Its window states (maximise, restore, left half, back) are judged by rate instead:
+        # 25 runs of 4 size changes at each scale, and the step fails when more than 10% of the
+        # size changes had a faulty frame, or when fewer than 100 were counted, since a probe
+        # that did not finish has judged nothing. It is a rate and not zero because the fork's
+        # window still shows the previous picture for one composed frame after some restores
+        # and snaps (compose-multiplatform-core-extended#223): on every one at the ext.3 pin,
+        # on about 2.6% of them (6.4% in the worst run) at ext.4. A strict zero would fail
+        # every run at ext.3 and about one in three at ext.4, for a fault this repository
+        # cannot fix. The fork's own probe gates it at the same 10%. It becomes zero once the
+        # fork's window has one surface that takes the size and the picture in one step
+        # (#223); the drags stay strict throughout.
         shell: bash --noprofile --norc -o pipefail {0}
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
@@ -757,8 +769,33 @@ jobs:
             done
             labels="$labels $app_path-states"
           done
+          states_runs=25
+          states_changes_per_run=4
+          states_limit_percent=10
           for scale in 1x 2x; do
             want="$([ $scale = 1x ] && echo "dpi 96 (1.00x)" || echo "dpi 192 (2.00x)")"
+            # The repeated runs of kn-new-states, judged together by rate.
+            runs=0; changes=0; faulty=0
+            for run in $(seq 1 $states_runs); do
+              label="kn-new-states"; [ "$run" = 1 ] || label="kn-new-states-r$run"
+              probe="$out/$scale/$label-probe.log"
+              line="$(grep -h "^resize-probe: states changes=" "$probe" 2>/dev/null | tail -1 || true)"
+              if [ -z "$line" ]; then echo "$scale $label: no states count (the probe did not finish)"; continue; fi
+              for state in maximise restore; do
+                grep -qE "^resize-probe: state $state qpc=[0-9]+ sent" "$probe" || { echo "$scale $label: $state was not sent"; status=1; }
+              done
+              for state in left-half back; do
+                grep -qE "^resize-probe: state $state qpc=.* set$" "$probe" || { echo "$scale $label: $state was not set"; status=1; }
+              done
+              runs=$((runs + 1))
+              changes=$((changes + $(sed -n 's/.* changes=\([0-9]*\) .*/\1/p' <<<"$line")))
+              faulty=$((faulty + $(sed -n 's/.* faulty=\([0-9]*\) .*/\1/p' <<<"$line")))
+            done
+            expected=$((states_runs * states_changes_per_run))
+            echo "$scale kn-new-states: runs $runs/$states_runs, size changes $changes/$expected, faulty $faulty, limit $states_limit_percent% (at most $((changes * states_limit_percent / 100)))"
+            [ "$changes" -ge "$expected" ] || { echo "  FAULT: fewer size changes were counted than were asked for"; status=1; }
+            [ $((faulty * 100)) -le $((changes * states_limit_percent)) ] ||
+              { echo "  FAULT: more than $states_limit_percent% of the window state changes showed a faulty frame (see the frames)"; status=1; }
             for label in $labels; do
               dir="$out/$scale"
               probe="$dir/$label-probe.log"
@@ -786,7 +823,11 @@ jobs:
               esac
               case "$label" in
                 kn-new-*)
-                  case "$verdict" in *"verdict PASS"*) ;; *) echo "  FAULT: the CPU resize path shows a fault (see the frames)"; status=1 ;; esac
+                  # The window states are judged by rate above, every drag here.
+                  case "$label:$verdict" in
+                    kn-new-states:*|*"verdict PASS"*) ;;
+                    *) echo "  FAULT: the CPU resize path shows a fault (see the frames)"; status=1 ;;
+                  esac
                   grep -qF "hand-check: marker scene" "$log" || { echo "  hand-check did not draw the marker scene"; status=1; }
                   grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
                     { echo "  hand-check did not take the CPU resize path"; status=1; }
