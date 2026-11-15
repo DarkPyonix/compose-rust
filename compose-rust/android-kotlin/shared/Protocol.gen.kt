@@ -1841,13 +1841,14 @@ sealed interface HostEvent {
         override fun toString(): String =
             "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
     }
+    data class DensityChanged(override val nodeId: Int, override val handlerId: Long, val scale: kotlin.Float) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 5930533509208528076L
+    const val SCHEMA_HASH: Long = -3139650890461470841L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -2556,6 +2557,7 @@ object Protocol {
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
                 is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
+                is HostEvent.DensityChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2617,6 +2619,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 80
                 is HostEvent.ColorSchemeChanged -> 20
                 is HostEvent.SelectionsChanged -> 28
+                is HostEvent.DensityChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2682,6 +2685,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 66
                 is HostEvent.ColorSchemeChanged -> 52
                 is HostEvent.SelectionsChanged -> 67
+                is HostEvent.DensityChanged -> 53
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2967,6 +2971,7 @@ object Protocol {
                     out.putInt(event.version)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.DensityChanged -> out.putFloat(event.scale)
             }
             if (text != null) out.put(text)
             return out.position() - start

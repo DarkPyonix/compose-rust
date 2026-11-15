@@ -480,7 +480,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(24, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1787 + 24, bytes.size, "the two events are the last in the vector")
+        assertEquals(1807 + 24, bytes.size, "the two events are the last in the vector")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -493,11 +493,11 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(32, parentLength)
-        assertEquals(bytes.copyOfRange(1755, 1755 + 32).toList(), out.array().copyOf(parentLength).toList())
+        assertEquals(bytes.copyOfRange(1775, 1775 + 32).toList(), out.array().copyOf(parentLength).toList())
         out.clear()
         val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 24, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
-        assertEquals(bytes.copyOfRange(1787, 1787 + 24).toList(), out.array().copyOf(focusLength).toList())
+        assertEquals(bytes.copyOfRange(1807, 1807 + 24).toList(), out.array().copyOf(focusLength).toList())
     }
 
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
@@ -989,7 +989,7 @@ class ProtocolVectorsTest {
         )
         assertEquals(20, length)
         assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1755 + 32 + 24, bytes.size)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1001,6 +1001,29 @@ class ProtocolVectorsTest {
         assertEquals(52, light.getShort(0).toInt())
         assertEquals(0, light.getInt(16))
         assertEquals(1, out.getInt(16))
+    }
+
+    /**
+     * The density report encodes to the 20 bytes the Host decodes: the header, then the
+     * scale as one `f32`. It is the vector's last record, under event tag 53.
+     */
+    @Test
+    fun fr43_density_event_round_trips() {
+        val bytes = vectorFile("events.bin").readBytes()
+        val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
+        assertEquals(20, length)
+        assertEquals(1775, bytes.size)
+        assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
+        assertEquals(53, out.getShort(0).toInt())
+        assertEquals(20, out.getShort(2).toInt())
+        assertEquals(0, out.getInt(4))
+        assertEquals(0L, out.getLong(8))
+        assertEquals(2f, out.getFloat(16))
+        val window = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(20, Protocol.encodeEvent(HostEvent.DensityChanged(20, 0, 1.25f), window))
+        assertEquals(20, window.getInt(4))
+        assertEquals(1.25f, window.getFloat(16))
     }
 
     /** The pointer event encodes to the 72 bytes the Host decodes. */
@@ -1186,8 +1209,8 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        // The platform view events follow the code editor's, two records of 32 and 24 bytes.
-        assertEquals(1755 + 32 + 24, bytes.size)
+        // The platform view events follow the density report, two records of 32 and 24 bytes.
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
     }
 
     /**
@@ -1202,7 +1225,7 @@ class ProtocolVectorsTest {
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
         assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1755 + 32 + 24, bytes.size)
+        assertEquals(1755 + 20 + 32 + 24, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

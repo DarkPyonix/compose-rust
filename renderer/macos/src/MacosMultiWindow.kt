@@ -12,6 +12,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalDensity
+import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.Zoom
 import dev.darkpyonix.composerust.runtime.composeZoomShortcut
@@ -320,6 +321,7 @@ fun MacosWindowZoom(zoom: Zoom, content: @Composable (zoomKeys: Modifier) -> Uni
     CompositionLocalProvider(
         LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
         LocalZoom provides zoom,
+        LocalDisplayScale provides base.density,
     ) {
         content(
             Modifier.onKeyEvent { event ->

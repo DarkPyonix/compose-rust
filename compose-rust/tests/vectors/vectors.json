@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "5930533509208528076",
+  "schemaHashUnsigned": "15307093183248080775",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",
@@ -40,7 +40,7 @@
   },
   "events": {
     "file": "events.bin",
-    "description": "Fifty-one independently decodable event records concatenated in schema order",
+    "description": "Fifty-two independently decodable event records concatenated in schema order",
     "records": [
       { "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 },
       { "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" },
@@ -91,8 +91,9 @@
       { "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 },
       { "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" },
       { "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] },
-      { "type": "NativeViewParent", "offset": 1755, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 },
-      { "type": "NativeViewFocus", "offset": 1787, "length": 24, "nodeId": 24, "handlerId": 301, "focused": true }
+      { "type": "DensityChanged", "offset": 1755, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 },
+      { "type": "NativeViewParent", "offset": 1775, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 },
+      { "type": "NativeViewFocus", "offset": 1807, "length": 24, "nodeId": 24, "handlerId": 301, "focused": true }
     ]
   }
 }

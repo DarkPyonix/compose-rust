@@ -827,6 +827,7 @@ object ScrollWire {
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
             EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
+            EventPayloadType::Density => output.push_str(", val scale: kotlin.Float"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -1710,6 +1711,7 @@ object Protocol {
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
             | EventPayloadType::ColorScheme
+            | EventPayloadType::Density
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1759,6 +1761,8 @@ object Protocol {
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
             EventPayloadType::ColorScheme => 20,
+            // One float after the header.
+            EventPayloadType::Density => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1989,6 +1993,14 @@ object Protocol {
                     "                    out.putInt(systemColorSchemeTag(event.scheme))\n",
                 );
                 output.push_str("                }\n");
+            }
+            EventPayloadType::Density => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putFloat(event.scale)",
+                    event.name
+                )
+                .unwrap();
             }
             EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
@@ -4760,6 +4772,12 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 selections: &selections,
             },
         },
+        // A window on a screen at 200%, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::DensityChanged { scale: 2.0 },
+        },
         // The window a platform view is made in, and that view taking focus.
         HostEvent {
             node_id: 20,
@@ -4829,7 +4847,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Fifty-one independently decodable event records concatenated in schema order",
+    "description": "Fifty-two independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4880,8 +4898,9 @@ pub fn generate_vector_description() -> String {
       {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
       {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
       {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
-      {{ "type": "NativeViewParent", "offset": 1755, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
-      {{ "type": "NativeViewFocus", "offset": 1787, "length": 24, "nodeId": 24, "handlerId": 301, "focused": true }}
+      {{ "type": "DensityChanged", "offset": 1755, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
+      {{ "type": "NativeViewParent", "offset": 1775, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1807, "length": 24, "nodeId": 24, "handlerId": 301, "focused": true }}
     ]
   }}
 }}

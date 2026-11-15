@@ -26,9 +26,9 @@ const MUTATIONS: &[u8] = include_bytes!("vectors/mutations.bin");
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the two events sit in the event vector.
-const PARENT_AT: usize = 1755;
+const PARENT_AT: usize = 1775;
 const PARENT_LEN: usize = 32;
-const FOCUS_AT: usize = 1787;
+const FOCUS_AT: usize = 1807;
 const FOCUS_LEN: usize = 24;
 
 fn vector_parent() -> HostEvent<'static> {

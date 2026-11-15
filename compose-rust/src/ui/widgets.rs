@@ -218,7 +218,7 @@ struct FocusAndKeyHandlers {
 
 /// Writes a motion handler as the listener the wire needs. A node that was given none has
 /// no `OnMotionFinished` at all, and the Renderer attaches nothing to its size motion.
-fn motion_input(
+pub(super) fn motion_input(
     handler: Option<Box<dyn FnMut(MotionFinished)>>,
     listeners: &mut Vec<(&'static str, EventCallback)>,
 ) {
@@ -228,6 +228,36 @@ fn motion_input(
             EventCallback::Motion(Rc::new(RefCell::new(handler))),
         ));
     }
+}
+
+/// A widget's own listeners with its motion handler after them, if it was given one.
+fn with_motion(
+    mut listeners: Vec<(&'static str, EventCallback)>,
+    handler: Option<Box<dyn FnMut(MotionFinished)>>,
+) -> Vec<(&'static str, EventCallback)> {
+    motion_input(handler, &mut listeners);
+    listeners
+}
+
+/// Adds `on_motion_finished` to a builder that has an `on_motion_finished` field. The
+/// containers that take focus and key handlers get theirs from `focus_and_key_handlers`.
+macro_rules! motion_handler {
+    ($name:ident $(<$lifetime:lifetime>)?) => {
+        impl$(<$lifetime>)? $name$(<$lifetime>)? {
+            /// Runs once when this node's size motion comes to rest, with the size it settled
+            /// at in dp. The node needs `Modifier::motion` for its size to move; without it
+            /// nothing is reported. A run interrupted by a newer size is not reported, only
+            /// the one that settles, and under reduced motion it arrives in the frame the
+            /// size changes in.
+            pub fn on_motion_finished(
+                mut self,
+                handler: impl FnMut(MotionFinished) + 'static,
+            ) -> Self {
+                self.on_motion_finished = Some(std::boxed::Box::new(handler));
+                self
+            }
+        }
+    };
 }
 
 /// Turns the handlers into listeners and binds the focus handle, if there is one, to the
@@ -508,6 +538,7 @@ pub struct FlowRowScope {
     horizontal_alignment: Option<HorizontalAlignment>,
     vertical_alignment: Option<VerticalAlignment>,
     max_items_in_each_row: Option<u32>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -523,6 +554,7 @@ pub fn FlowRow() -> FlowRowScope {
         horizontal_alignment: None,
         vertical_alignment: None,
         max_items_in_each_row: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -566,6 +598,7 @@ impl FlowRowScope {
         let (horizontal_alignment, vertical_alignment) =
             (self.horizontal_alignment, self.vertical_alignment);
         let max_items = self.max_items_in_each_row;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::FlowRow"),
             WidgetKind::FlowRow,
@@ -589,13 +622,14 @@ impl FlowRowScope {
                     attrs.push(("max_items_in_each_row", OwnedAttr::Int(i64::from(count))));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 container!(FlowRowScope);
+motion_handler!(FlowRowScope);
 
 /// A `Box` and its builder. Named apart from `std::boxed::Box`, which a glob import of
 /// this module would otherwise hide.
@@ -954,6 +988,7 @@ pub struct TextScope {
     word_break: Option<WordBreak>,
     overflow_wrap: Option<OverflowWrap>,
     pointer: Option<PointerSubscription>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -980,6 +1015,7 @@ pub fn Text(text: impl Into<String>) -> TextScope {
         word_break: None,
         overflow_wrap: None,
         pointer: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -1095,6 +1131,7 @@ impl TextScope {
         let mut listeners = Vec::new();
         let mut subscription = Attrs::new();
         pointer_input(pointer, &mut subscription, &mut listeners);
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         emit(
             widget_key("compose_rust::ui::Text"),
             WidgetKind::Text,
@@ -1162,6 +1199,7 @@ impl TextScope {
 }
 
 composed_on_drop!(TextScope);
+motion_handler!(TextScope);
 pointer_subscription!(TextScope);
 
 /// A `TextField` and its builder.
@@ -1603,6 +1641,7 @@ pub struct ButtonScope {
     type_role: Option<TypeRole>,
     on_click: Option<Box<dyn FnMut()>>,
     focus_handle: Option<super::FocusHandle>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -1629,6 +1668,7 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         type_role: None,
         on_click: None,
         focus_handle: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -1733,8 +1773,9 @@ impl ButtonScope {
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
         let (font_weight, type_role) = (self.font_weight, self.type_role);
-        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        let mut listeners = vec![("onclick", unit(self.on_click.take()))];
         super::focus::bind_focus_handle(self.focus_handle.take());
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         emit(
             widget_key("compose_rust::ui::Button"),
             WidgetKind::Button,
@@ -1768,6 +1809,7 @@ impl ButtonScope {
 }
 
 container!(ButtonScope);
+motion_handler!(ButtonScope);
 
 /// A two-state control, for Checkbox, RadioButton and Switch alike: the Host owns the
 /// value, the control draws exactly what it is told and reports what the user asked for.
@@ -1781,6 +1823,7 @@ macro_rules! toggle {
             accessible_name: Option<String>,
             look: ControlLook,
             on_change: Option<Box<dyn FnMut(bool)>>,
+            on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
             done: bool,
         }
 
@@ -1793,6 +1836,7 @@ macro_rules! toggle {
                 accessible_name: None,
                 look: ControlLook::default(),
                 on_change: None,
+                on_motion_finished: None,
                 done: false,
             }
         }
@@ -1825,6 +1869,7 @@ macro_rules! toggle {
                     ))),
                     None => value_handler(None),
                 };
+                let motion = self.on_motion_finished.take();
                 emit(
                     widget_key($key),
                     WidgetKind::$widget,
@@ -1835,13 +1880,14 @@ macro_rules! toggle {
                         push_accessible_name(accessible_name, attrs);
                         look.push(attrs);
                     },
-                    vec![("onchange", handler)],
+                    with_motion(vec![("onchange", handler)], motion),
                     content,
                 );
             }
         }
 
         composed_on_drop!($name);
+        motion_handler!($name);
     };
 }
 
@@ -1940,6 +1986,7 @@ pub struct SliderScope {
     look: ControlLook,
     thumb_size: Option<f32>,
     on_change: Option<Box<dyn FnMut(f32)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -1958,6 +2005,7 @@ pub fn Slider(value: f32) -> SliderScope {
         look: ControlLook::default(),
         thumb_size: None,
         on_change: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2034,6 +2082,7 @@ impl SliderScope {
             }))),
             None => value_handler(None),
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Slider"),
             WidgetKind::Slider,
@@ -2051,13 +2100,14 @@ impl SliderScope {
                     attrs.push(("thumb_size", OwnedAttr::Float(f64::from(dp))));
                 }
             },
-            vec![("onchange", handler)],
+            with_motion(vec![("onchange", handler)], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(SliderScope);
+motion_handler!(SliderScope);
 
 /// A `ProgressIndicator` and its builder.
 pub struct ProgressIndicatorScope {
@@ -2067,6 +2117,7 @@ pub struct ProgressIndicatorScope {
     circular: bool,
     color: Option<Paint>,
     track_color: Option<Paint>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2079,6 +2130,7 @@ pub fn ProgressIndicator(value: f32) -> ProgressIndicatorScope {
         circular: false,
         color: None,
         track_color: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2133,6 +2185,7 @@ impl ProgressIndicatorScope {
         let modifier = std::mem::take(&mut self.modifier);
         let (value, determinate, circular) = (self.value, self.determinate, self.circular);
         let (color, track_color) = (self.color, self.track_color);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::ProgressIndicator"),
             WidgetKind::ProgressIndicator,
@@ -2148,18 +2201,20 @@ impl ProgressIndicatorScope {
                     attrs.push(("track_color", super::paint(Some(track))));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 composed_on_drop!(ProgressIndicatorScope);
+motion_handler!(ProgressIndicatorScope);
 
 /// A `Divider` and its builder.
 pub struct DividerScope {
     modifier: Modifier,
     vertical: bool,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2168,6 +2223,7 @@ pub fn Divider() -> DividerScope {
     DividerScope {
         modifier: Modifier::new(),
         vertical: false,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2187,6 +2243,7 @@ impl DividerScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let vertical = self.vertical;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Divider"),
             WidgetKind::Divider,
@@ -2194,13 +2251,14 @@ impl DividerScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("vertical", OwnedAttr::Bool(vertical)));
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 composed_on_drop!(DividerScope);
+motion_handler!(DividerScope);
 
 // ----- pictures -------------------------------------------------------------------------
 
@@ -2214,6 +2272,7 @@ pub struct AssetScope {
     tinted: bool,
     color: Option<Paint>,
     content_scale: Option<ContentScale>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2226,6 +2285,7 @@ pub fn Image(asset_id: u32) -> AssetScope {
         tinted: false,
         color: None,
         content_scale: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2239,6 +2299,7 @@ pub fn Icon(asset_id: u32) -> AssetScope {
         tinted: false,
         color: None,
         content_scale: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2268,6 +2329,7 @@ impl Icon {
             tinted: true,
             color: None,
             content_scale: None,
+            on_motion_finished: None,
             done: false,
         }
     }
@@ -2300,6 +2362,7 @@ impl AssetScope {
         } else {
             widget_key("compose_rust::ui::Image")
         };
+        let motion = self.on_motion_finished.take();
         emit(
             key,
             widget,
@@ -2316,19 +2379,21 @@ impl AssetScope {
                     attrs.push(("content_scale", OwnedAttr::Int(i64::from(u16::from(scale)))));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 composed_on_drop!(AssetScope);
+motion_handler!(AssetScope);
 
 /// A `Canvas` and its builder.
 pub struct CanvasScope {
     modifier: Modifier,
     commands: DrawList,
     view_box: Option<(f32, f32)>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2341,6 +2406,7 @@ pub fn Canvas(commands: DrawList) -> CanvasScope {
         modifier: Modifier::new(),
         commands,
         view_box,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2363,6 +2429,7 @@ impl CanvasScope {
         let modifier = std::mem::take(&mut self.modifier);
         let commands = std::mem::take(&mut self.commands);
         let view_box = self.view_box;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Canvas"),
             WidgetKind::Canvas,
@@ -2374,13 +2441,14 @@ impl CanvasScope {
                     attrs.push(("max", OwnedAttr::Float(f64::from(height))));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 composed_on_drop!(CanvasScope);
+motion_handler!(CanvasScope);
 
 // ----- pickers ----------------------------------------------------------------------------
 
@@ -2392,6 +2460,7 @@ pub struct DatePickerScope {
     max: Option<i64>,
     enabled: bool,
     on_change: Option<Box<dyn FnMut(i64)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2404,6 +2473,7 @@ pub fn DatePicker(value: i64) -> DatePickerScope {
         max: None,
         enabled: true,
         on_change: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2438,6 +2508,7 @@ impl DatePickerScope {
             }))),
             None => value_handler(None),
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::DatePicker"),
             WidgetKind::DatePicker,
@@ -2448,13 +2519,14 @@ impl DatePickerScope {
                 attrs.push(("max", OwnedAttr::Int(max.unwrap_or(i64::MAX))));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
             },
-            vec![("onchange", handler)],
+            with_motion(vec![("onchange", handler)], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(DatePickerScope);
+motion_handler!(DatePickerScope);
 
 const MINUTES_IN_A_DAY: u32 = 24 * 60;
 
@@ -2466,6 +2538,7 @@ pub struct TimePickerScope {
     max: Option<u32>,
     enabled: bool,
     on_change: Option<Box<dyn FnMut(u32)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2478,6 +2551,7 @@ pub fn TimePicker(value: u32) -> TimePickerScope {
         max: None,
         enabled: true,
         on_change: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2512,6 +2586,7 @@ impl TimePickerScope {
             }))),
             None => value_handler(None),
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::TimePicker"),
             WidgetKind::TimePicker,
@@ -2525,13 +2600,14 @@ impl TimePickerScope {
                 ));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
             },
-            vec![("onchange", handler)],
+            with_motion(vec![("onchange", handler)], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(TimePickerScope);
+motion_handler!(TimePickerScope);
 
 /// A `Dropdown` and its builder.
 pub struct DropdownScope {
@@ -2541,6 +2617,7 @@ pub struct DropdownScope {
     closed: bool,
     bare: bool,
     on_change: Option<Box<dyn FnMut(usize)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2553,6 +2630,7 @@ pub fn Dropdown(selected_index: usize) -> DropdownScope {
         closed: false,
         bare: false,
         on_change: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2600,6 +2678,7 @@ impl DropdownScope {
             }))),
             None => value_handler(None),
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Dropdown"),
             WidgetKind::Dropdown,
@@ -2614,13 +2693,14 @@ impl DropdownScope {
                     attrs.push(("bare", OwnedAttr::Bool(true)));
                 }
             },
-            vec![("onchange", handler)],
+            with_motion(vec![("onchange", handler)], motion),
             content,
         );
     }
 }
 
 container!(DropdownScope);
+motion_handler!(DropdownScope);
 
 /// A `MenuItem` and its builder.
 pub struct MenuItemScope {
@@ -2631,6 +2711,7 @@ pub struct MenuItemScope {
     enabled: bool,
     color: Option<Paint>,
     on_click: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2645,6 +2726,7 @@ pub fn MenuItem(text: impl Into<String>) -> MenuItemScope {
         enabled: true,
         color: None,
         on_click: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2688,7 +2770,8 @@ impl MenuItemScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let (icon, selected, enabled, color) = (self.icon, self.selected, self.enabled, self.color);
-        let listeners = vec![("onclick", unit(self.on_click.take()))];
+        let mut listeners = vec![("onclick", unit(self.on_click.take()))];
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         emit(
             widget_key("compose_rust::ui::MenuItem"),
             WidgetKind::Button,
@@ -2709,6 +2792,7 @@ impl MenuItemScope {
 }
 
 composed_on_drop!(MenuItemScope);
+motion_handler!(MenuItemScope);
 
 // ----- surfaces that come and go ----------------------------------------------------------
 
@@ -2723,6 +2807,7 @@ pub struct ModalScope {
     presentation: SheetPresentation,
     max_width: Option<u32>,
     on_dismiss: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2738,6 +2823,7 @@ pub fn Dialog(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         on_dismiss: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2754,6 +2840,7 @@ pub fn Sheet(open: bool) -> ModalScope {
         presentation: SheetPresentation::Edge,
         max_width: None,
         on_dismiss: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2814,6 +2901,7 @@ impl ModalScope {
             widget_key("compose_rust::ui::Sheet")
         };
         let scrim = self.scrim;
+        let motion = self.on_motion_finished.take();
         emit(
             key,
             widget,
@@ -2836,13 +2924,14 @@ impl ModalScope {
                     attrs.push(("max_width", OwnedAttr::Int(i64::from(max_width))));
                 }
             },
-            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),
             content,
         );
     }
 }
 
 container!(ModalScope);
+motion_handler!(ModalScope);
 
 /// A `Menu` and its builder.
 pub struct MenuScope<'a> {
@@ -2851,6 +2940,7 @@ pub struct MenuScope<'a> {
     scrim: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     anchor: Option<Box<dyn FnOnce() + 'a>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2863,6 +2953,7 @@ pub fn Menu<'a>(expanded: bool) -> MenuScope<'a> {
         scrim: None,
         on_dismiss: None,
         anchor: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -2890,6 +2981,7 @@ impl<'a> MenuScope<'a> {
         let expanded = self.expanded;
         let anchor = self.anchor.take();
         let scrim = self.scrim;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Menu"),
             WidgetKind::Menu,
@@ -2900,7 +2992,7 @@ impl<'a> MenuScope<'a> {
                     attrs.push(("scrim", super::paint(Some(scrim))));
                 }
             },
-            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),
             || {
                 if let Some(anchor) = anchor {
                     let _anchor =
@@ -2916,6 +3008,7 @@ impl<'a> MenuScope<'a> {
 }
 
 container!(MenuScope<'a>);
+motion_handler!(MenuScope<'a>);
 
 /// A `Popover` and its builder.
 pub struct PopoverScope<'a> {
@@ -2928,6 +3021,7 @@ pub struct PopoverScope<'a> {
     scrim_color: Option<Paint>,
     on_dismiss: Option<Box<dyn FnMut()>>,
     anchor: Option<Box<dyn FnOnce() + 'a>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -2955,6 +3049,7 @@ pub fn Popover<'a>(open: bool) -> PopoverScope<'a> {
         scrim_color: None,
         on_dismiss: None,
         anchor: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3010,6 +3105,7 @@ impl<'a> PopoverScope<'a> {
         let (placement, align, offset) = (self.placement, self.align, self.offset);
         let (scrim, scrim_color) = (self.scrim, self.scrim_color);
         let anchor = self.anchor.take();
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Popover"),
             WidgetKind::Popover,
@@ -3031,7 +3127,7 @@ impl<'a> PopoverScope<'a> {
                     attrs.push(("scrim", OwnedAttr::Bool(true)));
                 }
             },
-            vec![("ondismiss", unit(self.on_dismiss.take()))],
+            with_motion(vec![("ondismiss", unit(self.on_dismiss.take()))], motion),
             || {
                 if let Some(anchor) = anchor {
                     let _anchor = crate::runtime::group_guard(widget_key(
@@ -3048,6 +3144,7 @@ impl<'a> PopoverScope<'a> {
 }
 
 container!(PopoverScope<'a>);
+motion_handler!(PopoverScope<'a>);
 
 // ----- platform views -------------------------------------------------------------------
 
@@ -3157,6 +3254,7 @@ pub struct TabsScope {
     modifier: Modifier,
     color: Option<Paint>,
     selected_index: usize,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3167,6 +3265,7 @@ pub fn Tabs(selected_index: usize) -> TabsScope {
         modifier: Modifier::new(),
         color: None,
         selected_index,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3181,6 +3280,7 @@ impl TabsScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let (color, selected_index) = (self.color, self.selected_index);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Tabs"),
             WidgetKind::Tabs,
@@ -3189,19 +3289,21 @@ impl TabsScope {
                 attrs.push(("color", super::paint(color)));
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 container!(TabsScope);
+motion_handler!(TabsScope);
 
 /// A `TopAppBar` and its builder.
 pub struct TopAppBarScope {
     modifier: Modifier,
     title: String,
     separator: Option<bool>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3212,6 +3314,7 @@ pub fn TopAppBar() -> TopAppBarScope {
         modifier: Modifier::new(),
         title: String::new(),
         separator: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3241,6 +3344,7 @@ impl TopAppBarScope {
         let modifier = std::mem::take(&mut self.modifier);
         let title = std::mem::take(&mut self.title);
         let separator = self.separator;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::TopAppBar"),
             WidgetKind::TopAppBar,
@@ -3251,18 +3355,20 @@ impl TopAppBarScope {
                     attrs.push(("separator", OwnedAttr::Bool(separator)));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 container!(TopAppBarScope);
+motion_handler!(TopAppBarScope);
 
 /// A `Tooltip` and its builder.
 pub struct TooltipScope {
     modifier: Modifier,
     text: String,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3272,6 +3378,7 @@ pub fn Tooltip(text: impl Into<String>) -> TooltipScope {
     TooltipScope {
         modifier: Modifier::new(),
         text: text.into(),
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3280,6 +3387,7 @@ impl TooltipScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Tooltip"),
             WidgetKind::Tooltip,
@@ -3287,13 +3395,14 @@ impl TooltipScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("text", OwnedAttr::Text(text)));
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 container!(TooltipScope);
+motion_handler!(TooltipScope);
 
 // ----- frames and navigation --------------------------------------------------------------
 
@@ -3317,6 +3426,7 @@ pub struct ScaffoldScope<'a> {
     top_bar: Slot<'a>,
     bottom_bar: Slot<'a>,
     floating_action: Slot<'a>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3330,6 +3440,7 @@ pub fn Scaffold<'a>() -> ScaffoldScope<'a> {
         top_bar: None,
         bottom_bar: None,
         floating_action: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3357,11 +3468,12 @@ impl<'a> ScaffoldScope<'a> {
             self.bottom_bar.take(),
             self.floating_action.take(),
         );
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Scaffold"),
             WidgetKind::Scaffold,
             |attrs| push_modifiers(&modifier, Mods::Scaffold, attrs),
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             || {
                 if let Some(bar) = top_bar {
                     slot(
@@ -3395,6 +3507,7 @@ impl<'a> ScaffoldScope<'a> {
 }
 
 container!(ScaffoldScope<'a>);
+motion_handler!(ScaffoldScope<'a>);
 
 /// A `Navigation` and its builder.
 pub struct NavigationScope<'a> {
@@ -3403,6 +3516,7 @@ pub struct NavigationScope<'a> {
     compact: CompactNavigation,
     head: Slot<'a>,
     foot: Slot<'a>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3416,6 +3530,7 @@ pub fn Navigation<'a>(selected_index: usize) -> NavigationScope<'a> {
         compact: CompactNavigation::Default,
         head: None,
         foot: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3451,6 +3566,7 @@ impl<'a> NavigationScope<'a> {
         let selected_index = self.selected_index;
         let compact = self.compact;
         let (head, foot) = (self.head.take(), self.foot.take());
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Navigation"),
             WidgetKind::Navigation,
@@ -3466,7 +3582,7 @@ impl<'a> NavigationScope<'a> {
                     ));
                 }
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             || {
                 if let Some(head) = head {
                     slot(
@@ -3492,6 +3608,7 @@ impl<'a> NavigationScope<'a> {
 }
 
 container!(NavigationScope<'a>);
+motion_handler!(NavigationScope<'a>);
 
 /// A `NavigationItem` and its builder.
 pub struct NavigationItemScope {
@@ -3502,6 +3619,7 @@ pub struct NavigationItemScope {
     enabled: bool,
     section: Option<String>,
     on_click: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3515,6 +3633,7 @@ pub fn NavigationItem(text: impl Into<String>) -> NavigationItemScope {
         enabled: true,
         section: None,
         on_click: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3551,6 +3670,7 @@ impl NavigationItemScope {
         let text = std::mem::take(&mut self.text);
         let section = self.section.take();
         let (icon, color, enabled) = (self.icon, self.color, self.enabled);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::NavigationItem"),
             WidgetKind::NavigationItem,
@@ -3562,13 +3682,14 @@ impl NavigationItemScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("section", optional_text(section)));
             },
-            vec![("onclick", unit(self.on_click.take()))],
+            with_motion(vec![("onclick", unit(self.on_click.take()))], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(NavigationItemScope);
+motion_handler!(NavigationItemScope);
 
 // ----- small things ---------------------------------------------------------------------
 
@@ -3578,6 +3699,7 @@ pub struct FileDropTargetScope {
     alignment: Option<Alignment>,
     on_files_entered: Option<Box<dyn FnMut()>>,
     on_files_dropped: Option<Box<dyn FnMut(FileDrop)>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3588,6 +3710,7 @@ pub fn FileDropTarget() -> FileDropTargetScope {
         alignment: None,
         on_files_entered: None,
         on_files_dropped: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3615,6 +3738,7 @@ impl FileDropTargetScope {
             Some(handler) => EventCallback::Files(Rc::new(RefCell::new(handler))),
             None => EventCallback::Files(Rc::new(RefCell::new(|_: FileDrop| {}))),
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::FileDropTarget"),
             WidgetKind::FileDropTarget,
@@ -3622,16 +3746,20 @@ impl FileDropTargetScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 attrs.push(("alignment", super::role(alignment)));
             },
-            vec![
-                ("onfilesentered", unit(self.on_files_entered.take())),
-                ("onfilesdropped", dropped),
-            ],
+            with_motion(
+                vec![
+                    ("onfilesentered", unit(self.on_files_entered.take())),
+                    ("onfilesdropped", dropped),
+                ],
+                motion,
+            ),
             content,
         );
     }
 }
 
 container!(FileDropTargetScope);
+motion_handler!(FileDropTargetScope);
 
 /// A `Chip` and its builder.
 pub struct ChipScope {
@@ -3643,6 +3771,7 @@ pub struct ChipScope {
     max_lines: Option<u32>,
     overflow: Option<TextOverflow>,
     on_click: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3657,6 +3786,7 @@ pub fn Chip(text: impl Into<String>) -> ChipScope {
         max_lines: None,
         overflow: None,
         on_click: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3700,6 +3830,7 @@ impl ChipScope {
         let text = std::mem::take(&mut self.text);
         let (max_lines, overflow) = (self.max_lines, self.overflow);
         let (icon, selected, enabled) = (self.icon, self.selected, self.enabled);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Chip"),
             WidgetKind::Chip,
@@ -3711,13 +3842,14 @@ impl ChipScope {
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 lines_and_overflow(max_lines, overflow, attrs);
             },
-            vec![("onclick", unit(self.on_click.take()))],
+            with_motion(vec![("onclick", unit(self.on_click.take()))], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(ChipScope);
+motion_handler!(ChipScope);
 
 /// A `FloatingAction` and its builder.
 pub struct FloatingActionScope {
@@ -3725,6 +3857,7 @@ pub struct FloatingActionScope {
     text: String,
     icon: Option<IconRole>,
     on_click: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3736,6 +3869,7 @@ pub fn FloatingAction(text: impl Into<String>) -> FloatingActionScope {
         text: text.into(),
         icon: None,
         on_click: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3755,6 +3889,7 @@ impl FloatingActionScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let icon = self.icon;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::FloatingAction"),
             WidgetKind::FloatingAction,
@@ -3763,13 +3898,14 @@ impl FloatingActionScope {
                 attrs.push(("text", OwnedAttr::Text(text)));
                 attrs.push(("icon", super::role(icon)));
             },
-            vec![("onclick", unit(self.on_click.take()))],
+            with_motion(vec![("onclick", unit(self.on_click.take()))], motion),
             content,
         );
     }
 }
 
 composed_on_drop!(FloatingActionScope);
+motion_handler!(FloatingActionScope);
 
 /// A `Badge` and its builder.
 pub struct BadgeScope {
@@ -3777,6 +3913,7 @@ pub struct BadgeScope {
     value: Option<u32>,
     text: Option<String>,
     color: Option<ColorRole>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3787,6 +3924,7 @@ pub fn Badge() -> BadgeScope {
         value: None,
         text: None,
         color: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3814,6 +3952,7 @@ impl BadgeScope {
         let modifier = std::mem::take(&mut self.modifier);
         let text = self.text.take();
         let (value, color) = (self.value, self.color);
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::Badge"),
             WidgetKind::Badge,
@@ -3826,13 +3965,14 @@ impl BadgeScope {
                 attrs.push(("text", optional_text(text)));
                 attrs.push(("color", super::paint(color.map(Paint::Role))));
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 container!(BadgeScope);
+motion_handler!(BadgeScope);
 
 /// A `SplitPane` and its builder.
 pub struct SplitPaneScope {
@@ -3846,6 +3986,7 @@ pub struct SplitPaneScope {
     label: Option<String>,
     on_change: Option<Box<dyn FnMut(f32)>>,
     on_dismiss: Option<Box<dyn FnMut()>>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3863,6 +4004,7 @@ pub fn SplitPane() -> SplitPaneScope {
         label: None,
         on_change: None,
         on_dismiss: None,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3944,6 +4086,7 @@ impl SplitPaneScope {
         let as_float = |value: Option<f32>| {
             value.map_or(OwnedAttr::None, |value| OwnedAttr::Float(f64::from(value)))
         };
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::SplitPane"),
             WidgetKind::SplitPane,
@@ -3957,21 +4100,26 @@ impl SplitPaneScope {
                 attrs.push(("selected_index", OwnedAttr::Int(selected_index as i64)));
                 attrs.push(("text", optional_text(label)));
             },
-            vec![
-                ("onchange", change),
-                ("ondismiss", unit(self.on_dismiss.take())),
-            ],
+            with_motion(
+                vec![
+                    ("onchange", change),
+                    ("ondismiss", unit(self.on_dismiss.take())),
+                ],
+                motion,
+            ),
             content,
         );
     }
 }
 
 container!(SplitPaneScope);
+motion_handler!(SplitPaneScope);
 
 /// The worked extension widget: Material 3's determinate linear progress indicator.
 pub struct LinearProgressIndicatorScope {
     modifier: Modifier,
     progress: f32,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -3980,6 +4128,7 @@ pub fn LinearProgressIndicator(progress: f32) -> LinearProgressIndicatorScope {
     LinearProgressIndicatorScope {
         modifier: Modifier::new(),
         progress,
+        on_motion_finished: None,
         done: false,
     }
 }
@@ -3988,6 +4137,7 @@ impl LinearProgressIndicatorScope {
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let progress = self.progress;
+        let motion = self.on_motion_finished.take();
         emit(
             widget_key("compose_rust::ui::LinearProgressIndicator"),
             WidgetKind::LinearProgressIndicator,
@@ -3995,13 +4145,14 @@ impl LinearProgressIndicatorScope {
                 push_modifiers(&modifier, Mods::None, attrs);
                 attrs.push(("progress", OwnedAttr::Float(f64::from(progress))));
             },
-            Vec::new(),
+            with_motion(Vec::new(), motion),
             content,
         );
     }
 }
 
 composed_on_drop!(LinearProgressIndicatorScope);
+motion_handler!(LinearProgressIndicatorScope);
 
 // ----- windows --------------------------------------------------------------------
 
