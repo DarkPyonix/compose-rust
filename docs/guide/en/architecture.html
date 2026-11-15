@@ -331,6 +331,38 @@
       <code>main</code>.
     </p>
 
+    <h2 id="windows-ui-thread">The UI thread on Windows</h2>
+    <p>
+      On Windows <code>launch</code> runs the renderer on a thread compose-rust creates, named
+      <code>compose-rust-ui</code>, with a 64 MB stack. The calling thread waits for it and
+      returns what it always returned. The reason is the stack: Compose composes, measures and
+      draws a tree by recursion, and a Windows main thread has 1 MB unless the executable's own
+      link asks for more, where macOS and Linux give 8 MB. The 64 MB is reserved address space,
+      and Windows commits only the pages a screen really uses.
+    </p>
+    <ul>
+      <li>Code before <code>launch</code> runs on the main thread. Composables and their handlers
+        run on the UI thread, so a thread-local set before <code>launch</code> is not the one
+        they read. Pass such state in a static or capture it in the application instead. The
+        same goes for compose-rust's own calls that belong to the UI thread, such as
+        <code>notification::on_activation</code>, <code>windows::on_window_request</code> or
+        <code>clipboard::set_text</code>: made before <code>launch</code>, they are not seen by
+        the UI. Make them from a composable or a handler.</li>
+      <li>A stack overflow or a panic in the UI names <code>compose-rust-ui</code>, not
+        <code>main</code>.</li>
+      <li><code>COMPOSE_RUST_UI_STACK_BYTES</code> sets another size in bytes. It is for
+        diagnosis, such as finding how much stack a screen needs.</li>
+      <li>An application that calls <code>compose_rust_renderer_run</code> itself, without
+        <code>launch</code>, gets no such thread and must provide the stack. On the main thread
+        that means the linker's <code>/STACK</code> on the executable, from the application's
+        own build script: <code>println!("cargo:rustc-link-arg-bins=/STACK:67108864")</code>.
+        A library's build script cannot set it for the application that depends on it, which
+        is why <code>launch</code> makes a thread instead.</li>
+    </ul>
+    <p>
+      macOS and Linux keep the calling thread as the UI thread.
+    </p>
+
     <nav class="pagenav" aria-label="Pagination">
       <a class="prev" href="design-systems.html"><span>Previous</span>&larr; Design systems</a>
       <a class="next" href="troubleshooting.html"><span>Next</span>Troubleshooting &rarr;</a>
