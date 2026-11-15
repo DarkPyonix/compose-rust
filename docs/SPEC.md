@@ -2263,8 +2263,9 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 
 [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 그 답은 디자인 시스템이 아니라
 플랫폼이 정합니다. 제목을 시스템 캡션에 맡길 수 있는 것은 운영체제가 캡션을 그리는 창뿐이고,
-19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows와 Linux에서는 Renderer가 캡션을 그리므로
-제목을 받아 줄 시스템 캡션이 없습니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
+19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows에서는, 그리고 Linux에서 Renderer가
+캡션을 그리는 창에서는 제목을 받아 줄 시스템 캡션이 없습니다. 창 관리자가 타이틀바를 그리는 Linux
+창(Kotlin/Native Renderer)은 캡션 높이가 0이라 아래 셋째 항목을 따릅니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
 막대에도 캡션에도 제목이 없는 창이 됩니다.
 
 - macOS에서 캡션 높이가 있는 창은 어느 디자인 시스템이든 `SystemCaption`을 답하고 막대 안에는
