@@ -927,7 +927,10 @@ define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
     Monospace = 4,
 });
 
-// Corner roles. The radius is the design system's decision.
+// Corner roles. The radius is the design system's decision, except for `Full`, which is
+// a pill in every one of them: each end is a half circle of half the node's shorter
+// side, worked out by the Renderer from the size the node was measured at, so the
+// application never sends a radius that depends on a height.
 define_wire_enum!(SHAPE_ROLE_SCHEMA, ShapeRole {
     None = 1,
     ExtraSmall = 2,

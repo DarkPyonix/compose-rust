@@ -274,6 +274,14 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - `Modifier::ShapeRole(ShapeRole)`, `None|ExtraSmall|Small|Medium|Large|Full`. 실제 반지름은 디자인 시스템이 정합니다. Material 3의 12dp, HIG의 연속 곡률 느낌, Fluent의 4dp가 여기서 갈립니다.
 - `Modifier::Border { width, paint }`, `first` 하위 32비트에 너비, `second`에 `Paint`.
 - 테두리와 모양은 서로 독립입니다. Renderer는 `ShapeRole`/`Shape` 중 마지막에 적용된 것을 클립과 테두리 모두에 씁니다.
+- **`ShapeRole::Full`은 어떤 높이에서도 알약 모양입니다**(이슈 #310, [leader, provisional] (darkpyonix leader, 2026-11-15)). 양 끝은 노드의 짧은 변의 절반을 반지름으로 하는 반원이며, Renderer가 노드가 측정된 크기에서 계산합니다. 앱은 높이에 따라 달라지는 반지름을 보내지 않습니다. 일곱 디자인 시스템의 `Full` 행은 1000dp 이상이고, Renderer는 1000 이상인 반지름을 dp 값이 아니라 50퍼센트 모서리로 그립니다. 다른 모서리가 연속 곡률인 Cupertino와 LiquidGlass에서도 `Full`은 원호의 캡슐입니다. 배경, 테두리, 자르기, 그림자, 누름 피드백이 같은 윤곽을 씁니다. 와이어는 바뀌지 않습니다(`Full`은 태그 6). 퍼센트 반지름 수정자는 두지 않습니다. 수용 기준:
+  1. `ShapeRole::Full`이 태그 6으로 인코딩되고 왕복하며, 태그 7은 역할이 아닙니다(`fr13_shape_role_full_round_trips_at_its_tag`).
+  2. 스키마의 `ShapeRole` 목록이 `None=1`부터 `Full=6`까지이고 `Full`이 마지막입니다(`fr13_shape_role_schema_lists_full_last`).
+  3. `Modifier.shape_role(ShapeRole::Full)` 빌더가 `ShapeRole(Full)` 수정자를 보냅니다(`fr13_modifier_shape_role_builder_sends_full`).
+  4. 일곱 디자인 시스템의 토큰 표에서 마지막 모양 행이 `Full`이고 반지름이 1000dp 이상입니다(`fr13_full_is_the_pill_radius_in_every_design_system`).
+  5. 일곱 디자인 시스템 모두에서 `ShapeRole.Full`의 윤곽이 200x40에서는 네 모서리 20, 200x80에서는 네 모서리 40인 둥근 사각형입니다(`fr13_shape_role_full_outline_is_half_the_height_in_every_design_system`).
+  6. 배경을 칠한 200x40 상자와 200x80 상자가 각각 반지름 20dp, 40dp인 캡슐과 픽셀 단위로 일치합니다. Material 3, Cupertino, Fluent, LiquidGlass에서 확인합니다(`fr13_shape_role_full_is_a_pill_at_any_height_material3`, `..._cupertino`, `..._fluent`, `..._liquid_glass`).
+  7. `Clip(true)`와 4dp 테두리를 가진 200x80 알약에서 더 큰 자식이 캡슐 밖으로 보이지 않고, 테두리가 양 끝의 반원을 따라 그려집니다(`fr13_shape_role_full_clip_and_border_follow_the_pill_material3`, `..._cupertino`).
 
 #### 13.4 간격과 배치
 - `SpaceRole`: `None|Xs|Sm|Md|Lg|Xl|Xxl`. 밀도가 디자인 시스템마다 다른 부분이라 리터럴 dp보다 역할이 먼저입니다.
