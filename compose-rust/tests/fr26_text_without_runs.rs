@@ -178,12 +178,15 @@ fn fr26_a_plain_text_sends_no_font_or_break_rule_records() {
 
 #[Composable]
 fn Styled(on: MutableState<bool>) {
+    // One Text call and one place it is composed, so both frames are the same node.
     let text = Text("plain bold link");
-    if on.get() {
+    let _text = if on.get() {
         text.font(serif())
             .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere);
-    }
+            .overflow_wrap(OverflowWrap::Anywhere)
+    } else {
+        text
+    };
 }
 
 /// A font list or a break rule that is taken away is cleared by one record each.
@@ -207,7 +210,8 @@ fn fr26_a_font_or_break_rule_that_goes_away_is_cleared_once() {
         assert_eq!(
             cleared_records_of(&cleared, kind),
             vec![true],
-            "{kind:?} is cleared by exactly one record"
+            "{kind:?} is cleared by exactly one record: {:?}",
+            decode_batch(&cleared).expect("the batch decodes")
         );
     }
 }

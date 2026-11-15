@@ -48,13 +48,16 @@ fn fr40_a_plain_text_field_sends_no_font_or_break_rule_records() {
 
 #[Composable]
 fn StyledField(on: MutableState<bool>) {
+    // One TextField call and one place it is composed, so both frames are the same node.
     let field = TextField();
-    if on.get() {
+    let _field = if on.get() {
         field
             .font(FontRefs::new([FontRef::Generic(GenericFamily::Serif)]))
             .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere);
-    }
+            .overflow_wrap(OverflowWrap::Anywhere)
+    } else {
+        field
+    };
 }
 
 #[test]
