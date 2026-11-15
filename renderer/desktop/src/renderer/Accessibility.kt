@@ -34,9 +34,10 @@ private const val FOCUSED_SHIFT = 8
 private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
 private const val FOCUS_ACTION_BIT = 1 shl 12
+private const val HAS_POPUP_BIT = 1 shl 13
 
 /** Every bit the state word of a `Semantics` modifier may set. */
-internal const val SEMANTICS_STATE_MASK = (1 shl 13) - 1
+internal const val SEMANTICS_STATE_MASK = (1 shl 14) - 1
 
 /**
  * Whether the Host asked for this node to offer a focus action to assistive technology.
@@ -57,6 +58,12 @@ internal fun Node.isDeclaredSelected(): Boolean {
     if (flag(PropertyKind.Checked, default = false)) return true
     val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
     return declared != null && declared.state.field(SELECTED_SHIFT) == true
+}
+
+/** The role the Host declared on this node's `Semantics` modifier, or null when none was set. */
+internal fun Node.declaredSemanticsRole(): SemanticsRole? {
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+    return declared?.role?.takeIf { it != SemanticsRole.None }
 }
 
 /** A field of the state word: unset, off or on. */
@@ -112,14 +119,25 @@ internal val DeclaredExpanded = SemanticsPropertyKey<Boolean>(
     mergePolicy = { parent, _ -> parent },
 )
 
+/** Whether the Host declared that the node opens a popup. */
+internal val DeclaredHasPopup = SemanticsPropertyKey<Boolean>(
+    name = "ComposeRustDeclaredHasPopup",
+    mergePolicy = { parent, _ -> parent },
+)
+
 /**
- * What a node's state description says about its declared [role] and [expanded] state, for a
- * reader that has no other way to hear them. A window that names both natively leaves this
- * text out, so the reader does not hear the role twice.
+ * What a node's state description says about its declared [role], [expanded] state and
+ * whether it [hasPopup], for a reader that has no other way to hear them. A window that names
+ * them natively leaves this text out, so the reader does not hear the role twice.
  */
-internal fun declaredStateDescription(role: SemanticsRole?, expanded: Boolean?): String? = listOfNotNull(
+internal fun declaredStateDescription(
+    role: SemanticsRole?,
+    expanded: Boolean?,
+    hasPopup: Boolean = false,
+): String? = listOfNotNull(
     role?.word(),
     expanded?.let { if (it) "expanded" else "collapsed" },
+    if (hasPopup) "has popup" else null,
 ).joinToString(", ").takeIf { it.isNotEmpty() }
 
 /**
@@ -152,10 +170,11 @@ internal fun Modifier.accessibility(
     val isDisabled = state.field(DISABLED_SHIFT)
     val focused = state.field(FOCUSED_SHIFT)
     val hidden = state and HIDDEN_BIT != 0
+    val hasPopup = state and HAS_POPUP_BIT != 0
     val isHeading = declaredRole == SemanticsRole.Heading
     val isTextBox = declaredRole == SemanticsRole.TextBox
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
-    val description = declaredStateDescription(declaredRole, expanded)
+    val description = declaredStateDescription(declaredRole, expanded, hasPopup)
     // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
@@ -168,6 +187,7 @@ internal fun Modifier.accessibility(
         if (description != null) stateDescription = description
         if (declaredRole != null && declaredRole != SemanticsRole.None) this[DeclaredRole] = declaredRole
         if (expanded != null) this[DeclaredExpanded] = expanded
+        if (hasPopup) this[DeclaredHasPopup] = true
         if (checked != null) toggleableState = ToggleableState(checked)
         if (selected != null) this.selected = selected
         if (isDisabled == true) disabled()

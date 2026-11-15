@@ -28,6 +28,7 @@ import kotlin.test.assertNull
 private const val BOX = 1
 private const val EXPANDED_OPEN = 2 shl 4
 private const val EXPANDED_CLOSED = 1 shl 4
+private const val HAS_POPUP = 1 shl 13
 private const val EXPANDABLE_AND_EXPANDED = AccessibleState.EXPANDABLE or AccessibleState.EXPANDED
 
 /** What the window hands the platform for one Box carrying [role] and [state], and maybe [label]. */
@@ -103,8 +104,10 @@ class PlatformRoleTest {
     @Test
     fun fr71_expanded_state_reaches_the_platform() {
         assertEquals(0, expandedStates(null))
+        assertEquals(AccessibleState.EXPANDABLE, expandedStates(null, hasPopup = true))
         assertEquals(AccessibleState.EXPANDABLE, expandedStates(false))
         assertEquals(EXPANDABLE_AND_EXPANDED, expandedStates(true))
+        assertEquals(EXPANDABLE_AND_EXPANDED, expandedStates(true, hasPopup = true))
 
         runComposeUiTest {
             val element = assertNotNull(described(SemanticsRole.TreeItem, EXPANDED_OPEN, label = "src"))
@@ -116,6 +119,12 @@ class PlatformRoleTest {
         runComposeUiTest {
             val element = assertNotNull(described(SemanticsRole.Menu, EXPANDED_CLOSED))
             assertEquals(AccessibleState.EXPANDABLE, element.states and EXPANDABLE_AND_EXPANDED)
+        }
+        runComposeUiTest {
+            val element = assertNotNull(described(SemanticsRole.Button, HAS_POPUP, label = "IDE"))
+            assertEquals(ElementRole.BUTTON, element.role)
+            assertEquals(AccessibleState.EXPANDABLE, element.states and EXPANDABLE_AND_EXPANDED)
+            assertNull(element.value)
         }
         runComposeUiTest {
             // Open or closed with no role and no name is still something to announce.
