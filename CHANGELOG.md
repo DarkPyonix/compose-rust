@@ -4,7 +4,7 @@
 
 ### Dragging a selection past the editor's edge scrolls again
 
-On the field path of a `CodeEditor`, holding the mouse below the bottom edge (or above the top) while dragging a selection scrolls the document again and carries the selection with it. Keeping the field's own scroll requests away from the vertical scroll, so the editor could follow the caret itself, had stopped it. Those requests now go through only while a mouse button is down over the field, so the keyboard caret is still followed by the editor alone. ([#841](https://github.com/DarkPyonix/compose-rust/issues/841)).
+In a `CodeEditor`, holding the mouse below the bottom edge (or above the top) while dragging a selection scrolls the document again and carries the selection with it. The drawn path, which never scrolled during a drag, now does too: each frame the pointer is held past the edge it scrolls further the further past it is, and the selection follows the line under the pointer, until the button is released or the pointer comes back inside. Keeping the field's own scroll requests away from the vertical scroll, so the editor could follow the caret itself, had stopped it. Those requests now go through only while a mouse button is down over the field, so the keyboard caret is still followed by the editor alone. ([#841](https://github.com/DarkPyonix/compose-rust/issues/841)).
 
 
 ### Window buttons follow the operating system

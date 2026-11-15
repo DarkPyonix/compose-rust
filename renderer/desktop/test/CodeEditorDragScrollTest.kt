@@ -12,6 +12,7 @@ import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.foundation.code.CodeEditorPath
 import dev.darkpyonix.composerust.foundation.code.defaultCodeEditorPath
+import dev.darkpyonix.composerust.foundation.code.installDrawnCodeEditor
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
@@ -112,5 +113,11 @@ class CodeEditorDragScrollTest {
     @Test
     fun fr38_drag_selection_past_the_bottom_scrolls_the_editor() {
         dragsPastTheBottom(CodeEditorPath.Windowed)
+    }
+
+    @Test
+    fun fr38_drag_selection_past_the_bottom_scrolls_the_drawn_editor() {
+        installDrawnCodeEditor()
+        dragsPastTheBottom(CodeEditorPath.Drawn)
     }
 }
