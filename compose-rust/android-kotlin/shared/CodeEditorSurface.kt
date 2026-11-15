@@ -57,6 +57,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.relocation.BringIntoViewModifierNode
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -1571,6 +1573,11 @@ private fun FieldSurface(
                 Box(
                     Modifier
                         .fillMaxHeight()
+                        // The editor follows the caret down the document itself. The field's
+                        // own request would move the view again by its own reckoning, which
+                        // is off by pixels once there is content padding. Along the line it
+                        // still scrolls.
+                        .then(KeepVerticalScroll)
                         .horizontalScroll(horizontal),
                 ) {
                     val minWidthPx = (viewportWidth - gutterWidthPx - textInsetPx - minimapLeft - minimapRight).coerceAtLeast(0)
@@ -1752,6 +1759,22 @@ internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, vi
     val top = scroll - padTopPx
     val bottom = min(rows.totalPx(rowPx) - 1, top + viewportHeight - 1)
     model.reportVisibleRange(rows.lineAtPx(max(0, top), rowPx), rows.lineAtPx(max(0, bottom), rowPx))
+}
+
+/**
+ * Takes the requests to bring something into view that come up from the field, after the
+ * scroll along the line has answered them, so they do not reach the vertical scroll. The
+ * editor follows the caret down the document itself, from the rows it knows.
+ */
+private object KeepVerticalScroll : ModifierNodeElement<KeepVerticalScrollNode>() {
+    override fun create() = KeepVerticalScrollNode()
+    override fun update(node: KeepVerticalScrollNode) {}
+    override fun hashCode(): Int = 0
+    override fun equals(other: Any?): Boolean = other === this
+}
+
+private class KeepVerticalScrollNode : Modifier.Node(), BringIntoViewModifierNode {
+    override suspend fun bringIntoView(childCoordinates: LayoutCoordinates, boundsProvider: () -> Rect?) {}
 }
 
 /**
