@@ -199,8 +199,8 @@ const fn optional_color(name: &'static str, offset: u16) -> RecordField {
 }
 
 /// The colours an application gives an editor: a role for the container, the gutter, a
-/// line number, the current line's number and the current line. Zero leaves that part to
-/// the design system. Bytes 10 and 11 are reserved and written as zero.
+/// line number, the current line's number, the current line and the current line's part of
+/// the gutter. Zero leaves that part to the design system.
 pub const CODE_EDITOR_COLORS_RECORD: RecordSchema = RecordSchema {
     name: "CodeEditorColorsRecord",
     length: CODE_EDITOR_COLORS_LEN as u16,
@@ -210,8 +210,54 @@ pub const CODE_EDITOR_COLORS_RECORD: RecordSchema = RecordSchema {
         optional_color("lineNumber", 4),
         optional_color("currentLineNumber", 6),
         optional_color("currentLine", 8),
+        optional_color("currentLineGutter", 10),
     ],
 };
+
+/// Bytes of the `ContentPaddingDp` property: the room above the first line, then below the
+/// last, each an `f32` in dp.
+pub const CONTENT_PADDING_LEN: usize = 8;
+
+/// Room above the first line and below the last line of an editor, in dp. It lies inside the
+/// scrolled content, so the first line starts `top_dp` down and the room scrolls away with
+/// it, and the last line can be scrolled `bottom_dp` clear of the end of the view.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ContentPadding {
+    pub top_dp: f32,
+    pub bottom_dp: f32,
+}
+
+impl ContentPadding {
+    pub const fn new(top_dp: f32, bottom_dp: f32) -> Self {
+        Self { top_dp, bottom_dp }
+    }
+
+    /// Whether there is no room on either side, in which case there is nothing to send.
+    pub fn is_empty(&self) -> bool {
+        self.top_dp == 0.0 && self.bottom_dp == 0.0
+    }
+
+    /// The bytes the property carries: top, then bottom, little-endian.
+    pub fn to_bytes(&self) -> [u8; CONTENT_PADDING_LEN] {
+        let mut bytes = [0_u8; CONTENT_PADDING_LEN];
+        bytes[0..4].copy_from_slice(&self.top_dp.to_le_bytes());
+        bytes[4..8].copy_from_slice(&self.bottom_dp.to_le_bytes());
+        bytes
+    }
+
+    /// The padding read back. `None` where the bytes are not eight, or either side is below
+    /// zero or not a number, which the Renderer refuses as well.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != CONTENT_PADDING_LEN {
+            return None;
+        }
+        let side = |at: usize| {
+            let value = f32::from_le_bytes(bytes[at..at + 4].try_into().ok()?);
+            (value.is_finite() && value >= 0.0).then_some(value)
+        };
+        Some(Self::new(side(0)?, side(4)?))
+    }
+}
 
 /// Bytes of one view zone record.
 pub const VIEW_ZONE_LEN: usize = 16;
@@ -1338,6 +1384,9 @@ pub struct CodeEditorColors {
     pub current_line_number: Option<ColorRole>,
     /// The band behind the line the caret is on.
     pub current_line: Option<ColorRole>,
+    /// The gutter beside the line the caret is on, so the band runs across the whole row.
+    /// Unset, the gutter keeps its own colour on that row.
+    pub current_line_gutter: Option<ColorRole>,
 }
 
 impl CodeEditorColors {
@@ -1349,6 +1398,7 @@ impl CodeEditorColors {
             line_number: None,
             current_line_number: None,
             current_line: None,
+            current_line_gutter: None,
         }
     }
 
@@ -1377,6 +1427,11 @@ impl CodeEditorColors {
         self
     }
 
+    pub const fn current_line_gutter(mut self, role: ColorRole) -> Self {
+        self.current_line_gutter = Some(role);
+        self
+    }
+
     /// Whether every part is left to the design system, in which case there is nothing to
     /// send.
     pub fn is_empty(&self) -> bool {
@@ -1392,6 +1447,7 @@ impl CodeEditorColors {
             self.line_number,
             self.current_line_number,
             self.current_line,
+            self.current_line_gutter,
         ];
         for (index, slot) in slots.into_iter().enumerate() {
             let tag = slot.map_or(0, |role| role as u16);
@@ -1418,6 +1474,7 @@ impl CodeEditorColors {
             line_number: slot(2)?,
             current_line_number: slot(3)?,
             current_line: slot(4)?,
+            current_line_gutter: slot(5)?,
         })
     }
 }

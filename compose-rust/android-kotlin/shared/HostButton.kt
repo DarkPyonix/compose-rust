@@ -154,8 +154,22 @@ internal fun HostButton(
     // Read before the decoration, because how much room the button needs depends on it.
     val wordless = node.text(PropertyKind.Text).isEmpty() &&
         node.role(PropertyKind.Icon, IconRole.entries.toTypedArray()) != null
-    val labelPadH = if (wordless && hasExplicitSize) 0.dp else if (wordless) style.verticalPadding else style.horizontalPadding
-    val labelPadV = if (wordless && hasExplicitSize) 0.dp else style.verticalPadding
+    // The room the node asked for round its own label replaces the design system's, for
+    // this button only. It arrives as the four-sided padding, which on a button is the room
+    // inside it; the plain padding stays the room around it. The label is centred, so each
+    // axis takes the mean of its two sides.
+    val ownPadding = node.modifiers.filterIsInstance<ProtocolModifier.PaddingEach>().lastOrNull()
+    val labelPadH = when {
+        ownPadding != null -> contentInset(ownPadding.start, ownPadding.end)
+        wordless && hasExplicitSize -> 0.dp
+        wordless -> style.verticalPadding
+        else -> style.horizontalPadding
+    }
+    val labelPadV = when {
+        ownPadding != null -> contentInset(ownPadding.top, ownPadding.bottom)
+        wordless && hasExplicitSize -> 0.dp
+        else -> style.verticalPadding
+    }
 
     // A label is one line unless the Host asked for more. Left to wrap, a squeezed button
     // is measured at the narrowest a Hangul label can be, one syllable, and '보내' breaks
@@ -254,10 +268,14 @@ internal fun HostButton(
             }
         }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
+    // A button the Host named is read by that name alone. Its label stays on screen, but a
+    // reader that also met the label as text of its own would say the button twice.
+    val ownName = node.text(PropertyKind.AccessibleName).isNotEmpty()
+
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
-    fun ButtonLabel() {
+    fun ButtonLabelContent() {
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
             // a weighted Spacer pushes whatever follows it to the button's inner edge.
@@ -276,6 +294,15 @@ internal fun HostButton(
                 RoleIcon(icon, tint, theme)
                 if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
+        }
+    }
+
+    @Composable
+    fun ButtonLabel() {
+        if (ownName) {
+            Box(Modifier.clearAndSetSemantics { }) { ButtonLabelContent() }
+        } else {
+            ButtonLabelContent()
         }
     }
 
@@ -303,6 +330,13 @@ internal fun HostButton(
             ) { ButtonLabel() }
         }
     }
+}
+
+/** The mean of two opposite sides in dp. A side that is not a length counts as none. */
+private fun contentInset(first: Float, second: Float): Dp {
+    val a = if (first > 0f) first else 0f
+    val b = if (second > 0f) second else 0f
+    return ((a + b) / 2f).dp
 }
 
 // Slightly above 3:1 so anti-aliased glyph edges still measure 3:1.

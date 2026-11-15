@@ -116,6 +116,13 @@ unset DXC_WINDOWS_NATIVE_LIB
 # shares a build with anything else running there. The builds with the same flags share one,
 # so the dependencies are compiled once; each executable is measured and copied out before
 # the next build writes over it.
+# Line tables rather than full debug information. Most of each link was the debug sections of
+# about 250 MB of static libraries, paid by every one of the builds below; line tables still
+# give cdb function names and lines when explain_crash has to say where a run crashed. Set
+# either variable to choose otherwise.
+export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
+export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-0}"
+
 build() {
     local manifest="$1" name="$2"
     CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/$name" \

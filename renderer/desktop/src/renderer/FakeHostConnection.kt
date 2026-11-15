@@ -84,6 +84,8 @@ class FakeHostConnection(
         if (event is HostEvent.ColorSchemeChanged) return 0
         // And the zoom, reported at start and on every change.
         if (event is HostEvent.ZoomChanged) return 0
+        // And the display's scale, the same kind of report.
+        if (event is HostEvent.DensityChanged) return 0
         val response = responder(event)
         response.mutations.forEach(onMutation)
         return response.result

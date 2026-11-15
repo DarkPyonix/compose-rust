@@ -93,7 +93,13 @@ REVISION="cadc5984ef96ed306ea12a7e967bcf945e7b1bdd"
 # role that an application declares reaching the Kotlin/Native macOS window
 # (`DeclaredElementRoles`, fork #234), and two CI changes (fork #229 and #231). All of it is
 # window Kotlin and C the window build already compiles.
-WINDOW_REVISION="a13a6289029d11033c892b94bc200e67aeed93d7"
+# Past that it holds the macOS window holding its backdrop blur still while a native view slot
+# shows, so the view and the frame of one turn are composited together, with `place()` doing
+# work only where a slot's input changed and `setFrameAndVisibleRegion`, which sets both in one
+# call (fork #239, for #233); the Windows window letting the application own its caption strip
+# and move the window from the scene (fork #236, `dxc_native_window_configure_app_caption`); and
+# quoted booleans in the publish workflows (fork #237).
+WINDOW_REVISION="a187dd1e540f2154d621636fd5eef6847ff3c4d0"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles

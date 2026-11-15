@@ -34,10 +34,13 @@ fn CenteredModals() {
     });
 }
 
+/// The `(widget, value)` pairs one property was sent with.
+type PropertyRecords = Vec<(WidgetKind, i64)>;
+
 fn sheet_property_records(
     presentation: Option<SheetPresentation>,
     max_width: Option<u32>,
-) -> (Vec<(WidgetKind, i64)>, Vec<(WidgetKind, i64)>) {
+) -> (PropertyRecords, PropertyRecords) {
     PRESENTATION.with(|cell| cell.set(presentation));
     MAX_WIDTH.with(|cell| cell.set(max_width));
     let mut host = ComposeHost::with_theme(CenteredModals, Theme::unified(DesignSystem::Material3));

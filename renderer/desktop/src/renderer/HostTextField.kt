@@ -390,7 +390,9 @@ internal fun HostTextField(
                     .let {
                         if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    // A bare field clips only to a corner the node named itself.
+                    // A bare field clips only to a corner the node named itself. Its scrolled
+                    // text needs no clip of its own: the text field already draws only inside
+                    // its bounds, scrolled or not.
                     .let { if (bare && !ownShape) it else it.clip(frameShape) }
                     .let {
                         if (ownFill || bare) {
