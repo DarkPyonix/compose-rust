@@ -29,7 +29,6 @@ jobs=(
     windows_static_kit
     windows_static_consumer
     test_native_renderer
-    test_windows_resize_probe
     test_windows_c
     package_windows_host
     packager_linux
@@ -40,7 +39,7 @@ jobs=(
     test_samples
 )
 fast=(test test_windows_c test_graalvm_renderer)
-measure=(test_windows_resize_metrics test_windows_resize_probe)
+measure=(test_windows_resize_metrics)
 # The jobs that download the Windows renderer kit windows_static_kit builds for the run.
 needs_windows_kit=(windows_static_consumer test_native_renderer package_windows_host test_samples)
 

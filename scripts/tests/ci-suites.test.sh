@@ -57,8 +57,8 @@ PY
 
 on() { "$suites" "$1" | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
 every_job="$("$suites" all | sed 's/=.*//' | sort | tr '\n' ' ')"
-measuring="test_windows_resize_metrics test_windows_resize_probe "
-gating="$(printf '%s\n' $every_job | grep -vxE 'test_windows_resize_metrics|test_windows_resize_probe' | tr '\n' ' ')"
+measuring="test_windows_resize_metrics "
+gating="$(printf '%s\n' $every_job | grep -vxE 'test_windows_resize_metrics' | tr '\n' ' ')"
 [[ "$(on all)" == "$gating" ]] && ok "all runs every job but the measurements" || fail "all ran $(on all), not $gating"
 [[ "$(on '')" == "$gating" ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
 [[ "$(on measure)" == "$measuring" ]] && ok "measure runs the jobs that only report numbers" || fail "measure ran $(on measure)"

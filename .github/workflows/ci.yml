@@ -32,7 +32,6 @@ jobs:
       windows_static_kit: ${{ steps.choose.outputs.windows_static_kit }}
       windows_static_consumer: ${{ steps.choose.outputs.windows_static_consumer }}
       test_native_renderer: ${{ steps.choose.outputs.test_native_renderer }}
-      test_windows_resize_probe: ${{ steps.choose.outputs.test_windows_resize_probe }}
       test_windows_c: ${{ steps.choose.outputs.test_windows_c }}
       package_windows_host: ${{ steps.choose.outputs.package_windows_host }}
       packager_linux: ${{ steps.choose.outputs.packager_linux }}
@@ -85,11 +84,6 @@ jobs:
     uses: ./.github/workflows/test-native-renderer.yml
     with:
       windows_kit_built: true
-    secrets: inherit
-  test_windows_resize_probe:
-    if: needs.plan.outputs.test_windows_resize_probe == 'true'
-    needs: plan
-    uses: ./.github/workflows/test-windows-resize-probe.yml
     secrets: inherit
   test_windows_c:
     if: needs.plan.outputs.test_windows_c == 'true'
