@@ -4278,6 +4278,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
+8. [leader, provisional] (darkpyonix leader, 2026-11-15) **컨테이너 역할(#838).** 컨테이너 역할(Menu, List, Group, TabList, Tree, Navigation)을 가진 노드는 자식을 하나로 합치지 않고 각 자식을 따로 접근 가능한 노드로 남기며(순회 그룹), 목록형(Menu, List, TabList, Tree)은 자식 수를 담은 컬렉션 정보를 낸다. 플랫폼 역할 매핑이 있는 창(macOS GraalVM, Windows, Linux)에서는 메뉴·목록·그룹 역할로 읽힌다 (fr71_a_container_role_keeps_its_children_as_separate_nodes). Kotlin/Native macOS 창의 역할은 #782의 역할 훅이 들어온 뒤에 성립하며, 그때까지 이 부분은 완료가 아니다.
 
 ### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 
