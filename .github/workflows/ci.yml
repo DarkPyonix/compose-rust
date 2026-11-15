@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       suites:
-        # all (the default, what a release check runs), fast (the Rust, JVM and script tests,
-        # the Windows C compile and the GraalVM renderer smoke, about two hours), or a comma
-        # list of job names. scripts/ci-suites.sh says which jobs each runs.
-        description: 'all, fast, or job names separated by commas'
+        # all (the default, what a release check runs, every job that gates a merge), fast (the
+        # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
+        # about two hours), measure (the jobs that only report numbers), or a comma list of
+        # these and job names. scripts/ci-suites.sh says which jobs each runs.
+        description: 'all, fast, measure, or suites and job names separated by commas'
         type: string
         default: all
 
