@@ -1423,6 +1423,17 @@ impl LaunchBuilder {
         self,
         runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
     ) -> i32 {
+        self.launch_through(runtime, renderer_api().run, HOST_MAKES_UI_THREAD)
+    }
+
+    /// The launch itself, with the renderer loop and where it runs said by the caller, so a
+    /// test can drive the loop the way a renderer does on the thread the Host makes.
+    fn launch_through(
+        self,
+        runtime: impl Fn() -> Box<dyn Runtime> + Send + Sync + 'static,
+        run: extern "C" fn() -> c_int,
+        on_ui_thread: bool,
+    ) -> i32 {
         // Before anything starts: an identifier that cannot name a directory would only
         // fail later, at the first save, far from the line that set it.
         if let Some(Err(problem)) = self.identifier.map(crate::storage::validate_identifier) {
@@ -1452,7 +1463,7 @@ impl LaunchBuilder {
         if self.mode != LoopMode::Renderer {
             return STATUS_OK;
         }
-        run_renderer_loop(renderer_api().run, HOST_MAKES_UI_THREAD)
+        run_renderer_loop(run, on_ui_thread)
     }
 }
 
@@ -1942,6 +1953,157 @@ mod tests {
         let result = run_on_ui_thread(1 << 60, || RAN.store(true, Ordering::SeqCst));
         assert!(result.is_err(), "an exabyte was given as a stack");
         assert!(!RAN.load(Ordering::SeqCst));
+    }
+
+    /// A state the application made before launching, on the thread that launches.
+    static BEFORE_LAUNCH: OnceLock<crate::runtime::MutableState<u32>> = OnceLock::new();
+    /// How many times the root composable ran, and the value it last read.
+    static COMPOSED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    static READ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    /// Frame requests that reached the renderer.
+    static FRAMES_ASKED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    /// How the UI thread tells the worker to write, and hears that it has.
+    type Baton = Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+    static BATON: Baton = Mutex::new(None);
+
+    extern "C" fn count_frame_request() {
+        FRAMES_ASKED.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// The application: one text that shows the state made before launching.
+    fn shows_the_state() {
+        let value = BEFORE_LAUNCH.get().expect("made before launching").get();
+        COMPOSED.fetch_add(1, Ordering::SeqCst);
+        READ.store(value, Ordering::SeqCst);
+        crate::ui::Text(format!("value {value}"));
+    }
+
+    /// Whether a batch the Host returned sets a text to `text`.
+    fn batch_shows(batch: &MutationBatch, text: &str) -> bool {
+        if batch.ptr.is_null() {
+            return false;
+        }
+        // SAFETY: the Host returned this batch from the call just made on this thread, and
+        // it stays readable until the next call.
+        let bytes = unsafe { std::slice::from_raw_parts(batch.ptr, batch.len as usize) };
+        crate::protocol::decode_batch(bytes).is_ok_and(|mutations| {
+            mutations.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::SetProp { value: PropertyValue::String(shown), .. } if *shown == text
+                )
+            })
+        })
+    }
+
+    /// The renderer's part, on the UI thread: start the Host, then use the state made on
+    /// the launching thread in every way an application does. Returns 0, or the number of
+    /// the step that failed, because a panic cannot leave a C function.
+    extern "C" fn loop_using_state_made_before_launch() -> c_int {
+        let Some(state) = BEFORE_LAUNCH.get().copied() else {
+            return 1;
+        };
+        let mut handshake = Vec::with_capacity(12);
+        handshake.extend_from_slice(&SCHEMA_HASH.to_le_bytes());
+        handshake.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        handshake.extend_from_slice(&[LoopMode::Renderer as u8, 0]);
+        let mut batch = MutationBatch::default();
+        // SAFETY: both buffers are this function's own and live for the call.
+        let status = unsafe {
+            compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut batch)
+        };
+        // The first composition reads the value the launching thread gave it.
+        if status != STATUS_OK || !batch_shows(&batch, "value 1") {
+            return 2;
+        }
+        if COMPOSED.load(Ordering::SeqCst) != 1 || READ.load(Ordering::SeqCst) != 1 {
+            return 3;
+        }
+        // Read and written here, on the UI thread.
+        if state.get_untracked() != 1 {
+            return 4;
+        }
+        state.set(2);
+        // SAFETY: `batch` is writable and this is the thread the Host was started on.
+        let status = unsafe { compose_rust_host_render_frame(1, &mut batch) };
+        // The composition that read it ran again, and the new value is in the frame.
+        if status != STATUS_OK || !batch_shows(&batch, "value 2") {
+            return 5;
+        }
+        if COMPOSED.load(Ordering::SeqCst) != 2 {
+            return 6;
+        }
+        // Written by a worker the launching thread started: the write asks for a frame,
+        // and the frame carries the value.
+        let asked = FRAMES_ASKED.load(Ordering::SeqCst);
+        let Some((go, done)) = BATON.lock().unwrap().take() else {
+            return 7;
+        };
+        if go.send(()).is_err() || done.recv().is_err() {
+            return 8;
+        }
+        if FRAMES_ASKED.load(Ordering::SeqCst) == asked {
+            return 9;
+        }
+        // SAFETY: as above.
+        let status = unsafe { compose_rust_host_render_frame(2, &mut batch) };
+        if status != STATUS_OK || !batch_shows(&batch, "value 3") {
+            return 10;
+        }
+        if COMPOSED.load(Ordering::SeqCst) != 3 || READ.load(Ordering::SeqCst) != 3 {
+            return 11;
+        }
+        // A frame with nothing written composes nothing.
+        // SAFETY: as above.
+        let status = unsafe { compose_rust_host_render_frame(3, &mut batch) };
+        if status != STATUS_OK || COMPOSED.load(Ordering::SeqCst) != 3 {
+            return 12;
+        }
+        compose_rust_host_shutdown();
+        0
+    }
+
+    /// An application builds its shared state before it launches, on its main thread, and
+    /// on Windows the UI then runs on another thread. A `MutableState` has to be the same
+    /// state on both: its value is in a table of the process and not of the thread that
+    /// made it, and who observes it is recorded when a composition reads it, not when it
+    /// is made. So the UI thread reads what was put there, a write on the UI thread runs
+    /// the composable that read it again, and a write from a worker asks for a frame that
+    /// carries it.
+    #[test]
+    fn pr3_state_made_before_launch_is_the_same_state_on_the_ui_thread() {
+        let _launch = launch_guard();
+        // The renderer the rest of these tests use, with frame requests counted. Installed
+        // for the process, which is all there is, and no different for any other test.
+        let _ = install_renderer_api(RendererApi {
+            run: native_run,
+            request_frame: count_frame_request,
+            measure: native_measure,
+        });
+        let state = *BEFORE_LAUNCH.get_or_init(|| crate::runtime::mutable_state_of(1));
+        let (go, wait_for_go) = std::sync::mpsc::channel();
+        let (done, wait_for_done) = std::sync::mpsc::channel();
+        *BATON.lock().unwrap() = Some((go, wait_for_done));
+        let worker = std::thread::spawn(move || {
+            if wait_for_go.recv().is_ok() {
+                state.set(3);
+                let _ = done.send(());
+            }
+        });
+        let launching = std::thread::current().id();
+        let step = LaunchBuilder::new().launch_through(
+            crate::runtime::recomposer_for(shows_the_state),
+            loop_using_state_made_before_launch,
+            true,
+        );
+        // Nothing is left waiting if the loop gave up early.
+        drop(BATON.lock().unwrap().take());
+        worker.join().unwrap();
+        *APP.lock().unwrap() = None;
+        assert_eq!(step, 0, "the loop on the UI thread stopped at step {step}");
+        assert_eq!(std::thread::current().id(), launching);
+        // And back on the launching thread it is still the one state.
+        assert_eq!(state.get_untracked(), 3);
     }
 
     #[test]

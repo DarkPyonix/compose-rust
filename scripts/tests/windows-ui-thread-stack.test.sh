@@ -30,7 +30,9 @@ grep -Eq '^const HOST_MAKES_UI_THREAD: bool = cfg!\(windows\);$' "$boundary" ||
     fail "boundary.rs no longer makes the UI thread on Windows"
 grep -Eq '^const UI_THREAD_STACK_BYTES: usize = 64 \* 1024 \* 1024;$' "$boundary" ||
     fail "boundary.rs no longer gives the UI thread 64 MB; the guide and the changelog say that number"
-grep -Fq 'run_renderer_loop(renderer_api().run, HOST_MAKES_UI_THREAD)' "$boundary" ||
+grep -Fq 'self.launch_through(runtime, renderer_api().run, HOST_MAKES_UI_THREAD)' "$boundary" ||
+    fail "launching no longer hands the renderer loop to the thread the Host makes"
+grep -Fq 'run_renderer_loop(run, on_ui_thread)' "$boundary" ||
     fail "launching no longer runs the renderer loop through run_renderer_loop"
 [[ "$(grep -c '(renderer_api().run)()' "$boundary")" -eq 0 ]] ||
     fail "something in boundary.rs calls the renderer loop on its own thread again"
