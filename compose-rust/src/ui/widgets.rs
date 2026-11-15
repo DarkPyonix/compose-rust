@@ -1148,16 +1148,13 @@ impl TextScope {
                         OwnedAttr::Spans(spans)
                     },
                 ));
-                // The fonts each styled run names travel beside the runs, and are left out
-                // when no run names any.
-                attrs.push((
-                    "span_fonts",
-                    if span_fonts.is_empty() {
-                        OwnedAttr::None
-                    } else {
-                        OwnedAttr::Bytes(span_fonts)
-                    },
-                ));
+                // The fonts each styled run names travel beside the runs. Left out of the
+                // list where no run names any: a first composition writes every attribute
+                // in the list, an empty one as a record that sets nothing. A table that
+                // goes away is cleared because it left the list.
+                if !span_fonts.is_empty() {
+                    attrs.push(("span_fonts", OwnedAttr::Bytes(span_fonts)));
+                }
                 // The OpenType features each styled run names travel beside the runs. Left
                 // out of the list where no run names any, so such a text sends what it
                 // always did: a first composition writes every attribute in the list, an
@@ -1166,15 +1163,23 @@ impl TextScope {
                 if let Some(table) = span_features {
                     attrs.push(("span_font_features", OwnedAttr::Shared(table)));
                 }
-                attrs.push(("font", font_bytes(&font)));
-                // Left out when no feature was asked for, so such a text sends what it
-                // always did. A first composition writes every attribute in the list, an
-                // empty one as well, so leaving it out is what keeps it off the wire.
+                // The font list, the break rules and the features are each left out when
+                // unset, for the same reason: their tags are outside the range the writer
+                // drops at a neutral value, so listing them empty would send a record of
+                // nothing for every plain text. One that was set and goes away is cleared
+                // because it left the list.
+                if !font.is_empty() {
+                    attrs.push(("font", font_bytes(&font)));
+                }
                 if font_features != OwnedAttr::None {
                     attrs.push(("font_feature_settings", font_features));
                 }
-                attrs.push(("word_break", super::role(word_break)));
-                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                if word_break.is_some() {
+                    attrs.push(("word_break", super::role(word_break)));
+                }
+                if overflow_wrap.is_some() {
+                    attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                }
                 attrs.push(("text", OwnedAttr::Text(text)));
                 // `TypeRole::None` is tag 0, so it travels as an explicit 0 and a role that
                 // was never set travels as nothing. Sent the other way, the text that names
@@ -1526,13 +1531,20 @@ impl TextFieldScope {
                 if let Some(caret_color) = caret_color {
                     attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
-                attrs.push(("font", font_bytes(&font)));
-                // Left out when no feature was asked for, as `Text` leaves it out.
+                // The font list, the features and the break rules are each left out when
+                // unset, as `Text` leaves them out, and cleared once when they go away.
+                if !font.is_empty() {
+                    attrs.push(("font", font_bytes(&font)));
+                }
                 if font_features != OwnedAttr::None {
                     attrs.push(("font_feature_settings", font_features));
                 }
-                attrs.push(("word_break", super::role(word_break)));
-                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                if word_break.is_some() {
+                    attrs.push(("word_break", super::role(word_break)));
+                }
+                if overflow_wrap.is_some() {
+                    attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                }
                 // Written only for a bare field, so a framed one sends what it always did.
                 if bare {
                     attrs.push(("bare", OwnedAttr::Bool(true)));

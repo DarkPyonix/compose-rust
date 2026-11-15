@@ -268,10 +268,14 @@ internal fun HostButton(
             }
         }
         .let { if (node.property(PropertyKind.Checked) != null) it.semantics { selected = checked } else it }
+    // A button the Host named is read by that name alone. Its label stays on screen, but a
+    // reader that also met the label as text of its own would say the button twice.
+    val ownName = node.text(PropertyKind.AccessibleName).isNotEmpty()
+
     // The row gap between the glyph and the word is the design system's smallest step, so a
     // dense language sets them closer than a roomy one does.
     @Composable
-    fun ButtonLabel() {
+    fun ButtonLabelContent() {
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
             // a weighted Spacer pushes whatever follows it to the button's inner edge.
@@ -290,6 +294,15 @@ internal fun HostButton(
                 RoleIcon(icon, tint, theme)
                 if (text.isNotEmpty()) ThemedText(text = text, style = label, maxLines = lines, softWrap = lines > 1, overflow = ellipsis)
             }
+        }
+    }
+
+    @Composable
+    fun ButtonLabel() {
+        if (ownName) {
+            Box(Modifier.clearAndSetSemantics { }) { ButtonLabelContent() }
+        } else {
+            ButtonLabelContent()
         }
     }
 

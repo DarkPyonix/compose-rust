@@ -2,6 +2,16 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      suites:
+        # all (the default, what a release check runs, every job that gates a merge), fast (the
+        # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
+        # about two hours), measure (the resize timings, which test_windows_resize reports only
+        # when asked), or a comma list of these and job names. scripts/ci-suites.sh says which
+        # jobs each runs.
+        description: 'all, fast, measure, or suites and job names separated by commas'
+        type: string
+        default: all
 
 concurrency:
   group: dev-ci
@@ -13,41 +23,113 @@ permissions:
   actions: write
 
 jobs:
+  plan:
+    name: Choose the suites
+    runs-on: ubuntu-latest
+    outputs:
+      test: ${{ steps.choose.outputs.test }}
+      test_graalvm_renderer: ${{ steps.choose.outputs.test_graalvm_renderer }}
+      test_windows_resize: ${{ steps.choose.outputs.test_windows_resize }}
+      windows_static_kit: ${{ steps.choose.outputs.windows_static_kit }}
+      windows_static_consumer: ${{ steps.choose.outputs.windows_static_consumer }}
+      test_native_renderer: ${{ steps.choose.outputs.test_native_renderer }}
+      test_windows_c: ${{ steps.choose.outputs.test_windows_c }}
+      package_windows_host: ${{ steps.choose.outputs.package_windows_host }}
+      packager_linux: ${{ steps.choose.outputs.packager_linux }}
+      test_kn_desktop_renderer: ${{ steps.choose.outputs.test_kn_desktop_renderer }}
+      package_windows: ${{ steps.choose.outputs.package_windows }}
+      packager_macos: ${{ steps.choose.outputs.packager_macos }}
+      test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
+      test_samples: ${{ steps.choose.outputs.test_samples }}
+      measure: ${{ steps.choose.outputs.measure }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: choose
+        env:
+          SUITES: ${{ inputs.suites }}
+        run: scripts/ci-suites.sh "$SUITES" | tee -a "$GITHUB_OUTPUT"
   test:
+    if: needs.plan.outputs.test == 'true'
+    needs: plan
     uses: ./.github/workflows/test.yml
     secrets: inherit
   test_graalvm_renderer:
+    if: needs.plan.outputs.test_graalvm_renderer == 'true'
+    needs: plan
     uses: ./.github/workflows/test-graalvm-renderer.yml
     secrets: inherit
   test_windows_resize:
+    if: needs.plan.outputs.test_windows_resize == 'true'
+    needs: plan
     uses: ./.github/workflows/test-windows-resize-metrics.yml
     secrets: inherit
     with:
-      metrics: true
+      metrics: ${{ needs.plan.outputs.measure == 'true' }}
+  # The Windows static renderer is the longest job of a run, and three workflows below need it.
+  # It is built here once, and they take it from this run instead of each building the same
+  # commit again; the application checks against it run beside them.
+  windows_static_kit:
+    if: needs.plan.outputs.windows_static_kit == 'true'
+    needs: plan
+    uses: ./.github/workflows/windows-static.yml
+    with:
+      part: kit
+    secrets: inherit
+  windows_static_consumer:
+    if: needs.plan.outputs.windows_static_consumer == 'true'
+    needs: [plan, windows_static_kit]
+    uses: ./.github/workflows/windows-static.yml
+    with:
+      part: consumer
+    secrets: inherit
   test_native_renderer:
+    if: needs.plan.outputs.test_native_renderer == 'true'
+    needs: [plan, windows_static_kit]
     uses: ./.github/workflows/test-native-renderer.yml
+    with:
+      windows_kit_built: true
     secrets: inherit
   test_windows_c:
+    if: needs.plan.outputs.test_windows_c == 'true'
+    needs: plan
     uses: ./.github/workflows/test-windows-c.yml
     secrets: inherit
   package_windows_host:
+    if: needs.plan.outputs.package_windows_host == 'true'
+    needs: [plan, windows_static_kit]
     uses: ./.github/workflows/package-windows-host.yml
+    with:
+      windows_kit_built: true
     secrets: inherit
   packager_linux:
+    if: needs.plan.outputs.packager_linux == 'true'
+    needs: plan
     uses: ./.github/workflows/packager-linux.yml
     secrets: inherit
   test_kn_desktop_renderer:
+    if: needs.plan.outputs.test_kn_desktop_renderer == 'true'
+    needs: plan
     uses: ./.github/workflows/test-kn-desktop-renderer.yml
     secrets: inherit
   package_windows:
+    if: needs.plan.outputs.package_windows == 'true'
+    needs: plan
     uses: ./.github/workflows/package-windows.yml
     secrets: inherit
   packager_macos:
+    if: needs.plan.outputs.packager_macos == 'true'
+    needs: plan
     uses: ./.github/workflows/packager-macos.yml
     secrets: inherit
   test_compose_from_fork:
+    if: needs.plan.outputs.test_compose_from_fork == 'true'
+    needs: plan
     uses: ./.github/workflows/test-compose-from-fork.yml
     secrets: inherit
   test_samples:
+    if: needs.plan.outputs.test_samples == 'true'
+    needs: [plan, windows_static_kit]
     uses: ./.github/workflows/test-samples.yml
+    with:
+      windows_kit_built: true
     secrets: inherit

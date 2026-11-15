@@ -115,6 +115,20 @@ fn registered_id(
         .map(|(_, id, _)| *id)
 }
 
+/// Lets go of bytes registered with [`register_owned`] (or [`asset`]), so the Renderer
+/// drops its copy.
+///
+/// A screen that builds its pictures at run time, a picture per colour an icon is drawn
+/// in for example, would otherwise grow the Renderer's cache for the life of the app.
+/// The bytes leave the registry, so registering the same bytes again gives a new id and
+/// sends them again. The release goes out on the next batch, as [`crate::release_brush`]
+/// sends one. Returns false, and sends nothing, for an id that is not registered as
+/// `kind` or was already released. Releasing a picture a node still draws is the caller's
+/// mistake, reported by the Renderer as a protocol error rather than a crash.
+pub fn release_owned(asset_id: u32, kind: AssetKind) -> bool {
+    release(asset_id, kind)
+}
+
 /// Hands every queued registration to `emit` and empties the queue.
 ///
 /// The buffer is moved out and put back, so the steady state, where nothing new has been

@@ -11,6 +11,7 @@ import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.FontRef
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
@@ -19,6 +20,7 @@ import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TypeRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
+import dev.darkpyonix.composerust.runtime.RendererMeasure
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.TableError
@@ -492,6 +494,58 @@ class SpanFontFeaturesTest {
             withFeatures <= without + 8,
             "reading a text with a feature table allocated $withFeatures bytes where one without took $without",
         )
+    }
+
+    @Test
+    fun fr88_measured_span_font_features_match_drawn_text() = runComposeUiTest {
+        val spans = runs(spanRecord(0, 4), spanRecord(5, 4))
+        val tnumRun = table(1 to record("tnum", 1))
+        startHost(
+            FakeHostConnection(
+                screen(
+                    0,
+                    "0000 1111" to listOf(noRole, ownFont, size, spans, features(tnumRun)),
+                    "0000 1111" to listOf(noRole, ownFont, size, spans),
+                ),
+            ),
+            Density(1f),
+        )
+        // The measure answers a text's max-content width, so it is compared with the drawn
+        // paragraph's own max-content width rather than its laid-out line, which can differ
+        // by a fraction of a pixel once a text holds more than one run.
+        fun lineWidth(layout: TextLayoutResult) = layout.multiParagraph.maxIntrinsicWidth
+        val drawnFeatured = lineWidth(drawnLayout(FIRST))
+        val drawnPlain = lineWidth(drawnLayout(FIRST + 1))
+
+        val spanBytes = spanRecord(0, 4) + spanRecord(5, 4)
+        val requests = MeasureRequests()
+            .text("0000 1111", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), spans = spanBytes, spanFeatures = tnumRun)
+            .text("0000 1111", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), spans = spanBytes)
+        val out = resultBuffer(requests.count)
+        var status = 0
+        var results: List<MeasuredResult> = emptyList()
+        runOnIdle {
+            status = RendererMeasure.measure(requests.encode(), requests.count, out)
+            results = out.results(requests.count)
+        }
+        assertEquals(MeasureRecords.CALL_OK, status)
+        assertEquals(MeasureRecords.STATUS_OK, results[0].status)
+        assertEquals(MeasureRecords.STATUS_OK, results[1].status)
+
+        assertEquals(drawnFeatured.toRawBits(), results[0].width.toRawBits(), "the run with tnum: measured ${results[0].width}, drawn $drawnFeatured")
+        assertEquals(drawnPlain.toRawBits(), results[1].width.toRawBits(), "no run features: measured ${results[1].width}, drawn $drawnPlain")
+        // In this font tnum widens ones, so the run that names it measures wider.
+        assertTrue(
+            results[0].width - results[1].width > 2f,
+            "the tnum run measures wider than the plain one: ${results[0].width} against ${results[1].width}",
+        )
+
+        // A table the renderer refuses for the property is refused in a measure request too.
+        val malformed = MeasureRequests()
+            .text("0000 1111", role = 0, constraint = MeasureRecords.CONSTRAINT_MAX_CONTENT, fontSize = SIZE, fonts = listOf(FontRef.Asset(DIGITS)), spans = spanBytes, spanFeatures = tnumRun.copyOf(10))
+        val malformedOut = resultBuffer(1)
+        runOnIdle { RendererMeasure.measure(malformed.encode(), 1, malformedOut) }
+        assertEquals(MeasureRecords.STATUS_MALFORMED, malformedOut.results(1).single().status)
     }
 
     private val threads = java.lang.management.ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
