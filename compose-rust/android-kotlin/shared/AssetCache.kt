@@ -41,6 +41,20 @@ sealed interface Asset {
         val chain: FontChain? = null,
     ) : Asset {
         /**
+         * The families this font's letters are looked for in: the stack, or for one font
+         * file, that file alone with the letters it has. Null where the letters are not
+         * known.
+         *
+         * A single face needs no chain where the machine finds a letter the face lacks
+         * among its own fonts. Where the renderer carries the faces a letter falls back to
+         * ([platformFallbackFamilies]), the chain is what says which letters go to them.
+         * Made once, because the places that lay text out keep work per chain.
+         */
+        val letters: FontChain? by lazy(LazyThreadSafetyMode.NONE) {
+            chain ?: face?.let { FontChain(listOf(FontChain.Member(family, it.hasGlyph))) }
+        }
+
+        /**
          * One font file: the Compose font that draws it, the weight and slant the file
          * declares, and which letters it has a glyph for.
          *
@@ -188,8 +202,8 @@ class AssetCache {
  * Text is set in the first family, and each letter that family has no glyph for is set in
  * the next family that has one. A family whose letters are not known here (an installed or
  * a generic family) takes every letter that reaches it, and ends the chain. Letters that no
- * family has are left to the platform's own fallback, which is what happened to every
- * letter before the chain existed.
+ * family has are looked for in [platformFallbackFamilies], and after those are left to the
+ * platform's own fallback, which is what happened to every letter before the chain existed.
  *
  * Compose sets a run of text in one family and asks the platform for a letter it lacks,
  * and the platform answers from the machine's fonts before anything the application
@@ -206,8 +220,15 @@ class FontChain(val members: List<Member>) {
         private val ask = hasGlyph
         private val known = HashMap<Int, Boolean>()
 
+        /** The answers for ASCII, which is most of what is asked: 0 not asked, 1 has, 2 lacks. */
+        private val ascii = ByteArray(128)
+
         fun has(codePoint: Int): Boolean {
             val ask = ask ?: return true
+            if (codePoint in ascii.indices) {
+                if (ascii[codePoint] == 0.toByte()) ascii[codePoint] = if (ask(codePoint)) 1 else 2
+                return ascii[codePoint] == 1.toByte()
+            }
             return known.getOrPut(codePoint) { ask(codePoint) }
         }
     }
@@ -216,16 +237,18 @@ class FontChain(val members: List<Member>) {
     val primary: FontFamily get() = members.first().family
 
     /**
-     * The stretches of [text] whose letters come from a family after the first, each with
-     * the span style that sets them there. Empty where the first family has every letter,
-     * which is the usual case and costs a lookup per letter.
+     * The stretches of [text] whose letters come from a family after the first, or from
+     * one of [platformFallbackFamilies], each with the span style that sets them there.
+     * Empty where the first family has every letter, which is the usual case and costs a
+     * lookup per letter.
      *
      * A letter that changes how the one before it is drawn (a combining mark, a joiner, a
      * variation selector) stays with that letter, so a syllable is never split between two
      * faces.
      */
     fun spans(text: String): List<AnnotatedString.Range<SpanStyle>> {
-        if (members.size < 2 || text.isEmpty()) return emptyList()
+        val fallback = platformFallbackFamilies
+        if (members.size + fallback.size < 2 || text.isEmpty()) return emptyList()
         val out = ArrayList<AnnotatedString.Range<SpanStyle>>()
         var runStart = 0
         var runMember = 0
@@ -233,29 +256,51 @@ class FontChain(val members: List<Member>) {
         while (index < text.length) {
             val codePoint = codePointAt(text, index)
             val width = if (codePoint > 0xFFFF) 2 else 1
-            val member = if (index > 0 && attaches(codePoint)) runMember else memberFor(codePoint)
+            val member = if (index > 0 && attaches(codePoint)) runMember else memberFor(codePoint, fallback)
             if (member != runMember) {
-                if (runMember != 0) out += range(runMember, runStart, index)
+                if (runMember != 0) out += range(runMember, runStart, index, fallback)
                 runStart = index
                 runMember = member
             }
             index += width
         }
-        if (runMember != 0) out += range(runMember, runStart, text.length)
+        if (runMember != 0) out += range(runMember, runStart, text.length, fallback)
         return out
     }
 
-    private fun memberFor(codePoint: Int): Int {
+    /**
+     * Which family draws [codePoint]: an index into [members], or past their end, into
+     * [fallback]. Zero, the first family, where nothing has the letter.
+     */
+    private fun memberFor(codePoint: Int, fallback: List<Member>): Int {
         if (codePoint < 0x20 || members[0].has(codePoint)) return 0
         for (at in 1 until members.size) {
             if (members[at].has(codePoint)) return at
         }
+        for (at in fallback.indices) {
+            if (fallback[at].has(codePoint)) return members.size + at
+        }
         return 0
     }
 
-    private fun range(member: Int, start: Int, end: Int) =
-        AnnotatedString.Range(SpanStyle(fontFamily = members[member].family), start, end)
+    private fun range(member: Int, start: Int, end: Int, fallback: List<Member>): AnnotatedString.Range<SpanStyle> {
+        val drawn = if (member < members.size) members[member] else fallback[member - members.size]
+        return AnnotatedString.Range(SpanStyle(fontFamily = drawn.family), start, end)
+    }
 }
+
+/**
+ * The families a letter is looked for in when no family of its chain has it, in order.
+ *
+ * Empty wherever the machine has fonts of its own, because there the platform's fallback
+ * finds the letter. A browser gives a canvas none, so a letter the text's families lack
+ * was drawn as an empty box: the web renderer puts the fallback faces it carries here
+ * before the first frame, and every chain ends in them.
+ *
+ * Each member says which letters it has. One that could not say would take every letter
+ * that reached it, and the ones after it would never be asked.
+ */
+var platformFallbackFamilies: List<FontChain.Member> = emptyList()
 
 /**
  * The normal track of a font's `trak` table: how far Apple's text system moves every

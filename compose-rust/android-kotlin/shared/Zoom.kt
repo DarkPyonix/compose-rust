@@ -17,6 +17,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import dev.darkpyonix.composerust.protocol.HostEvent
 import kotlin.math.pow
@@ -249,6 +250,53 @@ internal fun ZoomReporter(host: ComposeRustHost, zoom: Zoom) {
         if (reported[0] != event) {
             reported[0] = event
             host.dispatch(event)
+        }
+    }
+}
+
+/**
+ * The scale of the display the window this content is in is on: device pixels per dp,
+ * before any zoom. Null where nothing above the content knows it, in which case
+ * [displayScale] works it out from the Density.
+ *
+ * Whoever makes the zoomed Density holds the number it was made from, and provides it here
+ * so it does not have to be divided back out. A float multiplied by the zoom and divided by
+ * it again is not always the float it started as, and the difference would reach the Host
+ * as a density that changed when only the zoom did.
+ */
+val LocalDisplayScale = staticCompositionLocalOf<Float?> { null }
+
+/**
+ * The display's scale under [outer], the Density native widgets are drawn with: the
+ * application's share of the zoom divided out, as [islandDensity] does. Outside a window
+ * that holds a [Zoom] there is no share to divide out.
+ */
+fun displayScale(outer: Density, zoom: Zoom?): Float = outer.density / (zoom?.app ?: 1f)
+
+/**
+ * Tells the Host how many device pixels one dp of this window covers, once at start and
+ * again whenever it changes, as when the window moves to a screen of another scale.
+ *
+ * The Host lays out in dp and needs the number only for what is about pixels: a page's
+ * device pixel ratio, which image of a set to load, a hairline snapped to the pixel grid.
+ * The zoom is not part of it and is reported on its own.
+ *
+ * Reported under the window's node, the way the zoom is, and from a SideEffect for the same
+ * reason: a boundary call is made on the thread the Host was started on, and the effect
+ * runs when the first composition is applied, which is before the first frame is drawn.
+ */
+@Composable
+internal fun DensityReporter(host: ComposeRustHost) {
+    val windowNodeId = LocalWindowNodeId.current
+    val scale = LocalDisplayScale.current ?: displayScale(LocalDensity.current, LocalZoom.current)
+    // NaN is equal to nothing, so the first value is always a change.
+    val reported = remember(host) { FloatArray(1) { Float.NaN } }
+    SideEffect {
+        // The Host refuses a density that is not a positive number, so one is never sent.
+        if (scale.isNaN() || scale <= 0f) return@SideEffect
+        if (reported[0] != scale) {
+            reported[0] = scale
+            host.dispatch(HostEvent.DensityChanged(nodeId = windowNodeId, handlerId = 0, scale = scale))
         }
     }
 }
