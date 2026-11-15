@@ -26,6 +26,11 @@
 #    library beside it.
 #    Two windows of one application, through LaunchBuilder::windows(), open, share their
 #    state, close one at a time, and the process ends by itself after the last.
+#    A tree nested far deeper than an application's draws, and the same tree with the UI
+#    thread's stack held to 1 MB overflows it. A Windows main thread has 1 MB and the renderer
+#    composes, measures and draws by recursion, so released applications ended with "thread
+#    'main' has overflowed its stack" as their window opened; the Host now runs the renderer
+#    on a thread it makes with a large stack. DXC_DEEP_TREE_DEPTH sets the depth (400).
 # 4. An application that also links a C++ library built for the runtime DLL (/MD), which is
 #    what the `cc` crate builds by default, still links (the MSVC linker would otherwise stop
 #    on LNK2038, a RuntimeLibrary mismatch), still needs only Windows, and runs.
@@ -313,6 +318,75 @@ if [[ "$status" -ne 0 ]]; then
     # timeout, and a crash is worth a stack.
     [[ "$status" -eq 1 || "$status" -eq 124 ]] || explain_crash "$multi_binary" --check
     failed+=("the multi-window application ended with status $status")
+fi
+
+echo "== 3e. a tree nested far deeper than an application's"
+# The renderer composes, measures and draws a tree by recursion, so how deep a tree it holds
+# is the stack of the thread it runs on. The Host makes that thread, with a stack far larger
+# than the megabyte a Windows main thread has (compose-rust/src/boundary.rs). Two runs of
+# the same tree show it. As the application is, the tree has to draw. With the UI thread's
+# stack held to the megabyte it used to have, it has to overflow: if it draws there too, the
+# depth is one the old stack already held and the first run proved nothing.
+#
+# The depth is a guess until a run has measured it, because how much stack a level costs
+# depends on how the renderer was built. So the ladder below says first how deep a tree the
+# megabyte holds, and DXC_DEEP_TREE_DEPTH moves the depth if that shows 400 is the wrong one.
+deep_depth="${DXC_DEEP_TREE_DEPTH:-400}"
+old_stack_bytes=1048576
+# Runs the tree at one depth; with a second argument, on a UI thread stack of that many
+# bytes. Leaves the output in $deep_log and returns the program's status.
+deep_log="$scratch/deep-tree.log"
+deep_tree() {
+    local depth="$1" stack="${2:-}" status=0
+    (
+        cd "$scratch/alone"
+        if [[ -n "$stack" ]]; then export COMPOSE_RUST_UI_STACK_BYTES="$stack"; else unset COMPOSE_RUST_UI_STACK_BYTES; fi
+        timeout 600 ./consumer.exe --self-check "--deep-tree=$depth"
+    ) > "$deep_log" 2>&1 || status=$?
+    return "$status"
+}
+overflowed() { grep -q "has overflowed its stack" "$deep_log"; }
+
+echo "-- how deep a tree a $old_stack_bytes byte stack holds (for the record; nothing fails here):"
+for depth in 6 12 25 50 100 200; do
+    if deep_tree "$depth" "$old_stack_bytes"; then
+        echo "   depth $depth: drew"
+    else
+        status=$?
+        if overflowed; then
+            echo "   depth $depth: overflowed (status $status)"
+        else
+            echo "   depth $depth: ended with status $status without saying its stack overflowed; its last lines:"
+            tail -15 "$deep_log" | sed 's/^/      /'
+        fi
+        break
+    fi
+done
+
+echo "-- depth $deep_depth on the UI thread as the Host makes it"
+status=0
+deep_tree "$deep_depth" || status=$?
+grep -E '^self-check:|overflowed its stack' "$deep_log" || true
+if [[ "$status" -ne 0 ]] || ! grep -q '^self-check: the renderer drew' "$deep_log"; then
+    echo "-- the deep tree ended with status $status; its last lines:"
+    tail -40 "$deep_log"
+    [[ "$status" -eq 1 || "$status" -eq 124 ]] || explain_crash "$binary" --self-check "--deep-tree=$deep_depth"
+    failed+=("a tree $deep_depth levels deep did not draw (status $status)")
+fi
+
+echo "-- depth $deep_depth with the UI thread's stack held to $old_stack_bytes bytes, which has to overflow"
+status=0
+deep_tree "$deep_depth" "$old_stack_bytes" || status=$?
+grep -E '^self-check:|overflowed its stack' "$deep_log" || true
+if [[ "$status" -eq 0 ]]; then
+    failed+=("a tree $deep_depth levels deep drew on a $old_stack_bytes byte stack, so drawing it shows nothing about the larger one; raise DXC_DEEP_TREE_DEPTH")
+elif ! overflowed; then
+    echo "-- it ended with status $status and did not say its stack overflowed; its last lines:"
+    tail -40 "$deep_log"
+    failed+=("a tree $deep_depth levels deep on a $old_stack_bytes byte stack failed without a stack overflow (status $status)")
+elif ! grep -q "thread 'compose-rust-ui' has overflowed its stack" "$deep_log"; then
+    grep 'overflowed its stack' "$deep_log"
+    failed+=("the stack that overflowed was not the UI thread's, so the renderer is not running on the thread the Host makes")
 fi
 
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"

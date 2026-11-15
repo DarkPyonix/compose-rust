@@ -1258,9 +1258,10 @@ impl std::ops::Deref for HostSlot {
 /// The launched application, as the factory for its runtime.
 ///
 /// The runtime and every `compose_rust_host_*` call run on the Renderer UI thread, and
-/// that thread is not the one that called `launch`: with `LoopMode::Renderer` the Rust
-/// main thread blocks inside `compose_rust_renderer_run` while Compose composes on the
-/// toolkit's own thread. So the factory, unlike the `Host` it builds, has to be reachable
+/// that thread is not always the one that called `launch`: with `LoopMode::Renderer` on a
+/// toolkit renderer the Rust main thread blocks inside `compose_rust_renderer_run` while
+/// Compose composes on the toolkit's own thread, and on Windows the Host runs the loop on
+/// a thread it makes for its stack (`run_renderer_loop`). So the factory, unlike the `Host` it builds, has to be reachable
 /// across threads, which is why it is `Send + Sync` and the runtime it makes is not.
 ///
 /// `shutdown` deliberately leaves this set: it belongs to `launch`, not to one UI thread's
@@ -1393,6 +1394,18 @@ impl LaunchBuilder {
     /// `runtime` is called on the Renderer's UI thread each time a Host is made: once at
     /// start, and again whenever the Renderer asks for the whole tree back.
     ///
+    /// On Windows that thread is one this crate makes, named `compose-rust-ui`, with a
+    /// 64 MB stack, and the calling thread waits for it: a program's main thread there has
+    /// 1 MB unless its own link asked for more, which a screen of ordinary depth overflows.
+    /// So what runs before this call is on the main thread and what runs inside it, the
+    /// composables and their handlers, is not, and a thread-local set before launching is
+    /// not the one the UI reads. That includes this crate's own: a handler registered or a
+    /// request made before launching (`notification::on_activation`,
+    /// `windows::on_window_request`, `clipboard::set_text`) is kept on the main thread and
+    /// the UI never sees it, so make those from a composable or a handler. On macOS and Linux the calling thread is the UI thread.
+    /// An application that runs the renderer loop itself, without launching, has whatever
+    /// stack its thread has, and on Windows has to ask its own link for more.
+    ///
     /// Exiting rather than returning is the point. Launching is the last statement of
     /// `main` in every application that uses this crate, so returning from it means `main`
     /// returns, which means the process exits 0. A window that never opened would then be
@@ -1439,7 +1452,126 @@ impl LaunchBuilder {
         if self.mode != LoopMode::Renderer {
             return STATUS_OK;
         }
-        (renderer_api().run)()
+        run_renderer_loop(renderer_api().run, HOST_MAKES_UI_THREAD)
+    }
+}
+
+/// How much stack the UI thread gets where the Host is the one that makes it: 64 MB.
+///
+/// Compose composes, measures and draws a tree by recursion, one group of frames per level
+/// of nesting and per modifier, and the Kotlin/Native renderer does all of it on the thread
+/// its loop runs on. On Windows that was the thread that called `launch`, the program's
+/// main thread, whose stack is whatever the executable's header says: 1 MB unless the
+/// application's own link asked for more, where macOS and Linux give a main thread 8 MB.
+/// An ordinary screen overflowed it in the first frames and the application ended with
+/// "thread 'main' has overflowed its stack" right after its window opened.
+///
+/// The number is a reservation of address space and not memory. Windows commits a stack a
+/// page at a time as it is first touched, so a screen that needs 300 KB still costs 300 KB,
+/// and 64 MB out of a 64-bit address space is nothing. It is eight times what the other
+/// desktop platforms give, because the Windows renderer's frames have been the largest of
+/// the three, and far above what a tree anyone would write needs, so the limit a deep tree
+/// meets is not this one.
+const UI_THREAD_STACK_BYTES: usize = 64 * 1024 * 1024;
+
+/// What the UI thread is called where the Host makes it. Rust says the name of the thread
+/// whose stack overflowed or that panicked, so this is what such a line names.
+const UI_THREAD_NAME: &str = "compose-rust-ui";
+
+/// Overrides [`UI_THREAD_STACK_BYTES`], in bytes, where the Host makes the UI thread.
+///
+/// For finding out, not for shipping: a check sets it small to show how deep a tree a given
+/// stack holds, and an application that meets the limit after all can raise it without a
+/// new build. Anything that is not a whole number above zero is said on the standard error
+/// and ignored.
+const UI_THREAD_STACK_VARIABLE: &str = "COMPOSE_RUST_UI_STACK_BYTES";
+
+/// Whether the Host makes the thread the renderer loop runs on, or runs it on the caller.
+///
+/// Windows only. The window there belongs to whichever thread makes it and pumps its
+/// messages, and nothing asks for that to be the program's first thread, so the Host is
+/// free to make one with the stack it wants.
+///
+/// macOS stays on the caller, always: AppKit runs on the process main thread and nowhere
+/// else. Linux stays too. Its main thread has 8 MB by default and the limit is the user's
+/// to raise (`ulimit -s`), nothing has overflowed there, and moving a working loop to
+/// another thread for no measured reason would be a risk taken for nothing. Android, iOS
+/// and the web never come here with a loop to run: the platform owns it.
+const HOST_MAKES_UI_THREAD: bool = cfg!(windows);
+
+/// Runs the renderer loop to its end and gives back the status it ended with.
+///
+/// With `on_ui_thread` the loop runs on a thread made here with a stack of its own, and the
+/// caller waits for it. Everything the renderer does happens inside `run`: it starts, opens
+/// its window, reads its messages, and calls the Host, which builds the runtime from the
+/// launched factory on the thread that calls in. So the whole UI is on that one thread, and
+/// all that crosses to it is `run` itself, a function pointer. The factory and the launch
+/// choices were put in statics before this, and the factory is `Send + Sync` by its type.
+///
+/// The caller sees what it saw before: the same status comes back, and a panic that ends
+/// the UI thread is raised again here with its own payload. In practice a panic does not
+/// get that far, as it did not before: the Host's exports catch one and answer
+/// `STATUS_PANIC`, and one that would leave `run`, a C function, ends the process.
+///
+/// If the thread cannot be made at all the loop runs on the caller, which is what it did
+/// before there was a thread, and the reason is said first.
+fn run_renderer_loop(run: extern "C" fn() -> c_int, on_ui_thread: bool) -> i32 {
+    if !on_ui_thread {
+        return run();
+    }
+    let stack_bytes = ui_thread_stack_bytes(
+        std::env::var(UI_THREAD_STACK_VARIABLE).ok().as_deref(),
+        |problem| eprintln!("compose-rust: {problem}"),
+    );
+    match run_on_ui_thread(stack_bytes, move || run()) {
+        Ok(status) => status,
+        Err(error) => {
+            eprintln!(
+                "compose-rust: could not start the UI thread with a {stack_bytes} byte stack \
+                 ({error}). Running the renderer on the calling thread, whose stack may be too \
+                 small for a deep screen."
+            );
+            run()
+        }
+    }
+}
+
+/// The stack size to make the UI thread with, given what the override variable holds.
+fn ui_thread_stack_bytes(requested: Option<&str>, mut report: impl FnMut(String)) -> usize {
+    let Some(requested) = requested else {
+        return UI_THREAD_STACK_BYTES;
+    };
+    match requested.trim().parse::<usize>() {
+        Ok(bytes) if bytes > 0 => bytes,
+        _ => {
+            report(format!(
+                "{UI_THREAD_STACK_VARIABLE} is {requested:?}, which is not a number of bytes \
+                 above zero. Using {UI_THREAD_STACK_BYTES}."
+            ));
+            UI_THREAD_STACK_BYTES
+        }
+    }
+}
+
+/// Runs `work` on a new thread named [`UI_THREAD_NAME`] with `stack_bytes` of stack, waits
+/// for it, and returns what it returned. `Err` only when the thread could not be made, in
+/// which case `work` never ran.
+///
+/// A panic in `work` is raised again on the calling thread with the same payload, so the
+/// caller cannot tell it from one of its own. A stack overflow is not a panic: Rust's
+/// overflow handler covers every thread the standard library makes, this one included, so
+/// the process still ends with "thread 'compose-rust-ui' has overflowed its stack".
+fn run_on_ui_thread<T: Send + 'static>(
+    stack_bytes: usize,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> std::io::Result<T> {
+    let thread = std::thread::Builder::new()
+        .name(UI_THREAD_NAME.to_owned())
+        .stack_size(stack_bytes)
+        .spawn(work)?;
+    match thread.join() {
+        Ok(value) => Ok(value),
+        Err(payload) => std::panic::resume_unwind(payload),
     }
 }
 
@@ -1690,6 +1822,144 @@ mod tests {
         // SAFETY: The test passes a valid output pointer and intentionally null input.
         let status = unsafe { compose_rust_host_dispatch_event(std::ptr::null(), 4, &mut output) };
         assert_eq!(status, STATUS_PROTOCOL_ERROR);
+    }
+
+    /// How much stack one level of `descend` is made to use.
+    const LEVEL_BYTES: usize = 16 * 1024;
+
+    /// Recurses `levels` deep, holding `LEVEL_BYTES` of stack at every level, and returns
+    /// how many levels it went. Never inlined and never a tail call, so the stack is really
+    /// used in an optimised build too.
+    #[inline(never)]
+    fn descend(levels: usize) -> usize {
+        let mut block = [0u8; LEVEL_BYTES];
+        block[levels % LEVEL_BYTES] = 1;
+        let block = std::hint::black_box(&mut block);
+        if levels == 0 {
+            return usize::from(block[0]) - 1;
+        }
+        let below = descend(levels - 1);
+        below + usize::from(block[levels % LEVEL_BYTES])
+    }
+
+    /// The thread a renderer loop under test found itself on.
+    static LOOP_THREAD: Mutex<Option<(std::thread::ThreadId, Option<String>)>> = Mutex::new(None);
+
+    /// A renderer loop that needs 12 MB of stack, notes its thread, and ends with a status
+    /// no real loop uses.
+    extern "C" fn deep_loop() -> c_int {
+        let current = std::thread::current();
+        *LOOP_THREAD.lock().unwrap() = Some((current.id(), current.name().map(str::to_owned)));
+        let levels = 12 * 1024 * 1024 / LEVEL_BYTES;
+        assert_eq!(descend(levels), levels);
+        77
+    }
+
+    /// A renderer loop that only notes its thread.
+    extern "C" fn shallow_loop() -> c_int {
+        let current = std::thread::current();
+        *LOOP_THREAD.lock().unwrap() = Some((current.id(), current.name().map(str::to_owned)));
+        78
+    }
+
+    /// The crash this defends against: the renderer composed and drew on a 1 MB main thread
+    /// and a screen of ordinary depth overflowed it. The loop here needs 12 MB, more than
+    /// any thread gets by default (a test's thread has 2 MB, a Windows main thread 1 MB,
+    /// the others 8 MB), so it only comes back at all if the Host really made the thread
+    /// with the stack it promises.
+    #[test]
+    fn pr3_the_ui_thread_the_host_makes_holds_a_loop_that_needs_twelve_megabytes() {
+        let _launch = launch_guard();
+        const { assert!(UI_THREAD_STACK_BYTES >= 32 * 1024 * 1024) };
+        let status = run_renderer_loop(deep_loop, true);
+        assert_eq!(
+            status, 77,
+            "the loop's status did not come back to the caller"
+        );
+        let (thread, name) = LOOP_THREAD.lock().unwrap().take().unwrap();
+        assert_ne!(
+            thread,
+            std::thread::current().id(),
+            "the loop ran on the calling thread, whose stack is whatever it happened to be"
+        );
+        assert_eq!(
+            name.as_deref(),
+            Some("compose-rust-ui"),
+            "an overflow or a panic on this thread would not say whose it was"
+        );
+    }
+
+    /// Where the Host makes no thread the loop runs on the caller, which on macOS has to be
+    /// the process main thread and so must never be moved.
+    #[test]
+    fn pr3_without_a_ui_thread_the_loop_runs_on_the_caller() {
+        let _launch = launch_guard();
+        assert_eq!(run_renderer_loop(shallow_loop, false), 78);
+        let (thread, _) = LOOP_THREAD.lock().unwrap().take().unwrap();
+        assert_eq!(thread, std::thread::current().id());
+    }
+
+    /// Only Windows gets the thread. AppKit needs the main thread, and Linux has given no
+    /// reason to move.
+    #[test]
+    fn pr3_the_host_makes_the_ui_thread_on_windows_only() {
+        assert_eq!(HOST_MAKES_UI_THREAD, cfg!(windows));
+    }
+
+    /// The whole launch, through the entry every other one ends in: the same status as
+    /// before on every platform, thread or no thread.
+    #[test]
+    fn pr3_launching_returns_the_loops_status() {
+        let _launch = launch_guard();
+        let status =
+            LaunchBuilder::new().try_launch_runtime(|| -> Box<dyn Runtime> { unreachable!() });
+        assert_eq!(status, STATUS_OK);
+        // Nothing asked the factory for a runtime, and nothing after this test should.
+        *APP.lock().unwrap() = None;
+    }
+
+    /// A panic on the UI thread reaches the caller as the same panic, not as a join error
+    /// and not as silence.
+    #[test]
+    fn pr3_a_panic_on_the_ui_thread_is_raised_again_on_the_caller() {
+        let caught = catch_unwind(|| {
+            run_on_ui_thread(UI_THREAD_STACK_BYTES, || -> i32 {
+                std::panic::panic_any("the UI thread's own payload")
+            })
+        });
+        let payload = caught.expect_err("the panic stopped at the thread's edge");
+        assert_eq!(
+            payload.downcast_ref::<&str>().copied(),
+            Some("the UI thread's own payload")
+        );
+    }
+
+    /// A stack the system cannot give is an error the caller can act on, and the work has
+    /// not run, so the caller may still run it itself.
+    #[test]
+    fn pr3_a_ui_thread_that_cannot_be_made_is_an_error_and_runs_nothing() {
+        static RAN: AtomicBool = AtomicBool::new(false);
+        let result = run_on_ui_thread(1 << 60, || RAN.store(true, Ordering::SeqCst));
+        assert!(result.is_err(), "an exabyte was given as a stack");
+        assert!(!RAN.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn pr3_the_stack_override_is_bytes_and_anything_else_is_said_and_ignored() {
+        let mut said = Vec::new();
+        let mut size = |value: Option<&str>| ui_thread_stack_bytes(value, |line| said.push(line));
+        assert_eq!(size(None), UI_THREAD_STACK_BYTES);
+        assert_eq!(size(Some("1048576")), 1_048_576);
+        assert_eq!(size(Some(" 2097152\n")), 2_097_152);
+        for nonsense in ["", "0", "-1", "64MB", "lots"] {
+            assert_eq!(size(Some(nonsense)), UI_THREAD_STACK_BYTES, "{nonsense:?}");
+        }
+        assert_eq!(said.len(), 5, "{said:?}");
+        assert!(
+            said.iter()
+                .all(|line| line.contains("COMPOSE_RUST_UI_STACK_BYTES")),
+            "{said:?}"
+        );
     }
 
     #[test]
