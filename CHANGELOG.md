@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Dragging a selection past the editor's edge scrolls again
+
+In a `CodeEditor`, holding the mouse below the bottom edge (or above the top) while dragging a selection scrolls the document again and carries the selection with it. The drawn path, which never scrolled during a drag, now does too: each frame the pointer is held past the edge it scrolls further the further past it is, and the selection follows the line under the pointer, until the button is released or the pointer comes back inside. Keeping the field's own scroll requests away from the vertical scroll, so the editor could follow the caret itself, had stopped it. Those requests now go through only while a mouse button is down over the field, so the keyboard caret is still followed by the editor alone. ([#841](https://github.com/DarkPyonix/compose-rust/issues/841)).
+
+
 ### Window buttons follow the operating system
 
 A window's minimise, maximise and close buttons are now the operating system's, whatever design system the application chose. An application under an Apple design system (Cupertino or Liquid Glass, for example through `Theme::unified`) drew the traffic lights at the left on Windows and Linux; on Windows, under the default `Chrome::Modern`, those lights could not be pressed, because the native window treats the three cells at the right as the buttons. It now gets Windows 11's three 46 by 32 dp buttons at the right on Windows, with Snap Layouts opening from maximise, and the desktop's own buttons at the right on Linux (Adwaita under GNOME, Breeze under KDE, Deepin elsewhere). The same holds for Material 3 and for a Linux design system on Windows, or Fluent on Linux. macOS keeps the system's traffic lights as before. The buttons' colours still come from the application's design system.
