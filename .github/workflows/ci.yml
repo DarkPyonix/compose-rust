@@ -22,8 +22,25 @@ jobs:
   test_windows_resize_metrics:
     uses: ./.github/workflows/test-windows-resize-metrics.yml
     secrets: inherit
+  # The Windows static renderer is the longest job of a run, and three workflows below need it.
+  # It is built here once, and they take it from this run instead of each building the same
+  # commit again; the application checks against it run beside them.
+  windows_static_kit:
+    uses: ./.github/workflows/windows-static.yml
+    with:
+      part: kit
+    secrets: inherit
+  windows_static_consumer:
+    needs: windows_static_kit
+    uses: ./.github/workflows/windows-static.yml
+    with:
+      part: consumer
+    secrets: inherit
   test_native_renderer:
+    needs: windows_static_kit
     uses: ./.github/workflows/test-native-renderer.yml
+    with:
+      windows_kit_built: true
     secrets: inherit
   test_windows_resize_probe:
     uses: ./.github/workflows/test-windows-resize-probe.yml
@@ -32,7 +49,10 @@ jobs:
     uses: ./.github/workflows/test-windows-c.yml
     secrets: inherit
   package_windows_host:
+    needs: windows_static_kit
     uses: ./.github/workflows/package-windows-host.yml
+    with:
+      windows_kit_built: true
     secrets: inherit
   packager_linux:
     uses: ./.github/workflows/packager-linux.yml
@@ -50,5 +70,8 @@ jobs:
     uses: ./.github/workflows/test-compose-from-fork.yml
     secrets: inherit
   test_samples:
+    needs: windows_static_kit
     uses: ./.github/workflows/test-samples.yml
+    with:
+      windows_kit_built: true
     secrets: inherit
