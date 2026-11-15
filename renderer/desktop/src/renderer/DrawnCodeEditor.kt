@@ -168,6 +168,16 @@ private class DrawnState(
     var rows: RowMap = RowMap.of(model)
     var scroll: EditorScroll? = null
 
+    /** The room above the first line, in pixels, which scrolls away with it. */
+    var padTopPx = 0
+
+    /** The room below the last line, and the view's height, both in pixels. */
+    var padBottomPx = 0
+    var viewportHeight = 0
+
+    /** How far down the document the top of the view is: the offset less the room above the first line. */
+    val docOffset: Int get() = (scroll?.offset ?: 0) - padTopPx
+
     /** How far right of the editor's own left edge this part of it starts: a minimap on the left. */
     var originX = 0f
 
@@ -248,6 +258,21 @@ private class DrawnState(
         return LineView(layout, caretAt, charAt, model.wrapBreaksOf(line))
     }
 
+    /**
+     * Scrolls the least that shows the whole row the caret is on, after a key or an input
+     * method moved it. The rows are read again, since the key may have added a line.
+     */
+    fun followCaretMove() {
+        val vertical = scroll ?: return
+        if (viewportHeight <= 0) return
+        val now = RowMap.of(model)
+        vertical.max = now.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
+        val caret = model.selection.caret
+        val row = view(caret.line).rowOf(caret.column, caretAtRowEnd)
+        val top = now.textTopPx(caret.line, rowPx) + row * rowPx + padTopPx
+        followCaret(vertical, top, top + rowPx, viewportHeight)
+    }
+
     fun moved() {
         caretAtRowEnd = false
         moves += 1
@@ -281,6 +306,7 @@ private class DrawnState(
         composing = ""
         if (text.isNotEmpty()) replaceSelection(text, EditOrigin.Typing)
         composingChanged()
+        followCaretMove()
     }
 
     override fun compose(text: String) {
@@ -315,7 +341,7 @@ private class DrawnState(
         val view = view(caret.line)
         val row = view.rowOf(caret.column, caretAtRowEnd)
         val x = textLeft + view.caretX(caret.column) - view.rowX(row)
-        val y = rows.textTopPx(caret.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
+        val y = rows.textTopPx(caret.line, rowPx).toFloat() + row * rowPx - docOffset
         val origin = coordinates?.localToRoot(Offset(x, y)) ?: Offset(x, y)
         return Rect(origin, Size(1f, rowPx.toFloat()))
     }
@@ -358,7 +384,7 @@ private class DrawnState(
         val shown = view.caretAt[column] + if (composed) composing.length else 0
         val row = view.rowOf(column, composed && caretAtRowEnd && position == model.selection.caret)
         val x = textLeft + view.layout.getHorizontalPosition(shown, true) - view.rowX(row)
-        val y = rows.textTopPx(position.line, rowPx).toFloat() + row * rowPx - (scroll?.offset ?: 0)
+        val y = rows.textTopPx(position.line, rowPx).toFloat() + row * rowPx - docOffset
         return Rect(Offset(x, y), Size(caretWidthPx, rowPx.toFloat()))
     }
 
@@ -401,8 +427,8 @@ private class DrawnState(
         // Asked in the editor's own coordinates, which a minimap on the left moves this part of.
         val inside = x - originX
         if (inside < textLeft) return null
-        val at = (y + (scroll?.offset ?: 0)).toInt()
-        if (y + (scroll?.offset ?: 0) < 0f || at >= rows.totalPx(rowPx)) return null
+        val at = (y + docOffset).toInt()
+        if (y + docOffset < 0f || at >= rows.totalPx(rowPx)) return null
         val line = rows.lineAtPx(at, rowPx)
         // A lens above the line, the rows a suggestion of several lines adds below it and a
         // view zone after it are not the document's text.
@@ -418,7 +444,7 @@ private class DrawnState(
     }
 
     fun positionAt(point: Offset): Pair<CodePosition, Boolean> {
-        val at = (point.y + (scroll?.offset ?: 0)).toInt().coerceAtLeast(0)
+        val at = (point.y + docOffset).toInt().coerceAtLeast(0)
         val line = rows.lineAtPx(at, rowPx).coerceIn(0, model.document.lineCount - 1)
         val onLens = rows.hasLens(line) && at < rows.textTopPx(line, rowPx)
         val view = view(line)
@@ -466,11 +492,15 @@ private fun DrawnSurface(
     model.overlayRevision
     val rows = RowMap.of(model)
     state.rows = rows
-    val extent = rows.totalPx(rowPx) - viewportHeight
+    // The room above the first line and below the last, inside what scrolls.
+    val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
+    state.padTopPx = padTopPx
+    state.padBottomPx = padBottomPx
+    val extent = rows.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
     SideEffect { vertical.max = extent }
     val digitWidth = remember(look.textStyle) { measurer.measure("0", look.textStyle).size.width }
     val markColumn = if (model.hasOrdinaryMarks) rowPx else 0
-    val foldColumn = if (model.folds.isNotEmpty()) rowPx else 0
+    val foldColumn = foldColumnWidthPx(model, look, rowPx)
     val gutterWidth = (
         density.numberColumnPx(look, rows.lineCount.toString().length, digitWidth) +
             markColumn + foldColumn + density.changeColumnPx(model, look)
@@ -502,10 +532,10 @@ private fun DrawnSurface(
     // What the reader's edits queued is sent from here as well, on the composition thread.
     SideEffect { callbacks.onOutput() }
     // Scrolling redraws without recomposing, so the lines on screen are read from a flow.
-    LaunchedEffect(rows, viewportHeight, rowPx) {
+    LaunchedEffect(rows, viewportHeight, rowPx, padTopPx) {
         snapshotFlow { vertical.offset }.collect { scroll ->
             if (viewportHeight > 0) {
-                reportVisible(model, rows, scroll, viewportHeight, rowPx)
+                reportVisible(model, rows, scroll, viewportHeight, rowPx, padTopPx)
                 model.reportGeometry(rowPx, scroll)
                 callbacks.onOutput()
             }
@@ -522,7 +552,8 @@ private fun DrawnSurface(
     val reveal = model.reveal
     LaunchedEffect(reveal) {
         if (reveal == null) return@LaunchedEffect
-        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight)
+        vertical.max = rows.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
+        scrollToReveal(RowMap.of(model), vertical, reveal, rowPx, viewportHeight, padTopPx)
         model.revealDone(reveal)
         callbacks.onOutput()
     }
@@ -531,7 +562,7 @@ private fun DrawnSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx) + padTopPx + padBottomPx, viewportHeight)
     }
 
     Box(
@@ -546,6 +577,7 @@ private fun DrawnSurface(
             .onSizeChanged {
                 viewportHeight = it.height
                 viewportWidth = it.width
+                state.viewportHeight = it.height
             },
     ) {
         Box(
@@ -570,7 +602,15 @@ private fun DrawnSurface(
                     callbacks.onOutput()
                 }
                 .focusable()
-                .onKeyEvent { event -> drawnKey(event, state) }
+                .onKeyEvent { event ->
+                    // A key that moved the caret or changed the text brings the caret's row
+                    // into view; one that did neither leaves the view where the reader put it.
+                    val selection = model.selection
+                    val revision = model.contentRevision
+                    drawnKey(event, state).also {
+                        if (model.selection != selection || model.contentRevision != revision) state.followCaretMove()
+                    }
+                }
                 .pointerInput(state) {
                     awaitPointerEventScope {
                         var dragging = false
@@ -588,7 +628,7 @@ private fun DrawnSurface(
                                             model,
                                             rows,
                                             change.position,
-                                            vertical.offset,
+                                            state.docOffset,
                                             rowPx,
                                             gutterWidth.toInt(),
                                             markColumn,
@@ -639,7 +679,8 @@ private fun DrawnSurface(
                     state.moves
                     state.composing
                     model.secondaryRevision
-                    val scroll = vertical.offset
+                    // The document starts the top padding down, so it is drawn that much lower.
+                    val scroll = vertical.offset - padTopPx
                     translate(top = -scroll.toFloat()) {
                         drawLines(state, rows, scroll, viewportHeight, gutterWidth, markColumn, foldColumn, focused)
                     }
@@ -657,6 +698,8 @@ private fun DrawnSurface(
                 Modifier
                     .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
                     .scrollable(vertical.scrollable, Orientation.Vertical),
+                padTopPx,
+                padBottomPx,
             )
         }
         SnippetChoices(model, look, { state.caretInEditor() }) {
@@ -680,7 +723,7 @@ private fun DrawScope.drawLines(
     val model = state.model
     val look = state.look
     val rowPx = state.rowPx.toFloat()
-    val first = rows.lineAtPx(scroll, state.rowPx)
+    val first = rows.lineAtPx(scroll.coerceAtLeast(0), state.rowPx)
     val last = min(rows.lineCount - 1, rows.lineAtPx(scroll + viewportHeight + state.rowPx, state.rowPx))
     val selection = model.selection
     drawRect(look.gutter, Offset(0f, scroll.toFloat()), Size(gutterWidth, viewportHeight.toFloat()))
@@ -708,6 +751,10 @@ private fun DrawScope.drawLines(
         }
         if (line == selection.caret.line && selection.collapsed && look.currentLine.alpha > 0f) {
             drawRect(look.currentLine, Offset(gutterWidth, top), Size(size.width - gutterWidth, rowPx * lineRows))
+        }
+        // The band carried across the gutter, up to its divider, under the number and marks.
+        if (line == selection.caret.line && selection.collapsed && look.currentLineGutter != Color.Unspecified) {
+            drawRect(look.currentLineGutter, Offset(0f, top), Size(gutterWidth - gutterDividerPx(look), rowPx * lineRows))
         }
         // A line background across the text's whole width, then the stronger tint of a range
         // background over its characters, both behind the selection and the text.

@@ -24,8 +24,10 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.contentPaddingDp
 import dev.darkpyonix.composerust.foundation.wordWrapRule
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
+import dev.darkpyonix.composerust.foundation.spanFontFeatureSettings
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.ui.SEMANTICS_STATE_MASK
@@ -64,6 +66,14 @@ class Node internal constructor(val id: Int, val widget: WidgetKind) {
      * frame after, so a text whose value changes builds no string for its features.
      */
     internal var fontFeatures by mutableStateOf<String?>(null)
+
+    /**
+     * The OpenType features runs of a `Text` name for themselves, as Compose's
+     * `fontFeatureSettings` strings by run index, or null where no run names any or the
+     * table could not be read. Made once when the `SpanFontFeatures` property changes and
+     * read as it is on every composition, so drawing the text parses nothing.
+     */
+    internal var spanFontFeatures by mutableStateOf<Map<Int, String>?>(null)
 
     /**
      * A code editor's document and everything over it. Created with the node and kept for
@@ -888,6 +898,20 @@ class NodeTable {
                 }
                 return
             }
+            // Read where the editor is drawn. Here padding that is not two lengths of zero or
+            // more is said once, when it arrives, and the editor is drawn without it.
+            PropertyKind.ContentPaddingDp -> {
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    if (contentPaddingDp(bytes) == null) {
+                        fail(
+                            TableError.INVALID_CODE_EDIT,
+                            "content padding on node ${node.id}: ${bytes.size} bytes that are not " +
+                                "two lengths of zero or more, top then bottom",
+                        )
+                    }
+                }
+                return
+            }
             // Whether there is anyone to tell. The model reports only what is heard, and
             // the next frame's drain carries what a new listener has yet to hear.
             PropertyKind.OnCodeMetrics -> {
@@ -997,6 +1021,16 @@ class NodeTable {
                     fail(
                         TableError.INVALID_FONT_FEATURES,
                         "font features on node ${node.id}: $why; the text is drawn without them",
+                    )
+                }
+            }
+        }
+        if (mutation.property == PropertyKind.SpanFontFeatures) {
+            node.spanFontFeatures = (mutation.value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                spanFontFeatureSettings(bytes) { why ->
+                    fail(
+                        TableError.INVALID_FONT_FEATURES,
+                        "span font features on node ${node.id}: $why; the text is drawn without span font features",
                     )
                 }
             }
@@ -1579,6 +1613,7 @@ class NodeTable {
                     widget == WidgetKind.Text || widget == WidgetKind.TextField
 
                 PropertyKind.SpanFonts,
+                PropertyKind.SpanFontFeatures,
                 PropertyKind.TabSize,
                 PropertyKind.AbsoluteSize,
                 PropertyKind.SoftWrap,
@@ -1643,6 +1678,9 @@ class NodeTable {
                 PropertyKind.Minimap,
                 PropertyKind.ViewZones,
                 PropertyKind.WordWrap,
+                // Room that scrolls with the text, and a gutter whose columns stay put.
+                PropertyKind.ContentPaddingDp,
+                PropertyKind.FixedGutterColumns,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

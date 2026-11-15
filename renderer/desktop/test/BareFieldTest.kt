@@ -7,7 +7,12 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.height
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
@@ -30,6 +35,8 @@ private const val LINE = 4
 private const val OPTION = 5
 private const val RED = 0xFFD01010.toInt()
 private const val BLUE = 0xFF1010D0.toInt()
+private const val ABOVE = 6
+private const val BELOW = 7
 
 /**
  * A bare field draws none of the design system's frame: every pixel that is not a letter is
@@ -135,5 +142,66 @@ class BareFieldTest {
         val pixels = drawn.pixels
         assertEquals(BLUE, pixels[pixels.width / 2, pixels.height / 2].toArgb(), "the node's own fill is drawn")
         assertTrue(drawn.fieldHeight <= drawn.lineHeight + 0.5f, "a fill brings no minimum height with it")
+    }
+
+    /**
+     * A bare field of several lines, 40dp tall and holding far more text than that, with
+     * 60dp of red page above and below it. The caret is put at the end and a line is typed
+     * there, so the text scrolls and its first lines lie above the field's top edge. Every
+     * pixel of the page outside the field's own rectangle is still the page's colour.
+     */
+    @Test
+    fun fr56_bare_multiline_field_clips_its_scrolled_text() = runComposeUiTest {
+        val text = (1..12).joinToString("\n") { "MMMMMMMM $it" }
+        val batch = buildList {
+            add(Mutation.Create(PAGE, WidgetKind.Column))
+            add(Mutation.SetModifier(PAGE, 0, ProtocolModifier.Background(Paint.Literal(RED))))
+            add(Mutation.Create(ABOVE, WidgetKind.Spacer))
+            add(Mutation.SetModifier(ABOVE, 0, ProtocolModifier.Size(160f, 60f)))
+            add(Mutation.Create(FIELD, WidgetKind.TextField))
+            add(Mutation.SetModifier(FIELD, 0, ProtocolModifier.Width(160f)))
+            add(Mutation.SetModifier(FIELD, 1, ProtocolModifier.Height(40f)))
+            add(Mutation.SetProp(FIELD, PropertyKind.Bare, PropertyValue.Bool(true)))
+            add(Mutation.SetProp(FIELD, PropertyKind.Multiline, PropertyValue.Bool(true)))
+            add(Mutation.SetProp(FIELD, PropertyKind.Text, PropertyValue.Text(text)))
+            add(Mutation.Create(BELOW, WidgetKind.Spacer))
+            add(Mutation.SetModifier(BELOW, 0, ProtocolModifier.Size(160f, 60f)))
+            add(Mutation.Insert(PAGE, ABOVE, 0))
+            add(Mutation.Insert(PAGE, FIELD, 1))
+            add(Mutation.Insert(PAGE, BELOW, 2))
+        }
+        setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch))) }
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(FIELD)).requestFocus()
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInputSelection(TextRange(text.length))
+        waitForIdle()
+        onNodeWithTag(nodeTestTag(FIELD)).performTextInput("\nMMMMMMMM 13")
+        waitForIdle()
+
+        val scale = density.density
+        val page = onNodeWithTag(nodeTestTag(PAGE)).getUnclippedBoundsInRoot()
+        val field = onNodeWithTag(nodeTestTag(FIELD)).getUnclippedBoundsInRoot()
+        assertEquals(40f, field.height.value, 0.5f, "the field keeps the height it was given")
+        val pixels = onRoot().captureToImage().toPixelMap()
+        // One pixel of slack round the field, for an edge that falls between two pixels.
+        val fieldTop = (field.top.value * scale).toInt() - 1
+        val fieldBottom = (field.bottom.value * scale).toInt() + 1
+        val left = (page.left.value * scale).toInt()
+        val right = minOf((page.right.value * scale).toInt(), pixels.width)
+        val top = (page.top.value * scale).toInt()
+        val bottom = minOf((page.bottom.value * scale).toInt(), pixels.height)
+        assertTrue(fieldTop - top > 20 && bottom - fieldBottom > 20, "there is page above and below the field")
+        for (y in top until bottom) {
+            if (y in fieldTop..fieldBottom) continue
+            for (x in left until right) {
+                assertEquals(
+                    RED,
+                    pixels[x, y].toArgb(),
+                    "pixel ($x, $y) lies outside the field (rows $fieldTop to $fieldBottom) and is the page's " +
+                        "colour, not a line of text that scrolled out of the field",
+                )
+            }
+        }
     }
 }

@@ -37,8 +37,11 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.PopoverAlign
 import dev.darkpyonix.composerust.protocol.PopoverPlacement
 import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.protocol.SpaceRole
+import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.EventDispatcher
+import dev.darkpyonix.composerust.ui.declaredSemanticsRole
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
@@ -349,6 +352,7 @@ private fun PopoverContent(
     }
     val surfaceRequester = remember(node.id) { FocusRequester() }
     val onDismiss = { dismiss(node, dispatcher) }
+    val menuEntries = popoverMenuEntries(node, content, table)
     Popup(
         popupPositionProvider = provider,
         // Escape is not the popup's to act on: the overlay stack gives it to the topmost
@@ -371,13 +375,22 @@ private fun PopoverContent(
                 }
             }
         }
-        ModalOverlayFocus(node.id, surfaceRequester, onDismiss)
+        val menuKeys = if (menuEntries != null) {
+            rememberMenuKeyboard(menuEntries, table)
+        } else {
+            null
+        }
+        ModalOverlayFocus(node.id, surfaceRequester, onDismiss, focusSurface = menuKeys == null)
         // The recorded page does not reach into a popup, for the reason a menu gives.
-        CompositionLocalProvider(LocalGlassBackdrop provides null) {
+        CompositionLocalProvider(
+            LocalGlassBackdrop provides null,
+            LocalMenuKeyboard provides menuKeys,
+        ) {
             Column(
                 Modifier
                     .popoverSizeLimit(margin, provider)
                     .then(modifier)
+                    .let { if (menuKeys != null) it.menuKeys(menuKeys) else it }
                     .modalOverlaySurface(node.id, surfaceRequester)
                     // A group that floats over the page, not a dialog: nothing behind it
                     // is taken away from the reader, and no title is announced for it.
@@ -393,4 +406,48 @@ private fun PopoverContent(
             }
         }
     }
+}
+
+/**
+ * The entries of a popover whose content is a menu, in tree order, or null when the popover
+ * is not a menu.
+ *
+ * A popover is a menu when it or a node in its content declares [SemanticsRole.Menu], or when
+ * its content holds nodes that declare [SemanticsRole.MenuItem]. When items are marked with
+ * [SemanticsRole.MenuItem], those nodes are the entries. Otherwise the direct children of the
+ * node that declared [SemanticsRole.Menu] are the entries, as in a `Menu` widget.
+ */
+private fun popoverMenuEntries(
+    popover: Node,
+    content: List<Int>,
+    table: NodeTable,
+): List<Int>? {
+    val menuItems = mutableListOf<Int>()
+    var menuContainer: Node? = if (popover.declaredSemanticsRole() == SemanticsRole.Menu) popover else null
+
+    fun walk(id: Int) {
+        val current = table.node(id) ?: return
+        when (current.declaredSemanticsRole()) {
+            SemanticsRole.MenuItem -> {
+                menuItems += id
+                return
+            }
+            SemanticsRole.Menu -> if (menuContainer == null) menuContainer = current
+            else -> {}
+        }
+        // Do not descend into a nested overlay's own content.
+        if (current.widget == WidgetKind.Popover ||
+            current.widget == WidgetKind.Menu ||
+            current.widget == WidgetKind.Dialog ||
+            current.widget == WidgetKind.Sheet
+        ) {
+            return
+        }
+        for (childId in current.children) walk(childId)
+    }
+
+    for (childId in content) walk(childId)
+    if (menuItems.isNotEmpty()) return menuItems
+    val container = menuContainer ?: return null
+    return if (container.id == popover.id) content else container.children
 }

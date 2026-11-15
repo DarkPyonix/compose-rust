@@ -1139,6 +1139,7 @@ impl TextScope {
                 push_modifiers(&modifier, Mods::Standard, attrs);
                 // Left out entirely when there are none, as the rsx widget leaves it out.
                 let span_fonts = spans.font_table().to_vec();
+                let span_features = spans.shared_feature_table();
                 attrs.push((
                     "spans",
                     if spans.is_empty() {
@@ -1147,25 +1148,38 @@ impl TextScope {
                         OwnedAttr::Spans(spans)
                     },
                 ));
-                // The fonts each styled run names travel beside the runs, and are left out
-                // when no run names any.
-                attrs.push((
-                    "span_fonts",
-                    if span_fonts.is_empty() {
-                        OwnedAttr::None
-                    } else {
-                        OwnedAttr::Bytes(span_fonts)
-                    },
-                ));
-                attrs.push(("font", font_bytes(&font)));
-                // Left out when no feature was asked for, so such a text sends what it
-                // always did. A first composition writes every attribute in the list, an
-                // empty one as well, so leaving it out is what keeps it off the wire.
+                // The fonts each styled run names travel beside the runs. Left out of the
+                // list where no run names any: a first composition writes every attribute
+                // in the list, an empty one as a record that sets nothing. A table that
+                // goes away is cleared because it left the list.
+                if !span_fonts.is_empty() {
+                    attrs.push(("span_fonts", OwnedAttr::Bytes(span_fonts)));
+                }
+                // The OpenType features each styled run names travel beside the runs. Left
+                // out of the list where no run names any, so such a text sends what it
+                // always did: a first composition writes every attribute in the list, an
+                // empty one as a record that sets nothing. A table that goes away is
+                // cleared because it left the list.
+                if let Some(table) = span_features {
+                    attrs.push(("span_font_features", OwnedAttr::Shared(table)));
+                }
+                // The font list, the break rules and the features are each left out when
+                // unset, for the same reason: their tags are outside the range the writer
+                // drops at a neutral value, so listing them empty would send a record of
+                // nothing for every plain text. One that was set and goes away is cleared
+                // because it left the list.
+                if !font.is_empty() {
+                    attrs.push(("font", font_bytes(&font)));
+                }
                 if font_features != OwnedAttr::None {
                     attrs.push(("font_feature_settings", font_features));
                 }
-                attrs.push(("word_break", super::role(word_break)));
-                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                if word_break.is_some() {
+                    attrs.push(("word_break", super::role(word_break)));
+                }
+                if overflow_wrap.is_some() {
+                    attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                }
                 attrs.push(("text", OwnedAttr::Text(text)));
                 // `TypeRole::None` is tag 0, so it travels as an explicit 0 and a role that
                 // was never set travels as nothing. Sent the other way, the text that names
@@ -1517,13 +1531,20 @@ impl TextFieldScope {
                 if let Some(caret_color) = caret_color {
                     attrs.push(("caret_color", super::paint(Some(caret_color))));
                 }
-                attrs.push(("font", font_bytes(&font)));
-                // Left out when no feature was asked for, as `Text` leaves it out.
+                // The font list, the features and the break rules are each left out when
+                // unset, as `Text` leaves them out, and cleared once when they go away.
+                if !font.is_empty() {
+                    attrs.push(("font", font_bytes(&font)));
+                }
                 if font_features != OwnedAttr::None {
                     attrs.push(("font_feature_settings", font_features));
                 }
-                attrs.push(("word_break", super::role(word_break)));
-                attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                if word_break.is_some() {
+                    attrs.push(("word_break", super::role(word_break)));
+                }
+                if overflow_wrap.is_some() {
+                    attrs.push(("overflow_wrap", super::role(overflow_wrap)));
+                }
                 // Written only for a bare field, so a framed one sends what it always did.
                 if bare {
                     attrs.push(("bare", OwnedAttr::Bool(true)));
@@ -1639,6 +1660,7 @@ pub struct ButtonScope {
     font_size: Option<f32>,
     font_weight: Option<u16>,
     type_role: Option<TypeRole>,
+    content_padding: Option<(f32, f32)>,
     on_click: Option<Box<dyn FnMut()>>,
     focus_handle: Option<super::FocusHandle>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
@@ -1666,6 +1688,7 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         font_size: None,
         font_weight: None,
         type_role: None,
+        content_padding: None,
         on_click: None,
         focus_handle: None,
         on_motion_finished: None,
@@ -1702,6 +1725,17 @@ impl ButtonScope {
     /// this sends nothing and keeps the design system's label style for its variant.
     pub fn type_role(mut self, role: TypeRole) -> Self {
         self.type_role = Some(role);
+        self
+    }
+
+    /// The room between the button's edge and its label, in dp: `horizontal` at each side
+    /// and `vertical` above and below. It replaces the design system's padding for this
+    /// button only, and still gives way when the button is too small for the label and
+    /// the padding together. `Modifier::padding` is the room around the button and is not
+    /// changed by this. A button that never calls this sends nothing and keeps the design
+    /// system's padding.
+    pub fn content_padding(mut self, horizontal: f32, vertical: f32) -> Self {
+        self.content_padding = Some((horizontal, vertical));
         self
     }
 
@@ -1773,6 +1807,7 @@ impl ButtonScope {
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
         let (font_weight, type_role) = (self.font_weight, self.type_role);
+        let content_padding = self.content_padding;
         let mut listeners = vec![("onclick", unit(self.on_click.take()))];
         super::focus::bind_focus_handle(self.focus_handle.take());
         motion_input(self.on_motion_finished.take(), &mut listeners);
@@ -1800,6 +1835,14 @@ impl ButtonScope {
                 }
                 if type_role.is_some() {
                     attrs.push(("type_role", super::role(type_role)));
+                }
+                // Written only when it was set, so a button that never asks sends what it
+                // always sent.
+                if let Some((horizontal, vertical)) = content_padding {
+                    let mut bytes = Vec::with_capacity(8);
+                    bytes.extend_from_slice(&horizontal.to_le_bytes());
+                    bytes.extend_from_slice(&vertical.to_le_bytes());
+                    attrs.push(("content_padding", OwnedAttr::Bytes(bytes)));
                 }
             },
             listeners,

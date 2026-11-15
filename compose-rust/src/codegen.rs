@@ -3292,6 +3292,34 @@ pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
     crate::font_features::FontFeature::new(b"cv01", 0x0102),
 ];
 
+/// The runs of the mutation vector's last text that name font features, and which: its
+/// second run takes tabular figures, and its fifth takes ligatures off and a stylistic
+/// set whose value needs more than one byte. Two entries with lists of different lengths,
+/// so an offset read from the wrong entry lands on the wrong records.
+pub fn span_font_feature_vector() -> Vec<(u32, Vec<crate::font_features::FontFeature>)> {
+    use crate::font_features::FontFeature;
+    vec![
+        (1, vec![FontFeature::TABULAR_NUMS]),
+        (
+            4,
+            vec![FontFeature::NO_LIGATURES, FontFeature::new(b"ss01", 0x0302)],
+        ),
+    ]
+}
+
+/// The five runs the text with span font features is cut into, so the runs the feature
+/// table names (the second and the fifth) are runs the text has.
+pub fn span_font_feature_runs() -> crate::spans::TextSpans {
+    use crate::spans::{TextSpan, TextSpans};
+    TextSpans::new([
+        TextSpan::new(0, 2),
+        TextSpan::new(2, 2),
+        TextSpan::new(4, 2),
+        TextSpan::new(6, 2),
+        TextSpan::new(8, 2),
+    ])
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -3303,6 +3331,9 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let span_font_feature_runs = span_font_feature_runs();
+    let span_font_features = crate::spans::encode_feature_table(&span_font_feature_vector())
+        .expect("the vector names features");
     let edit_group = code_edit_group_vector()?;
     let view_zones = code_view_zone_vector();
     let code_selections = code_selections_vector();
@@ -4176,6 +4207,27 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             node_id: 23,
             property: PropertyKind::IconAsset,
             value: PropertyValue::Integer(9),
+        },
+        // A text whose second and fifth runs name font features of their own, as the table
+        // that travels beside the runs.
+        Mutation::Create {
+            node_id: 24,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("1234567890"),
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Spans,
+            value: PropertyValue::Bytes(span_font_feature_runs.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::SpanFontFeatures,
+            value: PropertyValue::Bytes(&span_font_features),
         },
         // A button's least touch target, 44 dp, on a node of its own so the html element
         // box keeps the modifiers it had.
@@ -5516,12 +5568,15 @@ object CodeEditorRecords {
 
 /// The font candidates of text with no role, and the table that gives a run its own.
 fn write_font_refs(output: &mut String) {
+    use crate::font_features::{FONT_FEATURE_LEN, MAX_FONT_FEATURES};
     use crate::fonts::{
         FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LEN, FONT_REF_LENGTH_AT,
         FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
     };
     use crate::spans::{
-        SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_FONT_SPAN_AT,
+        SPAN_FEATURE_COUNT_AT, SPAN_FEATURE_ENTRY_LEN, SPAN_FEATURE_OFFSET_AT,
+        SPAN_FEATURE_SPAN_AT, SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT,
+        SPAN_FONT_SPAN_AT,
     };
     output.push_str(
         r#"/**
@@ -5690,6 +5745,89 @@ object SpanFontRecords {
     }
 }
 
+/**
+ * Which runs of a Text name OpenType features of their own, and which: the
+ * `SpanFontFeatures` property. Keyed by the run's index in its run list.
+ *
+ * The blob opens with the number of entries. Each entry names a run, where that run's
+ * feature records start, counted from the start of the blob, and how many there are. The
+ * records are the 8-byte ones a `FontFeatureSettings` property carries, after the entries.
+ */
+object SpanFontFeatureRecords {
+"#,
+    );
+    writeln!(
+        output,
+        "    const val ENTRY_LENGTH = {SPAN_FEATURE_ENTRY_LEN}"
+    )
+    .unwrap();
+    writeln!(output, "    const val FEATURE_LENGTH = {FONT_FEATURE_LEN}").unwrap();
+    writeln!(output, "    const val MAX_FEATURES = {MAX_FONT_FEATURES}").unwrap();
+    for (name, value) in [
+        ("SPAN_AT", SPAN_FEATURE_SPAN_AT),
+        ("OFFSET_AT", SPAN_FEATURE_OFFSET_AT),
+        ("COUNT_AT", SPAN_FEATURE_COUNT_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /**
+     * Each named run's feature records, by run index and in the table's order, or null
+     * where the table breaks its layout: [onError] is then told what broke, once. An empty
+     * blob is a table with no entries.
+     *
+     * Refused are a table too short for its entries, a run index above the largest an
+     * `Int` holds, more than [MAX_FEATURES] features for one run, a feature list that does
+     * not lie whole inside the blob after the entries at a multiple of four, and a run
+     * named twice. Whether a run index is one of the text's runs is for the caller, which
+     * knows how many there are.
+     */
+    fun decodeBlob(bytes: ByteArray, onError: (String) -> Unit): Map<Int, ByteArray>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) {
+            onError("${bytes.size} bytes cannot hold the table's entry count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0)
+        val entriesEnd = 4L + count.toLong() * ENTRY_LENGTH
+        if (count < 0 || entriesEnd > bytes.size) {
+            onError("${count.toUInt()} entries do not fit in ${bytes.size} bytes")
+            return null
+        }
+        val features = LinkedHashMap<Int, ByteArray>(count)
+        for (index in 0 until count) {
+            val entry = 4 + index * ENTRY_LENGTH
+            val span = buffer.getInt(entry + SPAN_AT)
+            val offset = buffer.getInt(entry + OFFSET_AT)
+            val length = buffer.getInt(entry + COUNT_AT)
+            if (span < 0) {
+                onError("entry $index names run ${span.toUInt()}, which no text has")
+                return null
+            }
+            if (length < 0 || length > MAX_FEATURES) {
+                onError("run $span has ${length.toUInt()} features where at most $MAX_FEATURES are taken")
+                return null
+            }
+            val end = offset.toLong() + length.toLong() * FEATURE_LENGTH
+            if (offset < entriesEnd || offset % 4 != 0 || end > bytes.size) {
+                onError(
+                    "the features of run $span are said to be at ${offset.toUInt()}, which is not " +
+                        "$length whole records after the entries of a ${bytes.size} byte table",
+                )
+                return null
+            }
+            if (features.containsKey(span)) {
+                onError("run $span is named twice")
+                return null
+            }
+            features[span] = bytes.copyOfRange(offset, end.toInt())
+        }
+        return features
+    }
+}
+
 "#,
     );
 }
@@ -5748,6 +5886,14 @@ object MeasureRecords {
         (
             "TEXT_FONT_FEATURES_COUNT_AT",
             m::TEXT_FONT_FEATURES_COUNT_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FEATURES_OFFSET_AT",
+            m::TEXT_SPAN_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FEATURES_LENGTH_AT",
+            m::TEXT_SPAN_FEATURES_LENGTH_AT as i64,
         ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
