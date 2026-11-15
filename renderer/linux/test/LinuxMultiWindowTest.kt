@@ -405,6 +405,95 @@ class LinuxMultiWindowTest {
         }
     }
 
+    /**
+     * The same changes as the test above, made the way an application makes them: the Host
+     * sets `WindowResizable` and `WindowMinSize` on a `Window` node that is already open, and
+     * the window manager carries them to the X window. The test above calls the platform
+     * window itself, so it would stay green if the manager stopped passing a change on.
+     */
+    @Test
+    fun fr53_linux_resizable_and_minimum_size_set_by_the_host_change_the_size_hints_of_an_open_window() {
+        if (!hasDisplay()) return
+        val backend = backend()
+        val initial = listOf(
+            Mutation.SetWindow(
+                Window(
+                    chrome = Chrome.Modern,
+                    titleBar = TitleBar.Normal,
+                    title = "",
+                    icon = 0,
+                    width = 0,
+                    height = 0,
+                    minWidth = 0,
+                    minHeight = 0,
+                    resizable = true,
+                    zoomLevel = null,
+                    mode = WindowMode.Windows,
+                    lastWindowClosed = LastWindowClosed.KeepRunning,
+                ),
+            ),
+            Mutation.Create(1, WidgetKind.Window),
+            Mutation.SetProp(1, PropertyKind.WindowTitle, PropertyValue.Text("Size hints")),
+            Mutation.SetProp(1, PropertyKind.WindowSize, PropertyValue.Bytes(bytesOf(320f, 240f))),
+            Mutation.SetProp(1, PropertyKind.WindowResizable, PropertyValue.Bool(true)),
+            Mutation.Insert(0, 1, -1),
+        )
+        val conn = RecordingHost(initial)
+        val host = ComposeRustHost(conn)
+        host.start()
+        val manager = WindowManager(host, backend, onExit = {})
+        try {
+            manager.attach()
+            assertEquals(1, backend.openCount, "the Window node opened no window")
+            backend.turn()
+            val display = assertNotNull(glXGetCurrentDisplay(), "the window made no GL context current")
+            val drawable = glXGetCurrentDrawable()
+            fun hints(): Triple<Long, Pair<Int, Int>, Pair<Int, Int>> = memScoped {
+                val hints = assertNotNull(XAllocSizeHints())
+                try {
+                    val supplied = alloc<LongVar>()
+                    assertTrue(XGetWMNormalHints(display, drawable, hints, supplied.ptr) != 0, "no size hints set")
+                    Triple(
+                        hints.pointed.flags,
+                        hints.pointed.min_width to hints.pointed.min_height,
+                        hints.pointed.max_width to hints.pointed.max_height,
+                    )
+                } finally {
+                    XFree(hints)
+                }
+            }
+            var frame = 0L
+            fun hostSets(vararg props: Pair<PropertyKind, PropertyValue>) {
+                conn.scheduleFrame(props.map { (kind, value) -> Mutation.SetProp(1, kind, value) })
+                host.renderFrame(++frame)
+            }
+
+            hostSets(
+                PropertyKind.WindowMinSize to PropertyValue.Bytes(bytesOf(100f, 80f)),
+                PropertyKind.WindowResizable to PropertyValue.Bool(false),
+            )
+            val fixed = hints()
+            assertTrue(fixed.first and PMaxSize.toLong() != 0L, "a fixed window has no maximum size hint")
+            assertEquals(fixed.second, fixed.third, "a fixed window's minimum and maximum differ")
+
+            hostSets(
+                PropertyKind.WindowMinSize to PropertyValue.Bytes(bytesOf(120f, 90f)),
+                PropertyKind.WindowResizable to PropertyValue.Bool(true),
+            )
+            val restored = hints()
+            assertTrue(restored.first and PMinSize.toLong() != 0L, "the minimum size hint is missing")
+            assertEquals(0L, restored.first and PMaxSize.toLong(), "a resizable window kept its maximum size")
+            assertEquals(120 to 90, restored.second)
+
+            hostSets(PropertyKind.WindowMinSize to PropertyValue.Bytes(bytesOf(0f, 0f)))
+            assertEquals(0L, hints().first and (PMinSize.toLong() or PMaxSize.toLong()), "old constraints stayed")
+        } finally {
+            manager.shutdown()
+            backend.closeAll()
+            host.shutdown()
+        }
+    }
+
     @Test
     fun fr53_linux_position_round_trips() {
         if (!hasDisplay()) return
