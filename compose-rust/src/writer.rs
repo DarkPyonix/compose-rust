@@ -444,6 +444,10 @@ impl NodeWriter {
         const MIN_TOUCH_TARGET: u16 = 33;
         const OVERLAY: u16 = 34;
         const STICKY: u16 = 35;
+        // The room inside a control, between its edge and its label. It has a slot of its
+        // own so that it never displaces the padding around the control, which keeps the
+        // plain padding slot.
+        const CONTENT_PADDING: u16 = 36;
         const UNBOUNDED_WIDTH: u16 = 37;
 
         let float = |value: &AttrValue<'_>| match value {
@@ -475,6 +479,7 @@ impl NodeWriter {
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
             "padding" | "padding_role" => Some(PADDING),
+            "content_padding" => Some(CONTENT_PADDING),
             "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
             "material" => Some(MATERIAL),
@@ -581,6 +586,25 @@ impl NodeWriter {
                     crate::SpaceRole::try_from(u16::try_from(integer(value)?).ok()?).ok()?,
                 ),
             ))),
+            // Two words in dp: the room at each side of the content, then the room above
+            // and below it. They go out as the four-sided padding, the record a control
+            // reads as the room inside it.
+            "content_padding" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let horizontal = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let vertical = f32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+                Some(Some((
+                    CONTENT_PADDING,
+                    Modifier::PaddingEach {
+                        start: horizontal,
+                        top: vertical,
+                        end: horizontal,
+                        bottom: vertical,
+                    },
+                )))
+            }
             "elevation" => Some(Some((ELEVATION, Modifier::Elevation(float(value)?)))),
             "corner_radius" => {
                 let radius = float(value)?;
