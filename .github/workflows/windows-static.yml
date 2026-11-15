@@ -21,14 +21,30 @@
 name: Windows static renderer
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      part:
+        # Which part to run. `kit` builds Compose and skiko for mingwX64 and the renderer kit,
+        # and uploads both; `consumer` downloads the kit from this run and checks an
+        # application against it; `all` does both. ci.yml asks for `kit` once and `consumer`
+        # once, and hands the kit to every workflow that needs it, so one dispatch builds the
+        # renderer once instead of once per caller. A caller run on its own takes `all`.
+        description: kit, consumer or all
+        type: string
+        default: all
 
 permissions:
   contents: read
 
+env:
+  # Pinned, so a new stable release does not change the build between two runs of the same
+  # commit (1.99.1 became 1.100.0 between two days and moved every timing with it).
+  RUST_TOOLCHAIN: 1.100.0
+
 jobs:
   compose:
     name: Compose and skiko for mingwX64 (built on Linux)
+    if: inputs.part != 'consumer'
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
@@ -128,9 +144,10 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  windows:
-    name: Windows x64 Kotlin/Native static renderer and an application that depends on the crate
+  renderer:
+    name: Windows x64 Kotlin/Native static renderer
     needs: compose
+    if: inputs.part != 'consumer'
     runs-on: windows-latest
     # The renderer build and the application checks together took 170-185 minutes on
     # 2026-11-13, and the release run for v0.0.10 was ended at 180 with no log at all.
@@ -163,7 +180,7 @@ jobs:
           java-version: '17'
 
       - name: Install the Rust toolchain
-        run: rustup toolchain install stable --profile minimal && rustup default stable
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
 
       - name: Receive Compose and skiko for mingwX64
         uses: actions/download-artifact@v4
@@ -196,7 +213,7 @@ jobs:
           path: |
             ~/AppData/Local/JetBrains/Kotlin
             ~/.konan
-          key: kotlin-native-windows-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml', 'renderer/**/module.yaml') }}
+          key: kotlin-native-windows-${{ hashFiles('renderer/kotlin', 'renderer/libs.versions.toml') }}
           restore-keys: |
             kotlin-native-windows-
 
@@ -241,7 +258,7 @@ jobs:
         run: ./renderer/desktop/scripts/build-windows.sh
 
       - name: Keep the Kotlin toolchain for the next run
-        if: github.event_name != 'pull_request' && (always() && steps.toolchain-cache.outputs.cache-hit != 'true')
+        if: github.event_name != 'pull_request' && (always() && steps.toolchain-cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'))
         uses: actions/cache/save@v4
         with:
           path: |
@@ -277,26 +294,10 @@ jobs:
           retention-days: 3
 
       - name: Kotlin exceptions and startup in an MSVC executable, with and without the rewrite
+        # Here rather than with the application checks: the probe is compiled with the
+        # Kotlin/Native compiler this job's renderer build left in the toolchain cache.
         if: always() && steps.renderer.outcome == 'success'
         run: ./scripts/check-windows-mingw-link.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/mingw-link-probe"
-
-      - name: Build, check, move and run an application
-        if: always() && steps.renderer.outcome == 'success'
-        run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
-
-      - name: Keep the application
-        if: always()
-        # multi-window.exe is the two-window application for the hand check of an input
-        # method and a screen reader in a second window (its README.md says what to check).
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-static-consumer
-          path: |
-            ${{ runner.temp }}/consumer-windows/alone/consumer.exe
-            ${{ runner.temp }}/consumer-windows/multi-window/multi-window.exe
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Package the kit the way the release carries it
         id: package
         # The tarball the release carries for windows-x64: the kit root, with what an MSVC
@@ -316,4 +317,68 @@ jobs:
           path: |
             ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz
             ${{ runner.temp }}/artifact/${{ steps.package.outputs.name }}.tar.gz.sha256
+          retention-days: 7
+
+  consumer:
+    # Apart from the renderer, with a limit of its own, so a slow link here does not count
+    # against the renderer build and a run can see which of the two took the time.
+    name: An application that depends on the crate, against the Windows renderer
+    needs: renderer
+    if: ${{ !cancelled() && inputs.part != 'kit' && (needs.renderer.result == 'success' || needs.renderer.result == 'skipped') }}
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check symbolic links out as links
+        run: |
+          git config --global core.symlinks true
+          git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - name: Install the Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - name: Receive the renderer kit
+        # Built by the renderer job of this workflow, or, with `part: consumer`, by the one
+        # ci.yml ran with `part: kit`: either way it is an artifact of this run.
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+      - name: Enter the Visual Studio developer environment
+        # The headers clang compiles our C against, and dumpbin.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          # The tools of the same toolset the headers above belong to: a cl.exe from an older
+          # toolset refuses this one's C++ library (STL1001).
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Build, check, move and run an application
+        run: ./scripts/check-windows-consumer.sh renderer/build/windows "$(cygpath -u "$RUNNER_TEMP")/consumer-windows"
+
+      - name: Keep the application
+        if: always()
+        # multi-window.exe is the two-window application for the hand check of an input
+        # method and a screen reader in a second window (its README.md says what to check).
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-static-consumer
+          path: |
+            ${{ runner.temp }}/consumer-windows/alone/consumer.exe
+            ${{ runner.temp }}/consumer-windows/multi-window/multi-window.exe
+          if-no-files-found: ignore
           retention-days: 7
