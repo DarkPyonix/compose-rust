@@ -359,7 +359,8 @@ jobs:
   # .github/scripts/hidpi-windows-check.sh says what each line it prints measures.
   windows-hidpi:
     needs: [changed, windows-static]
-    if: needs.changed.outputs.renderer == 'true'
+    # Skipped is fine: ci.yml built the kit for this run already.
+    if: ${{ !cancelled() && needs.changed.outputs.renderer == 'true' && (needs.windows-static.result == 'success' || needs.windows-static.result == 'skipped') }}
     name: HiDPI sharpness at four display scales and a change of scale (Windows, x64)
     runs-on: windows-latest
     timeout-minutes: 60
