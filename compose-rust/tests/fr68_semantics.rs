@@ -109,6 +109,9 @@ fn Stated() {
             .modifier(Modifier.semantics(Role::Tab, "Files", SemanticsState::selected(true)))
             .content(|| {});
         Box().modifier(Modifier.checked(false)).content(|| {});
+        Box()
+            .modifier(Modifier.role(Role::Button).label("More").has_popup(true))
+            .content(|| {});
     });
 }
 
@@ -140,6 +143,12 @@ fn fr68_the_modifier_sends_the_state_and_an_unset_role_stays_none() {
         dump.contains("Semantics { role: None, state: 1 }"),
         "{dump}"
     );
+    // Has-popup is bit 13 (8192).
+    assert!(
+        dump.contains("Semantics { role: Button, state: 8192 }"),
+        "{dump}"
+    );
+    assert!(dump.contains("AccessibleName=\"More\""), "{dump}");
 }
 
 #[test]

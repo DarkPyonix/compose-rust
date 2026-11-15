@@ -157,6 +157,7 @@ pub struct SemanticsState {
     pub hidden: bool,
     pub click_action: bool,
     pub focus_action: bool,
+    pub has_popup: bool,
 }
 
 impl SemanticsState {
@@ -169,6 +170,7 @@ impl SemanticsState {
         hidden: false,
         click_action: false,
         focus_action: false,
+        has_popup: false,
     };
 
     pub const fn checked(checked: bool) -> Self {
@@ -227,6 +229,13 @@ impl SemanticsState {
         }
     }
 
+    pub const fn has_popup(has_popup: bool) -> Self {
+        Self {
+            has_popup,
+            ..Self::NONE
+        }
+    }
+
     /// The state word the `Semantics` modifier carries.
     pub(crate) fn bits(self) -> u32 {
         use crate::schema::*;
@@ -244,6 +253,11 @@ impl SemanticsState {
             }
             | if self.focus_action {
                 SEMANTICS_FOCUS_ACTION_BIT
+            } else {
+                0
+            }
+            | if self.has_popup {
+                SEMANTICS_HAS_POPUP_BIT
             } else {
                 0
             }
@@ -923,6 +937,12 @@ impl Modifier {
     /// Exposes a focus action on the node.
     pub const fn focus_action(mut self, exposed: bool) -> Self {
         self.semantics_state.focus_action = exposed;
+        self
+    }
+
+    /// Whether the node opens a popup, as a menu button announces it.
+    pub const fn has_popup(mut self, has_popup: bool) -> Self {
+        self.semantics_state.has_popup = has_popup;
         self
     }
 
