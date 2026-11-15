@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
+import dev.darkpyonix.composerust.design.platformDefaultChain
 import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -344,6 +345,8 @@ internal fun resolveFontFamily(
  * name the machine does not have is passed over without a report, because a list that
  * names fonts it may not find is what a font list is for. An installed or a generic family
  * takes every letter left, so the list stops there. Nothing resolving is a sans serif.
+ * A letter none of them has is looked for in the fallback faces the renderer carries, where
+ * it carries any.
  */
 internal fun resolveFontChain(
     refs: List<FontRef>,
@@ -369,18 +372,29 @@ internal fun resolveFontChain(
             }
             is FontRef.System -> {
                 val family = cssUiFontFamily(ref.name) ?: systemFontFamily(ref.name) ?: continue
-                members += FontChain.Member(family, null)
+                members += platformMember(family)
                 break
             }
             is FontRef.Generic -> {
-                members += FontChain.Member(genericFontFamily(ref.family), null)
+                members += platformMember(genericFontFamily(ref.family))
                 break
             }
         }
     }
-    if (members.isEmpty()) members += FontChain.Member(platformSansSerifFamily, null)
+    if (members.isEmpty()) members += platformMember(platformSansSerifFamily)
     return FontChain(members)
 }
+
+/**
+ * The chain member for an installed or a generic [family]: one whose letters are not known,
+ * which takes every letter that reaches it.
+ *
+ * The exception is the default family where the renderer carries it itself. Its letters
+ * are known, so the member is the one of [platformDefaultChain], and a letter it lacks goes
+ * on to the fallback faces the renderer carries.
+ */
+private fun platformMember(family: FontFamily): FontChain.Member =
+    platformDefaultChain?.members?.first()?.takeIf { it.family === family } ?: FontChain.Member(family, null)
 
 /**
  * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this

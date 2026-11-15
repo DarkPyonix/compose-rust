@@ -73,6 +73,7 @@ import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
+import dev.darkpyonix.composerust.ui.node.platformFallbackFamilies
 import dev.darkpyonix.composerust.ui.node.platformWindowMaterial
 import dev.darkpyonix.composerust.ui.node.TableError
 import java.lang.InterruptedException
@@ -453,7 +454,13 @@ private class ThemeAssets(assets: dev.darkpyonix.composerust.ui.node.AssetCache)
     val fontOf: (Int) -> androidx.compose.ui.text.font.FontFamily? =
         { asset -> (assets.asset(asset) as? Asset.Font)?.family }
     val chainOf: (Int) -> dev.darkpyonix.composerust.ui.node.FontChain? =
-        { asset -> (assets.asset(asset) as? Asset.Font)?.chain }
+        // A single face is a chain of one only where the renderer carries fallback faces
+        // of its own: that chain is what sends a letter the face lacks to them.
+        { asset ->
+            (assets.asset(asset) as? Asset.Font)?.let { font ->
+                if (platformFallbackFamilies.isEmpty()) font.chain else font.letters
+            }
+        }
     val brushOf: (Int) -> androidx.compose.ui.graphics.Brush? =
         { asset -> (assets.asset(asset) as? Asset.Brush)?.brush }
 }
