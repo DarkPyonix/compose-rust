@@ -489,6 +489,8 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 
 **결정**: `Sheet`에 `Presentation::Centered`와 `MaxWidth`를 더하고(FR-21.3.1), 창에 `Chrome::FullSize`와 `WindowSafeArea { top, leading, trailing }`를 더한다(FR-19.9).
 
+[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) `WindowSafeArea`가 비켜 가는 창 버튼의 종류, 크기, 순서, 붙는 끝은 실제 운영체제를 따르고, 디자인 시스템은 그 버튼의 색만 정한다(FR-19.5). 이유는 둘이다. 소유자의 규칙(2026-11-16, Ember "창 크롬을 빼면 어디서나 같은 UI")에서 창 크롬은 운영체제의 것이다. 그리고 Windows의 네이티브 히트 테스트와 Snap Layouts는 운영체제의 버튼 칸을 쓰므로, 다른 자리에 그린 버튼은 눌리지 않는다.
+
 **근거**: Ember의 목업과 앱을 같은 폭에서 나란히 놓은 비교(2026-10-26)에서, 설정과 새 항목 시트가 가운데 카드가 아니라 오른쪽 서랍으로 나오고, 자기 상단 바를 그리는 앱인데도 창 맨 위에 약 50px의 빈 띠가 남는 것이 화면 전체가 목업과 달라 보이는 큰 원인으로 나왔다. 소유자 원문(2026-10-26), 질문 "가운데 모달(FR-21.3a)과 창 맨 위까지 쓰기(FR-19.8, Chrome::FullSize + WindowSafeArea)를 compose-rust SPEC에 넣는 것을 승인하시나요?"에 대한 답: "둘 다 승인". 기록은 compose-rust #344, #345 댓글. 세부(폭은 일반 `max_width`, 이름, 기본 드래그 영역을 앱이 덮어쓸 수 있게)는 같은 날 리더의 결정이다.
 
 **버린 것**
@@ -498,7 +500,7 @@ skiko는 `mingwX64`를 발행하지 않고 Compose도 Windows용 Kotlin/Native �
 | 모니터처럼 넓은 시트를 위한 전용 크기 등급 | 폭 하나를 위해 이름 붙은 등급을 늘리게 된다. `MaxWidth` 하나로 같은 일을 한다 |
 | 가운데 시트를 별도 위젯(`Modal`)으로 | `Dialog`, `Sheet`와 같은 오버레이에 같은 `Open`/`OnDismiss`를 쓰는 위젯이 셋째로 생긴다. 표현만 다르므로 속성이다 |
 | 바가 없을 때 띠를 남기는 19.2 규칙을 모든 앱에서 없애기 | 바를 두지 않은 기존 앱의 첫 줄이 창 버튼 아래로 들어간다. 옵트인이어야 한다 |
-| 안전 영역을 앱이 상수로 들고 있기(Windows 138dp 같은) | 버튼 폭과 신호등 자리는 디자인 시스템, DPI, OS 버전에 따라 바뀐다(19.5, 19.7). Renderer만 실제 값을 안다 |
+| 안전 영역을 앱이 상수로 들고 있기(Windows 138dp 같은) | 버튼 폭과 신호등 자리는 OS, DPI, OS 버전, 타이틀바 모드에 따라 바뀐다(19.5, 19.7). Linux에서는 데스크톱마다 버튼 묶음의 폭이 다르다. 디자인 시스템은 이제 버튼의 색만 정하고 폭과 자리는 바꾸지 않지만([leader, provisional] (darkpyonix leader, 2026-11-16; owner rule)), 남은 변수만으로도 상수는 틀린다. Renderer만 실제 값을 안다 |
 
 ### D23. 창 여러 개는 한 Host, 한 composition 안의 `Window` 노드다 (2026-10-26)
 
