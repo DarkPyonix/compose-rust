@@ -48,14 +48,21 @@ fn fr16_4_released_owned_bytes_are_registered_again_under_a_new_id() {
     assert!(release_owned(first_id, AssetKind::Svg));
     let (registered, released) = asset_records(host.render_frame(1).expect("a frame"));
     assert!(registered.is_empty(), "{registered:?}");
-    assert_eq!(released, vec![first_id], "one release record for one release");
+    assert_eq!(
+        released,
+        vec![first_id],
+        "one release record for one release"
+    );
 
     assert!(
         !release_owned(first_id, AssetKind::Svg),
         "a second release of the same id releases nothing"
     );
     let (_, released) = asset_records(host.render_frame(2).expect("a frame"));
-    assert!(released.is_empty(), "a refused release sent a record: {released:?}");
+    assert!(
+        released.is_empty(),
+        "a refused release sent a record: {released:?}"
+    );
 
     let second_id = register_owned(AssetKind::Svg, picture());
     assert_ne!(second_id, first_id, "a released id is handed out again");
