@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets
 
 enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -1155,6 +1155,78 @@ object SpanFontRecords {
 }
 
 /**
+ * Which runs of a Text name OpenType features of their own, and which: the
+ * `SpanFontFeatures` property. Keyed by the run's index in its run list.
+ *
+ * The blob opens with the number of entries. Each entry names a run, where that run's
+ * feature records start, counted from the start of the blob, and how many there are. The
+ * records are the 8-byte ones a `FontFeatureSettings` property carries, after the entries.
+ */
+object SpanFontFeatureRecords {
+    const val ENTRY_LENGTH = 12
+    const val FEATURE_LENGTH = 8
+    const val MAX_FEATURES = 16
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /**
+     * Each named run's feature records, by run index and in the table's order, or null
+     * where the table breaks its layout: [onError] is then told what broke, once. An empty
+     * blob is a table with no entries.
+     *
+     * Refused are a table too short for its entries, a run index above the largest an
+     * `Int` holds, more than [MAX_FEATURES] features for one run, a feature list that does
+     * not lie whole inside the blob after the entries at a multiple of four, and a run
+     * named twice. Whether a run index is one of the text's runs is for the caller, which
+     * knows how many there are.
+     */
+    fun decodeBlob(bytes: ByteArray, onError: (String) -> Unit): Map<Int, ByteArray>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) {
+            onError("${bytes.size} bytes cannot hold the table's entry count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0)
+        val entriesEnd = 4L + count.toLong() * ENTRY_LENGTH
+        if (count < 0 || entriesEnd > bytes.size) {
+            onError("${count.toUInt()} entries do not fit in ${bytes.size} bytes")
+            return null
+        }
+        val features = LinkedHashMap<Int, ByteArray>(count)
+        for (index in 0 until count) {
+            val entry = 4 + index * ENTRY_LENGTH
+            val span = buffer.getInt(entry + SPAN_AT)
+            val offset = buffer.getInt(entry + OFFSET_AT)
+            val length = buffer.getInt(entry + COUNT_AT)
+            if (span < 0) {
+                onError("entry $index names run ${span.toUInt()}, which no text has")
+                return null
+            }
+            if (length < 0 || length > MAX_FEATURES) {
+                onError("run $span has ${length.toUInt()} features where at most $MAX_FEATURES are taken")
+                return null
+            }
+            val end = offset.toLong() + length.toLong() * FEATURE_LENGTH
+            if (offset < entriesEnd || offset % 4 != 0 || end > bytes.size) {
+                onError(
+                    "the features of run $span are said to be at ${offset.toUInt()}, which is not " +
+                        "$length whole records after the entries of a ${bytes.size} byte table",
+                )
+                return null
+            }
+            if (features.containsKey(span)) {
+                onError("run $span is named twice")
+                return null
+            }
+            features[span] = bytes.copyOfRange(offset, end.toInt())
+        }
+        return features
+    }
+}
+
+/**
  * The layout of a measure call: the request records the Host writes, the result records
  * the Renderer writes back, and what each status means. The records and their offsets are
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
@@ -1828,7 +1900,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 1428035902894190759L
+    const val SCHEMA_HASH: Long = -3703353098688398090L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3140,6 +3212,7 @@ object Protocol {
         206 -> PropertyKind.Presentation
         207 -> PropertyKind.MaxWidth
         208 -> PropertyKind.Separator
+        209 -> PropertyKind.SpanFontFeatures
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
