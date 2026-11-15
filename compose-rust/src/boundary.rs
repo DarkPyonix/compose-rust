@@ -1401,8 +1401,11 @@ impl LaunchBuilder {
     /// composables and their handlers, is not, and a thread-local set before launching is
     /// not the one the UI reads. That includes this crate's own: a handler registered or a
     /// request made before launching (`notification::on_activation`,
-    /// `windows::on_window_request`, `clipboard::set_text`) is kept on the main thread and
-    /// the UI never sees it, so make those from a composable or a handler. On macOS and Linux the calling thread is the UI thread.
+    /// `windows::on_window_request`, `clipboard::set_text`, `show_message`, `set_theme`,
+    /// a storage read) is kept on the main thread and the UI never sees it, so make those
+    /// from the root composable or later, on every platform. What may come before is state
+    /// made with `mutable_state_of`, the builder's own choices, and the assets the theme
+    /// and the window name, which keep their ids. On macOS and Linux the calling thread is the UI thread.
     /// An application that runs the renderer loop itself, without launching, has whatever
     /// stack its thread has, and on Windows has to ask its own link for more.
     ///
@@ -1516,8 +1519,10 @@ const HOST_MAKES_UI_THREAD: bool = cfg!(windows);
 /// caller waits for it. Everything the renderer does happens inside `run`: it starts, opens
 /// its window, reads its messages, and calls the Host, which builds the runtime from the
 /// launched factory on the thread that calls in. So the whole UI is on that one thread, and
-/// all that crosses to it is `run` itself, a function pointer. The factory and the launch
-/// choices were put in statics before this, and the factory is `Send + Sync` by its type.
+/// all that crosses to it is `run` itself, a function pointer, and the assets the caller
+/// registered for its theme and its window: static bytes, ids and kinds. The factory and
+/// the launch choices were put in statics before this, and the factory is `Send + Sync` by
+/// its type.
 ///
 /// The caller sees what it saw before: the same status comes back, and a panic that ends
 /// the UI thread is raised again here with its own payload. In practice a panic does not
@@ -1534,7 +1539,14 @@ fn run_renderer_loop(run: extern "C" fn() -> c_int, on_ui_thread: bool) -> i32 {
         std::env::var(UI_THREAD_STACK_VARIABLE).ok().as_deref(),
         |problem| eprintln!("compose-rust: {problem}"),
     );
-    match run_on_ui_thread(stack_bytes, move || run()) {
+    // What the caller registered while it built its theme and its window goes with the
+    // loop, so the ids those name are the same ids on the thread the Host starts on.
+    let assets = crate::asset::registrations();
+    let on_thread = move || {
+        crate::asset::adopt(assets);
+        run()
+    };
+    match run_on_ui_thread(stack_bytes, on_thread) {
         Ok(status) => status,
         Err(error) => {
             eprintln!(
@@ -2104,6 +2116,73 @@ mod tests {
         assert_eq!(std::thread::current().id(), launching);
         // And back on the launching thread it is still the one state.
         assert_eq!(state.get_untracked(), 3);
+    }
+
+    static ICON: &[u8] = b"an icon registered before launching";
+    static LATER: &[u8] = b"a picture the UI registers itself";
+    static ICON_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    fn draws_nothing() {}
+
+    /// The renderer's part: start the Host and see which assets it is told about.
+    extern "C" fn loop_expecting_the_icon() -> c_int {
+        let icon = ICON_ID.load(Ordering::SeqCst);
+        let mut handshake = Vec::with_capacity(12);
+        handshake.extend_from_slice(&SCHEMA_HASH.to_le_bytes());
+        handshake.extend_from_slice(&PROTOCOL_VERSION.to_le_bytes());
+        handshake.extend_from_slice(&[LoopMode::Renderer as u8, 0]);
+        let mut batch = MutationBatch::default();
+        // SAFETY: both buffers are this function's own and live for the call.
+        let status = unsafe {
+            compose_rust_host_init(handshake.as_ptr(), handshake.len() as u32, &mut batch)
+        };
+        if status != STATUS_OK || batch.ptr.is_null() {
+            return 1;
+        }
+        // SAFETY: the Host returned this batch from the call just made on this thread.
+        let bytes = unsafe { std::slice::from_raw_parts(batch.ptr, batch.len as usize) };
+        let told = crate::protocol::decode_batch(bytes).is_ok_and(|mutations| {
+            mutations.iter().any(|mutation| {
+                matches!(
+                    mutation,
+                    Mutation::RegisterAsset { asset_id, bytes, .. }
+                        if *asset_id == icon && *bytes == ICON
+                )
+            })
+        });
+        // The Renderer is told the icon under the id the window names it by.
+        if !told {
+            return 2;
+        }
+        // The same bytes are the same id here, and a new picture does not take it.
+        if crate::asset::asset(AssetKind::Png, ICON) != icon {
+            return 3;
+        }
+        if crate::asset::asset(AssetKind::Png, LATER) == icon {
+            return 4;
+        }
+        compose_rust_host_shutdown();
+        0
+    }
+
+    /// An application registers its window's icon and its theme's fonts while it builds
+    /// its `LaunchBuilder`, before there is a UI, and the window and the theme name them
+    /// by id. On the thread the Host makes those ids have to name the same bytes, or the
+    /// window has no icon and the first picture the UI registers takes the icon's id.
+    #[test]
+    fn pr3_an_asset_registered_before_launch_keeps_its_id_on_the_ui_thread() {
+        let _launch = launch_guard();
+        crate::asset::reset_assets();
+        let icon = crate::asset::asset(AssetKind::Png, ICON);
+        ICON_ID.store(icon, Ordering::SeqCst);
+        let step = LaunchBuilder::new().launch_through(
+            crate::runtime::recomposer_for(draws_nothing),
+            loop_expecting_the_icon,
+            true,
+        );
+        *APP.lock().unwrap() = None;
+        crate::asset::reset_assets();
+        assert_eq!(step, 0, "the loop on the UI thread stopped at step {step}");
     }
 
     #[test]
