@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Container roles keep their children
+
+A node whose `Semantics` role is a container (`Menu`, `List`, `Group`, `TabList`, `Tree` or `Navigation`) is now a traversal group, the way a popover menu already was, so its rows stay separate accessible nodes instead of reading as one static text. `Menu`, `List`, `TabList` and `Tree` also carry Compose's `CollectionInfo` with one row per child, which TalkBack reads as "list, N items". The platform role is unchanged: the AppKit, Windows and Linux windows still report `AXMenu`, `AXList`, `AXGroup` and their UIA and AT-SPI counterparts. No schema value is added and the schema hash does not move ([#838](https://github.com/DarkPyonix/compose-rust/issues/838)).
+
 ### A named `Button` is read once
 
 A `Button` given its own `accessible_name` no longer exposes its visible label as a separate text node. The button keeps its name, its role and its press action, and VoiceOver, Narrator and TalkBack read it once by that name instead of reading the name and then the label. A button without a name of its own is read by its label as before ([#838](https://github.com/DarkPyonix/compose-rust/issues/838)).
