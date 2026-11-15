@@ -57,6 +57,7 @@ import dev.darkpyonix.composerust.runtime.windowHeightClassOf
 import dev.darkpyonix.composerust.runtime.windowSizeClassOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -188,11 +189,17 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             ?: chain.composed { reportUnknownBrush(nodeId, overlay.paint, dispatcher) }
     }
     fun beforePadding(chain: Modifier): Modifier = attachOverlayIfNeeded(attachPressableIfNeeded(chain))
+    // A node that asks for its natural width is measured with no maximum width, and still
+    // takes only the width its parent offered. What comes after this in the chain, the size
+    // report included, sees the natural width; the parent sees the clamped one. The content
+    // is placed at the start edge and may be wider than the slot, so the clip goes ahead of
+    // the layout: only the measurement is unbounded, and nothing is drawn or hit outside
+    // the slot.
     var unboundedWidthAttached = !any { it is ProtocolModifier.UnboundedWidth }
     fun attachUnboundedWidthIfNeeded(chain: Modifier): Modifier {
         if (unboundedWidthAttached) return chain
         unboundedWidthAttached = true
-        return chain.layout { measurable, constraints ->
+        return chain.clipToBounds().layout { measurable, constraints ->
             val childConstraints = constraints.copy(
                 minWidth = 0,
                 maxWidth = Constraints.Infinity,
@@ -319,6 +326,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
 
+            // Attached once: here, or ahead of the size report if that comes first in the
+            // list, so the report is always of the width measured without a maximum.
             is ProtocolModifier.UnboundedWidth ->
                 attachUnboundedWidthIfNeeded(chain)
 
@@ -404,7 +413,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     // Read so a layer redraws when an animation writes a new matrix.
                     val shown = holder != null && holder.transformVersion.intValue >= 0 && holder.transformShown
                     if (shown) {
-                        holder.matrix.copyInto(matrix)
+                        holder!!.matrix.copyInto(matrix)
                     } else {
                         matrix[0] = value.a
                         matrix[1] = value.b

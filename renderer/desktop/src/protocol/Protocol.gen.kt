@@ -1257,6 +1257,7 @@ sealed interface Modifier {
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
     data class Overlay(val paint: Paint) : Modifier
     data object Sticky : Modifier
+    data object UnboundedWidth : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1827,7 +1828,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 3324199410486986659L
+    const val SCHEMA_HASH: Long = 1428035902894190759L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -4067,6 +4068,7 @@ object Protocol {
         38 -> 0
         39 -> 0
         41 -> 0
+        40 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4113,6 +4115,7 @@ object Protocol {
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
             39 -> Modifier.Overlay(paint(first, offset))
             41 -> Modifier.Sticky
+            40 -> Modifier.UnboundedWidth
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }
