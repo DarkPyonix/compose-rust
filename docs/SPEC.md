@@ -2730,6 +2730,13 @@ Notification::new("세션이 끝났습니다")
     1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
 28. 줄 끝 장식(이슈 #528, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식 종류 `AfterLine { line, text, color: ColorRole }`(장식 종류 값 7, 추가 전용). 그 줄의 마지막 글자 뒤에 흐린 글자를 그립니다(Code-OSS의 git blame 줄 끝 표시). 글자가 아니므로 선택, 복사, 캐럿 이동, 적중 판정에 들어가지 않고, 편집을 따라 줄과 함께 움직입니다(기준 4의 규칙).
     1. 장식 글자가 줄 끝 뒤에 그려지고, End 키가 그 앞에서 멈추며, 줄 전체를 복사해도 장식 글자가 들어가지 않습니다(fr38_after_line_decoration_is_not_text).
+29. 스크롤되는 내용 여백, 고정 거터 열, 현재 줄 거터 배경(이슈 #816, [leader, provisional] (darkpyonix leader, 2026-11-15)). Ember 편집기 목업(`editor.css`: 첫 줄 위 8px 여백이 문서와 함께 스크롤되고, 파일에 접기나 변경 막대가 없어도 본문 시작 x가 72px로 고정되며, 현재 줄 강조가 거터까지 한 줄로 이어지고 현재 줄 번호가 본문 글자색으로 그려짐)을 맞추기 위해 세 가지를 더합니다. 기본값은 지금과 같습니다.
+    - **스크롤되는 내용 여백**: `CodeEditor::content_padding_dp(top: f32, bottom: f32)`와 `content_padding_top_dp(f32)`(속성 `ContentPaddingDp`, 속성 태그 210, 8바이트 `[top_dp: f32, bottom_dp: f32]`). 첫 줄 위와 마지막 줄 아래에 문서와 함께 스크롤되는 여백(dp)을 둡니다. 스크롤이 0일 때 첫 줄은 `top`만큼 아래에서 시작하고 스크롤하면 위로 밀려 올라가며, 거터 배경과 구분선은 뷰포트 높이를 그대로 채웁니다. 음수나 숫자가 아닌 값은 `ProtocolError`입니다.
+    - **고정 거터 열**: `CodeEditor::fixed_gutter_columns(bool)`(속성 `FixedGutterColumns`, 속성 태그 211, bool, 기본 false). 참이면 문서에 현재 접기 구간이나 변경 표시 막대가 없어도 접기 열(`rowPx`)과 변경 표시 막대 열(`changeBarWidth + changeBarGap`, 16dp) 자리를 항상 남겨, 파일마다 본문 시작 x 좌표가 흔들리지 않게 합니다.
+    - **현재 줄 거터 색**: `CodeEditorColors` 레코드(12바이트)의 마지막 예약 2바이트(오프셋 10)를 `current_line_gutter: Option<ColorRole>`로 씁니다. 지정하면 캐럿이 있는 줄(선택이 접혀 있을 때)의 거터 배경에 그 역할 색을 칠하고 그 위에 현재 줄 번호(기존 `current_line_number` 역할)와 거터 장식을 그립니다. 지정하지 않으면 지금처럼 거터 기본 배경을 유지합니다.
+    1. `content_padding_top_dp(8.0)`인 편집기에서 스크롤 0일 때 첫 줄이 8dp 아래에 놓이고, 8dp만큼 스크롤하면 첫 줄이 뷰포트 맨 위에 닿습니다(fr38_editor_content_padding_scrolls_with_document).
+    2. `fixed_gutter_columns(true)`인 편집기에서 접기와 변경 막대가 없는 문서와 있는 문서의 본문 시작 x 좌표가 같습니다(fr38_editor_fixed_gutter_columns_keep_text_start_constant).
+    3. `CodeEditorColors::new().current_line(SurfaceVariant).current_line_gutter(SurfaceVariant).current_line_number(OnSurface)`를 주면 캐럿 줄의 거터 픽셀이 `SurfaceVariant`로 칠해지고 줄 번호가 `OnSurface`로 그려집니다(fr38_editor_current_line_gutter_and_number_colors).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
