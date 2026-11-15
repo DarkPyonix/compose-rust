@@ -231,6 +231,12 @@ private class RecordingSlot(private val inner: NativeViewWindow) : NativeViewWin
         inner.setVisibleRegion(id, clip, holes)
     }
 
+    override fun setFrameAndVisibleRegion(id: Int, frame: NativeRect, clip: NativeRect?, holes: List<NativeHole>) {
+        frames[id] = frame
+        this.holes[id] = holes
+        inner.setFrameAndVisibleRegion(id, frame, clip, holes)
+    }
+
     override fun setVisible(id: Int, visible: Boolean) {
         this.visible[id] = visible
         inner.setVisible(id, visible)

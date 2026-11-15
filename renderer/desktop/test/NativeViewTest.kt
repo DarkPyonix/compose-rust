@@ -74,6 +74,9 @@ private class FakeNativeViewWindow : NativeViewWindow {
     val detached = ArrayList<Pair<Int, Long>>()
     val frames = HashMap<Int, NativeRect>()
     val frameLog = ArrayList<Pair<Int, NativeRect>>()
+
+    /** Each placing call in order: `frame`, `region`, or `both` for the combined call. */
+    val placeCalls = ArrayList<String>()
     val clips = HashMap<Int, NativeRect?>()
     val holes = HashMap<Int, List<NativeHole>>()
     val visible = HashMap<Int, Boolean>()
@@ -92,11 +95,21 @@ private class FakeNativeViewWindow : NativeViewWindow {
         val rect = NativeRect(x, y, width, height)
         frames[id] = rect
         frameLog += id to rect
+        placeCalls += "frame"
     }
 
     override fun setVisibleRegion(id: Int, clip: NativeRect?, holes: List<NativeHole>) {
         clips[id] = clip
         this.holes[id] = holes
+        placeCalls += "region"
+    }
+
+    override fun setFrameAndVisibleRegion(id: Int, frame: NativeRect, clip: NativeRect?, holes: List<NativeHole>) {
+        frames[id] = frame
+        frameLog += id to frame
+        clips[id] = clip
+        this.holes[id] = holes
+        placeCalls += "both"
     }
 
     override fun setVisible(id: Int, visible: Boolean) {
@@ -294,6 +307,24 @@ class NativeViewTest {
         send(screen, Mutation.SetModifier(ABOVE, 0, ProtocolModifier.Size(200f, 100f)))
         assertEquals(true, screen.window.visible[VIEW])
         assertNull(screen.window.clips[VIEW], "the whole frame shows, so nothing is cut")
+    }
+
+    @Test
+    fun fr81_frame_and_region_that_change_together_go_in_one_call() = runComposeUiTest {
+        // At y 250 the view moves and is cut to its top half in the same pass: the window is
+        // told both at once, so it places the view once.
+        val screen = screen(scrollingPage())
+        val before = screen.window.placeCalls.size
+        send(screen, Mutation.SetModifier(ABOVE, 0, ProtocolModifier.Size(200f, 250f)))
+        assertEquals(listOf("both"), screen.window.placeCalls.drop(before), "one call for the move and the cut")
+        assertEquals(NativeRect(0, 250, 200, 100), screen.window.frames[VIEW])
+        assertEquals(NativeRect(0, 250, 200, 50), screen.window.clips[VIEW])
+
+        // Only the clip changes: the region alone is sent.
+        val shrink = screen.window.placeCalls.size
+        send(screen, Mutation.SetModifier(LIST, 0, ProtocolModifier.Size(200f, 280f)))
+        assertEquals(listOf("region"), screen.window.placeCalls.drop(shrink), "the view did not move")
+        assertEquals(NativeRect(0, 250, 200, 30), screen.window.clips[VIEW])
     }
 
     @Test

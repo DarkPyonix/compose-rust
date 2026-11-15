@@ -72,6 +72,18 @@ internal class MacosNativeViewWindow(private val window: MacosWindow) : NativeVi
         )
     }
 
+    override fun setFrameAndVisibleRegion(id: Int, frame: NativeRect, clip: NativeRect?, holes: List<NativeHole>) {
+        views.setFrameAndVisibleRegion(
+            id,
+            frame.x,
+            frame.y,
+            frame.width,
+            frame.height,
+            clip?.let { PixelRect(it.x, it.y, it.width, it.height) },
+            holes.map { PixelRoundRect(it.rect.x, it.rect.y, it.rect.width, it.rect.height, it.cornerRadius) },
+        )
+    }
+
     override fun setVisible(id: Int, visible: Boolean) = views.setVisible(id, visible)
 
     override fun focus(id: Int) = views.focus(id)

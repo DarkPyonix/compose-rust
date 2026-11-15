@@ -101,6 +101,17 @@ interface NativeViewWindow {
     fun attach(id: Int, handle: Long): Boolean
     fun setFrame(id: Int, x: Int, y: Int, width: Int, height: Int)
     fun setVisibleRegion(id: Int, clip: NativeRect?, holes: List<NativeHole>)
+
+    /**
+     * [setFrame] and [setVisibleRegion] in one call, for a pass that changed both, as a
+     * clipped view scrolling does every frame: the window places the view once rather than
+     * once for each.
+     */
+    fun setFrameAndVisibleRegion(id: Int, frame: NativeRect, clip: NativeRect?, holes: List<NativeHole>) {
+        setFrame(id, frame.x, frame.y, frame.width, frame.height)
+        setVisibleRegion(id, clip, holes)
+    }
+
     fun setVisible(id: Int, visible: Boolean)
     fun focus(id: Int)
     fun focusScene()
@@ -170,9 +181,11 @@ private class Slot(val nodeId: Int) {
 /**
  * Places the platform views of one window and says what happens to them.
  *
- * Every layout callback (a view's or an overlay's) works the whole region out again and tells
- * the window what changed, inside the layout pass. A window has a handful of views and fewer
- * overlays, so the whole of it is cheaper than keeping track of which changed.
+ * A view's layout callback works out that view's region again and tells the window what
+ * changed, inside the layout pass. Compose calls it for every view whose place in the window may
+ * have changed, an ancestor's move or resize included, so the other views are left alone: each
+ * hears its own callback in the same pass. A surface opening, moving or closing above them
+ * changes the holes of every view, so an overlay's callback works out every view again.
  */
 internal class NativeViewCoordinator(
     private val table: NodeTable,
@@ -252,7 +265,7 @@ internal class NativeViewCoordinator(
         }
         slot.attached = true
         slot.sentVisible = false
-        apply()
+        apply(slot)
     }
 
     private fun takeOut(slot: Slot) {
@@ -269,13 +282,13 @@ internal class NativeViewCoordinator(
         val slot = slots[nodeId] ?: return
         if (slot.wantsVisible == visible) return
         slot.wantsVisible = visible
-        apply()
+        apply(slot)
     }
 
     fun positioned(nodeId: Int, coordinates: LayoutCoordinates) {
         val slot = slots[nodeId] ?: return
         slot.coordinates = coordinates
-        apply()
+        apply(slot)
     }
 
     fun focusView(nodeId: Int, focus: Boolean) {
@@ -380,34 +393,42 @@ internal class NativeViewCoordinator(
     /** Tells the window where every attached view goes and what part of it shows. */
     fun apply() {
         val window = window ?: return
-        for (slot in slots.values) {
-            if (!slot.attached) continue
-            val coordinates = slot.coordinates?.takeIf { it.isAttached }
-            if (coordinates == null) {
-                show(window, slot, false)
-                continue
-            }
-            val position = coordinates.positionInWindow()
-            val size = coordinates.size
-            val frame = NativeRect.of(Rect(position, Size(size.width.toFloat(), size.height.toFloat())))
-            val clip = NativeRect.of(coordinates.boundsInWindow())
-            val region = regionOf(frame, clip, holesAbove(coordinates))
-            if (region == null) {
-                show(window, slot, false)
-                continue
-            }
-            if (slot.sentFrame != frame) {
-                window.setFrame(slot.nodeId, frame.x, frame.y, frame.width, frame.height)
-                slot.sentFrame = frame
-            }
-            val sentClip = if (region.clip == frame) null else region.clip
-            if (slot.sentClip != sentClip || slot.sentHoles != region.holes) {
-                window.setVisibleRegion(slot.nodeId, sentClip, region.holes)
-                slot.sentClip = sentClip
-                slot.sentHoles = region.holes
-            }
-            show(window, slot, slot.wantsVisible)
+        for (slot in slots.values) place(window, slot)
+    }
+
+    /** Tells the window where [slot]'s view goes and what part of it shows. */
+    private fun apply(slot: Slot) {
+        place(window ?: return, slot)
+    }
+
+    private fun place(window: NativeViewWindow, slot: Slot) {
+        if (!slot.attached) return
+        val coordinates = slot.coordinates?.takeIf { it.isAttached }
+        if (coordinates == null) {
+            show(window, slot, false)
+            return
         }
+        val position = coordinates.positionInWindow()
+        val size = coordinates.size
+        val frame = NativeRect.of(Rect(position, Size(size.width.toFloat(), size.height.toFloat())))
+        val clip = NativeRect.of(coordinates.boundsInWindow())
+        val region = regionOf(frame, clip, holesAbove(coordinates))
+        if (region == null) {
+            show(window, slot, false)
+            return
+        }
+        val sentClip = if (region.clip == frame) null else region.clip
+        val frameChanged = slot.sentFrame != frame
+        val regionChanged = slot.sentClip != sentClip || slot.sentHoles != region.holes
+        when {
+            frameChanged && regionChanged -> window.setFrameAndVisibleRegion(slot.nodeId, frame, sentClip, region.holes)
+            frameChanged -> window.setFrame(slot.nodeId, frame.x, frame.y, frame.width, frame.height)
+            regionChanged -> window.setVisibleRegion(slot.nodeId, sentClip, region.holes)
+        }
+        slot.sentFrame = frame
+        slot.sentClip = sentClip
+        slot.sentHoles = region.holes
+        show(window, slot, slot.wantsVisible)
     }
 
     private fun show(window: NativeViewWindow, slot: Slot, visible: Boolean) {

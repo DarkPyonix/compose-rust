@@ -101,6 +101,17 @@ interface NativeViewWindow {
     fun attach(id: Int, handle: Long): Boolean
     fun setFrame(id: Int, x: Int, y: Int, width: Int, height: Int)
     fun setVisibleRegion(id: Int, clip: NativeRect?, holes: List<NativeHole>)
+
+    /**
+     * [setFrame] and [setVisibleRegion] in one call, for a pass that changed both, as a
+     * clipped view scrolling does every frame: the window places the view once rather than
+     * once for each.
+     */
+    fun setFrameAndVisibleRegion(id: Int, frame: NativeRect, clip: NativeRect?, holes: List<NativeHole>) {
+        setFrame(id, frame.x, frame.y, frame.width, frame.height)
+        setVisibleRegion(id, clip, holes)
+    }
+
     fun setVisible(id: Int, visible: Boolean)
     fun focus(id: Int)
     fun focusScene()
@@ -406,16 +417,17 @@ internal class NativeViewCoordinator(
             show(window, slot, false)
             return
         }
-        if (slot.sentFrame != frame) {
-            window.setFrame(slot.nodeId, frame.x, frame.y, frame.width, frame.height)
-            slot.sentFrame = frame
-        }
         val sentClip = if (region.clip == frame) null else region.clip
-        if (slot.sentClip != sentClip || slot.sentHoles != region.holes) {
-            window.setVisibleRegion(slot.nodeId, sentClip, region.holes)
-            slot.sentClip = sentClip
-            slot.sentHoles = region.holes
+        val frameChanged = slot.sentFrame != frame
+        val regionChanged = slot.sentClip != sentClip || slot.sentHoles != region.holes
+        when {
+            frameChanged && regionChanged -> window.setFrameAndVisibleRegion(slot.nodeId, frame, sentClip, region.holes)
+            frameChanged -> window.setFrame(slot.nodeId, frame.x, frame.y, frame.width, frame.height)
+            regionChanged -> window.setVisibleRegion(slot.nodeId, sentClip, region.holes)
         }
+        slot.sentFrame = frame
+        slot.sentClip = sentClip
+        slot.sentHoles = region.holes
         show(window, slot, slot.wantsVisible)
     }
 
