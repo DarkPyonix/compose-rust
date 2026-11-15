@@ -5,6 +5,9 @@
 ### `on_motion_finished` on every `ui` builder
 
 Every widget builder in the `ui` API that takes `.modifier(...)` now has `on_motion_finished`, with the signature and the behaviour the containers and `TextField` already had: `Text`, `Button`, `MenuItem`, `Checkbox`, `RadioButton`, `Switch`, `Slider`, `Chip`, `FloatingAction`, `NavigationItem`, `ProgressIndicator`, `LinearProgressIndicator`, `Divider`, `Image`, `Icon`, `Canvas`, `Badge`, `DatePicker`, `TimePicker`, `Dropdown`, `Dialog`, `Sheet`, `Menu`, `Popover`, `Tooltip`, `FlowRow`, `Tabs`, `TopAppBar`, `Scaffold`, `Navigation`, `FileDropTarget`, `SplitPane`, `LazyColumn`, `LazyRow` and `LazyGrid`. A builder given no handler writes nothing new, so its wire is unchanged. `Window` has no Modifier and so no size motion to report. Nothing changes in the schema or the Renderer, which already took the handler on any node ([#707](https://github.com/DarkPyonix/compose-rust/issues/707)).
+### A pill at any height is `ShapeRole::Full`
+
+`Modifier.shape_role(ShapeRole::Full)` gives a node fully round ends whatever its height: a node 40 dp tall gets 20 dp corners, the same node at 80 dp gets 40 dp, and the application never works out half the height. The background, border, clip, shadow and press feedback follow the same outline, in every design system, including the two whose other corners are continuous. The role was already in the schema (`Full`, tag 6) and already drawn this way; what is new is that tests hold it there, on the wire and in pixels, and the documentation says it. Nothing on the wire changes, so the schema hash does not move ([#310](https://github.com/DarkPyonix/compose-rust/issues/310)).
 
 ### The window's density reaches the Host
 
