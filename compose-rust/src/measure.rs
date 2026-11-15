@@ -445,7 +445,11 @@ impl MeasureRequests {
         let span_features_at = self.payload.len() as u32;
         self.payload.extend_from_slice(table);
         put_u32(&mut record, TEXT_SPAN_FEATURES_OFFSET_AT, span_features_at);
-        put_u32(&mut record, TEXT_SPAN_FEATURES_LENGTH_AT, table.len() as u32);
+        put_u32(
+            &mut record,
+            TEXT_SPAN_FEATURES_LENGTH_AT,
+            table.len() as u32,
+        );
         self.records.push(PendingRecord { bytes: record });
         self.records.len() - 1
     }

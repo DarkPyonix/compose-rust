@@ -494,12 +494,7 @@ fn fr88_measure_record_carries_span_font_features() {
 
     let mut requests = MeasureRequests::new();
     let style = TextStyle::default();
-    requests.text(
-        "Total 1111",
-        &featured,
-        &style,
-        TextConstraint::MaxContent,
-    );
+    requests.text("Total 1111", &featured, &style, TextConstraint::MaxContent);
     requests.text(
         "Total 1111",
         &TextSpans::new([TextSpan::new(0, 6), TextSpan::new(6, 4)]),
@@ -511,7 +506,10 @@ fn fr88_measure_record_carries_span_font_features() {
 
     let at = word(TEXT_SPAN_FEATURES_OFFSET_AT);
     let length = word(TEXT_SPAN_FEATURES_LENGTH_AT);
-    assert!(at >= 2 * MEASURE_RECORD_LEN, "the table sits after the records");
+    assert!(
+        at >= 2 * MEASURE_RECORD_LEN,
+        "the table sits after the records"
+    );
     assert_eq!(length, table.len());
     assert_eq!(
         &buffer[at..at + length],

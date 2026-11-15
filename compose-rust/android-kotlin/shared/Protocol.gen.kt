@@ -1232,7 +1232,7 @@ object SpanFontFeatureRecords {
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
  */
 object MeasureRecords {
-    const val RECORD_LENGTH = 80
+    const val RECORD_LENGTH = 88
     const val RESULT_LENGTH = 32
     const val KIND_TEXT = 1
     const val KIND_NODE = 2
@@ -1262,6 +1262,8 @@ object MeasureRecords {
     const val TEXT_ZOOM_AT = 68
     const val TEXT_FONT_FEATURES_OFFSET_AT = 72
     const val TEXT_FONT_FEATURES_COUNT_AT = 76
+    const val TEXT_SPAN_FEATURES_OFFSET_AT = 80
+    const val TEXT_SPAN_FEATURES_LENGTH_AT = 84
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
@@ -1900,7 +1902,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3703353098688398090L
+    const val SCHEMA_HASH: Long = 5977910462490777086L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
