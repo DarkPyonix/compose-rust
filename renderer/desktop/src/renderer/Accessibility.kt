@@ -1,14 +1,17 @@
 package dev.darkpyonix.composerust.ui
 
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.CollectionInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsPropertyKey
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.focused
+import androidx.compose.ui.semantics.collectionInfo
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.requestFocus
 import androidx.compose.ui.semantics.role
@@ -34,9 +37,10 @@ private const val FOCUSED_SHIFT = 8
 private const val HIDDEN_BIT = 1 shl 10
 private const val CLICK_ACTION_BIT = 1 shl 11
 private const val FOCUS_ACTION_BIT = 1 shl 12
+private const val HAS_POPUP_BIT = 1 shl 13
 
 /** Every bit the state word of a `Semantics` modifier may set. */
-internal const val SEMANTICS_STATE_MASK = (1 shl 13) - 1
+internal const val SEMANTICS_STATE_MASK = (1 shl 14) - 1
 
 /**
  * Whether the Host asked for this node to offer a focus action to assistive technology.
@@ -57,6 +61,12 @@ internal fun Node.isDeclaredSelected(): Boolean {
     if (flag(PropertyKind.Checked, default = false)) return true
     val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
     return declared != null && declared.state.field(SELECTED_SHIFT) == true
+}
+
+/** The role the Host declared on this node's `Semantics` modifier, or null when none was set. */
+internal fun Node.declaredSemanticsRole(): SemanticsRole? {
+    val declared = modifiers.lastOrNull { it is ProtocolModifier.Semantics } as? ProtocolModifier.Semantics
+    return declared?.role?.takeIf { it != SemanticsRole.None }
 }
 
 /** A field of the state word: unset, off or on. */
@@ -94,6 +104,23 @@ private fun SemanticsRole.word(): String? = when (this) {
 }
 
 /**
+ * Whether a node with this role holds other nodes a reader visits one by one: a menu and its
+ * items, a list and its rows. Such a node is a group to walk into, never a single piece of
+ * text that stands for everything inside it.
+ */
+internal fun SemanticsRole.isContainer(): Boolean = when (this) {
+    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.Group,
+    SemanticsRole.TabList, SemanticsRole.Tree, SemanticsRole.Navigation -> true
+    else -> false
+}
+
+/** Whether a reader is told how many items a container with this role holds, as a list is. */
+private fun SemanticsRole.countsItems(): Boolean = when (this) {
+    SemanticsRole.Menu, SemanticsRole.List, SemanticsRole.TabList, SemanticsRole.Tree -> true
+    else -> false
+}
+
+/**
  * The role the Host declared for a node, kept beside Compose's own [Role] because most of
  * them have no Compose name. A window that can give a reader the platform's own word for the
  * role (a tab group, an outline, a menu) reads it from here.
@@ -112,14 +139,25 @@ internal val DeclaredExpanded = SemanticsPropertyKey<Boolean>(
     mergePolicy = { parent, _ -> parent },
 )
 
+/** Whether the Host declared that the node opens a popup. */
+internal val DeclaredHasPopup = SemanticsPropertyKey<Boolean>(
+    name = "ComposeRustDeclaredHasPopup",
+    mergePolicy = { parent, _ -> parent },
+)
+
 /**
- * What a node's state description says about its declared [role] and [expanded] state, for a
- * reader that has no other way to hear them. A window that names both natively leaves this
- * text out, so the reader does not hear the role twice.
+ * What a node's state description says about its declared [role], [expanded] state and
+ * whether it [hasPopup], for a reader that has no other way to hear them. A window that names
+ * them natively leaves this text out, so the reader does not hear the role twice.
  */
-internal fun declaredStateDescription(role: SemanticsRole?, expanded: Boolean?): String? = listOfNotNull(
+internal fun declaredStateDescription(
+    role: SemanticsRole?,
+    expanded: Boolean?,
+    hasPopup: Boolean = false,
+): String? = listOfNotNull(
     role?.word(),
     expanded?.let { if (it) "expanded" else "collapsed" },
+    if (hasPopup) "has popup" else null,
 ).joinToString(", ").takeIf { it.isNotEmpty() }
 
 /**
@@ -152,14 +190,16 @@ internal fun Modifier.accessibility(
     val isDisabled = state.field(DISABLED_SHIFT)
     val focused = state.field(FOCUSED_SHIFT)
     val hidden = state and HIDDEN_BIT != 0
+    val hasPopup = state and HAS_POPUP_BIT != 0
     val isHeading = declaredRole == SemanticsRole.Heading
     val isTextBox = declaredRole == SemanticsRole.TextBox
     val focusAction = onFocusAction.takeIf { state and FOCUS_ACTION_BIT != 0 }
-    val description = declaredStateDescription(declaredRole, expanded)
+    val description = declaredStateDescription(declaredRole, expanded, hasPopup)
     // A disabled node is not pressed, whichever way it was disabled: by this modifier or by
     // the node's own enabled property that the ordinary click path honours.
     val pressable = isDisabled != true && node.flag(PropertyKind.Enabled, default = true)
     val handler = clickHandlerId.takeIf { pressable && state and CLICK_ACTION_BIT != 0 }
+    val rows = node.children.size
     return semantics {
         if (name != null) contentDescription = name
         if (role != null) this.role = role
@@ -168,11 +208,19 @@ internal fun Modifier.accessibility(
         if (description != null) stateDescription = description
         if (declaredRole != null && declaredRole != SemanticsRole.None) this[DeclaredRole] = declaredRole
         if (expanded != null) this[DeclaredExpanded] = expanded
+        if (hasPopup) this[DeclaredHasPopup] = true
         if (checked != null) toggleableState = ToggleableState(checked)
         if (selected != null) this.selected = selected
         if (isDisabled == true) disabled()
         if (focused != null) this.focused = focused
         if (hidden) hideFromAccessibility()
+        // A container is a group the reader walks into, the way a popover menu is, so its
+        // rows stay nodes of their own. Nothing here merges them. A platform with a list or
+        // a collection of its own (TalkBack's "list, 3 items") is told how many rows there are.
+        if (declaredRole != null && declaredRole.isContainer()) {
+            isTraversalGroup = true
+            if (declaredRole.countsItems()) collectionInfo = CollectionInfo(rowCount = rows, columnCount = 1)
+        }
         if (handler != null && dispatcher != null) {
             onClick(label = null) {
                 dispatcher.dispatch(HostEvent.Clicked(node.id, handler))

@@ -63,7 +63,7 @@ probe="$work/x11-window-layout.c"
         echo "printf(\"$field %zu\\n\", offsetof(struct dxc_native_window, $field));"
     done
     echo 'printf("window_size %zu\n", sizeof(struct dxc_native_window));'
-    for field in kind x y buttons modifiers key_code code_point text; do
+    for field in kind x y buttons modifiers key_code code_point text time_millis; do
         echo "printf(\"$field %zu\\n\", offsetof(struct dxc_event, $field));"
     done
     echo 'printf("event_size %zu\n", sizeof(struct dxc_event));'
@@ -92,7 +92,14 @@ for entry in kind:readInt:kind x:readFloat:x y:readFloat:y buttons:readInt:butto
     fi
 done
 grep -Fq "record.readByte($(offset text) + length)" "$event_reader" || { echo "fail: text offset"; red=1; }
-grep -Fq "EVENT_BYTES = $(offset text) + EVENT_TEXT_BYTES" "$layout_file" || { echo "fail: event size"; red=1; }
+# The record ends with the event's time, an int64 after the text, aligned to 8. The Kotlin
+# names that offset and derives the record's size from it, so both are checked against C:
+# the offset as written, and the size as the offset plus the eight bytes.
+grep -Fq "EVENT_TIME_OFFSET = $(offset time_millis)" "$layout_file" || { echo "fail: event time offset"; red=1; }
+grep -Fq "record.readLong(X11Layout.EVENT_TIME_OFFSET)" "$event_reader" ||
+    { echo "fail: the shared Kotlin reader does not read the event time at its offset"; red=1; }
+grep -Fq "EVENT_BYTES = EVENT_TIME_OFFSET + 8" "$layout_file" && (( $(offset event_size) == $(offset time_millis) + 8 )) ||
+    { echo "fail: event size"; red=1; }
 grep -Fq "WINDOW_BYTES = $(offset window_size)" "$layout_file" || { echo "fail: window size"; red=1; }
 text_capacity="$(sed -n 's/^#define DXC_TEXT_BYTES \([0-9]*\)$/\1/p' "$source_file")"
 grep -Fq "EVENT_TEXT_BYTES = $text_capacity" "$layout_file" ||
