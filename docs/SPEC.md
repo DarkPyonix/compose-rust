@@ -274,6 +274,14 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - `Modifier::ShapeRole(ShapeRole)`, `None|ExtraSmall|Small|Medium|Large|Full`. 실제 반지름은 디자인 시스템이 정합니다. Material 3의 12dp, HIG의 연속 곡률 느낌, Fluent의 4dp가 여기서 갈립니다.
 - `Modifier::Border { width, paint }`, `first` 하위 32비트에 너비, `second`에 `Paint`.
 - 테두리와 모양은 서로 독립입니다. Renderer는 `ShapeRole`/`Shape` 중 마지막에 적용된 것을 클립과 테두리 모두에 씁니다.
+- **`ShapeRole::Full`은 어떤 높이에서도 알약 모양입니다**(이슈 #310, [leader, provisional] (darkpyonix leader, 2026-11-15)). 양 끝은 노드의 짧은 변의 절반을 반지름으로 하는 반원이며, Renderer가 노드가 측정된 크기에서 계산합니다. 앱은 높이에 따라 달라지는 반지름을 보내지 않습니다. 일곱 디자인 시스템의 `Full` 행은 1000dp 이상이고, Renderer는 1000 이상인 반지름을 dp 값이 아니라 50퍼센트 모서리로 그립니다. 다른 모서리가 연속 곡률인 Cupertino와 LiquidGlass에서도 `Full`은 원호의 캡슐입니다. 배경, 테두리, 자르기, 그림자, 누름 피드백이 같은 윤곽을 씁니다. 와이어는 바뀌지 않습니다(`Full`은 태그 6). 퍼센트 반지름 수정자는 두지 않습니다. 수용 기준:
+  1. `ShapeRole::Full`이 태그 6으로 인코딩되고 왕복하며, 태그 7은 역할이 아닙니다(`fr13_shape_role_full_round_trips_at_its_tag`).
+  2. 스키마의 `ShapeRole` 목록이 `None=1`부터 `Full=6`까지이고 `Full`이 마지막입니다(`fr13_shape_role_schema_lists_full_last`).
+  3. `Modifier.shape_role(ShapeRole::Full)` 빌더가 `ShapeRole(Full)` 수정자를 보냅니다(`fr13_modifier_shape_role_builder_sends_full`).
+  4. 일곱 디자인 시스템의 토큰 표에서 마지막 모양 행이 `Full`이고 반지름이 1000dp 이상입니다(`fr13_full_is_the_pill_radius_in_every_design_system`).
+  5. 일곱 디자인 시스템 모두에서 `ShapeRole.Full`의 윤곽이 200x40에서는 네 모서리 20, 200x80에서는 네 모서리 40인 둥근 사각형입니다(`fr13_shape_role_full_outline_is_half_the_height_in_every_design_system`).
+  6. 배경을 칠한 200x40 상자와 200x80 상자가 각각 반지름 20dp, 40dp인 캡슐과 픽셀 단위로 일치합니다. Material 3, Cupertino, Fluent, LiquidGlass에서 확인합니다(`fr13_shape_role_full_is_a_pill_at_any_height_material3`, `..._cupertino`, `..._fluent`, `..._liquid_glass`).
+  7. `Clip(true)`와 4dp 테두리를 가진 200x80 알약에서 더 큰 자식이 캡슐 밖으로 보이지 않고, 테두리가 양 끝의 반원을 따라 그려집니다(`fr13_shape_role_full_clip_and_border_follow_the_pill_material3`, `..._cupertino`).
 
 #### 13.4 간격과 배치
 - `SpaceRole`: `None|Xs|Sm|Md|Lg|Xl|Xxl`. 밀도가 디자인 시스템마다 다른 부분이라 리터럴 dp보다 역할이 먼저입니다.
@@ -4544,6 +4552,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 1. `TextField`가 명시적 타이포그래피 속성을 인코딩하여 렌더러로 전달합니다(시험 이름 fr75_text_field_typography_round_trips).
 2. `TextField`에 명시적 여백이나 높이가 지정되면 렌더러가 지정된 여백과 높이를 적용합니다(시험 이름 fr75_text_field_honors_content_padding_and_height).
 3. 명시적 크기를 가진 아이콘 버튼이 테마의 최소 높이에 의해 확장되지 않고 지정된 크기로 렌더링됩니다(시험 이름 fr75_icon_button_honors_explicit_size).
+4. **Button의 내용 여백**(이슈 #789, [leader, provisional] (darkpyonix leader, 2026-11-15)). `ui::Button`에 `content_padding(horizontal, vertical)`이 있습니다. 버튼 가장자리와 라벨 사이의 여백(dp)을 그 버튼에만 정하며, 디자인 시스템의 라벨 여백을 대신합니다. 새 속성이나 태그는 없고 스키마 해시도 움직이지 않습니다: 값은 기존 `PaddingEach` 수정자로 나가고, 렌더러는 `Button`의 `PaddingEach`를 버튼 안쪽 여백으로 읽으며 바깥 체인에는 적용하지 않습니다. `Padding`과 `PaddingRole`은 지금처럼 버튼 바깥 여백입니다. 부르지 않으면 아무것도 보내지 않아 지금과 같은 모양입니다. 바뀌는 동작: `Button`에 `PaddingEach`를 바깥 여백으로 직접 보내던 Host는 이제 그 여백을 버튼 안쪽에서 얻습니다. `content_padding(12.0, 6.0)`은 `PaddingEach(12, 6, 12, 6)`을 보내고 `Modifier.padding`과 함께 써도 둘 다 나갑니다(`fr75_button_content_padding_is_sent_as_the_four_sided_padding`, `fr75_button_content_padding_leaves_the_padding_around_it`). 부르지 않은 Button은 여백 수정자를 보내지 않습니다(`fr75_button_without_content_padding_sends_no_padding`). 가로 12dp를 준 Button의 라벨은 양쪽 가장자리에서 12dp에 놓이고 버튼의 위치는 바뀌지 않습니다(`fr75_button_content_padding_sets_the_room_round_its_label`). 주지 않은 Button의 라벨 여백은 디자인 시스템의 값입니다(`fr75_button_without_content_padding_keeps_the_design_system_padding`).
 
 ### FR-76 `FlowRow`: 줄이 넘치면 다음 줄로 흐르는 행 (`Agreed`, 이슈 #521, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
 
@@ -4941,6 +4950,7 @@ pub mod storage {
 5. **틀 없는 필드 `bare()`**(이슈 #519, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 위 규칙은 노드가 무엇을 줄 때만 시스템의 틀을 끄므로, 바깥 상자(CSS 상자, Ember의 알약이나 카드)가 이미 틀을 그린 필드는 틀이 두 겹이 됩니다. `TextField`와 `Dropdown`(닫힌 선택 필드, FR-64)에 `bare()`가 있고, 속성 `Bare`(bool) 하나를 보냅니다. `bare`인 필드는 시스템의 채움, 선, 밑줄, 모서리 자르기, 안쪽 여백, 포커스 선을 그리지 않고 투명합니다. 글자, 자리표시 글자, 캐럿, 선택, IME는 그대로 Compose의 것입니다. 자리표시 글자는 첫 줄 기준선에 놓이고 가운데로 밀리거나 잘리지 않습니다. `bare`이면서 `Background`나 `Border`를 준 필드는 위 규칙대로 그 값을 그립니다. `bare()` 필드의 모든 픽셀이 글자를 빼면 부모의 색이고 높이가 글자 한 줄 높이와 같습니다(fr56_bare_field_draws_no_frame). `bare()` `Dropdown`도 같습니다(fr56_bare_dropdown_draws_no_frame).
 6. **자리표시자 색과 캐럿 색**(이슈 #592, [leader, provisional] (darkpyonix leader, 2026-11-14)). `TextField`에 자리표시자 색과 캐럿 색을 지정하는 `placeholder_color(Paint)`와 `caret_color(Paint)` 빌더가 있고, 각각 속성 `PlaceholderColor`(속성 태그 203)와 `CaretColor`(속성 태그 204)를 보냅니다. 설정하지 않으면 속성을 보내지 않고 디자인 시스템의 기본값(`theme.color(ColorRole.OnSurfaceVariant).copy(alpha = 0.55f)` 및 `frame.cursor`)을 유지합니다. 렌더러는 전달받은 `Paint`로 자리표시자 텍스트와 캐럿 브러시를 그립니다(`fr56_text_field_placeholder_and_caret_paint_round_trips`, `fr56_text_field_honors_placeholder_and_caret_colors`).
 7. **한 줄 필드의 자리표시자는 한 줄**(이슈 #786, [leader, provisional] (darkpyonix leader, 2026-11-15)). 여러 줄이 아닌(`multiline` 꺼짐) `TextField`의 자리표시자는 필드보다 길면 한 줄에 머물고 줄임표로 끝납니다. 여러 줄 필드의 자리표시자는 지금처럼 줄을 바꿉니다. 새 속성이나 태그는 없습니다. 한 줄 필드의 기본 동작이 바뀝니다: 지금까지는 자리표시자가 줄을 바꿔 필드가 잘라내는 줄을 만들었습니다(`fr56_single_line_placeholder_ends_in_an_ellipsis`).
+8. **틀 없는 여러 줄 필드는 자기 상자에서 잘립니다**(이슈 #789, [leader, provisional] (darkpyonix leader, 2026-11-15)). `bare()`이면서 `multiline`인 `TextField`는 `Shape`이나 `Clip` 수정자가 없어도 그리는 내용이 자기 사각형 밖으로 나가지 않습니다. 글자가 스크롤되어도 밀려난 줄의 조각이 필드 둘레의 여백에 그려지지 않습니다. 데스크톱에서는 Compose의 텍스트 필드가 이미 자기 경계 안에만 그리므로 Renderer에 따로 넣은 코드는 없습니다. 한 줄 `bare` 필드, 틀이 있는 필드, 모양을 준 필드는 지금과 같습니다. 새 속성이나 태그는 없습니다. 높이 40dp인 틀 없는 여러 줄 필드를 끝까지 스크롤해도 필드 사각형 밖의 모든 픽셀이 부모의 색입니다(`fr56_bare_multiline_field_clips_its_scrolled_text`).
 
 ### FR-57 Button과 Chip 라벨의 줄 수와 넘침 (`Agreed`, 이슈 #373)
 
@@ -5163,6 +5173,29 @@ DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 �
 4. `ScrollRow`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 가로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 시작점에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_row`).
 5. `ScrollColumn`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 세로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 상단에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_column`).
 6. `ScrollRow` 안에 중첩된 줄마다 자기 배경을 가진 고정 칸이 있을 때, 스크롤한 뒤에도 각 칸은 뷰포트 시작 가장자리에 머물고 그 자리에 자기 배경을 그립니다 (`fr89_sticky_cell_in_a_nested_line_keeps_its_background`).
+
+### FR-87 비제약 폭 측정 수정자: `unbounded_width` (`Agreed`, 이슈 #634, [leader, provisional] (darkpyonix leader, 2026-11-15))
+
+요청한 쪽: dioxus-compose의 `Table`(FR-15.5.3, DarkPyonix/dioxus-compose#226). `Content` 열은 `use_node_size`를 통해 지금까지 그려진 가장 넓은 셀 크기로 너비를 맞춥니다. 그러나 Compose 렌더러에서 각 셀은 해당 열 슬롯이 이미 가진 너비(maxWidth) 제약 안에서 측정되므로, 더 넓은 셀이 들어와도 열의 현재 너비로 잘려 측정되며 열 너비가 첫 측정 크기를 넘어 늘어나지 못합니다. 부모의 최대 폭 제약 없이 노드의 본래 크기를 측정하여 `ObserveSize`로 보고하면서도, 현재 프레임의 부모 슬롯 안에는 잘려 배치되도록 하는 수정자가 필요합니다.
+
+#### 87.1 규칙
+
+1. **`Modifier::unbounded_width()` 및 `Modifier::wrap_content_width(unbounded)`**: 노드를 부모의 최대 폭 제약 없이(unbounded width) 측정하도록 지정합니다. `wrap_content_width(true)`는 `unbounded_width()`와 같습니다.
+2. **와이어 인코딩**:
+   - `UnboundedWidth` 수정자 태그 40. 추가 필드가 없는 0워드(28바이트) 레코드로 전송합니다.
+3. **렌더러 해석**:
+   - 렌더러의 `ModifierChain`은 `UnboundedWidth`를 부모의 최대 폭 제약 없이(`maxWidth = Constraints.Infinity`) 자식을 측정하고, 부모 레이아웃에는 부모의 제약 폭으로 클램프된 크기를 반환하는 레이아웃 수정자로 변환합니다.
+   - `ObserveSize`가 함께 지정된 경우, `UnboundedWidth` 레이아웃 측정을 `onSizeChanged` 직전에 배치하여 `onSizeChanged`가 부모의 최대 폭에 갇히지 않은 내용물의 본래 측정 너비를 수신하도록 합니다.
+   - 부모 레이아웃에는 부모의 제약 내로 정렬 및 클램프된 크기를 반환하여 슬롯을 넘치지 않습니다.
+   - 그리기는 슬롯에 맞춰 잘립니다. 제약 없이 측정되는 것은 측정뿐이고, 슬롯보다 넓은 내용물은 슬롯 밖에 그려지지 않습니다(레이아웃 수정자 앞의 `clipToBounds()`).
+
+#### 87.2 수용 기준
+
+1. `UnboundedWidth` 수정자가 호스트에서 인코딩되고 렌더러에서 같은 값으로 디코딩됩니다 (`fr87_unbounded_width_round_trips`).
+2. `Modifier.unbounded_width()` 및 `Modifier.wrap_content_width(true)` 메서드가 `UnboundedWidth` 수정자를 생성합니다 (`fr87_modifier_unbounded_width_builder`).
+3. 폭이 좁게 제약된 부모 안에서 `UnboundedWidth`와 `ObserveSize`를 가진 노드가 부모의 최대 폭보다 넓은 고유 너비를 `ObserveSize`로 보고합니다 (`fr87_unbounded_width_reports_natural_size`).
+4. 부모 레이아웃 관점에서는 `UnboundedWidth` 노드의 레이아웃 크기가 부모의 제약 폭으로 유지됩니다 (`fr87_unbounded_width_layout_clamped_to_parent`).
+5. 슬롯보다 넓은 내용물은 슬롯에 맞춰 잘려 그려집니다. 슬롯의 오른쪽 가장자리 바로 바깥 픽셀은 내용물의 색이 아니라 뒤의 바탕색입니다 (`fr87_unbounded_width_content_is_clipped_to_the_slot`).
 
 ## 4. 경계 프로토콜
 
