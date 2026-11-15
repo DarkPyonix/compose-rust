@@ -5398,6 +5398,8 @@ compose_rust_host_dispatch_event: click 1
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
   - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
 - macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
+- Windows에서 `launch`는 Host가 만든 스레드 하나(`compose-rust-ui`, 스택 64 MB 예약)에서 `compose_rust_renderer_run`을 호출하고, 호출한 스레드는 그 스레드가 끝나기를 기다립니다([leader, provisional] (darkpyonix leader, 2026-11-16)). Windows 메인 스레드의 스택은 실행 파일의 링크가 정하며 기본 1 MB라서 Compose의 재귀(조합, 측정, 그리기)를 담지 못합니다. Renderer UI 스레드는 여전히 하나이고 Host는 그 스레드에서만 돕니다(PR-1). `launch` 없이 루프를 직접 돌리는 애플리케이션은 스택을 스스로 마련합니다.
+  - 수용 기준: Windows에서 깊이 400의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다(`check-windows-consumer.sh` 3e). **(CI 확인 전)**
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**
