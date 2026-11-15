@@ -387,7 +387,6 @@ internal fun HostTextField(
                     // text needs no clip of its own: the text field already draws only inside
                     // its bounds, scrolled or not.
                     .let { if (bare && !ownShape) it else it.clip(frameShape) }
-                    }
                     .let {
                         if (ownFill || bare) {
                             it
