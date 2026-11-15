@@ -330,13 +330,43 @@
       Linux는 8 MB를 줍니다. 64 MB는 예약한 주소 공간이며, Windows는 화면이 실제로 쓰는 페이지만
       커밋합니다.
     </p>
+    <p>
+      <code>launch</code> 앞의 코드는 메인 스레드에서 돌고, 컴포저블과 그 핸들러는 UI 스레드에서
+      돕니다. macOS와 Linux에서는 호출한 스레드가 곧 UI 스레드입니다. 그래서 UI 스레드의 일을
+      <code>launch</code> 전에 하는 프로그램은 거기서는 동작하고 Windows에서는 그 일을 잃습니다.
+      따라서 규칙은 모든 플랫폼에서 같습니다. <code>launch</code> 전에는 첫 목록에 있는 것만 합니다.
+    </p>
+    <p><code>launch</code> 전에 해도 되는 것:</p>
     <ul>
-      <li><code>launch</code> 앞의 코드는 메인 스레드에서 돕니다. 컴포저블과 그 핸들러는 UI
-        스레드에서 돌기 때문에, <code>launch</code> 전에 설정한 스레드 로컬은 그들이 읽는 것과
-        다릅니다. 그런 상태는 static에 두거나 애플리케이션이 캡처해서 넘기세요.
-        <code>notification::on_activation</code>, <code>windows::on_window_request</code>,
-        <code>clipboard::set_text</code> 처럼 UI 스레드에 속한 compose-rust의 호출도 같습니다.
-        <code>launch</code> 전에 부르면 UI가 보지 못합니다. 컴포저블이나 핸들러에서 부르세요.</li>
+      <li><code>mutable_state_of</code> 로 상태를 만들고 읽고 쓰기. 상태는 스레드가 아니라
+        프로세스에 속하므로 UI가 같은 상태를 읽습니다.</li>
+      <li><code>LaunchBuilder</code> 의 선택: <code>with_theme</code>, <code>with_window</code>,
+        <code>windows</code>, 그리고 저장소의 이름이 되는 <code>identifier</code>.</li>
+      <li>그 테마와 창에 쓸 에셋을 <code>asset::asset</code> 이나 <code>register_owned</code> 로
+        등록하기. 창의 아이콘과 테마의 글꼴이 그 예입니다. id는 UI 스레드에서도 그대로입니다.</li>
+      <li>알림을 보내거나 거두거나 권한을 요청하기, 그리고 <code>FileDialogSender</code> 로 파일
+        대화상자를 요청하기. 둘 다 어느 스레드에서든 Host의 대기열에 들어갑니다.</li>
+    </ul>
+    <p>
+      루트 컴포저블이나 그 뒤에서 해야 하는 것. UI 스레드에 속하기 때문입니다:
+    </p>
+    <ul>
+      <li>테마와 확대 배율을 바꾸는 호출(<code>set_theme</code>, <code>set_zoom_level</code>)과 그
+        구독.</li>
+      <li>메시지: <code>show_message</code> 와 <code>Message::show</code>.</li>
+      <li>저장소 읽기와 쓰기: <code>storage::read</code>, <code>read_string</code>,
+        <code>write</code>, <code>remove</code>, <code>keys</code>.</li>
+      <li>클립보드: <code>clipboard::set_text</code> 와 <code>read_text</code>.</li>
+      <li><code>FileDialog::show</code>. 콜백이 <code>Send</code> 가 아닙니다.</li>
+      <li>핸들러: <code>notification::on_activation</code>,
+        <code>windows::on_window_request</code>,
+        <code>windows::on_application_reopen_handler</code>,
+        <code>animation::on_animation_event</code>.</li>
+      <li>렌더러가 알려 주는 값의 구독: 디자인 시스템, 밀도, 창과 노드의 크기, 동작 줄이기, 알림
+        권한. 렌더러가 알려 주기 전에는 값이 기본값일 뿐입니다.</li>
+      <li>컴포저블이 읽는, 애플리케이션 자신의 스레드 로컬.</li>
+    </ul>
+    <ul>
       <li>UI에서 난 스택 오버플로나 패닉은 <code>main</code> 이 아니라
         <code>compose-rust-ui</code> 를 가리킵니다.</li>
       <li><code>COMPOSE_RUST_UI_STACK_BYTES</code> 로 다른 크기를 바이트 단위로 정할 수 있습니다.
@@ -348,9 +378,6 @@
         스크립트는 자신에게 의존하는 애플리케이션에 이것을 정해 줄 수 없고, 그래서
         <code>launch</code> 가 스레드를 만듭니다.</li>
     </ul>
-    <p>
-      macOS와 Linux에서는 호출한 스레드가 그대로 UI 스레드입니다.
-    </p>
 
     <nav class="pagenav" aria-label="페이지 이동">
       <a class="prev" href="design-systems.html"><span>이전</span>&larr; 디자인 시스템</a>
