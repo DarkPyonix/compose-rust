@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A moved caret keeps its whole line in view
+
+Moving the caret in a `CodeEditor` with the keyboard now scrolls exactly enough to show the whole caret line. Past the bottom, the line's bottom edge lands on the view's bottom edge; before, the field path stopped about a line short and left the caret below the view, and the drawn path did not follow the caret at all. Past the top, the line's top lands on the view's top. A move inside the view does not scroll. Content padding is counted, and typing a new line at the end scrolls to it too. A Host that revealed the caret itself after each move to work around this no longer needs to ([#841](https://github.com/DarkPyonix/compose-rust/issues/841)).
+
 ### Container roles keep their children
 
 A node whose `Semantics` role is a container (`Menu`, `List`, `Group`, `TabList`, `Tree` or `Navigation`) is now a traversal group, the way a popover menu already was, so its rows stay separate accessible nodes instead of reading as one static text. `Menu`, `List`, `TabList` and `Tree` also carry Compose's `CollectionInfo` with one row per child, which TalkBack reads as "list, N items". The platform role is unchanged: the AppKit, Windows and Linux windows still report `AXMenu`, `AXList`, `AXGroup` and their UIA and AT-SPI counterparts. No schema value is added and the schema hash does not move ([#838](https://github.com/DarkPyonix/compose-rust/issues/838)).
