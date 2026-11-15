@@ -1367,6 +1367,8 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 
 **macOS에서 신호등 버튼을 직접 그리지 않습니다.** 위치, 모양, 호버 동작, 전체화면 전환, 접근성 레이블이 전부 시스템 소유입니다. 흉내 내면 반드시 어긋나고, 그건 네이티브를 표방하는 프로젝트에서 가장 눈에 띄는 실패입니다. AWT가 제공하는 클라이언트 속성(`apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`)으로 충분하며 JNI가 필요 없습니다.
 
+**macOS 창의 제목은 시스템이 보여 줍니다** ([leader, provisional] (darkpyonix leader, 2026-11-16)). 시스템 캡션이 있는 macOS 창은 창 제목을 시스템을 통해 보여 줍니다(`windowTitleVisible`이 참). `FullSize` 창은 시스템 제목을 보여 주지 않으며, 제목이 필요하면 애플리케이션이 직접 그립니다. 30.2의 `SystemCaption`은 이 값에 기댑니다.
+
 #### 19.2 콘텐츠 안전 영역
 
 콘텐츠가 타이틀바 아래까지 확장되면 **그 영역과 겹치는 문제**가 생깁니다. macOS 신호등 버튼 자리에 앱의 버튼을 그리면 둘 다 못 쓰게 됩니다.
@@ -2261,18 +2263,28 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 시스템 캡션에 맡길지는 `CaptionStyle`의 `titlePlacement`가 답합니다. 값은 `Bar`와
 `SystemCaption`입니다.
 
-- Cupertino와 Liquid Glass는 캡션 높이가 있는 창에서 `SystemCaption`을 답하고 막대 안에는
-  제목을 그리지 않습니다. 캡션이 없는 모바일 화면에서는 막대가 제목을 그립니다.
-- 나머지 다섯 시스템은 `Bar`를 답하고, 기존 `titleAlignment`에 따라 앞쪽 또는 가운데에
-  제목을 놓습니다.
+[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 그 답은 디자인 시스템이 아니라
+플랫폼이 정합니다. 제목을 시스템 캡션에 맡길 수 있는 것은 운영체제가 캡션을 그리는 창뿐이고,
+19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows에서는, 그리고 Linux에서 Renderer가
+캡션을 그리는 창에서는 제목을 받아 줄 시스템 캡션이 없습니다. 창 관리자가 타이틀바를 그리는 Linux
+창(Kotlin/Native Renderer)은 캡션 높이가 0이라 아래 셋째 항목을 따릅니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
+막대에도 캡션에도 제목이 없는 창이 됩니다.
+
+- macOS에서 캡션 높이가 있는 창은 어느 디자인 시스템이든 `SystemCaption`을 답하고 막대 안에는
+  제목을 그리지 않습니다.
+- Windows와 Linux의 창은 어느 디자인 시스템이든 `Bar`를 답하고, 기존 `titleAlignment`에 따라
+  앞쪽 또는 가운데에 제목을 놓습니다. Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 창도
+  제목을 막대에 둡니다.
+- 캡션이 없는 화면(캡션 높이가 0인 창, 모바일 화면)에서는 막대가 제목을 그립니다.
 - 자식 콘텐츠와 막대의 캡션 띠 점유는 바뀌지 않습니다. 달라지는 것은 제목 한 줄의 배치뿐입니다.
 
 수용 기준:
 
-1. 캡션 높이가 같은 `TopAppBar(title)`를 Cupertino와 Fluent 2로 그리면 Cupertino 막대에는
-   제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
-2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
-3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+1. 캡션 높이가 같은 `TopAppBar(title)`를 macOS와 Windows에서 그리면 macOS 막대에는 제목 노드가
+   없고 Windows 막대에는 하나 있습니다. Cupertino와 Fluent 2 어느 쪽을 골라도 같습니다.
+2. Windows와 Linux에서 Cupertino와 Liquid Glass를 고른 창의 막대에 제목 노드가 하나 있습니다.
+3. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
+4. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
 
 #### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
 
