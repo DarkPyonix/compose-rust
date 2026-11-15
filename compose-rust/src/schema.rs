@@ -445,6 +445,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
+    hash = hash_bytes(hash, &SEMANTICS_STATE_MASK.to_le_bytes());
     hash
 }
 
@@ -2658,7 +2659,8 @@ pub enum Modifier {
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
-    /// accessibility tree, and the two action bits expose a click and a focus action.
+    /// accessibility tree, the two action bits expose a click and a focus action, and
+    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup.
     Semantics {
         role: SemanticsRole,
         state: u32,
@@ -2758,8 +2760,10 @@ pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
 pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
 /// The bit that exposes a focus action on the node.
 pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
+/// The bit that says the node opens a popup.
+pub const SEMANTICS_HAS_POPUP_BIT: u32 = 1 << 13;
 /// Every bit `Modifier::Semantics::state` may set.
-pub const SEMANTICS_STATE_MASK: u32 = 0b1_1111_1111_1111;
+pub const SEMANTICS_STATE_MASK: u32 = 0b11_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
