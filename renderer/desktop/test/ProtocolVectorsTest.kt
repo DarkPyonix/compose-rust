@@ -593,6 +593,40 @@ class ProtocolVectorsTest {
         assertEquals(emptyList(), errors)
     }
 
+    /**
+     * The font features two runs of a text name for themselves, read from the table the
+     * Host laid out: tabular figures on the second run, and on the fifth ligatures off and
+     * a stylistic set whose value is wider than a byte.
+     */
+    @Test
+    fun fr88_span_font_features_encode_decode_round_trip() {
+        val mutations = decodeVector("mutations.bin")
+        assertTrue(Mutation.Create(24, WidgetKind.Text) in mutations)
+        val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 24 }
+        // The text and its five runs come first, so the runs the table names are runs it has.
+        assertEquals(
+            listOf(PropertyKind.Text, PropertyKind.Spans, PropertyKind.SpanFontFeatures),
+            props.map { it.property },
+        )
+        val bytes = (props.single { it.property == PropertyKind.SpanFontFeatures }.value as PropertyValue.Bytes).value
+        fun word(value: Int) = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
+        val expected = word(2) +
+            word(1) + word(28) + word(1) +
+            word(4) + word(36) + word(2) +
+            "tnum".encodeToByteArray() + byteArrayOf(1, 0, 0, 0) +
+            "liga".encodeToByteArray() + byteArrayOf(0, 0, 0, 0) +
+            "ss01".encodeToByteArray() + byteArrayOf(2, 3, 0, 0)
+        assertEquals(expected.toList(), bytes.toList())
+        val errors = mutableListOf<String>()
+        val decoded = dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords.decodeBlob(bytes, errors::add)
+        assertEquals(listOf(1, 4), decoded?.keys?.toList())
+        assertEquals(
+            mapOf(1 to "tnum 1", 4 to "liga 0, ss01 770"),
+            dev.darkpyonix.composerust.foundation.spanFontFeatureSettings(bytes, errors::add),
+        )
+        assertEquals(emptyList(), errors)
+    }
+
     /** The Rust encoder wrote `MinTouchTarget { size: 44.0 }` just before the corner curve. */
     @Test
     fun fr55_min_touch_target_grows_the_hit_area_only_round_trips() {
@@ -990,7 +1024,7 @@ class ProtocolVectorsTest {
     fun fr26_the_runs_in_the_vector_decode_to_the_same_values() {
         val runs = decodeVector("mutations.bin")
             .filterIsInstance<Mutation.SetProp>()
-            .single { it.property == PropertyKind.Spans }
+            .single { it.property == PropertyKind.Spans && it.nodeId == 2 }
             .value as PropertyValue.Bytes
         val records = SpanRecords.decode(runs.value)
         assertEquals(
