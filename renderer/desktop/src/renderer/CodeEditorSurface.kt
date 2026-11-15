@@ -703,6 +703,37 @@ internal class FieldWindow(val model: CodeEditorModel, private val whole: Boolea
     /** Asks the surface to bring the caret into view. */
     var scrollToCaret by mutableIntStateOf(0)
 
+    /**
+     * A key went down and whatever it moves has not been followed yet. The field moves its
+     * caret after the key, so the view is scrolled to the caret once the selection or the
+     * text it found has changed, and a press of the pointer in between cancels it.
+     */
+    private var keyPending = false
+    private var keySelection = TextRange.Zero
+    private var keyText: CharSequence? = null
+    private var keyPresses = 0
+
+    /** Notes a key going down, so the caret it moves is followed. */
+    fun keyDown() {
+        keyPending = true
+        keySelection = state.selection
+        keyText = state.text
+        keyPresses = presses
+    }
+
+    /** Whether a key moved the caret or changed the text since [keyDown], answered once. */
+    fun takeKeyMove(): Boolean {
+        if (!keyPending) return false
+        if (presses != keyPresses) {
+            keyPending = false
+            return false
+        }
+        if (state.selection == keySelection && state.text === keyText) return false
+        keyPending = false
+        keyText = null
+        return !caretOutside
+    }
+
     fun toDoc(offset: Int): CodePosition {
         var low = 0
         var high = lineStarts.size - 1
@@ -1378,7 +1409,7 @@ private fun FieldSurface(
 
     // Refilling the window recomposes this, so the field moves to where the new lines are.
     window.revision
-    Sync(window, rows, vertical, viewportHeight, rowPx, callbacks, padTopPx)
+    Sync(window, rows, vertical, viewportHeight, rowPx, callbacks, padTopPx, padBottomPx)
 
     LaunchedEffect(window.scrollToCaret) {
         if (window.scrollToCaret == 0) return@LaunchedEffect
@@ -1573,8 +1604,9 @@ private fun FieldSurface(
                                 .onPreviewKeyEvent { event ->
                                     // The Host hears the key first, and a key it takes is
                                     // not the editor's.
-                                    callbacks.onKeyPreview(event, window.state.composition != null) ||
-                                        handleKey(event, window, look, callbacks, clipboard) { layoutHolder[0]?.invoke() }
+                                    if (callbacks.onKeyPreview(event, window.state.composition != null)) return@onPreviewKeyEvent true
+                                    if (event.type == KeyEventType.KeyDown) window.keyDown()
+                                    handleKey(event, window, look, callbacks, clipboard) { layoutHolder[0]?.invoke() }
                                 }
                                 .pointerInput(window, look) {
                                     awaitPointerEventScope {
@@ -1670,6 +1702,7 @@ private fun Sync(
     rowPx: Int,
     callbacks: CodeEditorCallbacks,
     padTopPx: Int = 0,
+    padBottomPx: Int = 0,
 ) {
     // Each read subscribes this scope, so typing, moving the caret, a press, a change from
     // elsewhere and scrolling all come through here.
@@ -1691,6 +1724,16 @@ private fun Sync(
         if (window.end == 0) window.load(firstVisible - FieldWindow.MIN_MARGIN, lastVisible + FieldWindow.MIN_MARGIN)
         window.sync(firstVisible, lastVisible)
         if (!composing) window.model.compositionChanged(false)
+        // A key moved the caret or typed: the model now has where it went, so the view
+        // follows it. The rows are read again, since the key may have added a line.
+        if (viewportHeight > 0 && window.takeKeyMove()) {
+            val model = window.model
+            val now = RowMap.of(model, wholeZoneRows = true)
+            vertical.max = now.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
+            val line = model.selection.caret.line
+            val top = now.textTopPx(line, rowPx) + padTopPx
+            followCaret(vertical, top, top + now.rowsOf(line) * rowPx, viewportHeight)
+        }
         if (viewportHeight > 0) {
             reportVisible(window.model, rows, scroll, viewportHeight, rowPx, padTopPx)
             // Once the editor has a size it has been laid out, so the row height is the one
@@ -1709,6 +1752,19 @@ internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, vi
     val top = scroll - padTopPx
     val bottom = min(rows.totalPx(rowPx) - 1, top + viewportHeight - 1)
     model.reportVisibleRange(rows.lineAtPx(max(0, top), rowPx), rows.lineAtPx(max(0, bottom), rowPx))
+}
+
+/**
+ * Scrolls the least that puts the caret's rows, from [top] to [bottom] in the offsets the
+ * view scrolls by, wholly inside a view [viewportHeight] high. Rows already inside it do not
+ * scroll. Rows taller than the view are shown from their top.
+ */
+internal fun followCaret(vertical: EditorScroll, top: Int, bottom: Int, viewportHeight: Int) {
+    val offset = vertical.offset
+    when {
+        top < offset -> vertical.scrollTo(top)
+        bottom > offset + viewportHeight -> vertical.scrollTo(min(top, bottom - viewportHeight))
+    }
 }
 
 /** Scrolls so that the range the Host named is on screen, the way it asked. */
