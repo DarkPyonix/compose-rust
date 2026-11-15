@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-### A bare multiline field clips its scrolled text
-
-A `TextField` that is `bare()` and `multiline(true)` now clips what it draws to its own rectangle. Its text scrolls, and a line that had scrolled out was still drawn as a slice in the room round the field unless the node named a shape or carried `Modifier::clip()`. A single-line bare field and a field with a frame or a shape are drawn as before. This changes how existing bare multiline fields draw: anything they drew outside their own box is now cut ([#789](https://github.com/DarkPyonix/compose-rust/issues/789)).
-
 ### A Button's content padding
 
 `Button::content_padding(horizontal, vertical)` sets the room between a button's edge and its label, in dp, for that button only. It replaces the design system's label padding and, like it, gives way when the button is too small for the label and the padding together. A button that never calls it sends nothing and is drawn as before. `Modifier::padding` is still the room around the button. No tag is added and the schema hash does not move: the value goes out as the existing `PaddingEach` modifier, in a slot of its own, and the renderer now reads `PaddingEach` on a `Button` as the room inside it. A Host that writes records itself and sent `PaddingEach` to a `Button` for room around it sees that room move inside; `Padding` and `PaddingRole` are unchanged ([#789](https://github.com/DarkPyonix/compose-rust/issues/789)).
