@@ -80,6 +80,10 @@ if [[ -n "$stand_in" ]]; then
     export "${stand_in?}"
 fi
 cargo build --manifest-path "$fixture/Cargo.toml" --quiet
+# The fixture's own tests: what its self-check counts as a drawn frame, which the
+# single-executable check relies on and can only show with a real window.
+cargo test --manifest-path "$fixture/Cargo.toml" --quiet ||
+    fail "the consumer fixture's own tests failed"
 
 binary="$target/debug/consumer"
 [[ -x "$binary" ]] || fail "the build produced no $binary"

@@ -71,6 +71,7 @@ import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
+import dev.darkpyonix.composerust.ui.node.platformFallbackFamilies
 import dev.darkpyonix.composerust.ui.node.platformWindowMaterial
 import dev.darkpyonix.composerust.ui.node.TableError
 import java.lang.InterruptedException
@@ -599,7 +600,13 @@ private fun ComposeRustTree(
         systemDark,
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
-        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
+        // A single face is a chain of one only where the renderer carries fallback faces
+        // of its own: that chain is what sends a letter the face lacks to them.
+        chainOf = { asset ->
+            (host.table.assets.asset(asset) as? Asset.Font)?.let { font ->
+                if (platformFallbackFamilies.isEmpty()) font.chain else font.letters
+            }
+        },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
         overlay = host.table.overlayTokens,
