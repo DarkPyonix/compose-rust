@@ -5142,6 +5142,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 5. 위 "오류"의 각 경우가 글마다 `ProtocolError` 하나를 내고, 프로세스가 중단되지 않으며, 글과 스팬은 스팬 기능 없이 그려지고, 옆의 올바른 글은 영향을 받지 않고, 다시 그려도 보고가 늘지 않으며, 올바른 표를 다시 보내면 적용됩니다 (`fr88_malformed_span_font_features_handled_gracefully`, Rust `fr88_a_malformed_table_reads_back_as_no_features`).
 6. 기능을 지정한 스팬이 없는 `Text`(스팬이 없는 글, 스팬만 있는 글, 빈 기능 목록만 준 글)는 `SpanFontFeatures` 레코드를 하나도 보내지 않습니다. 표가 없어지면 속성이 지워지고 스팬 기능도 사라지며, 같은 표는 다시 보내지 않습니다 (Rust `fr88_span_font_features_writes_one_property_only_when_set`, `fr88_span_font_features_clear_and_are_not_resent`, `fr88_runs_without_features_make_no_table`, Kotlin `fr88_span_font_features_are_cleared_with_the_property`).
 7. 정상 상태 할당: 글자만 바뀌는 프레임에서 스팬 기능이 있는 글은 없는 글과 같은 횟수만 할당하고(Host), 렌더러는 표가 도착했을 때 만든 맵을 그대로 읽습니다 (Rust와 Kotlin의 `fr88_span_font_features_do_not_allocate_in_steady_state`).
+8. [leader, provisional] (darkpyonix leader, 2026-11-15) **측정도 런의 기능으로(#823).** 측정 요청(`MeasureText`)은 `SpanFontFeatures`와 같은 런 기능 표를 함께 싣고(레코드 80→88바이트, `font_features`처럼 위치와 길이 한 쌍), 렌더러의 측정은 그 표를 런마다 적용한다. 그래서 `tnum` 런 하나가 있는 Text는 그려지는 폭과 같은 폭으로 측정된다. 검증: Rust와 Kotlin 양쪽 테스트(`fr88_measure_record_carries_span_font_features`, `fr88_measured_span_font_features_match_drawn_text`), 그리고 C 스모크 호스트(`renderer/desktop/c/smoke_host.c`)와 그 레코드 길이 스크립트 테스트가 통과한다.
 
 ### FR-85 포커스를 가진 상자가 자기 키를 받는다 (`Done`, [리더, 잠정 2026-11-13], 이슈 #101)
 
