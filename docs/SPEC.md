@@ -5132,6 +5132,29 @@ DOM에서 `tabindex`와 `onkeydown`을 가진 요소는 자기가 포커스를 �
 5. `ScrollColumn`에서 첫 번째 자식에 `Sticky`를 지정했을 때, 세로로 스크롤되어도 첫 번째 자식의 위치는 뷰포트 상단에 고정되고 다른 자식만 스크롤됩니다 (`fr89_sticky_child_stays_pinned_during_scroll_column`).
 6. `ScrollRow` 안에 중첩된 줄마다 자기 배경을 가진 고정 칸이 있을 때, 스크롤한 뒤에도 각 칸은 뷰포트 시작 가장자리에 머물고 그 자리에 자기 배경을 그립니다 (`fr89_sticky_cell_in_a_nested_line_keeps_its_background`).
 
+### FR-87 비제약 폭 측정 수정자: `unbounded_width` (`Agreed`, 이슈 #634, [leader, provisional] (darkpyonix leader, 2026-11-15))
+
+요청한 쪽: dioxus-compose의 `Table`(FR-15.5.3, DarkPyonix/dioxus-compose#226). `Content` 열은 `use_node_size`를 통해 지금까지 그려진 가장 넓은 셀 크기로 너비를 맞춥니다. 그러나 Compose 렌더러에서 각 셀은 해당 열 슬롯이 이미 가진 너비(maxWidth) 제약 안에서 측정되므로, 더 넓은 셀이 들어와도 열의 현재 너비로 잘려 측정되며 열 너비가 첫 측정 크기를 넘어 늘어나지 못합니다. 부모의 최대 폭 제약 없이 노드의 본래 크기를 측정하여 `ObserveSize`로 보고하면서도, 현재 프레임의 부모 슬롯 안에는 잘려 배치되도록 하는 수정자가 필요합니다.
+
+#### 87.1 규칙
+
+1. **`Modifier::unbounded_width()` 및 `Modifier::wrap_content_width(unbounded)`**: 노드를 부모의 최대 폭 제약 없이(unbounded width) 측정하도록 지정합니다. `wrap_content_width(true)`는 `unbounded_width()`와 같습니다.
+2. **와이어 인코딩**:
+   - `UnboundedWidth` 수정자 태그 40. 추가 필드가 없는 0워드(28바이트) 레코드로 전송합니다.
+3. **렌더러 해석**:
+   - 렌더러의 `ModifierChain`은 `UnboundedWidth`를 부모의 최대 폭 제약 없이(`maxWidth = Constraints.Infinity`) 자식을 측정하고, 부모 레이아웃에는 부모의 제약 폭으로 클램프된 크기를 반환하는 레이아웃 수정자로 변환합니다.
+   - `ObserveSize`가 함께 지정된 경우, `UnboundedWidth` 레이아웃 측정을 `onSizeChanged` 직전에 배치하여 `onSizeChanged`가 부모의 최대 폭에 갇히지 않은 내용물의 본래 측정 너비를 수신하도록 합니다.
+   - 부모 레이아웃에는 부모의 제약 내로 정렬 및 클램프된 크기를 반환하여 슬롯을 넘치지 않습니다.
+   - 그리기는 슬롯에 맞춰 잘립니다. 제약 없이 측정되는 것은 측정뿐이고, 슬롯보다 넓은 내용물은 슬롯 밖에 그려지지 않습니다(레이아웃 수정자 앞의 `clipToBounds()`).
+
+#### 87.2 수용 기준
+
+1. `UnboundedWidth` 수정자가 호스트에서 인코딩되고 렌더러에서 같은 값으로 디코딩됩니다 (`fr87_unbounded_width_round_trips`).
+2. `Modifier.unbounded_width()` 및 `Modifier.wrap_content_width(true)` 메서드가 `UnboundedWidth` 수정자를 생성합니다 (`fr87_modifier_unbounded_width_builder`).
+3. 폭이 좁게 제약된 부모 안에서 `UnboundedWidth`와 `ObserveSize`를 가진 노드가 부모의 최대 폭보다 넓은 고유 너비를 `ObserveSize`로 보고합니다 (`fr87_unbounded_width_reports_natural_size`).
+4. 부모 레이아웃 관점에서는 `UnboundedWidth` 노드의 레이아웃 크기가 부모의 제약 폭으로 유지됩니다 (`fr87_unbounded_width_layout_clamped_to_parent`).
+5. 슬롯보다 넓은 내용물은 슬롯에 맞춰 잘려 그려집니다. 슬롯의 오른쪽 가장자리 바로 바깥 픽셀은 내용물의 색이 아니라 뒤의 바탕색입니다 (`fr87_unbounded_width_content_is_clipped_to_the_slot`).
+
 ## 4. 경계 프로토콜
 
 ### FR-86 오늘 날짜와 지역 시각 (`Agreed`, 이슈 #630, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
