@@ -1030,12 +1030,18 @@ internal fun Modifier.pressable(
         .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
         .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
         .hoverable(source, enabled)
-        .clickable(
-            interactionSource = source,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-        ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
+        .let {
+            if (enabled) {
+                it.clickable(
+                    interactionSource = source,
+                    indication = null,
+                    enabled = true,
+                    role = Role.Button,
+                ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
+            } else {
+                it
+            }
+        }
         .drawWithContent {
             drawContent()
             if (!enabled) return@drawWithContent
