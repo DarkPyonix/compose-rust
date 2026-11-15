@@ -3418,12 +3418,12 @@ internal object LiquidGlassRules : ComponentRules {
      * Medium and Expanded are a desktop window, where a card or a plain surface is the
      * document being read and has to stay opaque behind its text.
      */
-    private fun isGlass(role: ContainerRole, sizeClass: WindowSizeClass): Boolean = when (role) {
-        // Chrome, at every size.
+    private fun isGlass(role: ContainerRole, theme: ResolvedTheme): Boolean = when (role) {
+        // Chrome, at every size. The class is not asked, so chrome does not follow it.
         ContainerRole.TopAppBar, ContainerRole.Menu, ContainerRole.Dialog, ContainerRole.Tooltip -> true
         // Content, glass only where the screen is small enough that there is no separate
         // chrome to speak of.
-        ContainerRole.Card, ContainerRole.Surface -> sizeClass == WindowSizeClass.Compact
+        ContainerRole.Card, ContainerRole.Surface -> theme.sizeClass == WindowSizeClass.Compact
     }
 
     /**
@@ -3439,7 +3439,7 @@ internal object LiquidGlassRules : ComponentRules {
         container: Color,
         content: Color,
         theme: ResolvedTheme,
-    ): SurfaceMaterial = if (isGlass(role, theme.sizeClass)) {
+    ): SurfaceMaterial = if (isGlass(role, theme)) {
         LiquidGlass.material(
             dark = theme.dark,
             // Regular throughout. Every container role here carries text or controls,
@@ -3466,9 +3466,10 @@ internal object LiquidGlassRules : ComponentRules {
      *
      * Light needs no such choice: the page is already the reading surface at either size.
      */
-    override fun color(role: ColorRole, dark: Boolean, sizeClass: WindowSizeClass): Color? = when {
+    override fun color(role: ColorRole, dark: Boolean, sizeClass: () -> WindowSizeClass): Color? = when {
+        // First, so the class is asked for the dark page and for nothing else.
         role != ColorRole.Background || !dark -> null
-        sizeClass == WindowSizeClass.Compact -> null
+        sizeClass() == WindowSizeClass.Compact -> null
         else -> DESKTOP_PAGE_DARK
     }
 
