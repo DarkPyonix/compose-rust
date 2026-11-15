@@ -4,6 +4,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font
+import dev.darkpyonix.composerust.ui.node.FontChain
+import dev.darkpyonix.composerust.ui.node.decodeFontAsset
 
 /**
  * One face of a family the renderer carries in its own bundle: the file, and the weight and
@@ -40,7 +42,23 @@ val webDefaultFaces: List<BundledFace> = listOf(
     BundledFace("Roboto-BoldItalic.ttf", 700, italic = true),
 )
 
-/** Where the web bundle keeps [webDefaultFaces], relative to the page. */
+/**
+ * The faces the web bundle carries for the letters [webDefaultFaces] have no glyph for, in
+ * the order they are asked.
+ *
+ * Every other target draws such a letter from one of the machine's fonts. A canvas in a
+ * browser has none of them, so a backspace sign (U+232B) or a play triangle (U+25B6), which
+ * Roboto does not have, was an empty box on the web and a glyph everywhere else.
+ *
+ * The one face is cut from Noto Sans Symbols 2 (notofonts/symbols), keeping the code points
+ * of Arrows (U+2190 to U+21FF), Miscellaneous Technical (U+2300 to U+23FF) and Geometric
+ * Shapes (U+25A0 to U+25FF) that the typeface has: all of Geometric Shapes, and the keys
+ * and media signs of the other two. It is under the SIL Open Font License 1.1, which sits
+ * beside it as `OFL.txt` and says how the file was cut.
+ */
+val webFallbackFaces: List<String> = listOf("NotoSansSymbols2-Subset.ttf")
+
+/** Where the web bundle keeps [webDefaultFaces] and [webFallbackFaces], relative to the page. */
 const val WEB_FONT_DIRECTORY: String = "fonts"
 
 /**
@@ -59,3 +77,27 @@ fun bundledFamily(faces: List<Pair<BundledFace, ByteArray>>): FontFamily = FontF
         )
     },
 )
+
+/**
+ * The chain text in [family] is set through, where [family] is [bundledFamily] of [faces]:
+ * that family alone, with the letters it has. Null where the regular face cannot be read,
+ * which leaves the family taking every letter, as it did before.
+ *
+ * Knowing the letters is what lets one the family lacks go on to the fallback faces. They
+ * are asked of the upright regular face, because the faces of one release of a family
+ * cover the same letters.
+ */
+fun bundledChain(family: FontFamily, faces: List<Pair<BundledFace, ByteArray>>): FontChain? {
+    val regular = faces.firstOrNull { (face, _) -> face.weight == 400 && !face.italic } ?: faces.firstOrNull()
+    val hasGlyph = regular?.let { (_, bytes) -> decodeFontAsset(bytes)?.face?.hasGlyph } ?: return null
+    return FontChain(listOf(FontChain.Member(family, hasGlyph)))
+}
+
+/**
+ * One of [webFallbackFaces], from the bytes of its file, as the family that draws the
+ * letters it has. Null where the bytes are not a font.
+ */
+fun bundledFallback(bytes: ByteArray): FontChain.Member? {
+    val font = decodeFontAsset(bytes) ?: return null
+    return FontChain.Member(font.family, font.face?.hasGlyph ?: return null)
+}

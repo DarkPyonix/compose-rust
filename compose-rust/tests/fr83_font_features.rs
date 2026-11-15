@@ -294,8 +294,10 @@ fn fr83_measure_record_carries_font_features() {
     use compose_rust::spans::TextSpans;
 
     let mut requests = MeasureRequests::new();
-    let mut style = TextStyle::default();
-    style.font_features = vec![FontFeature::TABULAR_NUMS, FontFeature::SLASHED_ZERO];
+    let style = TextStyle {
+        font_features: vec![FontFeature::TABULAR_NUMS, FontFeature::SLASHED_ZERO],
+        ..TextStyle::default()
+    };
 
     requests.text(
         "1234",
