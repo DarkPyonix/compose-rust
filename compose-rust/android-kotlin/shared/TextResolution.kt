@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.isUnspecified
 import androidx.compose.ui.unit.sp
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import kotlin.math.ceil
+import dev.darkpyonix.composerust.design.platformDefaultChain
 import dev.darkpyonix.composerust.design.platformSansSerifFamily
 import dev.darkpyonix.composerust.design.platformUiFamily
 import dev.darkpyonix.composerust.protocol.ColorRole
@@ -35,6 +36,7 @@ import dev.darkpyonix.composerust.protocol.OverflowWrap
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SpanFontFeatureRecords
 import dev.darkpyonix.composerust.protocol.SpanFontRecords
 import dev.darkpyonix.composerust.protocol.TYPE_ROLE_NONE
 import dev.darkpyonix.composerust.protocol.TextAlign
@@ -72,6 +74,11 @@ internal class TextInput(
     val runs: List<TextRun>,
     /** The fonts runs name for themselves, by run index. */
     val runFonts: Map<Int, List<FontRef>>,
+    /**
+     * The OpenType features runs name for themselves, as Compose's `fontFeatureSettings`
+     * strings by run index. Taken by a run with or without a role, after the text's own.
+     */
+    val runFontFeatures: Map<Int, String> = emptyMap(),
     /**
      * True for text with no rung of the ladder at all, which takes its size, weight,
      * line height, letter spacing and font from its own values and nothing from the
@@ -135,6 +142,11 @@ internal class ResolvedText(
     val runsProblem: String?,
     /** What was wrong with the fonts, one sentence each, for the caller to report. */
     val problems: List<String>,
+    /**
+     * What was wrong with the features the runs name, none of which were used, or null
+     * where nothing was. The runs themselves are still drawn.
+     */
+    val runFeaturesProblem: String? = null,
     /** Which fonts the text named and is not set in, or null where it is set in all it named. */
     val ignoredFonts: String? = null,
 )
@@ -233,12 +245,16 @@ internal fun resolveText(
 
     val badRuns = if (input.runs.isEmpty()) null else runsProblem(input.runs, input.text.encodeToByteArray().size)
     val runs = if (badRuns == null) input.runs else emptyList()
+    // A table that names a run the text does not have was counted against some other list
+    // of runs, so none of it is trusted. Runs that were left out have said so already.
+    val badRunFeatures = if (badRuns == null) runFeaturesProblem(input.runFontFeatures, runs.size) else null
+    val runFeatures = if (badRuns == null && badRunFeatures == null) input.runFontFeatures else emptyMap()
     val mode = when (intrinsicWordBreak ?: input.wordBreak) {
         WordBreak.KeepAll -> BreakMode.KeepAll
         WordBreak.BreakAll -> BreakMode.BreakAll
         WordBreak.Normal, null -> BreakMode.Normal
     }
-    val text = annotate(input, runs, mode, chain, tracking, theme, assets, density, ::sized, link, problems)
+    val text = annotate(input, runs, runFeatures, mode, chain, tracking, theme, assets, density, ::sized, link, problems)
     val (placeholders, inline) = tabStops(text, style, input.tabSize, density, fontFamilyResolver)
 
     // Breaking anywhere only matters to the narrowest width: laid out at any width, a word
@@ -246,7 +262,7 @@ internal fun resolveText(
     // made only for that question, and only where the answer differs.
     val anywhere = input.overflowWrap == OverflowWrap.Anywhere && mode != BreakMode.BreakAll
     val minContent = if (anywhere) {
-        annotate(input, runs, BreakMode.BreakAll, chain, tracking, theme, assets, density, ::sized, null, mutableListOf())
+        annotate(input, runs, runFeatures, BreakMode.BreakAll, chain, tracking, theme, assets, density, ::sized, null, mutableListOf())
     } else {
         null
     }
@@ -267,6 +283,7 @@ internal fun resolveText(
         runsProblem = badRuns,
         problems = problems,
         ignoredFonts = ignoredFontsProblem(input),
+        runFeaturesProblem = badRunFeatures,
     )
 }
 
@@ -344,6 +361,8 @@ internal fun resolveFontFamily(
  * name the machine does not have is passed over without a report, because a list that
  * names fonts it may not find is what a font list is for. An installed or a generic family
  * takes every letter left, so the list stops there. Nothing resolving is a sans serif.
+ * A letter none of them has is looked for in the fallback faces the renderer carries, where
+ * it carries any.
  */
 internal fun resolveFontChain(
     refs: List<FontRef>,
@@ -369,18 +388,29 @@ internal fun resolveFontChain(
             }
             is FontRef.System -> {
                 val family = cssUiFontFamily(ref.name) ?: systemFontFamily(ref.name) ?: continue
-                members += FontChain.Member(family, null)
+                members += platformMember(family)
                 break
             }
             is FontRef.Generic -> {
-                members += FontChain.Member(genericFontFamily(ref.family), null)
+                members += platformMember(genericFontFamily(ref.family))
                 break
             }
         }
     }
-    if (members.isEmpty()) members += FontChain.Member(platformSansSerifFamily, null)
+    if (members.isEmpty()) members += platformMember(platformSansSerifFamily)
     return FontChain(members)
 }
+
+/**
+ * The chain member for an installed or a generic [family]: one whose letters are not known,
+ * which takes every letter that reaches it.
+ *
+ * The exception is the default family where the renderer carries it itself. Its letters
+ * are known, so the member is the one of [platformDefaultChain], and a letter it lacks goes
+ * on to the fallback faces the renderer carries.
+ */
+private fun platformMember(family: FontFamily): FontChain.Member =
+    platformDefaultChain?.members?.first()?.takeIf { it.family === family } ?: FontChain.Member(family, null)
 
 /**
  * CSS's `ui-serif`, `ui-sans-serif`, `ui-monospace` and `ui-rounded`: the faces this
@@ -520,6 +550,8 @@ private fun joinedJamo(first: Char, second: Char): Boolean =
 private fun annotate(
     input: TextInput,
     runs: List<TextRun>,
+    /** The features of the runs that name any, by index into [runs]. */
+    runFeatures: Map<Int, String>,
     mode: BreakMode,
     chain: FontChain?,
     tracking: TextTracking?,
@@ -561,7 +593,19 @@ private fun annotate(
                 ?.takeIf { input.noRole && run.role == null }
                 ?.let { resolveFontChain(it, assets, problems) }
             val spacing = if (input.noRole) runSpacing(input, run, runChain, tracking, theme) else null
-            val style = spanStyle(run, runChain?.primary, theme, sized, spacing?.let(sized) ?: TextUnit.Unspecified)
+            // A span's features replace the paragraph's for its letters, they are not added
+            // to them. So a run that names features is given the text's as well, with its
+            // own after them, where a tag both name takes the run's value. A run that names
+            // none sets nothing and is drawn with the text's.
+            val features = runFeatures[index]?.let { appendFontFeatures(input.fontFeatures, it) }
+            val style = spanStyle(
+                run,
+                runChain?.primary,
+                theme,
+                sized,
+                spacing?.let(sized) ?: TextUnit.Unspecified,
+                features,
+            )
             addStyle(style, from, to)
             runChain?.spans(broken.text.substring(from, to))?.forEach { span ->
                 addStyle(span.item, from + span.start, from + span.end)
@@ -614,6 +658,7 @@ private fun spanStyle(
     theme: ResolvedTheme,
     sized: (Float) -> TextUnit,
     letterSpacing: TextUnit = TextUnit.Unspecified,
+    fontFeatures: String? = null,
 ): SpanStyle {
     return SpanStyle(
         color = run.color?.let(theme::color) ?: androidx.compose.ui.graphics.Color.Unspecified,
@@ -625,6 +670,7 @@ private fun spanStyle(
         fontSize = run.role?.let { sized(theme.type(it).size) } ?: TextUnit.Unspecified,
         fontFamily = family,
         letterSpacing = letterSpacing,
+        fontFeatureSettings = fontFeatures,
         textDecoration = when {
             run.underline && run.strikethrough ->
                 TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
@@ -719,6 +765,9 @@ internal fun Node.textInput(): TextInput {
         text = text(PropertyKind.Text),
         runs = decoded ?: emptyList(),
         runFonts = bytes(PropertyKind.SpanFonts)?.let(SpanFontRecords::decodeBlob) ?: emptyMap(),
+        // Made when the table arrived and kept on the node. Never read from the bytes here:
+        // this runs on every composition, and a table that was refused stays refused.
+        runFontFeatures = spanFontFeatures ?: emptyMap(),
         noRole = (property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value == TYPE_ROLE_NONE.toLong(),
         role = typeRole(),
         fontSize = floatProp(PropertyKind.FontSize),
@@ -816,6 +865,46 @@ internal fun fontFeatureSettings(bytes: ByteArray, onError: (String) -> Unit): S
         out.append(' ').append(value)
     }
     return out.toString()
+}
+
+/**
+ * A `SpanFontFeatures` table as Compose's `fontFeatureSettings` strings by run index, or
+ * null where no run names a feature or the table cannot be read.
+ *
+ * The table is held to its layout by [SpanFontFeatureRecords.decodeBlob] and each run's
+ * records to the rules of [fontFeatureSettings]. The first thing wrong is reported through
+ * [onError], once, and none of the table is used: features taken from half a table would
+ * set some runs and not others with nothing on screen to say which.
+ *
+ * Called when the property changes, never per frame: the map is kept on the node.
+ */
+internal fun spanFontFeatureSettings(bytes: ByteArray, onError: (String) -> Unit): Map<Int, String>? {
+    val lists = SpanFontFeatureRecords.decodeBlob(bytes, onError) ?: return null
+    val settings = HashMap<Int, String>(lists.size)
+    for ((run, records) in lists) {
+        var refused = false
+        val made = fontFeatureSettings(records) { why ->
+            refused = true
+            onError("run $run: $why")
+        }
+        if (refused) return null
+        if (made != null) settings[run] = made
+    }
+    return settings.takeIf { it.isNotEmpty() }
+}
+
+/**
+ * What is wrong with the runs a feature table names, for a text of [runs] runs, or null
+ * where every one of them is a run the text has.
+ */
+private fun runFeaturesProblem(features: Map<Int, String>, runs: Int): String? {
+    if (features.isEmpty()) return null
+    for (run in features.keys) {
+        if (run < 0 || run >= runs) {
+            return "features are named for run $run where the text has $runs runs"
+        }
+    }
+    return null
 }
 
 /**
