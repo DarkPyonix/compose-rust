@@ -188,14 +188,20 @@ class ResolvedTheme(
     val overlay: OverlayTokens? = null,
 ) {
     /**
-     * The stack [family] is the first family of, or null where it is not one.
+     * The stack [family] is the first family of, or null where it is not one. The family
+     * the platform carries for itself answers with [platformDefaultChain].
      *
      * Asked by identity, not by equality, because the first family of a stack and the
      * face it was made from can be equal and must not be confused: only the stack carries
      * the families after it.
      */
     fun chainFor(family: FontFamily?): FontChain? =
-        if (family == null) null else fontChains.firstOrNull { it.primary === family }
+        if (family == null) {
+            null
+        } else {
+            fontChains.firstOrNull { it.primary === family }
+                ?: platformDefaultChain?.takeIf { it.primary === family }
+        }
 
     /** The stack this role is set in, or null where the role is set in one face. */
     fun chain(role: TypeRole): FontChain? = chainFor(fonts[role])
@@ -334,6 +340,20 @@ var platformUiFamily: FontFamily = FontFamily.Default
  * the one regular face Skia's web build has.
  */
 var platformSansSerifFamily: FontFamily = FontFamily.SansSerif
+
+/**
+ * The chain of the default family, where the renderer carries that family itself and so
+ * knows which letters it has. Null wherever the default family is the machine's, whose
+ * letters are not known here and whose missing ones the machine finds among its own fonts.
+ *
+ * The web renderer sets it together with [platformUiFamily], to a chain whose first family
+ * is that one. Text in the default family is then asked, a letter at a time, whether the
+ * family has it, and a letter it lacks is drawn from the fallback faces the renderer
+ * carries (`platformFallbackFamilies`). Without the chain the default family would take
+ * every letter, as a family whose letters are unknown does, and the ones it has no glyph
+ * for would be empty boxes.
+ */
+var platformDefaultChain: FontChain? = null
 
 /**
  * The hand-written half of a design system: elevation rendering, `ButtonVariant` styling
