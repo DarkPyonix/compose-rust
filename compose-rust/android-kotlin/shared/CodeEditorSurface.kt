@@ -222,7 +222,28 @@ class CodeEditorLook(
     val minimapSlider: Color = lineNumber.copy(alpha = lineNumber.alpha * 0.22f),
     /** Where long lines break onto the rows below, or null where they run past the edge. */
     val wordWrap: WordWrapRule? = null,
+    /**
+     * Room above the first line and below the last, inside what scrolls: the first line
+     * starts this far down and the room scrolls away with it.
+     */
+    val contentPaddingTop: Dp = 0.dp,
+    val contentPaddingBottom: Dp = 0.dp,
+    /**
+     * Whether the gutter keeps the fold column and the change-bar column when nothing can
+     * be folded and no line is changed, so the text starts at the same place in every file.
+     */
+    val fixedGutterColumns: Boolean = false,
+    /** The gutter on the caret's row, or Unspecified where the gutter keeps its own colour there. */
+    val currentLineGutter: Color = Color.Unspecified,
 )
+
+/** The room above the first line and below the last, in whole pixels. */
+internal fun Density.contentPaddingPx(look: CodeEditorLook): Pair<Int, Int> =
+    look.contentPaddingTop.roundToPx() to look.contentPaddingBottom.roundToPx()
+
+/** The width of the fold column: a row's height where anything can be folded or the look keeps it, and none otherwise. */
+internal fun foldColumnWidthPx(model: CodeEditorModel, look: CodeEditorLook, rowPx: Int): Int =
+    if (model.folds.isNotEmpty() || look.fixedGutterColumns) rowPx else 0
 
 /** Where long lines break: at the view's edge, at [columns], or at whichever comes first. */
 data class WordWrapRule(val mode: WordWrapMode, val columns: Int)
@@ -297,9 +318,12 @@ internal fun localizedChangeMarkWord(change: ChangeMark, language: String = andr
         }
     }
 
-/** The room the gutter keeps for change bars and the gap behind them: none when no line has one. */
+/**
+ * The room the gutter keeps for change bars and the gap behind them: none when no line has
+ * one, unless the look keeps the column anyway.
+ */
 internal fun Density.changeColumnPx(model: CodeEditorModel, look: CodeEditorLook): Int =
-    if (model.hasChangeBars) (look.changeBarWidth + look.changeBarGap).roundToPx() else 0
+    if (model.hasChangeBars || look.fixedGutterColumns) (look.changeBarWidth + look.changeBarGap).roundToPx() else 0
 
 /**
  * What a screen reader hears about the changed lines, or null when there are none. The
@@ -1344,19 +1368,21 @@ private fun FieldSurface(
     val lineCount = rows.lineCount
     val digits = lineCount.toString().length
     val hasMarks = model.hasOrdinaryMarks
-    val hasFolds = model.folds.isNotEmpty()
     val markColumnPx = if (hasMarks) rowPx else 0
-    val foldColumnPx = if (hasFolds) rowPx else 0
+    val foldColumnPx = foldColumnWidthPx(model, look, rowPx)
+    // The room above the first line and below the last. The document is drawn this much
+    // lower than the scroll offset says, so the room scrolls away with the first line.
+    val (padTopPx, padBottomPx) = density.contentPaddingPx(look)
     val gutterWidthPx = density.numberColumnPx(look, digits, digitWidth) +
         markColumnPx + foldColumnPx + density.changeColumnPx(model, look)
 
     // Refilling the window recomposes this, so the field moves to where the new lines are.
     window.revision
-    Sync(window, rows, vertical, viewportHeight, rowPx, callbacks)
+    Sync(window, rows, vertical, viewportHeight, rowPx, callbacks, padTopPx)
 
     LaunchedEffect(window.scrollToCaret) {
         if (window.scrollToCaret == 0) return@LaunchedEffect
-        val top = RowMap.of(model, wholeZoneRows = true).textTopPx(model.selection.caret.line, rowPx)
+        val top = RowMap.of(model, wholeZoneRows = true).textTopPx(model.selection.caret.line, rowPx) + padTopPx
         if (top < vertical.offset || top + rowPx > vertical.offset + viewportHeight) {
             vertical.scrollTo(top - viewportHeight / 2)
         }
@@ -1376,8 +1402,8 @@ private fun FieldSurface(
         if (reveal == null) return@LaunchedEffect
         // The effect can start before the pass that sets the limit has run, and a scroll
         // clamped to the old limit of 0 would go nowhere.
-        vertical.max = rows.totalPx(rowPx) - viewportHeight
-        scrollToReveal(RowMap.of(model, wholeZoneRows = true), vertical, reveal, rowPx, viewportHeight)
+        vertical.max = rows.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
+        scrollToReveal(RowMap.of(model, wholeZoneRows = true), vertical, reveal, rowPx, viewportHeight, padTopPx)
         model.revealDone(reveal)
         callbacks.onOutput()
     }
@@ -1388,7 +1414,7 @@ private fun FieldSurface(
     val measured = viewportHeight > 0
     LaunchedEffect(scrollRequest, measured) {
         if (scrollRequest == null || !measured) return@LaunchedEffect
-        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx), viewportHeight)
+        scrollToRequest(model, vertical, scrollRequest, rows.totalPx(rowPx) + padTopPx + padBottomPx, viewportHeight)
     }
 
     val hover = remember { HoverTracker() }
@@ -1444,7 +1470,7 @@ private fun FieldSurface(
                 },
         ) {
             // The extent the offset may run to. A number, never a measured height.
-            val extent = rows.totalPx(rowPx) - viewportHeight
+            val extent = rows.totalPx(rowPx) + padTopPx + padBottomPx - viewportHeight
             SideEffect { vertical.max = extent }
             Row(
                 Modifier
@@ -1455,9 +1481,10 @@ private fun FieldSurface(
                     )
                     .scrollable(vertical.scrollable, Orientation.Vertical)
                     .drawBehind {
-                        translate(top = -vertical.offset.toFloat()) {
+                        val scroll = vertical.offset - padTopPx
+                        translate(top = -scroll.toFloat()) {
                             drawCurrentLine(window, rows, rowPx, look)
-                            drawLineBackgrounds(model, rows, rowPx, vertical.offset, viewportHeight, 0f, look)
+                            drawLineBackgrounds(model, rows, rowPx, scroll.coerceAtLeast(0), viewportHeight, 0f, look)
                         }
                         // Read so that typing, a move of the caret and a scroll along the
                         // lines all draw this again, and the caret is reported from here.
@@ -1472,13 +1499,13 @@ private fun FieldSurface(
                         .width(with(density) { gutterWidthPx.toDp() })
                         .fillMaxHeight()
                         .background(look.gutter)
-                        .pointerInput(model, rows, markColumnPx, foldColumnPx) {
+                        .pointerInput(model, rows, markColumnPx, foldColumnPx, padTopPx) {
                             detectTapGestures { point ->
                                 pressGutter(
                                     model,
                                     rows,
                                     point,
-                                    vertical.offset,
+                                    vertical.offset - padTopPx,
                                     rowPx,
                                     gutterWidthPx,
                                     markColumnPx,
@@ -1488,7 +1515,7 @@ private fun FieldSurface(
                             }
                         }
                         .drawBehind {
-                            val scroll = vertical.offset
+                            val scroll = vertical.offset - padTopPx
                             translate(top = -scroll.toFloat()) {
                                 drawGutter(
                                     window,
@@ -1529,7 +1556,7 @@ private fun FieldSurface(
                                     )
                                     val height = if (constraints.hasBoundedHeight) constraints.maxHeight else placeable.height
                                     layout(placeable.width + textInsetPx, height) {
-                                        placeable.place(textInsetPx, rows.lineTopPx(window.start, rowPx) - vertical.offset)
+                                        placeable.place(textInsetPx, rows.lineTopPx(window.start, rowPx) - vertical.offset + padTopPx)
                                     }
                                 }
                                 .onGloballyPositioned { coordinates ->
@@ -1620,6 +1647,8 @@ private fun FieldSurface(
                     Modifier
                         .align(if (look.minimapSide == MinimapSide.Left) Alignment.TopStart else Alignment.TopEnd)
                         .scrollable(vertical.scrollable, Orientation.Vertical),
+                    padTopPx,
+                    padBottomPx,
                 )
             }
             SnippetChoices(model, look, { places.caretInView() }) { callbacks.onOutput() }
@@ -1640,6 +1669,7 @@ private fun Sync(
     viewportHeight: Int,
     rowPx: Int,
     callbacks: CodeEditorCallbacks,
+    padTopPx: Int = 0,
 ) {
     // Each read subscribes this scope, so typing, moving the caret, a press, a change from
     // elsewhere and scrolling all come through here.
@@ -1649,8 +1679,10 @@ private fun Sync(
     window.presses
     window.model.contentRevision
     val scroll = vertical.offset
-    val firstVisible = rows.lineAtPx(scroll, rowPx)
-    val lastVisible = rows.lineAtPx(scroll + max(viewportHeight, rowPx), rowPx)
+    // Where the top of the view falls in the document, which starts the padding down.
+    val docTop = (scroll - padTopPx).coerceAtLeast(0)
+    val firstVisible = rows.lineAtPx(docTop, rowPx)
+    val lastVisible = rows.lineAtPx(scroll - padTopPx + max(viewportHeight, rowPx), rowPx)
     val composing = window.state.composition != null
     SideEffect {
         // The start of a composition is said before anything else this pass does; its end
@@ -1660,7 +1692,7 @@ private fun Sync(
         window.sync(firstVisible, lastVisible)
         if (!composing) window.model.compositionChanged(false)
         if (viewportHeight > 0) {
-            reportVisible(window.model, rows, scroll, viewportHeight, rowPx)
+            reportVisible(window.model, rows, scroll, viewportHeight, rowPx, padTopPx)
             // Once the editor has a size it has been laid out, so the row height is the one
             // it draws with. The offset is read in this pass, so a frame says it once.
             window.model.reportGeometry(rowPx, scroll)
@@ -1669,10 +1701,14 @@ private fun Sync(
     }
 }
 
-/** Tells the model which lines the view shows, folded lines left out. */
-internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, viewportHeight: Int, rowPx: Int) {
-    val bottom = min(rows.totalPx(rowPx) - 1, scroll + viewportHeight - 1)
-    model.reportVisibleRange(rows.lineAtPx(scroll, rowPx), rows.lineAtPx(max(0, bottom), rowPx))
+/**
+ * Tells the model which lines the view shows, folded lines left out. [scroll] is the view's
+ * offset, and the document starts [padTopPx] below the top of what scrolls.
+ */
+internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, viewportHeight: Int, rowPx: Int, padTopPx: Int = 0) {
+    val top = scroll - padTopPx
+    val bottom = min(rows.totalPx(rowPx) - 1, top + viewportHeight - 1)
+    model.reportVisibleRange(rows.lineAtPx(max(0, top), rowPx), rows.lineAtPx(max(0, bottom), rowPx))
 }
 
 /** Scrolls so that the range the Host named is on screen, the way it asked. */
@@ -1682,9 +1718,11 @@ internal fun scrollToReveal(
     request: RevealRequest,
     rowPx: Int,
     viewportHeight: Int,
+    padTopPx: Int = 0,
 ) {
-    val top = rows.textTopPx(request.start.line, rowPx)
-    val bottom = rows.textTopPx(request.end.line, rowPx) + rowPx
+    // In the offsets the view scrolls by, where the document starts the padding down.
+    val top = rows.textTopPx(request.start.line, rowPx) + padTopPx
+    val bottom = rows.textTopPx(request.end.line, rowPx) + rowPx + padTopPx
     when (request.align) {
         RevealAlign.Nearest -> when {
             top < vertical.offset || bottom - top > viewportHeight -> vertical.scrollTo(top)
@@ -2094,6 +2132,11 @@ private fun DrawScope.drawGutter(
     val padding = look.gutterPadding.toPx()
     val divider = gutterDividerPx(look)
     val changeColumn = changeColumnPx(window.model, look)
+    // The current line's band carried across the gutter, under its number and marks.
+    if (look.currentLineGutter != Color.Unspecified && caretLine >= 0 && selection.collapsed && !rows.isHidden(caretLine)) {
+        val top = rows.textTopPx(caretLine, rowPx).toFloat()
+        drawRect(look.currentLineGutter, Offset(0f, top), Size(width - divider, rows.rowsOf(caretLine) * rowPx.toFloat()))
+    }
     for (line in first..last) {
         if (rows.isHidden(line)) continue
         val top = rows.textTopPx(line, rowPx).toFloat()
@@ -2310,6 +2353,8 @@ internal fun Minimap(
     viewportHeight: Int,
     rowPx: Int,
     modifier: Modifier = Modifier,
+    padTopPx: Int = 0,
+    padBottomPx: Int = 0,
 ) {
     val currentRows by rememberUpdatedState(rows)
     val currentViewport by rememberUpdatedState(viewportHeight)
@@ -2321,7 +2366,7 @@ internal fun Minimap(
             .width(look.minimapWidth)
             .fillMaxHeight()
             .testTag(CODE_EDITOR_MINIMAP_TAG)
-            .pointerInput(vertical) {
+            .pointerInput(vertical, padTopPx, padBottomPx) {
                 awaitPointerEventScope {
                     var dragging = false
                     while (true) {
@@ -2340,15 +2385,15 @@ internal fun Minimap(
                         val total = currentRows.totalPx(currentRowPx)
                         val scale = minimapScale(total, currentRowPx, size.height.toFloat(), maxRowPx)
                         val at = (change.position.y / scale).toInt().coerceIn(0, max(0, total - 1))
-                        vertical.max = total - currentViewport
-                        vertical.scrollTo(at - currentViewport / 2)
+                        vertical.max = total + padTopPx + padBottomPx - currentViewport
+                        vertical.scrollTo(at + padTopPx - currentViewport / 2)
                     }
                 }
             }
             .drawBehind {
                 model.contentRevision
                 model.overlayRevision
-                drawMinimap(model, rows, look, vertical.offset, viewportHeight, rowPx, maxRowPx)
+                drawMinimap(model, rows, look, (vertical.offset - padTopPx).coerceAtLeast(0), viewportHeight, rowPx, maxRowPx)
             },
     )
 }
