@@ -387,12 +387,31 @@ mod tests {
                 );
             }
         }
-        assert_eq!(WIDGET_SCHEMA.len(), 48);
-        assert_eq!(PROPERTY_SCHEMA.len(), 147);
-        assert_eq!(MODIFIER_SCHEMA.len(), 40);
+        // A recorded value, not a rule: a change that means to add a widget, a property or a
+        // modifier updates the numbers below in the same commit. What this catches is a
+        // change that moves them without meaning to, as adding a colour role must not.
+        let on_purpose = "if this change adds or alters a widget, a property or a modifier on \
+                          purpose, record the new value here; a change to colour roles alone \
+                          must leave it as it is";
+        assert_eq!(
+            WIDGET_SCHEMA.len(),
+            48,
+            "the number of widgets moved: {on_purpose}"
+        );
+        assert_eq!(
+            PROPERTY_SCHEMA.len(),
+            147,
+            "the number of properties moved: {on_purpose}"
+        );
+        assert_eq!(
+            MODIFIER_SCHEMA.len(),
+            40,
+            "the number of modifiers moved: {on_purpose}"
+        );
         assert_eq!(
             tables_hash, 0x64c5_5cfe_93a8_5a58,
-            "the widget, property and modifier schemas are pinned: {tables_hash:#018x}"
+            "the names, tags or modifier fields of the widget, property and modifier tables \
+             moved, and now hash to {tables_hash:#018x}: {on_purpose}"
         );
 
         let folded = |name: &str| -> String {
