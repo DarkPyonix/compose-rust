@@ -24,6 +24,7 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.foundation.code.CodeEditorModel
 import dev.darkpyonix.composerust.foundation.code.CodePosition
 import dev.darkpyonix.composerust.foundation.codeEvents
+import dev.darkpyonix.composerust.foundation.contentPaddingDp
 import dev.darkpyonix.composerust.foundation.wordWrapRule
 import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.foundation.spanFontFeatureSettings
@@ -897,6 +898,20 @@ class NodeTable {
                 }
                 return
             }
+            // Read where the editor is drawn. Here padding that is not two lengths of zero or
+            // more is said once, when it arrives, and the editor is drawn without it.
+            PropertyKind.ContentPaddingDp -> {
+                (value as? PropertyValue.Bytes)?.value?.let { bytes ->
+                    if (contentPaddingDp(bytes) == null) {
+                        fail(
+                            TableError.INVALID_CODE_EDIT,
+                            "content padding on node ${node.id}: ${bytes.size} bytes that are not " +
+                                "two lengths of zero or more, top then bottom",
+                        )
+                    }
+                }
+                return
+            }
             // Whether there is anyone to tell. The model reports only what is heard, and
             // the next frame's drain carries what a new listener has yet to hear.
             PropertyKind.OnCodeMetrics -> {
@@ -1663,6 +1678,9 @@ class NodeTable {
                 PropertyKind.Minimap,
                 PropertyKind.ViewZones,
                 PropertyKind.WordWrap,
+                // Room that scrolls with the text, and a gutter whose columns stay put.
+                PropertyKind.ContentPaddingDp,
+                PropertyKind.FixedGutterColumns,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->
