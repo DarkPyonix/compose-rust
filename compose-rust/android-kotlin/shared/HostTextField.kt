@@ -20,6 +20,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -383,8 +384,18 @@ internal fun HostTextField(
                     .let {
                         if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    // A bare field clips only to a corner the node named itself.
-                    .let { if (bare && !ownShape) it else it.clip(frameShape) }
+                    // A bare field clips only to a corner the node named itself, except that
+                    // one with several lines is always cut at its own rectangle: its text
+                    // scrolls, and a line that has scrolled out is otherwise still drawn as a
+                    // slice in whatever room lies round the field. A single line never
+                    // scrolls up or down, so it is left alone.
+                    .let {
+                        when {
+                            !bare || ownShape -> it.clip(frameShape)
+                            multiline -> it.clipToBounds()
+                            else -> it
+                        }
+                    }
                     .let {
                         if (ownFill || bare) {
                             it
