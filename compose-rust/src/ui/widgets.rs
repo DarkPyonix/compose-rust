@@ -1639,6 +1639,7 @@ pub struct ButtonScope {
     font_size: Option<f32>,
     font_weight: Option<u16>,
     type_role: Option<TypeRole>,
+    content_padding: Option<(f32, f32)>,
     on_click: Option<Box<dyn FnMut()>>,
     focus_handle: Option<super::FocusHandle>,
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
@@ -1666,6 +1667,7 @@ pub fn Button(text: impl Into<String>) -> ButtonScope {
         font_size: None,
         font_weight: None,
         type_role: None,
+        content_padding: None,
         on_click: None,
         focus_handle: None,
         on_motion_finished: None,
@@ -1702,6 +1704,17 @@ impl ButtonScope {
     /// this sends nothing and keeps the design system's label style for its variant.
     pub fn type_role(mut self, role: TypeRole) -> Self {
         self.type_role = Some(role);
+        self
+    }
+
+    /// The room between the button's edge and its label, in dp: `horizontal` at each side
+    /// and `vertical` above and below. It replaces the design system's padding for this
+    /// button only, and still gives way when the button is too small for the label and
+    /// the padding together. `Modifier::padding` is the room around the button and is not
+    /// changed by this. A button that never calls this sends nothing and keeps the design
+    /// system's padding.
+    pub fn content_padding(mut self, horizontal: f32, vertical: f32) -> Self {
+        self.content_padding = Some((horizontal, vertical));
         self
     }
 
@@ -1773,6 +1786,7 @@ impl ButtonScope {
         let accessible_name = self.accessible_name.take();
         let (text_align, font_size) = (self.text_align, self.font_size);
         let (font_weight, type_role) = (self.font_weight, self.type_role);
+        let content_padding = self.content_padding;
         let mut listeners = vec![("onclick", unit(self.on_click.take()))];
         super::focus::bind_focus_handle(self.focus_handle.take());
         motion_input(self.on_motion_finished.take(), &mut listeners);
@@ -1800,6 +1814,14 @@ impl ButtonScope {
                 }
                 if type_role.is_some() {
                     attrs.push(("type_role", super::role(type_role)));
+                }
+                // Written only when it was set, so a button that never asks sends what it
+                // always sent.
+                if let Some((horizontal, vertical)) = content_padding {
+                    let mut bytes = Vec::with_capacity(8);
+                    bytes.extend_from_slice(&horizontal.to_le_bytes());
+                    bytes.extend_from_slice(&vertical.to_le_bytes());
+                    attrs.push(("content_padding", OwnedAttr::Bytes(bytes)));
                 }
             },
             listeners,

@@ -82,3 +82,51 @@ fn fr75_text_field_plain_does_not_send_typography_properties() {
         );
     }
 }
+
+/// What the tree holds for a 12 by 6 dp content padding: the four-sided padding, in the
+/// slot kept for the room inside a control.
+const CONTENT_PADDING: &str = "m36=PaddingEach { start: 12.0, top: 6.0, end: 12.0, bottom: 6.0 }";
+
+#[test]
+fn fr75_button_content_padding_is_sent_as_the_four_sided_padding() {
+    let tree = start(|| {
+        Button("Commit").content_padding(12.0, 6.0);
+    });
+    let dump = tree.dump();
+    assert!(dump.contains("Button"), "missing Button: {dump}");
+    assert!(
+        dump.contains(CONTENT_PADDING),
+        "missing the content padding in {dump}"
+    );
+}
+
+#[test]
+fn fr75_button_content_padding_leaves_the_padding_around_it() {
+    let tree = start(|| {
+        Button("Commit")
+            .content_padding(12.0, 6.0)
+            .modifier(Modifier.padding(8.0));
+    });
+    let dump = tree.dump();
+    assert!(
+        dump.contains(CONTENT_PADDING),
+        "missing the content padding in {dump}"
+    );
+    assert!(
+        dump.contains("m22=Padding(8.0)"),
+        "the padding around the button was displaced: {dump}"
+    );
+}
+
+#[test]
+fn fr75_button_without_content_padding_sends_no_padding() {
+    let tree = start(|| {
+        Button("Commit");
+    });
+    let dump = tree.dump();
+    assert!(dump.contains("Button"), "missing Button: {dump}");
+    assert!(
+        !dump.contains("Padding"),
+        "a plain button should send no padding: {dump}"
+    );
+}
