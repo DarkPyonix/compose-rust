@@ -69,7 +69,11 @@ import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.foundation.CodePointerTarget
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.MinimapSide
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 
@@ -612,8 +616,37 @@ private fun DrawnSurface(
                     }
                 }
                 .pointerInput(state) {
+                    // A selection dragged past the top or bottom edge keeps scrolling each
+                    // frame while the button is held there, faster the further past it is.
+                    var dragging = false
+                    var pointer = Offset.Zero
+                    var autoScroll: Job? = null
+                    fun pastEdge(): Float = when {
+                        pointer.y < 0f -> pointer.y
+                        pointer.y > state.viewportHeight -> pointer.y - state.viewportHeight
+                        else -> 0f
+                    }
+                    fun startAutoScroll() {
+                        if (autoScroll?.isActive == true) return
+                        autoScroll = scope.launch {
+                            while (dragging && pastEdge() != 0f) {
+                                withFrameNanos { }
+                                val past = pastEdge()
+                                if (!dragging || past == 0f) break
+                                val step = (abs(past) / 4f).roundToInt().coerceIn(1, rowPx * 4)
+                                val before = vertical.offset
+                                vertical.scrollTo(before + if (past > 0f) step else -step)
+                                val (position, _) = state.positionAt(pointer)
+                                if (position != model.selection.caret) {
+                                    model.selection = CodeSelection(model.selection.anchor, position)
+                                    state.moved()
+                                }
+                                // At the end of the document there is nothing more to scroll.
+                                if (vertical.offset == before) break
+                            }
+                        }
+                    }
                     awaitPointerEventScope {
-                        var dragging = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: continue
@@ -662,13 +695,18 @@ private fun DrawnSurface(
                                 PointerEventType.Move, PointerEventType.Enter -> {
                                     val (position, onLens) = state.positionAt(change.position)
                                     if (dragging && change.pressed) {
+                                        pointer = change.position
                                         model.selection = CodeSelection(model.selection.anchor, position)
                                         state.moved()
+                                        if (pastEdge() != 0f) startAutoScroll()
                                     } else {
                                         hover.moved(model, if (onLens) null else position)
                                     }
                                 }
-                                PointerEventType.Release -> dragging = false
+                                PointerEventType.Release -> {
+                                    dragging = false
+                                    autoScroll?.cancel()
+                                }
                                 PointerEventType.Exit -> hover.left()
                                 else -> {}
                             }

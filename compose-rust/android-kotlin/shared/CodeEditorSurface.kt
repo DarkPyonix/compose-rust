@@ -58,7 +58,12 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.PointerInputModifierNode
+import androidx.compose.ui.node.requireLayoutCoordinates
 import androidx.compose.ui.relocation.BringIntoViewModifierNode
+import androidx.compose.ui.relocation.bringIntoView
+import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -1765,6 +1770,9 @@ internal fun reportVisible(model: CodeEditorModel, rows: RowMap, scroll: Int, vi
  * Takes the requests to bring something into view that come up from the field, after the
  * scroll along the line has answered them, so they do not reach the vertical scroll. The
  * editor follows the caret down the document itself, from the rows it knows.
+ *
+ * While a pointer button is down over the field the requests go on up. A selection dragged
+ * past the top or bottom edge scrolls the document through them, and nothing else does.
  */
 private object KeepVerticalScroll : ModifierNodeElement<KeepVerticalScrollNode>() {
     override fun create() = KeepVerticalScrollNode()
@@ -1773,8 +1781,26 @@ private object KeepVerticalScroll : ModifierNodeElement<KeepVerticalScrollNode>(
     override fun equals(other: Any?): Boolean = other === this
 }
 
-private class KeepVerticalScrollNode : Modifier.Node(), BringIntoViewModifierNode {
-    override suspend fun bringIntoView(childCoordinates: LayoutCoordinates, boundsProvider: () -> Rect?) {}
+private class KeepVerticalScrollNode : Modifier.Node(), BringIntoViewModifierNode, PointerInputModifierNode {
+    private var pressed = false
+
+    override fun onPointerEvent(pointerEvent: PointerEvent, pass: PointerEventPass, bounds: IntSize) {
+        if (pass == PointerEventPass.Initial) pressed = pointerEvent.changes.any { it.pressed }
+    }
+
+    override fun onCancelPointerInput() {
+        pressed = false
+    }
+
+    override suspend fun bringIntoView(childCoordinates: LayoutCoordinates, boundsProvider: () -> Rect?) {
+        if (!pressed) return
+        val own = requireLayoutCoordinates()
+        bringIntoView {
+            val rect = boundsProvider() ?: return@bringIntoView null
+            if (!childCoordinates.isAttached || !own.isAttached) return@bringIntoView null
+            rect.translate(own.localPositionOf(childCoordinates, Offset.Zero))
+        }
+    }
 }
 
 /**
