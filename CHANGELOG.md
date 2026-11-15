@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A named `Button` is read once
+
+A `Button` given its own `accessible_name` no longer exposes its visible label as a separate text node. The button keeps its name, its role and its press action, and VoiceOver, Narrator and TalkBack read it once by that name instead of reading the name and then the label. A button without a name of its own is read by its label as before ([#838](https://github.com/DarkPyonix/compose-rust/issues/838)).
+
 ### Code editor padding, fixed gutter columns and a current-line gutter colour
 
 A `CodeEditor` can now keep room above its first line and below its last that scrolls with the document: the `ContentPaddingDp` property (tag 210) carries eight bytes, `top_dp` then `bottom_dp`, each an `f32`, written by `ContentPadding::to_bytes`. At scroll 0 the first line starts `top` dp down and scrolling moves it up with the text, and the last line can scroll `bottom` dp clear of the view's end. The gutter and its divider still fill the view. Clicks, the caret, the visible range, `RevealRange`, `SetScrollOffset` and folding all count the padding. A side below zero or not a number is a `ProtocolError` and the editor is drawn without padding. `FixedGutterColumns` (tag 211, a bool) keeps the fold column and the 16dp change-bar column even when the file folds nothing and changes nothing, so the text starts at the same x in every file. `CodeEditorColors` takes `current_line_gutter` in its last two bytes, offset 10, which were reserved: the gutter on the caret's row is painted that role, under the line number and the marks. None of them set draws as before. Both drawing paths and iOS draw them the same. The schema hash moves, so a Renderer from before this is refused at the handshake ([#816](https://github.com/DarkPyonix/compose-rust/issues/816)).
