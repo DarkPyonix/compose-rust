@@ -4166,7 +4166,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
 
-**메뉴의 키보드**(이슈 #504, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Menu`가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 자손 사이를 돌고(끝에서 처음으로 돌아갑니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus).
+**메뉴의 키보드**(이슈 #504, #810, [leader, provisional] (darkpyonix leader, 2026-11-13, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Menu`와 메뉴를 담은 `Popover`(FR-77)가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 항목 사이를 돌고(끝에서 처음으로 돌아가며, 구분선과 비활성 항목은 건너뜁니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고(`Popover`는 `OnDismiss`를 한 번 보내고) 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus, fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item).
 
 **닫힌 선택 필드 목록의 키보드**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 닫힌 선택 필드(`Dropdown`)가 여는 선택지 목록도 위의 메뉴 키보드 규칙을 그대로 따릅니다. 열리면 지금 고른 선택지에, 없으면 첫 선택지에 포커스가 있고, 위와 아래가 돌고, Home과 End가 처음과 끝으로 가고, Enter와 Space가 고르고, Escape가 닫고 포커스를 필드로 돌려줍니다. 수용 기준: 셋째 선택지가 골라진 필드를 열면 셋째에 포커스가 있고, 위 키 한 번과 Enter로 둘째가 골라져 그 값의 `ValueChanged`가 한 번 갑니다(fr64_dropdown_arrow_keys_move_focus).
 
@@ -4210,7 +4210,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
-- `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`가 있습니다. 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
+- `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`, `has_popup(bool)`가 있습니다(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
 - `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
 - `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
@@ -4255,17 +4255,17 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **1단계 범위(이 저장소의 렌더러만)**:
 
 - **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
-- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`, `has_popup`(비트 13, `1 << 13`: 노드가 팝업을 여는 기준점임을 나타냄, 이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15))을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. `has_popup`은 자체 속성이 있는 플랫폼에서는 그 속성으로 내보내고(`AppKitAccessibility`의 `AccessibleState.EXPANDABLE`, 웹 DOM 경로의 `aria-haspopup`), 자체 속성이 없는 경로에서는 `stateDescription`에 `"has popup"`으로 내보내어 두 번 읽히지 않게 합니다(한국어 앱의 화면 낭독기에서 영어 구절이 그대로 읽히지 않도록 현지화 문구를 두는 일은 후속으로 다룹니다). 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
 - **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
 - **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
 - **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
-- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용. `SEMANTICS_STATE_MASK`도 `schema_hash()`에 포함합니다).
 
 **2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
 
 수용 기준.
 1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
-2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+2. `expanded`, `disabled`, `focused`, `hidden`, `has_popup` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node, fr71_has_popup_modifier_encodes_bit_13).
 3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
 4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error). Renderer도 모르는 비트를 가진 `Semantics` 수정자를 적용하지 않고 `TableError.INVALID_MODIFIER`(16)로 보고합니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
@@ -4589,6 +4589,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 창 가장자리와의 여백은 `SpaceRole.Sm`, `OffsetDp`의 기본값은 `SpaceRole.Xs`입니다.
 - 닫히면 포커스는 열기 전에 포커스를 가졌던 컨트롤로 돌아가고, 그런 컨트롤이 없으면 기준점으로 갑니다.
 - 표면은 `ContainerRole.Menu`와 오버레이 토큰의 `popup_*` 값을 씁니다. 새 컨테이너 역할은 없습니다.
+- **메뉴를 담은 `Popover`의 키보드**(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). `Popover` 자신이나 내용 안의 노드가 `Role::Menu`를 선언했거나 내용 안에 `Role::MenuItem` 노드가 있으면(중첩된 `Popover`, `Menu`, `Dialog`, `Sheet` 안은 내려가지 않습니다) 메뉴로 봅니다. `Role::MenuItem` 노드가 있으면 그 노드들이 트리 순서대로 항목이고, 없으면 `Role::Menu`를 선언한 노드의 직접 자식들이 항목입니다. 열릴 때 선택된 항목(`MenuItem::selected` 또는 `SemanticsState::selected(true)`)으로, 없으면 첫 포커스 가능한 항목으로 포커스가 가고, 위·아래 화살표(양 끝에서 순환하며 구분선과 비활성 항목을 건너뜀), Home·End, Enter·Space가 FR-64의 메뉴 키보드 규칙과 똑같이 동작합니다. Escape는 `OnDismiss`를 한 번 보내고 포커스를 연 노드로 돌려주며, 이 키들은 Host로 새지 않습니다.
 
 수용 기준.
 1. 기준점 바로 아래 `OffsetDp`만큼 떨어져 내용이 열리고, 기준점의 시작 가장자리에 맞춥니다(fr77_popover_opens_below_anchor).
@@ -4596,6 +4597,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 3. 바깥 누름과 Escape가 각각 `OnDismiss`를 한 번 보냅니다(fr77_popover_dismisses_once).
 4. 닫히면 포커스가 기준점으로 돌아갑니다(fr77_popover_restores_focus).
 5. 창 크기가 바뀌면 다시 배치합니다(fr77_popover_follows_resize).
+6. 메뉴를 담은 `Popover`를 열면 선택된 항목(없으면 첫 포커스 가능한 항목)에 포커스가 가고, 위·아래 화살표가 비활성 항목을 건너뛰며 양 끝에서 순환하고, Home·End가 처음과 끝 항목으로 옮기며, Enter와 Space가 현재 항목의 클릭을 한 번 보내고 키 이벤트가 Host로 새지 않습니다(fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item, fr77_popover_menu_home_and_end_and_default_focus_on_first_item).
 
 ### FR-78 프로그램에서 클립보드 글자 읽기 (`Agreed`, 이슈 #546, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
 
