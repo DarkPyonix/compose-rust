@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Symbols the web's default family lacks draw as glyphs
+
+On the web, a character Roboto has no glyph for was an empty box, because a canvas in a browser has none of the machine's fonts to fall back on: the backspace sign `U+232B`, the small down triangle `U+25BE` and the play triangle `U+25B6` drew as glyphs on every target but that one. The web bundle now carries a fallback face beside the Roboto faces, a cut of Noto Sans Symbols 2 (SIL Open Font License 1.1, `renderer/web/resources/fonts/OFL.txt`) with all of Geometric Shapes and the keyboard and media signs of Arrows and Miscellaneous Technical. Text in the default family (a role's face, `system-ui`, `sans-serif`, `ui-sans-serif`, and text that names no font), a font list of registered faces, a registered stack and a role set in a registered face all draw a letter none of their families has from it. Other targets are unchanged: they have no fallback faces of their own and leave such a letter to the machine's fonts ([#525](https://github.com/DarkPyonix/compose-rust/issues/525)).
 ### A pill at any height is `ShapeRole::Full`
 
 `Modifier.shape_role(ShapeRole::Full)` gives a node fully round ends whatever its height: a node 40 dp tall gets 20 dp corners, the same node at 80 dp gets 40 dp, and the application never works out half the height. The background, border, clip, shadow and press feedback follow the same outline, in every design system, including the two whose other corners are continuous. The role was already in the schema (`Full`, tag 6) and already drawn this way; what is new is that tests hold it there, on the wire and in pixels, and the documentation says it. Nothing on the wire changes, so the schema hash does not move ([#310](https://github.com/DarkPyonix/compose-rust/issues/310)).
