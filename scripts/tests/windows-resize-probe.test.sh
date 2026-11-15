@@ -52,7 +52,8 @@ fi
 
 # Development CI is one manual dispatch of ci.yml, which calls every suite on the commit it is
 # dispatched for. So the pin that commit carries is dragged when the resize suite is one of
-# those calls, with no condition of its own, and when nothing in the suite lets the probe job,
+# those calls, with no condition but the plan's (scripts/ci-suites.sh puts it in `all`, the
+# default), and when nothing in the suite lets the probe job,
 # or a job it waits for, be skipped while the run goes on. The suite's metrics input only
 # turns the measurements on and off: the probe and its builds must never read it, and the
 # measuring parts must. A trigger or a path filter in the suite would be a second way in that
@@ -104,8 +105,10 @@ if ! grep -qE '^WINDOW_REVISION=' "$compose_pin"; then
     fail "$name" "renderer/scripts/build-compose.sh no longer sets WINDOW_REVISION"
 elif ! grep -qE '^    uses: \./\.github/workflows/test-windows-resize-metrics\.yml$' <<<"$ci_job"; then
     fail "$name" "ci.yml does not call the resize workflow, so a dispatch drags nothing"
-elif grep -qE '^    (if|needs):' <<<"$ci_job"; then
-    fail "$name" "ci.yml calls the resize workflow on a condition or after another suite"
+elif [[ "$(grep -E '^    (if|needs):' <<<"$ci_job")" != "    if: needs.plan.outputs.test_windows_resize == 'true'"$'\n'"    needs: plan" ]]; then
+    fail "$name" "ci.yml calls the resize workflow on a condition other than the plan, or after another suite"
+elif ! grep -qx 'test_windows_resize=true' <<<"$("$repo_root/scripts/ci-suites.sh" all)"; then
+    fail "$name" "scripts/ci-suites.sh leaves the resize workflow out of all, the default dispatch"
 elif ! grep -qE '^  workflow_call:' <<<"$workflow_on"; then
     fail "$name" "the resize workflow cannot be called by ci.yml"
 elif ! grep -qE '^      metrics:' <<<"$workflow_on" || ! grep -qE '^        default: false$' <<<"$workflow_on"; then
