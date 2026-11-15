@@ -428,6 +428,16 @@ class AccessibilityModifierTest {
             assertTrue(!config.contains(SemanticsProperties.Disabled))
             assertTrue(config.contains(SemanticsProperties.HideFromAccessibility))
         }
+        runComposeUiTest {
+            // Has-popup on a button that opens a menu.
+            val config = configOf(1 shl 13, SemanticsRole.Button)
+            assertEquals("has popup", config.getOrNull(SemanticsProperties.StateDescription))
+        }
+        runComposeUiTest {
+            // Role, expanded state and has-popup together.
+            val config = configOf((1 shl 4) or (1 shl 13), SemanticsRole.Menu)
+            assertEquals("menu, collapsed, has popup", config.getOrNull(SemanticsProperties.StateDescription))
+        }
     }
 
     @Test
@@ -649,8 +659,8 @@ class AccessibilityModifierTest {
     @Test
     fun fr71_removing_semantics_restores_the_defaults() {
         val text = 1
-        // Expanded on, disabled off, focused off, with both actions.
-        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION
+        // Expanded on, disabled off, focused off, with both actions and has-popup.
+        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION or (1 shl 13)
         runComposeUiTest {
             val frames = FrameRequestSource()
             val connection = FakeHostConnection(
@@ -668,7 +678,7 @@ class AccessibilityModifierTest {
             }
             waitForIdle()
             fun config() = onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().config
-            assertEquals("treeitem, expanded", config().getOrNull(SemanticsProperties.StateDescription))
+            assertEquals("treeitem, expanded, has popup", config().getOrNull(SemanticsProperties.StateDescription))
             assertEquals(false, config().getOrNull(SemanticsProperties.Focused))
             assertTrue(config().contains(SemanticsActions.OnClick))
             assertTrue(config().contains(SemanticsActions.RequestFocus))
@@ -692,12 +702,12 @@ class AccessibilityModifierTest {
     fun nfr7_unknown_semantics_bit_is_a_protocol_error() {
         val box = 1
         runComposeUiTest {
-            // Bit 13 is the first one above the two action bits.
+            // Bit 14 is the first one above the has-popup bit.
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
                     Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 13)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 14)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
@@ -715,7 +725,7 @@ class AccessibilityModifierTest {
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 13) - 1)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 14) - 1)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
