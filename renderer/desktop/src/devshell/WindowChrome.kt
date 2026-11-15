@@ -91,10 +91,10 @@ internal fun platformDrawsWindowButtons(
  * ordinary clicks and which part drags the window. A decorated frame's top inset is the
  * caption plus the resize border, which is not the number either side wants.
  *
- * The room for the buttons is reserved on the native side rather than here, because the
- * design system decides how wide its own three are and the hit test cannot wait for that.
- * It reserves the widest any design system draws, so a narrower set leaves a little of
- * the strip draggable that could have been clickable, and never the reverse.
+ * The room for the buttons is reserved on the native side rather than here: three cells of
+ * Windows 11's 46 dip at the trailing edge, left as client area so the buttons take
+ * ordinary clicks. The renderer draws exactly those three cells under every design system,
+ * because the buttons are the operating system's.
  */
 internal val windowsCaptionHeight = 32.dp
 

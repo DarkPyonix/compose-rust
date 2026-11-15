@@ -10,7 +10,7 @@
 # edits by hand, and runs the fork's own extended/compose/publish-local.sh, which publishes
 # every module the renderer draws with to the local Maven repository.
 #
-# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.3
+# The fork publishes under its own group and version, org.thisisthepy.compose.*:1.11.1-ext.4
 # (its extended/COORDINATES.md), and the renderer modules ask for exactly those. Nothing
 # JetBrains publishes sits at those coordinates, so a resolver that already holds JetBrains'
 # Compose (Amper's cache does) cannot take JetBrains' jars in their place, and nothing here
@@ -29,13 +29,20 @@ set -euo pipefail
 # and main dispatcher, the AppKit pump on the main thread, the window modules, the design systems
 # under extended/design-systems (which scripts/fetch-design-systems.sh reads), and the
 # org.thisisthepy.compose coordinates with extended/compose/publish-local.sh, which this runs.
-# It is the fork's v1.11.1-ext.3 tag, which publishes as 1.11.1-ext.3. Its Compose sources are
-# the same as the ext.2 build's; the tag moves the version line, and the design systems now
-# sit in extended/design-systems/designsystem-<name>, published to Maven Central (fork #212).
-# compose-fork.changes lists what this commit must hold at every path it changes, and
-# scripts/tests/compose-fork.test.sh checks it.
+# It is the fork's v1.11.1-ext.4 tag, which publishes as 1.11.1-ext.4. Its Compose sources are
+# the same as the ext.3 build's. The tag moves the version line, builds the design systems and
+# the window modules into Java 11 class files (graalvm-linux into Java 17 ones), which JDK 17 and
+# 21 consumers can load where ext.3's Java 25 and 21 class files failed (fork #226), and
+# publishes skiko-awt with its own capability only, the desktop modules naming the fork's
+# skiko-awt rather than JetBrains' skiko (fork #167). It also carries the Windows window's
+# system edit menu through `dxc_native_set_edit_menu` and the scene leaving the text menu to
+# Compose (fork #221), an X11 window keeping its size in dp across a scale change (fork #216),
+# F1 to F12 and the Menu key on every window (fork #219), the Windows window drawing its new
+# size before it shows it after a maximise, restore or snap (fork #222), and one menu on a right
+# click in a macOS text field (fork #224). compose-fork.changes lists what this commit must hold
+# at every path it changes, and scripts/tests/compose-fork.test.sh checks it.
 FORK="https://github.com/thisisthepy/compose-multiplatform-core-extended.git"
-REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
+REVISION="cadc5984ef96ed306ea12a7e967bcf945e7b1bdd"
 # The window modules and skiko's builds are not Compose sources: the renderer builds them from
 # this commit (scripts/fetch-fork-window.sh and fetch-fork-skiko.sh) into artifacts of its own,
 # so they can move without moving the Compose build above. This is the tip of the fork's
@@ -68,31 +75,50 @@ REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
 # Windows window skipping a stretched present when ResizeBuffers fails (fork #206, a header
 # `win32_resize.h` beside `win32_window.c`), the native view slot and both macOS windows following
 # a backing-scale change (fork #207), and the GNOME text scale applied once on Linux (fork #210).
-# It is the fork's v1.11.1-ext.3 tag. Since the window pin before it, it adds the KDE text scale
-# applied once when the fonts DPI is forced (fork #211), which hands the X11 window the desktop's
-# scale beside the text factor through `dxc_native_set_text_factor_for`, and pointer events timed
-# by the platform with its own double-click interval (fork #214), which grows the window's event
-# record and adds `dxc_native_double_click_millis` to the AppKit and Windows windows. The event
-# record is read only by the fork's Kotlin; the renderer's C stand-ins answer the new text factor
-# call on the desktops without an X11 window.
-WINDOW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
+# At the fork's v1.11.1-ext.3 tag it added the KDE text scale applied once when the fonts DPI is
+# forced (fork #211), which hands the X11 window the desktop's scale beside the text factor
+# through `dxc_native_set_text_factor_for`, and pointer events timed by the platform with its own
+# double-click interval (fork #214), which grows the window's event record and adds
+# `dxc_native_double_click_millis` to the AppKit and Windows windows. The event record is read
+# only by the fork's Kotlin; the renderer's C stand-ins answer the new text factor call on the
+# desktops without an X11 window.
+# It is now the tip of `extended` past the v1.11.1-ext.4 tag, and publishes as 1.11.1-ext.4 like
+# the tag. The tag brings what the Compose pin above lists for the windows; the X11 and AppKit C
+# answer `dxc_native_set_edit_menu` themselves, so nothing new needs a stand-in here. Beyond the
+# tag it holds the Windows window showing, on a restore or a snap, the frame drawn ahead through
+# the swapchain, its probe gated on a rate of faulty frames because DWM can still compose one in
+# between (fork #232; a surface that takes size and picture in one step stays open in fork
+# #223), the macOS native view's frame committed in the frame's own transaction, so a slot no
+# longer runs a frame ahead of the content under it (fork #235, for #233), a node's accessible
+# role that an application declares reaching the Kotlin/Native macOS window
+# (`DeclaredElementRoles`, fork #234), and two CI changes (fork #229 and #231). All of it is
+# window Kotlin and C the window build already compiles.
+# Past that it holds the macOS window holding its backdrop blur still while a native view slot
+# shows, so the view and the frame of one turn are composited together, with `place()` doing
+# work only where a slot's input changed and `setFrameAndVisibleRegion`, which sets both in one
+# call (fork #239, for #233); the Windows window letting the application own its caption strip
+# and move the window from the scene (fork #236, `dxc_native_window_configure_app_caption`); and
+# quoted booleans in the publish workflows (fork #237).
+WINDOW_REVISION="a187dd1e540f2154d621636fd5eef6847ff3c4d0"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
-# Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so all three pins are one
-# commit. The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
+# Skia's ICU data in as embedded_icu.obj) and publish-local.sh mingwX64, so it is the Compose
+# pin's commit, the v1.11.1-ext.4 tag, while the window pin runs ahead of both on `extended`.
+# The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="b97666a83093bb87bcc8bbce4b1842062afcf0ba"
+MINGW_REVISION="cadc5984ef96ed306ea12a7e967bcf945e7b1bdd"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned
 # commit's gradle.properties says the same before it builds anything.
-COMPOSE_AS="1.11.1-ext.3"
-MATERIAL3_AS="1.11.1-ext.3"
+COMPOSE_AS="1.11.1-ext.4"
+MATERIAL3_AS="1.11.1-ext.4"
 # The fork's patched skiko-awt, published by its extended/skiko/build-skiko-awt.sh (through
 # scripts/publish-skiko-awt.sh). It goes out as org.thisisthepy.compose.skiko:skiko-awt on the
-# fork's version line; its module metadata declares JetBrains' skiko-awt as a capability.
-SKIKO_AWT_AS="1.11.1-ext.3"
+# fork's version line. Since 1.11.1-ext.4 its module metadata declares its own capability only
+# (fork #167); ext.3's also declared JetBrains' skiko-awt, which publish-skiko-awt.sh drops.
+SKIKO_AWT_AS="1.11.1-ext.4"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
