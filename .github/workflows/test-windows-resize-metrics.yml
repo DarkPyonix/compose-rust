@@ -507,8 +507,10 @@ jobs:
           ! grep -q "hit-test verdict FAIL" "$dir/windows-kn.log" || exit 1
           # Every CPU resize step: nothing presented since the size change began, the
           # swapchain's child hidden, the frame copied into the window and validated.
+          # The window ends the line with when the step ran (" at <ms> ms") since the fork's
+          # restore and snap work; both forms are read.
           grep -q "resize-proof step" "$log" || { echo "no resize-proof lines" >&2; exit 1; }
-          if grep "resize-proof step" "$log" | grep -vE "presents=0 child_visible=0 blit=1 validated=1$"; then
+          if grep "resize-proof step" "$log" | grep -vE "presents=0 child_visible=0 blit=1 validated=1( at [0-9.]+ ms)?$"; then
             echo "a resize step presented, left the child visible, or did not copy and validate" >&2
             exit 1
           fi
@@ -856,7 +858,7 @@ jobs:
                   grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
                     { echo "  hand-check did not take the CPU resize path"; status=1; }
                   steps="$(grep -c "resize-proof step" "$log" || true)"
-                  bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1$" || true)"
+                  bad="$(grep "resize-proof step" "$log" | grep -vcE "presents=0 child_visible=0 blit=1 validated=1( at [0-9.]+ ms)?$" || true)"
                   echo "  resize-proof steps: $steps, not blitted and validated: $bad"
                   { [ "$steps" -gt 0 ] && [ "$bad" = 0 ]; } || status=1
                   ;;
