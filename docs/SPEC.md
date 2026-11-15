@@ -2737,6 +2737,7 @@ Notification::new("세션이 끝났습니다")
     1. `content_padding_top_dp(8.0)`인 편집기에서 스크롤 0일 때 첫 줄이 8dp 아래에 놓이고, 8dp만큼 스크롤하면 첫 줄이 뷰포트 맨 위에 닿습니다(fr38_editor_content_padding_scrolls_with_document).
     2. `fixed_gutter_columns(true)`인 편집기에서 접기와 변경 막대가 없는 문서와 있는 문서의 본문 시작 x 좌표가 같습니다(fr38_editor_fixed_gutter_columns_keep_text_start_constant).
     3. `CodeEditorColors::new().current_line(SurfaceVariant).current_line_gutter(SurfaceVariant).current_line_number(OnSurface)`를 주면 캐럿 줄의 거터 픽셀이 `SurfaceVariant`로 칠해지고 줄 번호가 `OnSurface`로 그려집니다(fr38_editor_current_line_gutter_and_number_colors).
+30. [leader, provisional] (darkpyonix leader, 2026-11-15) **캐럿 따라가기(#841).** 캐럿이 키나 입력으로 움직이면 편집기는 캐럿 줄 전체가 뷰포트 안에 들어오도록 필요한 만큼만 스크롤한다(위로 넘으면 줄 위가 맨 위에, 아래로 넘으면 줄 아래가 맨 아래에). 뷰포트 안의 이동은 스크롤하지 않고, 내용 여백도 계산에 넣는다 (fr38_caret_move_keeps_the_whole_caret_line_in_view, fr38_caret_move_keeps_the_whole_caret_line_in_view_with_content_padding).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
