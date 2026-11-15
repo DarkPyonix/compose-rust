@@ -1,6 +1,14 @@
 package dev.darkpyonix.composerust.ui.node
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.RadialGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asComposeShader
+import androidx.compose.ui.graphics.skiaShader
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -17,7 +25,10 @@ import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.FontSlant
 import org.jetbrains.skia.FontWidth
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.Matrix33
 import org.jetbrains.skia.svg.SVGDOM
+import org.jetbrains.skia.svg.SVGLength
+import org.jetbrains.skia.svg.SVGLengthUnit
 
 /**
  * Reading pictures where Skia is the graphics stack, which is every target Compose
@@ -161,4 +172,73 @@ private fun readTracking(identity: String, weight: Int, italic: Boolean): FontTr
 internal fun DrawScope.drawVectorDocument(document: VectorDocument) {
     document.setContainerSize(size.width, size.height)
     drawIntoCanvas { canvas -> document.render(canvas.nativeCanvas) }
+}
+
+/**
+ * Draws the document scaled to the whole of the current drawing area, whatever size its
+ * root declares, the way an icon slot draws a picture.
+ *
+ * Many icon sets write a fixed size on the root (`width='24' height='24'`) beside the
+ * `viewBox`, and Skia draws such a root at that size, so a 24 unit icon stayed 24 pixels in
+ * a slot of 48. The root is given the whole area for this one draw and its own size is put
+ * back after, because the same document is also drawn as an `Image` at the size the file
+ * gave it.
+ */
+internal fun DrawScope.drawVectorDocumentFitted(document: VectorDocument) {
+    val root = document.root
+    if (root == null || root.viewBox == null) {
+        drawVectorDocument(document)
+        return
+    }
+    val width = root.width
+    val height = root.height
+    root.width = WHOLE_AREA
+    root.height = WHOLE_AREA
+    try {
+        drawVectorDocument(document)
+    } finally {
+        root.width = width
+        root.height = height
+    }
+}
+
+private val WHOLE_AREA = SVGLength(100f, SVGLengthUnit.PERCENTAGE)
+
+/**
+ * A radial gradient [radiusX] across and [radiusY] tall around [center].
+ *
+ * Compose's radial gradient is a circle, so this is the circle of [radiusX] with a local
+ * matrix that squashes it vertically about its centre. The stops then fall on ellipses, as
+ * CSS `radial-gradient(ellipse ...)` places them.
+ */
+internal fun ellipticalRadialShader(
+    center: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    colors: List<Color>,
+    colorStops: List<Float>,
+    tileMode: TileMode,
+): Shader {
+    val circle = RadialGradientShader(center, radiusX, colors, colorStops, tileMode)
+    val squash = radiusY / radiusX
+    return circle.skiaShader.makeWithLocalMatrix(
+        Matrix33(1f, 0f, 0f, 0f, squash, center.y * (1f - squash), 0f, 0f, 1f),
+    ).asComposeShader()
+}
+
+/**
+ * The size the document says it is, in its own units: its viewBox, or where it has none, a
+ * width and a height given as plain numbers or pixels. Null where it says neither, which
+ * leaves it a drawing with no proportions of its own.
+ */
+internal fun vectorIntrinsicSize(document: VectorDocument): Size? {
+    val root = document.root ?: return null
+    val box = root.viewBox
+    if (box != null && box.width > 0f && box.height > 0f) return Size(box.width, box.height)
+    val width = root.width
+    val height = root.height
+    val absolute = setOf(SVGLengthUnit.NUMBER, SVGLengthUnit.PX)
+    if (width.unit !in absolute || height.unit !in absolute) return null
+    if (width.value <= 0f || height.value <= 0f) return null
+    return Size(width.value, height.value)
 }

@@ -80,8 +80,12 @@ class FakeHostConnection(
         if (event is HostEvent.FileHandles) return 0
         // And the motion setting, for the same reason.
         if (event is HostEvent.ReducedMotionChanged) return 0
+        // And the system's light or dark appearance.
+        if (event is HostEvent.ColorSchemeChanged) return 0
         // And the zoom, reported at start and on every change.
         if (event is HostEvent.ZoomChanged) return 0
+        // And the display's scale, the same kind of report.
+        if (event is HostEvent.DensityChanged) return 0
         val response = responder(event)
         response.mutations.forEach(onMutation)
         return response.result

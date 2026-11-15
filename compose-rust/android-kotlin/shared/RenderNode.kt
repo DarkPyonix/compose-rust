@@ -1,6 +1,12 @@
 package dev.darkpyonix.composerust.ui.node
 
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import dev.darkpyonix.composerust.ui.HitArea
+import dev.darkpyonix.composerust.ui.minimumHitArea
 import androidx.compose.foundation.gestures.TargetedFlingBehavior
 import androidx.compose.foundation.gestures.snapping.SnapLayoutInfoProvider
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -18,6 +24,9 @@ import dev.darkpyonix.composerust.foundation.OffsetScrollSurface
 import dev.darkpyonix.composerust.foundation.axis
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -62,11 +71,14 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
@@ -173,7 +185,7 @@ internal object RenderNodeObserver {
 }
 
 /** The containers whose `OnClick` makes them buttons. */
-private val CLICKABLE_CONTAINERS = setOf(
+internal val CLICKABLE_CONTAINERS = setOf(
     WidgetKind.Column,
     WidgetKind.Row,
     WidgetKind.Box,
@@ -214,7 +226,10 @@ fun RenderNode(
     // Observation point for the recomposition test; null in production.
     RenderNodeObserver.onCompose?.let { observer -> SideEffect { observer(nodeId) } }
     val theme = LocalDesignTheme.current
-    val profiled = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    val measured = if (LayoutProfile.enabled) parentModifier.then(LayoutProfile.modifier(node.widget.name)) else parentModifier
+    // Outside everything else the node has, so the larger area is centred on the box the
+    // node is drawn in and its neighbours are laid out against that box as before.
+    val profiled = measured.sticky(node).minTouchTarget(node, dispatcher)
     // A container that was given an `OnClick` is a button. One that was not is left
     // exactly as it was: no focus stop, no semantics, no pointer handling.
     // A node that also carries the `Clickable` modifier is already pressable there, once.
@@ -474,7 +489,14 @@ fun RenderNode(
                         .verticalScroll(scrollState, flingBehavior = snap?.fling),
                     verticalArrangement = node.verticalArrangement(theme),
                     horizontalAlignment = node.horizontalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides false,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The same thing on its side: a row that scrolls without the Host windowing it,
@@ -489,7 +511,14 @@ fun RenderNode(
                         .horizontalScroll(scrollState, flingBehavior = snap?.fling),
                     horizontalArrangement = node.horizontalArrangement(theme),
                     verticalAlignment = node.verticalAlignment(),
-                ) { Children(node, table, dispatcher, snap) }
+                ) {
+                    CompositionLocalProvider(
+                        LocalScrollState provides scrollState,
+                        LocalScrollIsHorizontal provides true,
+                    ) {
+                        Children(node, table, dispatcher, snap)
+                    }
+                }
             }
 
             // The containers, the overlays and the tab strip carry no appearance of their own:
@@ -630,13 +659,21 @@ fun RenderNode(
                         islandZoom?.let { islandDensity(outer, zoom, it) } ?: outer
                     }
                     CompositionLocalProvider(LocalDensity provides density) {
+                        // Each child names its node to the measure policy, which reads from it
+                        // which sizes the child gives itself.
                         node.children.forEach { childId ->
-                            key(childId) { RenderNode(childId, table, dispatcher) }
+                            key(childId) {
+                                val child = table.node(childId)
+                                val named = remember(child) { child?.let { Modifier.layoutId(it) } ?: Modifier }
+                                RenderNode(childId, table, dispatcher, parentModifier = named)
+                            }
                         }
                     }
                 },
                 modifier = modifier,
-                measurePolicy = remember(nodeId) { AbsoluteBoxMeasurePolicy(nodeId) },
+                measurePolicy = LocalWindowInfo.current.let { window ->
+                    remember(nodeId, window) { AbsoluteBoxMeasurePolicy(nodeId, window) }
+                },
             )
         }
     }
@@ -653,6 +690,9 @@ fun RenderNode(
  * recomposed or sent a record of its own.
  */
 val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
+
+val LocalScrollState = compositionLocalOf<ScrollState?> { null }
+val LocalScrollIsHorizontal = compositionLocalOf { true }
 
 /** The layout containers whose `color` is what the text inside them inherits. */
 internal val INHERITS_TEXT_COLOR: Set<WidgetKind> = setOf(
@@ -728,21 +768,52 @@ private class TextColor(
  * How an `AbsoluteBox` lays out: every child at the box's own origin, moved from there by
  * its `Offset`, with later children drawn over earlier ones.
  *
- * Each child is measured with no limit at all, so it is exactly the size its own modifiers
- * say. Under a limit, a child bigger than the box would be squeezed, or, with a required
- * size, centred on the room it was given, and either would move it away from where the
- * Host put it. CSS lets a box overflow its parent, and so does this.
+ * A size the child gives itself (`RequiredSize`, `Size`, `Width`, `Height`) is measured
+ * with no limit on that axis, so the child is exactly that size. Under a limit, a child
+ * bigger than the box would be squeezed, or, with a required size, centred on the room it
+ * was given, and either would move it away from where the Host put it. CSS lets a box
+ * overflow its parent, and so does this.
+ *
+ * An axis the child does not size is measured within the box's own limit, so a child that
+ * sizes itself by the room it has (a scroller, a list, a text field, a code editor) stops
+ * at the box's edges. With no limit, such a child has nowhere to stop, and Compose throws
+ * rather than lay out a vertical scroller of infinite height, which takes the Renderer
+ * down with it. A child sized by its content is still the size of its content while that
+ * fits. Where the box has no limit itself, as one with no size inside a scroller has none,
+ * the window is the limit, the way a CSS page's outermost box is the viewport.
  *
  * The box itself is as big as its largest child, within what its parent allows, the way a
  * `Box` is. An HTML screen gives every box a `RequiredSize`, so this is rarely what decides.
  */
-private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy {
+private class AbsoluteBoxMeasurePolicy(
+    private val nodeId: Int,
+    private val window: WindowInfo,
+) : MeasurePolicy {
     override fun MeasureScope.measure(
         measurables: List<Measurable>,
         constraints: Constraints,
     ): MeasureResult {
         RenderNodeObserver.onMeasure?.invoke(nodeId)
-        val placeables = measurables.map { it.measure(Constraints()) }
+        val windowSize = window.containerSize
+        val maxWidth = finiteLimit(constraints.maxWidth, windowSize.width)
+        val maxHeight = finiteLimit(constraints.maxHeight, windowSize.height)
+        val placeables = measurables.map { measurable ->
+            // Read in the measure pass, so a size the child gains or loses later measures
+            // it again under the right limit without the box being composed again.
+            val modifiers = (measurable.layoutId as? Node)?.modifiers.orEmpty()
+            val sizesWidth = modifiers.any {
+                it is ProtocolModifier.RequiredSize || it is ProtocolModifier.Size || it is ProtocolModifier.Width
+            }
+            val sizesHeight = modifiers.any {
+                it is ProtocolModifier.RequiredSize || it is ProtocolModifier.Size || it is ProtocolModifier.Height
+            }
+            measurable.measure(
+                Constraints(
+                    maxWidth = if (sizesWidth) Constraints.Infinity else maxWidth,
+                    maxHeight = if (sizesHeight) Constraints.Infinity else maxHeight,
+                ),
+            )
+        }
         var width = constraints.minWidth
         var height = constraints.minHeight
         for (placeable in placeables) {
@@ -757,7 +828,21 @@ private class AbsoluteBoxMeasurePolicy(private val nodeId: Int) : MeasurePolicy 
             for (placeable in placeables) placeable.place(0, 0)
         }
     }
+
+    /**
+     * The box's own limit on one axis, or the window's where the box has none. A window
+     * that has not been given a size yet falls back to a large finite one, so a child that
+     * sizes itself by its room is still never measured without an end.
+     */
+    private fun finiteLimit(max: Int, window: Int): Int = when {
+        max != Constraints.Infinity -> max
+        window > 0 -> window
+        else -> UNSIZED_WINDOW_LIMIT
+    }
 }
+
+/** The limit a box with none of its own uses before the window has a size, in pixels. */
+private const val UNSIZED_WINDOW_LIMIT = 4096
 
 /**
  * How a node that takes files gets its drop target, filled in by the platform that has
@@ -1341,3 +1426,77 @@ object LayoutProfile {
 
 /** The containers that become focus targets when they listen for keys. */
 private val KeyFocusTargets = setOf(WidgetKind.Box, WidgetKind.Column, WidgetKind.Row, WidgetKind.FileDropTarget)
+
+/**
+ * Holds a node with the `Sticky` modifier at the start edge of the scrolling container it is
+ * in, however far that container has scrolled, and draws it over what scrolls under it.
+ *
+ * Outside every other modifier the node has, so its background, border and clip move with
+ * it; applied inside them, the content stayed while its background scrolled away. The scroll
+ * position is read at placement, so scrolling moves the node without recomposing it. A
+ * node nested deeper in the container (a cell in one line of a table) is held the same way,
+ * because its line starts where the container's content starts. Outside a scrolling
+ * container the modifier does nothing.
+ */
+@Composable
+private fun Modifier.sticky(node: Node): Modifier {
+    if (node.modifiers.none { it is dev.darkpyonix.composerust.protocol.Modifier.Sticky }) return this
+    val scroll = LocalScrollState.current ?: return this
+    val horizontal = LocalScrollIsHorizontal.current
+    return this
+        .zIndex(1f)
+        .offset { if (horizontal) IntOffset(scroll.value, 0) else IntOffset(0, scroll.value) }
+}
+
+/**
+ * Grows the area that takes a node's presses to the size its `MinTouchTarget` asks for.
+ *
+ * Only the margin around the drawn box is handled here. A press on the box itself is the
+ * node's own, through the press handling it always had; a press in the margin is turned
+ * into the event a press on the box would have sent: a click for a node with a click
+ * handler, and for a selection control the state a press would ask for. A node with no
+ * such handler, or disabled, takes nothing in the margin. Nothing is attached to a node
+ * without the modifier.
+ */
+@Composable
+private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Modifier {
+    val target = node.modifiers.lastOrNull {
+        it is dev.darkpyonix.composerust.protocol.Modifier.MinTouchTarget
+    } as? dev.darkpyonix.composerust.protocol.Modifier.MinTouchTarget ?: return this
+    val size = target.size.takeIf { it.isFinite() && it > 0f } ?: return this
+    val area = remember(node.id) { HitArea() }
+    val enabled = node.flag(PropertyKind.Enabled, default = true)
+    val clickHandler = (node.modifiers.lastOrNull { it is dev.darkpyonix.composerust.protocol.Modifier.Clickable }
+        as? dev.darkpyonix.composerust.protocol.Modifier.Clickable)?.handlerId
+        ?: node.handler(PropertyKind.OnClick)
+    val valueHandler = node.handler(PropertyKind.OnValueChange)
+    val press: (() -> Unit)? = when {
+        !enabled -> null
+        node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
+            {
+                val checked = node.flag(PropertyKind.Checked, default = false)
+                dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
+            }
+        }
+        node.widget == WidgetKind.RadioButton -> valueHandler?.let { id ->
+            { dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, 1.0)) }
+        }
+        else -> clickHandler?.let { id -> { dispatcher.dispatch(HostEvent.Clicked(node.id, id)) } }
+    }
+    val latest = rememberUpdatedState(press)
+    val margin = Modifier.pointerInput(area) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            if (area.isOnDrawnBox(down.position) || latest.value == null) return@awaitEachGesture
+            down.consume()
+            val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+            up.consume()
+            val position = up.position
+            val inside = position.x >= 0f && position.y >= 0f &&
+                position.x < this.size.width && position.y < this.size.height
+            if (inside) latest.value?.invoke()
+        }
+    }
+    return minimumHitArea(size.dp, area, margin)
+}
+

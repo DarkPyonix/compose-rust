@@ -856,13 +856,16 @@ mod native {
             TEMPORARY.fetch_add(1, Ordering::Relaxed)
         ));
         let written = (|| {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-            drop(file);
+            // The file is closed at the end of this block, before the rename: Windows
+            // will not rename a file that is still open.
+            {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temporary)?;
+                file.write_all(bytes)?;
+                file.sync_all()?;
+            }
             // The file keeps the permissions it had, not the new file's defaults.
             if let Some(metadata) = &existing {
                 std::fs::set_permissions(&temporary, metadata.permissions())?;

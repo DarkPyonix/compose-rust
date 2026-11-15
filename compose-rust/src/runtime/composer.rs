@@ -122,8 +122,8 @@ pub(crate) enum Observer {
 pub(crate) enum OwnedAttr {
     None,
     Text(String),
-    /// A text kept for the life of the program, such as an interned accessible name.
-    Label(&'static str),
+    /// A text kept for a node's accessible name.
+    Label(std::sync::Arc<str>),
     Float(f64),
     Int(i64),
     Bool(bool),
@@ -158,7 +158,12 @@ impl OwnedAttr {
     /// nothing else.
     fn differs(&self, next: &Self) -> bool {
         match (self, next) {
-            (Self::Float(left), Self::Float(right)) => left != right,
+            (Self::Float(left), Self::Float(right)) => left.to_bits() != right.to_bits(),
+            (Self::Label(left), Self::Label(right)) => {
+                !std::sync::Arc::ptr_eq(left, right) && left != right
+            }
+            (Self::Text(left), Self::Label(right)) => left.as_str() != right.as_ref(),
+            (Self::Label(left), Self::Text(right)) => left.as_ref() != right.as_str(),
             _ => self != next,
         }
     }

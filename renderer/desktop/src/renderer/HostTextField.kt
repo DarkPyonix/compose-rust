@@ -34,6 +34,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import dev.darkpyonix.composerust.ui.node.FontChain
 import dev.darkpyonix.composerust.ui.node.AssetCache
@@ -58,7 +59,9 @@ import dev.darkpyonix.composerust.design.FieldUnderline
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Node
+import dev.darkpyonix.composerust.ui.paintProp
 import dev.darkpyonix.composerust.ui.floatProp
+import dev.darkpyonix.composerust.ui.letterSpacingProp
 import dev.darkpyonix.composerust.ui.role
 import dev.darkpyonix.composerust.protocol.WordBreak
 import dev.darkpyonix.composerust.ui.textStyle
@@ -152,7 +155,7 @@ internal fun HostTextField(
     // with no role is, so a value typed into it is as wide as the same words drawn beside
     // it. One that names none is spaced by the design system's token, which on the Apple
     // design systems already carries SF's tracking, so it is left as it is.
-    val ownSpacing = node.floatProp(PropertyKind.LetterSpacing) != null
+    val ownSpacing = node.letterSpacingProp() != null
     val fontStyle = if (ownChain != null) {
         roleStyle.copy(
             fontFamily = ownChain.primary,
@@ -357,6 +360,7 @@ internal fun HostTextField(
             it is dev.darkpyonix.composerust.protocol.Modifier.CornerEach
     }
     val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
+    val caretColor = node.paintProp(PropertyKind.CaretColor)?.let { theme.color(it) } ?: frame.cursor
 
     BasicTextField(
         value = value,
@@ -366,7 +370,7 @@ internal fun HostTextField(
         singleLine = !multiline,
         textStyle = textStyle,
         visualTransformation = fieldText,
-        cursorBrush = SolidColor(frame.cursor),
+        cursorBrush = SolidColor(caretColor),
         decorationBox = { inner ->
             Box(
                 Modifier
@@ -403,12 +407,18 @@ internal fun HostTextField(
                 contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
+                    val placeholderColor = node.paintProp(PropertyKind.PlaceholderColor)?.let { theme.color(it) }
+                        ?: theme.color(ColorRole.OnSurfaceVariant).copy(alpha = PLACEHOLDER_ALPHA)
+                    // A single-line field has one line to show a placeholder on, so a longer
+                    // one ends in an ellipsis there rather than wrapping onto lines the field
+                    // clips away. A multiline field has room for it to wrap.
                     ThemedText(
                         brokenPlaceholder,
                         style = textStyle.copy(
-                            color = theme.color(ColorRole.OnSurfaceVariant)
-                                .copy(alpha = PLACEHOLDER_ALPHA),
+                            color = placeholderColor,
                         ),
+                        maxLines = if (multiline) Int.MAX_VALUE else 1,
+                        overflow = if (multiline) TextOverflow.Clip else TextOverflow.Ellipsis,
                     )
                 }
                 inner()

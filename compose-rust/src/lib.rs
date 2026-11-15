@@ -31,6 +31,7 @@ pub mod contrast;
 pub use boundary_wasm::web_start as __web_start;
 #[doc(hidden)]
 pub mod codegen;
+pub mod density;
 pub mod design;
 pub mod drawing;
 mod extensions;
@@ -50,6 +51,7 @@ pub mod schema;
 pub mod spans;
 pub mod storage;
 pub mod theme;
+pub mod time;
 pub mod tokens;
 pub mod ui;
 #[doc(hidden)]
@@ -64,7 +66,7 @@ pub use animation::{
     animate_float_as_state, animate_offset_as_state, control_animation, reduced_motion,
     start_animation, transition,
 };
-pub use asset::asset;
+pub use asset::{AssetId, asset};
 pub use boundary::{
     Host, LaunchBuilder, MutationBatch, RendererApi, RuntimeFactory, demo_theme, demo_theme_for,
     install_renderer_api, launch_runtime, request_frame_from_worker,
@@ -72,12 +74,13 @@ pub use boundary::{
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
     CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
-    CodeRect, CodeScroll, Decoration, Decorations, EditRejected, Fold, FoldChange, Folds,
-    GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange, SyntaxSpan,
-    SyntaxSpans, VisibleRange,
+    CodeRect, CodeScroll, Decoration, Decorations, EditGroupResult, EditRejected, Fold, FoldChange,
+    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange,
+    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange, WordWrap,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
+pub use density::density;
 pub use design::design_system;
 pub use drawing::{DrawCommand, DrawList, DrawListBuilder};
 pub use file_dialog::{FileDialog, FileDialogResult, FileDialogSender};
@@ -95,22 +98,27 @@ pub use palette::{Palette, PaletteViolation};
 pub use picked_file::{Delivery, FileError, PickedFile};
 pub use runtime::{Batch, Composable, ComposeHost, Recomposer, Runtime, application, launch};
 pub use schema::{
-    Alignment, Arrangement, AssetKind, ButtonKind, ButtonVariant, Chrome, Color, ColorRole,
-    ColorScheme, CompactNavigation, DecorationKind, DesignSystem, EventPayload, GenericFamily,
-    GutterDecorationKind, HoverPhase, IconRole, Key, LoopMode, MaterialRole, MessageDuration,
-    MessageHorizontal, MessagePlacement, MessageVertical, Modifier, MotionRole,
-    NotificationImportance, NotificationPermission, NotificationPresentation, OverflowWrap, Paint,
-    PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH, Selection,
-    SemanticsRole, Severity, ShapeRole, Snap, SpaceRole, TextAlign, TextOverflow, Theme, TileMode,
-    TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass, WordBreak,
+    Alignment, Arrangement, AssetKind, BackgroundRepeat, ButtonKind, ButtonVariant, Chrome, Color,
+    ColorRole, ColorScheme, CompactNavigation, ContentScale, DecorationKind, DesignSystem,
+    EditGroupStatus, EventPayload, GenericFamily, GutterDecorationKind, HoverPhase, IconRole, Key,
+    LoopMode, MaterialRole, MessageDuration, MessageHorizontal, MessagePlacement, MessageVertical,
+    Modifier, MotionRole, NotificationImportance, NotificationPermission, NotificationPresentation,
+    OverflowWrap, Paint, PopoverAlign, PopoverPlacement, PropertyKind, RevealAlign, SCHEMA_HASH,
+    Selection, SemanticsRole, Severity, ShapeRole, SheetPresentation, Snap, SpaceRole, TextAlign,
+    TextOverflow, Theme, TileMode, TypeRole, WidgetKind, WindowHeightClass, WindowSizeClass,
+    WordBreak,
 };
 pub use schema::{
     AnimatedProperty, Animation, AnimationControl, AnimationEventKind, AnimationEvents,
     ColorInterpolation, FillMode, Keyframe, KeyframeValue, PlayState, PlaybackDirection,
-    ReducedMotion, StepPosition, Timing, TransformFunction, TransformFunctionKind,
+    ReducedMotion, StepPosition, SystemColorScheme, Timing, TransformFunction,
+    TransformFunctionKind,
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
-pub use theme::ThemeHandle;
+pub use schema::{MinimapSide, WordWrapMode};
+pub use theme::{
+    ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
+};
 pub use ui::{ScrollState, remember_scroll_state};
 pub use window::{NodeSize, WindowSafeArea, WindowSize, node_size, window_size};
 pub use windows::{

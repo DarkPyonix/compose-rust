@@ -17,6 +17,7 @@ import dev.darkpyonix.composerust.protocol.HorizontalAlignment as ProtocolHorizo
 import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SheetPresentation
 import dev.darkpyonix.composerust.protocol.SpaceRole
 import dev.darkpyonix.composerust.protocol.TextAlign
 import dev.darkpyonix.composerust.protocol.TextOverflow
@@ -48,6 +49,30 @@ internal fun Node.floatProp(kind: PropertyKind): Float? =
         else -> null
     }
 
+/**
+ * The letter spacing the Host set, in sp, or null where it set none. Unlike the other
+ * design floats, 0 is a value here: CSS `letter-spacing: 0` draws no extra spacing, where
+ * an unset spacing takes the type role's. Unset travels as NaN, or as nothing.
+ */
+internal fun Node.letterSpacingProp(): Float? =
+    when (val value = props[PropertyKind.LetterSpacing]) {
+        is PropertyValue.Float -> value.value.takeUnless { it.isNaN() }
+        is PropertyValue.Integer -> value.value.toFloat()
+        else -> null
+    }
+
+/**
+ * The line height the Host set, in sp, or null where it set none or NaN (normal).
+ * CSS `line-height: normal` travels as NaN so the drawing side uses the font's own
+ * metrics (TextUnit.Unspecified), matching the measure side.
+ */
+internal fun Node.lineHeightProp(): Float? =
+    when (val value = props[PropertyKind.LineHeight]) {
+        is PropertyValue.Float -> value.value.takeUnless { it.isNaN() || it == 0f }
+        is PropertyValue.Integer -> value.value.toFloat().takeIf { it != 0f }
+        else -> null
+    }
+
 internal fun Node.intProp(kind: PropertyKind): Long? =
     (props[kind] as? PropertyValue.Integer)?.value?.takeIf { it != 0L }
 
@@ -70,6 +95,11 @@ internal fun Node.variant(): ButtonVariant =
 internal fun Node.buttonKind(): ButtonKind =
     role(PropertyKind.ButtonKind, ButtonKind.entries.toTypedArray()) ?: ButtonKind.Standard
 
+internal fun Node.sheetPresentation(): SheetPresentation = when (intProp(PropertyKind.Presentation)) {
+    1L -> SheetPresentation.Centered
+    else -> SheetPresentation.Edge
+}
+
 /**
  * The text style for a node: the design system's rung of the ladder, with each override
  * replacing exactly one axis.
@@ -84,14 +114,16 @@ internal fun Node.textStyle(theme: ResolvedTheme, defaultRole: TypeRole = TypeRo
         fontWeight = intProp(PropertyKind.FontWeight)
             ?.let { androidx.compose.ui.text.font.FontWeight(it.toInt()) }
             ?: token.composeWeight,
-        lineHeight = floatProp(PropertyKind.LineHeight)?.sp ?: token.composeLineHeight,
-        letterSpacing = floatProp(PropertyKind.LetterSpacing)?.sp ?: token.composeLetterSpacing,
+        lineHeight = lineHeightProp()?.sp ?: token.composeLineHeight,
+        letterSpacing = letterSpacingProp()?.sp ?: token.composeLetterSpacing,
         fontFamily = theme.family(role),
         textAlign = when (role(PropertyKind.TextAlign, TextAlign.entries.toTypedArray())) {
             TextAlign.Start -> ComposeTextAlign.Start
             TextAlign.Center -> ComposeTextAlign.Center
             TextAlign.End -> ComposeTextAlign.End
             TextAlign.Justify -> ComposeTextAlign.Justify
+            TextAlign.Left -> ComposeTextAlign.Left
+            TextAlign.Right -> ComposeTextAlign.Right
             null -> ComposeTextAlign.Unspecified
         },
     )

@@ -222,11 +222,16 @@ class ApplicationColourTest {
         dark = true
         waitForIdle()
         assertEquals(BRAND_DARK, middle())
+        // The one thing that does go is the report that the system turned dark, for what
+        // the Host draws itself. The fake answers it with nothing, so the colours above
+        // changed without the Host.
+        val after = connection.events.toList()
         assertEquals(
-            before,
-            connection.events.toList(),
-            "turning dark sent something to the Host, which already said everything it had to",
+            listOf<HostEvent>(HostEvent.ColorSchemeChanged(0, 0, dev.darkpyonix.composerust.protocol.SystemColorScheme.Dark)),
+            after.drop(before.size),
+            "turning dark sent the Host something besides the system's new appearance",
         )
+        assertEquals(before, after.take(before.size))
     }
 
     /**

@@ -30,6 +30,9 @@ use std::task::{Context, Poll};
 pub struct Batch {
     encoder: BatchEncoder,
     error: Option<ProtocolError>,
+    /// Where a grouped edit is encoded before it is copied into the arena. Kept, so a warm
+    /// batch encodes one without allocating.
+    edit_group: Vec<u8>,
 }
 
 impl Default for Batch {
@@ -45,6 +48,7 @@ impl Batch {
         Self {
             encoder: BatchEncoder::with_capacity(16 * 1024, 4 * 1024, 256),
             error: None,
+            edit_group: Vec::new(),
         }
     }
 
@@ -332,6 +336,40 @@ impl Batch {
         });
     }
 
+    /// Writes one grouped edit the application asked of a code editor: replace every range
+    /// in `edits` with its text, all of them or none.
+    ///
+    /// Every range is in the document as it stood at `base_version`, so an edit never moves
+    /// the ranges of the others, and the edits may be listed in any order. They must not
+    /// overlap; two insertions at the same place go in in the order they are listed. Where
+    /// the reader has typed since, the Renderer moves every range past what they typed, and
+    /// refuses the whole group where any range meets it. It answers the group with exactly
+    /// one `CodeEditGroupResult` carrying `request_id`, and the whole group undoes as one
+    /// step. A group with no edits writes nothing at all.
+    pub fn edit_group(
+        &mut self,
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: &[(crate::code::CodeRange, &str)],
+    ) {
+        if edits.is_empty() {
+            return;
+        }
+        let mut blob = std::mem::take(&mut self.edit_group);
+        blob.clear();
+        match crate::code::encode_edit_group(edits, &mut blob) {
+            Ok(()) => self.write(Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits: &blob,
+            }),
+            Err(error) => self.fail(error),
+        }
+        self.edit_group = blob;
+    }
+
     /// Writes one request to put a code editor's selection between two places in the
     /// document as it stood at `base_version`. The Renderer moves both ends past what the
     /// reader typed since and drops the request, with a protocol error, where an end is not
@@ -406,6 +444,58 @@ impl Batch {
             request,
             line: position.line,
             column: position.column,
+        });
+    }
+
+    /// Writes one request to set every selection of a code editor, each an anchor and an
+    /// active end in the document as it stood at `base_version`, the first the primary one.
+    /// The Renderer moves every end past what the reader typed since, and drops the request,
+    /// with a protocol error, where an end is not a place in the document or the list is
+    /// empty. Typing, deleting and pasting then happen at every selection as one step, and
+    /// Escape goes back to the primary one.
+    pub fn set_selections(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        selections: &[(crate::code::Position, crate::code::Position)],
+    ) {
+        let mut blob = std::mem::take(&mut self.edit_group);
+        blob.clear();
+        crate::code::encode_selections(selections, &mut blob);
+        self.write(Mutation::SetSelections {
+            node_id,
+            base_version,
+            selections: &blob,
+        });
+        self.edit_group = blob;
+    }
+
+    /// Writes one request to replace `range` of a code editor's document, as it stood at
+    /// `base_version`, with `snippet`, and to open its tab stops.
+    ///
+    /// The snippet is in the subset of VS Code's syntax the editor reads: `$1`,
+    /// `${1:placeholder}`, `${1|one,two|}`, `$0`, and `\$` for a dollar sign
+    /// ([`crate::code::escape_snippet_text`] escapes plain text). The caret selects the first
+    /// stop; Tab and Shift+Tab move between the stops, the places with the same number change
+    /// together, and a stop with choices opens a list. The session ends at `$0`, on Escape, or
+    /// when the caret leaves the snippet. The text it leaves arrives as ordinary changes and
+    /// undoes as one step. Where the reader has typed over the range since `base_version`,
+    /// the Renderer drops the request with a protocol error.
+    pub fn insert_snippet(
+        &mut self,
+        node_id: u32,
+        base_version: u32,
+        range: crate::code::CodeRange,
+        snippet: &str,
+    ) {
+        self.write(Mutation::InsertSnippet {
+            node_id,
+            base_version,
+            start_line: range.start.line,
+            start_column: range.start.column,
+            end_line: range.end.line,
+            end_column: range.end.column,
+            snippet,
         });
     }
 

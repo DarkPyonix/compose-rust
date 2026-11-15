@@ -155,7 +155,7 @@ impl LazyList {
     fn compose(&mut self, scope: LazyListScope) {
         let (kind, modifier, columns, min_column_width) = (
             self.kind,
-            self.modifier,
+            std::mem::take(&mut self.modifier),
             self.columns,
             self.min_column_width,
         );

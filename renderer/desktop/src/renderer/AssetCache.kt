@@ -41,12 +41,29 @@ sealed interface Asset {
         val chain: FontChain? = null,
     ) : Asset {
         /**
-         * One font file: the Compose font that draws it, where the platform can group
-         * faces into one family by weight, the weight and slant the file declares, and
-         * which letters it has a glyph for.
+         * The families this font's letters are looked for in: the stack, or for one font
+         * file, that file alone with the letters it has. Null where the letters are not
+         * known.
+         *
+         * A single face needs no chain where the machine finds a letter the face lacks
+         * among its own fonts. Where the renderer carries the faces a letter falls back to
+         * ([platformFallbackFamilies]), the chain is what says which letters go to them.
+         * Made once, because the places that lay text out keep work per chain.
+         */
+        val letters: FontChain? by lazy(LazyThreadSafetyMode.NONE) {
+            chain ?: face?.let { FontChain(listOf(FontChain.Member(family, it.hasGlyph))) }
+        }
+
+        /**
+         * One font file: the Compose font that draws it, the weight and slant the file
+         * declares, and which letters it has a glyph for.
+         *
+         * The Compose font is what lets a stack group a typeface's files into one family
+         * Compose picks a weight from. Every platform gives one, so bold text in a family
+         * that ships a bold file is set in that file.
          */
         class Face(
-            val font: androidx.compose.ui.text.font.Font?,
+            val font: androidx.compose.ui.text.font.Font,
             val weight: Int,
             val italic: Boolean,
             val hasGlyph: (Int) -> Boolean,
@@ -99,6 +116,7 @@ class AssetCache {
                 TableError.UNSUPPORTED_ASSET,
                 "asset $assetId has kind tag $kindTag, which this renderer cannot read",
             )
+        decodeWarning = null
         val asset = try {
             decode(kind, bytes)
         } catch (error: Throwable) {
@@ -119,8 +137,16 @@ class AssetCache {
             return TableError(TableError.UNREADABLE_ASSET, "asset $assetId $reason")
         }
         entries[assetId] = asset
-        return null
+        // Kept and drawn, but with a field the renderer could not honour, which the Host
+        // is told about.
+        val warning = decodeWarning ?: return null
+        decodeWarning = null
+        return TableError(TableError.UNREADABLE_ASSET, "asset $assetId: $warning")
     }
+
+    // What the decoder could not honour in an asset it still read, for the registration
+    // that is under way. A brush whose ellipse cannot be drawn is drawn as a circle.
+    private var decodeWarning: String? = null
 
     /**
      * Forgets every registration, for a Renderer that is throwing its tree away and asking
@@ -155,7 +181,8 @@ class AssetCache {
         // An image brush names a picture registered in its own right, so the lookup is
         // into what this cache is already holding. A brush registered before the picture
         // it names is unreadable and says so, rather than drawing nothing quietly.
-        AssetKind.Brush -> decodeBrushAsset(bytes, entries::get)?.let(Asset::Brush)
+        AssetKind.Brush -> decodeBrushAsset(bytes, { why -> decodeWarning = why }, entries::get)
+            ?.let(Asset::Brush)
 
         // A vector icon registers a meaning, so its bytes are the role tag and nothing
         // else. There is no artwork on the wire and no icon name to look up at run time.
@@ -175,8 +202,8 @@ class AssetCache {
  * Text is set in the first family, and each letter that family has no glyph for is set in
  * the next family that has one. A family whose letters are not known here (an installed or
  * a generic family) takes every letter that reaches it, and ends the chain. Letters that no
- * family has are left to the platform's own fallback, which is what happened to every
- * letter before the chain existed.
+ * family has are looked for in [platformFallbackFamilies], and after those are left to the
+ * platform's own fallback, which is what happened to every letter before the chain existed.
  *
  * Compose sets a run of text in one family and asks the platform for a letter it lacks,
  * and the platform answers from the machine's fonts before anything the application
@@ -193,8 +220,15 @@ class FontChain(val members: List<Member>) {
         private val ask = hasGlyph
         private val known = HashMap<Int, Boolean>()
 
+        /** The answers for ASCII, which is most of what is asked: 0 not asked, 1 has, 2 lacks. */
+        private val ascii = ByteArray(128)
+
         fun has(codePoint: Int): Boolean {
             val ask = ask ?: return true
+            if (codePoint in ascii.indices) {
+                if (ascii[codePoint] == 0.toByte()) ascii[codePoint] = if (ask(codePoint)) 1 else 2
+                return ascii[codePoint] == 1.toByte()
+            }
             return known.getOrPut(codePoint) { ask(codePoint) }
         }
     }
@@ -203,16 +237,18 @@ class FontChain(val members: List<Member>) {
     val primary: FontFamily get() = members.first().family
 
     /**
-     * The stretches of [text] whose letters come from a family after the first, each with
-     * the span style that sets them there. Empty where the first family has every letter,
-     * which is the usual case and costs a lookup per letter.
+     * The stretches of [text] whose letters come from a family after the first, or from
+     * one of [platformFallbackFamilies], each with the span style that sets them there.
+     * Empty where the first family has every letter, which is the usual case and costs a
+     * lookup per letter.
      *
      * A letter that changes how the one before it is drawn (a combining mark, a joiner, a
      * variation selector) stays with that letter, so a syllable is never split between two
      * faces.
      */
     fun spans(text: String): List<AnnotatedString.Range<SpanStyle>> {
-        if (members.size < 2 || text.isEmpty()) return emptyList()
+        val fallback = platformFallbackFamilies
+        if (members.size + fallback.size < 2 || text.isEmpty()) return emptyList()
         val out = ArrayList<AnnotatedString.Range<SpanStyle>>()
         var runStart = 0
         var runMember = 0
@@ -220,29 +256,51 @@ class FontChain(val members: List<Member>) {
         while (index < text.length) {
             val codePoint = codePointAt(text, index)
             val width = if (codePoint > 0xFFFF) 2 else 1
-            val member = if (index > 0 && attaches(codePoint)) runMember else memberFor(codePoint)
+            val member = if (index > 0 && attaches(codePoint)) runMember else memberFor(codePoint, fallback)
             if (member != runMember) {
-                if (runMember != 0) out += range(runMember, runStart, index)
+                if (runMember != 0) out += range(runMember, runStart, index, fallback)
                 runStart = index
                 runMember = member
             }
             index += width
         }
-        if (runMember != 0) out += range(runMember, runStart, text.length)
+        if (runMember != 0) out += range(runMember, runStart, text.length, fallback)
         return out
     }
 
-    private fun memberFor(codePoint: Int): Int {
+    /**
+     * Which family draws [codePoint]: an index into [members], or past their end, into
+     * [fallback]. Zero, the first family, where nothing has the letter.
+     */
+    private fun memberFor(codePoint: Int, fallback: List<Member>): Int {
         if (codePoint < 0x20 || members[0].has(codePoint)) return 0
         for (at in 1 until members.size) {
             if (members[at].has(codePoint)) return at
         }
+        for (at in fallback.indices) {
+            if (fallback[at].has(codePoint)) return members.size + at
+        }
         return 0
     }
 
-    private fun range(member: Int, start: Int, end: Int) =
-        AnnotatedString.Range(SpanStyle(fontFamily = members[member].family), start, end)
+    private fun range(member: Int, start: Int, end: Int, fallback: List<Member>): AnnotatedString.Range<SpanStyle> {
+        val drawn = if (member < members.size) members[member] else fallback[member - members.size]
+        return AnnotatedString.Range(SpanStyle(fontFamily = drawn.family), start, end)
+    }
 }
+
+/**
+ * The families a letter is looked for in when no family of its chain has it, in order.
+ *
+ * Empty wherever the machine has fonts of its own, because there the platform's fallback
+ * finds the letter. A browser gives a canvas none, so a letter the text's families lack
+ * was drawn as an empty box: the web renderer puts the fallback faces it carries here
+ * before the first frame, and every chain ends in them.
+ *
+ * Each member says which letters it has. One that could not say would take every letter
+ * that reached it, and the ones after it would never be asked.
+ */
+var platformFallbackFamilies: List<FontChain.Member> = emptyList()
 
 /**
  * The normal track of a font's `trak` table: how far Apple's text system moves every
@@ -470,28 +528,60 @@ internal fun decodeFontStack(bytes: ByteArray, lookup: (Int) -> Asset?): Asset.F
         members += stackMember(fonts)
     }
     require(at == bytes.size) { "the font stack has ${bytes.size - at} bytes after its last family" }
-    // Where the platform groups faces, the chain's first family is made here and is a family
-    // no other text is set in: that is what lets the theme tell text in this stack from
-    // text in its first face.
+    // The chain's first family is made here and is a family no other text is set in: that
+    // is what lets the theme tell text in this stack from text in its first face.
     return Asset.Font(family = members.first().family, chain = FontChain(members))
 }
 
 /**
- * One family of a stack: its faces as one family the platform picks a weight from, where
- * the platform can, and the letters any of them has.
+ * One family of a stack: its faces as one family Compose picks a weight from, and the
+ * letters any of them has.
  */
 private fun stackMember(fonts: List<Asset.Font>): FontChain.Member {
     val faces = fonts.map { it.face!! }
-    val composeFonts = faces.mapNotNull { it.font }
-    val family = if (composeFonts.size == faces.size) {
-        FontFamily(composeFonts)
-    } else {
-        // A platform that cannot group faces by weight sets the family in its regular
-        // upright face, the one closest to weight 400.
-        fonts.minBy { font ->
-            val face = font.face!!
-            kotlin.math.abs(face.weight - 400) + if (face.italic) 1000 else 0
-        }.family
-    }
+    val family = FontFamily(faces.map { it.font })
     return FontChain.Member(family) { codePoint -> faces.any { it.hasGlyph(codePoint) } }
+}
+
+/** The weight, 1 to 1000, and the slant a font file declares for itself. */
+data class DeclaredFaceStyle(val weight: Int, val italic: Boolean)
+
+/**
+ * The weight and slant a font file declares in its `OS/2` table, or null where the bytes
+ * are not a font that has one.
+ *
+ * Read from the bytes rather than asked of the platform's loader, because not every loader
+ * can say. Android below API 28 answers only bold or not, so a medium and a semibold face
+ * read as regular and bold, and two faces of one family claim the same weight.
+ *
+ * A collection (`ttcf`) is read by its first face, the one a loader opens when it is
+ * handed the file.
+ */
+internal fun declaredFaceStyle(bytes: ByteArray): DeclaredFaceStyle? {
+    fun u16(at: Int): Int? = if (at < 0 || at + 2 > bytes.size) {
+        null
+    } else {
+        ((bytes[at].toInt() and 0xFF) shl 8) or (bytes[at + 1].toInt() and 0xFF)
+    }
+    fun u32(at: Int): Int? {
+        val high = u16(at) ?: return null
+        val low = u16(at + 2) ?: return null
+        return (high shl 16) or low
+    }
+    fun tag(at: Int, name: String): Boolean =
+        at + 4 <= bytes.size && (0 until 4).all { bytes[at + it] == name[it].code.toByte() }
+
+    val start = if (tag(0, "ttcf")) u32(12) ?: return null else 0
+    val tables = u16(start + 4) ?: return null
+    for (index in 0 until tables) {
+        val record = start + 12 + 16 * index
+        if (!tag(record, "OS/2")) continue
+        val table = u32(record + 8) ?: return null
+        val weight = u16(table + 4) ?: return null
+        val selection = u16(table + 62) ?: return null
+        // Bit 0 says italic and bit 9 oblique; a slanted face is set for italic text either way.
+        val italic = selection and 0x0201 != 0
+        return DeclaredFaceStyle(weight.coerceIn(1, 1000), italic)
+    }
+    return null
 }

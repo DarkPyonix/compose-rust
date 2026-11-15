@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
@@ -14,12 +15,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpRect
+import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Paint
+import dev.darkpyonix.composerust.protocol.PropertyKind
+import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
@@ -495,5 +499,122 @@ class HtmlElementsTest {
         assertEquals((before[2] ?: 0) + 1, compositions[2], "the changed node recomposes once")
         assertEquals(before[3], compositions[3], "its sibling does not recompose")
         assertEquals(before[ROOT], compositions[ROOT], "the box they are in does not recompose")
+    }
+
+    /**
+     * A child that scrolls and gives itself no size is bounded by the box it is in. Measured
+     * without a limit, a vertical scroller has nowhere to stop and Compose refuses to lay it
+     * out, which took the whole Renderer down with it.
+     */
+    @Test
+    fun fr42_an_unsized_scrolling_child_is_bounded_by_its_box() = runComposeUiTest {
+        show(
+            page {
+                node(2, ROOT, 0, ProtocolModifier.Offset(10f, 20f), widget = WidgetKind.ScrollColumn)
+                node(3, 2, 0, ProtocolModifier.RequiredSize(100f, 1000f))
+                node(4, ROOT, 1, ProtocolModifier.Offset(150f, 0f), widget = WidgetKind.LazyColumn)
+                node(5, 4, 0, ProtocolModifier.RequiredSize(40f, 1000f))
+            },
+        )
+
+        val root = bounds(ROOT)
+        val scroller = bounds(2)
+        assertEquals(10f, (scroller.left - root.left).value, "the scroller is where it was sent")
+        assertEquals(20f, (scroller.top - root.top).value, "the scroller is where it was sent")
+        assertEquals(100f, (scroller.right - scroller.left).value, "its width is its content's")
+        assertEquals(200f, (scroller.bottom - scroller.top).value, "its height is the box's")
+        val list = bounds(4)
+        assertEquals(150f, (list.left - root.left).value, "the list is where it was sent")
+        assertEquals(200f, (list.bottom - list.top).value, "the list is as tall as the box")
+    }
+
+    /**
+     * A child the Host sized, and a child sized by finite content, stay exactly that size
+     * when the box bounds its children: bigger than the box, it is neither squeezed nor
+     * moved, the way an overflowing CSS box is not.
+     */
+    @Test
+    fun fr42_a_sized_or_content_sized_child_keeps_its_size_under_the_bound() = runComposeUiTest {
+        show(
+            page {
+                node(2, ROOT, 0, ProtocolModifier.Offset(-30f, 150f), ProtocolModifier.RequiredSize(400f, 80f))
+                node(3, ROOT, 1, ProtocolModifier.Offset(20f, 30f))
+                node(4, 3, 0, ProtocolModifier.RequiredSize(40f, 25f))
+                node(5, ROOT, 2, ProtocolModifier.Offset(0f, 0f), ProtocolModifier.RequiredSize(320f, 500f))
+            },
+        )
+
+        val root = bounds(ROOT)
+        fun assertAt(id: Int, x: Float, y: Float, width: Float, height: Float) {
+            val box = bounds(id)
+            assertEquals(x, (box.left - root.left).value, "node $id left")
+            assertEquals(y, (box.top - root.top).value, "node $id top")
+            assertEquals(width, (box.right - box.left).value, "node $id width")
+            assertEquals(height, (box.bottom - box.top).value, "node $id height")
+        }
+        assertAt(ROOT, 0f, 0f, 300f, 200f)
+        assertAt(2, -30f, 150f, 400f, 80f)
+        assertAt(3, 20f, 30f, 40f, 25f)
+        assertAt(4, 20f, 30f, 40f, 25f)
+        assertAt(5, 0f, 0f, 320f, 500f)
+    }
+
+    /**
+     * A box that is itself unbounded, here one with no size inside a scroller, still gives
+     * a scrolling child a finite limit: the window's, as a CSS page's outermost box is the
+     * viewport. The box is still as big as its biggest child, so the scroller around it
+     * scrolls over all of it.
+     */
+    @Test
+    fun fr42_an_unbounded_box_bounds_a_scrolling_child_by_the_window() = runComposeUiTest {
+        var window = IntSize.Zero
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                window = LocalWindowInfo.current.containerSize
+                val host = rememberComposeRustHost(
+                    FakeHostConnection(
+                        buildList {
+                            add(
+                                Mutation.SetTheme(
+                                    Theme(DesignSystem.Material3, DesignSystem.Material3, ColorScheme.Light, false),
+                                ),
+                            )
+                            add(Mutation.Create(ROOT, WidgetKind.ScrollColumn))
+                            add(Mutation.SetModifier(ROOT, 0, ProtocolModifier.RequiredSize(300f, 200f)))
+                            node(2, ROOT, 0, widget = WidgetKind.AbsoluteBox)
+                            node(3, 2, 0, ProtocolModifier.Offset(0f, 0f), ProtocolModifier.RequiredSize(100f, 5000f))
+                            node(4, 2, 1, ProtocolModifier.Offset(120f, 10f), widget = WidgetKind.ScrollColumn)
+                            node(5, 4, 0, ProtocolModifier.RequiredSize(50f, 100_000f))
+                        },
+                    ),
+                )
+                ComposeRustContent(host)
+            }
+        }
+        waitForIdle()
+
+        assertTrue(window.height > 0, "the test window has a size")
+        assertEquals(5000f, (bounds(2).bottom - bounds(2).top).value, "the box is as tall as its tallest child")
+        val scroller = bounds(4)
+        assertEquals(window.height.toFloat(), (scroller.bottom - scroller.top).value, "the scroller stops at the window")
+        assertEquals(50f, (scroller.right - scroller.left).value, "its width is its content's")
+    }
+
+    /**
+     * A code editor with no size of its own inside an HTML region, which is how an editor
+     * in a page sits, lays out at the box's size instead of taking the Renderer down.
+     */
+    @Test
+    fun fr42_an_unsized_code_editor_in_a_region_is_bounded_by_its_box() = runComposeUiTest {
+        show(
+            page {
+                node(2, ROOT, 0, ProtocolModifier.Offset(0f, 0f), widget = WidgetKind.CodeEditor)
+                add(Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("fn main() {}\n".repeat(200))))
+            },
+        )
+
+        val editor = bounds(2)
+        assertTrue((editor.bottom - editor.top).value <= 200f, "the editor is no taller than the box")
+        assertTrue((editor.right - editor.left).value <= 300f, "the editor is no wider than the box")
     }
 }

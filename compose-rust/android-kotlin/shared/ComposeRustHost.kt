@@ -17,6 +17,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.launch
 import dev.darkpyonix.composerust.protocol.ReducedMotion
+import dev.darkpyonix.composerust.protocol.SystemColorScheme
 import dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -70,6 +71,7 @@ import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
+import dev.darkpyonix.composerust.ui.node.platformFallbackFamilies
 import dev.darkpyonix.composerust.ui.node.platformWindowMaterial
 import dev.darkpyonix.composerust.ui.node.TableError
 import java.lang.InterruptedException
@@ -206,6 +208,25 @@ class ComposeRustHost(private val connection: HostConnection) : EventDispatcher 
      */
     internal fun tickAnimations(frameTimeNanos: Long, theme: dev.darkpyonix.composerust.design.ResolvedTheme) {
         table.animations.tick(frameTimeNanos, theme) { event -> dispatch(event) }
+    }
+
+    /** The last system appearance told to the Host, or null before the first report. */
+    private var reportedScheme: SystemColorScheme? = null
+
+    /**
+     * Tells the Host whether the system appearance is dark, the first time and then only
+     * when it changes.
+     *
+     * The value is kept here, on the Host, rather than in a window's composition: every
+     * window of an application reads the same system setting, and each one reporting it
+     * would tell the Host the same thing once per window. Kept per window, it would also
+     * be told again whenever a window's content was composed afresh.
+     */
+    internal fun reportSystemScheme(dark: Boolean) {
+        val scheme = if (dark) SystemColorScheme.Dark else SystemColorScheme.Light
+        if (reportedScheme == scheme) return
+        reportedScheme = scheme
+        dispatch(HostEvent.ColorSchemeChanged(nodeId = 0, handlerId = 0, scheme = scheme))
     }
 
     fun shutdown() {
@@ -389,6 +410,7 @@ fun ComposeRustContent(
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
+        DensityReporter(host)
         ComposeRustTree(host, modifier, caption)
         return
     }
@@ -403,8 +425,10 @@ fun ComposeRustContent(
     CompositionLocalProvider(
         LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
         LocalZoom provides zoom,
+        LocalDisplayScale provides base.density,
     ) {
         ZoomReporter(host, zoom)
+        DensityReporter(host)
         // `onKeyEvent` rather than the preview: it runs after everything inside has had the
         // key, so a key the application consumed never reaches it.
         ComposeRustTree(
@@ -548,11 +572,21 @@ private fun ComposeRustTree(
     // answer differently in a desktop window than on a phone.
     var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
+    // What the report carries besides the size, as the last composition left it. Read by
+    // the layout callback below, which runs after that composition's effects.
+    val reportInputs = remember(host, windowNodeId) { WindowReportInputs() }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
             measuredSize = size
+            // The Host is told from the layout that measured the window, as it is told an
+            // observed node's size. Waiting for the recomposition the write above schedules
+            // means waiting for a second frame, and a window that draws only when asked
+            // (macOS) can go a long time without one while the Host lays its page out for
+            // a 0x0, compact window. The reporter drops a repeat, so the effect below,
+            // which still reports a change of the safe area, sends nothing twice.
+            reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
     // Whether anything in the tree asked to be made of a material, and so whether the
@@ -566,7 +600,13 @@ private fun ComposeRustTree(
         systemDark,
         sizeClass,
         fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
-        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
+        // A single face is a chain of one only where the renderer carries fallback faces
+        // of its own: that chain is what sends a letter the face lacks to them.
+        chainOf = { asset ->
+            (host.table.assets.asset(asset) as? Asset.Font)?.let { font ->
+                if (platformFallbackFamilies.isEmpty()) font.chain else font.letters
+            }
+        },
         brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
         windowBackdrop = asked && platformBacksWindowWithMaterial(),
         overlay = host.table.overlayTokens,
@@ -614,6 +654,12 @@ private fun ComposeRustTree(
             host.dispatch(HostEvent.ReducedMotionChanged(nodeId = 0, handlerId = 0, state = reducedMotion))
         }
     }
+    // Whether the system is light or dark, told to the Host before the first frame and then
+    // on every change, whatever the theme asks for. The theme's own colours already follow
+    // the system here without the Host; this is for what the Host draws itself, such as an
+    // HTML page answering `prefers-color-scheme`. In a SideEffect, so it is sent on the
+    // thread the Host runs on, after a composition that read the new value.
+    SideEffect { host.reportSystemScheme(systemDark) }
     // The answer goes back to the Host, which asked a question it cannot answer itself:
     // an adaptive theme names no system, and the one that ends up running is worked out
     // here where the platform is. Only when it changes, the way a size class is reported.
@@ -720,6 +766,8 @@ private fun ComposeRustTree(
         }
     }.value
     SideEffect {
+        reportInputs.safeArea = safeArea
+        reportInputs.everyDp = reportEveryDp
         measuredSize?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
