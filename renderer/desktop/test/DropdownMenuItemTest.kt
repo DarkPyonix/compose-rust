@@ -72,6 +72,35 @@ class DropdownMenuItemTest {
     }
 
     @Test
+    fun fr64_fluent_dropdown_displays_all_options_below_its_anchor() = runComposeUiTest {
+        val records = mutableListOf<Mutation>(
+            Mutation.SetTheme(Theme(DesignSystem.Fluent, DesignSystem.Material3, ColorScheme.Light, false)),
+            Mutation.Create(1, WidgetKind.Dropdown),
+            Mutation.SetProp(1, PropertyKind.SelectedIndex, PropertyValue.Integer(0)),
+        )
+        for (index in 0..3) {
+            val id = index + 2
+            records.add(Mutation.Create(id, WidgetKind.Text))
+            records.add(Mutation.SetProp(id, PropertyKind.Text, PropertyValue.Text("Option ${index + 1}")))
+            records.add(Mutation.Insert(1, id, index))
+        }
+        val connection = FakeHostConnection(records)
+        setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
+        waitForIdle()
+        val anchor = onNodeWithTag(nodeTestTag(1)).getUnclippedBoundsInRoot()
+        onNodeWithText("Option 1").performClick()
+        waitForIdle()
+        val popup = onNodeWithTag(dropdownPopupTestTag(1))
+        popup.assertIsDisplayed()
+        onNodeWithText("Option 4").assertIsDisplayed()
+        val bounds = popup.getUnclippedBoundsInRoot()
+        assertTrue(bounds.top >= anchor.bottom, "the flyout must open below the field when there is room")
+        val second = onNodeWithText("Option 2").getUnclippedBoundsInRoot()
+        val fourth = onNodeWithText("Option 4").getUnclippedBoundsInRoot()
+        assertTrue(bounds.height >= fourth.bottom - second.top, "the flyout must fit the visible rows")
+    }
+
+    @Test
     fun fr64_below_anchor_position_provider_places_popup_under_anchor() {
         val anchor = IntRect(left = 40, top = 24, right = 160, bottom = 56)
         val window = IntSize(width = 800, height = 600)
