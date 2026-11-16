@@ -52,7 +52,7 @@ What the crate contains today:
   checks it and links it (see [Getting started](#-getting-started)).
 
 What it does **not** contain yet is its own authoring API. `#[composable]`, the `Recomposer`
-and `launch` are in progress ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)), targeting **1.0.0 on 2026-10-20**. Until then the crate is a
+and `launch` are in progress ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)), targeting **1.0.0 on 2026-11-14** (the window-code move to the fork finishes on 2026-10-31, plus two weeks of stabilisation). Until then the crate is a
 foundation for a layer that builds the tree, not something you write screens with directly.
 
 ### The planned shape

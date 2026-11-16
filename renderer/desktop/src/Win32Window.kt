@@ -314,6 +314,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
     // about the window it sits in is read from here.
     var size = IntSize(measured.width, measured.height)
     val textInput = NativeTextInput()
+    val synthetic = System.getenv("DXC_SYNTH")?.let { SyntheticInput(it) }
     // What the window would tell a reader who cannot see it, read after each frame that
     // painted and handed on when it has changed. Where it goes is UI Automation, which
     // the window answers for rather than this file.
@@ -321,6 +322,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         if (report) {
             System.err.println("compose-rust: the window has ${elements.size} things to say")
         }
+        synthetic?.noteElements(elements)
         window.describeTo(elements)
     }
     // Kept rather than left to the scene. What a scene picks for itself is the toolkit's
@@ -362,12 +364,16 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         // edge this is the only place that runs at all.
         work.runPending()
         nanos += FRAME_NANOS
+        val begun = System.nanoTime()
+        LatencyTrace.mark("draw begin (invalidated=${scene.hasInvalidations()})")
         val at = drawFrame(window, context, scene, nanos)
         if (at != null) {
             size = at
             painted = true
             drew = true
+            LatencyTrace.mark("draw end ${at.width}x${at.height}")
         }
+        LatencyTrace.frameDrawn(System.nanoTime() - begun)
     }
     registerFrameCallback()
     val started = System.nanoTime()
@@ -394,8 +400,14 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             // one Windows delivers to, so the messages of this frame arrive here or not
             // at all.
             pumpWindowEvents(if (busy) 0.0 else FRAME_SECONDS)
+            LatencyTrace.mark("loop turn")
             work.runPending()
             var heard = false
+            for (event in synthetic?.due(System.nanoTime(), size) ?: emptyList()) {
+                scene.receive(event, win32 = true)
+                textInput.receive(event)
+                LatencyTrace.mark("synthetic ${event.kind} sent")
+            }
             for (event in drainWindowEvents()) {
                 if (report && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
@@ -410,10 +422,18 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
                         readDroppedPaths()
                     }
                 }
+                if (LatencyTrace.enabled && event.kind != WindowEvent.POINTER_MOVE) {
+                    LatencyTrace.mark("window heard ${event.kind}")
+                }
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
                 heard = true
             }
+            // DXC_SYNTH's resize and keys modes post through dxc_native_debug_resize and
+            // dxc_native_debug_key, which this platform answers and does nothing: a real
+            // drag or key press on Windows goes through SendInput, which nothing here
+            // drives yet. Only the type and click modes, sent as WindowEvent through
+            // synthetic.due above, work on this platform today.
             // Only when there is something to draw. A window that is being looked at
             // rather than used should cost a comparison a frame.
             if (!painted || heard || scene.hasInvalidations()) {
@@ -427,6 +447,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
             reportCaret(textInput)
             busy = heard || drew
         }
+        LatencyTrace.summary()
     } finally {
         // In this order. A message dispatched after the scene has closed would otherwise
         // be a frame drawn into it.
