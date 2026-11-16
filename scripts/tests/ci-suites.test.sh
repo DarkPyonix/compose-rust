@@ -7,9 +7,12 @@
 # - Its plan job runs scripts/ci-suites.sh, and every other job runs only when the plan says so,
 #   and so every job is named in the script and every name in the script is a job.
 # - The script's answers: `all` is every job with the resize timings off (the window-pin probe
-#   gates, so it is in), `measure` test_windows_resize with the timings on, `all,measure` both,
-#   `fast` the three short ones, a list exactly the suites and jobs it names plus the Windows kit for a job
-#   that downloads it, and an unknown name is an error, not a smaller run.
+#   gates, so it is in), `measure` test_windows_resize and the Windows kit it resizes with the
+#   timings on, `all,measure` both, `fast` the three short ones, a list exactly the suites and
+#   jobs it names plus the Windows kit for a job that downloads it, and an unknown name is an
+#   error, not a smaller run.
+# - The jobs the script brings the kit for are exactly the ci.yml jobs that need
+#   windows_static_kit, so a job that takes the kit never runs without it being built.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 suites="$root/scripts/ci-suites.sh"
@@ -53,6 +56,18 @@ if '      measure: ${{ steps.choose.outputs.measure }}' not in body:
 if "      metrics: ${{ needs.plan.outputs.measure == 'true' }}" not in body:
     problems.append('test_windows_resize does not take its metrics input from the plan')
 
+kit_list = re.search(r'^needs_windows_kit=\(([^)]*)\)$', script, re.M)
+kit_list = sorted(kit_list.group(1).split()) if kit_list else []
+kit_needers = []
+for job in work:
+    block = re.search(r'^  ' + job + r':\n((?:    .*\n|\n)*)', body, re.M).group(1)
+    needs = re.search(r'^    needs: (.*)$', block, re.M)
+    if needs and re.search(r'\bwindows_static_kit\b', needs.group(1)):
+        kit_needers.append(job)
+if sorted(kit_needers) != kit_list:
+    problems.append(f'the jobs that need windows_static_kit in ci.yml ({sorted(kit_needers)}) are not '
+                    f'the ones scripts/ci-suites.sh brings the kit for ({kit_list})')
+
 for problem in problems:
     print('FAIL  ' + problem, file=sys.stderr)
 if problems:
@@ -67,8 +82,8 @@ every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n
 [[ "$(on all)" == *" test_windows_resize "* ]] && ok "all runs the window-pin probe" || fail "all did not run test_windows_resize"
 [[ "$(measures all)" == false ]] && ok "all leaves the resize timings off" || fail "all measured: $(measures all)"
 [[ "$(on '')" == "$every_job" && "$(measures '')" == false ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
-[[ "$(on measure)" == "test_windows_resize " && "$(measures measure)" == true ]] &&
-    ok "measure runs test_windows_resize with the timings on" || fail "measure ran $(on measure), measure=$(measures measure)"
+[[ "$(on measure)" == "test_windows_resize windows_static_kit " && "$(measures measure)" == true ]] &&
+    ok "measure runs test_windows_resize and the kit it resizes with the timings on" || fail "measure ran $(on measure), measure=$(measures measure)"
 [[ "$(on all,measure)" == "$every_job" && "$(measures all,measure)" == true ]] &&
     ok "all,measure is every job with the timings on" || fail "all,measure ran $(on all,measure), measure=$(measures all,measure)"
 [[ "$(measures fast)" == false ]] && ok "fast leaves the resize timings off" || fail "fast measured"
@@ -78,6 +93,9 @@ every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n
     ok "a list runs exactly the jobs it names" || fail "the list ran $(on 'test_windows_c, test')"
 [[ "$(on test_samples)" == "test_samples windows_static_kit " ]] &&
     ok "a job that takes the Windows kit brings the kit" || fail "test_samples ran $(on test_samples)"
+[[ "$(on test_windows_resize)" == "test_windows_resize windows_static_kit " && "$(measures test_windows_resize)" == false ]] &&
+    ok "test_windows_resize alone brings the kit it resizes, with the timings off" ||
+    fail "test_windows_resize ran $(on test_windows_resize), measure=$(measures test_windows_resize)"
 for name in not_a_job test_windows_resize_metrics test_windows_resize_probe; do
     if "$suites" "$name" >/dev/null 2>&1; then
         fail "the unknown name $name was accepted"

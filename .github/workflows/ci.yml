@@ -29,9 +29,9 @@ jobs:
     outputs:
       test: ${{ steps.choose.outputs.test }}
       test_graalvm_renderer: ${{ steps.choose.outputs.test_graalvm_renderer }}
-      test_windows_resize: ${{ steps.choose.outputs.test_windows_resize }}
       windows_static_kit: ${{ steps.choose.outputs.windows_static_kit }}
       windows_static_consumer: ${{ steps.choose.outputs.windows_static_consumer }}
+      test_windows_resize: ${{ steps.choose.outputs.test_windows_resize }}
       test_native_renderer: ${{ steps.choose.outputs.test_native_renderer }}
       test_windows_c: ${{ steps.choose.outputs.test_windows_c }}
       package_windows_host: ${{ steps.choose.outputs.package_windows_host }}
@@ -58,14 +58,7 @@ jobs:
     needs: plan
     uses: ./.github/workflows/test-graalvm-renderer.yml
     secrets: inherit
-  test_windows_resize:
-    if: needs.plan.outputs.test_windows_resize == 'true'
-    needs: plan
-    uses: ./.github/workflows/test-windows-resize-metrics.yml
-    secrets: inherit
-    with:
-      metrics: ${{ needs.plan.outputs.measure == 'true' }}
-  # The Windows static renderer is the longest job of a run, and three workflows below need it.
+  # The Windows static renderer is the longest job of a run, and five jobs below need it.
   # It is built here once, and they take it from this run instead of each building the same
   # commit again; the application checks against it run beside them.
   windows_static_kit:
@@ -82,6 +75,15 @@ jobs:
     with:
       part: consumer
     secrets: inherit
+  # The resize gate drags the kit's renderer, the release build that ships, rather than
+  # building a debug one of its own, which took almost two hours of its three.
+  test_windows_resize:
+    if: needs.plan.outputs.test_windows_resize == 'true'
+    needs: [plan, windows_static_kit]
+    uses: ./.github/workflows/test-windows-resize-metrics.yml
+    secrets: inherit
+    with:
+      metrics: ${{ needs.plan.outputs.measure == 'true' }}
   test_native_renderer:
     if: needs.plan.outputs.test_native_renderer == 'true'
     needs: [plan, windows_static_kit]
