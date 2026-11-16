@@ -1367,6 +1367,8 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 
 **macOS에서 신호등 버튼을 직접 그리지 않습니다.** 위치, 모양, 호버 동작, 전체화면 전환, 접근성 레이블이 전부 시스템 소유입니다. 흉내 내면 반드시 어긋나고, 그건 네이티브를 표방하는 프로젝트에서 가장 눈에 띄는 실패입니다. AWT가 제공하는 클라이언트 속성(`apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`)으로 충분하며 JNI가 필요 없습니다.
 
+**macOS 창의 제목은 시스템이 보여 줍니다** ([leader, provisional] (darkpyonix leader, 2026-11-16)). 시스템 캡션이 있는 macOS 창은 창 제목을 시스템을 통해 보여 줍니다(`windowTitleVisible`이 참). `FullSize` 창은 시스템 제목을 보여 주지 않으며, 제목이 필요하면 애플리케이션이 직접 그립니다. 30.2의 `SystemCaption`은 이 값에 기댑니다.
+
 #### 19.2 콘텐츠 안전 영역
 
 콘텐츠가 타이틀바 아래까지 확장되면 **그 영역과 겹치는 문제**가 생깁니다. macOS 신호등 버튼 자리에 앱의 버튼을 그리면 둘 다 못 쓰게 됩니다.
@@ -1407,7 +1409,7 @@ LaunchBuilder::new()
   압니다.
 - `chrome`: `Chrome::Modern`(기본) 또는 `Chrome::System`(플랫폼 기본 타이틀바)
 - `Chrome::System`은 없애지 않습니다. 시스템 타이틀바가 필요한 도구형 앱이 있고, 무엇보다 **Modern이 깨졌을 때 돌아갈 곳**이 있어야 합니다.
-- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 그것은 디자인 시스템과 플랫폼의 몫입니다(FR-14).
+- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 버튼의 종류, 크기, 순서, 붙는 끝은 실제 운영체제의 몫이고, 디자인 시스템이 정하는 것은 그 버튼을 칠하는 색뿐입니다(19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule)).
 
 **어떻게 건너가는가: 경계 함수는 바뀌지 않습니다.** `compose_rust_renderer_run`에 인자를 붙이는 길은 PR-2에 걸리고, C 심과 iOS의 `@CName`과 스모크 하네스와 Rust 선언을 모두 따라가야 합니다. 그럴 필요가 없습니다.
 
@@ -1474,7 +1476,7 @@ Window::new().chrome(Chrome::FullSize)
 ```
 
 - **`Chrome::FullSize`**: 콘텐츠가 창 맨 위에서 시작하고, Renderer는 바를 찾지 않으며 캡션 띠를 남기지 않습니다. 창 버튼(macOS 신호등, Windows 캡션 버튼)은 그대로 그 자리에 그려집니다. 그 밖은 `Chrome::Modern`과 같습니다(19.5, 19.7).
-- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(디자인 시스템 값, 지금 46dp x 3)이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
+- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(Windows의 값 46dp x 3 = 138dp이고 어느 디자인 시스템에서나 같습니다, 19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule))이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. Renderer가 버튼을 그리는 Linux 창에서는 그 데스크톱의 버튼이 오른쪽 끝에 있으므로 `trailing`이 그 묶음의 폭이고 `leading`은 0입니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
 - **전달**: Renderer는 창 크기를 Host에 알릴 때 같은 기록에 이 세 값을 함께 싣고, 값이 바뀔 때(창 모드, DPI, 최대화) 다시 보냅니다. 추가 전용이고 스키마 해시가 움직입니다. Host 쪽 읽는 방법은 dioxus-compose가 둡니다.
 - **기본 드래그 영역**: `FullSize`에서 창 맨 위 `top` 높이의 띠 가운데 상호작용 위젯이 없는 곳은 창을 끄는 영역입니다(19.2의 드래그 규칙과 같습니다). 애플리케이션은 노드에 `WindowDrag(bool)` 모디파이어를 달아 그 노드를 드래그 영역으로 만들거나(true) 빼낼 수 있습니다(false).
 - **macOS**: 창은 이미 콘텐츠를 타이틀바 아래까지 그리고 타이틀바를 투명하게 둡니다(19.1). 이 모드는 Renderer의 배치 규칙만 바꾼다는 판단이며, 포크의 창 코드 변경이 필요 없음을 테스트로 확인합니다. 필요하다고 드러나면 19.8대로 포크가 먼저입니다.
@@ -1487,9 +1489,18 @@ Window::new().chrome(Chrome::FullSize)
 4. 맨 위 띠의 빈 곳을 끌면 창이 움직이고, 버튼 위에서는 움직이지 않습니다. `WindowDrag(false)`를 단 노드 위에서는 움직이지 않고, `WindowDrag(true)`를 단 노드 위에서는 그 띠 밖이어도 움직입니다.
 5. `FullSize`를 고르지 않은 앱은 지금과 같습니다.
 
-#### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
+#### 19.5 창 버튼의 모양은 운영체제가 정합니다
 
-19.3이 "창 버튼의 색·위치·모양은 디자인 시스템과 플랫폼의 몫"이라고 정한 것의 구현 자리는 `ComponentRules.caption()`입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬.
+**[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 창 버튼은 디자인 시스템이 아니라 실제 운영체제를 따릅니다.** Windows에서는 어느 디자인 시스템이든 Windows 11의 캡션 버튼을 그립니다. 각 46×32dp이고 오른쪽 끝에 최소화·최대화·닫기 순서로 붙으며, 최대화 버튼은 포크의 네이티브 히트 테스트가 `HTMAXBUTTON`을 돌려주는 자리, 곧 Snap Layouts가 열리는 자리에 있습니다. Linux에서는 그 데스크톱의 버튼을 그립니다. GNOME 세션은 Adwaita, KDE 세션은 Breeze, 그 밖의 세션은 Deepin의 버튼입니다. macOS는 시스템이 신호등을 그리고 Renderer는 아무것도 그리지 않습니다(19.1). Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 애플리케이션이 Windows와 Linux에서 신호등을 얻던 것이 이 규칙이 고치는 것입니다. Windows에서 그 신호등은 왼쪽에 그려졌지만 네이티브는 오른쪽 끝의 138dip을 버튼으로 답했으므로, 보이는 버튼은 눌리지 않고 보이지 않는 버튼이 오른쪽에 있었습니다.
+
+구현 자리는 `ComponentRules.caption()`이고, 어느 시스템의 규칙을 물을지는 플랫폼이 고릅니다. Windows는 Fluent 2의 캡션, Linux는 그 데스크톱의 디자인 시스템의 캡션입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬. 붙는 끝, 너비와 높이, 모양, 간격과 가장자리 여백, 글리프 두께는 그 플랫폼의 값입니다. 채움과 글리프의 색은 애플리케이션이 고른 디자인 시스템의 토큰을 그 플랫폼의 규칙대로 씁니다. 제목 정렬은 막대의 일이므로 계속 애플리케이션의 디자인 시스템이 답합니다. Renderer가 창 버튼을 그리지 않는 플랫폼(macOS, iOS, Android, 브라우저)에서는 디자인 시스템 자신의 답이 남지만 그려지지 않습니다.
+
+수용 기준:
+
+1. Windows: 일곱 디자인 시스템(Cupertino와 Liquid Glass를 포함해) 어느 것을 고른 창이든 각 46×32dp 버튼 셋이 오른쪽 끝에 최소화·최대화·닫기 순서로 놓이고, 최대화 버튼은 창 오른쪽 끝에서 46dp부터 92dp까지, 위에서 32dp 안에 있어 네이티브가 `HTMAXBUTTON`을 돌려주는 사각형과 같습니다. `WindowSafeArea`는 `leading=0`, `trailing=138`입니다(`fr19_5_windows_draws_windows_caption_buttons_under_every_design_system`).
+2. Linux: GNOME, KDE, 그 밖의 세션에서 일곱 디자인 시스템 어느 것을 고른 창이든 각각 Adwaita, Breeze, Deepin의 버튼 모양과 크기와 간격으로 오른쪽 끝에 놓이고, `WindowSafeArea`는 `leading=0`, `trailing`이 그 묶음의 폭입니다(`fr19_5_linux_draws_the_desktops_caption_buttons_under_every_design_system`).
+3. macOS: Apple 디자인 시스템이든 아니든 Renderer가 창 버튼을 그리지 않고, `WindowSafeArea`는 시스템이 잰 신호등의 폭을 `leading`에 싣고 `trailing=0`입니다(`fr19_5_macos_leaves_the_traffic_lights_to_the_system`).
+4. 플랫폼 자신의 디자인 시스템(Windows의 Fluent 2, GNOME의 Adwaita, KDE의 Breeze, 그 밖의 Linux의 Deepin)을 고른 창의 버튼은 이 규칙 전과 같습니다(`fr19_5_the_platforms_own_design_system_draws_the_caption_it_drew_before`).
 
 버튼의 **순서는 붙는 끝을 따라갑니다**. 앞쪽 끝은 닫기·최소화·확대, 뒤쪽 끝은 최소화·최대화·닫기입니다. 같은 줄을 반대쪽으로 옮기기만 하면 읽는 사람이 최소화를 찾는 자리에 닫기가 놓입니다.
 
@@ -1505,6 +1516,7 @@ Window::new().chrome(Chrome::FullSize)
 - 네이티브 진입점이 창 절차를 바꿔 끼웁니다. 창은 AWT가 자기 스레드에서 나중에 만들므로, Kotlin과 이 파일 사이에 손으로 쓴 다리를 놓지 않기 위해 진입점이 스레드 하나를 띄워 `SunAwtFrame` 클래스의 우리 창이 나타나기를 기다린 뒤 한 번 바꿔 끼웁니다. 실패하면 평범한 시스템 타이틀바가 남습니다. 더 나쁜 모습이고 동작하는 창이므로 시작을 거부할 일이 아닙니다.
 - 캡션 띠의 버튼 자리는 클라이언트 영역으로 남기고 나머지는 `HTCAPTION`을 돌려줍니다. 그래서 끌기, 두 번 눌러 최대화, 오른쪽 눌러 시스템 메뉴가 전부 시스템 것으로 돌아옵니다.
 - **Snap Layouts의 최대화 버튼 호버 플라이아웃은 아직 없습니다.** 그것은 `HTMAXBUTTON`을 최대화 버튼의 사각형에서만 돌려줘야 하는데, 그 사각형은 디자인 시스템이 정하고 Kotlin이 압니다. 네이티브가 그것을 알려면 Kotlin에서 네이티브로 값을 보내는 경로가 필요하고 지금은 없습니다. 끌어서 스냅하는 것과 키보드 스냅은 프레임이 그대로이므로 동작합니다.
+  - [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 최대화 버튼의 사각형은 이제 디자인 시스템이 아니라 Windows가 정합니다(19.5). 포크의 `win32_caption.h`가 오른쪽 끝에서 두 번째 46dip에서 `HTMAXBUTTON`을 돌려주고, Renderer는 어느 디자인 시스템에서나 최대화 버튼을 그 자리에 그리므로, Kotlin에서 네이티브로 사각형을 보내는 경로가 필요하지 않습니다.
 
 #### 19.8 데스크톱 창 코드는 Compose의 포크가 가집니다 (`Agreed`)
 
@@ -2251,18 +2263,28 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 시스템 캡션에 맡길지는 `CaptionStyle`의 `titlePlacement`가 답합니다. 값은 `Bar`와
 `SystemCaption`입니다.
 
-- Cupertino와 Liquid Glass는 캡션 높이가 있는 창에서 `SystemCaption`을 답하고 막대 안에는
-  제목을 그리지 않습니다. 캡션이 없는 모바일 화면에서는 막대가 제목을 그립니다.
-- 나머지 다섯 시스템은 `Bar`를 답하고, 기존 `titleAlignment`에 따라 앞쪽 또는 가운데에
-  제목을 놓습니다.
+[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 그 답은 디자인 시스템이 아니라
+플랫폼이 정합니다. 제목을 시스템 캡션에 맡길 수 있는 것은 운영체제가 캡션을 그리는 창뿐이고,
+19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows에서는, 그리고 Linux에서 Renderer가
+캡션을 그리는 창에서는 제목을 받아 줄 시스템 캡션이 없습니다. 창 관리자가 타이틀바를 그리는 Linux
+창(Kotlin/Native Renderer)은 캡션 높이가 0이라 아래 셋째 항목을 따릅니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
+막대에도 캡션에도 제목이 없는 창이 됩니다.
+
+- macOS에서 캡션 높이가 있는 창은 어느 디자인 시스템이든 `SystemCaption`을 답하고 막대 안에는
+  제목을 그리지 않습니다.
+- Windows와 Linux의 창은 어느 디자인 시스템이든 `Bar`를 답하고, 기존 `titleAlignment`에 따라
+  앞쪽 또는 가운데에 제목을 놓습니다. Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 창도
+  제목을 막대에 둡니다.
+- 캡션이 없는 화면(캡션 높이가 0인 창, 모바일 화면)에서는 막대가 제목을 그립니다.
 - 자식 콘텐츠와 막대의 캡션 띠 점유는 바뀌지 않습니다. 달라지는 것은 제목 한 줄의 배치뿐입니다.
 
 수용 기준:
 
-1. 캡션 높이가 같은 `TopAppBar(title)`를 Cupertino와 Fluent 2로 그리면 Cupertino 막대에는
-   제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
-2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
-3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+1. 캡션 높이가 같은 `TopAppBar(title)`를 macOS와 Windows에서 그리면 macOS 막대에는 제목 노드가
+   없고 Windows 막대에는 하나 있습니다. Cupertino와 Fluent 2 어느 쪽을 골라도 같습니다.
+2. Windows와 Linux에서 Cupertino와 Liquid Glass를 고른 창의 막대에 제목 노드가 하나 있습니다.
+3. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
+4. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
 
 #### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
 
@@ -4870,6 +4892,9 @@ pub mod storage {
 13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
 14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
 15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+    - 측정값(2026-11-16, macOS arm64, 창 핀 a187dd1e, 디버그 빌드, 다섯 번 실행): 뷰가 없을 때 프레임 시간 1.34~1.43ms, 뷰 넷일 때 1.47~1.51ms입니다. 뷰 넷의 비용은 프레임당 0.08~0.14ms이고, 허용치(뷰 없는 값의 10% + 0.05ms)까지 가장 가까웠던 실행의 여유는 0.04ms입니다. 여유가 얇으므로 이 시험이 다시 실패하면 잡음이 아니라 비용이 늘어난 것으로 읽습니다.
+    - 재는 방법: 두 화면을 번갈아 세 번씩 재고 각 화면의 가장 낮은 중앙값을 씁니다. 다른 프로세스는 시간을 더할 뿐이므로 가장 낮은 값이 실제 비용에 가장 가깝고, 실제 비용을 가리지 못합니다. 프레임이 서른 장에 못 미치면 실패합니다.
+    - CI 러너에서는 두 값을 "budget not judged on CI"라는 말과 함께 찍고 판정하지 않습니다(환경 변수 `CI`가 `true`일 때). 공유 러너의 프레임 시간은 예산의 10%보다 크게 흔들립니다. 프레임이 모자라면 CI에서도 실패합니다. 예산은 개발자 기기와 병합 게이트에서 판정합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
 
@@ -5399,6 +5424,8 @@ compose_rust_host_dispatch_event: click 1
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
   - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
 - macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
+- Windows에서 `launch`는 Host가 만든 스레드 하나(`compose-rust-ui`, 스택 64 MB 예약)에서 `compose_rust_renderer_run`을 호출하고, 호출한 스레드는 그 스레드가 끝나기를 기다립니다([leader, provisional] (darkpyonix leader, 2026-11-16)). Windows 메인 스레드의 스택은 실행 파일의 링크가 정하며 기본 1 MB라서 Compose의 재귀(조합, 측정, 그리기)를 담지 못합니다. Renderer UI 스레드는 여전히 하나이고 Host는 그 스레드에서만 돕니다(PR-1). `launch` 없이 루프를 직접 돌리는 애플리케이션은 스택을 스스로 마련합니다.
+  - 수용 기준: Windows에서 1 MB 스택이 담지 못하는 첫 깊이의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다. 그 깊이는 같은 단계가 재서 정합니다(`check-windows-consumer.sh` 3e). **(CI 확인 전)**
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**
