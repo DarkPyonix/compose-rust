@@ -57,7 +57,6 @@ KNOWN_HEAVY = [
     "test-native-renderer.yml",
     "test-samples.yml",
     "test-windows-resize-metrics.yml",
-    "test-windows-resize-probe.yml",
     "package-windows-host.yml",
 ]
 

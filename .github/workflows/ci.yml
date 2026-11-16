@@ -6,8 +6,9 @@ on:
       suites:
         # all (the default, what a release check runs, every job that gates a merge), fast (the
         # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
-        # about two hours), measure (the jobs that only report numbers), or a comma list of
-        # these and job names. scripts/ci-suites.sh says which jobs each runs.
+        # about two hours), measure (the resize timings, which test_windows_resize reports only
+        # when asked), or a comma list of these and job names. scripts/ci-suites.sh says which
+        # jobs each runs.
         description: 'all, fast, measure, or suites and job names separated by commas'
         type: string
         default: all
@@ -28,11 +29,10 @@ jobs:
     outputs:
       test: ${{ steps.choose.outputs.test }}
       test_graalvm_renderer: ${{ steps.choose.outputs.test_graalvm_renderer }}
-      test_windows_resize_metrics: ${{ steps.choose.outputs.test_windows_resize_metrics }}
+      test_windows_resize: ${{ steps.choose.outputs.test_windows_resize }}
       windows_static_kit: ${{ steps.choose.outputs.windows_static_kit }}
       windows_static_consumer: ${{ steps.choose.outputs.windows_static_consumer }}
       test_native_renderer: ${{ steps.choose.outputs.test_native_renderer }}
-      test_windows_resize_probe: ${{ steps.choose.outputs.test_windows_resize_probe }}
       test_windows_c: ${{ steps.choose.outputs.test_windows_c }}
       package_windows_host: ${{ steps.choose.outputs.package_windows_host }}
       packager_linux: ${{ steps.choose.outputs.packager_linux }}
@@ -41,6 +41,7 @@ jobs:
       packager_macos: ${{ steps.choose.outputs.packager_macos }}
       test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
       test_samples: ${{ steps.choose.outputs.test_samples }}
+      measure: ${{ steps.choose.outputs.measure }}
     steps:
       - uses: actions/checkout@v4
       - id: choose
@@ -57,11 +58,13 @@ jobs:
     needs: plan
     uses: ./.github/workflows/test-graalvm-renderer.yml
     secrets: inherit
-  test_windows_resize_metrics:
-    if: needs.plan.outputs.test_windows_resize_metrics == 'true'
+  test_windows_resize:
+    if: needs.plan.outputs.test_windows_resize == 'true'
     needs: plan
     uses: ./.github/workflows/test-windows-resize-metrics.yml
     secrets: inherit
+    with:
+      metrics: ${{ needs.plan.outputs.measure == 'true' }}
   # The Windows static renderer is the longest job of a run, and three workflows below need it.
   # It is built here once, and they take it from this run instead of each building the same
   # commit again; the application checks against it run beside them.
@@ -85,11 +88,6 @@ jobs:
     uses: ./.github/workflows/test-native-renderer.yml
     with:
       windows_kit_built: true
-    secrets: inherit
-  test_windows_resize_probe:
-    if: needs.plan.outputs.test_windows_resize_probe == 'true'
-    needs: plan
-    uses: ./.github/workflows/test-windows-resize-probe.yml
     secrets: inherit
   test_windows_c:
     if: needs.plan.outputs.test_windows_c == 'true'
