@@ -6,8 +6,9 @@
 #   release check) still runs every job.
 # - Its plan job runs scripts/ci-suites.sh, and every other job runs only when the plan says so,
 #   and so every job is named in the script and every name in the script is a job.
-# - The script's answers: `all` is every job but the measurements, `measure` those, `fast` the
-#   three short ones, a list exactly the suites and jobs it names plus the Windows kit for a job
+# - The script's answers: `all` is every job with the resize timings off (the window-pin probe
+#   gates, so it is in), `measure` test_windows_resize with the timings on, `all,measure` both,
+#   `fast` the three short ones, a list exactly the suites and jobs it names plus the Windows kit for a job
 #   that downloads it, and an unknown name is an error, not a smaller run.
 set -eu
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -47,6 +48,10 @@ for job in work:
         problems.append(f'{job} does not need the plan')
     if f'      {job}: ${{{{ steps.choose.outputs.{job} }}}}' not in body:
         problems.append(f'the plan does not output {job}')
+if '      measure: ${{ steps.choose.outputs.measure }}' not in body:
+    problems.append('the plan does not output measure')
+if "      metrics: ${{ needs.plan.outputs.measure == 'true' }}" not in body:
+    problems.append('test_windows_resize does not take its metrics input from the plan')
 
 for problem in problems:
     print('FAIL  ' + problem, file=sys.stderr)
@@ -55,25 +60,31 @@ if problems:
 print('ok    ci.yml runs each job on the plan, the default is all, and the script names every job')
 PY
 
-on() { "$suites" "$1" | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
-every_job="$("$suites" all | sed 's/=.*//' | sort | tr '\n' ' ')"
-measuring="test_windows_resize_metrics test_windows_resize_probe "
-gating="$(printf '%s\n' $every_job | grep -vxE 'test_windows_resize_metrics|test_windows_resize_probe' | tr '\n' ' ')"
-[[ "$(on all)" == "$gating" ]] && ok "all runs every job but the measurements" || fail "all ran $(on all), not $gating"
-[[ "$(on '')" == "$gating" ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
-[[ "$(on measure)" == "$measuring" ]] && ok "measure runs the jobs that only report numbers" || fail "measure ran $(on measure)"
-[[ "$(on all,measure)" == "$every_job" ]] && ok "all,measure is every job" || fail "all,measure ran $(on all,measure)"
+on() { "$suites" "$1" | grep -v '^measure=' | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
+measures() { "$suites" "$1" | sed -n 's/^measure=//p'; }
+every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n' ' ')"
+[[ "$(on all)" == "$every_job" ]] && ok "all runs every job" || fail "all ran $(on all), not $every_job"
+[[ "$(on all)" == *" test_windows_resize "* ]] && ok "all runs the window-pin probe" || fail "all did not run test_windows_resize"
+[[ "$(measures all)" == false ]] && ok "all leaves the resize timings off" || fail "all measured: $(measures all)"
+[[ "$(on '')" == "$every_job" && "$(measures '')" == false ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
+[[ "$(on measure)" == "test_windows_resize " && "$(measures measure)" == true ]] &&
+    ok "measure runs test_windows_resize with the timings on" || fail "measure ran $(on measure), measure=$(measures measure)"
+[[ "$(on all,measure)" == "$every_job" && "$(measures all,measure)" == true ]] &&
+    ok "all,measure is every job with the timings on" || fail "all,measure ran $(on all,measure), measure=$(measures all,measure)"
+[[ "$(measures fast)" == false ]] && ok "fast leaves the resize timings off" || fail "fast measured"
 [[ "$(on fast)" == "test test_graalvm_renderer test_windows_c " ]] &&
     ok "fast is the tests, the GraalVM renderer smoke and the Windows C compile" || fail "fast ran $(on fast)"
 [[ "$(on 'test_windows_c, test')" == "test test_windows_c " ]] &&
     ok "a list runs exactly the jobs it names" || fail "the list ran $(on 'test_windows_c, test')"
 [[ "$(on test_samples)" == "test_samples windows_static_kit " ]] &&
     ok "a job that takes the Windows kit brings the kit" || fail "test_samples ran $(on test_samples)"
-if "$suites" not_a_job >/dev/null 2>&1; then
-    fail "an unknown name was accepted"
-else
-    ok "an unknown name is an error"
-fi
+for name in not_a_job test_windows_resize_metrics test_windows_resize_probe; do
+    if "$suites" "$name" >/dev/null 2>&1; then
+        fail "the unknown name $name was accepted"
+    else
+        ok "$name is an unknown name, an error"
+    fi
+done
 
 if [[ "$failures" -gt 0 ]]; then
     echo "$failures problem(s) in the suite selection" >&2
