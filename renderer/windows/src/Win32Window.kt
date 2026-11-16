@@ -81,8 +81,28 @@ internal class Win32Window private constructor(
     /** Whether the window is maximised, for the caption's maximise or restore glyph. */
     val maximised = androidx.compose.runtime.mutableStateOf(false)
 
-    /** The right-click menu of text and selections, drawn by the system. */
+    /** What a selection offers when Compose asks the platform's toolbar, drawn by the system. */
     private val textToolbar = Win32TextToolbar { native.window }
+
+    /**
+     * The flags this window's own text edit menu was last given (`Win32EditMenu.flagsFor`):
+     * 0 while it is off. Read by the checks.
+     */
+    var editMenuFlags = 0
+        private set
+
+    /**
+     * When this window's own text edit menu is on: while a field has focus, unless the
+     * application draws its menu ([Win32EditMenu.systemMenu]) or took this press for one.
+     */
+    private val editMenu = SystemEditMenuGate(Win32EditMenu.systemMenu) { field ->
+        val flags = Win32EditMenu.flagsFor(field)
+        editMenuFlags = flags
+        Win32EditMenu.set(native.window, flags)
+    }
+
+    /** Whether a field had the keyboard when the edit menu was last brought up to date. */
+    private var editMenuFocused = false
 
     /** Handed to UI Automation, which the C side answers for. */
     private val semantics = NativeSemantics { elements -> native.setAccessibility(elements) }
@@ -206,6 +226,7 @@ internal class Win32Window private constructor(
                 )
             }
             var heard = false
+            Win32EditMenu.current = editMenu
             for (event in Win32Loop.drainEvents()) {
                 if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                     System.err.println("compose-rust: window heard $event")
@@ -216,11 +237,13 @@ internal class Win32Window private constructor(
                 // Told which desktop it is, because the key numbers are Windows' own.
                 scene.receive(event, win32 = true)
                 textInput.receive(event)
+                noteForEditMenu(event)
                 heard = true
             }
             if (!painted || heard || scene.hasInvalidations()) {
                 draw()
             }
+            updateEditMenu(changed = heard || drew)
             // After the drawing, because that is when what is in the window has been placed.
             semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
             busy = heard || drew
@@ -247,6 +270,7 @@ internal class Win32Window private constructor(
         work.runPending()
         applyPointerCancel()
         var heard = false
+        Win32EditMenu.current = editMenu
         for (event in Win32Loop.drainEvents()) {
             if (reportInput && event.kind != WindowEvent.POINTER_MOVE) {
                 System.err.println("compose-rust: window heard $event")
@@ -255,6 +279,7 @@ internal class Win32Window private constructor(
             routeFileDrop(event)
             if (!withheld(event)) scene.receive(event, win32 = true)
             textInput.receive(event)
+            noteForEditMenu(event)
             heard = true
             // The application may have removed this window while handling the event.
             if (gone) return true
@@ -265,9 +290,43 @@ internal class Win32Window private constructor(
             draw()
         }
         if (gone) return true
+        updateEditMenu(changed = heard || drew)
         semantics.pushIfChanged(scene.density.density, afterDrawing = drew)
         return heard || drew
     }
+
+    /**
+     * A release of the secondary button ends a press the application took for a menu of its
+     * own, and the window's edit menu comes back on. Read after the scene had the event, and
+     * so after the window had already decided whether that release put its menu up.
+     */
+    private fun noteForEditMenu(event: WindowEvent) {
+        if (event.kind == WindowEvent.POINTER_UP && event.buttons and WindowEvent.SECONDARY_HELD == 0) {
+            editMenu.pointerReleased()
+        }
+    }
+
+    /**
+     * Tells the window's edit menu whether a field has the keyboard and what it allows. The
+     * field's state only moves with an event or a frame, so it is read again only after one
+     * ([changed]) or when a field gained or lost the keyboard.
+     */
+    private fun updateEditMenu(changed: Boolean) {
+        if (gone) return
+        val active = textInput.isActive
+        if (!changed && active == editMenuFocused) return
+        editMenuFocused = active
+        val value = if (active) textInput.focusedValue() else null
+        select()
+        editMenu.update(
+            focused = value != null,
+            hasSelection = value != null && !value.selection.collapsed,
+            hasText = value != null && value.text.isNotEmpty(),
+        )
+    }
+
+    /** Whether a text field of this window has the keyboard. Read by the checks. */
+    val textFieldFocused: Boolean get() = textInput.isActive
 
     /**
      * Takes the pointer that is held down in this window away from its content: the node that

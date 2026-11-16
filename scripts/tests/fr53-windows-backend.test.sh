@@ -24,7 +24,7 @@ done
 
 # Every check the Kotlin names is read back by the build script, and the lines it prints have
 # the shape the script greps. The wheel check rides in the same harness under its own number.
-names="$(grep -oE '"fr[0-9]+_windows_[a-z0-9_]+"' "$src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
+names="$(grep -oE '"fr[0-9]+(_[0-9]+)?_windows_[a-z0-9_]+"' "$src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
 [[ -n "$names" ]] || fail "Fr53WindowsCheck.kt names no fr53_windows check"
 for required in \
     fr53_windows_two_window_nodes_open_two_hwnds_and_close_one \
