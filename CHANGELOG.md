@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.0.11
+
+### Known issues
+
+- On Windows 10 and Windows Server 2022, a window resized by dragging an edge can show a gap at the moving edge for one to five frames of a drag. In the resize check 15 of 24 drags showed it on Windows Server 2022, and none of 24 on Windows Server 2025, the Windows 11 generation. Nothing is black, torn or stale, and the window is right once the drag stops. v0.0.10 has the same Windows window code, so this is not new in v0.0.11; it was found by a check that ran to its end for the first time. It is the Compose fork's window ([compose-multiplatform-core-extended#245](https://github.com/thisisthepy/compose-multiplatform-core-extended/issues/245)).
+- A Windows window does not keep its size in dp when the display scale changes while it is open: it ends a few pixels off (398 by 297 pixels where 400 by 300 was right, going from 200 % to 125 %). Fixed in the fork's window after this release's pin.
 
 ### Compose fork moved to 1.11.1-ext.5: the wheel scrolls on every desktop
 
