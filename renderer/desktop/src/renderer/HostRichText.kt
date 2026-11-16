@@ -130,6 +130,9 @@ internal fun HostRichText(
         if (blob != null && runs == null) {
             ReportRuns(node.id, "the run list is not a whole number of records", dispatcher)
         }
+        if (dev.darkpyonix.composerust.ui.platform.LatencyTrace.enabled && raw.startsWith("typed:")) {
+            dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("recompose typed Text len=${raw.length}")
+        }
         BasicText(
             text = raw,
             modifier = modifier,

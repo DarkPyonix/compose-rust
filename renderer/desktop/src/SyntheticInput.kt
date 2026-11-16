@@ -32,11 +32,12 @@ internal class SyntheticInput(what: String) {
         emptyList()
     }
     private var keysSent = 0
+    private val keyGap = (System.getenv("DXC_SYNTH_KEY_MS")?.toDoubleOrNull() ?: 700.0) / 1000.0
 
     /** The next key to post, as a key code and the letter it types, once it is time. */
     fun keysDue(now: Long): Pair<Int, String>? {
         if (keys.isEmpty() || !clicked || keysSent >= keys.size) return null
-        if (seconds(now) < 2.0 + 0.7 * keysSent) return null
+        if (seconds(now) < 2.0 + keyGap * keysSent) return null
         val letter = keys[keysSent++]
         return (ANSI_KEY_CODES[letter] ?: 0) to letter.toString()
     }

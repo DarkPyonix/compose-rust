@@ -647,6 +647,12 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             textInput.receive(event)
             heard = true
         }
+        if (LatencyTrace.fixDrain && heard) {
+            // What the keys just changed is told to the collectors now rather than on the
+            // next frame, so an edit heard on this frame is sent to the Host on this one.
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            work.runPending()
+        }
         // Only when there is something to draw. Every frame reaches the window by asking
         // the main thread for a drawable and waiting for it, and the main thread is where
         // AppKit answers everything else: sixty of those a second left the input method
@@ -681,6 +687,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
             // one AppKit delivers on, so the events of this frame arrive here or not at
             // all. Waiting the frame's length rather than sleeping afterwards, because a
             // window with nothing happening should rest rather than spin.
+            LatencyTrace.mark("loop pump begin")
             pumpWindowEvents(FRAME_SECONDS)
             LatencyTrace.mark("loop turn $frame")
             if (synthetic != null && synthetic.resizeDue(System.nanoTime())) {
@@ -736,6 +743,7 @@ private fun drawFrame(
     transparent: Boolean = false,
 ) {
     val texture = window.beginFrame()
+    LatencyTrace.mark("drawable acquired")
     // Zero means the system had no drawable to give, which happens when frames are made
     // faster than the screen takes them. The answer is to skip one.
     if (texture == 0L) return
@@ -756,11 +764,14 @@ private fun drawFrame(
     // A drawable comes back with whatever was last in it, and a window that shows what is
     // behind it must start every frame from nothing rather than from the last one.
     if (transparent) surface.canvas.clear(0)
+    LatencyTrace.mark("scene.render begin")
     scene.render(surface.canvas.asComposeCanvas(), nanos)
+    LatencyTrace.mark("scene.render end")
     // Submitted, not only recorded. Skia's Metal backend keeps the frame in a command
     // buffer of its own, and a drawable presented before that buffer runs is a drawable
     // with nothing in it: the window came up black with the paint never reaching the GPU.
     surface.flushAndSubmit(true)
+    LatencyTrace.mark("gpu submitted")
     surface.close()
     target.close()
     window.endFrame()

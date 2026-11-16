@@ -12,6 +12,11 @@ package dev.darkpyonix.composerust.ui.platform
 internal object LatencyTrace {
     val enabled: Boolean = System.getenv("DXC_REPORT_LATENCY") != null
 
+    /** Measuring only: DXC_LAG_FIX=1 turns on the same-frame path, so one binary shows both. */
+    private val fixValue: String? = System.getenv("DXC_LAG_FIX")
+    val fix: Boolean = fixValue == "1" || fixValue == "a"
+    val fixDrain: Boolean = fixValue == "1" || fixValue == "b"
+
     fun mark(label: String) {
         if (enabled) {
             val millis = System.nanoTime() / 1_000.0 / 1_000.0

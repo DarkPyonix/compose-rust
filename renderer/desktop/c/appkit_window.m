@@ -364,6 +364,19 @@ static void dxc_native_resize_report(void) {
             dxc_ticks_to_millis(dxc_resize_stats.callback_max_ticks));
 }
 
+/* Measuring only: one line on stderr with the monotonic clock in milliseconds, the same
+ * clock the renderer's own trace prints, when DXC_REPORT_LATENCY is set. */
+#include <time.h>
+static void dxc_lat(const char *label, double extra_ms_ago) {
+    static int enabled = -1;
+    if (enabled < 0) enabled = getenv("DXC_REPORT_LATENCY") != NULL;
+    if (!enabled) return;
+    struct timespec ts;
+    clock_gettime(CLOCK_UPTIME_RAW, &ts);
+    double ms = ts.tv_sec * 1000.0 + ts.tv_nsec / 1.0e6 - extra_ms_ago;
+    fprintf(stderr, "compose-rust: latency t=%.3f %s\n", ms, label);
+}
+
 /**
  * Lets the window answer for itself for a moment.
  *
@@ -545,6 +558,7 @@ void dxc_native_set_cursor(int32_t shape) {
 // `setMarkedText:` while a syllable is still being built. A path that only queued the key
 // would type English and lose every language that composes.
 - (void)keyDown:(NSEvent *)event {
+    dxc_lat("appkit keyDown received", 0);
     [self dxcSend:DXC_EVENT_KEY_DOWN event:event];
     // Handed to the input context rather than interpreted. Interpreting also turns keys
     // into editing commands for a text system this window does not have, and the keys
@@ -921,6 +935,12 @@ int32_t dxc_native_window_open(
         // Drawn at the density of the screen the window is on rather than in points, so
         // text is as sharp as the display can draw it.
         layer.contentsScale = window.backingScaleFactor;
+        if (getenv("DXC_MAX_DRAWABLES")) layer.maximumDrawableCount = atoi(getenv("DXC_MAX_DRAWABLES"));
+        if (getenv("DXC_NO_VSYNC")) layer.displaySyncEnabled = NO;
+        if (getenv("DXC_REPORT_LATENCY")) {
+            fprintf(stderr, "compose-rust: layer maximumDrawableCount=%lu displaySyncEnabled=%d\n",
+                    (unsigned long)layer.maximumDrawableCount, (int)layer.displaySyncEnabled);
+        }
         layer.drawableSize = CGSizeMake(width * layer.contentsScale,
                                         height * layer.contentsScale);
         view.wantsLayer = YES;
@@ -1099,7 +1119,9 @@ int32_t dxc_native_frame_begin(void *layer_pointer, void **texture_out) {
     dxc_on_main(^{
     @autoreleasepool {
         CAMetalLayer *layer = (__bridge CAMetalLayer *)layer_pointer;
+        dxc_lat("nextDrawable begin", 0);
         id<CAMetalDrawable> drawable = [layer nextDrawable];
+        dxc_lat("nextDrawable returned", 0);
         if (drawable == nil) {
             status = 1;
             return;
@@ -1132,7 +1154,12 @@ void dxc_native_frame_end(void *queue_pointer) {
             [drawable present];
         } else {
             [buffer presentDrawable:drawable];
+            [drawable addPresentedHandler:^(id<MTLDrawable> shown) {
+                double ago = (CACurrentMediaTime() - shown.presentedTime) * 1000.0;
+                dxc_lat("PRESENTED (on screen)", ago);
+            }];
             [buffer commit];
+            dxc_lat("present committed", 0);
         }
     }
     });

@@ -112,12 +112,22 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
             coroutineScope {
                 snapshotFlow { value.text }.collect { text ->
                     latest = text
+                    dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("field value changed (collector ran)")
                     if (text == lastSent || sending?.isActive == true) return@collect
                     sending = launch {
                         do {
-                            withFrameNanos { }
-                            lastSent = latest
-                            dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            if (dev.darkpyonix.composerust.ui.platform.LatencyTrace.fix) {
+                                withFrameNanos {
+                                    lastSent = latest
+                                    dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("TextChanged dispatch (in frame callback)")
+                                    dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                                }
+                            } else {
+                                withFrameNanos { }
+                                lastSent = latest
+                                dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("TextChanged dispatch (after frame, via dispatcher)")
+                                dispatcher.dispatch(HostEvent.TextChanged(nodeId, changeHandler, lastSent))
+                            }
                         } while (latest != lastSent)
                     }
                 }
@@ -186,7 +196,10 @@ internal fun HostTextField(node: Node, modifier: Modifier, dispatcher: EventDisp
 
     BasicTextField(
         value = value,
-        onValueChange = { value = it },
+        onValueChange = {
+            dev.darkpyonix.composerust.ui.platform.LatencyTrace.mark("compose onValueChange")
+            value = it
+        },
         modifier = inputModifier,
         enabled = enabled,
         singleLine = !multiline,
