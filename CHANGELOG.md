@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### A Windows window keeps its size in dp when the display scale changes
+
+On the Kotlin/Native Windows renderer a window now keeps its size in dp across a change of the display scale. Before, it took the rectangle Windows suggested, which Windows scales from the outer frame without knowing the window's own caption strip, so a 320 by 240 dp window at 200% came back at 398 by 297 pixels at 125% instead of 400 by 300. The fix is in the Compose fork's window (fork #243), and the window pin moves to it; Compose and the Windows build stay at `1.11.1-ext.5` ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).
+
 ### A Linux window redraws when the display scale changes
 
 The Kotlin/Native Linux renderer now draws a new frame as soon as `Xft.dpi` changes, at the new scale. Before, the old frame stayed on the screen until something else asked for one. With the fork's `1.11.1-ext.4` window, which keeps the window's size in dp, the window comes back at the same size in dp and sharp. The CI checks this, and the Windows renderer's sharpness at 100, 125, 150 and 200% and across a change of scale, with the renderer's own `fr82_*` checks ([#18](https://github.com/DarkPyonix/compose-rust/issues/18)).

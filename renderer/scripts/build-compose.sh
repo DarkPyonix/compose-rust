@@ -120,7 +120,14 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # which already sends a scroll where the last pointer event was, and the macOS renderer goes
 # through the fork's scene, so nothing here changes with it. The new scene code is Kotlin the
 # window build already compiles; the Windows C keeps its symbols.
-WINDOW_REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
+# Past 96ae925 (the v1.11.1-ext.5 commit, which this one still publishes as) it holds the
+# Windows window keeping its size in dp when the display scale changes: on WM_DPICHANGED it
+# restates the size it remembers at the new scale, instead of taking the rectangle Windows
+# scaled from the outer frame without knowing this window's caption strip (200% to 125% gave
+# 398 by 297 pixels for a 400 by 300 dp window). The arithmetic is in the new win32_dpi.h, tested in win32_shared_test.c
+# (fork #243). It is window C only; the Windows C keeps its symbols, and REVISION and
+# MINGW_REVISION stay at 96ae925.
+WINDOW_REVISION="ea0880c90fbf0368b7c8065a849fa690fb203888"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
