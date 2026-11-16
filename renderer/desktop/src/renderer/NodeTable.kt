@@ -349,6 +349,7 @@ class NodeTable {
             // A request against the editor's document, which the editor may refuse. What
             // it did is reported once the batch is applied.
             is Mutation.EditCode -> editCode(mutation)
+            is Mutation.EditCodeGroup -> editCodeGroup(mutation)
 
             // The editor's selection and scroll are this side's, so these are requests
             // too: each is checked against the document and refused, with a protocol
@@ -448,6 +449,47 @@ class NodeTable {
             mutation.endLine,
             mutation.endColumn,
             mutation.text,
+        )
+        collectCode(node)
+    }
+
+    private fun editCodeGroup(mutation: Mutation.EditCodeGroup) {
+        val node = nodes[mutation.nodeId] ?: return fail(
+            TableError.UNKNOWN_NODE,
+            "EditCodeGroup for unknown node ${mutation.nodeId}",
+        )
+        val code = node.code ?: return fail(
+            TableError.UNSUPPORTED_PROPERTY,
+            "EditCodeGroup on ${node.widget}",
+        )
+        if (mutation.malformed != null) {
+            code.hostEditGroupBroken(
+                mutation.requestId,
+                mutation.baseVersion,
+                mutation.malformed,
+                reportProtocolError = false,
+            )
+            collectCode(node)
+            return
+        }
+        var decodeError: String? = null
+        val records = CodeEditorRecords.decodeEditGroup(mutation.edits) { message ->
+            decodeError = message
+        }
+        if (records == null) {
+            code.hostEditGroupBroken(
+                mutation.requestId,
+                mutation.baseVersion,
+                decodeError ?: "unreadable edit group blob",
+                reportProtocolError = true,
+            )
+            collectCode(node)
+            return
+        }
+        code.hostEditGroup(
+            mutation.requestId,
+            mutation.baseVersion,
+            records,
         )
         collectCode(node)
     }
@@ -1024,6 +1066,7 @@ class NodeTable {
                 PropertyKind.OnVisibleRangeChange,
                 PropertyKind.OnEditorFocusChange,
                 PropertyKind.OnFoldChange,
+                PropertyKind.OnEditGroupResult,
                 -> widget == WidgetKind.CodeEditor
 
                 PropertyKind.OnCompositionChange ->

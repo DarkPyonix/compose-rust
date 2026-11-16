@@ -470,6 +470,25 @@ sealed interface Mutation {
 
     /** Moves input focus to [nodeId], or clears focus when [nodeId] is 0. */
     data class RequestFocus(val nodeId: Int) : Mutation
+
+    /** Replaces a group of ranges of a code editor's document atomically. */
+    data class EditCodeGroup(
+        val nodeId: Int,
+        val requestId: Int,
+        val baseVersion: Int,
+        val edits: ByteArray,
+        val malformed: String? = null,
+    ) : Mutation {
+        override fun equals(other: Any?): Boolean =
+            this === other ||
+                (other is EditCodeGroup && nodeId == other.nodeId &&
+                    requestId == other.requestId && baseVersion == other.baseVersion &&
+                    edits.contentEquals(other.edits) && malformed == other.malformed)
+
+        override fun hashCode(): Int =
+            (((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()) * 31 +
+                (malformed?.hashCode() ?: 0)
+    }
 }
 
 "#,
@@ -551,6 +570,9 @@ sealed interface Mutation {
                 ", val kind: Int, val window: Int, val x: kotlin.Float, val y: kotlin.Float",
             ),
             EventPayloadType::WindowRequest => output.push_str(", val request: Int, val key: String"),
+            EventPayloadType::CodeEditGroupResult => output.push_str(
+                ", val requestId: Int, val status: EditGroupStatus, val baseVersion: Int, val currentVersion: Int, val index: Int",
+            ),
         }
         output.push_str(") : HostEvent\n");
     }
@@ -602,6 +624,7 @@ object Protocol {
     private const val TAG_SET_WINDOW_THEME = 23
     private const val TAG_FOCUS_WINDOW = 24
     private const val TAG_REQUEST_FOCUS = 25
+    private const val TAG_EDIT_CODE_GROUP = 28
     private const val ENVELOPE_LENGTH = 12
     private const val ANIMATION_HEADER_LENGTH = 52
     private const val KEYFRAME_HEAD_LENGTH = 24
@@ -899,6 +922,48 @@ object Protocol {
                             flag(readU32(batch, base, available, offset + 12), offset + 12),
                         )
                     }
+                    TAG_EDIT_CODE_GROUP -> {
+                        if (length != 24) {
+                            if (length >= 12 && offset + 12 <= recordsLength) {
+                                val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                                val requestId = readU32(batch, base, available, offset + 8).toInt()
+                                val baseVersion =
+                                    if (length >= 16 && offset + 16 <= recordsLength) {
+                                        readU32(batch, base, available, offset + 12).toInt()
+                                    } else {
+                                        0
+                                    }
+                                onMutation(
+                                    Mutation.EditCodeGroup(
+                                        nodeId,
+                                        requestId,
+                                        baseVersion,
+                                        ByteArray(0),
+                                        malformed = "invalid EditCodeGroup record length $length",
+                                    ),
+                                )
+                            }
+                            requireRecordLength(length, 24, offset)
+                        }
+                        val nodeId = readU32(batch, base, available, offset + 4).toInt()
+                        val requestId = readU32(batch, base, available, offset + 8).toInt()
+                        val baseVersion = readU32(batch, base, available, offset + 12).toInt()
+                        val edits = try {
+                            readBytes(batch, base, available, offset + 16)
+                        } catch (error: ProtocolException) {
+                            onMutation(
+                                Mutation.EditCodeGroup(
+                                    nodeId,
+                                    requestId,
+                                    baseVersion,
+                                    ByteArray(0),
+                                    malformed = error.message ?: "invalid EditCodeGroup arena reference",
+                                ),
+                            )
+                            throw error
+                        }
+                        Mutation.EditCodeGroup(nodeId, requestId, baseVersion, edits)
+                    }
                     else -> throw ProtocolException("unknown mutation tag $tag", offset)
                 }
                 onMutation(mutation)
@@ -1056,6 +1121,7 @@ object Protocol {
             | EventPayloadType::WindowMove
             | EventPayloadType::WindowDrag
             | EventPayloadType::WindowDragOver
+            | EventPayloadType::CodeEditGroupResult
             | EventPayloadType::Zoom => {
                 writeln!(
                     output,
@@ -1109,6 +1175,7 @@ object Protocol {
             | EventPayloadType::WindowDragOver => 32,
             // A word and a string reference, the protocol error's shape.
             EventPayloadType::WindowRequest => 28,
+            EventPayloadType::CodeEditGroupResult => 36,
         };
         writeln!(
             output,
@@ -1414,6 +1481,15 @@ object Protocol {
                 output.push_str("                    out.putFloat(event.safeAreaTrailing)\n");
                 output.push_str("                }\n");
             }
+            EventPayloadType::CodeEditGroupResult => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putInt(event.requestId)\n");
+                output.push_str("                    out.putInt(editGroupStatusTag(event.status))\n");
+                output.push_str("                    out.putInt(event.baseVersion)\n");
+                output.push_str("                    out.putInt(event.currentVersion)\n");
+                output.push_str("                    out.putInt(event.index)\n");
+                output.push_str("                }\n");
+            }
         }
     }
     output.push_str(
@@ -1584,6 +1660,11 @@ object Protocol {
             "wheelDeltaModeTag",
             "WheelDeltaMode",
             crate::schema::WHEEL_DELTA_MODE_SCHEMA,
+        ),
+        (
+            "editGroupStatusTag",
+            "EditGroupStatus",
+            crate::schema::EDIT_GROUP_STATUS_SCHEMA,
         ),
     ] {
         writeln!(
@@ -3003,6 +3084,20 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             modifier: Modifier::MatchParentSize,
         },
         Mutation::RequestFocus { node_id: 1 },
+        Mutation::SetProp {
+            node_id: 12,
+            property: PropertyKind::OnEditGroupResult,
+            value: PropertyValue::Integer(28),
+        },
+        Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 8,
+            base_version: 1,
+            edits: vec![crate::code::CodeEdit::new(
+                CodeRange::of(0, 0, 0, 2),
+                "pub fn",
+            )],
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -3275,6 +3370,17 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
             handler_id: 0,
             payload: EventPayload::ApplicationReopen,
         },
+        HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: crate::schema::EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 2,
+                index: 1,
+            },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -3294,7 +3400,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 103,
+    "recordCount": 105,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -3306,7 +3412,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Thirty-three independently decodable event records concatenated in schema order",
+    "description": "Thirty-four independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -3340,7 +3446,8 @@ pub fn generate_vector_description() -> String {
       {{ "type": "WindowUnavailable", "offset": 870, "length": 16, "nodeId": 20, "handlerId": 205 }},
       {{ "type": "WindowClosed", "offset": 886, "length": 16, "nodeId": 20, "handlerId": 206 }},
       {{ "type": "WindowRequested", "offset": 902, "length": 34, "nodeId": 0, "handlerId": 0, "request": 3, "key": "ws/1:2" }},
-      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }}
+      {{ "type": "ApplicationReopen", "offset": 936, "length": 16, "nodeId": 0, "handlerId": 0 }},
+      {{ "type": "CodeEditGroupResult", "offset": 952, "length": 36, "nodeId": 12, "handlerId": 28, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 2, "index": 1 }}
     ]
   }}
 }}
@@ -3751,7 +3858,16 @@ fn write_code_editor_records(output: &mut String) {
     }
 
     output.push_str(
-        r#"/**
+        r#"/** One edit inside a grouped Host edit on a code editor. */
+data class CodeEditRecord(
+    val startLine: Int,
+    val startColumn: Int,
+    val endLine: Int,
+    val endColumn: Int,
+    val text: String,
+)
+
+/**
  * Reads the blobs a code editor carries.
  *
  * A record that cannot be read, a kind or a role this side does not know or a text that
@@ -3759,6 +3875,60 @@ fn write_code_editor_records(output: &mut String) {
  * is read regardless.
  */
 object CodeEditorRecords {
+    const val CODE_EDIT_LENGTH = 24
+
+    fun decodeEditGroup(bytes: ByteArray, onError: (String) -> Unit): List<CodeEditRecord>? {
+        if (bytes.size < 4) {
+            onError("edit group blob is ${bytes.size} bytes, shorter than the 4 byte count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val countLong = buffer.getInt(0).toLong() and 0xffff_ffffL
+        if (countLong > Int.MAX_VALUE) {
+            onError("edit group count $countLong is too large")
+            return null
+        }
+        val count = countLong.toInt()
+        val textBaseLong = 4L + countLong * CODE_EDIT_LENGTH
+        if (textBaseLong > bytes.size.toLong()) {
+            onError("edit group of $count records needs $textBaseLong bytes, but blob is ${bytes.size}")
+            return null
+        }
+        val textBase = textBaseLong.toInt()
+        val edits = ArrayList<CodeEditRecord>(count)
+        var maxTextEnd = textBase
+        for (index in 0 until count) {
+            val at = 4 + index * CODE_EDIT_LENGTH
+            val startLine = buffer.getInt(at)
+            val startColumn = buffer.getInt(at + 4)
+            val endLine = buffer.getInt(at + 8)
+            val endColumn = buffer.getInt(at + 12)
+            val textOffset = buffer.getInt(at + 16)
+            val textLength = buffer.getInt(at + 20)
+            if (textOffset < 0 || textLength < 0) {
+                onError("edit $index has negative text range ($textOffset, $textLength)")
+                return null
+            }
+            val start = textBase.toLong() + textOffset.toLong()
+            val end = start + textLength.toLong()
+            if (end > bytes.size.toLong()) {
+                onError("edit $index text range ($textOffset, $textLength) reaches past ${bytes.size}")
+                return null
+            }
+            val text = textOf(bytes, start.toInt(), textLength) ?: run {
+                onError("edit $index text is not valid UTF-8")
+                return null
+            }
+            if (end.toInt() > maxTextEnd) maxTextEnd = end.toInt()
+            edits += CodeEditRecord(startLine, startColumn, endLine, endColumn, text)
+        }
+        if (maxTextEnd != bytes.size) {
+            onError("edit group blob is ${bytes.size} bytes, but texts end at $maxTextEnd")
+            return null
+        }
+        return edits
+    }
+
 "#,
     );
     for (schema, function, _) in records {

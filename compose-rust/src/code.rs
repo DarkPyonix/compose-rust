@@ -18,7 +18,9 @@
 //! would make every application recount every range on the way through. A line ends at
 //! `\n`, `\r\n` or a lone `\r`, which is also the language server's rule.
 
-use crate::schema::{ColorRole, DecorationKind, GutterDecorationKind, HoverPhase, Paint, Severity};
+use crate::schema::{
+    ColorRole, DecorationKind, EditGroupStatus, GutterDecorationKind, HoverPhase, Paint, Severity,
+};
 use std::rc::Rc;
 
 /// Bytes of one decoration record.
@@ -26,6 +28,9 @@ pub const DECORATION_LEN: usize = 44;
 
 /// Bytes of one syntax colour run record.
 pub const SYNTAX_SPAN_LEN: usize = 28;
+
+/// Bytes of one edit record inside an `EditCodeGroup` blob.
+pub const CODE_EDIT_LEN: usize = 24;
 
 /// What one field of a code editor record holds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -975,4 +980,30 @@ pub struct FoldChange {
     /// The line the stretch starts on.
     pub start_line: u32,
     pub collapsed: bool,
+}
+
+/// One edit inside a grouped Host edit on a code editor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeEdit {
+    pub range: CodeRange,
+    pub text: String,
+}
+
+impl CodeEdit {
+    pub fn new(range: CodeRange, text: impl Into<String>) -> Self {
+        Self {
+            range,
+            text: text.into(),
+        }
+    }
+}
+
+/// The outcome of a grouped Host edit on a code editor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EditGroupResult {
+    pub request_id: u32,
+    pub status: EditGroupStatus,
+    pub base_version: u32,
+    pub current_version: u32,
+    pub index: u32,
 }

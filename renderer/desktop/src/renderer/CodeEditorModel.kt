@@ -5,8 +5,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import dev.darkpyonix.composerust.protocol.ColorRole
+import dev.darkpyonix.composerust.protocol.CodeEditRecord
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.DecorationRecord
+import dev.darkpyonix.composerust.protocol.EditGroupStatus
 import dev.darkpyonix.composerust.protocol.FoldRecord
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
@@ -126,6 +128,15 @@ sealed interface EditorOutput {
 
     /** Something the Host sent that could not be honoured. Only that item was dropped. */
     class Error(val message: String) : EditorOutput
+
+    /** The outcome of a grouped Host edit, sent once for every `EditCodeGroup` record. */
+    class GroupResult(
+        val requestId: Int,
+        val status: EditGroupStatus,
+        val baseVersion: Int,
+        val currentVersion: Int,
+        val index: Int,
+    ) : EditorOutput
 }
 
 /** Where a change came from, which decides how it joins the undo history. */
@@ -424,6 +435,143 @@ class CodeEditorModel(
             return
         }
         apply(start, end, text, EditOrigin.Host)
+    }
+
+    /**
+     * Reports an `EditCodeGroup` whose wire record or edit blob could not be decoded.
+     *
+     * When [reportProtocolError] is true, an [EditorOutput.Error] is queued alongside the
+     * [EditGroupStatus.Invalid] result; when false, the batch decoder already raised its
+     * own protocol error.
+     */
+    fun hostEditGroupBroken(
+        requestId: Int,
+        baseVersion: Int,
+        message: String,
+        reportProtocolError: Boolean = true,
+    ) {
+        if (reportProtocolError) {
+            output += EditorOutput.Error(message)
+        }
+        output += EditorOutput.GroupResult(
+            requestId,
+            EditGroupStatus.Invalid,
+            baseVersion,
+            document.version,
+            0,
+        )
+    }
+
+    /**
+     * A grouped edit the Host asked for, written against [baseVersion].
+     *
+     * Every edit is validated and rebased against [baseVersion] before the document is
+     * touched. When any edit is invalid, too old, or overlaps a reader change, the whole
+     * group is refused and the document is left untouched. When all succeed, they are
+     * applied from the end of the document towards the start, recorded as one undo step,
+     * and reported as each `CodeChanged` followed by one `CodeEditGroupResult(Applied)`.
+     */
+    fun hostEditGroup(
+        requestId: Int,
+        baseVersion: Int,
+        edits: List<CodeEditRecord>,
+    ) {
+        fun result(status: EditGroupStatus, index: Int) {
+            output += EditorOutput.GroupResult(
+                requestId,
+                status,
+                baseVersion,
+                document.version,
+                index,
+            )
+        }
+        if (edits.isEmpty()) {
+            output += EditorOutput.GroupResult(
+                requestId,
+                EditGroupStatus.Applied,
+                document.version,
+                document.version,
+                0,
+            )
+            return
+        }
+        if (baseVersion > document.version) {
+            return result(EditGroupStatus.Invalid, 0)
+        }
+        val changes = document.changesSince(baseVersion) ?: return result(EditGroupStatus.TooOld, 0)
+
+        class MappedEdit(
+            val index: Int,
+            val sentStart: CodePosition,
+            val sentEnd: CodePosition,
+            val start: CodePosition,
+            val end: CodePosition,
+            val text: String,
+        )
+
+        val mapped = ArrayList<MappedEdit>(edits.size)
+        for ((index, record) in edits.withIndex()) {
+            val sentStart = CodePosition(record.startLine, record.startColumn)
+            val sentEnd = CodePosition(record.endLine, record.endColumn)
+            if (sentStart > sentEnd || record.startLine < 0 || record.startColumn < 0) {
+                return result(EditGroupStatus.Invalid, index)
+            }
+            var start = sentStart
+            var end = sentEnd
+            for (change in changes) {
+                if (CodeDocument.overlaps(change, start, end)) {
+                    return result(EditGroupStatus.Rejected, index)
+                }
+                if (start == end) {
+                    start = CodeDocument.map(start, change, Bias.After)
+                    end = start
+                } else {
+                    start = CodeDocument.map(start, change, Bias.After)
+                    end = CodeDocument.map(end, change, Bias.Before)
+                }
+            }
+            if (!document.isValid(start) || !document.isValid(end) || start > end) {
+                return result(EditGroupStatus.Invalid, index)
+            }
+            mapped += MappedEdit(index, sentStart, sentEnd, start, end, record.text)
+        }
+
+        for (i in 0 until mapped.size) {
+            val a = mapped[i]
+            for (j in i + 1 until mapped.size) {
+                val b = mapped[j]
+                if (rangesOverlapInGroup(a.sentStart, a.sentEnd, b.sentStart, b.sentEnd) ||
+                    rangesOverlapInGroup(a.start, a.end, b.start, b.end)
+                ) {
+                    return result(EditGroupStatus.Invalid, maxOf(a.index, b.index))
+                }
+            }
+        }
+
+        val ordered = mapped.sortedWith { a, b ->
+            val cmp = b.start.compareTo(a.start)
+            if (cmp != 0) cmp else b.index.compareTo(a.index)
+        }
+        val before = selection
+        val applied = ArrayList<AppliedChange>(ordered.size)
+        for (edit in ordered) {
+            applied += applyRaw(edit.start, edit.end, edit.text)
+        }
+        redoStack.clear()
+        undoStack += UndoEntry(applied, before, selection, false, clock())
+        result(EditGroupStatus.Applied, ordered.size)
+    }
+
+    private fun rangesOverlapInGroup(
+        aStart: CodePosition,
+        aEnd: CodePosition,
+        bStart: CodePosition,
+        bEnd: CodePosition,
+    ): Boolean {
+        if (aStart == aEnd && bStart == bEnd) return aStart == bStart
+        if (aStart == aEnd) return bStart < aStart && aStart < bEnd
+        if (bStart == bEnd) return aStart < bStart && bStart < aEnd
+        return aStart < bEnd && bStart < aEnd
     }
 
     /**

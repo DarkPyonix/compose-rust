@@ -185,6 +185,27 @@ impl Batch {
         });
     }
 
+    /// Writes a grouped edit the application asked of a code editor: replace each range
+    /// in `edits` atomically against `base_version`. An empty `edits` vector writes no
+    /// record onto the wire.
+    pub fn edit_code_group(
+        &mut self,
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: Vec<crate::code::CodeEdit>,
+    ) {
+        if edits.is_empty() {
+            return;
+        }
+        self.write(Mutation::EditCodeGroup {
+            node_id,
+            request_id,
+            base_version,
+            edits,
+        });
+    }
+
     /// Writes one request to put a code editor's selection between two places in the
     /// document as it stood at `base_version`. The Renderer moves both ends past what the
     /// reader typed since and drops the request, with a protocol error, where an end is not

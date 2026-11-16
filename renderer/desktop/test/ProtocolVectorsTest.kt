@@ -17,6 +17,8 @@ import dev.darkpyonix.composerust.protocol.HoverPhase
 import dev.darkpyonix.composerust.protocol.DecorationRecord
 import dev.darkpyonix.composerust.protocol.DecorationKind
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.CodeEditRecord
+import dev.darkpyonix.composerust.protocol.EditGroupStatus
 import dev.darkpyonix.composerust.protocol.FoldRecord
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.GutterDecorationRecord
@@ -114,6 +116,7 @@ class ProtocolVectorsTest {
                 is Mutation.WithdrawNotification -> false
                 is Mutation.RequestNotificationPermission -> false
                 is Mutation.EditCode -> mutation.nodeId !in created
+                is Mutation.EditCodeGroup -> mutation.nodeId !in created
                 is Mutation.SetSelection -> mutation.nodeId !in created
                 is Mutation.RevealRange -> mutation.nodeId !in created
                 is Mutation.SetFolded -> mutation.nodeId !in created
@@ -564,6 +567,7 @@ class ProtocolVectorsTest {
             666 to HostEvent.EditorFocusChanged(12, 25L, true),
             690 to HostEvent.FoldChanged(12, 26L, 0, true),
             714 to HostEvent.CompositionChanged(12, 27L, true),
+            952 to HostEvent.CodeEditGroupResult(12, 28L, 8, EditGroupStatus.Applied, 1, 2, 1),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -572,7 +576,7 @@ class ProtocolVectorsTest {
                 "$event at $offset",
             )
         }
-        assertEquals(952, bytes.size)
+        assertEquals(988, bytes.size)
     }
 
     /**
@@ -594,6 +598,16 @@ class ProtocolVectorsTest {
             listOf(Mutation.SetFolded(12, 0, true)),
             mutations.filterIsInstance<Mutation.SetFolded>(),
         )
+        val group = mutations.filterIsInstance<Mutation.EditCodeGroup>().single()
+        assertEquals(12, group.nodeId)
+        assertEquals(8, group.requestId)
+        assertEquals(1, group.baseVersion)
+        val groupErrors = mutableListOf<String>()
+        assertEquals(
+            listOf(CodeEditRecord(0, 0, 0, 2, "pub fn")),
+            CodeEditorRecords.decodeEditGroup(group.edits, groupErrors::add),
+        )
+        assertEquals(emptyList<String>(), groupErrors)
         val props = mutations.filterIsInstance<Mutation.SetProp>().filter { it.nodeId == 12 }
         val errors = mutableListOf<String>()
         assertEquals(

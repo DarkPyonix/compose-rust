@@ -8,10 +8,13 @@ import dev.darkpyonix.composerust.foundation.code.EditOrigin
 import dev.darkpyonix.composerust.foundation.code.RowMap
 import dev.darkpyonix.composerust.foundation.code.pressGutter
 import dev.darkpyonix.composerust.protocol.CodeEditorRecords
+import dev.darkpyonix.composerust.protocol.CodeEditRecord
+import dev.darkpyonix.composerust.protocol.EditGroupStatus
 import dev.darkpyonix.composerust.protocol.GutterDecorationKind
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.Protocol
+import dev.darkpyonix.composerust.protocol.ProtocolException
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
 import dev.darkpyonix.composerust.protocol.RevealAlign
@@ -35,6 +38,8 @@ private const val ON_FOCUS = 43L
 private const val ON_FOLD = 44L
 private const val ON_COMPOSITION = 45L
 private const val ON_DECORATION = 46L
+private const val ON_REJECTED = 47L
+private const val ON_GROUP_RESULT = 48L
 
 private fun p(line: Int, column: Int) = CodePosition(line, column)
 
@@ -51,6 +56,8 @@ private fun editorTable(text: String): NodeTable {
         PropertyKind.OnFoldChange to ON_FOLD,
         PropertyKind.OnCompositionChange to ON_COMPOSITION,
         PropertyKind.OnDecorationClick to ON_DECORATION,
+        PropertyKind.OnEditRejected to ON_REJECTED,
+        PropertyKind.OnEditGroupResult to ON_GROUP_RESULT,
     )) {
         table.apply(Mutation.SetProp(EDITOR, kind, PropertyValue.Integer(handler)))
     }
@@ -93,6 +100,28 @@ private fun gutterRecord(
 private fun gutterBlob(count: Int, fill: (ByteBuffer) -> Unit): ByteArray {
     val buffer = ByteBuffer.allocate(count * 28).order(ByteOrder.LITTLE_ENDIAN)
     fill(buffer)
+    return buffer.array()
+}
+
+private fun editGroupBlob(edits: List<CodeEditRecord>): ByteArray {
+    val textBytes = edits.map { it.text.toByteArray(Charsets.UTF_8) }
+    val totalText = textBytes.sumOf { it.size }
+    val buffer = ByteBuffer.allocate(4 + edits.size * 24 + totalText).order(ByteOrder.LITTLE_ENDIAN)
+    buffer.putInt(edits.size)
+    var textOffset = 0
+    for ((index, edit) in edits.withIndex()) {
+        val utf8 = textBytes[index]
+        buffer.putInt(edit.startLine)
+        buffer.putInt(edit.startColumn)
+        buffer.putInt(edit.endLine)
+        buffer.putInt(edit.endColumn)
+        buffer.putInt(textOffset)
+        buffer.putInt(utf8.size)
+        textOffset += utf8.size
+    }
+    for (utf8 in textBytes) {
+        buffer.put(utf8)
+    }
     return buffer.array()
 }
 
@@ -479,6 +508,7 @@ class CodeEditorEventsTest {
             PropertyKind.OnEditorFocusChange,
             PropertyKind.OnFoldChange,
             PropertyKind.OnCompositionChange,
+            PropertyKind.OnEditGroupResult,
         )
         for (property in properties) {
             assertTrue(NodeTable.supportsProperty(WidgetKind.CodeEditor, property), "$property")
@@ -503,5 +533,396 @@ class CodeEditorEventsTest {
         )
         assertEquals(listOf(2), marks.map { it.line })
         assertEquals(1, errors.size)
+    }
+
+    /**
+     * Criterion 17.1: Three non-overlapping edits sent in one group at the current
+     * baseVersion all apply and produce one `CodeEditGroupResult(Applied)`.
+     */
+    @Test
+    fun fr38_edit_group_applies_all_edits_and_replies_once() {
+        val table = editorTable("alpha\nbeta\ngamma")
+        val edits = listOf(
+            CodeEditRecord(0, 0, 0, 5, "ALPHA"),
+            CodeEditRecord(1, 0, 1, 4, "BETA"),
+            CodeEditRecord(2, 0, 2, 5, "GAMMA"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 17, 0, editGroupBlob(edits)))
+        assertEquals("ALPHA\nBETA\nGAMMA", table.model().document.text())
+        assertEquals(3, table.model().document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        val events = table.drainEvents()
+        val results = events.filterIsInstance<HostEvent.CodeEditGroupResult>()
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 17, EditGroupStatus.Applied, 0, 3, 3)),
+            results,
+        )
+    }
+
+    /**
+     * Criterion 17.2: Each edit in the group emits one `CodeChanged` from the back of the
+     * document towards the front with versions incrementing by 1, replaying them on a copy
+     * yields the Renderer buffer, and `CodeEditGroupResult` comes last.
+     */
+    @Test
+    fun fr38_edit_group_events_are_ordered_and_replayable() {
+        val initial = "fn main() {\n    let a = 1;\n    let b = 2;\n}"
+        val table = editorTable(initial)
+        // Sent in forward order; applied and reported from back to front.
+        val edits = listOf(
+            CodeEditRecord(0, 0, 0, 2, "pub fn"),
+            CodeEditRecord(1, 8, 1, 9, "first"),
+            CodeEditRecord(2, 8, 2, 9, "second"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 21, 0, editGroupBlob(edits)))
+        val events = table.drainEvents()
+        assertEquals(
+            listOf(
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 1, 2, 8, 2, 9, "second"),
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 2, 1, 8, 1, 9, "first"),
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 3, 0, 0, 0, 2, "pub fn"),
+                HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 21, EditGroupStatus.Applied, 0, 3, 3),
+            ),
+            events,
+        )
+        val mirror = dev.darkpyonix.composerust.foundation.code.CodeDocument(initial)
+        for (change in events.filterIsInstance<HostEvent.CodeChanged>()) {
+            mirror.replace(p(change.startLine, change.startColumn), p(change.endLine, change.endColumn), change.text)
+            assertEquals(change.version, mirror.version)
+        }
+        assertEquals(table.model().document.text(), mirror.text())
+    }
+
+    /**
+     * Criterion 17.3: A group is undone in one step and redone in one step, and is never
+     * merged with the reader's preceding typing step.
+     */
+    @Test
+    fun fr38_edit_group_is_one_undo_step() {
+        val table = editorTable("one\ntwo\nthree")
+        val model = table.model()
+        // Reader types a character just before the group arrives.
+        model.edit(p(0, 3), p(0, 3), "!", EditOrigin.Typing)
+        table.drainEvents()
+        assertEquals("one!\ntwo\nthree", model.document.text())
+
+        val edits = listOf(
+            CodeEditRecord(1, 0, 1, 3, "TWO"),
+            CodeEditRecord(2, 0, 2, 5, "THREE"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 30, 1, editGroupBlob(edits)))
+        table.drainEvents()
+        assertEquals("one!\nTWO\nTHREE", model.document.text())
+
+        // One undo reverts the whole group, leaving the reader's typed "!" in place.
+        assertTrue(model.undo())
+        assertEquals("one!\ntwo\nthree", model.document.text())
+
+        // One redo brings the whole group back.
+        assertTrue(model.redo())
+        assertEquals("one!\nTWO\nTHREE", model.document.text())
+
+        // Undoing twice reverts the group and then the reader's typing.
+        assertTrue(model.undo())
+        assertTrue(model.undo())
+        assertEquals("one\ntwo\nthree", model.document.text())
+    }
+
+    /**
+     * Criterion 17.4: Overlapping edits in the same group (including two insertions at the
+     * same position) leave the document untouched, emit `Invalid` once naming the later edit
+     * index, and emit no `ProtocolError`.
+     */
+    @Test
+    fun fr38_edit_group_with_overlapping_edits_changes_nothing() {
+        val table = editorTable("abcdef\nghijkl")
+        val overlappingRanges = listOf(
+            CodeEditRecord(0, 0, 0, 1, "A"),
+            CodeEditRecord(0, 2, 0, 5, "CDE"),
+            CodeEditRecord(0, 4, 0, 6, "EF"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 40, 0, editGroupBlob(overlappingRanges)))
+        assertEquals("abcdef\nghijkl", table.model().document.text())
+        assertEquals(0, table.model().document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 40, EditGroupStatus.Invalid, 0, 0, 2)),
+            table.drainEvents(),
+        )
+
+        // Two insertions at the exact same position in one group also overlap because their
+        // order is undefined.
+        val samePointInsertions = listOf(
+            CodeEditRecord(1, 2, 1, 2, "X"),
+            CodeEditRecord(1, 2, 1, 2, "Y"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 41, 0, editGroupBlob(samePointInsertions)))
+        assertEquals("abcdef\nghijkl", table.model().document.text())
+        assertEquals(0, table.model().document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 41, EditGroupStatus.Invalid, 0, 0, 1)),
+            table.drainEvents(),
+        )
+    }
+
+    /**
+     * Criterion 17.5: If any edit in the group has an out-of-bounds or reversed range, none
+     * of the edits apply, `Invalid` names that edit's index, and no `ProtocolError` is sent.
+     */
+    @Test
+    fun fr38_edit_group_with_a_bad_range_changes_nothing() {
+        val table = editorTable("first\nsecond")
+        val outOfBounds = listOf(
+            CodeEditRecord(0, 0, 0, 5, "FIRST"),
+            CodeEditRecord(9, 0, 9, 1, "nope"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 50, 0, editGroupBlob(outOfBounds)))
+        assertEquals("first\nsecond", table.model().document.text())
+        assertEquals(0, table.model().document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 50, EditGroupStatus.Invalid, 0, 0, 1)),
+            table.drainEvents(),
+        )
+
+        val reversed = listOf(
+            CodeEditRecord(0, 4, 0, 2, "bad"),
+            CodeEditRecord(1, 0, 1, 6, "SECOND"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 51, 0, editGroupBlob(reversed)))
+        assertEquals("first\nsecond", table.model().document.text())
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 51, EditGroupStatus.Invalid, 0, 0, 0)),
+            table.drainEvents(),
+        )
+    }
+
+    /**
+     * Criterion 17.6: A group written against an older `baseVersion` rebases all of its
+     * ranges and applies when none overlap the reader's typing, or rejects the whole group
+     * with `Rejected` when even one edit overlaps.
+     */
+    @Test
+    fun fr38_edit_group_with_a_stale_base_moves_or_rejects_all() {
+        val table = editorTable("line0\nline1\nline2")
+        val model = table.model()
+        // Reader inserts a new line at the very top (version 0 -> 1).
+        model.edit(p(0, 0), p(0, 0), "header\n", EditOrigin.Reader)
+        table.drainEvents()
+        assertEquals(1, model.document.version)
+
+        // Group written against version 0 touches old lines 1 and 2 (now lines 2 and 3).
+        val nonConflicting = listOf(
+            CodeEditRecord(1, 0, 1, 5, "LINE1"),
+            CodeEditRecord(2, 0, 2, 5, "LINE2"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 60, 0, editGroupBlob(nonConflicting)))
+        assertEquals("header\nline0\nLINE1\nLINE2", model.document.text())
+        assertEquals(
+            listOf(
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 2, 3, 0, 3, 5, "LINE2"),
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 3, 2, 0, 2, 5, "LINE1"),
+                HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 60, EditGroupStatus.Applied, 0, 3, 2),
+            ),
+            table.drainEvents(),
+        )
+
+        // Now reader edits inside line 2 ("LINE1" -> "LINE_ONE", version 3 -> 4).
+        model.edit(p(2, 4), p(2, 5), "_ONE", EditOrigin.Reader)
+        table.drainEvents()
+        assertEquals(4, model.document.version)
+
+        // Group written against version 3 edits line 1 (no conflict) and line 2 (conflicts!).
+        val conflicting = listOf(
+            CodeEditRecord(1, 0, 1, 5, "LINE0"),
+            CodeEditRecord(2, 0, 2, 5, "CONFLICT"),
+        )
+        table.apply(Mutation.EditCodeGroup(EDITOR, 61, 3, editGroupBlob(conflicting)))
+        // Atomicity: line 1 must still be "line0", not "LINE0".
+        assertEquals("header\nline0\nLINE_ONE\nLINE2", model.document.text())
+        assertEquals(4, model.document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 61, EditGroupStatus.Rejected, 3, 4, 1)),
+            table.drainEvents(),
+        )
+    }
+
+    /**
+     * Criterion 17.7: A `baseVersion` older than the document's history window is refused
+     * with `TooOld` (distinct from `Rejected`), leaving the document unchanged.
+     */
+    @Test
+    fun fr38_edit_group_older_than_the_history_is_too_old() {
+        val table = editorTable("a")
+        val model = table.model()
+        repeat( dev.darkpyonix.composerust.foundation.code.CodeDocument.HISTORY_LIMIT + 5 ) {
+            model.edit(p(0, 0), p(0, 1), "b", EditOrigin.Reader)
+        }
+        table.drainEvents()
+        val currentVersion = model.document.version
+        assertTrue(model.document.oldestVersion > 0)
+
+        val edits = listOf(CodeEditRecord(0, 0, 0, 1, "z"))
+        table.apply(Mutation.EditCodeGroup(EDITOR, 70, 0, editGroupBlob(edits)))
+        assertEquals("b", model.document.text())
+        assertEquals(currentVersion, model.document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(
+                HostEvent.CodeEditGroupResult(
+                    EDITOR,
+                    ON_GROUP_RESULT,
+                    70,
+                    EditGroupStatus.TooOld,
+                    0,
+                    currentVersion,
+                    0,
+                ),
+            ),
+            table.drainEvents(),
+        )
+    }
+
+    /**
+     * Criterion 17.8: `EditCode` keeps its existing single-edit behaviour: individual
+     * rejection via `CodeEditRejected` and one undo step per applied edit.
+     */
+    @Test
+    fun fr38_edit_code_sequence_keeps_its_behaviour() {
+        val table = editorTable("aaa\nbbb")
+        val model = table.model()
+        table.apply(Mutation.EditCode(EDITOR, 80, 0, 0, 0, 0, 3, "AAA"))
+        table.apply(Mutation.EditCode(EDITOR, 81, 1, 1, 0, 1, 3, "BBB"))
+        assertEquals("AAA\nBBB", model.document.text())
+        assertEquals(
+            listOf(
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 1, 0, 0, 0, 3, "AAA"),
+                HostEvent.CodeChanged(EDITOR, ON_CHANGE, 2, 1, 0, 1, 3, "BBB"),
+            ),
+            table.drainEvents(),
+        )
+        // Each EditCode is its own undo step.
+        assertTrue(model.undo())
+        assertEquals("AAA\nbbb", model.document.text())
+        assertTrue(model.undo())
+        assertEquals("aaa\nbbb", model.document.text())
+        table.drainEvents()
+
+        // Reader edits line 0; a stale EditCode on line 0 emits CodeEditRejected.
+        val beforeConflict = model.document.version
+        model.edit(p(0, 0), p(0, 3), "reader", EditOrigin.Reader)
+        table.drainEvents()
+        table.apply(Mutation.EditCode(EDITOR, 82, beforeConflict, 0, 0, 0, 3, "host"))
+        assertEquals(
+            listOf(
+                HostEvent.CodeEditRejected(
+                    EDITOR,
+                    ON_REJECTED,
+                    82,
+                    beforeConflict,
+                    model.document.version,
+                    0,
+                    0,
+                    0,
+                    3,
+                ),
+            ),
+            table.drainEvents(),
+        )
+    }
+
+    /**
+     * Criterion 17.11: An `EditCodeGroup` with zero edits that reaches the Renderer leaves
+     * the document, version, and undo stack untouched, emits zero `CodeChanged` events, and
+     * replies `Applied` with both `baseVersion` and `currentVersion` set to the document's
+     * current version.
+     */
+    @Test
+    fun fr38_an_empty_group_changes_nothing_and_replies_applied() {
+        val table = editorTable("hello")
+        val model = table.model()
+        model.edit(p(0, 5), p(0, 5), "!", EditOrigin.Reader)
+        table.drainEvents()
+        assertEquals(1, model.document.version)
+
+        // Send an empty group with a bogus baseVersion (99); it must not inspect baseVersion
+        // and must reply Applied with baseVersion = currentVersion = 1.
+        table.apply(Mutation.EditCodeGroup(EDITOR, 110, 99, editGroupBlob(emptyList())))
+        assertEquals("hello!", model.document.text())
+        assertEquals(1, model.document.version)
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 110, EditGroupStatus.Applied, 1, 1, 0)),
+            table.drainEvents(),
+        )
+        // Undo still undoes the reader's "!" in one step; no empty step was pushed.
+        assertTrue(model.undo())
+        assertEquals("hello", model.document.text())
+        assertFalse(model.canUndo)
+    }
+
+    /**
+     * Criterion 17.12: A malformed `EditCodeGroup` record or blob leaves the document
+     * untouched, emits one `ProtocolError`, and when the header (`nodeId` and `requestId`)
+     * is readable, follows it with `Invalid` for that `requestId`; semantic errors (criteria
+     * 4 and 5) emit no `ProtocolError`.
+     */
+    @Test
+    fun fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not() {
+        val table = editorTable("intact")
+        // 1. Truncated blob inside a valid 24-byte record: count says 2, but no records follow.
+        val truncatedBlob = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(2).array()
+        table.apply(Mutation.EditCodeGroup(EDITOR, 120, 0, truncatedBlob))
+        assertEquals("intact", table.model().document.text())
+        assertEquals(listOf(TableError.INVALID_CODE_EDIT), table.drainErrors().map { it.code })
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 120, EditGroupStatus.Invalid, 0, 0, 0)),
+            table.drainEvents(),
+        )
+
+        // 2. Wire record with wrong length (16 instead of 24), but readable nodeId and requestId.
+        val badLengthBatch = ByteBuffer.allocate(12 + 16).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putShort(0)
+            putShort(12)
+            putInt(12 + 16)
+            putInt(1)
+            putShort(28)
+            putShort(16)
+            putInt(EDITOR)
+            putInt(121)
+            putInt(0)
+            position(0)
+        }
+        val decodedMutations = mutableListOf<Mutation>()
+        val decodeFailure = runCatching { Protocol.decode(badLengthBatch, decodedMutations::add) }.exceptionOrNull()
+        assertTrue(decodeFailure is ProtocolException)
+        assertEquals(1, decodedMutations.size)
+        table.apply(decodedMutations.single())
+        assertEquals("intact", table.model().document.text())
+        assertTrue(table.drainErrors().isEmpty())
+        assertEquals(
+            listOf(HostEvent.CodeEditGroupResult(EDITOR, ON_GROUP_RESULT, 121, EditGroupStatus.Invalid, 0, 0, 0)),
+            table.drainEvents(),
+        )
+
+        // 3. Wire record with length < 12 (header unreadable): throws ProtocolException and
+        // emits no mutation.
+        val unreadableHeaderBatch = ByteBuffer.allocate(12 + 8).order(ByteOrder.LITTLE_ENDIAN).apply {
+            putShort(0)
+            putShort(12)
+            putInt(12 + 8)
+            putInt(1)
+            putShort(28)
+            putShort(8)
+            putInt(EDITOR)
+            position(0)
+        }
+        val noneDecoded = mutableListOf<Mutation>()
+        val headerFailure = runCatching { Protocol.decode(unreadableHeaderBatch, noneDecoded::add) }.exceptionOrNull()
+        assertTrue(headerFailure is ProtocolException)
+        assertTrue(noneDecoded.isEmpty())
     }
 }

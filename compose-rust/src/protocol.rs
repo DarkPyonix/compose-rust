@@ -36,6 +36,7 @@ const TAG_SET_FOLDED: u16 = 22;
 const TAG_SET_WINDOW_THEME: u16 = 23;
 const TAG_FOCUS_WINDOW: u16 = 24;
 const TAG_REQUEST_FOCUS: u16 = 25;
+const TAG_EDIT_CODE_GROUP: u16 = 28;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -245,6 +246,13 @@ pub enum Mutation<'a> {
     RequestFocus {
         node_id: u32,
     },
+    /// Replaces a group of ranges of a code editor's document atomically.
+    EditCodeGroup {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: Vec<crate::code::CodeEdit>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -332,6 +340,7 @@ const EVENT_WINDOW_UNAVAILABLE: u16 = 44;
 const EVENT_WINDOW_CLOSED: u16 = 45;
 const EVENT_WINDOW_REQUESTED: u16 = 46;
 const EVENT_APPLICATION_REOPEN: u16 = 47;
+const EVENT_CODE_EDIT_GROUP_RESULT: u16 = 51;
 
 /// Where `SetWindow` keeps the mode and the last window policy: in the bits of the
 /// `resizable` word above the flag.
@@ -647,7 +656,24 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_APPLICATION_REOPEN if record_len == 16 => {
             crate::schema::EventPayload::ApplicationReopen
         }
-        EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN => {
+        EVENT_CODE_EDIT_GROUP_RESULT if record_len == 36 => {
+            let raw_status = read_u32(bytes, 20)?;
+            let status = u16::try_from(raw_status)
+                .ok()
+                .and_then(|tag| crate::schema::EditGroupStatus::try_from(tag).ok())
+                .ok_or(ProtocolError::InvalidValueKind(
+                    raw_status.min(u32::from(u16::MAX)) as u16,
+                ))?;
+            crate::schema::EventPayload::CodeEditGroupResult {
+                request_id: read_u32(bytes, 16)?,
+                status,
+                base_version: read_u32(bytes, 24)?,
+                current_version: read_u32(bytes, 28)?,
+                index: read_u32(bytes, 32)?,
+            }
+        }
+        EVENT_WINDOW_CLOSE_REQUESTED..=EVENT_APPLICATION_REOPEN
+        | EVENT_CODE_EDIT_GROUP_RESULT => {
             return Err(ProtocolError::InvalidRecordLength);
         }
         EVENT_ZOOM_CHANGED if record_len == 28 => {
@@ -941,6 +967,25 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
             output.extend_from_slice(&0_u32.to_le_bytes());
             return Ok(());
         }
+        crate::schema::EventPayload::CodeEditGroupResult {
+            request_id,
+            status,
+            base_version,
+            current_version,
+            index,
+        } => {
+            put_event_header(output, EVENT_CODE_EDIT_GROUP_RESULT, 36, event);
+            for value in [
+                request_id,
+                u32::from(u16::from(status)),
+                base_version,
+                current_version,
+                index,
+            ] {
+                output.extend_from_slice(&value.to_le_bytes());
+            }
+            return Ok(());
+        }
         _ => {}
     }
     match event.payload {
@@ -1056,6 +1101,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::EditorFocusChanged { .. }
         | crate::schema::EventPayload::FoldChanged { .. }
         | crate::schema::EventPayload::CompositionChanged { .. }
+        | crate::schema::EventPayload::CodeEditGroupResult { .. }
         | crate::schema::EventPayload::WindowFocusChanged { .. }
         | crate::schema::EventPayload::WindowMoved { .. }
         | crate::schema::EventPayload::WindowDrag { .. }
@@ -1355,6 +1401,19 @@ impl BatchEncoder {
             Mutation::RequestFocus { node_id } => {
                 self.begin_record(TAG_REQUEST_FOCUS, 4);
                 self.put_u32(*node_id);
+            }
+            Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits,
+            } => {
+                let blob = encode_edit_group_blob(edits)?;
+                self.begin_record(TAG_EDIT_CODE_GROUP, 20);
+                self.put_u32(*node_id);
+                self.put_u32(*request_id);
+                self.put_u32(*base_version);
+                self.put_bytes_ref(&blob)?;
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -1966,11 +2025,21 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 start_line: read_u32(bytes, payload + 4)?,
                 collapsed: read_flag(bytes, payload + 8)?,
             },
+            TAG_EDIT_CODE_GROUP if len == 24 => {
+                let blob = read_bytes(bytes, payload + 12, records_len)?;
+                Mutation::EditCodeGroup {
+                    node_id: read_u32(bytes, payload)?,
+                    request_id: read_u32(bytes, payload + 4)?,
+                    base_version: read_u32(bytes, payload + 8)?,
+                    edits: decode_edit_group_blob(blob)?,
+                }
+            }
             TAG_CREATE..=TAG_EDIT_CODE
             | TAG_START_ANIMATION
             | TAG_CONTROL_ANIMATION
             | TAG_SET_SELECTION..=TAG_SET_FOLDED
-            | TAG_SET_WINDOW_THEME..=TAG_REQUEST_FOCUS => {
+            | TAG_SET_WINDOW_THEME..=TAG_REQUEST_FOCUS
+            | TAG_EDIT_CODE_GROUP => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -2535,6 +2604,83 @@ fn read_u64(bytes: &[u8], position: usize) -> Result<u64, ProtocolError> {
     Ok(u64::from_le_bytes(
         value.try_into().map_err(|_| ProtocolError::Truncated)?,
     ))
+}
+
+fn encode_edit_group_blob(edits: &[crate::code::CodeEdit]) -> Result<Vec<u8>, ProtocolError> {
+    let count = u32::try_from(edits.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+    let records_bytes = edits
+        .len()
+        .checked_mul(crate::code::CODE_EDIT_LEN)
+        .ok_or(ProtocolError::LengthOverflow)?;
+    let header_and_records = 4usize
+        .checked_add(records_bytes)
+        .ok_or(ProtocolError::LengthOverflow)?;
+    let text_bytes: usize = edits.iter().map(|edit| edit.text.len()).sum();
+    let total = header_and_records
+        .checked_add(text_bytes)
+        .ok_or(ProtocolError::LengthOverflow)?;
+    let mut out = Vec::with_capacity(total);
+    out.extend_from_slice(&count.to_le_bytes());
+    let mut text_offset: u32 = 0;
+    for edit in edits {
+        let len = u32::try_from(edit.text.len()).map_err(|_| ProtocolError::LengthOverflow)?;
+        out.extend_from_slice(&edit.range.start.line.to_le_bytes());
+        out.extend_from_slice(&edit.range.start.column.to_le_bytes());
+        out.extend_from_slice(&edit.range.end.line.to_le_bytes());
+        out.extend_from_slice(&edit.range.end.column.to_le_bytes());
+        out.extend_from_slice(&text_offset.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+        text_offset = text_offset
+            .checked_add(len)
+            .ok_or(ProtocolError::LengthOverflow)?;
+    }
+    for edit in edits {
+        out.extend_from_slice(edit.text.as_bytes());
+    }
+    Ok(out)
+}
+
+fn decode_edit_group_blob(bytes: &[u8]) -> Result<Vec<crate::code::CodeEdit>, ProtocolError> {
+    if bytes.len() < 4 {
+        return Err(ProtocolError::InvalidRecordLength);
+    }
+    let count = usize::try_from(read_u32(bytes, 0)?).map_err(|_| ProtocolError::LengthOverflow)?;
+    let records_bytes = count
+        .checked_mul(crate::code::CODE_EDIT_LEN)
+        .ok_or(ProtocolError::InvalidRecordLength)?;
+    let text_base = 4usize
+        .checked_add(records_bytes)
+        .ok_or(ProtocolError::InvalidRecordLength)?;
+    if text_base > bytes.len() {
+        return Err(ProtocolError::InvalidRecordLength);
+    }
+    let mut edits = Vec::with_capacity(count);
+    for index in 0..count {
+        let at = 4 + index * crate::code::CODE_EDIT_LEN;
+        let start_line = read_u32(bytes, at)?;
+        let start_column = read_u32(bytes, at + 4)?;
+        let end_line = read_u32(bytes, at + 8)?;
+        let end_column = read_u32(bytes, at + 12)?;
+        let text_offset = usize::try_from(read_u32(bytes, at + 16)?)
+            .map_err(|_| ProtocolError::InvalidStringRange)?;
+        let text_len = usize::try_from(read_u32(bytes, at + 20)?)
+            .map_err(|_| ProtocolError::InvalidStringRange)?;
+        let start = text_base
+            .checked_add(text_offset)
+            .ok_or(ProtocolError::InvalidStringRange)?;
+        let end = start
+            .checked_add(text_len)
+            .ok_or(ProtocolError::InvalidStringRange)?;
+        let slice = bytes
+            .get(start..end)
+            .ok_or(ProtocolError::InvalidStringRange)?;
+        let text = std::str::from_utf8(slice).map_err(|_| ProtocolError::InvalidUtf8)?;
+        edits.push(crate::code::CodeEdit::new(
+            crate::code::CodeRange::of(start_line, start_column, end_line, end_column),
+            text,
+        ));
+    }
+    Ok(edits)
 }
 
 #[cfg(test)]

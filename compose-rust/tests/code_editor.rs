@@ -3,10 +3,10 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CodeChange, CodeRange, DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, FOLD_LEN,
-    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
-    GutterDecorations, Position, RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan,
-    SyntaxSpans, byte_offset,
+    CODE_EDIT_LEN, CodeChange, CodeEdit, CodeRange, DECORATION_LEN, DECORATION_RECORD, Decoration,
+    Decorations, EditGroupResult, FOLD_LEN, FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN,
+    GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position, RecordFieldType,
+    SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -14,8 +14,8 @@ use compose_rust::protocol::{
 };
 use compose_rust::schema::EVENT_SCHEMA;
 use compose_rust::{
-    ColorRole, DecorationKind, EventPayload, GutterDecorationKind, HoverPhase, Paint, PropertyKind,
-    RevealAlign, Severity, WidgetKind,
+    ColorRole, DecorationKind, EditGroupStatus, EventPayload, GutterDecorationKind, HoverPhase,
+    Paint, PropertyKind, RevealAlign, Severity, WidgetKind,
 };
 
 /// One decoded record with its borrowed parts made owned, so the batch can be dropped.
@@ -46,6 +46,12 @@ enum Record {
         node_id: u32,
         start_line: u32,
         collapsed: bool,
+    },
+    EditCodeGroup {
+        node_id: u32,
+        request_id: u32,
+        base_version: u32,
+        edits: Vec<CodeEdit>,
     },
     Other,
 }
@@ -133,6 +139,17 @@ fn records(batch: &[u8]) -> Vec<Record> {
                 node_id,
                 start_line,
                 collapsed,
+            },
+            Mutation::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits,
+            } => Record::EditCodeGroup {
+                node_id,
+                request_id,
+                base_version,
+                edits,
             },
             _ => Record::Other,
         })
@@ -821,3 +838,141 @@ fn fr38_gutter_decorations_follow_edits_and_activate_on_the_wire() {
     let (length, _) = round_trip(EventPayload::DecorationActivated { decoration: 90 });
     assert_eq!(length, 24);
 }
+
+/// Criterion 17.9: `EditCodeGroup` (command 28) and `CodeEditGroupResult` (event 51)
+/// round-trip their edits and UTF-8 / UTF-16 text (including surrogate pairs) on the wire,
+/// and appear in the checked-in protocol vectors.
+#[test]
+fn fr38_edit_group_round_trips_on_the_wire() {
+    assert_eq!(PropertyKind::OnEditGroupResult as u16, 128);
+    assert_eq!(event_tag("CodeEditGroupResult"), 51);
+    assert_eq!(EditGroupStatus::Applied as u16, 1);
+    assert_eq!(EditGroupStatus::Rejected as u16, 2);
+    assert_eq!(EditGroupStatus::Invalid as u16, 3);
+    assert_eq!(EditGroupStatus::TooOld as u16, 4);
+    assert_eq!(CODE_EDIT_LEN, 24);
+
+    let edits = vec![
+        CodeEdit::new(CodeRange::of(0, 0, 0, 2), "pub fn"),
+        CodeEdit::new(CodeRange::of(1, 12, 1, 16), "\"😀!\""),
+    ];
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 99,
+            base_version: 4,
+            edits: edits.clone(),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    // Command tag 28, record length 24.
+    assert_eq!(&batch[12..16], &[28, 0, 24, 0]);
+    assert_eq!(
+        records(&batch),
+        vec![Record::EditCodeGroup {
+            node_id: 12,
+            request_id: 99,
+            base_version: 4,
+            edits,
+        }]
+    );
+
+    for status in [
+        EditGroupStatus::Applied,
+        EditGroupStatus::Rejected,
+        EditGroupStatus::Invalid,
+        EditGroupStatus::TooOld,
+    ] {
+        let (length, _) = round_trip(EventPayload::CodeEditGroupResult {
+            request_id: 99,
+            status,
+            base_version: 4,
+            current_version: 6,
+            index: 2,
+        });
+        assert_eq!(length, 36);
+    }
+
+    let result = EditGroupResult {
+        request_id: 99,
+        status: EditGroupStatus::Applied,
+        base_version: 4,
+        current_version: 6,
+        index: 2,
+    };
+    assert_eq!(result.status, EditGroupStatus::Applied);
+
+    // An unknown status word on the wire is refused as a protocol error.
+    let mut wire = Vec::new();
+    encode_event(
+        &HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 2,
+                index: 1,
+            },
+        },
+        &mut wire,
+    )
+    .unwrap();
+    wire[20] = 5;
+    assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidValueKind(5)));
+
+    // Both records are present in the generated protocol vectors.
+    let vector_mutations =
+        decode_batch(&compose_rust::codegen::generate_mutation_vector().unwrap()).unwrap();
+    assert!(vector_mutations.iter().any(|mutation| matches!(
+        mutation,
+        Mutation::EditCodeGroup {
+            node_id: 12,
+            request_id: 8,
+            base_version: 1,
+            ..
+        }
+    )));
+    let vector_events = compose_rust::codegen::generate_event_vector().unwrap();
+    assert_eq!(
+        decode_event(&vector_events[952..988]).unwrap(),
+        HostEvent {
+            node_id: 12,
+            handler_id: 28,
+            payload: EventPayload::CodeEditGroupResult {
+                request_id: 8,
+                status: EditGroupStatus::Applied,
+                base_version: 1,
+                current_version: 2,
+                index: 1,
+            },
+        }
+    );
+}
+
+/// Criterion 17.10: `Batch::edit_code_group` writes nothing when the edit slice is empty.
+#[test]
+fn fr38_an_empty_edit_group_writes_nothing() {
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.edit_code_group(12, 5, 1, &[]);
+    let bytes = batch.finish().unwrap().to_vec();
+    assert!(records(&bytes).is_empty());
+
+    let mut batch = compose_rust::Batch::new();
+    batch.begin();
+    batch.edit_code_group(12, 5, 1, &[CodeEdit::new(CodeRange::of(0, 0, 0, 1), "x")]);
+    let bytes = batch.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&bytes),
+        vec![Record::EditCodeGroup {
+            node_id: 12,
+            request_id: 5,
+            base_version: 1,
+            edits: vec![CodeEdit::new(CodeRange::of(0, 0, 0, 1), "x")],
+        }]
+    );
+}
+

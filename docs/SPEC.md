@@ -2465,18 +2465,18 @@ Notification::new("세션이 끝났습니다")
     5. 접근성. 변경 표시 막대가 있는 줄의 접근성 설명에 "추가됨", "수정됨", "삭제됨" 중 하나가 붙고(플랫폼 로케일의 낱말), 색만으로 구분하지 않습니다.
     6. 시험 이름은 `fr38_`로 시작합니다. 폭 4dp와 위치는 픽셀 시험으로, 우선순위와 이동은 모델 시험으로, 기존 `Bar` 회귀는 기준 14의 시험이 그대로 통과하는 것으로 확인합니다.
 17. 묶음 편집 `EditCodeGroup`(이슈 #496). 승인: 감독자 B(위임 권한).
-    1. 겹치지 않는 편집 셋을 `base_version`이 현재인 묶음 하나로 보내면 셋이 모두 적용되고 `CodeEditGroupResult`가 `request_id`와 함께 `Applied`로 정확히 한 번 갑니다(fr38_edit_group_applies_all_edits_and_replies_once).
-    2. 변경 이벤트는 편집마다 하나이고, 문서 뒤쪽 편집부터 가며 버전이 하나씩 늘고, 그 이벤트들을 차례로 적용한 결과가 Renderer의 버퍼와 같습니다. 결과 이벤트는 그 뒤에 갑니다(fr38_edit_group_events_are_ordered_and_replayable).
-    3. 묶음은 실행 취소 한 번에 모두 되돌아가고 다시 실행 한 번에 모두 돌아옵니다. 직전의 사용자 타이핑과 한 단계로 합쳐지지 않습니다(fr38_edit_group_is_one_undo_step).
-    4. 편집끼리 겹치면 문서가 한 글자도 바뀌지 않고 `Invalid`가 한 번 가며 `ProtocolError`는 가지 않습니다(fr38_edit_group_with_overlapping_edits_changes_nothing).
-    5. 범위가 문서 밖이거나 시작이 끝보다 뒤인 편집이 하나라도 있으면 나머지도 적용되지 않습니다(fr38_edit_group_with_a_bad_range_changes_nothing).
-    6. `base_version`이 오래된 묶음은 사용자가 그 사이에 고친 곳과 겹치지 않으면 범위가 모두 옮겨져 적용되고, 한 편집이라도 겹치면 전체가 `Rejected`입니다(fr38_edit_group_with_a_stale_base_moves_or_rejects_all).
-    7. Renderer가 기억하는 것보다 오래된 `base_version`은 전체가 `TooOld`입니다. 사용자와 겹쳐 거절되는 `Rejected`와 상태 값이 다릅니다(fr38_edit_group_older_than_the_history_is_too_old).
-    8. 기존 `EditCode`의 동작(개별 거절, 편집마다 실행 취소 한 단계)은 그대로입니다(fr38_edit_code_sequence_keeps_its_behaviour).
-    9. 와이어: `EditCodeGroup`(명령 28)과 `CodeEditGroupResult`(이벤트 51)가 묶음 편집 수와 글자(서로게이트 쌍 포함)를 그대로 왕복하고, 프로토콜 벡터에 있습니다(fr38_edit_group_round_trips_on_the_wire).
-    10. Rust의 `Batch::edit_group`은 편집이 없으면 아무것도 쓰지 않습니다(fr38_an_empty_edit_group_writes_nothing).
-    11. 편집이 하나도 없는 `EditCodeGroup`이 Renderer에 닿으면 문서가 바뀌지 않고, 변경 이벤트가 0개이고, 실행 취소 단계가 늘지 않고, 버전이 그대로이며, `Applied` 결과의 `base_version`과 `current_version`이 같고 지금 문서의 버전입니다(fr38_an_empty_group_changes_nothing_and_replies_applied).
-    12. 레코드 길이가 맞지 않는 묶음은 문서를 바꾸지 않고 `ProtocolError` 하나를 보내며, 머리를 읽을 수 있으면 같은 `request_id`로 `Invalid` 결과가 뒤따릅니다. 의미가 틀린 묶음(기준 4, 5)에는 `ProtocolError`가 없습니다(fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not).
+    1. 겹치지 않는 편집 셋을 `base_version`이 현재인 묶음 하나로 보내면 셋이 모두 적용되고 `CodeEditGroupResult`가 `request_id`와 함께 `Applied`로 정확히 한 번 갑니다(`fr38_edit_group_applies_all_edits_and_replies_once`).
+    2. 변경 이벤트는 편집마다 하나이고, 문서 뒤쪽 편집부터 가며 버전이 하나씩 늘고, 그 이벤트들을 차례로 적용한 결과가 Renderer의 버퍼와 같습니다. 결과 이벤트는 그 뒤에 갑니다(`fr38_edit_group_events_are_ordered_and_replayable`).
+    3. 묶음은 실행 취소 한 번에 모두 되돌아가고 다시 실행 한 번에 모두 돌아옵니다. 직전의 사용자 타이핑과 한 단계로 합쳐지지 않습니다(`fr38_edit_group_is_one_undo_step`).
+    4. 편집끼리 겹치면 문서가 한 글자도 바뀌지 않고 `Invalid`가 한 번 가며 `ProtocolError`는 가지 않습니다(`fr38_edit_group_with_overlapping_edits_changes_nothing`).
+    5. 범위가 문서 밖이거나 시작이 끝보다 뒤인 편집이 하나라도 있으면 나머지도 적용되지 않습니다(`fr38_edit_group_with_a_bad_range_changes_nothing`).
+    6. `base_version`이 오래된 묶음은 사용자가 그 사이에 고친 곳과 겹치지 않으면 범위가 모두 옮겨져 적용되고, 한 편집이라도 겹치면 전체가 `Rejected`입니다(`fr38_edit_group_with_a_stale_base_moves_or_rejects_all`).
+    7. Renderer가 기억하는 것보다 오래된 `base_version`은 전체가 `TooOld`입니다. 사용자와 겹쳐 거절되는 `Rejected`와 상태 값이 다릅니다(`fr38_edit_group_older_than_the_history_is_too_old`).
+    8. 기존 `EditCode`의 동작(개별 거절, 편집마다 실행 취소 한 단계)은 그대로입니다(`fr38_edit_code_sequence_keeps_its_behaviour`).
+    9. 와이어: `EditCodeGroup`(명령 28)과 `CodeEditGroupResult`(이벤트 51)가 묶음 편집 수와 글자(서로게이트 쌍 포함)를 그대로 왕복하고, 프로토콜 벡터에 있습니다(`fr38_edit_group_round_trips_on_the_wire`).
+    10. Rust의 `Batch::edit_group`은 편집이 없으면 아무것도 쓰지 않습니다(`fr38_an_empty_edit_group_writes_nothing`).
+    11. 편집이 하나도 없는 `EditCodeGroup`이 Renderer에 닿으면 문서가 바뀌지 않고, 변경 이벤트가 0개이고, 실행 취소 단계가 늘지 않고, 버전이 그대로이며, `Applied` 결과의 `base_version`과 `current_version`이 같고 지금 문서의 버전입니다(`fr38_an_empty_group_changes_nothing_and_replies_applied`).
+    12. 레코드 길이가 맞지 않는 묶음은 문서를 바꾸지 않고 `ProtocolError` 하나를 보내며, 머리를 읽을 수 있으면 같은 `request_id`로 `Invalid` 결과가 뒤따릅니다. 의미가 틀린 묶음(기준 4, 5)에는 `ProtocolError`가 없습니다(`fr38_a_broken_group_record_is_a_protocol_error_and_a_semantic_error_is_not`).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
