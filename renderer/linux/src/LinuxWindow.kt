@@ -19,6 +19,10 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import java.lang.System
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.pointed
+import kotlinx.cinterop.ptr
 import org.thisisthepy.compose.window.CaretRect
 import org.thisisthepy.compose.window.FrameClock
 import org.thisisthepy.compose.window.WindowConfig
@@ -31,6 +35,16 @@ import org.thisisthepy.compose.window.linux.CURSOR_CROSSHAIR
 import org.thisisthepy.compose.window.linux.CURSOR_HAND
 import org.thisisthepy.compose.window.linux.CURSOR_TEXT
 import org.thisisthepy.compose.window.linux.X11Window
+import x11.LongVar
+import x11.PMaxSize
+import x11.PMinSize
+import x11.XAllocSizeHints
+import x11.XFree
+import x11.XFlush
+import x11.XGetWMNormalHints
+import x11.XSetWMNormalHints
+import x11.glXGetCurrentDisplay
+import x11.glXGetCurrentDrawable
 
 /**
  * The Compose half of the window this renderer opens on X11: the scene, what is typed into it
@@ -291,6 +305,81 @@ internal class LinuxWindow private constructor(
      */
     fun raise() = x11.raise()
 
+    private var resizable: Boolean = true
+    private var minWidthDp: Float = 0f
+    private var minHeightDp: Float = 0f
+
+    fun setResizable(value: Boolean) {
+        resizable = value
+        applyNormalHints()
+    }
+
+    fun setMinSize(minWidth: Float, minHeight: Float) {
+        minWidthDp = minWidth
+        minHeightDp = minHeight
+        applyNormalHints()
+    }
+
+    private fun applyNormalHints() {
+        if (!x11.makeCurrent()) return
+        val dpy = glXGetCurrentDisplay() ?: return
+        val win = glXGetCurrentDrawable()
+        if (win == 0uL) return
+        val hints = XAllocSizeHints() ?: return
+        try {
+            val m = x11.measure()
+            val scale = m.scale.coerceAtLeast(1f)
+            val minW = (minWidthDp * scale).toInt().coerceAtLeast(0)
+            val minH = (minHeightDp * scale).toInt().coerceAtLeast(0)
+            if (!resizable) {
+                val w = m.width.coerceAtLeast(minW).coerceAtLeast(1)
+                val h = m.height.coerceAtLeast(minH).coerceAtLeast(1)
+                hints.pointed.flags = PMinSize.toLong() or PMaxSize.toLong()
+                hints.pointed.min_width = w
+                hints.pointed.min_height = h
+                hints.pointed.max_width = w
+                hints.pointed.max_height = h
+            } else {
+                if (minW > 0 || minH > 0) {
+                    hints.pointed.flags = PMinSize.toLong()
+                    hints.pointed.min_width = minW
+                    hints.pointed.min_height = minH
+                } else {
+                    hints.pointed.flags = 0L
+                }
+            }
+            XSetWMNormalHints(dpy, win, hints)
+            XFlush(dpy)
+        } finally {
+            XFree(hints)
+        }
+    }
+
+    internal fun normalHintsFlagsAndMinMax(): Triple<Long, Pair<Int, Int>, Pair<Int, Int>>? {
+        if (!x11.makeCurrent()) return null
+        val dpy = glXGetCurrentDisplay() ?: return null
+        val win = glXGetCurrentDrawable()
+        if (win == 0uL) return null
+        val hints = XAllocSizeHints() ?: return null
+        return try {
+            memScoped {
+                val supplied = alloc<LongVar>()
+                val status = XGetWMNormalHints(dpy, win, hints, supplied.ptr)
+                if (status == 0) {
+                    null
+                } else {
+                    Triple(
+                        hints.pointed.flags,
+                        hints.pointed.min_width to hints.pointed.min_height,
+                        hints.pointed.max_width to hints.pointed.max_height,
+                    )
+                }
+            }
+        } finally {
+            XFree(hints)
+        }
+    }
+
     /**
      * Runs the window until the reader closes it.
      *
@@ -438,6 +527,9 @@ internal class LinuxWindow private constructor(
                 return null
             }
             val window = LinuxWindow(x11, config.title, work)
+            window.resizable = config.resizable
+            window.minWidthDp = config.minWidth.toFloat()
+            window.minHeightDp = config.minHeight.toFloat()
             handoff.target = window
             return window
         }

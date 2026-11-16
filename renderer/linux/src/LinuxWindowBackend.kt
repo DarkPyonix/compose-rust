@@ -30,7 +30,7 @@ internal class LinuxWindowBackend(
     private val content: (nodeId: Int) -> @Composable () -> Unit,
 ) : WindowBackend {
 
-    private val windows = ArrayList<LinuxPlatformWindow>()
+    internal val windows = ArrayList<LinuxPlatformWindow>()
 
     /** Any open window's X11 side, for the thread that did not make the work to end the loop's wait. */
     @kotlin.concurrent.Volatile
@@ -181,7 +181,13 @@ internal class LinuxPlatformWindow(
     override fun setTitle(title: String) = x11.setTitle(title)
 
     override fun setMinimumSize(width: Float, height: Float) =
-        x11.setMinimumSize(width.toInt(), height.toInt())
+        window.setMinSize(width, height)
+
+    fun setMinSize(minWidth: Float, minHeight: Float) =
+        window.setMinSize(minWidth, minHeight)
+
+    override fun setResizable(resizable: Boolean) =
+        window.setResizable(resizable)
 
     override fun setPosition(x: Float, y: Float) = x11.setPosition(x.toInt(), y.toInt())
 
