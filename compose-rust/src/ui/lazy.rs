@@ -20,12 +20,13 @@
 
 #![allow(non_snake_case)]
 
+use super::widgets::motion_input;
 use super::{Attrs, Modifier, Mods, emit_node, push_modifiers, widget_key};
-use crate::RangeRequest;
 use crate::runtime::__private::{RestartGroup, start_restart_group};
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::runtime::{MutableState, group_guard, key, mutable_state_of, remember};
 use crate::schema::WidgetKind;
+use crate::{MotionFinished, RangeRequest};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -97,6 +98,7 @@ pub struct LazyList {
     modifier: Modifier,
     columns: Option<u32>,
     min_column_width: Option<f32>,
+    on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     done: bool,
 }
 
@@ -123,6 +125,7 @@ impl LazyList {
             modifier: Modifier::new(),
             columns: None,
             min_column_width: None,
+            on_motion_finished: None,
             done: false,
         }
     }
@@ -144,6 +147,16 @@ impl LazyList {
         self
     }
 
+    /// Runs once when this node's size motion comes to rest, with the size it settled
+    /// at in dp. The node needs `Modifier::motion` for its size to move; without it
+    /// nothing is reported. A run interrupted by a newer size is not reported, only
+    /// the one that settles, and under reduced motion it arrives in the frame the
+    /// size changes in.
+    pub fn on_motion_finished(mut self, handler: impl FnMut(MotionFinished) + 'static) -> Self {
+        self.on_motion_finished = Some(Box::new(handler));
+        self
+    }
+
     /// Composes the list with the items `build` declares.
     pub fn content(mut self, build: impl FnOnce(&mut LazyListScope)) {
         self.done = true;
@@ -155,7 +168,7 @@ impl LazyList {
     fn compose(&mut self, scope: LazyListScope) {
         let (kind, modifier, columns, min_column_width) = (
             self.kind,
-            self.modifier,
+            std::mem::take(&mut self.modifier),
             self.columns,
             self.min_column_width,
         );
@@ -174,6 +187,8 @@ impl LazyList {
             request.set((asked.start(), asked.count()));
         })));
         let intervals = Rc::new(scope.intervals);
+        let mut listeners = vec![("onrangerequest", listener)];
+        motion_input(self.on_motion_finished.take(), &mut listeners);
         emit_node(
             widget,
             |attrs: &mut Attrs| {
@@ -191,7 +206,7 @@ impl LazyList {
                     ));
                 }
             },
-            vec![("onrangerequest", listener)],
+            listeners,
             || Items(range, intervals),
         );
     }

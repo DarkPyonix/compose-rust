@@ -256,6 +256,25 @@ fn fr53_window_events_name_their_window() {
     );
     // Outside every window, `zoom()` is the single window's, which is the default.
     assert_eq!(zoom().level, 0);
+
+    // The density is a window's too: two windows can sit on screens of different scales.
+    host.dispatch(event(
+        windows[1],
+        0,
+        EventPayload::DensityChanged { scale: 2.0 },
+    ))
+    .expect("the density report dispatches");
+    assert_eq!(compose_rust::density::density_of(windows[0]), 1.0);
+    assert_eq!(compose_rust::density::density_of(windows[1]), 2.0);
+    assert!(
+        host.dispatch(event(
+            windows[0],
+            7,
+            EventPayload::DensityChanged { scale: 2.0 },
+        ))
+        .is_err()
+    );
+    assert_eq!(compose_rust::density(), 1.0);
 }
 
 // ----- closing is the application's ----------------------------------------------------
@@ -824,6 +843,12 @@ fn fr53_window_state_is_dropped_when_the_window_closes() {
             },
         ))
         .expect("the zoom dispatches");
+        host.dispatch(event(
+            windows[0],
+            0,
+            EventPayload::DensityChanged { scale: 2.0 },
+        ))
+        .expect("the density dispatches");
         assert!(
             compose_rust::windows::window_state_len() > 0,
             "an open window holds state"

@@ -232,6 +232,12 @@ pub enum EventPayloadType {
     CodeEditGroupResult,
     /// One `u32`: whether the system appearance is light (0) or dark (1).
     ColorScheme,
+    /// One `f32`: how many device pixels one dp of a window covers.
+    Density,
+    /// The handle a window's platform views are made against: the handle as a `u64`, the
+    /// kind of handle as a `u16`, a reserved `u16`, and the window's backing scale as an
+    /// `f32`. A fixed 32-byte record.
+    NativeViewParent,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -244,17 +250,17 @@ pub struct EventSchema {
 /// Canonical schema text. Variant order is wire-significant and must only be appended to.
 pub const SCHEMA_DESCRIPTOR: &str = concat!(
     "compose-rust/v1;",
-    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover;",
-    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset;",
-    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay;",
+    "widgets=Column,Row,Box,Text,TextField,Button,Spacer,LazyColumn,ScrollColumn,Image,Icon,Checkbox,RadioButton,Switch,Slider,ProgressIndicator,Divider,Card,Surface,Dialog,Menu,Tabs,TopAppBar,LazyRow,Tooltip,Canvas,DatePicker,TimePicker,Dropdown,Navigation,NavigationItem,Sheet,Scaffold,ScaffoldSlot,LazyGrid,FileDropTarget,ScrollRow,Chip,FloatingAction,Badge,SelectionContainer,SplitPane,CodeEditor,AbsoluteBox,Window,FlowRow,Popover,NativeView;",
+    "properties=text,placeholder,enabled,multiline,on_click,on_value_change,on_submit,on_focus_lost,on_key_down,item_count,item_key,on_range_requested,type_role,font_size,font_weight,line_height,letter_spacing,color,text_align,max_lines,overflow,arrangement,spacing,space_role,alignment,variant,asset,checked,steps,determinate,circular,vertical,open,on_dismiss,selected_index,commands,value,min,max,icon,slot,columns,min_column_width,spans,on_files_entered,on_files_dropped,section,count,collapsible,button_kind,decorations,syntax_spans,tab_width,on_edit_rejected,on_hover,on_save,on_decoration_click,folds,gutter_decorations,on_selection_change,font,word_break,overflow_wrap,tab_size,absolute_size,soft_wrap,span_fonts,on_visible_range_change,on_editor_focus_change,on_fold_change,on_composition_change,on_pointer,pointer_kinds,cursor,user_select,island_zoom,window_title,window_size,window_min_size,window_resizable,window_chrome,window_title_bar,window_icon,window_position,window_restore_key,window_zoom_level,drag_from_pointer,on_window_close_requested,on_window_focus_changed,on_window_moved,on_window_drag,on_window_unavailable,on_window_closed,on_window_drag_over,tear_off_key,on_focus_gained,on_key_up,accessible_name,track_color,thumb_color,active_track_color,container_color,check_color,control_size,report_size,scrim,bare,horizontal_spacing,vertical_spacing,horizontal_alignment,vertical_alignment,max_items_in_each_row,placement,align,offset_dp,line_numbers,gutter_min_width_dp,gutter_padding_dp,text_inset_dp,code_editor_colors,on_code_metrics,on_code_scrolled,compact_navigation,on_scroll_changed,collapse_below,snap,max_height_fraction,font_feature_settings,on_motion_finished,on_edit_group_result,on_caret_rect,on_key_preview,on_code_pointer,radio_group,minimap,view_zones,word_wrap,content_scale,thumb_size,placeholder_color,caret_color,icon_asset,presentation,max_width,separator,span_font_features,content_padding_dp,fixed_gutter_columns,native_visible,on_native_view_focus;",
+    "modifiers=Empty,Padding,FillMaxWidth,FillMaxHeight,Width,Height,Size,Background,Clickable,PaddingRole,PaddingEach,Weight,Shape,ShapeRole,Border,Elevation,ObserveSize,Motion,Material,Offset,RequiredSize,BorderEach,CornerEach,Shadow,Clip,Alpha,Transform,Transform3D,MatchParentSize,WindowDrag,PressFeedback,Semantics,CornerCurve,BackgroundBrush,SizeIn,AspectRatio,MinTouchTarget,Overlay,Sticky,UnboundedWidth;",
     "keys=Enter,Other;",
-    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged;",
+    "events=Clicked,TextChanged,TextSubmitted,FocusLost,ProtocolError,KeyDown,RangeRequested,ValueChanged,WindowSizeChanged,DesignSystemResolved,FilesEntered,FilesDropped,NotificationActivated,NotificationPermissionChanged,CodeChanged,CodeEditRejected,CodeHovered,CodeSaveRequested,DecorationActivated,AnimationEvent,ReducedMotionChanged,Pointer,ZoomChanged,SelectionChanged,VisibleRangeChanged,EditorFocusChanged,FoldChanged,CompositionChanged,WindowCloseRequested,WindowFocusChanged,WindowMoved,WindowDrag,WindowDragOver,WindowUnavailable,WindowClosed,WindowRequested,ApplicationReopen,FocusGained,KeyUp,FileDialogResult,CodeEditGroupResult,ClipboardText,CodeMetrics,CodeScrolled,IoAnswer,FileHandles,StorageLocation,ScrollChanged,NativeViewParent,NativeViewFocus,MotionFinished,CaretRect,PositionRect,CodePointer,ColorSchemeChanged,SelectionsChanged,DensityChanged;",
     "windowsizeclasses=Compact,Medium,Expanded;",
     "windowheightclasses=Compact,Medium,Expanded;",
-    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,QueryPositionRect,InsertSnippet,SetSelections;",
+    "commands=Create,SetProp,SetModifier,Insert,Move,Remove,SetText,AppendText,SetTheme,SetWindow,RegisterAsset,ReleaseAsset,ShowMessage,PostNotification,WithdrawNotification,RequestNotificationPermission,EditCode,StartAnimation,ControlAnimation,SetSelection,RevealRange,SetFolded,SetWindowTheme,FocusWindow,RequestFocus,ShowFileDialog,SetOverlayTokens,EditCodeGroup,SetClipboardText,ReadClipboard,SetScrollOffset,StorageCall,FileCall,ReleaseFileHandle,ScrollTo,ScrollIntoView,AttachNativeView,FocusNativeView,QueryPositionRect,InsertSnippet,SetSelections;",
     // The fields of the overlay tokens record in wire order. A field is only appended, and
     // appending one changes the record's length, so it is part of what the hash covers.
-    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius;",
+    "overlaytokens=sheet_corner_radius,dialog_corner_radius,popup_corner_radius,sheet_elevation,popup_elevation,dialog_elevation,sheet_padding,dialog_padding,popup_padding,scrim,toast_elevation,toast_corner_radius,toast_container_light,toast_container_dark,toast_content_light,toast_content_dark,toast_border_width,toast_padding_horizontal,toast_padding_vertical,toast_font_size,toast_line_height;",
     // The fields of the message record in wire order, appended to in the same way.
     "showmessage=handler_id,text,action,duration,vertical,horizontal,offset_dp"
 );
@@ -432,6 +438,8 @@ const fn schema_hash() -> u64 {
                 EventPayloadType::CodeEditGroupResult => 38,
                 EventPayloadType::ColorScheme => 39,
                 EventPayloadType::CodeSelections => 40,
+                EventPayloadType::Density => 41,
+                EventPayloadType::NativeViewParent => 42,
             }],
         );
         index += 1;
@@ -442,6 +450,7 @@ const fn schema_hash() -> u64 {
     hash = crate::code::hash_record_schema(hash, crate::code::GUTTER_DECORATION_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::CODE_EDITOR_COLORS_RECORD);
     hash = crate::code::hash_record_schema(hash, crate::code::VIEW_ZONE_RECORD);
+    hash = hash_bytes(hash, &SEMANTICS_STATE_MASK.to_le_bytes());
     hash
 }
 
@@ -643,6 +652,13 @@ crate::extensions::define_widget_schema_with_extensions!(define_wire_enum; WIDGE
     // inside the window by flipping it to the other side or sliding it along the edge.
     // 46 is held for a widget on another branch.
     Popover = 47,
+    // A place in the window for a platform view the Host made: an `NSView`, an `HWND`, an
+    // X11 window or an Android `View`. The Renderer places it over the node's rectangle,
+    // cuts it to what its ancestors and the overlays above it leave showing, and hands
+    // keyboard focus to it and back. It never makes, links or destroys one. It takes no
+    // children and has no size of its own: its modifiers and its parent's constraints size
+    // it, and what the modifiers draw shows only where the view does not cover the node.
+    NativeView = 48,
 });
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -924,7 +940,10 @@ define_wire_enum!(GENERIC_FAMILY_SCHEMA, GenericFamily {
     Monospace = 4,
 });
 
-// Corner roles. The radius is the design system's decision.
+// Corner roles. The radius is the design system's decision, except for `Full`, which is
+// a pill in every one of them: each end is a half circle of half the node's shorter
+// side, worked out by the Renderer from the size the node was measured at, so the
+// application never sends a radius that depends on a height.
 define_wire_enum!(SHAPE_ROLE_SCHEMA, ShapeRole {
     None = 1,
     ExtraSmall = 2,
@@ -1734,6 +1753,10 @@ pub const ROLE_ENUM_SCHEMA: &[RoleEnumSchema] = &[
         name: "BackgroundRepeat",
         variants: BACKGROUND_REPEAT_SCHEMA,
     },
+    RoleEnumSchema {
+        name: "SheetPresentation",
+        variants: SHEET_PRESENTATION_SCHEMA,
+    },
 ];
 
 /// Every place that takes a colour takes a `Paint`, so colour is expressed once.
@@ -1824,6 +1847,13 @@ define_wire_enum!(COMPACT_NAVIGATION_SCHEMA, CompactNavigation {
     None = 2,
 } unlisted {
     Default = 0,
+});
+
+// How a `Sheet` is presented: entering from an edge (`Edge = 0`, the default) or centered in
+// the window (`Centered = 1`).
+define_wire_enum!(SHEET_PRESENTATION_SCHEMA, SheetPresentation {
+    Edge = 0,
+    Centered = 1,
 });
 
 // Where a scroll container comes to rest once a drag or a fling ends.
@@ -2201,6 +2231,25 @@ pub struct OverlayTokens {
     pub toast_elevation: u16,
     /// The corner radius of the transient message.
     pub toast_corner_radius: u16,
+    /// The transient message's fill in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_light: u32,
+    /// The transient message's fill in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_container_dark: u32,
+    /// The transient message's text in the light scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_light: u32,
+    /// The transient message's text in the dark scheme, as ARGB; 0 keeps the design system's.
+    pub toast_content_dark: u32,
+    /// The width of the line around the transient message in dp. `None` keeps the design
+    /// system's line, and `Some(0)` draws none.
+    pub toast_border_width: Option<u16>,
+    /// The space left and right of the transient message's text, in dp.
+    pub toast_padding_horizontal: u16,
+    /// The space above and below the transient message's text, in dp.
+    pub toast_padding_vertical: u16,
+    /// The size of the transient message's text, in sp.
+    pub toast_font_size: u16,
+    /// The line height of the transient message's text, in sp.
+    pub toast_line_height: u16,
 }
 
 impl OverlayTokens {
@@ -2218,6 +2267,15 @@ impl OverlayTokens {
             scrim: 0,
             toast_elevation: 0,
             toast_corner_radius: 0,
+            toast_container_light: 0,
+            toast_container_dark: 0,
+            toast_content_light: 0,
+            toast_content_dark: 0,
+            toast_border_width: None,
+            toast_padding_horizontal: 0,
+            toast_padding_vertical: 0,
+            toast_font_size: 0,
+            toast_line_height: 0,
         }
     }
 
@@ -2287,6 +2345,43 @@ impl OverlayTokens {
     /// The transient message's corner radius in dp.
     pub const fn toast_corner_radius(mut self, radius: u16) -> Self {
         self.toast_corner_radius = radius;
+        self
+    }
+
+    /// The transient message's fill, one colour for the light scheme and one for the dark.
+    /// The renderer takes the one for the scheme it is drawing in, so a message can be
+    /// drawn inverted (dark on a light page, light on a dark one).
+    pub const fn toast_container(mut self, light: Color, dark: Color) -> Self {
+        self.toast_container_light = light.to_argb();
+        self.toast_container_dark = dark.to_argb();
+        self
+    }
+
+    /// The transient message's text colour for the light scheme and for the dark.
+    pub const fn toast_content(mut self, light: Color, dark: Color) -> Self {
+        self.toast_content_light = light.to_argb();
+        self.toast_content_dark = dark.to_argb();
+        self
+    }
+
+    /// The width of the line around the transient message in dp; 0 draws none.
+    pub const fn toast_border_width(mut self, width: u16) -> Self {
+        self.toast_border_width = Some(width);
+        self
+    }
+
+    /// The space around the transient message's text in dp: left and right, then above and
+    /// below.
+    pub const fn toast_padding(mut self, horizontal: u16, vertical: u16) -> Self {
+        self.toast_padding_horizontal = horizontal;
+        self.toast_padding_vertical = vertical;
+        self
+    }
+
+    /// The transient message's text size and line height in sp.
+    pub const fn toast_type(mut self, font_size: u16, line_height: u16) -> Self {
+        self.toast_font_size = font_size;
+        self.toast_line_height = line_height;
         self
     }
 }
@@ -2576,7 +2671,8 @@ pub enum Modifier {
     /// accessible name is the `AccessibleName` property, because a string does not fit in
     /// a modifier's words. Above those, `expanded`, `disabled` and `focused` are tri-state
     /// fields in the same encoding, `SEMANTICS_HIDDEN_BIT` leaves the node out of the
-    /// accessibility tree, and the two action bits expose a click and a focus action.
+    /// accessibility tree, the two action bits expose a click and a focus action, and
+    /// `SEMANTICS_HAS_POPUP_BIT` says the node opens a popup.
     Semantics {
         role: SemanticsRole,
         state: u32,
@@ -2639,6 +2735,13 @@ pub enum Modifier {
     /// node sized by its content stays the size it was. A press tint or a selection wash is
     /// one of these.
     Overlay(Paint),
+    /// Pins a child to the start edge of a scrolling container (such as ScrollRow)
+    /// while the rest of the content scrolls.
+    Sticky,
+    /// Measures the node with no maximum width, so `ObserveSize` reports the width its
+    /// content asks for. The node still takes the width its parent offered, and what is
+    /// wider than that is clipped.
+    UnboundedWidth,
 }
 
 /// The smoothing a `CornerCurve` value draws with: clamped to 0..=1, NaN as 0.
@@ -2669,8 +2772,10 @@ pub const SEMANTICS_HIDDEN_BIT: u32 = 1 << 10;
 pub const SEMANTICS_CLICK_ACTION_BIT: u32 = 1 << 11;
 /// The bit that exposes a focus action on the node.
 pub const SEMANTICS_FOCUS_ACTION_BIT: u32 = 1 << 12;
+/// The bit that says the node opens a popup.
+pub const SEMANTICS_HAS_POPUP_BIT: u32 = 1 << 13;
 /// Every bit `Modifier::Semantics::state` may set.
-pub const SEMANTICS_STATE_MASK: u32 = 0b1_1111_1111_1111;
+pub const SEMANTICS_STATE_MASK: u32 = 0b11_1111_1111_1111;
 
 impl Modifier {
     /// A border with a width and a paint for each side, in CSS order: top, right, bottom,
@@ -3595,6 +3700,18 @@ pub const MODIFIER_SCHEMA: &[VariantSchema] = &[
         extra_words: 0,
         fields: PAINT_FIELD,
     },
+    VariantSchema {
+        name: "Sticky",
+        tag: 41,
+        extra_words: 0,
+        fields: NO_FIELDS,
+    },
+    VariantSchema {
+        name: "UnboundedWidth",
+        tag: 40,
+        extra_words: 0,
+        fields: NO_FIELDS,
+    },
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -3941,18 +4058,17 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // OpenType features for a `Text` or a `TextField`, such as tabular figures. A blob of
     // 8-byte records, at most 16: the four tag bytes, then the value as a little-endian
     // u32. A tag that comes twice takes the later value. Absent, or empty, is no features.
-    // 187 to 191 are held by properties other requirements have numbered.
+    // 187 is held by a property on another branch, and 188 to 191 are in use.
     FontFeatureSettings = 192,
     // The handler a node's size motion reports to once it settles, the handler id as an
     // integer. Any node may take it, so it is numbered after the last one in use rather
-    // than inside a widget's block: 187 to 192 are held by properties other requirements
-    // have numbered.
+    // than inside a widget's block: 187 is held by a property on another branch, and 188
+    // to 192 are in use.
     OnMotionFinished = 193,
     // The handler a code editor reports what became of each grouped edit to, the handler id
     // as an integer: one `CodeEditGroupResult` for every `EditCodeGroup`.
     OnEditGroupResult = 194,
-    // The handler a code editor tells where its caret is drawn. 190 and 191 are held by
-    // properties on other branches.
+    // The handler a code editor tells where its caret is drawn.
     OnCaretRect = 195,
     // The handler a code editor offers each key press to before it handles the key itself.
     // It hears the `KeyDown` record a key handler does, and a press it consumes is not the
@@ -3992,6 +4108,34 @@ crate::extensions::define_property_schema_with_extensions!(define_wire_enum; PRO
     // alpha. It is sized as an `IconRole` icon is, so a row of icons lines up whichever kind
     // each one is.
     IconAsset = 205,
+    // The presentation of a `Sheet`: whether it enters from an edge (`Edge = 0`) or appears
+    // in the centre of the window (`Centered = 1`). Absent or 0 is `Edge`.
+    Presentation = 206,
+    // The maximum width of a centered `Sheet` in dp, an integer. 0 leaves it to the design
+    // system (560 dp).
+    MaxWidth = 207,
+    // Whether a bar across the top of a screen draws the design system's hairline
+    // separator underneath. Absent lets the design system decide.
+    Separator = 208,
+    // The OpenType features for individual runs of a `Text`, as a blob beside `Spans`
+    // rather than inside its records: a run record keeps the 36 bytes it has always had,
+    // and only text that sets per-span font features carries this at all.
+    SpanFontFeatures = 209,
+    // Room above the first line and below the last line of a code editor that scrolls with
+    // the document, as a blob of two f32 in dp: top, then bottom. Absent is none. The gutter
+    // and its divider still fill the viewport.
+    ContentPaddingDp = 210,
+    // Whether a code editor always keeps the fold column and the change-bar column in its
+    // gutter, so the text starts at the same place whether or not the file has folds or
+    // changes. A boolean, absent is no.
+    FixedGutterColumns = 211,
+    // A `NativeView`'s two properties. 187 is held by a property on another branch.
+    //
+    // Whether the platform view shows, a boolean. Absent is yes. A hidden view stays in the
+    // window with its state, so showing it again shows the same page.
+    NativeVisible = 190,
+    // The handler that hears the platform view take and lose keyboard focus.
+    OnNativeViewFocus = 191,
 });
 
 #[derive(Clone, Debug, PartialEq)]
@@ -4159,6 +4303,13 @@ pub enum EventPayload<'a> {
         k: f32,
         os: f32,
         level: i32,
+    },
+    /// How many device pixels one dp of a window covers, 2.0 on a screen at 200% for
+    /// example. Sent once before the first frame and again whenever it changes, as when a
+    /// window moves to a screen of another scale. It says nothing about the zoom, which
+    /// `ZoomChanged` reports on its own.
+    DensityChanged {
+        scale: f32,
     },
     /// The selection of a code editor moved, or an edit moved it. `version` is the document
     /// version it is read against, the same series `CodeChanged` counts, and an edit's
@@ -4399,6 +4550,68 @@ pub enum EventPayload<'a> {
         current_version: u32,
         index: u32,
     },
+    /// The handle a window's platform views are made against, sent for each window once a
+    /// `NativeView` is in it, again when the handle or the backing scale changes, and with
+    /// a zero handle when the window closes. The node is the `Window` node, or 0 for the
+    /// single window. Delivered to the Host itself, with no handler.
+    NativeViewParent {
+        handle: NativeHandle,
+        kind: NativeParentKind,
+        /// The window's backing scale: how many pixels make one point.
+        scale: f32,
+    },
+    /// A `NativeView`'s platform view took keyboard focus (`true`) or lost it, reported to
+    /// the node's `OnNativeViewFocus` handler.
+    NativeViewFocus {
+        focused: bool,
+    },
+}
+
+/// A platform view, or the window it is made in, as the platform names it: an `NSView*`
+/// or `UIView*` pointer, an `HWND` or an X11 window id. 0 is no view. The Renderer only
+/// places the view; whoever made it still owns it and destroys it.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct NativeHandle(pub u64);
+
+impl NativeHandle {
+    /// No view: attaching it takes the node's view away.
+    pub const NONE: NativeHandle = NativeHandle(0);
+
+    /// Whether this names no view.
+    pub const fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// What kind of handle a window gives its platform views to be made against.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u16)]
+pub enum NativeParentKind {
+    /// The `NSView*` of a macOS window's content.
+    AppKit = 1,
+    /// A Windows top-level `HWND`.
+    Win32 = 2,
+    /// An X11 window id.
+    X11 = 3,
+    /// An Android view.
+    Android = 4,
+    /// The `UIView*` of an iOS window's content.
+    UIKit = 5,
+}
+
+impl TryFrom<u16> for NativeParentKind {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, ()> {
+        match value {
+            1 => Ok(Self::AppKit),
+            2 => Ok(Self::Win32),
+            3 => Ok(Self::X11),
+            4 => Ok(Self::Android),
+            5 => Ok(Self::UIKit),
+            _ => Err(()),
+        }
+    }
 }
 
 /// A rectangle in physical pixels, for [`ScrollTarget`].
@@ -4773,6 +4986,19 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 60,
         payload: EventPayloadType::ScrollChanged,
     },
+    // The handle a window's platform views are made against, addressed to the Host itself.
+    EventSchema {
+        name: "NativeViewParent",
+        tag: 61,
+        payload: EventPayloadType::NativeViewParent,
+    },
+    // A platform view took or lost keyboard focus. One word and its padding, the shape the
+    // code editor's focus report has.
+    EventSchema {
+        name: "NativeViewFocus",
+        tag: 62,
+        payload: EventPayloadType::CodeFocus,
+    },
     // 51 to 53 are numbered for events that are not here yet. Both of these carry one
     // `f64` of physical pixels, the shape `ValueChanged` has.
     EventSchema {
@@ -4785,8 +5011,7 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         tag: 55,
         payload: EventPayloadType::Double,
     },
-    // A node's size motion settled, reported to the node's own handler. 61 and 62 are
-    // numbered for events that are not here yet.
+    // A node's size motion settled, reported to the node's own handler.
     EventSchema {
         name: "MotionFinished",
         tag: 63,
@@ -4821,6 +5046,13 @@ pub const EVENT_SCHEMA: &[EventSchema] = &[
         name: "SelectionsChanged",
         tag: 67,
         payload: EventPayloadType::CodeSelections,
+    },
+    // About a window's screen rather than a node: the device pixels in one dp. Listed last
+    // because this table is append only, not because its tag is the highest.
+    EventSchema {
+        name: "DensityChanged",
+        tag: 53,
+        payload: EventPayloadType::Density,
     },
 ];
 

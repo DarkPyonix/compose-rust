@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, NativeVisible, OnNativeViewFocus, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -158,6 +158,8 @@ enum class ContentScale { Fit, Crop, FillBounds }
 
 enum class BackgroundRepeat { NoRepeat, Repeat, RepeatX, RepeatY }
 
+enum class SheetPresentation { Edge, Centered }
+
 /**
  * The `TypeRole` property of text with no rung of the ladder at all: CSS text, whose
  * size, weight and font are its own. Present and zero; an absent property is the
@@ -248,6 +250,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -650,6 +662,7 @@ data class CodeEditorColorsRecord(
     val lineNumber: ColorRole?,
     val currentLineNumber: ColorRole?,
     val currentLine: ColorRole?,
+    val currentLineGutter: ColorRole?,
 )
 
 /** Room after a line of a code editor that is not text, `heightLines` rows high, with `text` drawn dimmed in it. `afterLine` is in the document as it is when the list arrives. */
@@ -886,7 +899,9 @@ object CodeEditorRecords {
         val currentLineNumber = if (currentLineNumberTag == 0) null else colorRoleOrNull(currentLineNumberTag) ?: run { onError("record $index has an unknown currentLineNumber ${currentLineNumberTag}"); return null }
         val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
         val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
-        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
+        val currentLineGutterTag = buffer.getShort(offset + 10).toInt() and 0xffff
+        val currentLineGutter = if (currentLineGutterTag == 0) null else colorRoleOrNull(currentLineGutterTag) ?: run { onError("record $index has an unknown currentLineGutter ${currentLineGutterTag}"); return null }
+        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine, currentLineGutter)
     }
 
     const val VIEW_ZONE_LENGTH = 16
@@ -1143,12 +1158,84 @@ object SpanFontRecords {
 }
 
 /**
+ * Which runs of a Text name OpenType features of their own, and which: the
+ * `SpanFontFeatures` property. Keyed by the run's index in its run list.
+ *
+ * The blob opens with the number of entries. Each entry names a run, where that run's
+ * feature records start, counted from the start of the blob, and how many there are. The
+ * records are the 8-byte ones a `FontFeatureSettings` property carries, after the entries.
+ */
+object SpanFontFeatureRecords {
+    const val ENTRY_LENGTH = 12
+    const val FEATURE_LENGTH = 8
+    const val MAX_FEATURES = 16
+    private const val SPAN_AT = 0
+    private const val OFFSET_AT = 4
+    private const val COUNT_AT = 8
+
+    /**
+     * Each named run's feature records, by run index and in the table's order, or null
+     * where the table breaks its layout: [onError] is then told what broke, once. An empty
+     * blob is a table with no entries.
+     *
+     * Refused are a table too short for its entries, a run index above the largest an
+     * `Int` holds, more than [MAX_FEATURES] features for one run, a feature list that does
+     * not lie whole inside the blob after the entries at a multiple of four, and a run
+     * named twice. Whether a run index is one of the text's runs is for the caller, which
+     * knows how many there are.
+     */
+    fun decodeBlob(bytes: ByteArray, onError: (String) -> Unit): Map<Int, ByteArray>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) {
+            onError("${bytes.size} bytes cannot hold the table's entry count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0)
+        val entriesEnd = 4L + count.toLong() * ENTRY_LENGTH
+        if (count < 0 || entriesEnd > bytes.size) {
+            onError("${count.toUInt()} entries do not fit in ${bytes.size} bytes")
+            return null
+        }
+        val features = LinkedHashMap<Int, ByteArray>(count)
+        for (index in 0 until count) {
+            val entry = 4 + index * ENTRY_LENGTH
+            val span = buffer.getInt(entry + SPAN_AT)
+            val offset = buffer.getInt(entry + OFFSET_AT)
+            val length = buffer.getInt(entry + COUNT_AT)
+            if (span < 0) {
+                onError("entry $index names run ${span.toUInt()}, which no text has")
+                return null
+            }
+            if (length < 0 || length > MAX_FEATURES) {
+                onError("run $span has ${length.toUInt()} features where at most $MAX_FEATURES are taken")
+                return null
+            }
+            val end = offset.toLong() + length.toLong() * FEATURE_LENGTH
+            if (offset < entriesEnd || offset % 4 != 0 || end > bytes.size) {
+                onError(
+                    "the features of run $span are said to be at ${offset.toUInt()}, which is not " +
+                        "$length whole records after the entries of a ${bytes.size} byte table",
+                )
+                return null
+            }
+            if (features.containsKey(span)) {
+                onError("run $span is named twice")
+                return null
+            }
+            features[span] = bytes.copyOfRange(offset, end.toInt())
+        }
+        return features
+    }
+}
+
+/**
  * The layout of a measure call: the request records the Host writes, the result records
  * the Renderer writes back, and what each status means. The records and their offsets are
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
  */
 object MeasureRecords {
-    const val RECORD_LENGTH = 72
+    const val RECORD_LENGTH = 88
     const val RESULT_LENGTH = 32
     const val KIND_TEXT = 1
     const val KIND_NODE = 2
@@ -1176,6 +1263,10 @@ object MeasureRecords {
     const val TEXT_CONSTRAINT_AT = 60
     const val TEXT_WIDTH_AT = 64
     const val TEXT_ZOOM_AT = 68
+    const val TEXT_FONT_FEATURES_OFFSET_AT = 72
+    const val TEXT_FONT_FEATURES_COUNT_AT = 76
+    const val TEXT_SPAN_FEATURES_OFFSET_AT = 80
+    const val TEXT_SPAN_FEATURES_LENGTH_AT = 84
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
@@ -1242,6 +1333,8 @@ sealed interface Modifier {
     data class AspectRatio(val ratio: kotlin.Float, val matchHeightConstraintsFirst: Boolean) : Modifier
     data class MinTouchTarget(val size: kotlin.Float) : Modifier
     data class Overlay(val paint: Paint) : Modifier
+    data object Sticky : Modifier
+    data object UnboundedWidth : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1695,6 +1788,25 @@ sealed interface Mutation {
         override fun hashCode(): Int =
             ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
     }
+
+    /**
+     * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
+     * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
+     * takes the node's view out. The view is the Host's: it is never destroyed here.
+     */
+    data class AttachNativeView(val nodeId: Int, val handle: Long) : Mutation
+
+    /** Gives keyboard focus to the platform view of [nodeId] ([focus] true), or back to the scene. */
+    data class FocusNativeView(val nodeId: Int, val focus: Boolean) : Mutation
+}
+
+/** The words of the platform view records: the kinds of window handle a view is made against. */
+object NativeViewWire {
+    const val PARENT_APPKIT = 1
+    const val PARENT_WIN32 = 2
+    const val PARENT_X11 = 3
+    const val PARENT_ANDROID = 4
+    const val PARENT_UIKIT = 5
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1787,6 +1899,8 @@ sealed interface HostEvent {
     data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
+    data class NativeViewParent(override val nodeId: Int, override val handlerId: Long, val handle: Long, val kind: Int, val scale: kotlin.Float) : HostEvent
+    data class NativeViewFocus(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
@@ -1805,13 +1919,14 @@ sealed interface HostEvent {
         override fun toString(): String =
             "SelectionsChanged(nodeId=$nodeId, handlerId=$handlerId, version=$version, selections=${selections.toList()})"
     }
+    data class DensityChanged(override val nodeId: Int, override val handlerId: Long, val scale: kotlin.Float) : HostEvent
 }
 
 class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -8578215891242925580L
+    const val SCHEMA_HASH: Long = -7259639446471370L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1851,6 +1966,8 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_ATTACH_NATIVE_VIEW = 37
+    private const val TAG_FOCUS_NATIVE_VIEW = 38
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
@@ -2021,7 +2138,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -2036,6 +2153,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -2099,6 +2225,35 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_ATTACH_NATIVE_VIEW -> {
+                        requireRecordLength(length, 24, offset)
+                        // Two reserved words between the node and the handle, which keep the
+                        // handle on an eight byte boundary. A record that sets either is one
+                        // the sides disagree on.
+                        for (reserved in intArrayOf(offset + 8, offset + 12)) {
+                            if (readU32(batch, base, available, reserved) != 0L) {
+                                throw ProtocolException("reserved word is not zero", reserved)
+                            }
+                        }
+                        Mutation.AttachNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            handle = readU64(batch, base, available, offset + 16),
+                        )
+                    }
+                    TAG_FOCUS_NATIVE_VIEW -> {
+                        requireRecordLength(length, 16, offset)
+                        val focus = readU32(batch, base, available, offset + 8)
+                        if (focus != 0L && focus != 1L) {
+                            throw ProtocolException("invalid focus word $focus", offset + 8)
+                        }
+                        if (readU32(batch, base, available, offset + 12) != 0L) {
+                            throw ProtocolException("reserved word is not zero", offset + 12)
+                        }
+                        Mutation.FocusNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            focus = focus == 1L,
                         )
                     }
                     TAG_EDIT_CODE_GROUP -> {
@@ -2470,6 +2625,8 @@ object Protocol {
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ScrollChanged -> null
+                is HostEvent.NativeViewParent -> null
+                is HostEvent.NativeViewFocus -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
                 is HostEvent.MotionFinished -> null
@@ -2478,6 +2635,7 @@ object Protocol {
                 is HostEvent.CodePointer -> null
                 is HostEvent.ColorSchemeChanged -> null
                 is HostEvent.SelectionsChanged -> ByteArray(event.selections.size * 4).also { bytes -> event.selections.forEachIndexed { index, value -> for (shift in 0 until 4) bytes[index * 4 + shift] = (value ushr (8 * shift)).toByte() } }
+                is HostEvent.DensityChanged -> null
             }
             val recordLength = when (event) {
                 is HostEvent.Clicked -> 16
@@ -2529,6 +2687,8 @@ object Protocol {
                 is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
                 is HostEvent.ScrollChanged -> 72
+                is HostEvent.NativeViewParent -> 32
+                is HostEvent.NativeViewFocus -> 24
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
                 is HostEvent.MotionFinished -> 24
@@ -2537,6 +2697,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 80
                 is HostEvent.ColorSchemeChanged -> 20
                 is HostEvent.SelectionsChanged -> 28
+                is HostEvent.DensityChanged -> 20
             }
             val totalLength = recordLength.toLong() + (text?.size ?: 0)
             if (totalLength > Int.MAX_VALUE || totalLength > out.remaining().toLong()) {
@@ -2592,6 +2753,8 @@ object Protocol {
                 is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
                 is HostEvent.ScrollChanged -> 60
+                is HostEvent.NativeViewParent -> 61
+                is HostEvent.NativeViewFocus -> 62
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
                 is HostEvent.MotionFinished -> 63
@@ -2600,6 +2763,7 @@ object Protocol {
                 is HostEvent.CodePointer -> 66
                 is HostEvent.ColorSchemeChanged -> 52
                 is HostEvent.SelectionsChanged -> 67
+                is HostEvent.DensityChanged -> 53
             }
             out.putShort(tag.toShort())
             out.putShort(recordLength.toShort())
@@ -2829,6 +2993,16 @@ object Protocol {
                     out.putDouble(event.viewportWidthPx)
                     out.putDouble(event.viewportHeightPx)
                 }
+                is HostEvent.NativeViewParent -> {
+                    out.putLong(event.handle)
+                    out.putShort(event.kind.toShort())
+                    out.putShort(0)
+                    out.putFloat(event.scale)
+                }
+                is HostEvent.NativeViewFocus -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                    out.putInt(0)
+                }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
                 is HostEvent.MotionFinished -> {
@@ -2875,6 +3049,7 @@ object Protocol {
                     out.putInt(event.version)
                     writeStringReference(out, recordLength, text!!)
                 }
+                is HostEvent.DensityChanged -> out.putFloat(event.scale)
             }
             if (text != null) out.put(text)
             return out.position() - start
@@ -2960,6 +3135,7 @@ object Protocol {
         45 -> WidgetKind.Window
         46 -> WidgetKind.FlowRow
         47 -> WidgetKind.Popover
+        48 -> WidgetKind.NativeView
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -3107,6 +3283,14 @@ object Protocol {
         203 -> PropertyKind.PlaceholderColor
         204 -> PropertyKind.CaretColor
         205 -> PropertyKind.IconAsset
+        206 -> PropertyKind.Presentation
+        207 -> PropertyKind.MaxWidth
+        208 -> PropertyKind.Separator
+        209 -> PropertyKind.SpanFontFeatures
+        210 -> PropertyKind.ContentPaddingDp
+        211 -> PropertyKind.FixedGutterColumns
+        190 -> PropertyKind.NativeVisible
+        191 -> PropertyKind.OnNativeViewFocus
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }
@@ -3964,6 +4148,12 @@ object Protocol {
         else -> throw ProtocolException("unknown BackgroundRepeat tag $tag", offset)
     }
 
+    private fun sheetPresentation(tag: Int, offset: Int): SheetPresentation = when (tag) {
+        0 -> SheetPresentation.Edge
+        1 -> SheetPresentation.Centered
+        else -> throw ProtocolException("unknown SheetPresentation tag $tag", offset)
+    }
+
     private fun paint(bits: Long, offset: Int): Paint {
         val value = bits.toInt()
         return when (val kind = (bits ushr 32).toInt()) {
@@ -4028,6 +4218,8 @@ object Protocol {
         37 -> 0
         38 -> 0
         39 -> 0
+        41 -> 0
+        40 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4073,6 +4265,8 @@ object Protocol {
             37 -> Modifier.AspectRatio(kotlin.Float.fromBits(first.toInt()), flag(second, offset))
             38 -> Modifier.MinTouchTarget(kotlin.Float.fromBits(first.toInt()))
             39 -> Modifier.Overlay(paint(first, offset))
+            41 -> Modifier.Sticky
+            40 -> Modifier.UnboundedWidth
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

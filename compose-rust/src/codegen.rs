@@ -167,6 +167,16 @@ data class OverlayTokens(
     val scrim: Long = 0L,
     val toastElevation: Int = 0,
     val toastCornerRadius: Int = 0,
+    val toastContainerLight: Long = 0L,
+    val toastContainerDark: Long = 0L,
+    val toastContentLight: Long = 0L,
+    val toastContentDark: Long = 0L,
+    /** 0xFFFF keeps the design system's line; 0 draws none. */
+    val toastBorderWidth: Int = 0xFFFF,
+    val toastPaddingHorizontal: Int = 0,
+    val toastPaddingVertical: Int = 0,
+    val toastFontSize: Int = 0,
+    val toastLineHeight: Int = 0,
 )
 
 /**
@@ -720,6 +730,25 @@ sealed interface Mutation {
         override fun hashCode(): Int =
             ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
     }
+
+    /**
+     * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
+     * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
+     * takes the node's view out. The view is the Host's: it is never destroyed here.
+     */
+    data class AttachNativeView(val nodeId: Int, val handle: Long) : Mutation
+
+    /** Gives keyboard focus to the platform view of [nodeId] ([focus] true), or back to the scene. */
+    data class FocusNativeView(val nodeId: Int, val focus: Boolean) : Mutation
+}
+
+/** The words of the platform view records: the kinds of window handle a view is made against. */
+object NativeViewWire {
+    const val PARENT_APPKIT = 1
+    const val PARENT_WIN32 = 2
+    const val PARENT_X11 = 3
+    const val PARENT_ANDROID = 4
+    const val PARENT_UIKIT = 5
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -798,6 +827,7 @@ object ScrollWire {
             ),
             EventPayloadType::ReducedMotion => output.push_str(", val state: ReducedMotion"),
             EventPayloadType::ColorScheme => output.push_str(", val scheme: SystemColorScheme"),
+            EventPayloadType::Density => output.push_str(", val scale: kotlin.Float"),
             EventPayloadType::Pointer => output.push_str(
                 ", val kind: PointerKind, val pointerId: Int, val pointerType: PointerType, val x: kotlin.Float, val y: kotlin.Float, val buttons: Int, val button: Int, val modifiers: Int, val clickCount: Int, val deltaX: kotlin.Float, val deltaY: kotlin.Float, val deltaMode: WheelDeltaMode, val timestampNanos: Long",
             ),
@@ -848,6 +878,11 @@ object ScrollWire {
             // Every length is in physical pixels. The flags are the `ScrollWire.CHANGED_*` bits.
             EventPayloadType::ScrollChanged => output.push_str(
                 ", val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double",
+            ),
+            // The kind is one of the `NativeViewWire.PARENT_*` values; the scale is the
+            // window's backing scale.
+            EventPayloadType::NativeViewParent => output.push_str(
+                ", val handle: Long, val kind: Int, val scale: kotlin.Float",
             ),
             // The size a node's size motion settled at, in dp.
             EventPayloadType::MotionFinished => {
@@ -961,6 +996,8 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_ATTACH_NATIVE_VIEW = 37
+    private const val TAG_FOCUS_NATIVE_VIEW = 38
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
@@ -1131,7 +1168,7 @@ object Protocol {
                         )
                     }
                     TAG_SET_OVERLAY_TOKENS -> {
-                        requireRecordLength(length, 32, offset)
+                        requireRecordLength(length, 60, offset)
                         Mutation.SetOverlayTokens(
                             OverlayTokens(
                                 sheetCornerRadius = readU16(batch, base, available, offset + 4),
@@ -1146,6 +1183,15 @@ object Protocol {
                                 scrim = readU32(batch, base, available, offset + 24),
                                 toastElevation = readU16(batch, base, available, offset + 28),
                                 toastCornerRadius = readU16(batch, base, available, offset + 30),
+                                toastContainerLight = readU32(batch, base, available, offset + 32),
+                                toastContainerDark = readU32(batch, base, available, offset + 36),
+                                toastContentLight = readU32(batch, base, available, offset + 40),
+                                toastContentDark = readU32(batch, base, available, offset + 44),
+                                toastBorderWidth = readU16(batch, base, available, offset + 48),
+                                toastPaddingHorizontal = readU16(batch, base, available, offset + 50),
+                                toastPaddingVertical = readU16(batch, base, available, offset + 52),
+                                toastFontSize = readU16(batch, base, available, offset + 54),
+                                toastLineHeight = readU16(batch, base, available, offset + 56),
                             ),
                         )
                     }
@@ -1209,6 +1255,35 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_ATTACH_NATIVE_VIEW -> {
+                        requireRecordLength(length, 24, offset)
+                        // Two reserved words between the node and the handle, which keep the
+                        // handle on an eight byte boundary. A record that sets either is one
+                        // the sides disagree on.
+                        for (reserved in intArrayOf(offset + 8, offset + 12)) {
+                            if (readU32(batch, base, available, reserved) != 0L) {
+                                throw ProtocolException("reserved word is not zero", reserved)
+                            }
+                        }
+                        Mutation.AttachNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            handle = readU64(batch, base, available, offset + 16),
+                        )
+                    }
+                    TAG_FOCUS_NATIVE_VIEW -> {
+                        requireRecordLength(length, 16, offset)
+                        val focus = readU32(batch, base, available, offset + 8)
+                        if (focus != 0L && focus != 1L) {
+                            throw ProtocolException("invalid focus word $focus", offset + 8)
+                        }
+                        if (readU32(batch, base, available, offset + 12) != 0L) {
+                            throw ProtocolException("reserved word is not zero", offset + 12)
+                        }
+                        Mutation.FocusNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            focus = focus == 1L,
                         )
                     }
                     TAG_EDIT_CODE_GROUP -> {
@@ -1594,6 +1669,7 @@ object Protocol {
             }
             EventPayloadType::None
             | EventPayloadType::ScrollChanged
+            | EventPayloadType::NativeViewParent
             | EventPayloadType::CodeCaretRect
             | EventPayloadType::CodePositionRect
             | EventPayloadType::CodePointer
@@ -1635,6 +1711,7 @@ object Protocol {
             | EventPayloadType::Animation
             | EventPayloadType::ReducedMotion
             | EventPayloadType::ColorScheme
+            | EventPayloadType::Density
             | EventPayloadType::Pointer
             | EventPayloadType::CodeSelection
             | EventPayloadType::CodeVisibleRange
@@ -1684,6 +1761,8 @@ object Protocol {
             EventPayloadType::Animation => 40,
             EventPayloadType::ReducedMotion => 20,
             EventPayloadType::ColorScheme => 20,
+            // One float after the header.
+            EventPayloadType::Density => 20,
             EventPayloadType::Pointer => 72,
             EventPayloadType::CodeSelection => 36,
             EventPayloadType::CodeVisibleRange => 28,
@@ -1710,6 +1789,8 @@ object Protocol {
             EventPayloadType::FileHandles => 52,
             // The item and the flags, then six doubles.
             EventPayloadType::ScrollChanged => 72,
+            // The handle, the kind and a reserved half word, then the scale.
+            EventPayloadType::NativeViewParent => 32,
             // Two floats after the header.
             EventPayloadType::MotionFinished => 24,
             // Two words and four floats.
@@ -1913,6 +1994,14 @@ object Protocol {
                 );
                 output.push_str("                }\n");
             }
+            EventPayloadType::Density => {
+                writeln!(
+                    output,
+                    "                is HostEvent.{} -> out.putFloat(event.scale)",
+                    event.name
+                )
+                .unwrap();
+            }
             EventPayloadType::Pointer | EventPayloadType::CodePointer => {
                 writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
                 output.push_str("                    out.putInt(pointerKindTag(event.kind))\n");
@@ -2084,6 +2173,14 @@ object Protocol {
                 output.push_str("                    out.putDouble(event.maxYPx)\n");
                 output.push_str("                    out.putDouble(event.viewportWidthPx)\n");
                 output.push_str("                    out.putDouble(event.viewportHeightPx)\n");
+                output.push_str("                }\n");
+            }
+            EventPayloadType::NativeViewParent => {
+                writeln!(output, "                is HostEvent.{} -> {{", event.name).unwrap();
+                output.push_str("                    out.putLong(event.handle)\n");
+                output.push_str("                    out.putShort(event.kind.toShort())\n");
+                output.push_str("                    out.putShort(0)\n");
+                output.push_str("                    out.putFloat(event.scale)\n");
                 output.push_str("                }\n");
             }
             EventPayloadType::CodeCaretRect => {
@@ -3261,6 +3358,34 @@ pub const FONT_FEATURE_VECTOR: [crate::font_features::FontFeature; 3] = [
     crate::font_features::FontFeature::new(b"cv01", 0x0102),
 ];
 
+/// The runs of the mutation vector's last text that name font features, and which: its
+/// second run takes tabular figures, and its fifth takes ligatures off and a stylistic
+/// set whose value needs more than one byte. Two entries with lists of different lengths,
+/// so an offset read from the wrong entry lands on the wrong records.
+pub fn span_font_feature_vector() -> Vec<(u32, Vec<crate::font_features::FontFeature>)> {
+    use crate::font_features::FontFeature;
+    vec![
+        (1, vec![FontFeature::TABULAR_NUMS]),
+        (
+            4,
+            vec![FontFeature::NO_LIGATURES, FontFeature::new(b"ss01", 0x0302)],
+        ),
+    ]
+}
+
+/// The five runs the text with span font features is cut into, so the runs the feature
+/// table names (the second and the fifth) are runs the text has.
+pub fn span_font_feature_runs() -> crate::spans::TextSpans {
+    use crate::spans::{TextSpan, TextSpans};
+    TextSpans::new([
+        TextSpan::new(0, 2),
+        TextSpan::new(2, 2),
+        TextSpan::new(4, 2),
+        TextSpan::new(6, 2),
+        TextSpan::new(8, 2),
+    ])
+}
+
 pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let canvas_vector_bytes = canvas_vector();
     let spans_vector_bytes = spans_vector();
@@ -3272,6 +3397,9 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     let window_min_size = floats_le(&[320.0, 240.0]);
     let window_position = floats_le(&[100.5, -20.0]);
     let font_features = crate::font_features::font_feature_bytes(&FONT_FEATURE_VECTOR);
+    let span_font_feature_runs = span_font_feature_runs();
+    let span_font_features = crate::spans::encode_feature_table(&span_font_feature_vector())
+        .expect("the vector names features");
     let edit_group = code_edit_group_vector()?;
     let view_zones = code_view_zone_vector();
     let code_selections = code_selections_vector();
@@ -4049,7 +4177,18 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
                 .popup_padding(10)
                 .scrim_argb(0x8000_0000)
                 .toast_elevation(7)
-                .toast_corner_radius(14),
+                .toast_corner_radius(14)
+                .toast_container(
+                    crate::schema::Color::argb(0xFF1C_1B19),
+                    crate::schema::Color::argb(0xFFF0_EEE9),
+                )
+                .toast_content(
+                    crate::schema::Color::argb(0xFFFF_FFFF),
+                    crate::schema::Color::argb(0xFF15_1514),
+                )
+                .toast_border_width(0)
+                .toast_padding(16, 10)
+                .toast_type(13, 20),
         ),
         // A text with three font features, one of them a value above one byte, after
         // every older record but the last.
@@ -4135,6 +4274,27 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             property: PropertyKind::IconAsset,
             value: PropertyValue::Integer(9),
         },
+        // A text whose second and fifth runs name font features of their own, as the table
+        // that travels beside the runs.
+        Mutation::Create {
+            node_id: 24,
+            widget: WidgetKind::Text,
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("1234567890"),
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::Spans,
+            value: PropertyValue::Bytes(span_font_feature_runs.as_bytes()),
+        },
+        Mutation::SetProp {
+            node_id: 24,
+            property: PropertyKind::SpanFontFeatures,
+            value: PropertyValue::Bytes(&span_font_features),
+        },
         // A button's least touch target, 44 dp, on a node of its own so the html element
         // box keeps the modifiers it had.
         Mutation::SetModifier {
@@ -4148,6 +4308,31 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
             index: 9,
             modifier: Modifier::CornerCurve { smoothing: 0.6 },
         },
+        // A platform view's place, hidden, with a focus handler, then a view put in it and
+        // focus given to it. After every older record, so none of them moves. The handle
+        // fills both halves of its `u64`, so a reader that takes a word cannot pass.
+        Mutation::Create {
+            node_id: 25,
+            widget: WidgetKind::NativeView,
+        },
+        Mutation::SetProp {
+            node_id: 25,
+            property: PropertyKind::NativeVisible,
+            value: PropertyValue::Bool(false),
+        },
+        Mutation::SetProp {
+            node_id: 25,
+            property: PropertyKind::OnNativeViewFocus,
+            value: PropertyValue::Integer(301),
+        },
+        Mutation::AttachNativeView {
+            node_id: 25,
+            handle: crate::schema::NativeHandle(NATIVE_VIEW_VECTOR_HANDLE),
+        },
+        Mutation::FocusNativeView {
+            node_id: 25,
+            focus: true,
+        },
     ];
     let mut encoder = BatchEncoder::default();
     for mutation in &mutations {
@@ -4155,6 +4340,11 @@ pub fn generate_mutation_vector() -> Result<Vec<u8>, ProtocolError> {
     }
     Ok(encoder.finish()?.to_vec())
 }
+
+/// The platform view handle the mutation vector attaches and the window handle the event
+/// vector reports: both halves of the `u64` set.
+pub const NATIVE_VIEW_VECTOR_HANDLE: u64 = 0x0000_7f8a_1234_5670;
+pub const NATIVE_PARENT_VECTOR_HANDLE: u64 = 0x0000_6000_0abc_def0;
 
 /// The matrix the 3D transform vector carries: sixteen different values, so a value read
 /// from the wrong half of the wrong word cannot pass.
@@ -4634,6 +4824,27 @@ pub fn generate_event_vector() -> Result<Vec<u8>, ProtocolError> {
                 selections: &selections,
             },
         },
+        // A window on a screen at 200%, addressed to the Host.
+        HostEvent {
+            node_id: 0,
+            handler_id: 0,
+            payload: EventPayload::DensityChanged { scale: 2.0 },
+        },
+        // The window a platform view is made in, and that view taking focus.
+        HostEvent {
+            node_id: 20,
+            handler_id: 0,
+            payload: EventPayload::NativeViewParent {
+                handle: crate::schema::NativeHandle(NATIVE_PARENT_VECTOR_HANDLE),
+                kind: crate::schema::NativeParentKind::AppKit,
+                scale: 2.0,
+            },
+        },
+        HostEvent {
+            node_id: 25,
+            handler_id: 301,
+            payload: EventPayload::NativeViewFocus { focused: true },
+        },
     ];
     let mut output = Vec::new();
     let mut encoded = Vec::new();
@@ -4653,7 +4864,7 @@ pub fn generate_vector_description() -> String {
   "mutations": {{
     "file": "mutations.bin",
     "description": "One batch covering every record, property value, modifier layout, drawing command, asset, message, notification command, palette entry, text run, split pane property, the HTML and CSS drawing elements, the animations the Renderer plays and code editor record",
-    "recordCount": 132,
+    "recordCount": 147,
     "palette": [
       {{ "role": "Primary", "scheme": "Light", "argb": "ffe8590c" }},
       {{ "role": "Primary", "scheme": "Dark", "argb": "ffff8a4c" }},
@@ -4688,7 +4899,7 @@ pub fn generate_vector_description() -> String {
   }},
   "events": {{
     "file": "events.bin",
-    "description": "Forty-nine independently decodable event records concatenated in schema order",
+    "description": "Fifty-two independently decodable event records concatenated in schema order",
     "records": [
       {{ "type": "Clicked", "offset": 0, "length": 16, "nodeId": 7, "handlerId": 11 }},
       {{ "type": "TextChanged", "offset": 16, "length": 30, "nodeId": 8, "handlerId": 12, "text": "한글" }},
@@ -4738,7 +4949,10 @@ pub fn generate_vector_description() -> String {
       {{ "type": "CodePointer", "offset": 1543, "length": 80, "nodeId": 12, "handlerId": 31, "kind": "Down", "pointerId": 1, "pointerType": "Mouse", "x": 96.5, "y": 30.25, "buttons": 1, "button": 1, "modifiers": 8, "clickCount": 1, "deltaX": 0.0, "deltaY": 0.0, "deltaMode": "Pixel", "timestampNanos": 123456789000, "line": 1, "column": 13 }},
       {{ "type": "CodeEditGroupResult", "offset": 1623, "length": 36, "nodeId": 12, "handlerId": 32, "requestId": 8, "status": "Applied", "baseVersion": 1, "currentVersion": 3, "index": 2 }},
       {{ "type": "ColorSchemeChanged", "offset": 1659, "length": 20, "nodeId": 0, "handlerId": 0, "scheme": "Dark" }},
-      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }}
+      {{ "type": "SelectionsChanged", "offset": 1679, "length": 76, "nodeId": 12, "handlerId": 33, "version": 4, "selections": [[0, 3, 0, 7], [1, 12, 1, 8], [2, 0, 2, 0]] }},
+      {{ "type": "DensityChanged", "offset": 1755, "length": 20, "nodeId": 0, "handlerId": 0, "scale": 2.0 }},
+      {{ "type": "NativeViewParent", "offset": 1775, "length": 32, "nodeId": 20, "handlerId": 0, "handle": 105553296416496, "kind": 1, "scale": 2.0 }},
+      {{ "type": "NativeViewFocus", "offset": 1807, "length": 24, "nodeId": 25, "handlerId": 301, "focused": true }}
     ]
   }}
 }}
@@ -5467,12 +5681,15 @@ object CodeEditorRecords {
 
 /// The font candidates of text with no role, and the table that gives a run its own.
 fn write_font_refs(output: &mut String) {
+    use crate::font_features::{FONT_FEATURE_LEN, MAX_FONT_FEATURES};
     use crate::fonts::{
         FONT_REF_ASSET, FONT_REF_GENERIC, FONT_REF_KIND_AT, FONT_REF_LEN, FONT_REF_LENGTH_AT,
         FONT_REF_SYSTEM, FONT_REF_VALUE_AT, MAX_FONT_REFS,
     };
     use crate::spans::{
-        SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT, SPAN_FONT_SPAN_AT,
+        SPAN_FEATURE_COUNT_AT, SPAN_FEATURE_ENTRY_LEN, SPAN_FEATURE_OFFSET_AT,
+        SPAN_FEATURE_SPAN_AT, SPAN_FONT_COUNT_AT, SPAN_FONT_ENTRY_LEN, SPAN_FONT_OFFSET_AT,
+        SPAN_FONT_SPAN_AT,
     };
     output.push_str(
         r#"/**
@@ -5641,6 +5858,89 @@ object SpanFontRecords {
     }
 }
 
+/**
+ * Which runs of a Text name OpenType features of their own, and which: the
+ * `SpanFontFeatures` property. Keyed by the run's index in its run list.
+ *
+ * The blob opens with the number of entries. Each entry names a run, where that run's
+ * feature records start, counted from the start of the blob, and how many there are. The
+ * records are the 8-byte ones a `FontFeatureSettings` property carries, after the entries.
+ */
+object SpanFontFeatureRecords {
+"#,
+    );
+    writeln!(
+        output,
+        "    const val ENTRY_LENGTH = {SPAN_FEATURE_ENTRY_LEN}"
+    )
+    .unwrap();
+    writeln!(output, "    const val FEATURE_LENGTH = {FONT_FEATURE_LEN}").unwrap();
+    writeln!(output, "    const val MAX_FEATURES = {MAX_FONT_FEATURES}").unwrap();
+    for (name, value) in [
+        ("SPAN_AT", SPAN_FEATURE_SPAN_AT),
+        ("OFFSET_AT", SPAN_FEATURE_OFFSET_AT),
+        ("COUNT_AT", SPAN_FEATURE_COUNT_AT),
+    ] {
+        writeln!(output, "    private const val {name} = {value}").unwrap();
+    }
+    output.push_str(
+        r#"
+    /**
+     * Each named run's feature records, by run index and in the table's order, or null
+     * where the table breaks its layout: [onError] is then told what broke, once. An empty
+     * blob is a table with no entries.
+     *
+     * Refused are a table too short for its entries, a run index above the largest an
+     * `Int` holds, more than [MAX_FEATURES] features for one run, a feature list that does
+     * not lie whole inside the blob after the entries at a multiple of four, and a run
+     * named twice. Whether a run index is one of the text's runs is for the caller, which
+     * knows how many there are.
+     */
+    fun decodeBlob(bytes: ByteArray, onError: (String) -> Unit): Map<Int, ByteArray>? {
+        if (bytes.isEmpty()) return emptyMap()
+        if (bytes.size < 4) {
+            onError("${bytes.size} bytes cannot hold the table's entry count")
+            return null
+        }
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        val count = buffer.getInt(0)
+        val entriesEnd = 4L + count.toLong() * ENTRY_LENGTH
+        if (count < 0 || entriesEnd > bytes.size) {
+            onError("${count.toUInt()} entries do not fit in ${bytes.size} bytes")
+            return null
+        }
+        val features = LinkedHashMap<Int, ByteArray>(count)
+        for (index in 0 until count) {
+            val entry = 4 + index * ENTRY_LENGTH
+            val span = buffer.getInt(entry + SPAN_AT)
+            val offset = buffer.getInt(entry + OFFSET_AT)
+            val length = buffer.getInt(entry + COUNT_AT)
+            if (span < 0) {
+                onError("entry $index names run ${span.toUInt()}, which no text has")
+                return null
+            }
+            if (length < 0 || length > MAX_FEATURES) {
+                onError("run $span has ${length.toUInt()} features where at most $MAX_FEATURES are taken")
+                return null
+            }
+            val end = offset.toLong() + length.toLong() * FEATURE_LENGTH
+            if (offset < entriesEnd || offset % 4 != 0 || end > bytes.size) {
+                onError(
+                    "the features of run $span are said to be at ${offset.toUInt()}, which is not " +
+                        "$length whole records after the entries of a ${bytes.size} byte table",
+                )
+                return null
+            }
+            if (features.containsKey(span)) {
+                onError("run $span is named twice")
+                return null
+            }
+            features[span] = bytes.copyOfRange(offset, end.toInt())
+        }
+        return features
+    }
+}
+
 "#,
     );
 }
@@ -5692,6 +5992,22 @@ object MeasureRecords {
         ("TEXT_CONSTRAINT_AT", m::TEXT_CONSTRAINT_AT as i64),
         ("TEXT_WIDTH_AT", m::TEXT_WIDTH_AT as i64),
         ("TEXT_ZOOM_AT", m::TEXT_ZOOM_AT as i64),
+        (
+            "TEXT_FONT_FEATURES_OFFSET_AT",
+            m::TEXT_FONT_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_FONT_FEATURES_COUNT_AT",
+            m::TEXT_FONT_FEATURES_COUNT_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FEATURES_OFFSET_AT",
+            m::TEXT_SPAN_FEATURES_OFFSET_AT as i64,
+        ),
+        (
+            "TEXT_SPAN_FEATURES_LENGTH_AT",
+            m::TEXT_SPAN_FEATURES_LENGTH_AT as i64,
+        ),
         ("NODE_ID_AT", m::NODE_ID_AT as i64),
         ("NODE_MIN_WIDTH_AT", m::NODE_MIN_WIDTH_AT as i64),
         ("NODE_MAX_WIDTH_AT", m::NODE_MAX_WIDTH_AT as i64),

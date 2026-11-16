@@ -1,6 +1,6 @@
 [package]
 name = "compose-rust-macros"
-version = "0.0.10"
+version = "0.0.11"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -23,5 +23,10 @@ syn = { version = "2", features = ["full", "visit", "visit-mut"] }
 [dev-dependencies]
 # The compile-fail fixtures in tests/ui expand `#[Composable]` the way an application does,
 # so they need the crate the expansion names. A dev-dependency cycle is allowed.
-compose-rust = { path = ".." }
+#
+# With the features every other member builds it with. The library is also a cdylib, and
+# cargo leaves the hash out of such a library's file names, so a second feature set here
+# was a second build writing the same libcompose_rust.rlib: whichever finished last won, and
+# a sample compiled against the other one failed with E0460 on some runs and not on others.
+compose-rust = { path = "..", features = ["mock-renderer"] }
 trybuild = "1"

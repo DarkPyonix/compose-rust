@@ -40,6 +40,12 @@ class NativeTextInput {
     }
 
     /**
+     * What the focused field holds and has selected, or null where no field has the
+     * keyboard. A window that greys the entries of its own edit menu reads it.
+     */
+    fun focusedValue(): androidx.compose.ui.text.input.TextFieldValue? = session?.value?.invoke()
+
+    /**
      * Puts text into the focused field, finished.
      *
      * What a key that types a letter produces, and what an input method produces once the

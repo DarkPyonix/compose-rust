@@ -21,7 +21,9 @@ import dev.darkpyonix.composerust.design.currentThreadToken
 import dev.darkpyonix.composerust.foundation.ResolvedText
 import dev.darkpyonix.composerust.foundation.TextInput
 import dev.darkpyonix.composerust.foundation.TextRun
+import dev.darkpyonix.composerust.foundation.fontFeatureSettings
 import dev.darkpyonix.composerust.foundation.resolveText
+import dev.darkpyonix.composerust.foundation.spanFontFeatureSettings
 import dev.darkpyonix.composerust.protocol.FontRefRecords
 import dev.darkpyonix.composerust.protocol.MeasureRecords
 import dev.darkpyonix.composerust.protocol.OverflowWrap
@@ -407,10 +409,59 @@ internal class MeasureContext(
         val tabSize = byte(MeasureRecords.TEXT_TAB_SIZE_AT)
         val wordBreak = byte(MeasureRecords.TEXT_WORD_BREAK_AT)
         val overflowWrap = byte(MeasureRecords.TEXT_OVERFLOW_WRAP_AT)
+        val fontFeaturesAt = int(MeasureRecords.TEXT_FONT_FEATURES_OFFSET_AT)
+        val fontFeaturesCount = int(MeasureRecords.TEXT_FONT_FEATURES_COUNT_AT)
+        val fontFeatures = if (fontFeaturesCount == 0) {
+            null
+        } else {
+            if (fontFeaturesAt < 0 || fontFeaturesCount < 0 ||
+                fontFeaturesAt.toLong() + fontFeaturesCount.toLong() * 8 > limit.toLong()
+            ) {
+                return null
+            }
+            val bytes = ByteArray(fontFeaturesCount * 8)
+            val mark = requests.position()
+            requests.position(fontFeaturesAt)
+            requests.get(bytes, 0, bytes.size)
+            requests.position(mark)
+            var malformed = false
+            val parsed = fontFeatureSettings(bytes) { why ->
+                malformed = true
+                table.report(TableError.INVALID_FONT_FEATURES, "font features in measure request: $why")
+            }
+            if (malformed) return null
+            parsed
+        }
+        val spanFeaturesAt = int(MeasureRecords.TEXT_SPAN_FEATURES_OFFSET_AT)
+        val spanFeaturesLength = int(MeasureRecords.TEXT_SPAN_FEATURES_LENGTH_AT)
+        // The same table the `SpanFontFeatures` property carries, read by the same function,
+        // so each run is measured with the features it is drawn with.
+        val runFontFeatures = if (spanFeaturesLength == 0) {
+            emptyMap()
+        } else {
+            if (spanFeaturesAt < 0 || spanFeaturesLength < 0 ||
+                spanFeaturesAt.toLong() + spanFeaturesLength.toLong() > limit.toLong()
+            ) {
+                return null
+            }
+            val bytes = ByteArray(spanFeaturesLength)
+            val mark = requests.position()
+            requests.position(spanFeaturesAt)
+            requests.get(bytes, 0, bytes.size)
+            requests.position(mark)
+            var malformed = false
+            val parsed = spanFontFeatureSettings(bytes) { why ->
+                malformed = true
+                table.report(TableError.INVALID_FONT_FEATURES, "span font features in measure request: $why")
+            }
+            if (malformed) return null
+            parsed ?: emptyMap()
+        }
         return TextInput(
             text = text,
             runs = runs,
             runFonts = runFonts,
+            runFontFeatures = runFontFeatures,
             noRole = roleTag == TYPE_ROLE_NONE,
             role = role,
             fontSize = fontSize.takeIf { it > 0f },
@@ -425,6 +476,7 @@ internal class MeasureContext(
             overflowWrap = if (overflowWrap == 0) null else OverflowWrap.entries.getOrNull(overflowWrap - 1) ?: return null,
             absoluteSize = byte(MeasureRecords.TEXT_ABSOLUTE_SIZE_AT) != 0,
             fonts = fonts,
+            fontFeatures = fontFeatures,
         )
     }
 }

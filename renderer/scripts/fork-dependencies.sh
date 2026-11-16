@@ -77,11 +77,27 @@ sub served_targets {
     return grep { has_artifact($group, "$artifact-$_") } @targets;
 }
 
+# A multiplatform root points each target at a publication of its own ("available-at"). A
+# module built for one platform alone (skiko-awt of the fork, a JVM jar the desktop modules name
+# since 1.11.1-ext.4) has no such publications, and its root is all there is to publish.
+sub is_single_platform {
+    my ($group, $artifact) = @_;
+    my $file = files_of($group, $artifact) . ".module";
+    return 1 unless -s $file;
+    open my $in, "<", $file or return 0;
+    local $/;
+    my $metadata = eval { JSON::PP->new->decode(<$in>) };
+    close $in;
+    return 0 unless $metadata;
+    return !grep { exists $_->{"available-at"} } @{ $metadata->{variants} || [] };
+}
+
 sub is_published {
     my ($group, $artifact, $served) = @_;
     return 0 unless has_artifact($group, $artifact);
     my ($base, $target) = split_target($artifact);
     return 1 if defined $target;
+    return 1 if is_single_platform($group, $artifact);
     for my $served_target (@$served) {
         return 0 unless has_artifact($group, "$artifact-$served_target");
     }

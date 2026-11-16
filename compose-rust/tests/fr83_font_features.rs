@@ -284,3 +284,52 @@ fn fr83_font_features_do_not_allocate_in_steady_state() {
         "a text with features allocated {featured} times over the frames a plain text took {plain}"
     );
 }
+
+#[test]
+fn fr83_measure_record_carries_font_features() {
+    use compose_rust::measure::{
+        MEASURE_RECORD_LEN, MeasureRequests, TEXT_FONT_FEATURES_COUNT_AT,
+        TEXT_FONT_FEATURES_OFFSET_AT, TextConstraint, TextStyle,
+    };
+    use compose_rust::spans::TextSpans;
+
+    let mut requests = MeasureRequests::new();
+    let style = TextStyle {
+        font_features: vec![FontFeature::TABULAR_NUMS, FontFeature::SLASHED_ZERO],
+        ..TextStyle::default()
+    };
+
+    requests.text(
+        "1234",
+        &TextSpans::default(),
+        &style,
+        TextConstraint::MaxContent,
+    );
+    let plain_style = TextStyle::default();
+    requests.text(
+        "5678",
+        &TextSpans::default(),
+        &plain_style,
+        TextConstraint::MaxContent,
+    );
+
+    assert_eq!(requests.len(), 2);
+    let buffer = requests.encoded();
+
+    let word = |at: usize| u32::from_le_bytes(buffer[at..at + 4].try_into().unwrap()) as usize;
+
+    let first_offset = word(TEXT_FONT_FEATURES_OFFSET_AT);
+    let first_count = word(TEXT_FONT_FEATURES_COUNT_AT);
+    assert_eq!(first_count, 2);
+    assert!(first_offset >= 2 * MEASURE_RECORD_LEN);
+    assert_eq!(
+        &buffer[first_offset..first_offset + 16],
+        &[
+            b't', b'n', b'u', b'm', 1, 0, 0, 0, b'z', b'e', b'r', b'o', 1, 0, 0, 0,
+        ]
+    );
+
+    let second_record = MEASURE_RECORD_LEN;
+    let second_count = word(second_record + TEXT_FONT_FEATURES_COUNT_AT);
+    assert_eq!(second_count, 0);
+}

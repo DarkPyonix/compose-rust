@@ -64,13 +64,17 @@ import dev.darkpyonix.composerust.design.CaptionSide
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalReduceTransparency
 import dev.darkpyonix.composerust.design.detectHostPlatform
+import dev.darkpyonix.composerust.design.platformCaption
 import dev.darkpyonix.composerust.design.ResolvedTheme
-import dev.darkpyonix.composerust.design.resolveTheme
+import dev.darkpyonix.composerust.design.themeFontChains
+import dev.darkpyonix.composerust.design.themeFonts
+import dev.darkpyonix.composerust.design.themeOf
 import dev.darkpyonix.composerust.protocol.MaterialRole
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.node.RenderNode
+import dev.darkpyonix.composerust.ui.node.platformFallbackFamilies
 import dev.darkpyonix.composerust.ui.node.platformWindowMaterial
 import dev.darkpyonix.composerust.ui.node.TableError
 import java.lang.InterruptedException
@@ -409,6 +413,7 @@ fun ComposeRustContent(
     val provided = LocalZoom.current
     if (provided != null) {
         ZoomReporter(host, provided)
+        DensityReporter(host)
         ComposeRustTree(host, modifier, caption)
         return
     }
@@ -423,8 +428,10 @@ fun ComposeRustContent(
     CompositionLocalProvider(
         LocalDensity provides zoomedDensity(base.density, zoom.app, base.fontScale),
         LocalZoom provides zoom,
+        LocalDisplayScale provides base.density,
     ) {
         ZoomReporter(host, zoom)
+        DensityReporter(host)
         // `onKeyEvent` rather than the preview: it runs after everything inside has had the
         // key, so a key the application consumed never reaches it.
         ComposeRustTree(
@@ -435,6 +442,28 @@ fun ComposeRustContent(
             caption,
         )
     }
+}
+
+/**
+ * How a theme reaches the assets the application registered, made once for a Host.
+ *
+ * Three lookups written where the theme is resolved were three new objects on every pass,
+ * and the theme holding one of them was a new theme with them. Each still reads the cache
+ * when it is called, so an asset registered later is found by whoever asks next.
+ */
+private class ThemeAssets(assets: dev.darkpyonix.composerust.ui.node.AssetCache) {
+    val fontOf: (Int) -> androidx.compose.ui.text.font.FontFamily? =
+        { asset -> (assets.asset(asset) as? Asset.Font)?.family }
+    val chainOf: (Int) -> dev.darkpyonix.composerust.ui.node.FontChain? =
+        // A single face is a chain of one only where the renderer carries fallback faces
+        // of its own: that chain is what sends a letter the face lacks to them.
+        { asset ->
+            (assets.asset(asset) as? Asset.Font)?.let { font ->
+                if (platformFallbackFamilies.isEmpty()) font.chain else font.letters
+            }
+        }
+    val brushOf: (Int) -> androidx.compose.ui.graphics.Brush? =
+        { asset -> (assets.asset(asset) as? Asset.Brush)?.brush }
 }
 
 /**
@@ -564,15 +593,26 @@ private fun ComposeRustTree(
     // change shape with the window read it from the CompositionLocal, because they are
     // drawn on this side and a round trip to ask would cost a boundary call, a
     // VirtualDom pass and a rebuilt subtree for a layout this side can already reach;
-    // and the design system is resolved against it, because a system is allowed to
-    // answer differently in a desktop window than on a phone.
-    var sizeClass by remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    // and the design system asks it, because a system is allowed to answer differently
+    // in a desktop window than on a phone.
+    val sizeClassState = remember(host) { mutableStateOf(WindowSizeClass.Compact) }
+    var sizeClass by sizeClassState
     var measuredSize by remember(host, windowNodeId) { mutableStateOf<androidx.compose.ui.unit.IntSize?>(null) }
+    // What the report carries besides the size, as the last composition left it. Read by
+    // the layout callback below, which runs after that composition's effects.
+    val reportInputs = remember(host, windowNodeId) { WindowReportInputs() }
     val measured = Modifier.onSizeChanged { size ->
         with(density) {
             val widthDp = size.width.toDp().value
             sizeClass = windowSizeClassOf(widthDp)
             measuredSize = size
+            // The Host is told from the layout that measured the window, as it is told an
+            // observed node's size. Waiting for the recomposition the write above schedules
+            // means waiting for a second frame, and a window that draws only when asked
+            // (macOS) can go a long time without one while the Host lays its page out for
+            // a 0x0, compact window. The reporter drops a repeat, so the effect below,
+            // which still reports a change of the safe area, sends nothing twice.
+            reporter.report(widthDp, size.height.toDp().value, host, reportInputs.safeArea, reportInputs.everyDp)
         }
     }
     // Whether anything in the tree asked to be made of a material, and so whether the
@@ -580,17 +620,43 @@ private fun ComposeRustTree(
     // told the answer, because chrome that sits straight on the desktop is drawn
     // differently from chrome over the application's own page.
     val asked = host.table.asksForWindowMaterial(pageRoots)
-    val theme = resolveTheme(
-        host.table.themeFor(windowNodeId),
-        platform,
-        systemDark,
-        sizeClass,
-        fontOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.family },
-        chainOf = { asset -> (host.table.assets.asset(asset) as? Asset.Font)?.chain },
-        brushOf = { asset -> (host.table.assets.asset(asset) as? Asset.Brush)?.brush },
-        windowBackdrop = asked && platformBacksWindowWithMaterial(),
-        overlay = host.table.overlayTokens,
-    )
+    // The theme is the same object until something it is made from changes. Every node
+    // reads it, so a theme made again on each pass through here composed the whole tree
+    // again whenever this function ran: on every change of window class, which is one
+    // frame of a drag of the window's edge, and that frame took several times the others.
+    //
+    // What it is made from is read on every pass and compared, not read inside the
+    // remembered block: a font that arrives after the theme that names it has to be seen,
+    // and a read that only happens when the block runs is forgotten the first time it
+    // does not. The window's class is not one of the inputs. The theme asks for it where
+    // an answer depends on it, and only what asked follows it.
+    val themeAssets = remember(host) { ThemeAssets(host.table.assets) }
+    val themeRecord = host.table.themeFor(windowNodeId)
+    val themeFonts = themeFonts(themeRecord, themeAssets.fontOf)
+    val themeFontChains = themeFontChains(themeRecord, themeAssets.chainOf)
+    val windowBackdrop = asked && platformBacksWindowWithMaterial()
+    // Asked only of an application that brought a palette, which is the only thing a high
+    // contrast mode changes here.
+    val highContrast = themeRecord?.palette?.isNotEmpty() == true &&
+        dev.darkpyonix.composerust.ui.node.platformHighContrast()
+    val overlayTokens = host.table.overlayTokens
+    val theme = remember(
+        themeAssets, themeRecord, platform, systemDark, sizeClassState, themeFonts,
+        themeFontChains, windowBackdrop, highContrast, overlayTokens,
+    ) {
+        themeOf(
+            themeRecord,
+            platform,
+            systemDark,
+            sizeClass = { sizeClassState.value },
+            fonts = themeFonts,
+            chains = themeFontChains,
+            brushOf = themeAssets.brushOf,
+            windowBackdrop = windowBackdrop,
+            highContrast = { highContrast },
+            overlay = overlayTokens,
+        )
+    }
     // The animations the Host handed over are played here, on this side's frame clock, and
     // the Host is not called while they play unless one asked for events. The loop waits
     // for frames only while something is waiting to start or still running, so a screen
@@ -714,7 +780,10 @@ private fun ComposeRustTree(
     // application on a device in dark mode otherwise gets white icons on its own white
     // bar.
     LaunchedEffect(theme.dark) { systemChrome?.setDarkIcons(!theme.dark) }
-    val captionStyle = theme.rules.caption(theme)
+    // The operating system's buttons in this theme's colours, never the design system's own
+    // shape: the application lays its bar out around what is drawn here, and on Windows the
+    // native hit test answers for the same three cells.
+    val captionStyle = remember(theme) { platformCaption(theme) }
     val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
@@ -746,13 +815,15 @@ private fun ComposeRustTree(
         }
     }.value
     SideEffect {
+        reportInputs.safeArea = safeArea
+        reportInputs.everyDp = reportEveryDp
         measuredSize?.let { size ->
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
-    // How much room the buttons take and at which end. The platform's own are at the
-    // leading edge and the renderer's are wherever this design system puts them, so the
-    // bar cannot assume either.
+    // How much room the buttons take and at which end. The macOS system's own are at the
+    // leading edge and the renderer's are at the trailing edge, as wide as the operating
+    // system's buttons are, so the bar cannot assume either.
     // The bar is given the strip above it as well as the caption's own height. The two
     // are not the same shape: window buttons sit on the bar's row and a status bar sits
     // above it, so they are handed over separately.
@@ -774,6 +845,8 @@ private fun ComposeRustTree(
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
+    // The platform views of this window, and the surfaces drawn above them.
+    val nativeViews = dev.darkpyonix.composerust.foundation.rememberNativeViews(host.table, windowNodeId, host)
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
@@ -793,6 +866,7 @@ private fun ComposeRustTree(
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
+        dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,

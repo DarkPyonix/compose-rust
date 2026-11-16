@@ -52,7 +52,9 @@ const TAG_EDIT_CODE_GROUP: u16 = 28;
 const EDIT_CODE_GROUP_LEN: usize = 24;
 const TAG_SET_SCROLL_OFFSET: u16 = 30;
 /// 9 u16 fields (18 bytes) + 1 u16 reserved (2 bytes) + 1 u32 scrim (4 bytes) = 24 bytes.
-const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 28;
+const OVERLAY_TOKENS_PAYLOAD_LEN: usize = 56;
+/// What `toast_border_width` is sent as when the design system keeps its own line.
+const TOAST_BORDER_DESIGN_SYSTEM: u16 = u16::MAX;
 // 29 puts plain text on the platform clipboard. Nothing answers it.
 const TAG_SET_CLIPBOARD_TEXT: u16 = 29;
 // 30 is held for the code editor's scroll offset. 31 asks for the clipboard's plain text,
@@ -77,7 +79,7 @@ const TAG_RELEASE_FILE_HANDLE: u16 = 34;
 // the Renderer owns the position and reports what it did in `ScrollChanged`.
 const TAG_SCROLL_TO: u16 = 35;
 const TAG_SCROLL_INTO_VIEW: u16 = 36;
-// 37 and 38 are held by commands on other branches. 39 asks a code editor where a position
+// 37 and 38 are the platform view commands, below. 39 asks a code editor where a position
 // is on screen, answered by one `PositionRect` event carrying the same request number.
 const TAG_QUERY_POSITION_RECT: u16 = 39;
 /// `QueryPositionRect` in full: the 4 byte head, the node, the request, the line and the
@@ -97,6 +99,17 @@ const INSERT_SNIPPET_LEN: usize = 36;
 const SCROLL_TO_LEN: usize = 32;
 /// `ScrollIntoView` in full: the 4 byte head, the node, the target, four `u16` and four `f64`.
 const SCROLL_INTO_VIEW_LEN: usize = 52;
+// 37 puts a platform view the Host made into a `NativeView` node's place, or takes it out
+// with handle 0. 38 moves keyboard focus into that view or back to the scene. Neither is
+// answered; focus moving is reported in `NativeViewFocus`.
+const TAG_ATTACH_NATIVE_VIEW: u16 = 37;
+const TAG_FOCUS_NATIVE_VIEW: u16 = 38;
+/// `AttachNativeView` in full: the 4 byte head, the node, two reserved words, and the handle
+/// as a `u64` on an eight byte boundary.
+const ATTACH_NATIVE_VIEW_LEN: usize = 24;
+/// `FocusNativeView` in full: the 4 byte head, the node, the focus word, and a trailing
+/// reserved word.
+const FOCUS_NATIVE_VIEW_LEN: usize = 16;
 /// The head of a `StartAnimation` record, before its keyframes.
 const ANIMATION_HEADER_LEN: usize = 52;
 /// A keyframe before its value: offset, timing, step position, flags and four numbers.
@@ -404,6 +417,19 @@ pub enum Mutation<'a> {
         flags: u16,
         rect: crate::schema::Rect,
     },
+    /// Puts the platform view `handle` in the place of the `NativeView` node `node_id`,
+    /// replacing any view it had. `NativeHandle(0)` takes the node's view out. The view is
+    /// still the Host's: the Renderer never destroys it.
+    AttachNativeView {
+        node_id: u32,
+        handle: crate::schema::NativeHandle,
+    },
+    /// Gives keyboard focus to the platform view of the `NativeView` node `node_id`
+    /// (`focus` true), or hands it back to the scene.
+    FocusNativeView {
+        node_id: u32,
+        focus: bool,
+    },
     /// Asks the code editor `node_id` where a caret at `line` and `column` would be drawn.
     /// Answered exactly once, by a `PositionRect` event carrying `request`: a rectangle in
     /// the window's dp, or none where the position is not on screen.
@@ -549,10 +575,11 @@ const EVENT_FILE_DIALOG_RESULT: u16 = 50;
 const EVENT_CODE_EDIT_GROUP_RESULT: u16 = 51;
 /// `CodeEditGroupResult` in full: the 16 byte header and five words.
 const CODE_EDIT_GROUP_RESULT_LEN: usize = 36;
-// 52 is the system's light or dark appearance, one `u32` after the header. 53 is numbered
-// for an event that is not here yet. 54 and 55 are the code editor's row height and scroll
+// 52 is the system's light or dark appearance, one `u32` after the header. 53 is a
+// window's density, one `f32`. 54 and 55 are the code editor's row height and scroll
 // offset, each one `f64` of physical pixels.
 const EVENT_COLOR_SCHEME_CHANGED: u16 = 52;
+const EVENT_DENSITY_CHANGED: u16 = 53;
 const EVENT_CODE_METRICS: u16 = 54;
 const EVENT_CODE_SCROLLED: u16 = 55;
 /// `FileDialogResult` in full: the 16 byte header, three words and the paths' reference.
@@ -571,7 +598,13 @@ const EVENT_STORAGE_LOCATION: u16 = 59;
 const EVENT_SCROLL_CHANGED: u16 = 60;
 /// `ScrollChanged` in full: the 16 byte header, the item, the flags and six `f64`.
 const SCROLL_CHANGED_LEN: usize = 72;
-// 61 and 62 are numbered for events that are not here yet.
+const EVENT_NATIVE_VIEW_PARENT: u16 = 61;
+/// `NativeViewParent` in full: the 16 byte header, the handle, the kind, a reserved half
+/// word and the scale.
+const NATIVE_VIEW_PARENT_LEN: usize = 32;
+const EVENT_NATIVE_VIEW_FOCUS: u16 = 62;
+/// `NativeViewFocus` in full: the 16 byte header, the focus word and its padding.
+const NATIVE_VIEW_FOCUS_LEN: usize = 24;
 const EVENT_MOTION_FINISHED: u16 = 63;
 /// `MotionFinished` in full: the 16 byte header and two `f32` in dp.
 const MOTION_FINISHED_LEN: usize = 24;
@@ -802,6 +835,15 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                     raw.min(u32::from(u16::MAX)) as u16,
                 ))?;
             crate::schema::EventPayload::ColorSchemeChanged(scheme)
+        }
+        EVENT_DENSITY_CHANGED if record_len == 20 => {
+            let scale = f32::from_bits(read_u32(bytes, 16)?);
+            // A density is a positive number of pixels. Zero, a negative number and NaN
+            // are not, and a layout that divided by one would not recover.
+            if scale.is_nan() || scale <= 0.0 {
+                return Err(ProtocolError::InvalidValueKind(0));
+            }
+            crate::schema::EventPayload::DensityChanged { scale }
         }
         EVENT_CODE_CHANGED if record_len == 44 => crate::schema::EventPayload::CodeChanged {
             version: read_u32(bytes, 16)?,
@@ -1071,6 +1113,34 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
             }
         }
         EVENT_SCROLL_CHANGED => return Err(ProtocolError::InvalidRecordLength),
+        EVENT_NATIVE_VIEW_PARENT if record_len == NATIVE_VIEW_PARENT_LEN => {
+            let raw_kind = read_u16(bytes, 24)?;
+            let kind = crate::schema::NativeParentKind::try_from(raw_kind)
+                .map_err(|()| ProtocolError::InvalidValueKind(raw_kind))?;
+            let reserved = read_u16(bytes, 26)?;
+            if reserved != 0 {
+                // A newer Renderer saying something here that this Host cannot read.
+                return Err(ProtocolError::InvalidValueKind(reserved));
+            }
+            let scale = f32::from_bits(read_u32(bytes, 28)?);
+            if !scale.is_finite() || scale <= 0.0 {
+                // A view sized with this would be sized wrong or not at all.
+                return Err(ProtocolError::InvalidValueKind(0));
+            }
+            crate::schema::EventPayload::NativeViewParent {
+                handle: crate::schema::NativeHandle(read_u64(bytes, 16)?),
+                kind,
+                scale,
+            }
+        }
+        EVENT_NATIVE_VIEW_FOCUS if record_len == NATIVE_VIEW_FOCUS_LEN => {
+            crate::schema::EventPayload::NativeViewFocus {
+                focused: read_flag(bytes, 16)?,
+            }
+        }
+        EVENT_NATIVE_VIEW_PARENT | EVENT_NATIVE_VIEW_FOCUS => {
+            return Err(ProtocolError::InvalidRecordLength);
+        }
         EVENT_MOTION_FINISHED if record_len == MOTION_FINISHED_LEN => {
             crate::schema::EventPayload::MotionFinished {
                 width_dp: f32::from_bits(read_u32(bytes, 16)?),
@@ -1187,6 +1257,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         | EVENT_POINTER
         | EVENT_REDUCED_MOTION_CHANGED
         | EVENT_COLOR_SCHEME_CHANGED
+        | EVENT_DENSITY_CHANGED
         | EVENT_ZOOM_CHANGED
         | EVENT_FOCUS_GAINED
         | EVENT_KEY_UP => {
@@ -1449,6 +1520,14 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&u32::from(u16::from(scheme)).to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::DensityChanged { scale } = event.payload {
+        output.extend_from_slice(&EVENT_DENSITY_CHANGED.to_le_bytes());
+        output.extend_from_slice(&20_u16.to_le_bytes());
+        output.extend_from_slice(&event.node_id.to_le_bytes());
+        output.extend_from_slice(&event.handler_id.to_le_bytes());
+        output.extend_from_slice(&scale.to_bits().to_le_bytes());
         return Ok(());
     }
     match event.payload {
@@ -1800,6 +1879,35 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         }
         return Ok(());
     }
+    if let crate::schema::EventPayload::NativeViewParent {
+        handle,
+        kind,
+        scale,
+    } = event.payload
+    {
+        put_event_header(
+            output,
+            EVENT_NATIVE_VIEW_PARENT,
+            NATIVE_VIEW_PARENT_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&handle.0.to_le_bytes());
+        output.extend_from_slice(&(kind as u16).to_le_bytes());
+        output.extend_from_slice(&0_u16.to_le_bytes());
+        output.extend_from_slice(&scale.to_bits().to_le_bytes());
+        return Ok(());
+    }
+    if let crate::schema::EventPayload::NativeViewFocus { focused } = event.payload {
+        put_event_header(
+            output,
+            EVENT_NATIVE_VIEW_FOCUS,
+            NATIVE_VIEW_FOCUS_LEN as u16,
+            event,
+        );
+        output.extend_from_slice(&u32::from(focused).to_le_bytes());
+        output.extend_from_slice(&0_u32.to_le_bytes());
+        return Ok(());
+    }
     if let crate::schema::EventPayload::MotionFinished {
         width_dp,
         height_dp,
@@ -1922,6 +2030,8 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::IoAnswer { .. }
         | crate::schema::EventPayload::FileHandles { .. }
         | crate::schema::EventPayload::ScrollChanged { .. }
+        | crate::schema::EventPayload::NativeViewParent { .. }
+        | crate::schema::EventPayload::NativeViewFocus { .. }
         | crate::schema::EventPayload::MotionFinished { .. }
         | crate::schema::EventPayload::CaretRect { .. }
         | crate::schema::EventPayload::PositionRect { .. }
@@ -1932,6 +2042,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         | crate::schema::EventPayload::Pointer { .. }
         | crate::schema::EventPayload::ReducedMotionChanged(_)
         | crate::schema::EventPayload::ColorSchemeChanged(_)
+        | crate::schema::EventPayload::DensityChanged { .. }
         | crate::schema::EventPayload::ZoomChanged { .. } => unreachable!(),
     };
     output.extend_from_slice(&tag.to_le_bytes());
@@ -2284,6 +2395,20 @@ impl BatchEncoder {
                 self.put_u32(overlay.scrim);
                 self.put_u16(overlay.toast_elevation);
                 self.put_u16(overlay.toast_corner_radius);
+                self.put_u32(overlay.toast_container_light);
+                self.put_u32(overlay.toast_container_dark);
+                self.put_u32(overlay.toast_content_light);
+                self.put_u32(overlay.toast_content_dark);
+                self.put_u16(
+                    overlay
+                        .toast_border_width
+                        .unwrap_or(TOAST_BORDER_DESIGN_SYSTEM),
+                );
+                self.put_u16(overlay.toast_padding_horizontal);
+                self.put_u16(overlay.toast_padding_vertical);
+                self.put_u16(overlay.toast_font_size);
+                self.put_u16(overlay.toast_line_height);
+                self.put_u16(0);
             }
             Mutation::SetClipboardText { text } => {
                 self.begin_record(TAG_SET_CLIPBOARD_TEXT, 8);
@@ -2405,6 +2530,19 @@ impl BatchEncoder {
                 self.put_u64(rect.y_px.to_bits());
                 self.put_u64(rect.width_px.to_bits());
                 self.put_u64(rect.height_px.to_bits());
+            }
+            Mutation::AttachNativeView { node_id, handle } => {
+                self.begin_record(TAG_ATTACH_NATIVE_VIEW, (ATTACH_NATIVE_VIEW_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(0);
+                self.put_u32(0);
+                self.put_u64(handle.0);
+            }
+            Mutation::FocusNativeView { node_id, focus } => {
+                self.begin_record(TAG_FOCUS_NATIVE_VIEW, (FOCUS_NATIVE_VIEW_LEN - 4) as u16);
+                self.put_u32(*node_id);
+                self.put_u32(u32::from(*focus));
+                self.put_u32(0);
             }
             Mutation::SetWindow(window) => {
                 self.begin_record(TAG_SET_WINDOW, 28);
@@ -2879,6 +3017,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                 let scrim = read_u32(bytes, payload + 20)?;
                 let toast_elevation = read_u16(bytes, payload + 24)?;
                 let toast_corner_radius = read_u16(bytes, payload + 26)?;
+                let border = read_u16(bytes, payload + 44)?;
                 Mutation::SetOverlayTokens(crate::schema::OverlayTokens {
                     sheet_corner_radius,
                     dialog_corner_radius,
@@ -2892,6 +3031,15 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     scrim,
                     toast_elevation,
                     toast_corner_radius,
+                    toast_container_light: read_u32(bytes, payload + 28)?,
+                    toast_container_dark: read_u32(bytes, payload + 32)?,
+                    toast_content_light: read_u32(bytes, payload + 36)?,
+                    toast_content_dark: read_u32(bytes, payload + 40)?,
+                    toast_border_width: (border != TOAST_BORDER_DESIGN_SYSTEM).then_some(border),
+                    toast_padding_horizontal: read_u16(bytes, payload + 46)?,
+                    toast_padding_vertical: read_u16(bytes, payload + 48)?,
+                    toast_font_size: read_u16(bytes, payload + 50)?,
+                    toast_line_height: read_u16(bytes, payload + 52)?,
                 })
             }
             TAG_SET_OVERLAY_TOKENS => return Err(ProtocolError::InvalidRecordLength),
@@ -2952,6 +3100,21 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
                     height_px: f64::from_bits(read_u64(bytes, payload + 40)?),
                 },
             },
+            TAG_ATTACH_NATIVE_VIEW if len == ATTACH_NATIVE_VIEW_LEN => {
+                require_zero_word(bytes, payload + 4)?;
+                require_zero_word(bytes, payload + 8)?;
+                Mutation::AttachNativeView {
+                    node_id: read_u32(bytes, payload)?,
+                    handle: crate::schema::NativeHandle(read_u64(bytes, payload + 12)?),
+                }
+            }
+            TAG_FOCUS_NATIVE_VIEW if len == FOCUS_NATIVE_VIEW_LEN => {
+                require_zero_word(bytes, payload + 8)?;
+                Mutation::FocusNativeView {
+                    node_id: read_u32(bytes, payload)?,
+                    focus: read_flag(bytes, payload + 4)?,
+                }
+            }
             TAG_SET_WINDOW if len == 32 => {
                 let chrome = read_u16(bytes, payload)?;
                 let title_bar = read_u16(bytes, payload + 2)?;
@@ -3181,7 +3344,9 @@ pub fn decode_batch(bytes: &[u8]) -> Result<Vec<Mutation<'_>>, ProtocolError> {
             | TAG_FILE_CALL
             | TAG_RELEASE_FILE_HANDLE
             | TAG_SCROLL_TO
-            | TAG_SCROLL_INTO_VIEW => {
+            | TAG_SCROLL_INTO_VIEW
+            | TAG_ATTACH_NATIVE_VIEW
+            | TAG_FOCUS_NATIVE_VIEW => {
                 return Err(ProtocolError::InvalidRecordLength);
             }
             other => return Err(ProtocolError::InvalidTag(other)),
@@ -3577,6 +3742,8 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         ),
         Modifier::MinTouchTarget { size } => (38, two_words(float_word(*size), 0)),
         Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
+        Modifier::Sticky => (41, two_words(0, 0)),
+        Modifier::UnboundedWidth => (40, two_words(0, 0)),
         Modifier::Transform {
             a,
             b,
@@ -3871,6 +4038,8 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
             size: unpack_low(first),
         }),
         39 => Ok(Modifier::Overlay(decode_paint(first)?)),
+        41 => Ok(Modifier::Sticky),
+        40 => Ok(Modifier::UnboundedWidth),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -3922,6 +4091,17 @@ fn read_u32(bytes: &[u8], position: usize) -> Result<u32, ProtocolError> {
 }
 
 /// A word that is 0 or 1. Any other value is a protocol error, not a third state.
+/// Refuses a reserved word that is not zero: a record from a newer or a broken side, whose
+/// meaning here would be a guess.
+fn require_zero_word(bytes: &[u8], position: usize) -> Result<(), ProtocolError> {
+    match read_u32(bytes, position)? {
+        0 => Ok(()),
+        other => Err(ProtocolError::InvalidValueKind(
+            other.min(u32::from(u16::MAX)) as u16,
+        )),
+    }
+}
+
 fn read_flag(bytes: &[u8], position: usize) -> Result<bool, ProtocolError> {
     match read_u32(bytes, position)? {
         0 => Ok(false),
@@ -4053,7 +4233,7 @@ mod tests {
         encoder.encode(&mutation).unwrap();
         assert_eq!(decode_batch(encoder.finish().unwrap()).unwrap(), [mutation]);
 
-        let words = [SemanticsRole::Button as u64, 0x2000, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Button as u64, 0x4000, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
@@ -4081,7 +4261,8 @@ mod tests {
             | (1 << SEMANTICS_FOCUSED_SHIFT)
             | SEMANTICS_HIDDEN_BIT
             | SEMANTICS_CLICK_ACTION_BIT
-            | SEMANTICS_FOCUS_ACTION_BIT;
+            | SEMANTICS_FOCUS_ACTION_BIT
+            | SEMANTICS_HAS_POPUP_BIT;
         assert_eq!(state & !SEMANTICS_STATE_MASK, 0);
         for (role, value) in roles {
             assert_eq!(role as u64, value, "{role:?} changed its wire value");
@@ -4104,14 +4285,14 @@ mod tests {
 
     #[test]
     fn nfr7_unknown_semantics_bit_is_a_protocol_error() {
-        // Bit 13 is the first one above the mask.
-        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Bit 14 is the first one above the mask.
+        let words = [SemanticsRole::Group as u64, 1 << 14, 0, 0, 0, 0, 0, 0, 0, 0];
         assert_eq!(
             decode_modifier(34, &words),
             Err(ProtocolError::InvalidModifier(34))
         );
         // The highest bit the mask allows still decodes.
-        let words = [SemanticsRole::Group as u64, 1 << 12, 0, 0, 0, 0, 0, 0, 0, 0];
+        let words = [SemanticsRole::Group as u64, 1 << 13, 0, 0, 0, 0, 0, 0, 0, 0];
         assert!(decode_modifier(34, &words).is_ok());
     }
 

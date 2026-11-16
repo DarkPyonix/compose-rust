@@ -116,14 +116,20 @@ class ResolvedTheme(
     val rules: ComponentRules,
     val dark: Boolean,
     /**
-     * The class of window this theme is being resolved for.
+     * The class of window this theme is drawn in, asked each time an answer depends on it.
      *
      * A design system is allowed to answer differently at different widths, and Apple's
      * does: macOS 26 puts glass on chrome over opaque document content, while a phone
      * sized window carries it much further. Nothing on the wire says this; the Renderer
      * already measures the window for `WindowSizeChanged`, and this is the same reading.
+     *
+     * A question rather than a value, because the class is not part of what a theme is.
+     * Every node reads the theme, and a theme that held the class was a different theme
+     * each time a window crossed 600 dp or 840 dp, which composed the whole tree again in
+     * the one frame that crossed. The window answers from snapshot state, so only whoever
+     * asked is composed or drawn again: a glass card, or the page of a dark Apple window.
      */
-    val sizeClass: WindowSizeClass = WindowSizeClass.Compact,
+    private val sizeClassOf: () -> WindowSizeClass = { WindowSizeClass.Compact },
     /**
      * The faces the application registered, by the role each was registered for.
      *
@@ -188,14 +194,26 @@ class ResolvedTheme(
     val overlay: OverlayTokens? = null,
 ) {
     /**
-     * The stack [family] is the first family of, or null where it is not one.
+     * The class of the window right now. Reading it is what makes the reader follow the
+     * class, so it is read only where the answer differs by class.
+     */
+    val sizeClass: WindowSizeClass get() = sizeClassOf()
+
+    /**
+     * The stack [family] is the first family of, or null where it is not one. The family
+     * the platform carries for itself answers with [platformDefaultChain].
      *
      * Asked by identity, not by equality, because the first family of a stack and the
      * face it was made from can be equal and must not be confused: only the stack carries
      * the families after it.
      */
     fun chainFor(family: FontFamily?): FontChain? =
-        if (family == null) null else fontChains.firstOrNull { it.primary === family }
+        if (family == null) {
+            null
+        } else {
+            fontChains.firstOrNull { it.primary === family }
+                ?: platformDefaultChain?.takeIf { it.primary === family }
+        }
 
     /** The stack this role is set in, or null where the role is set in one face. */
     fun chain(role: TypeRole): FontChain? = chainFor(fonts[role])
@@ -205,7 +223,7 @@ class ResolvedTheme(
 
     /** What the design system alone says a role is, before the application's palette. */
     fun systemColor(role: ColorRole): Color =
-        rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
+        rules.color(role, dark, sizeClassOf) ?: Color(tokens.color(role, dark))
 
     /**
      * A literal paints itself, a role goes through the table, a brush answers with the
@@ -325,6 +343,31 @@ val TypeToken.composeLetterSpacing: TextUnit get() = letterSpacing.sp
 var platformUiFamily: FontFamily = FontFamily.Default
 
 /**
+ * What CSS's `sans-serif` is on this machine, and what text that names no font it can find
+ * is set in.
+ *
+ * The toolkit's generic family wherever the machine has fonts to answer it with. A browser
+ * gives a canvas none, so the web renderer sets this to the family it carries, the same one
+ * it sets [platformUiFamily] to: without it a page asking for `sans-serif` in bold would get
+ * the one regular face Skia's web build has.
+ */
+var platformSansSerifFamily: FontFamily = FontFamily.SansSerif
+
+/**
+ * The chain of the default family, where the renderer carries that family itself and so
+ * knows which letters it has. Null wherever the default family is the machine's, whose
+ * letters are not known here and whose missing ones the machine finds among its own fonts.
+ *
+ * The web renderer sets it together with [platformUiFamily], to a chain whose first family
+ * is that one. Text in the default family is then asked, a letter at a time, whether the
+ * family has it, and a letter it lacks is drawn from the fallback faces the renderer
+ * carries (`platformFallbackFamilies`). Without the chain the default family would take
+ * every letter, as a family whose letters are unknown does, and the ones it has no glyph
+ * for would be empty boxes.
+ */
+var platformDefaultChain: FontChain? = null
+
+/**
  * The hand-written half of a design system: elevation rendering, `ButtonVariant` styling
  * and motion.
  *
@@ -346,8 +389,11 @@ interface ComponentRules {
      * This is not a way for a system to redecorate at will. A role answered here is one
      * the platform vendor specifies twice; anything else belongs in the table, where the
      * Host's own colour resolution can see it.
+     *
+     * [sizeClass] is asked only for a role that is answered by class. Asking it is what
+     * makes the caller follow the window's class, and every node asks for colours.
      */
-    fun color(role: ColorRole, dark: Boolean, sizeClass: WindowSizeClass): Color? = null
+    fun color(role: ColorRole, dark: Boolean, sizeClass: () -> WindowSizeClass): Color? = null
 
     /** How `Modifier::Elevation(dp)` is drawn. The Host sends a dp value and nothing else. */
     fun elevation(
@@ -534,8 +580,14 @@ interface ComponentRules {
      * looking native. Everywhere else the window is undecorated, so these three are the
      * only way to minimise, maximise or close it: they are not decoration.
      *
-     * The Host has no say here, deliberately. The colour, the position and the shape of a
-     * window button belong to the design system and the platform.
+     * A window is not asked this of the application's design system. It asks the design
+     * system of the operating system it is on, with the application's palette for the
+     * colours (see [platformCaption]): Fluent's answer is what every window on Windows
+     * draws, and the desktop's system answers on Linux. A system's own answer is what it
+     * draws on the platform it belongs to.
+     *
+     * The Host has no say here, deliberately. The position and the shape of a window
+     * button belong to the platform, and its colours to the design system.
      *
      * The default is a plain set at the trailing edge with a tinted hover, which is what
      * most of these systems do. A system overrides what it actually differs about.
@@ -837,9 +889,9 @@ enum class CaptionTitleAlignment { Start, Center }
  * the pointer is on close, a grey circle, a bare glyph. What none of them disagree about
  * is that there are three buttons and what each one does.
  *
- * Nothing here crosses the boundary. A window button is the design system's and the
- * platform's, and an application that could recolour one would be deciding for whichever
- * platform it ended up on.
+ * Nothing here crosses the boundary. A window button's shape is the platform's and its
+ * colours the design system's, and an application that could recolour one would be
+ * deciding for whichever platform it ended up on.
  */
 data class CaptionStyle(
     val side: CaptionSide,
@@ -883,6 +935,63 @@ data class CaptionStyle(
     /** The fill under close while it is held, where the system reddens close on hover. */
     val closePressed: Color = Color.Transparent,
 )
+
+/**
+ * The design system whose window buttons a window on [platform] draws, or null where the
+ * renderer draws no window buttons of its own.
+ *
+ * Windows draws Windows 11's, and a Linux session the desktop's: Adwaita under GNOME,
+ * Breeze under KDE, Deepin elsewhere, the same three `Theme::adaptive` picks there. macOS
+ * is null because the system draws its own traffic lights, and the phones and the browser
+ * because their windows are not the renderer's.
+ */
+internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (platform) {
+    HostPlatform.Windows -> DesignSystem.Fluent
+    HostPlatform.LinuxGnome -> DesignSystem.Gnome
+    HostPlatform.LinuxKde -> DesignSystem.Breeze
+    HostPlatform.LinuxOther -> DesignSystem.Deepin
+    else -> null
+}
+
+/**
+ * The window buttons a window drawn under [theme] actually gets: the operating system's, in
+ * the application's colours.
+ *
+ * A window button belongs to the operating system the window is on, not to the language
+ * the application chose. An Apple application on Windows that drew the traffic lights at the
+ * left was a window whose visible buttons could not be pressed: the native window hit tests
+ * the three 46 dip cells at the right as the buttons, and opens Snap Layouts only from the
+ * middle one. So which end, how big, what shape and how far apart come from the platform's
+ * own design system, measured in that system's own tokens. The fills and the glyph colours
+ * are that system's rules applied to the application's palette, which is how a Fluent
+ * application and a Material one already differed on Windows. Where the title goes is the
+ * bar's business and stays the application's design system's.
+ *
+ * Where the renderer draws no buttons (see [captionSystemFor]) this is the design system's
+ * own answer, unchanged.
+ */
+fun platformCaption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal): CaptionStyle {
+    val own = theme.rules.caption(theme, titleBar)
+    val system = captionSystemFor(theme.platform) ?: return own
+    val rules = rulesFor(system)
+    // The platform's system under its own tokens, for everything that is a measurement.
+    val native = ResolvedTheme(system, DesignTokens.of(system), rules, theme.dark, platform = theme.platform)
+    val geometry = rules.caption(native, titleBar)
+    // The same rules under the application's palette, for everything that is a colour.
+    val colours = rules.caption(theme, titleBar)
+    return geometry.copy(
+        minimiseContainer = colours.minimiseContainer,
+        maximiseContainer = colours.maximiseContainer,
+        closeContainer = colours.closeContainer,
+        hover = colours.hover,
+        closeHover = colours.closeHover,
+        glyph = colours.glyph,
+        closeHoverGlyph = colours.closeHoverGlyph,
+        pressed = colours.pressed,
+        closePressed = colours.closePressed,
+        titleAlignment = own.titleAlignment,
+    )
+}
 
 /**
  * What marks the selected destination.
@@ -1630,6 +1739,7 @@ fun resolveTheme(
     theme: Theme?,
     platform: HostPlatform,
     systemDark: Boolean,
+    /** The class of a window that stays the class it is, which is what a test resolves for. */
     sizeClass: WindowSizeClass = WindowSizeClass.Compact,
     /**
      * What a registered font asset became, or null where nothing was registered.
@@ -1655,6 +1765,59 @@ fun resolveTheme(
     chainOf: (Int) -> FontChain? = { null },
     /** Application-level overlay theme tokens for Dialog, Menu, Dropdown and Sheet. */
     overlay: OverlayTokens? = null,
+): ResolvedTheme = themeOf(
+    theme,
+    platform,
+    systemDark,
+    { sizeClass },
+    themeFonts(theme, fontOf),
+    themeFontChains(theme, chainOf),
+    brushOf,
+    windowBackdrop,
+    highContrast,
+    overlay,
+)
+
+/**
+ * The face each role the application named is written in.
+ *
+ * Only the roles the application actually named. A role whose asset is missing or is not
+ * a font is left out, so it stays on the machine's own face rather than on nothing, and
+ * the report of the missing asset is what says it happened.
+ */
+internal fun themeFonts(theme: Theme?, fontOf: (Int) -> FontFamily?): Map<TypeRole, FontFamily> = buildMap {
+    theme?.let { asked ->
+        for (role in TypeRole.entries) {
+            val family = asked.font(role)?.let(fontOf) ?: continue
+            put(role, family)
+        }
+    }
+}
+
+/** The font stacks the application's roles are set in: each stack once, however many roles are set in it. */
+internal fun themeFontChains(theme: Theme?, chainOf: (Int) -> FontChain?): List<FontChain> =
+    theme?.let { asked ->
+        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
+    }.orEmpty()
+
+/**
+ * [resolveTheme] from the faces and stacks the assets have already been read into.
+ *
+ * Everything here is a value that can be compared, which is what lets a window keep the
+ * theme it has until one of them really changes. A theme made again from the same inputs
+ * is still a different object, and every node in the tree reads the theme.
+ */
+internal fun themeOf(
+    theme: Theme?,
+    platform: HostPlatform,
+    systemDark: Boolean,
+    sizeClass: () -> WindowSizeClass,
+    fonts: Map<TypeRole, FontFamily>,
+    chains: List<FontChain>,
+    brushOf: (Int) -> ComposeBrush?,
+    windowBackdrop: Boolean,
+    highContrast: () -> Boolean,
+    overlay: OverlayTokens?,
 ): ResolvedTheme {
     val system = when {
         theme == null -> adaptiveSystem(platform, DesignSystem.Material3)
@@ -1666,26 +1829,13 @@ fun resolveTheme(
         ColorScheme.Dark -> true
         ColorScheme.FollowSystem -> systemDark
     }
-    // Only the roles the application actually named. A role whose asset is missing or is
-    // not a font is left out, so it stays on the machine's own face rather than on
-    // nothing, and the report of the missing asset is what says it happened.
-    val fonts = buildMap {
-        theme?.let { asked ->
-            for (role in TypeRole.entries) {
-                val family = asked.font(role)?.let(fontOf) ?: continue
-                put(role, family)
-            }
-        }
-    }
-    // Each stack once, however many roles are set in it.
-    val chains = theme?.let { asked ->
-        TypeRole.entries.mapNotNull { role -> asked.font(role)?.let(chainOf) }.distinct()
-    }.orEmpty()
     val tokens = DesignTokens.of(system)
     val rules = rulesFor(system)
     // The same palette goes onto whichever system was chosen, and both of its schemes are
     // already here, so following the platform from light to dark reads the other half
-    // rather than asking the Host for anything.
+    // rather than asking the Host for anything. The palette is worked out once, against
+    // the inks of the system, and an ink is not one of the colours a system answers by
+    // window class.
     val application = applicationColors(theme, dark, highContrast) { role ->
         rules.color(role, dark, sizeClass) ?: Color(tokens.color(role, dark))
     }

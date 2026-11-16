@@ -115,6 +115,20 @@ fn registered_id(
         .map(|(_, id, _)| *id)
 }
 
+/// Lets go of bytes registered with [`register_owned`] (or [`asset`]), so the Renderer
+/// drops its copy.
+///
+/// A screen that builds its pictures at run time, a picture per colour an icon is drawn
+/// in for example, would otherwise grow the Renderer's cache for the life of the app.
+/// The bytes leave the registry, so registering the same bytes again gives a new id and
+/// sends them again. The release goes out on the next batch, as [`crate::release_brush`]
+/// sends one. Returns false, and sends nothing, for an id that is not registered as
+/// `kind` or was already released. Releasing a picture a node still draws is the caller's
+/// mistake, reported by the Renderer as a protocol error rather than a crash.
+pub fn release_owned(asset_id: u32, kind: AssetKind) -> bool {
+    release(asset_id, kind)
+}
+
 /// Hands every queued registration to `emit` and empties the queue.
 ///
 /// The buffer is moved out and put back, so the steady state, where nothing new has been
@@ -179,6 +193,41 @@ pub(crate) fn drain_releases(mut emit: impl FnMut(u32)) {
             *releases = taken;
         }
     });
+}
+
+/// What one thread has registered, for the thread the UI runs on to take over.
+///
+/// Bytes that live for the whole program, ids and kinds, so it can go to another thread.
+pub(crate) struct Registrations {
+    registered: Vec<(&'static [u8], u32, AssetKind)>,
+    last_id: u32,
+}
+
+/// What this thread has registered so far.
+///
+/// An application registers its window's icon and its theme's fonts while it builds what it
+/// launches with, which is before there is a UI, and the theme and the window then name
+/// them by id. Where the Host makes the UI thread, that was a different thread from the
+/// one the UI is about to run on, and a registry kept per thread would leave those ids
+/// naming nothing there, or naming whatever the UI registered first.
+pub(crate) fn registrations() -> Registrations {
+    Registrations {
+        registered: REGISTERED.with_borrow(Clone::clone),
+        last_id: LAST_ID.get(),
+    }
+}
+
+/// Makes another thread's registrations this thread's, ids unchanged, if this thread has
+/// registered nothing of its own. The Host that starts here then tells the Renderer all of
+/// them (`requeue_all`), and the next id handed out here follows the last one handed out
+/// there.
+pub(crate) fn adopt(registrations: Registrations) {
+    if LAST_ID.get() != 0 {
+        return;
+    }
+    LAST_ID.set(registrations.last_id);
+    REGISTERED.with_borrow_mut(|registered| *registered = registrations.registered);
+    requeue_all();
 }
 
 /// Forgets every registration and every id. Used between tests.
