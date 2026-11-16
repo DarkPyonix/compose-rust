@@ -13,7 +13,8 @@
 #            only in `all` or named on its own.
 #   measure  the resize timings. They live in test_windows_resize, whose window-pin probe gates
 #            and runs in `all`; its timing jobs and steps fail nothing, so they run only when
-#            asked for. `measure` selects test_windows_resize and turns its metrics input on.
+#            asked for. `measure` selects test_windows_resize, and with it the Windows kit it
+#            resizes, and turns its metrics input on.
 #   a,b,...  these suites and jobs together, by their names (all, fast, measure, test,
 #            test_samples, ...), and what they need: a job that takes the Windows kit brings
 #            windows_static_kit with it. `all,measure` is every job with the timings on.
@@ -28,9 +29,9 @@ set -euo pipefail
 jobs=(
     test
     test_graalvm_renderer
-    test_windows_resize
     windows_static_kit
     windows_static_consumer
+    test_windows_resize
     test_native_renderer
     test_windows_c
     package_windows_host
@@ -45,7 +46,7 @@ fast=(test test_windows_c test_graalvm_renderer)
 # The jobs `measure` selects: the workflow that holds the timings.
 measure=(test_windows_resize)
 # The jobs that download the Windows renderer kit windows_static_kit builds for the run.
-needs_windows_kit=(windows_static_consumer test_native_renderer package_windows_host test_samples)
+needs_windows_kit=(windows_static_consumer test_windows_resize test_native_renderer package_windows_host test_samples)
 
 asked="${1:-all}"
 asked="${asked// /}"
