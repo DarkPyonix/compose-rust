@@ -176,6 +176,12 @@ internal class WindowsPlatformWindow(
     /** How many pixels a point is on the monitor the window is on. */
     val pixelsPerPoint: Float get() = window.pixelsPerPoint()
 
+    /** The flags the window's own text edit menu was last given, 0 while it is off. For the checks. */
+    val editMenuFlags: Int get() = window.editMenuFlags
+
+    /** Whether a text field of this window has the keyboard. For the checks. */
+    val textFieldFocused: Boolean get() = window.textFieldFocused
+
     private var reportedKey = false
     private val waiters = ArrayList<CancellableContinuation<Long>>()
 
