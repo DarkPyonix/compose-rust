@@ -375,6 +375,7 @@ pub struct Modifier {
     overlay: Option<Paint>,
     border_width: Option<f32>,
     border_color: Option<Paint>,
+    border_dash: Option<(f32, f32)>,
     border_each: Option<[(f32, Paint); 4]>,
     elevation: Option<f32>,
     alpha: Option<f32>,
@@ -428,6 +429,7 @@ impl Modifier {
             overlay: None,
             border_width: None,
             border_color: None,
+            border_dash: None,
             border_each: None,
             elevation: None,
             alpha: None,
@@ -686,18 +688,36 @@ impl Modifier {
         self
     }
 
-    /// The same border on every side. It takes the place of `border_each` and
-    /// `border_side`.
+    /// The same border on every side. It takes the place of `border_each`,
+    /// `border_side` and `border_dashed`.
     pub const fn border(mut self, width: f32, paint: Paint) -> Self {
         self.border_width = Some(width);
         self.border_color = Some(paint);
+        self.border_dash = None;
+        self.border_each = None;
+        self
+    }
+
+    /// A dashed border on every side, drawn with dashes of `dash_dp` and gaps of `gap_dp`
+    /// along the node's outline. A non-positive dash or gap draws a solid border. It takes
+    /// the place of `border`, `border_each` and `border_side`.
+    pub fn border_dashed(
+        mut self,
+        width_dp: f32,
+        paint: impl Into<Paint>,
+        dash_dp: f32,
+        gap_dp: f32,
+    ) -> Self {
+        self.border_width = Some(width_dp);
+        self.border_color = Some(paint.into());
+        self.border_dash = Some((dash_dp, gap_dp));
         self.border_each = None;
         self
     }
 
     /// A border whose sides each have their own width and paint, in CSS order: top,
     /// right, bottom, left. A side of width 0 draws nothing. It takes the place of
-    /// `border`.
+    /// `border` and `border_dashed`.
     ///
     /// The sides are the screen's, not the reading direction's: `right` is the right side
     /// in a right-to-left window too.
@@ -711,13 +731,14 @@ impl Modifier {
         self.border_each = Some([top, right, bottom, left]);
         self.border_width = None;
         self.border_color = None;
+        self.border_dash = None;
         self
     }
 
     /// A border on one side only, such as the guide line beside an indented row. The
     /// other sides have width 0, unless an earlier `border_side` or `border_each` in the
     /// same chain gave them one, so `border_side(Side::Top, ..).border_side(Side::Start,
-    /// ..)` draws two sides. It takes the place of `border`.
+    /// ..)` draws two sides. It takes the place of `border` and `border_dashed`.
     ///
     /// `Side::Start` is the left side and `Side::End` the right one. The Host lays every
     /// screen out left to right and the Renderer draws a border on the screen's sides, so
@@ -737,6 +758,7 @@ impl Modifier {
         self.border_each = Some(sides);
         self.border_width = None;
         self.border_color = None;
+        self.border_dash = None;
         self
     }
 
@@ -1122,6 +1144,15 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     );
     push(standard, "border_width", float(modifier.border_width));
     push(standard, "border_color", paint(modifier.border_color));
+    push(
+        false,
+        "border_dash",
+        modifier
+            .border_dash
+            .map_or(OwnedAttr::None, |(dash, gap)| {
+                OwnedAttr::Bytes([dash.to_le_bytes(), gap.to_le_bytes()].concat())
+            }),
+    );
     // Four widths and then four paints, written only when set. It shares the border's
     // slot, after the plain border, so whichever of the two the chain holds is the one
     // the slot ends up with.

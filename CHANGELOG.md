@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Dashed borders
+
+`Modifier::border_dashed(width_dp, paint, dash_dp, gap_dp)` draws a uniform border around the node's outline as repeating dashes of `dash_dp` and gaps of `gap_dp` in dp, following the node's corner shape (`Shape`, `ShapeRole`, `CornerEach`, `CornerCurve`). It writes `Border` together with the new `BorderDash` modifier (tag 42, two `f32` in the first word) and clears any previous `border_each` or `border_side`, while calling `border`, `border_each` or `border_side` clears `BorderDash`. A non-positive dash or gap falls back to a solid border. The new modifier moves the schema hash ([#817](https://github.com/DarkPyonix/compose-rust/issues/817)).
+
 ### Releasing bytes registered at run time
 
 `asset::release_owned(asset_id, kind)` pairs with `asset::register_owned`: it takes the bytes out of the registry and sends the Renderer one `ReleaseAsset` record on the next batch, the same record `release_brush` sends. Registering the same bytes again afterwards gives a new id and a new `RegisterAsset`. An id that is not registered as that kind, or was already released, returns false and sends nothing. A screen that builds pictures at run time, such as an SVG drawn once per colour, can now keep the Renderer's cache from growing for the life of the app ([DarkPyonix/dioxus-compose#273](https://github.com/DarkPyonix/dioxus-compose/issues/273)).

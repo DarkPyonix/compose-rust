@@ -164,3 +164,43 @@ fn fr60_removing_border_side_clears_the_border() {
     tree.apply(host.render_frame(0).expect("the frame encodes"));
     assert!(!tree.dump().contains("Border"), "{}", tree.dump());
 }
+
+#[test]
+fn fr60_border_dashed_round_trips_and_clears_when_replaced_by_solid() {
+    let dashed = mutable_state_of(true);
+    let state = dashed;
+    let (mut host, mut tree) = start(move || {
+        let modifier = if state.get() {
+            Modifier.border_dashed(1.5, ColorRole::Outline, 4.0, 4.0)
+        } else {
+            Modifier.border(2.0, GUIDE)
+        };
+        Box().modifier(modifier).content(|| {});
+    });
+    let dump = tree.dump();
+    assert!(
+        dump.contains("Border { width: 1.5, paint: Role(Outline) }"),
+        "{dump}"
+    );
+    assert!(
+        dump.contains("BorderDash { dash_dp: 4.0, gap_dp: 4.0 }"),
+        "{dump}"
+    );
+
+    dashed.set(false);
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
+    let dump = tree.dump();
+    assert!(
+        dump.contains("Border { width: 2.0, paint: Literal(Color(4281558681)) }"),
+        "{dump}"
+    );
+    assert!(!dump.contains("BorderDash"), "{dump}");
+
+    dashed.set(true);
+    tree.apply(host.render_frame(0).expect("the frame encodes"));
+    let dump = tree.dump();
+    assert!(
+        dump.contains("BorderDash { dash_dp: 4.0, gap_dp: 4.0 }"),
+        "{dump}"
+    );
+}

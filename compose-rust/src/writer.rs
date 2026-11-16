@@ -28,7 +28,7 @@ const SPANS_BIT: u32 = 63;
 
 /// How many Modifier slots a node has. The slot numbers are assigned in `modifier_for`,
 /// and this is one past the last of them.
-const MODIFIER_SLOTS: usize = 38;
+const MODIFIER_SLOTS: usize = 39;
 
 /// The first of the slots a node's shadow layers take, and how many there are.
 const SHADOW_BASE: u16 = 8;
@@ -449,6 +449,7 @@ impl NodeWriter {
         // plain padding slot.
         const CONTENT_PADDING: u16 = 36;
         const UNBOUNDED_WIDTH: u16 = 37;
+        const BORDER_DASH: u16 = 38;
 
         let float = |value: &AttrValue<'_>| match value {
             AttrValue::Float(number) => Some(*number as f32),
@@ -476,6 +477,7 @@ impl NodeWriter {
             "alpha" | "animated_alpha" => Some(ALPHA),
             "offset" => Some(OFFSET),
             "border_width" | "border_color" | "border_each" => Some(BORDER),
+            "border_dash" => Some(BORDER_DASH),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
             "padding" | "padding_role" => Some(PADDING),
@@ -718,6 +720,14 @@ impl NodeWriter {
                     *paint = crate::Paint::from_bits(bits)?;
                 }
                 Some(Some((BORDER, Modifier::border_sides(widths, paints))))
+            }
+            "border_dash" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let dash_dp = f32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+                let gap_dp = f32::from_le_bytes(bytes.get(4..8)?.try_into().ok()?);
+                Some(Some((BORDER_DASH, Modifier::BorderDash { dash_dp, gap_dp })))
             }
             "alpha" => Some(Some((ALPHA, Modifier::Alpha(float(value)?)))),
             "overlay" => Some(Some((

@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.RectangleShape
@@ -130,6 +131,8 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     val shape = resolvedShape(theme)
     val pressShape = containerShape ?: shape
     val feedback = lastOrNull { it is ProtocolModifier.PressFeedback } as? ProtocolModifier.PressFeedback
+    val borderDash = (lastOrNull { it is ProtocolModifier.BorderDash } as? ProtocolModifier.BorderDash)
+        ?.takeIf { it.dashDp > 0f && it.gapDp > 0f && it.dashDp.isFinite() && it.gapDp.isFinite() }
     // What this node's surface is made of is its surface, so it is drawn round the whole
     // node the way a background is: under the padding, and outside the clip so a surface
     // that floats can cast its lift beyond its own edge. Taken at its place in the list it
@@ -312,15 +315,25 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             is ProtocolModifier.Shape -> chain.clip(shape)
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
+            // Read through `borderDash` above; on its own it draws nothing.
+            is ProtocolModifier.BorderDash -> chain
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
                 val holder = if (!borderSeen) animated?.invoke() else null
                 borderSeen = true
-                // Compose's own border until an animation first plays on this one, then the
-                // layer that can repaint it in the draw phase.
-                if (holder != null && holder.borderAnimated.value) {
-                    chain.animatedBorder(value.width.dp, brush, shape, holder)
-                } else {
-                    chain.border(value.width.dp, brush, shape)
+                when {
+                    borderDash != null -> chain.dashedBorder(
+                        value.width.dp,
+                        brush,
+                        shape,
+                        borderDash.dashDp.dp,
+                        borderDash.gapDp.dp,
+                        holder,
+                    )
+                    // Compose's own border until an animation first plays on this one, then the
+                    // layer that can repaint it in the draw phase.
+                    holder != null && holder.borderAnimated.value ->
+                        chain.animatedBorder(value.width.dp, brush, shape, holder)
+                    else -> chain.border(value.width.dp, brush, shape)
                 }
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Elevation ->
@@ -575,6 +588,45 @@ private fun Modifier.animatedBorder(
         drawContent()
         if (stroke > 0f) {
             val shown = holder.borderOverride()
+            translate(half, half) {
+                if (shown != null) {
+                    drawOutline(outline, color = shown, style = style)
+                } else {
+                    drawOutline(outline, brush, style = style)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A uniform border drawn as a repeating pattern of [dash] and [gap] along the inside of the
+ * node's [shape], over the content, honoring any animated colour on [holder].
+ */
+private fun Modifier.dashedBorder(
+    width: Dp,
+    brush: Brush,
+    shape: Shape,
+    dash: Dp,
+    gap: Dp,
+    holder: dev.darkpyonix.composerust.ui.node.AnimatedNode? = null,
+): Modifier = drawWithCache {
+    val stroke = width.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
+    val half = stroke / 2f
+    val inner = Size((size.width - stroke).coerceAtLeast(0f), (size.height - stroke).coerceAtLeast(0f))
+    val outline = shape.createOutline(inner, layoutDirection, this)
+    val dashPx = dash.toPx()
+    val gapPx = gap.toPx()
+    val effect = if (dashPx > 0f && gapPx > 0f) {
+        PathEffect.dashPathEffect(floatArrayOf(dashPx, gapPx), 0f)
+    } else {
+        null
+    }
+    val style = Stroke(width = stroke, pathEffect = effect)
+    onDrawWithContent {
+        drawContent()
+        if (stroke > 0f) {
+            val shown = holder?.borderOverride()
             translate(half, half) {
                 if (shown != null) {
                     drawOutline(outline, color = shown, style = style)
