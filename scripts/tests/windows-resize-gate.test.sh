@@ -7,8 +7,10 @@
 #
 # So this runs that script here, taken from the workflow as it is, against probe logs made
 # up for the purpose:
-#   - a clean run passes, on the strict leg and on the reported one;
-#   - on the strict leg a drag of the CPU path with a fault fails the job and says so;
+#   - a clean run passes, on the leg judged by rate and on the reported one;
+#   - on the leg judged by rate (windows-2025) one or two faulty drags of the 24 are counted
+#     and pass, and three fail the job: the fork's window shows a stray frame with a gap now
+#     and then, and the limit is there to catch a window that got worse;
 #   - on the reported leg (windows-2022) the same drag is named as a known fault, counted,
 #     and does not fail the job, while a control that passes, a drag with no CPU step and a
 #     step that was not validated still fail it there.
@@ -40,14 +42,14 @@ if grep -q '\${{' "$work/gate.sh"; then
 fi
 # The leg is chosen by the runner's name, and windows-2022 is the reported one.
 step_block="$(awk -v name="      - name: $step" '$0 == name { found = 1 } found && /^      - name: / && $0 != name { exit } found { print }' "$workflow")"
-grep -qF "DRAGS_GATE: \${{ matrix.os == 'windows-2022' && 'reported' || 'strict' }}" <<<"$step_block" ||
-    fail "the leg that is reported" "DRAGS_GATE is not 'reported' on windows-2022 and 'strict' elsewhere"
+grep -qF "DRAGS_GATE: \${{ matrix.os == 'windows-2022' && 'reported' || 'rate' }}" <<<"$step_block" ||
+    fail "the leg that is reported" "DRAGS_GATE is not 'reported' on windows-2022 and 'rate' elsewhere"
 
 mkdir -p "$work/bin"
 printf '#!/usr/bin/env bash\n# cygpath -u <path>: here the path is already the one to use.\nprintf "%%s\\n" "${@: -1}"\n' > "$work/bin/cygpath"
 chmod +x "$work/bin/cygpath"
 
-# One set of probe logs under $1. $2 names a label of the CPU path whose drag shows a fault,
+# One set of probe logs under $1. $2 names the labels of the CPU path whose drags show a fault,
 # $3 a label that drew no CPU step, $4 a label with a step that was not validated, and $5 is
 # "control-passes" when the late control is to pass. Empty means none.
 make_logs() {
@@ -77,7 +79,7 @@ make_logs() {
                             echo "resize-probe: lag frames=12"
                         fi
                         if [[ $app = control-late && $control != control-passes ]] ||
-                            [[ $app = kn-new && $scale = 2x && $label = "$faulty" ]]; then
+                            [[ $app = kn-new && $scale = 2x && " $faulty " = *" $label "* ]]; then
                             echo "resize-probe: verdict FAIL ($edge, 2 with a gap)"
                         else
                             echo "resize-probe: verdict PASS ($edge)"
@@ -133,20 +135,28 @@ expect() {
 }
 
 make_logs "$work/case" "" "" "" ""
-expect "fr19_8_4_a_clean_run_passes_on_the_strict_leg" pass strict windows-2025
+expect "fr19_8_4_a_clean_run_passes_on_the_rate_leg" pass rate windows-2025
 expect "fr19_8_4_a_clean_run_passes_on_the_reported_leg" pass reported windows-2022 "0 drags of the CPU resize path showed a fault"
 
 make_logs "$work/case" "kn-new-left-8" "" "" ""
-expect "fr19_8_4_a_faulty_drag_fails_the_strict_leg" fail strict windows-2025 "  FAULT: the CPU resize path shows a fault"
+expect "fr19_8_4_one_faulty_drag_of_24_is_counted_and_passes_the_rate_leg" pass rate windows-2025 "windows-2025: 1 of 24 drags of the CPU resize path showed a fault, limit 10% (at most 2)"
 expect "fr19_8_4_a_faulty_drag_is_reported_and_does_not_fail_windows_2022" pass reported windows-2022 "KNOWN FAULT, reported and not failing the job on windows-2022"
 grep -qF "windows-2022: 1 drags of the CPU resize path showed a fault. They are reported and do not fail this job" "$work/out" ||
     fail "fr19_8_4_the_reported_leg_counts_its_known_faults" "the closing line does not count the one faulty drag"
 
+make_logs "$work/case" "kn-new-left-8 kn-new-right-16" "" "" ""
+expect "fr19_8_4_two_faulty_drags_of_24_still_pass_the_rate_leg" pass rate windows-2025 "windows-2025: 2 of 24 drags"
+
+make_logs "$work/case" "kn-new-left-8 kn-new-right-16 kn-new-corner-1" "" "" ""
+expect "fr19_8_4_three_faulty_drags_of_24_fail_the_rate_leg" fail rate windows-2025 "FAULT: more than 10% of the drags of the CPU resize path showed a fault"
+expect "fr19_8_4_three_faulty_drags_do_not_fail_windows_2022" pass reported windows-2022 "windows-2022: 3 drags of the CPU resize path showed a fault"
+
 make_logs "$work/case" "" "" "" control-passes
+expect "fr19_8_4_a_control_that_passes_fails_the_rate_leg" fail rate windows-2025 "NO DISCRIMINATION"
 expect "fr19_8_4_a_control_that_passes_fails_the_reported_leg_too" fail reported windows-2022 "NO DISCRIMINATION"
 
 make_logs "$work/case" "" "kn-new-right-16" "" ""
-expect "fr19_8_4_a_drag_without_a_cpu_step_fails_the_strict_leg" fail strict windows-2025 "FAULT: the drag drew no CPU step"
+expect "fr19_8_4_a_drag_without_a_cpu_step_fails_the_rate_leg" fail rate windows-2025 "FAULT: the drag drew no CPU step"
 expect "fr19_8_4_a_drag_without_a_cpu_step_fails_the_reported_leg_too" fail reported windows-2022 "FAULT: the drag drew no CPU step"
 
 make_logs "$work/case" "" "" "kn-new-corner-1" ""

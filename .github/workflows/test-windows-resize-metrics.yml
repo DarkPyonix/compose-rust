@@ -628,20 +628,29 @@ jobs:
         # fork's window has one surface that takes the size and the picture in one step
         # (#223); the drags stay strict throughout.
         #
-        # On windows-2022 the drags of the CPU path are reported and do not fail the job: most
-        # of them show one to five frames with a gap between the markers there (15 of 24 in the
-        # first run that got this far), which is the fork's window on the Windows 10 generation
-        # of the compositor (compose-multiplatform-core-extended#245), while windows-2025 is
-        # clean and stays strict. The leg goes back to strict when that issue is fixed. Its
-        # control, its window states and its proof lines fail the job as everywhere.
+        # The drags of the CPU path are judged by rate as well, for now: the job fails when more
+        # than 10% of them (more than 2 of the 24) show a fault, and the count is always
+        # printed. The fork's window shows a frame with a gap between the markers now and then
+        # during a drag (compose-multiplatform-core-extended#245): on windows-2025 in 0 of 24
+        # drags in one run and 1 of 24 in the next, one frame in a few hundred resize steps, so
+        # a strict zero there fails some runs at random for a fault this repository cannot
+        # fix, while the limit still catches a window that got worse. It becomes zero again
+        # when #245 is fixed.
+        #
+        # On windows-2022 the same fault is common (15 and 12 of 24 drags in those two runs),
+        # so that leg reports its faulty drags, names them as known and does not fail the job
+        # for them until #245 is fixed; the limit would only keep it red. Its control, its
+        # window states and its proof lines fail the job as everywhere.
         shell: bash --noprofile --norc -o pipefail {0}
         env:
-          DRAGS_GATE: ${{ matrix.os == 'windows-2022' && 'reported' || 'strict' }}
+          DRAGS_GATE: ${{ matrix.os == 'windows-2022' && 'reported' || 'rate' }}
           RUNNER_OS_LABEL: ${{ matrix.os }}
         run: |
           out="$(cygpath -u "$RUNNER_TEMP")/probe-logs"
           status=0
           known=0
+          drags=0
+          drags_limit_percent=10
           [ "${{ steps.scale.outputs.status }}" = 0 ] || { echo "the display did not go to 200%"; status=1; }
           grep -q "effective dpi 192" "$out/set-display-scale.log" || { echo "the display is not at 192 dpi"; status=1; }
           labels=""
@@ -709,13 +718,14 @@ jobs:
                   case "$label:$verdict" in
                     kn-new-states:*|*"verdict PASS"*) ;;
                     *)
-                      if [ "$DRAGS_GATE" = strict ]; then
-                        echo "  FAULT: the CPU resize path shows a fault (see the frames)"; status=1
+                      known=$((known + 1))
+                      if [ "$DRAGS_GATE" = rate ]; then
+                        echo "  FAULT, counted against the limit: the CPU resize path shows a fault (see the frames)"
                       else
                         echo "  KNOWN FAULT, reported and not failing the job on $RUNNER_OS_LABEL: the CPU resize path shows a fault (see the frames)"
-                        known=$((known + 1))
                       fi ;;
                   esac
+                  case "$label" in kn-new-states) ;; *) drags=$((drags + 1)) ;; esac
                   grep -qF "hand-check: marker scene" "$log" || { echo "  hand-check did not draw the marker scene"; status=1; }
                   grep -qF "resize-mode: resize frames on the CPU (Skia raster, GDI blit)" "$log" ||
                     { echo "  hand-check did not take the CPU resize path"; status=1; }
@@ -750,7 +760,12 @@ jobs:
               esac
             done
           done
-          if [ "$DRAGS_GATE" != strict ]; then
+          if [ "$DRAGS_GATE" = rate ]; then
+            echo "$RUNNER_OS_LABEL: $known of $drags drags of the CPU resize path showed a fault, limit $drags_limit_percent% (at most $((drags * drags_limit_percent / 100)))"
+            [ "$drags" -gt 0 ] || { echo "  FAULT: no drag of the CPU resize path was judged"; status=1; }
+            [ $((known * 100)) -le $((drags * drags_limit_percent)) ] ||
+              { echo "  FAULT: more than $drags_limit_percent% of the drags of the CPU resize path showed a fault (see the frames)"; status=1; }
+          else
             echo "$RUNNER_OS_LABEL: $known drags of the CPU resize path showed a fault. They are reported and do not fail this job: the fault is in the fork's window on this Windows generation (compose-multiplatform-core-extended#245). Everything else here still fails the job."
           fi
           exit $status
