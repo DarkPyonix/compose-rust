@@ -1590,6 +1590,7 @@ private fun FieldSurface(
                         BasicTextField(
                             state = window.state,
                             modifier = Modifier
+                                .then(dev.darkpyonix.composerust.foundation.platformTextMenuModifier)
                                 // Measured at the window's own height, never the
                                 // document's, and placed at its rows less the offset. Only
                                 // the viewport's height is reported upwards.

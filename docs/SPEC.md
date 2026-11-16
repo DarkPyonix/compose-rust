@@ -4892,6 +4892,9 @@ pub mod storage {
 13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
 14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
 15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+    - 측정값(2026-11-16, macOS arm64, 창 핀 a187dd1e, 디버그 빌드, 다섯 번 실행): 뷰가 없을 때 프레임 시간 1.34~1.43ms, 뷰 넷일 때 1.47~1.51ms입니다. 뷰 넷의 비용은 프레임당 0.08~0.14ms이고, 허용치(뷰 없는 값의 10% + 0.05ms)까지 가장 가까웠던 실행의 여유는 0.04ms입니다. 여유가 얇으므로 이 시험이 다시 실패하면 잡음이 아니라 비용이 늘어난 것으로 읽습니다. 같은 기기가 평소 부하를 받는 상태에서(2026-11-16, 두 커밋에서 서른 쌍) 뷰 넷의 비용은 프레임당 평균 0.166ms이고, 이때 뷰 없는 프레임 시간은 평균 1.92ms, 허용치는 0.242ms입니다. 한 쌍의 차이는 약 0.3ms씩 흔들리고, 두 화면을 재는 순서에 따른 차이는 없습니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
+    - 재는 방법: 뷰가 없는 화면을 재고 바로 이어서 뷰 넷인 화면을 재는 한 쌍을 열두 번 되풀이합니다. 비용은 쌍마다 잰 차이(뷰 넷 빼기 뷰 없음)의 평균이고, 허용치는 뷰 없는 값 평균의 10% + 0.05ms입니다. 비용에서 그 평균의 표준오차 두 배를 뺀 값이 허용치보다 크면 실패합니다. 이 방법은 기준을 프레임당 약 0.3ms의 분해능으로 확인합니다. 허용치를 그보다 적게 넘는 비용은 감당할 수 있는 표본에서 잡음과 구별되지 않습니다. 구별하려면 약 65쌍, 10분 가량의 측정이 필요합니다. 방법이 실제 비용에서 실패한다는 것은 따로 시험합니다: 뷰 넷인 화면의 스크롤 프레임마다 뷰 없는 화면만큼(0.5ms 이상)의 시간을 일부러 더하면 판정이 예산 초과로 나와야 하고, 이 시험은 CI에서도 판정합니다(시험 이름 fr81_the_frame_budget_method_catches_an_added_cost). 판정 규칙 자체는 창 없이 시험합니다(fr81_frame_budget_does_not_tell_an_overrun_inside_the_noise_from_noise_by_design 등). 어느 측정이든 프레임이 서른 장에 못 미치면 실패합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
+    - CI 러너에서는 두 값을 "budget not judged on CI"라는 말과 함께 찍고 판정하지 않습니다(환경 변수 `CI`가 `true`일 때). 공유 러너의 프레임 시간은 예산의 10%보다 크게 흔들립니다. 프레임이 모자라면 CI에서도 실패합니다. 예산은 개발자 기기와 병합 게이트에서 판정합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
 
@@ -5421,6 +5424,8 @@ compose_rust_host_dispatch_event: click 1
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
   - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
 - macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
+- Windows에서 `launch`는 Host가 만든 스레드 하나(`compose-rust-ui`, 스택 64 MB 예약)에서 `compose_rust_renderer_run`을 호출하고, 호출한 스레드는 그 스레드가 끝나기를 기다립니다([leader, provisional] (darkpyonix leader, 2026-11-16)). Windows 메인 스레드의 스택은 실행 파일의 링크가 정하며 기본 1 MB라서 Compose의 재귀(조합, 측정, 그리기)를 담지 못합니다. Renderer UI 스레드는 여전히 하나이고 Host는 그 스레드에서만 돕니다(PR-1). `launch` 없이 루프를 직접 돌리는 애플리케이션은 스택을 스스로 마련합니다.
+  - 수용 기준: Windows에서 1 MB 스택이 담지 못하는 첫 깊이의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다. 그 깊이는 같은 단계가 재서 정합니다(`check-windows-consumer.sh` 3e). **(CI 확인 전)**
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**
