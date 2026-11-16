@@ -57,7 +57,7 @@ import org.thisisthepy.compose.window.graalvm.macos.readDroppedPaths
 import org.thisisthepy.compose.window.graalvm.macos.registerFrameCallback
 import org.thisisthepy.compose.window.graalvm.macos.setApplicationIcon
 import org.thisisthepy.compose.window.graalvm.macos.setPointerShape
-import org.thisisthepy.compose.window.graalvm.macos.AccessibleElement as AppKitElement
+import org.thisisthepy.compose.window.AccessibleElement as AppKitElement
 
 // A window that is ours, drawn into with Skia and with no toolkit in between.
 //

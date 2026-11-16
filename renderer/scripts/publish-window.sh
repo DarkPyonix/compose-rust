@@ -91,9 +91,12 @@ esac
 # other platform (macosArm64, which would also need the fork's Compose for macosArm64), so
 # only the JVM half is built.
 if [[ " ${modules[*]} " == *" scene "* ]]; then
+    # native/macos names scene, so scene needs macosArm64 as well when it is published.
+    scene_platforms="jvm"
+    [[ " ${modules[*]} " == *" native/macos "* ]] && scene_platforms="jvm, macosArm64"
     # A suffix for -i and the copy removed after, because BSD sed on macOS takes the next
     # argument to -i as one.
-    sed -i.orig 's/^  platforms: \[.*\]$/  platforms: [ jvm ]/' "$window/scene/module.yaml"
+    sed -i.orig "s/^  platforms: \\[.*\\]\$/  platforms: [ $scene_platforms ]/" "$window/scene/module.yaml"
     rm -f "$window/scene/module.yaml.orig"
 fi
 # The PATH kotlin.bat runs with on Windows: System32 first, and none of Git's own directories

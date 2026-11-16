@@ -40,8 +40,8 @@ dependencies:
   - org.thisisthepy.compose.ui:ui:1.11.1-ext.1
   # The window: AppKit and Metal, and what every window decides the same way. Published by
   # scripts/publish-window.sh from the pinned fork commit, next to the patched Compose.
-  - org.thisisthepy.compose.window:common:0.1.0
-  - org.thisisthepy.compose.window:native-macos:0.1.0
+  - org.thisisthepy.compose.window:common:0.1.0-vresize
+  - org.thisisthepy.compose.window:native-macos:0.1.0-vresize
 
 test-dependencies:
   - $kotlin.test

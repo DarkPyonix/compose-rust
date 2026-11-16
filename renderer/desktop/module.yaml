@@ -44,9 +44,9 @@ dependencies:
   - org.graalvm.sdk:nativeimage:25.0.1: compile-only
   # What every window decides the same way, and the AppKit and X11 windows of the native
   # image path. The Windows window is still this module's own.
-  - org.thisisthepy.compose.window:common:0.1.0
-  - org.thisisthepy.compose.window:graalvm-macos:0.1.0
-  - org.thisisthepy.compose.window:graalvm-linux:0.1.0
+  - org.thisisthepy.compose.window:common:0.1.0-vresize
+  - org.thisisthepy.compose.window:graalvm-macos:0.1.0-vresize
+  - org.thisisthepy.compose.window:graalvm-linux:0.1.0-vresize
 
 test-dependencies:
   - org.thisisthepy.compose.ui:ui-test-junit4:1.11.1-ext.1
