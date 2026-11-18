@@ -421,6 +421,10 @@ internal object Material3Rules : ComponentRules {
      * to one: a capsule hover behind each glyph, in the tonal grey a Material icon button
      * uses, and the error colour under close. The title sits at the start, where a
      * Material top app bar puts it.
+     *
+     * No platform's window buttons are Material's, so a desktop window under Material
+     * draws its operating system's buttons in Material's colours (see [platformCaption]),
+     * and only the title alignment is read from here there.
      */
     override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.End,
@@ -980,10 +984,12 @@ internal object CupertinoRules : ComponentRules {
     /**
      * Three coloured discs at the leading edge, close then minimise then zoom.
      *
-     * This is only ever drawn where the platform does not draw it. On macOS the system
-     * owns these buttons and imitating them would be the most visible way to fail at
-     * looking native; on a Linux or Windows session running the Apple language there is
-     * nothing to keep, and a caption with no buttons is a window nobody can close.
+     * No desktop window draws these. On macOS the system owns these buttons and imitating
+     * them would be the most visible way to fail at looking native, and a Linux or Windows
+     * window running the Apple language draws that operating system's buttons instead
+     * (see [platformCaption]), because the buttons belong to the window's platform rather
+     * than to the language. This is the answer for a surface that has no platform of its
+     * own to ask.
      *
      * The discs carry no glyphs until the pointer is over the set, which is the behaviour
      * that makes them read as Apple's rather than as three coloured dots.
@@ -3418,12 +3424,12 @@ internal object LiquidGlassRules : ComponentRules {
      * Medium and Expanded are a desktop window, where a card or a plain surface is the
      * document being read and has to stay opaque behind its text.
      */
-    private fun isGlass(role: ContainerRole, sizeClass: WindowSizeClass): Boolean = when (role) {
-        // Chrome, at every size.
+    private fun isGlass(role: ContainerRole, theme: ResolvedTheme): Boolean = when (role) {
+        // Chrome, at every size. The class is not asked, so chrome does not follow it.
         ContainerRole.TopAppBar, ContainerRole.Menu, ContainerRole.Dialog, ContainerRole.Tooltip -> true
         // Content, glass only where the screen is small enough that there is no separate
         // chrome to speak of.
-        ContainerRole.Card, ContainerRole.Surface -> sizeClass == WindowSizeClass.Compact
+        ContainerRole.Card, ContainerRole.Surface -> theme.sizeClass == WindowSizeClass.Compact
     }
 
     /**
@@ -3439,7 +3445,7 @@ internal object LiquidGlassRules : ComponentRules {
         container: Color,
         content: Color,
         theme: ResolvedTheme,
-    ): SurfaceMaterial = if (isGlass(role, theme.sizeClass)) {
+    ): SurfaceMaterial = if (isGlass(role, theme)) {
         LiquidGlass.material(
             dark = theme.dark,
             // Regular throughout. Every container role here carries text or controls,
@@ -3466,9 +3472,10 @@ internal object LiquidGlassRules : ComponentRules {
      *
      * Light needs no such choice: the page is already the reading surface at either size.
      */
-    override fun color(role: ColorRole, dark: Boolean, sizeClass: WindowSizeClass): Color? = when {
+    override fun color(role: ColorRole, dark: Boolean, sizeClass: () -> WindowSizeClass): Color? = when {
+        // First, so the class is asked for the dark page and for nothing else.
         role != ColorRole.Background || !dark -> null
-        sizeClass == WindowSizeClass.Compact -> null
+        sizeClass() == WindowSizeClass.Compact -> null
         else -> DESKTOP_PAGE_DARK
     }
 
@@ -4321,7 +4328,9 @@ internal object LiquidGlassRules : ComponentRules {
      * The glass caption. Three coloured discs at the leading edge, exactly as the flat
      * Apple system draws them, because they are the same three buttons: the glass window
      * in the reference screens carries the same traffic lights, sitting straight on the
-     * translucent chrome with no strip of their own.
+     * translucent chrome with no strip of their own. As with the flat language, no
+     * desktop window draws them: macOS has the system's, and Windows and Linux their own
+     * (see [platformCaption]).
      */
     override fun caption(theme: ResolvedTheme, titleBar: TitleBar): CaptionStyle = CaptionStyle(
         side = CaptionSide.Start,

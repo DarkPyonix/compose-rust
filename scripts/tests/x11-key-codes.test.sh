@@ -40,12 +40,19 @@ grep -q 'fun x11KeyNumber(' "$table" || fail "the shared key table is gone from 
 # What the table answers, which is what the C table answered before it moved: the shortcut
 # letters on the shared board (zero is the A key, so an unknown key must not be zero), a digit,
 # the named keys, and -1 for a key with no number.
-hex_list() { sed -n "/^private val $1 = intArrayOf(/,/)/p" "$table" | tr -d '\n' |
+# A table may sit on one line, and a sed range would then run on into the next table, so the
+# lines are read up to the first closing parenthesis, the opening line included.
+hex_list() { awk -v name="$1" 'index($0, "private val " name " = intArrayOf(") == 1 { on = 1 }
+        on { print } on && /\)/ { exit }' "$table" | tr -d '\n' |
     sed -E 's/.*intArrayOf\(//; s/\).*//' | tr ',' '\n' | sed -E 's/ //g' | grep . ; }
 letters=($(hex_list X11_LETTERS))
 digits=($(hex_list X11_DIGITS))
 [[ ${#letters[@]} -eq 26 ]] || fail "the shared letter table has ${#letters[@]} entries, not 26"
 [[ ${#digits[@]} -eq 10 ]] || fail "the shared digit table has ${#digits[@]} entries, not 10"
+function_keys=($(hex_list X11_FUNCTION_KEYS))
+[[ ${#function_keys[@]} -eq 12 ]] || fail "the shared function key table has ${#function_keys[@]} entries, not 12 (F1 to F12)"
+[[ "${function_keys[0]:-}" == 0x7A ]] || fail "F1 is not key 122 in the shared table"
+grep -Eq 'XK_MENU -> 0x6E' "$table" || fail "the Menu key is not key 110 in the shared table"
 letter() { printf '%d' "${letters[$(( $(printf '%d' "'$1") - 97 ))]}"; }
 got="c $(letter c)
 v $(letter v)

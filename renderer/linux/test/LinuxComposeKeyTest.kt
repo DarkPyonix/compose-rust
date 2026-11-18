@@ -59,11 +59,23 @@ class LinuxComposeKeyTest {
         assertEquals(Key.A, composeKey(number(XK_LOWER_A - 0x20)))
     }
 
+    /**
+     * A function key reaches the scene as that function key.
+     *
+     * The keysyms run F1 to F12 in order and the shared key numbers do not, so the two ends of
+     * the row are checked: a table shifted by one would get one of them wrong.
+     */
+    @Test
+    fun a_function_key_reaches_the_scene_as_its_function_key() {
+        assertEquals(Key.F1, composeKey(number(XK_F1)))
+        assertEquals(Key.F12, composeKey(number(XK_F12)))
+    }
+
     /** A key the window gives no number to claims no meaning rather than a wrong one. */
     @Test
     fun a_key_with_no_number_claims_no_meaning() {
-        // F1, which the window does not number.
-        assertEquals(NO_KEY, number(0xFFBEL))
+        // Scroll Lock, which the window does not number.
+        assertEquals(NO_KEY, number(XK_SCROLL_LOCK))
         assertEquals(Key.Unknown, composeKey(NO_KEY))
     }
 
@@ -85,5 +97,8 @@ class LinuxComposeKeyTest {
         const val XK_DOWN = 0xff54L
         const val XK_KP_ENTER = 0xff8dL
         const val XK_ISO_LEFT_TAB = 0xfe20L
+        const val XK_SCROLL_LOCK = 0xff14L
+        const val XK_F1 = 0xffbeL
+        const val XK_F12 = 0xffc9L
     }
 }

@@ -26,6 +26,12 @@
 #    library beside it.
 #    Two windows of one application, through LaunchBuilder::windows(), open, share their
 #    state, close one at a time, and the process ends by itself after the last.
+#    A tree nested deeper than a 1 MB stack holds draws, and the same tree with the UI
+#    thread's stack held to 1 MB overflows it. A Windows main thread has 1 MB and the renderer
+#    composes, measures and draws by recursion, so released applications ended with "thread
+#    'main' has overflowed its stack" as their window opened; the Host now runs the renderer
+#    on a thread it makes with a large stack. The depth is the first a 1 MB stack cannot
+#    hold, found by the step itself; DXC_DEEP_TREE_DEPTH names one instead.
 # 4. An application that also links a C++ library built for the runtime DLL (/MD), which is
 #    what the `cc` crate builds by default, still links (the MSVC linker would otherwise stop
 #    on LNK2038, a RuntimeLibrary mismatch), still needs only Windows, and runs.
@@ -116,6 +122,13 @@ unset DXC_WINDOWS_NATIVE_LIB
 # shares a build with anything else running there. The builds with the same flags share one,
 # so the dependencies are compiled once; each executable is measured and copied out before
 # the next build writes over it.
+# Line tables rather than full debug information. Most of each link was the debug sections of
+# about 250 MB of static libraries, paid by every one of the builds below; line tables still
+# give cdb function names and lines when explain_crash has to say where a run crashed. Set
+# either variable to choose otherwise.
+export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-line-tables-only}"
+export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-0}"
+
 build() {
     local manifest="$1" name="$2"
     CARGO_TARGET_DIR="$repo_root/target/windows-consumer-check/$name" \
@@ -257,16 +270,18 @@ fi
 
 echo "== 3c. several windows in one process"
 # The renderer runs the checks itself when asked (Fr53WindowsCheck.kt): the real window
-# manager and the real Win32 windows under a scripted Host, one `fr53_windows_*` line each.
-# A Kotlin/Native test executable cannot hold them, because the window is C that only an MSVC
-# link has. The names are read from the Kotlin so the two cannot drift.
+# manager and the real Win32 windows under a scripted Host, one `fr53_windows_*` line each, the
+# text edit menu of those windows (`fr33_1_windows_*`), and the wheel's direction over a scroll
+# container (`fr13_windows_*`), which need a real window the same way. A Kotlin/Native test
+# executable cannot hold them, because the window is C that only an MSVC link has. The names
+# are read from the Kotlin so the two cannot drift.
 fr53_log="$scratch/fr53-windows-check.log"
 status=0
 # Bounded like 3b: the check that was running when the time ran out is the last line below.
 ( cd "$scratch/alone" && COMPOSE_RUST_FR53_WINDOWS_CHECK=1 timeout 600 ./consumer.exe --self-check ) 2> "$fr53_log" || status=$?
-grep 'fr53_windows' "$fr53_log" || true
+grep -E 'fr[0-9]+(_[0-9]+)?_windows' "$fr53_log" || true
 if [[ "$status" -ne 0 ]]; then echo "-- the several-windows checks ended with status $status; their last lines:"; tail -40 "$fr53_log"; fi
-fr53_names="$(grep -oE '"fr53_windows_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
+fr53_names="$(grep -oE '"fr[0-9]+(_[0-9]+)?_windows_[a-z0-9_]+"' "$repo_root/renderer/windows/src/Fr53WindowsCheck.kt" | tr -d '"' | sort -u)"
 [[ -n "$fr53_names" ]] || failed+=("Fr53WindowsCheck.kt names no fr53_windows check")
 for name in $fr53_names; do
     grep -q "^compose-rust: $name: ok" "$fr53_log" || failed+=("$name (see the lines above)")
@@ -306,6 +321,110 @@ if [[ "$status" -ne 0 ]]; then
     # timeout, and a crash is worth a stack.
     [[ "$status" -eq 1 || "$status" -eq 124 ]] || explain_crash "$multi_binary" --check
     failed+=("the multi-window application ended with status $status")
+fi
+
+echo "== 3e. a tree nested deeper than a 1 MB stack holds"
+# The renderer composes, measures and draws a tree by recursion, so how deep a tree it holds
+# is the stack of the thread it runs on. The Host makes that thread, with a stack far larger
+# than the megabyte a Windows main thread has (compose-rust/src/boundary.rs). The same tree
+# shows it both ways: with the UI thread's stack held to that megabyte it has to overflow,
+# and as the application is it has to draw.
+#
+# The depth is measured here and not written down, because how much stack a level costs
+# depends on how the renderer was built: a debug kit overflowed the megabyte between 12 and
+# 25 levels, and an optimised one goes deeper. The ladder finds the first depth the megabyte
+# cannot hold, and that is the depth drawn on the Host's thread. DXC_DEEP_TREE_DEPTH names a
+# depth instead; it still has to overflow the megabyte, or drawing it shows nothing.
+old_stack_bytes=1048576
+deep_ladder="${DXC_DEEP_TREE_DEPTH:-6 12 25 50 100 200 400}"
+# How long one run may take. A tree that is only slow is not a tree that drew.
+deep_rung_seconds="${DXC_DEEP_TREE_RUNG_SECONDS:-90}"
+deep_draw_seconds="${DXC_DEEP_TREE_DRAW_SECONDS:-300}"
+# Rust says whose stack overflowed, with the thread's id after the name on newer toolchains.
+overflow_of_ui_thread="thread 'compose-rust-ui'( \([0-9]+\))? has overflowed its stack"
+deep_log="$scratch/deep-tree.log"
+# Runs the tree at one depth for at most so many seconds; with a third argument, on a UI
+# thread stack of that many bytes. Leaves the output in $deep_log, how long it took in
+# $deep_took, and one word in $deep_result: drew, overflowed, slow or failed.
+deep_tree() {
+    local depth="$1" seconds="$2" stack="${3:-}" status=0 started="$SECONDS"
+    (
+        cd "$scratch/alone"
+        if [[ -n "$stack" ]]; then export COMPOSE_RUST_UI_STACK_BYTES="$stack"; else unset COMPOSE_RUST_UI_STACK_BYTES; fi
+        timeout "$seconds" ./consumer.exe --self-check "--deep-tree=$depth"
+    ) > "$deep_log" 2>&1 || status=$?
+    deep_took=$((SECONDS - started))
+    deep_status="$status"
+    if grep -q "has overflowed its stack" "$deep_log"; then
+        deep_result=overflowed
+    elif [[ "$status" -eq 0 ]] && grep -q '^self-check: the renderer drew' "$deep_log"; then
+        deep_result=drew
+    elif [[ "$status" -eq 124 ]] || grep -q '^self-check: the renderer drove' "$deep_log"; then
+        # The time ran out, here or in the program's own wait for its frames.
+        deep_result=slow
+    else
+        deep_result=failed
+    fi
+}
+
+echo "-- how deep a tree a $old_stack_bytes byte stack holds:"
+deep_depth=""
+deep_held=0
+for depth in $deep_ladder; do
+    deep_tree "$depth" "$deep_rung_seconds" "$old_stack_bytes"
+    echo "   depth $depth: $deep_result (status $deep_status, ${deep_took}s)"
+    case "$deep_result" in
+        drew) deep_held="$depth" ;;
+        overflowed)
+            deep_depth="$depth"
+            grep 'overflowed its stack' "$deep_log" | head -1
+            # The stack that overflowed has to be the one the Host made, or the renderer is
+            # not running where the Host put it.
+            grep -Eq "$overflow_of_ui_thread" "$deep_log" ||
+                failed+=("the stack that overflowed at depth $depth was not the UI thread's, so the renderer is not running on the thread the Host makes")
+            break ;;
+        *)
+            tail -15 "$deep_log" | sed 's/^/      /'
+            break ;;
+    esac
+done
+if [[ -z "$deep_depth" ]]; then
+    failed+=("no depth in '$deep_ladder' overflowed a $old_stack_bytes byte stack (the deepest that drew was $deep_held, the last result was $deep_result), so nothing shows what the larger stack is for; extend the ladder")
+else
+    echo "-- a $old_stack_bytes byte stack holds depth $deep_held and overflows at depth $deep_depth"
+
+    echo "-- depth $deep_depth on the UI thread as the Host makes it, which has to draw"
+    deep_tree "$deep_depth" "$deep_draw_seconds"
+    echo "   depth $deep_depth: $deep_result (status $deep_status, ${deep_took}s)"
+    deep_drawn=0
+    if [[ "$deep_result" == drew ]]; then
+        deep_drawn="$deep_depth"
+        deep_drawn_took="$deep_took"
+    else
+        tail -40 "$deep_log"
+        [[ "$deep_result" != failed ]] || explain_crash "$binary" --self-check "--deep-tree=$deep_depth"
+        failed+=("a tree $deep_depth levels deep, which overflows a $old_stack_bytes byte stack, did not draw on the thread the Host makes ($deep_result, status $deep_status)")
+    fi
+
+    # How much room is left above that, for the record. Slowness fails nothing here; an
+    # overflow does, because a stack sixty-four times the old one that holds less than four
+    # times the depth is not doing what it is for.
+    if [[ "$deep_drawn" -ne 0 ]]; then
+        for factor in 2 4; do
+            depth=$((deep_depth * factor))
+            deep_tree "$depth" "$deep_draw_seconds"
+            echo "   depth $depth: $deep_result (status $deep_status, ${deep_took}s)"
+            case "$deep_result" in
+                drew) deep_drawn="$depth"; deep_drawn_took="$deep_took" ;;
+                overflowed)
+                    grep 'overflowed its stack' "$deep_log" | head -1
+                    failed+=("a tree $depth levels deep overflowed the stack the Host gives, only $factor times the depth a $old_stack_bytes byte stack overflows at")
+                    break ;;
+                *) tail -5 "$deep_log" | sed 's/^/      /'; break ;;
+            esac
+        done
+        echo "-- the deepest tree drawn on the thread the Host makes: $deep_drawn levels, in ${deep_drawn_took}s"
+    fi
 fi
 
 echo "== 4. beside a C++ library built for the runtime DLL (/MD)"

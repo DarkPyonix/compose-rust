@@ -9,6 +9,7 @@ package dev.darkpyonix.composerust.ui.platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asComposeCanvas
@@ -20,6 +21,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import dev.darkpyonix.composerust.protocol.ColorScheme
+import dev.darkpyonix.composerust.runtime.LocalDisplayScale
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
 import dev.darkpyonix.composerust.runtime.LocalZoom
 import dev.darkpyonix.composerust.runtime.Zoom
@@ -100,6 +102,16 @@ internal class LinuxWindow private constructor(
     }
 
     internal var colorScheme by mutableStateOf(ColorScheme.FollowSystem)
+
+    /**
+     * The scale of the screen the window is on, as the window last measured it.
+     *
+     * Snapshot state, so the content that tells the Host the density is composed again when
+     * the window moves to a screen of another scale. Read from the window rather than from
+     * the scene, whose Density also carries the zoom and starts at a placeholder that the
+     * first frame corrects.
+     */
+    private var displayScale by mutableFloatStateOf(x11.measure().scale)
 
     internal fun resolvedDark(): Boolean = when (colorScheme) {
         ColorScheme.Dark -> true
@@ -230,6 +242,7 @@ internal class LinuxWindow private constructor(
     private val frames = WindowFrames({ x11.measure() }) { width, height, scale ->
         val size = IntSize(width, height)
         val density = zoom.density(scale)
+        if (scale > 0f && displayScale != scale) displayScale = scale
         // Told to the scene here, in the frame that is about to be drawn at that size, because
         // a framebuffer that fits and a scene that does not is a window drawing its old size
         // into a corner of its new one.
@@ -331,6 +344,7 @@ internal class LinuxWindow private constructor(
         scene.setContent {
             CompositionLocalProvider(
                 LocalZoom provides zoom,
+                LocalDisplayScale provides displayScale,
                 LocalSystemDarkObserver provides { resolvedDark() },
                 // A node the application made a drag region (`WindowDrag(true)`) moves the
                 // window from the press it is holding: the window manager takes the pointer

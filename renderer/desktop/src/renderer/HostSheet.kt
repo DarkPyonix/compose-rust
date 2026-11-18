@@ -290,6 +290,8 @@ internal fun HostSheet(
             Modifier
                 .testTag(sheetScrimTestTag(node.id))
                 .fillMaxSize()
+                // A scrim that dims the window dims a platform view too: it is covered.
+                .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
                 .background(scrim)
                 // Pressing what the sheet covers is the other way of asking to close it,
                 // and it gets the same answer: one dismissal. A raw tap detector rather
@@ -439,6 +441,9 @@ internal fun HostSheet(
                     .modalOverlaySurface(node.id, surfaceRequester)
                     .then(sized)
                     .then(dragModifier)
+                    // The hole a native view under the sheet leaves for it follows the
+                    // drag, so it is placed after the offset and before the shadow.
+                    .nativeViewOverlay(shape, shadowReach(sheetElevation))
                     .then(raised)
                     .clip(shape)
                     .then(containerBg)

@@ -17,6 +17,16 @@
 //! part of what passes. Without it, for a renderer that cannot close its own window (the
 //! Kotlin/Native one on Linux), the check ends the process itself once the frames are in.
 //!
+//! `--deep-tree=<depth>`, with `--self-check`, puts a tree nested that many levels deep under
+//! the screen: columns, rows and boxes in turn, each with modifiers, inside a scrolling
+//! column, with texts along the way. The renderer composes, measures and draws a tree by
+//! recursion, so the depth it can hold is the stack of the thread it runs on. Released
+//! applications overflowed a 1 MB Windows main thread on their first frames, and nothing
+//! had ever drawn a tree deeper than three levels to notice. `scripts/check-windows-consumer.sh`
+//! finds the first depth that overflows with the UI thread's stack held to the megabyte it
+//! used to have (`COMPOSE_RUST_UI_STACK_BYTES`), and that depth then has to draw as the
+//! application is.
+//!
 //! `--input-check` opens a window with a text field and a button, for a person typing Korean
 //! into it and for `.github/scripts/check-linux-input-access.sh`, which drives it with a real
 //! input method and a real accessibility registry. It stays open until it is killed and says
@@ -33,7 +43,9 @@
 
 use compose_rust::boundary::STATUS_OK;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, ProtocolError};
-use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind, Window};
+use compose_rust::schema::{
+    ColorRole, EventPayload, Modifier, Paint, PropertyKind, WidgetKind, Window,
+};
 use compose_rust::{Batch, LaunchBuilder, Runtime};
 use std::ffi::c_int;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -49,12 +61,29 @@ static STEP: AtomicU32 = AtomicU32::new(0);
 
 /// How many frames the renderer has to have driven before the check passes.
 ///
-/// Each step after the first is rendered inside `compose_rust_host_render_frame`, which
+/// Each step is rendered inside `compose_rust_host_render_frame`, which
 /// the renderer calls only from its window's frame clock, and the next step is asked for
 /// while that frame is being produced. So reaching step 2 means the renderer applied step
 /// 1's changes, drew that frame, and came back for another one: a whole frame went
 /// through, not only the start of one.
 const FRAMES: u32 = 2;
+
+/// The scrolling column the deep tree hangs under, and the first id of the tree itself.
+const DEEP_SCROLL: u32 = 100;
+const DEEP_FIRST: u32 = 1000;
+
+/// What a level of the deep tree is: a column, a row or a box, in turn.
+fn deep_widget(level: u32) -> WidgetKind {
+    match level % 3 {
+        0 => WidgetKind::Column,
+        1 => WidgetKind::Row,
+        _ => WidgetKind::Box,
+    }
+}
+
+/// How often a level of the deep tree carries a text beside the next level. A multiple of
+/// three, so the level is a column and the text sits above what is nested in it.
+const DEEP_TEXT_EVERY: u32 = 30;
 
 /// One column holding one text. With `counting` set, every frame moves the text one step
 /// on and asks for the next frame, until `FRAMES` steps have been drawn.
@@ -62,6 +91,8 @@ struct Screen {
     batch: Batch,
     counting: bool,
     step: u32,
+    /// How many levels of containers to nest under the screen, 0 for none.
+    deep_tree: u32,
 }
 
 impl Screen {
@@ -70,7 +101,113 @@ impl Screen {
             batch: Batch::new(),
             counting,
             step: 0,
+            deep_tree: 0,
         }
+    }
+
+    fn with_deep_tree(mut self, depth: u32) -> Self {
+        self.deep_tree = depth;
+        self
+    }
+
+    /// Nests `deep_tree` containers under the screen, each inside the one before.
+    ///
+    /// What an application's screens are made of, only deeper: columns, rows and boxes in
+    /// turn, a padding on every fourth, a background on every fifth and a border on every
+    /// seventh, so the levels carry modifier nodes as real ones do and each costs the
+    /// renderer what a real one costs. All of it is inside one scrolling column, which
+    /// gives the tree all the height it asks for. The paddings are small enough that the
+    /// innermost level still has width at any depth this is run at.
+    fn deep_tree(&mut self) {
+        if self.deep_tree == 0 {
+            return;
+        }
+        self.batch.write(Mutation::Create {
+            node_id: DEEP_SCROLL,
+            widget: WidgetKind::ScrollColumn,
+        });
+        // Nothing here fills its parent's width. A child that does makes the column above
+        // it ask for its narrowest width first, and the renderer answers that by asking
+        // every level three questions, each of which asks the level below three more: a
+        // tree 400 levels deep did not finish its first frame in two minutes that way.
+        let mut parent = DEEP_SCROLL;
+        // Where in its parent the next level goes: after the parent's text, if it has one.
+        let mut slot = 0;
+        // Two ids a level: the container, and the text some levels carry.
+        for level in 0..self.deep_tree {
+            let node_id = DEEP_FIRST + level * 2;
+            self.batch.write(Mutation::Create {
+                node_id,
+                widget: deep_widget(level),
+            });
+            let modifiers = [
+                (level % 4 == 0).then_some(Modifier::Padding(0.25)),
+                (level % 5 == 0)
+                    .then_some(Modifier::Background(Paint::Role(ColorRole::SurfaceVariant))),
+                (level % 7 == 0).then_some(Modifier::Border {
+                    width: 0.25,
+                    paint: Paint::Role(ColorRole::Primary),
+                }),
+            ];
+            for (index, modifier) in modifiers.into_iter().flatten().enumerate() {
+                self.batch.write(Mutation::SetModifier {
+                    node_id,
+                    index: index as u16,
+                    modifier,
+                });
+            }
+            self.batch.write(Mutation::Insert {
+                parent_id: parent,
+                node_id,
+                index: slot,
+            });
+            slot = 0;
+            if level % DEEP_TEXT_EVERY == 0 {
+                self.deep_text(node_id, node_id + 1, &format!("level {level}"));
+                slot = 1;
+            }
+            parent = node_id;
+        }
+        // The innermost level holds a text of its own, so the recursion ends in something
+        // that is measured and drawn and not in an empty box.
+        let innermost = DEEP_FIRST + self.deep_tree * 2;
+        self.batch.write(Mutation::Create {
+            node_id: innermost,
+            widget: WidgetKind::Text,
+        });
+        self.batch.write(Mutation::SetProp {
+            node_id: innermost,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("the innermost level, 가장 안쪽"),
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id: parent,
+            node_id: innermost,
+            index: slot,
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id: COLUMN,
+            node_id: DEEP_SCROLL,
+            index: 2,
+        });
+    }
+
+    /// A text as the first child of one level of the deep tree.
+    fn deep_text(&mut self, parent_id: u32, node_id: u32, text: &str) {
+        self.batch.write(Mutation::Create {
+            node_id,
+            widget: WidgetKind::Text,
+        });
+        self.batch.write(Mutation::SetProp {
+            node_id,
+            property: PropertyKind::Text,
+            value: PropertyValue::String(text),
+        });
+        self.batch.write(Mutation::Insert {
+            parent_id,
+            node_id,
+            index: 0,
+        });
     }
 
     fn label(&mut self) {
@@ -128,10 +265,18 @@ impl Runtime for Screen {
             node_id: KOREAN,
             index: 1,
         });
+        self.deep_tree();
     }
 
-    fn render(&mut self, _frame_time_nanos: Option<u64>) {
-        if self.counting && self.step < FRAMES {
+    /// Moves the text one step on, but only inside a frame.
+    ///
+    /// The Host also renders when an event arrives, with no frame time. The window's size is
+    /// one such event, and the renderer reports it from the layout of the first frame, before
+    /// that frame is on screen. Counting it as a step reached `FRAMES` within the first
+    /// frame, and the check then ended the process before the window had shown anything: the
+    /// macOS window had not presented its first frame yet, so it never said it had.
+    fn render(&mut self, frame_time_nanos: Option<u64>) {
+        if self.counting && frame_time_nanos.is_some() && self.step < FRAMES {
             self.step += 1;
             STEP.fetch_max(self.step, Ordering::SeqCst);
             self.label();
@@ -313,13 +458,38 @@ fn end_when_drawn() {
     });
 }
 
+/// The depth `--deep-tree=<depth>` asks for, 0 when it is not given. A value that is not a
+/// number ends the program: a check that silently drew the shallow screen would pass for
+/// the wrong reason.
+fn deep_tree_argument() -> u32 {
+    let Some(value) = std::env::args().find_map(|argument| {
+        argument.strip_prefix("--deep-tree=").map(str::to_owned)
+    }) else {
+        return 0;
+    };
+    match value.parse::<u32>() {
+        // Two ids a level above `DEEP_FIRST`, which a million levels still fits in.
+        Ok(depth) if (1..=1_000_000).contains(&depth) => depth,
+        _ => {
+            eprintln!("self-check: --deep-tree={value} is not a depth between 1 and 1000000");
+            std::process::exit(2);
+        }
+    }
+}
+
 fn main() {
     if std::env::args().any(|argument| argument == "--self-check") {
+        let deep_tree = deep_tree_argument();
+        if deep_tree > 0 {
+            println!("self-check: a tree {deep_tree} levels deep is under the screen");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+        }
         if std::env::var_os("COMPOSE_RUST_AUTOEXIT_MS").is_none() {
             end_when_drawn();
         }
-        let status = LaunchBuilder::new()
-            .try_launch_runtime(|| Box::new(Screen::new(true)) as Box<dyn Runtime>);
+        let status = LaunchBuilder::new().try_launch_runtime(move || {
+            Box::new(Screen::new(true).with_deep_tree(deep_tree)) as Box<dyn Runtime>
+        });
         let reached = STEP.load(Ordering::SeqCst);
         if status != STATUS_OK {
             eprintln!("self-check: the renderer loop ended with status {status}");
@@ -348,4 +518,83 @@ fn main() {
         return;
     }
     println!("the renderer was loaded and this program started");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A render with no frame time is an event's, not a frame's, and must not count. The
+    /// window's first size report renders that way from inside the first frame, so counting
+    /// it ended the self-check before the first frame was presented.
+    #[test]
+    fn nfr15_self_check_counts_only_frames_the_renderer_drove() {
+        let mut screen = Screen::new(true);
+        screen.render(None);
+        assert_eq!(screen.step, 0, "a render outside a frame advanced the self-check");
+        screen.render(Some(1));
+        assert_eq!(screen.step, 1);
+        screen.render(None);
+        assert_eq!(screen.step, 1, "a render outside a frame advanced the self-check");
+        assert!(screen.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_ready());
+        screen.render(Some(2));
+        assert_eq!(screen.step, FRAMES);
+        assert!(screen.poll_work(&mut Context::from_waker(std::task::Waker::noop())).is_pending());
+    }
+
+    /// The deep tree is as deep as it was asked to be: every level is the only container
+    /// in the one before it, down from the scrolling column, and the last holds a text. A
+    /// tree that came out flat would draw at any stack size and the check would pass for
+    /// nothing.
+    #[test]
+    fn pr3_the_deep_tree_nests_every_level_inside_the_one_before() {
+        use compose_rust::protocol::decode_batch;
+        use std::collections::HashMap;
+
+        const DEPTH: u32 = 95;
+        let mut screen = Screen::new(true).with_deep_tree(DEPTH);
+        screen.rebuild();
+        let bytes = screen.batch.finish().expect("the batch encodes").to_vec();
+        let mutations = decode_batch(&bytes).expect("the batch decodes");
+        let mut parent_of = HashMap::new();
+        let mut widget_of = HashMap::new();
+        let mut modifiers = 0;
+        for mutation in &mutations {
+            match mutation {
+                Mutation::Create { node_id, widget } => {
+                    widget_of.insert(*node_id, *widget);
+                }
+                Mutation::Insert { parent_id, node_id, .. } => {
+                    assert!(parent_of.insert(*node_id, *parent_id).is_none(), "{node_id} twice");
+                }
+                Mutation::SetModifier { .. } => modifiers += 1,
+                _ => {}
+            }
+        }
+        let innermost = DEEP_FIRST + DEPTH * 2;
+        assert_eq!(widget_of[&innermost], WidgetKind::Text);
+        let mut node = innermost;
+        let mut levels = 0;
+        let mut kinds = std::collections::HashSet::new();
+        while parent_of[&node] != DEEP_SCROLL {
+            node = parent_of[&node];
+            kinds.insert(widget_of[&node] as u32);
+            levels += 1;
+        }
+        assert_eq!(levels, DEPTH, "the innermost text is not {DEPTH} containers down");
+        assert_eq!(kinds.len(), 3, "columns, rows and boxes are not all there");
+        assert_eq!(widget_of[&DEEP_SCROLL], WidgetKind::ScrollColumn);
+        assert_eq!(parent_of[&DEEP_SCROLL], COLUMN);
+        assert!(modifiers > DEPTH / 3, "the levels carry no modifiers to speak of");
+
+        let mut shallow = Screen::new(true);
+        shallow.rebuild();
+        let bytes = shallow.batch.finish().expect("the batch encodes").to_vec();
+        assert!(
+            !decode_batch(&bytes).expect("the batch decodes").iter().any(
+                |mutation| matches!(mutation, Mutation::Create { node_id, .. } if *node_id >= DEEP_SCROLL)
+            ),
+            "the screen without --deep-tree grew a tree"
+        );
+    }
 }

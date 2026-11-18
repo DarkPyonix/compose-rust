@@ -15,7 +15,7 @@
 #      differs between the two;
 #   3. the two repositories are compared file by file, and every archive entry by entry with
 #      zip timestamps left out (.github/scripts/compare-maven-repos.py). The fork publishes
-#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.3) where the old build
+#      under its own coordinates (org.thisisthepy.compose at 1.11.1-ext.5) where the old build
 #      used JetBrains' (org.jetbrains.compose at 1.11.1), so the fork's side is read under the
 #      old names: its paths, its metadata and the module names inside its klibs. It also
 #      publishes every sibling its modules name, which the old build took from JetBrains, so
@@ -190,8 +190,24 @@ jobs:
           EOF
           cat ~/.gradle/gradle.properties
 
+      - name: Restore the fork's Compose publication
+        # The publication depends only on what build-compose.sh pins (the fork, its revision
+        # and the versions it publishes as, all literals in that script), the target and the
+        # JDK. The script reads no .changes file; those are checked by
+        # scripts/tests/compose-fork.test.sh. LEGACY_REF and EQUIVALENT_REVISION go in the key
+        # as well, so a change to either rebuilds rather than trusting an older run.
+        id: fork-build
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.FORK_REPO }}
+          key: compose-fork-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-jdk21-${{ hashFiles('renderer/scripts/build-compose.sh') }}-legacy-${{ env.LEGACY_REF }}-equivalent-${{ env.EQUIVALENT_REVISION }}
+
       - name: Build Compose from the fork
         # Under the fork's own coordinates. The comparison reads them under the old build's.
+        # Skipped when the publication was restored: nothing after this step reads the work
+        # directory, and every later step takes the fork's publication from FORK_REPO.
+        id: fork-build-run
+        if: steps.fork-build.outputs.cache-hit != 'true'
         run: |
           rm -rf ~/.m2/repository
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
@@ -220,7 +236,19 @@ jobs:
           ls -la "$legacy/patches"
           [[ $(ls "$legacy/patches" | wc -l) -eq 3 ]] || { echo "expected three patches" >&2; exit 1; }
 
+      - name: Restore the old build's publication
+        # The old build is the build-compose.sh and patches held at LEGACY_REF, a commit, and
+        # the step above takes them from there and nothing else, so LEGACY_REF with the target
+        # and the JDK decides what it publishes. The comparison reads it from LEGACY_REPO.
+        id: legacy-build
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.LEGACY_REPO }}
+          key: compose-legacy-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-jdk21-${{ env.LEGACY_REF }}
+
       - name: Build Compose the old way
+        id: legacy-build-run
+        if: steps.legacy-build.outputs.cache-hit != 'true'
         run: |
           rm -rf ~/.m2/repository "$LEGACY_REPO"
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
@@ -229,7 +257,13 @@ jobs:
           find "$LEGACY_REPO" -type f | wc -l
           du -sh "$LEGACY_REPO"
           rm -rf "$COMPOSE_WORK"
-          # The renderer is built against the fork's publication, so that is what goes back.
+
+      - name: Put the fork's publication back
+        # The renderer is built against the fork's publication, so that is what goes back,
+        # whether the old build ran or was restored.
+        run: |
+          rm -rf ~/.m2/repository
+          mkdir -p ~/.m2
           cp -a "$FORK_REPO" ~/.m2/repository
 
       - name: Compare the two published repositories
@@ -270,12 +304,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Restore both Linux architectures for the renderer
+        # Holds the local Maven repository as the step below leaves it: the fork's x64
+        # publication put back above, with the full Linux set published over it. Its --clean
+        # wipes only COMPOSE_WORK, which nothing later reads, so restoring this over the same
+        # starting repository gives the same result as running the step. It comes after the
+        # fork's publication is put back, so nothing overwrites it afterwards.
+        if: runner.os == 'Linux'
+        id: linux-build
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: compose-fork-linux-${{ runner.os }}-${{ runner.arch }}-linux-jdk21-${{ hashFiles('renderer/scripts/build-compose.sh') }}
+
       - name: Publish both Linux architectures for the renderer
         # The comparison above is x64 only, because the old build only knew x64. The renderer's
         # Linux modules declare linuxArm64 as well, so resolving them needs the arm64 variants
         # and the root metadata that lists both. Publishing the fork's full Linux set over the
         # restored x64 one supplies them.
-        if: runner.os == 'Linux'
+        id: linux-build-run
+        if: runner.os == 'Linux' && steps.linux-build.outputs.cache-hit != 'true'
         run: |
           rm -rf "$COMPOSE_WORK"
           DXC_COMPOSE_BUILD="$COMPOSE_WORK" \
@@ -309,6 +357,29 @@ jobs:
         # comparison with the ext.2 baseline: DarkPyonix/compose-rust#361.
         run: |
           echo "the fork and the patched build published different contents, as the moved pin is expected to; see the comparison step" >&2
+
+      - name: Save the fork's Compose publication (develop and main only)
+        # Saved from develop and main only: a cache saved on another branch is not visible
+        # to develop's runs.
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.fork-build.outputs.cache-hit != 'true' && steps.fork-build-run.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.FORK_REPO }}
+          key: ${{ steps.fork-build.outputs.cache-primary-key }}
+
+      - name: Save the old build's publication (develop and main only)
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && steps.legacy-build.outputs.cache-hit != 'true' && steps.legacy-build-run.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.LEGACY_REPO }}
+          key: ${{ steps.legacy-build.outputs.cache-primary-key }}
+
+      - name: Save both Linux architectures for the renderer (develop and main only)
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main') && runner.os == 'Linux' && steps.linux-build.outputs.cache-hit != 'true' && steps.linux-build-run.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.linux-build.outputs.cache-primary-key }}
 
       - name: Save Kotlin/Native for the Compose build (not from a pull request)
         if: github.event_name != 'pull_request' && steps.cache-1.outputs.cache-hit != 'true'

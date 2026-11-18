@@ -89,6 +89,12 @@ import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
  * Key events are never dispatched while composing: Enter during a Korean composition means
  * "commit the composition", not "submit".
  */
+/**
+ * Added to every text field's modifiers by a platform whose window puts up the text menu
+ * itself, so that Compose's own does not come up beside it. Nothing everywhere else.
+ */
+var platformTextMenuModifier: Modifier = Modifier
+
 @Composable
 internal fun HostTextField(
     node: Node,
@@ -259,6 +265,7 @@ internal fun HostTextField(
 
     val heldKeys = remember { HeldKeys() }
     val inputModifier = modifier
+        .then(platformTextMenuModifier)
         .focusRequester(focusRequester)
         .onFocusChanged { state ->
             overlayFocusStack.noteFocused(focusRequester, state.isFocused)
@@ -383,7 +390,9 @@ internal fun HostTextField(
                     .let {
                         if (setsOwnHeight || bare) it else it.defaultMinSize(minHeight = frame.minHeight)
                     }
-                    // A bare field clips only to a corner the node named itself.
+                    // A bare field clips only to a corner the node named itself. Its scrolled
+                    // text needs no clip of its own: the text field already draws only inside
+                    // its bounds, scrolled or not.
                     .let { if (bare && !ownShape) it else it.clip(frameShape) }
                     .let {
                         if (ownFill || bare) {
