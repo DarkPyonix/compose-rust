@@ -1375,6 +1375,8 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
 
 **macOS에서 신호등 버튼을 직접 그리지 않습니다.** 위치, 모양, 호버 동작, 전체화면 전환, 접근성 레이블이 전부 시스템 소유입니다. 흉내 내면 반드시 어긋나고, 그건 네이티브를 표방하는 프로젝트에서 가장 눈에 띄는 실패입니다. AWT가 제공하는 클라이언트 속성(`apple.awt.fullWindowContent`, `apple.awt.transparentTitleBar`, `apple.awt.windowTitleVisible`)으로 충분하며 JNI가 필요 없습니다.
 
+**macOS 창의 제목은 시스템이 보여 줍니다** ([leader, provisional] (darkpyonix leader, 2026-11-16)). 시스템 캡션이 있는 macOS 창은 창 제목을 시스템을 통해 보여 줍니다(`windowTitleVisible`이 참). `FullSize` 창은 시스템 제목을 보여 주지 않으며, 제목이 필요하면 애플리케이션이 직접 그립니다. 30.2의 `SystemCaption`은 이 값에 기댑니다.
+
 #### 19.2 콘텐츠 안전 영역
 
 콘텐츠가 타이틀바 아래까지 확장되면 **그 영역과 겹치는 문제**가 생깁니다. macOS 신호등 버튼 자리에 앱의 버튼을 그리면 둘 다 못 쓰게 됩니다.
@@ -1415,7 +1417,7 @@ LaunchBuilder::new()
   압니다.
 - `chrome`: `Chrome::Modern`(기본) 또는 `Chrome::System`(플랫폼 기본 타이틀바)
 - `Chrome::System`은 없애지 않습니다. 시스템 타이틀바가 필요한 도구형 앱이 있고, 무엇보다 **Modern이 깨졌을 때 돌아갈 곳**이 있어야 합니다.
-- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 그것은 디자인 시스템과 플랫폼의 몫입니다(FR-14).
+- 창 버튼의 색, 위치, 모양을 Host가 지정하는 경로는 두지 않습니다. 버튼의 종류, 크기, 순서, 붙는 끝은 실제 운영체제의 몫이고, 디자인 시스템이 정하는 것은 그 버튼을 칠하는 색뿐입니다(19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule)).
 
 **어떻게 건너가는가: 경계 함수는 바뀌지 않습니다.** `compose_rust_renderer_run`에 인자를 붙이는 길은 PR-2에 걸리고, C 심과 iOS의 `@CName`과 스모크 하네스와 Rust 선언을 모두 따라가야 합니다. 그럴 필요가 없습니다.
 
@@ -1482,7 +1484,7 @@ Window::new().chrome(Chrome::FullSize)
 ```
 
 - **`Chrome::FullSize`**: 콘텐츠가 창 맨 위에서 시작하고, Renderer는 바를 찾지 않으며 캡션 띠를 남기지 않습니다. 창 버튼(macOS 신호등, Windows 캡션 버튼)은 그대로 그 자리에 그려집니다. 그 밖은 `Chrome::Modern`과 같습니다(19.5, 19.7).
-- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(디자인 시스템 값, 지금 46dp x 3)이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
+- **`WindowSafeArea { top, leading, trailing }`(dp)**: 창 버튼과 겹치지 않으려면 애플리케이션이 비워야 하는 자리입니다. macOS는 `top`이 캡션 높이, `leading`이 신호등 묶음이 차지하는 폭이고 `trailing`은 0입니다. Windows는 `top`이 캡션 높이, `trailing`이 캡션 버튼 셋의 폭(Windows의 값 46dp x 3 = 138dp이고 어느 디자인 시스템에서나 같습니다, 19.5, [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule))이고 `leading`은 0입니다. Linux는 그 창 관리자 배치를 따릅니다. Renderer가 버튼을 그리는 Linux 창에서는 그 데스크톱의 버튼이 오른쪽 끝에 있으므로 `trailing`이 그 묶음의 폭이고 `leading`은 0입니다. 값은 DPI와 타이틀바 모드(19.7)를 반영합니다. iOS, Android, 브라우저에서는 전부 0입니다.
 - **전달**: Renderer는 창 크기를 Host에 알릴 때 같은 기록에 이 세 값을 함께 싣고, 값이 바뀔 때(창 모드, DPI, 최대화) 다시 보냅니다. 추가 전용이고 스키마 해시가 움직입니다. Host 쪽 읽는 방법은 dioxus-compose가 둡니다.
 - **기본 드래그 영역**: `FullSize`에서 창 맨 위 `top` 높이의 띠 가운데 상호작용 위젯이 없는 곳은 창을 끄는 영역입니다(19.2의 드래그 규칙과 같습니다). 애플리케이션은 노드에 `WindowDrag(bool)` 모디파이어를 달아 그 노드를 드래그 영역으로 만들거나(true) 빼낼 수 있습니다(false).
 - **macOS**: 창은 이미 콘텐츠를 타이틀바 아래까지 그리고 타이틀바를 투명하게 둡니다(19.1). 이 모드는 Renderer의 배치 규칙만 바꾼다는 판단이며, 포크의 창 코드 변경이 필요 없음을 테스트로 확인합니다. 필요하다고 드러나면 19.8대로 포크가 먼저입니다.
@@ -1495,9 +1497,18 @@ Window::new().chrome(Chrome::FullSize)
 4. 맨 위 띠의 빈 곳을 끌면 창이 움직이고, 버튼 위에서는 움직이지 않습니다. `WindowDrag(false)`를 단 노드 위에서는 움직이지 않고, `WindowDrag(true)`를 단 노드 위에서는 그 띠 밖이어도 움직입니다.
 5. `FullSize`를 고르지 않은 앱은 지금과 같습니다.
 
-#### 19.5 창 버튼의 모양은 디자인 시스템이 정합니다
+#### 19.5 창 버튼의 모양은 운영체제가 정합니다
 
-19.3이 "창 버튼의 색·위치·모양은 디자인 시스템과 플랫폼의 몫"이라고 정한 것의 구현 자리는 `ComponentRules.caption()`입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬.
+**[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 창 버튼은 디자인 시스템이 아니라 실제 운영체제를 따릅니다.** Windows에서는 어느 디자인 시스템이든 Windows 11의 캡션 버튼을 그립니다. 각 46×32dp이고 오른쪽 끝에 최소화·최대화·닫기 순서로 붙으며, 최대화 버튼은 포크의 네이티브 히트 테스트가 `HTMAXBUTTON`을 돌려주는 자리, 곧 Snap Layouts가 열리는 자리에 있습니다. Linux에서는 그 데스크톱의 버튼을 그립니다. GNOME 세션은 Adwaita, KDE 세션은 Breeze, 그 밖의 세션은 Deepin의 버튼입니다. macOS는 시스템이 신호등을 그리고 Renderer는 아무것도 그리지 않습니다(19.1). Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 애플리케이션이 Windows와 Linux에서 신호등을 얻던 것이 이 규칙이 고치는 것입니다. Windows에서 그 신호등은 왼쪽에 그려졌지만 네이티브는 오른쪽 끝의 138dip을 버튼으로 답했으므로, 보이는 버튼은 눌리지 않고 보이지 않는 버튼이 오른쪽에 있었습니다.
+
+구현 자리는 `ComponentRules.caption()`이고, 어느 시스템의 규칙을 물을지는 플랫폼이 고릅니다. Windows는 Fluent 2의 캡션, Linux는 그 데스크톱의 디자인 시스템의 캡션입니다. 답하는 값: 버튼이 붙는 끝, 버튼의 너비와 높이, 모양, 각 버튼의 기본 채움과 호버 채움, 글리프 색과 두께, 쉬는 상태에서 글리프를 그리는지, 간격과 가장자리 여백, 제목 정렬. 붙는 끝, 너비와 높이, 모양, 간격과 가장자리 여백, 글리프 두께는 그 플랫폼의 값입니다. 채움과 글리프의 색은 애플리케이션이 고른 디자인 시스템의 토큰을 그 플랫폼의 규칙대로 씁니다. 제목 정렬은 막대의 일이므로 계속 애플리케이션의 디자인 시스템이 답합니다. Renderer가 창 버튼을 그리지 않는 플랫폼(macOS, iOS, Android, 브라우저)에서는 디자인 시스템 자신의 답이 남지만 그려지지 않습니다.
+
+수용 기준:
+
+1. Windows: 일곱 디자인 시스템(Cupertino와 Liquid Glass를 포함해) 어느 것을 고른 창이든 각 46×32dp 버튼 셋이 오른쪽 끝에 최소화·최대화·닫기 순서로 놓이고, 최대화 버튼은 창 오른쪽 끝에서 46dp부터 92dp까지, 위에서 32dp 안에 있어 네이티브가 `HTMAXBUTTON`을 돌려주는 사각형과 같습니다. `WindowSafeArea`는 `leading=0`, `trailing=138`입니다(`fr19_5_windows_draws_windows_caption_buttons_under_every_design_system`).
+2. Linux: GNOME, KDE, 그 밖의 세션에서 일곱 디자인 시스템 어느 것을 고른 창이든 각각 Adwaita, Breeze, Deepin의 버튼 모양과 크기와 간격으로 오른쪽 끝에 놓이고, `WindowSafeArea`는 `leading=0`, `trailing`이 그 묶음의 폭입니다(`fr19_5_linux_draws_the_desktops_caption_buttons_under_every_design_system`).
+3. macOS: Apple 디자인 시스템이든 아니든 Renderer가 창 버튼을 그리지 않고, `WindowSafeArea`는 시스템이 잰 신호등의 폭을 `leading`에 싣고 `trailing=0`입니다(`fr19_5_macos_leaves_the_traffic_lights_to_the_system`).
+4. 플랫폼 자신의 디자인 시스템(Windows의 Fluent 2, GNOME의 Adwaita, KDE의 Breeze, 그 밖의 Linux의 Deepin)을 고른 창의 버튼은 이 규칙 전과 같습니다(`fr19_5_the_platforms_own_design_system_draws_the_caption_it_drew_before`).
 
 버튼의 **순서는 붙는 끝을 따라갑니다**. 앞쪽 끝은 닫기·최소화·확대, 뒤쪽 끝은 최소화·최대화·닫기입니다. 같은 줄을 반대쪽으로 옮기기만 하면 읽는 사람이 최소화를 찾는 자리에 닫기가 놓입니다.
 
@@ -1513,6 +1524,7 @@ Window::new().chrome(Chrome::FullSize)
 - 네이티브 진입점이 창 절차를 바꿔 끼웁니다. 창은 AWT가 자기 스레드에서 나중에 만들므로, Kotlin과 이 파일 사이에 손으로 쓴 다리를 놓지 않기 위해 진입점이 스레드 하나를 띄워 `SunAwtFrame` 클래스의 우리 창이 나타나기를 기다린 뒤 한 번 바꿔 끼웁니다. 실패하면 평범한 시스템 타이틀바가 남습니다. 더 나쁜 모습이고 동작하는 창이므로 시작을 거부할 일이 아닙니다.
 - 캡션 띠의 버튼 자리는 클라이언트 영역으로 남기고 나머지는 `HTCAPTION`을 돌려줍니다. 그래서 끌기, 두 번 눌러 최대화, 오른쪽 눌러 시스템 메뉴가 전부 시스템 것으로 돌아옵니다.
 - **Snap Layouts의 최대화 버튼 호버 플라이아웃은 아직 없습니다.** 그것은 `HTMAXBUTTON`을 최대화 버튼의 사각형에서만 돌려줘야 하는데, 그 사각형은 디자인 시스템이 정하고 Kotlin이 압니다. 네이티브가 그것을 알려면 Kotlin에서 네이티브로 값을 보내는 경로가 필요하고 지금은 없습니다. 끌어서 스냅하는 것과 키보드 스냅은 프레임이 그대로이므로 동작합니다.
+  - [leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 최대화 버튼의 사각형은 이제 디자인 시스템이 아니라 Windows가 정합니다(19.5). 포크의 `win32_caption.h`가 오른쪽 끝에서 두 번째 46dip에서 `HTMAXBUTTON`을 돌려주고, Renderer는 어느 디자인 시스템에서나 최대화 버튼을 그 자리에 그리므로, Kotlin에서 네이티브로 사각형을 보내는 경로가 필요하지 않습니다.
 
 #### 19.8 데스크톱 창 코드는 Compose의 포크가 가집니다 (`Agreed`)
 
@@ -1534,6 +1546,7 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
 4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 끌어서 크기를 바꾸는 동안 창이 그 크기로 Skia 래스터 그리기를 DIB에 마치고 `BitBlt`으로 창의 리디렉션 표면에 옮긴 뒤에 크기 변경 메시지(`WM_SIZE`)를 돌려줍니다. 끌기가 끝나면(`WM_EXITSIZEMOVE`) 다시 GPU 스왑체인으로 그립니다.
+    - Windows에서 이 기준을 지키는 CI 관문의 잠정 허용치([leader, provisional] (darkpyonix leader, 2026-11-16)): 리사이즈 프로브가 실제 입력으로 네 가장자리를 세 가지 속도로, 100%와 200%에서 끕니다(CPU 경로 끌기 24회). windows-2025에서는 결함이 보인 끌기가 10%를 넘으면(24회 가운데 3회 이상) 실패하고, 그 수를 항상 찍습니다. 0이 아닌 까닭은 포크의 창이 끄는 도중 마커 사이에 틈이 있는 프레임을 드물게 보이기 때문입니다(compose-multiplatform-core-extended#245). 같은 창 핀에서 windows-2025는 한 실행에서 24회 가운데 0회, 다음 실행에서 1회(한 프레임)였으므로, 0을 요구하면 이 저장소가 고칠 수 없는 결함으로 실행이 무작위로 실패합니다. 10%는 창 상태 전환(최대화, 복원, 왼쪽 절반, 되돌리기)에 이미 쓰는 비율과 같습니다. windows-2022에서는 같은 결함이 흔해서(24회 가운데 15회와 12회) 그 끌기를 알려진 결함으로 보고하고 작업을 실패시키지 않습니다. 대조군, 창 상태 전환, 증명 줄은 두 러너 모두에서 그대로 실패시킵니다. #245가 고쳐지면 두 러너 모두 0으로 되돌립니다. 이 허용치는 기준 자체("비율 = 0")를 바꾸지 않습니다. 기준은 그대로이고, Windows에서는 #245가 닫힐 때까지 충족되지 않은 상태입니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -1929,12 +1942,12 @@ tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len)
 4. MSIX는 서명되지 않은 패키지로 생성됩니다. 설치에는 개발자 모드 또는 신뢰된 인증서로 다시 서명하는 절차가 필요함을 릴리스에 알립니다. 실제 설치 확인은 Windows 환경에서 수동으로 합니다.
 5. 위 표의 형식마다 아티팩트를 만들고 체크섬을 기록합니다. 형식이 `.dmg`, `.pkg`, `.deb`, `.rpm`, `Setup.exe`, `.msi`, Flatpak 중 무엇이든 번들은 실행 파일 하나와 아이콘, 메타데이터만 담습니다. CI가 아티팩트의 존재와 내용물 목록, 체크섬 기록을 검사합니다.
 6. `.deb`와 `.rpm`은 각각 `dpkg-deb --info`와 `rpm -qp --info`로 이름, 버전, 설명이 샘플 설정과 일치하는지 CI에서 확인합니다. 실제 설치와 실행은 해당 배포판에서 수동으로 확인합니다.
-7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. 패키지와 피드의 존재와 메타데이터는 CI에서 확인하고, 설치된 빌드가 델타로 갱신되어 다시 뜨는 것은 각 OS 환경에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
+7. 세 OS의 직접 배포 패키지는 Velopack으로 만들고, 이전 버전에서 새 버전으로 가는 델타 패키지와 갱신 피드(nupkg 전체와 델타, `releases.{channel}.json`)를 함께 만듭니다. CI는 Velopack Rust SDK를 쓰는 작은 앱(`scripts/tests/velopack-fixture`)을 1.0.0과 1.0.1로 두 번 패키징하고(두 번째는 첫 번째의 전체 패키지를 두고 만들어 델타가 생깁니다), 각 OS에서 1.0.0을 설치해 1.0.1 피드로 갱신한 뒤 다시 실행해 1.0.1이 나오는지 봅니다. Windows는 `Setup.exe`, 전체와 델타 nupkg, `releases.win.json`, `.msi`가 생기는지 보고, `Setup.exe --silent`로 `%LocalAppData%\<packId>`에 설치한 1.0.0이 델타 하나로 1.0.1이 되는 것을 확인합니다(fr22_6_7_windows_setup_installs_and_a_delta_update_applies). Linux는 1.0.0 `.AppImage`가 갱신 뒤 같은 경로에서 1.0.1로 바뀌는 것을 확인합니다(fr22_6_7_linux_appimage_replaces_itself_with_the_update). macOS는 12번이 확인합니다. vpk에 넘기는 명령과 피드 읽기는 packager 단위 테스트가 봅니다(fr22_6_7_the_packager_builds_vpk_commands_and_reads_the_feed). macOS(`.dmg`에서 복사한 앱)와 Linux(`.AppImage`)는 기기에 이전 전체 패키지가 없어 첫 갱신을 전체 패키지로 받고, 델타는 그다음 갱신부터 쓰입니다. 이 두 번째 갱신은 CI가 확인하지 않습니다. 창이 있는 실제 앱이 갱신되어 다시 뜨는 것은 각 OS의 실제 기기에서 수동으로 확인합니다. Windows `.msi`는 `PerUser` 기본과 `PerMachine` 선택 설치가 각각 되는지도 Windows에서 수동으로 확인합니다. Linux `.AppImage`에는 zsync 갱신 정보가 없습니다.
 8. macOS `.pkg`는 Mac App Store 제출 형식으로 만들며, 구조와 메타데이터는 `pkgutil --check-signature`와 `pkgutil --payload-files`로 CI에서 확인합니다. 스토어 제출과 승인은 Apple 계정이 있는 환경에서 수동으로만 확인할 수 있습니다.
 9. Flatpak은 Flathub용 매니페스트로 만들고(런타임은 `org.freedesktop.Platform`/`Sdk` 25.08입니다. 26.08은 Flathub의 appstream 목록에는 있으나 `flathub` 원격에 ref가 아직 없어 설치되지 않으므로, 설치되는 가장 새 런타임을 씁니다)  `flatpak-builder`로 빌드되는 것을 CI에서 확인합니다. 설치와 실행은 수동으로 확인합니다. 패키지 메타데이터는 같은 입력에서 같은 출력을 만듭니다. 릴리스 날짜는 현재 시각이 아니라 `SOURCE_DATE_EPOCH` 같은 주어진 값(없으면 빌드 사실의 시각)에서 정해지고, 해석할 수 없는 값은 안전한 기본으로 떨어집니다(Flathub 제출 요건, fr22_6_9_release_dates_are_reproducible). Linux 애플리케이션 식별자는 Flatpak과 D-Bus 이름 규칙(점으로 나뉜 세 요소 이상, 요소는 숫자로 시작하지 않음, 앞쪽 요소에는 `-` 금지, 특수문자 금지)을 따르며 어긋나면 만들지 않습니다(fr22_6_9_application_ids_follow_flatpak_and_dbus_rules).
 10. `.msi`는 `vpk pack --msi`로 만들며, 5번과 7번의 검사 대상입니다.
 11. 템플릿과 메타데이터가 core-extended의 `extended/packaging/`에서 오고 그 커밋이 고정되어 있음을 CI가 확인합니다.
-12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 확인이 필요하며, 프로브를 돌리는 중입니다. 결과가 나오기 전에는 이 항목을 통과로 보지 않습니다.
+12. **실험 중:** ad-hoc 서명한 `.app`을 `.dmg`에서 설치한 Apple Silicon 기기가 Velopack 갱신을 받고, 갱신 뒤에도 실행됩니다(quarantine 속성 포함). Velopack 문서는 서명과 공증이 없는 macOS 앱은 실행되지 않는다고 하므로 CI로 확인합니다. 갱신 패키지에 들어가는 앱이 서명된 앱이어야 하므로, ad hoc 서명은 vpk가 UpdateMac을 넣은 뒤, nupkg와 portable `.zip`을 만들기 전에 vpk가 합니다(`vpk pack --signAppIdentity -`, `codesign --deep`). `.dmg`는 그 portable `.zip`의 앱을 그대로 담습니다. CI(macOS arm64 러너)는 `.dmg`의 앱을 복사해 quarantine 속성을 붙이고, 1.0.0으로 실행하고, 1.0.1 피드에서 갱신한 뒤, 갱신된 앱이 `codesign --verify --deep --strict`를 통과하고 1.0.1로 실행되는 것을 확인합니다(fr22_6_12_adhoc_signed_app_receives_velopack_update_and_launches). CI는 앱 안의 실행 파일을 직접 실행하므로, Gatekeeper의 첫 열기 확인(Finder에서 열기, 개인정보 보호 및 보안의 그래도 열기)과 갱신 뒤 Finder에서 다시 여는 것은 사람이 실제 기기에서 확인합니다. CI가 통과하기 전에는 이 항목을 통과로 보지 않습니다.
 13. Windows 실행 파일은 DPI 매니페스트(PerMonitorV2 `dpiAwareness`, 구형을 위한 `dpiAware` `true/pm`, `asInvoker`)를 리소스 1번(`RT_MANIFEST`, 언어 0x0409)으로 품습니다. 리소스 파일은 링커가 알아보는 32바이트 빈 항목으로 시작합니다. WACK의 `DPIAwarenessValidation`이 통과해야 합니다. Windows SDK 버전은 문자열이 아니라 숫자 순서로 비교해 가장 새 것을 고릅니다(fr22_6_13_the_manifest_declares_per_monitor_v2_awareness, fr22_6_13_the_resource_file_starts_with_the_empty_entry, fr22_6_13_the_resource_file_holds_the_manifest_as_resource_one, fr22_6_13_sdk_versions_order_numerically). WACK 통과는 Windows에서 수동으로 확인합니다.
 14. macOS `.app`의 모든 실행 코드(실행 파일, dylib, 프레임워크)는 ad hoc으로 서명되고, 서명된 앱이 실제로 실행됩니다. 서명이 깨진 코드는 이름과 함께 보고합니다. 서명의 배포 가능성은 12번이 따로 확인합니다(fr22_6_14_every_piece_of_code_is_signed_ad_hoc, fr22_6_14_the_signed_application_runs).
 
@@ -2259,18 +2272,28 @@ FR-14의 계층을 거꾸로 세우게 됩니다.
 시스템 캡션에 맡길지는 `CaptionStyle`의 `titlePlacement`가 답합니다. 값은 `Bar`와
 `SystemCaption`입니다.
 
-- Cupertino와 Liquid Glass는 캡션 높이가 있는 창에서 `SystemCaption`을 답하고 막대 안에는
-  제목을 그리지 않습니다. 캡션이 없는 모바일 화면에서는 막대가 제목을 그립니다.
-- 나머지 다섯 시스템은 `Bar`를 답하고, 기존 `titleAlignment`에 따라 앞쪽 또는 가운데에
-  제목을 놓습니다.
+[leader, provisional] (darkpyonix leader, 2026-11-16; owner rule) 그 답은 디자인 시스템이 아니라
+플랫폼이 정합니다. 제목을 시스템 캡션에 맡길 수 있는 것은 운영체제가 캡션을 그리는 창뿐이고,
+19.1에서 그런 데스크톱 창은 macOS의 창입니다. Windows에서는, 그리고 Linux에서 Renderer가
+캡션을 그리는 창에서는 제목을 받아 줄 시스템 캡션이 없습니다. 창 관리자가 타이틀바를 그리는 Linux
+창(Kotlin/Native Renderer)은 캡션 높이가 0이라 아래 셋째 항목을 따릅니다. 디자인 시스템을 키로 삼으면 Windows의 Cupertino 창은
+막대에도 캡션에도 제목이 없는 창이 됩니다.
+
+- macOS에서 캡션 높이가 있는 창은 어느 디자인 시스템이든 `SystemCaption`을 답하고 막대 안에는
+  제목을 그리지 않습니다.
+- Windows와 Linux의 창은 어느 디자인 시스템이든 `Bar`를 답하고, 기존 `titleAlignment`에 따라
+  앞쪽 또는 가운데에 제목을 놓습니다. Apple 디자인 시스템(Cupertino, Liquid Glass)을 고른 창도
+  제목을 막대에 둡니다.
+- 캡션이 없는 화면(캡션 높이가 0인 창, 모바일 화면)에서는 막대가 제목을 그립니다.
 - 자식 콘텐츠와 막대의 캡션 띠 점유는 바뀌지 않습니다. 달라지는 것은 제목 한 줄의 배치뿐입니다.
 
 수용 기준:
 
-1. 캡션 높이가 같은 `TopAppBar(title)`를 Cupertino와 Fluent 2로 그리면 Cupertino 막대에는
-   제목 노드가 없고 Fluent 2 막대에는 하나 있습니다.
-2. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
-3. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
+1. 캡션 높이가 같은 `TopAppBar(title)`를 macOS와 Windows에서 그리면 macOS 막대에는 제목 노드가
+   없고 Windows 막대에는 하나 있습니다. Cupertino와 Fluent 2 어느 쪽을 골라도 같습니다.
+2. Windows와 Linux에서 Cupertino와 Liquid Glass를 고른 창의 막대에 제목 노드가 하나 있습니다.
+3. 캡션 높이가 0인 Cupertino 화면에서는 제목이 막대에 나타납니다.
+4. GNOME과 Material 3의 기존 가운데 및 앞쪽 제목 정렬 측정이 그대로 통과합니다.
 
 #### 30.3 막대에 다 들어가지 않는 동작 (`Done`, 이슈 #639)
 
@@ -2738,6 +2761,14 @@ Notification::new("세션이 끝났습니다")
     1. `Right`인 편집기의 오른쪽에 미니맵이 그려지고, 그 아래쪽 4분의 3 지점을 누르면 문서의 그 자리로 스크롤됩니다(fr38_minimap_click_scrolls).
 28. 줄 끝 장식(이슈 #528, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 장식 종류 `AfterLine { line, text, color: ColorRole }`(장식 종류 값 7, 추가 전용). 그 줄의 마지막 글자 뒤에 흐린 글자를 그립니다(Code-OSS의 git blame 줄 끝 표시). 글자가 아니므로 선택, 복사, 캐럿 이동, 적중 판정에 들어가지 않고, 편집을 따라 줄과 함께 움직입니다(기준 4의 규칙).
     1. 장식 글자가 줄 끝 뒤에 그려지고, End 키가 그 앞에서 멈추며, 줄 전체를 복사해도 장식 글자가 들어가지 않습니다(fr38_after_line_decoration_is_not_text).
+29. 스크롤되는 내용 여백, 고정 거터 열, 현재 줄 거터 배경(이슈 #816, [leader, provisional] (darkpyonix leader, 2026-11-15)). Ember 편집기 목업(`editor.css`: 첫 줄 위 8px 여백이 문서와 함께 스크롤되고, 파일에 접기나 변경 막대가 없어도 본문 시작 x가 72px로 고정되며, 현재 줄 강조가 거터까지 한 줄로 이어지고 현재 줄 번호가 본문 글자색으로 그려짐)을 맞추기 위해 세 가지를 더합니다. 기본값은 지금과 같습니다.
+    - **스크롤되는 내용 여백**: `CodeEditor::content_padding_dp(top: f32, bottom: f32)`와 `content_padding_top_dp(f32)`(속성 `ContentPaddingDp`, 속성 태그 210, 8바이트 `[top_dp: f32, bottom_dp: f32]`). 첫 줄 위와 마지막 줄 아래에 문서와 함께 스크롤되는 여백(dp)을 둡니다. 스크롤이 0일 때 첫 줄은 `top`만큼 아래에서 시작하고 스크롤하면 위로 밀려 올라가며, 거터 배경과 구분선은 뷰포트 높이를 그대로 채웁니다. 음수나 숫자가 아닌 값은 `ProtocolError`입니다.
+    - **고정 거터 열**: `CodeEditor::fixed_gutter_columns(bool)`(속성 `FixedGutterColumns`, 속성 태그 211, bool, 기본 false). 참이면 문서에 현재 접기 구간이나 변경 표시 막대가 없어도 접기 열(`rowPx`)과 변경 표시 막대 열(`changeBarWidth + changeBarGap`, 16dp) 자리를 항상 남겨, 파일마다 본문 시작 x 좌표가 흔들리지 않게 합니다.
+    - **현재 줄 거터 색**: `CodeEditorColors` 레코드(12바이트)의 마지막 예약 2바이트(오프셋 10)를 `current_line_gutter: Option<ColorRole>`로 씁니다. 지정하면 캐럿이 있는 줄(선택이 접혀 있을 때)의 거터 배경에 그 역할 색을 칠하고 그 위에 현재 줄 번호(기존 `current_line_number` 역할)와 거터 장식을 그립니다. 지정하지 않으면 지금처럼 거터 기본 배경을 유지합니다.
+    1. `content_padding_top_dp(8.0)`인 편집기에서 스크롤 0일 때 첫 줄이 8dp 아래에 놓이고, 8dp만큼 스크롤하면 첫 줄이 뷰포트 맨 위에 닿습니다(fr38_editor_content_padding_scrolls_with_document).
+    2. `fixed_gutter_columns(true)`인 편집기에서 접기와 변경 막대가 없는 문서와 있는 문서의 본문 시작 x 좌표가 같습니다(fr38_editor_fixed_gutter_columns_keep_text_start_constant).
+    3. `CodeEditorColors::new().current_line(SurfaceVariant).current_line_gutter(SurfaceVariant).current_line_number(OnSurface)`를 주면 캐럿 줄의 거터 픽셀이 `SurfaceVariant`로 칠해지고 줄 번호가 `OnSurface`로 그려집니다(fr38_editor_current_line_gutter_and_number_colors).
+30. [leader, provisional] (darkpyonix leader, 2026-11-15) **캐럿 따라가기(#841).** 캐럿이 키나 입력으로 움직이면 편집기는 캐럿 줄 전체가 뷰포트 안에 들어오도록 필요한 만큼만 스크롤한다(위로 넘으면 줄 위가 맨 위에, 아래로 넘으면 줄 아래가 맨 아래에). 뷰포트 안의 이동은 스크롤하지 않고, 내용 여백도 계산에 넣는다 (fr38_caret_move_keeps_the_whole_caret_line_in_view, fr38_caret_move_keeps_the_whole_caret_line_in_view_with_content_padding).
 
 #### 38.9 추가 기능의 와이어 (소유자 승인 2026-10-25, 이슈 #30)
 
@@ -4174,7 +4205,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 3. `Menu(true)`의 팝업 위쪽 가장자리가 앵커의 아래쪽 가장자리 이상에 놓여 앵커를 가리지 않습니다.
 4. `MenuItem("Open").selected(true)`는 왼쪽 정렬된 행으로 그려지고 선택 의미 정보(`selected = true`)와 선택 배경을 가집니다.
 
-**메뉴의 키보드**(이슈 #504, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Menu`가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 자손 사이를 돌고(끝에서 처음으로 돌아갑니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus).
+**메뉴의 키보드**(이슈 #504, #810, [leader, provisional] (darkpyonix leader, 2026-11-13, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Menu`와 메뉴를 담은 `Popover`(FR-77)가 열리면 포커스가 선택된 항목(`MenuItem::selected` 또는 FR-71의 `selected` 상태)으로, 없으면 첫 포커스 가능한 항목으로 갑니다. 위와 아래 화살표가 팝업 안의 포커스 가능한 항목 사이를 돌고(끝에서 처음으로 돌아가며, 구분선과 비활성 항목은 건너뜁니다), Home과 End가 처음과 끝으로 갑니다. Enter와 Space는 항목을 누릅니다. Escape는 21.3.2대로 닫고(`Popover`는 `OnDismiss`를 한 번 보내고) 포커스를 연 노드로 돌려줍니다. Compose `DropdownMenu`와 WAI-ARIA menu와 같습니다. 이 키들은 Renderer가 처리하고 Host로 가지 않습니다. 수용 기준: 세 항목 중 둘째가 선택된 메뉴를 열면 둘째에 포커스가 있고, 아래 키 두 번이면 첫째로 돌아오고, Enter가 그 항목의 클릭을 한 번 보냅니다(fr64_menu_arrow_keys_move_focus, fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item).
 
 **닫힌 선택 필드 목록의 키보드**([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). 닫힌 선택 필드(`Dropdown`)가 여는 선택지 목록도 위의 메뉴 키보드 규칙을 그대로 따릅니다. 열리면 지금 고른 선택지에, 없으면 첫 선택지에 포커스가 있고, 위와 아래가 돌고, Home과 End가 처음과 끝으로 가고, Enter와 Space가 고르고, Escape가 닫고 포커스를 필드로 돌려줍니다. 수용 기준: 셋째 선택지가 골라진 필드를 열면 셋째에 포커스가 있고, 위 키 한 번과 Enter로 둘째가 골라져 그 값의 `ValueChanged`가 한 번 갑니다(fr64_dropdown_arrow_keys_move_focus).
 
@@ -4218,7 +4249,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
-- `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`가 있습니다. 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
+- `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`, `has_popup(bool)`가 있습니다(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
 - `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
 - `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
@@ -4263,22 +4294,23 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **1단계 범위(이 저장소의 렌더러만)**:
 
 - **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
-- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`, `has_popup`(비트 13, `1 << 13`: 노드가 팝업을 여는 기준점임을 나타냄, 이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15))을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. `has_popup`은 자체 속성이 있는 플랫폼에서는 그 속성으로 내보내고(`AppKitAccessibility`의 `AccessibleState.EXPANDABLE`, 웹 DOM 경로의 `aria-haspopup`), 자체 속성이 없는 경로에서는 `stateDescription`에 `"has popup"`으로 내보내어 두 번 읽히지 않게 합니다(한국어 앱의 화면 낭독기에서 영어 구절이 그대로 읽히지 않도록 현지화 문구를 두는 일은 후속으로 다룹니다). 상태: 데스크톱(`AppKitAccessibility`의 `EXPANDABLE`과 공용 `stateDescription`)만 구현되었습니다. 웹의 `aria-haspopup`, Android와 iOS의 고유 매핑과 그 시험은 아직 없으며 이슈 #810이 추적합니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
 - **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
 - **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
 - **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
-- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용).
+- 스키마 해시가 움직입니다(열거 값, 수정자 비트 추가, 추가 전용. `SEMANTICS_STATE_MASK`도 `schema_hash()`에 포함합니다).
 
 **2단계(이 항목의 범위 밖, 이슈 #473에 이어서 적습니다)**: Compose 포크에 맞춤 의미 속성 키를 두고, 포크의 macOS, Windows, Linux 접근성 브리지가 그 키를 읽어 플랫폼 고유의 역할(`AXTabGroup`, `AXOutline`, `AXMenu` 등)로 내보냅니다. 창 코드이므로 포크의 변경이고 핀을 옮깁니다(19.8).
 
 수용 기준.
 1. `TabList`부터 `Group`까지 새 역할 열한 개가 모두 와이어로 왕복하고, 접근성 노드가 비어 있지 않은 표현(역할 또는 `stateDescription`)을 가집니다(시험 이름 fr71_every_new_role_round_trips_and_is_exposed).
-2. `expanded`, `disabled`, `focused`, `hidden` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node).
+2. `expanded`, `disabled`, `focused`, `hidden`, `has_popup` 상태가 접근성 노드에 나가고, 지정하지 않은 상태는 나가지 않습니다. `hidden`인 노드는 접근성 트리에 없습니다(시험 이름 fr71_state_bits_reach_the_accessibility_node, fr68_the_modifier_sends_the_state_and_an_unset_role_stays_none).
 3. `click` 동작을 부르면 그 노드의 `OnClick` 핸들러가 불리고 `Clicked` 이벤트가 정확히 한 번 갑니다. 핸들러가 없는 노드에서는 아무 이벤트도 가지 않습니다(시험 이름 fr71_click_action_calls_the_nodes_click_handler).
 4. 모르는 상태 비트나 동작 비트는 `ProtocolError`가 되고 프로세스는 계속 돕니다(시험 이름 nfr7_unknown_semantics_bit_is_a_protocol_error). Renderer도 모르는 비트를 가진 `Semantics` 수정자를 적용하지 않고 `TableError.INVALID_MODIFIER`(16)로 보고합니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)).
 5. 수정자를 떼면(제거 전달 뒤) 확장 상태와 동작이 사라지고 FR-68의 기본으로 돌아옵니다(시험 이름 fr71_removing_semantics_restores_the_defaults).
 6. macOS에서 `Tab`, `Button`, `Heading` 노드가 윈도 아래 접근성 요소로 보이고 `AXPress`가 `click`을 부릅니다. 사람 손으로 확인하는 항목입니다(System Events의 `UI elements of group 1 of window 1`로 열거합니다).
 7. `focus` 동작 비트를 가진 노드는 접근성 트리에 포커스 동작을 내보내고, 그 동작을 부르면 같은 노드에 `RequestFocus`를 보낸 것과 똑같이 포커스가 옮겨 가며 같은 `FocusGained`·`FocusLost` 이벤트가 같은 순서로 갑니다. 동작 비트가 없는 노드는 포커스 동작을 내보내지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))(시험 이름 fr71_focus_action_moves_focus_like_a_host_focus_request, fr71_focus_action_is_not_offered_unless_the_host_asked).
+8. [leader, provisional] (darkpyonix leader, 2026-11-15) **컨테이너 역할(#838).** 컨테이너 역할(Menu, List, Group, TabList, Tree, Navigation)을 가진 노드는 자식을 하나로 합치지 않고 각 자식을 따로 접근 가능한 노드로 남기며(순회 그룹), 목록형(Menu, List, TabList, Tree)은 자식 수를 담은 컬렉션 정보를 낸다. 플랫폼 역할 매핑이 있는 창(macOS GraalVM, Windows, Linux)에서는 메뉴·목록·그룹 역할로 읽힌다 (fr71_a_container_role_keeps_its_children_as_separate_nodes). Kotlin/Native macOS 창의 역할은 #782의 역할 훅이 들어온 뒤에 성립하며, 그때까지 이 부분은 완료가 아니다.
 
 ### FR-72 파일 열기와 저장 대화상자 (`Agreed`, 이슈 #483)
 
@@ -4597,6 +4629,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 - 창 가장자리와의 여백은 `SpaceRole.Sm`, `OffsetDp`의 기본값은 `SpaceRole.Xs`입니다.
 - 닫히면 포커스는 열기 전에 포커스를 가졌던 컨트롤로 돌아가고, 그런 컨트롤이 없으면 기준점으로 갑니다.
 - 표면은 `ContainerRole.Menu`와 오버레이 토큰의 `popup_*` 값을 씁니다. 새 컨테이너 역할은 없습니다.
+- **메뉴를 담은 `Popover`의 키보드**(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). `Popover` 자신이나 내용 안의 노드가 `Role::Menu`를 선언했거나 내용 안에 `Role::MenuItem` 노드가 있으면(중첩된 `Popover`, `Menu`, `Dialog`, `Sheet` 안은 내려가지 않습니다) 메뉴로 봅니다. `Role::MenuItem` 노드가 있으면 그 노드들이 트리 순서대로 항목이고, 없으면 `Role::Menu`를 선언한 노드의 직접 자식들이 항목입니다. 열릴 때 선택된 항목(`MenuItem::selected` 또는 `SemanticsState::selected(true)`)으로, 없으면 첫 포커스 가능한 항목으로 포커스가 가고, 위·아래 화살표(양 끝에서 순환하며 구분선과 비활성 항목을 건너뜀), Home·End, Enter·Space가 FR-64의 메뉴 키보드 규칙과 똑같이 동작합니다. Escape는 `OnDismiss`를 한 번 보내고 포커스를 연 노드로 돌려주며, 이 키들은 Host로 새지 않습니다.
 
 수용 기준.
 1. 기준점 바로 아래 `OffsetDp`만큼 떨어져 내용이 열리고, 기준점의 시작 가장자리에 맞춥니다(fr77_popover_opens_below_anchor).
@@ -4604,6 +4637,7 @@ pub enum FileError { NotFound, PermissionDenied, ReadOnly, NotAFolder, IsAFolder
 3. 바깥 누름과 Escape가 각각 `OnDismiss`를 한 번 보냅니다(fr77_popover_dismisses_once).
 4. 닫히면 포커스가 기준점으로 돌아갑니다(fr77_popover_restores_focus).
 5. 창 크기가 바뀌면 다시 배치합니다(fr77_popover_follows_resize).
+6. 메뉴를 담은 `Popover`를 열면 선택된 항목(없으면 첫 포커스 가능한 항목)에 포커스가 가고, 위·아래 화살표가 비활성 항목을 건너뛰며 양 끝에서 순환하고, Home·End가 처음과 끝 항목으로 옮기며, Enter와 Space가 현재 항목의 클릭을 한 번 보내고 키 이벤트가 Host로 새지 않습니다(fr77_popover_menu_arrow_keys_move_focus_and_activate_the_current_item, fr77_popover_menu_home_and_end_and_default_focus_on_first_item).
 
 ### FR-78 프로그램에서 클립보드 글자 읽기 (`Agreed`, 이슈 #546, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC))
 
@@ -4828,6 +4862,7 @@ pub mod storage {
 - **입력.** 보이는 영역 안의 포인터, 스크롤, 끌어 놓기, 커서 모양은 뷰의 것입니다. Compose 장면은 거기서 아무것도 받지 않고, FR-27의 파일 놓기도 영역 밖에서만 받습니다. 포인터가 장면에서 뷰로 들어가면 장면이 hover하던 노드는 포인터가 나간 것으로 처리됩니다(FR-46의 `Exit`). 돌아오면 다시 들어온 것으로 처리됩니다. 구멍 안의 입력은 장면의 것입니다. 키와 IME는 키보드 포커스를 가진 쪽이 받습니다. macOS 메뉴 막대의 키(`performKeyEquivalent`)는 뷰가 포커스를 가져도 지금처럼 앱 메뉴에 갑니다. 그 밖에 앱 단축키를 뷰에서 앱으로 넘기는 일은 뷰를 만든 쪽이 합니다(웹뷰 크레이트는 페이지가 처리하지 않은 keydown을 넘깁니다). 이 위젯은 키를 가로채지 않습니다.
 - **여러 개.** 한 창에 `NativeView`를 몇 개든 둘 수 있습니다. 서로 겹치면 나중에 붙인 뷰가 위입니다. 나중에 순서를 바꾸는 명령은 없습니다. 플랫폼 뷰를 다시 넣으면 키 포커스를 잃기 때문입니다.
 - **플랫폼.** macOS Kotlin/Native가 먼저입니다(포크 #207). GraalVM macOS 경로에는 슬롯이 없으므로(`nativeViews == null`, 소유자 결정 2026-11-13, 포크 #208), 거기서 `AttachNativeView`는 `TableError.NATIVE_VIEW_UNSUPPORTED`이고 `NativeViewParent`는 나오지 않습니다. Windows(최상위 HWND의 자식, `dxc_surface`의 형제), Linux X11(최상위 창의 자식 X 창), Android(Compose `AndroidView`), iOS(`UIKitView`)는 같은 와이어로 뒤따르고, 플랫폼마다 이슈를 둡니다. Web에서는 핸들이 DOM 요소여야 하므로, 와이어 모양을 따로 정해야 하고, 이것도 이슈를 따로 둡니다.
+- **macOS 창의 배경 재질.** macOS에서 네이티브 뷰가 하나라도 보이는 동안, 창은 배경 재질을 키 창이 아닌 창처럼 그립니다. 창 뒤의 내용을 실시간으로 흐리게 하지 않습니다. 실시간 흐림이 켜져 있으면 창 서버가 뷰의 새 자리와 같은 차례의 프레임을 언제나 함께 합성하지는 않기 때문입니다. 이 방식은 잠정적이며 포크가 추적합니다(포크 #233, #239).
 - **오류(NFR-7).** 모두 `ProtocolError`로 보고하고 그 레코드만 버리며, 배치의 나머지는 적용되고 프로세스는 죽지 않습니다.
   - 없는 `node_id`는 `TableError.UNKNOWN_NODE`입니다.
   - `NativeView`가 아닌 노드에 온 명령은 새 코드 `TableError.NOT_NATIVE_VIEW`(21)입니다.
@@ -4866,6 +4901,9 @@ pub mod storage {
 13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
 14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
 15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+    - 측정값(2026-11-16, macOS arm64, 창 핀 a187dd1e, 디버그 빌드, 다섯 번 실행): 뷰가 없을 때 프레임 시간 1.34~1.43ms, 뷰 넷일 때 1.47~1.51ms입니다. 뷰 넷의 비용은 프레임당 0.08~0.14ms이고, 허용치(뷰 없는 값의 10% + 0.05ms)까지 가장 가까웠던 실행의 여유는 0.04ms입니다. 여유가 얇으므로 이 시험이 다시 실패하면 잡음이 아니라 비용이 늘어난 것으로 읽습니다. 같은 기기가 평소 부하를 받는 상태에서(2026-11-16, 두 커밋에서 서른 쌍) 뷰 넷의 비용은 프레임당 평균 0.166ms이고, 이때 뷰 없는 프레임 시간은 평균 1.92ms, 허용치는 0.242ms입니다. 한 쌍의 차이는 약 0.3ms씩 흔들리고, 두 화면을 재는 순서에 따른 차이는 없습니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
+    - 재는 방법: 뷰가 없는 화면을 재고 바로 이어서 뷰 넷인 화면을 재는 한 쌍을 열두 번 되풀이합니다. 비용은 쌍마다 잰 차이(뷰 넷 빼기 뷰 없음)의 평균이고, 허용치는 뷰 없는 값 평균의 10% + 0.05ms입니다. 비용에서 그 평균의 표준오차 두 배를 뺀 값이 허용치보다 크면 실패합니다. 이 방법은 기준을 프레임당 약 0.3ms의 분해능으로 확인합니다. 허용치를 그보다 적게 넘는 비용은 감당할 수 있는 표본에서 잡음과 구별되지 않습니다. 구별하려면 약 65쌍, 10분 가량의 측정이 필요합니다. 방법이 실제 비용에서 실패한다는 것은 따로 시험합니다: 뷰 넷인 화면의 스크롤 프레임마다 뷰 없는 화면만큼(0.5ms 이상)의 시간을 일부러 더하면 판정이 예산 초과로 나와야 하고, 이 시험은 CI에서도 판정합니다(시험 이름 fr81_the_frame_budget_method_catches_an_added_cost). 판정 규칙 자체는 창 없이 시험합니다(fr81_frame_budget_does_not_tell_an_overrun_inside_the_noise_from_noise_by_design 등). 어느 측정이든 프레임이 서른 장에 못 미치면 실패합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
+    - CI 러너에서는 두 값을 "budget not judged on CI"라는 말과 함께 찍고 판정하지 않습니다(환경 변수 `CI`가 `true`일 때). 공유 러너의 프레임 시간은 예산의 10%보다 크게 흔들립니다. 프레임이 모자라면 CI에서도 실패합니다. 예산은 개발자 기기와 병합 게이트에서 판정합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
 
@@ -5150,6 +5188,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 5. 위 "오류"의 각 경우가 글마다 `ProtocolError` 하나를 내고, 프로세스가 중단되지 않으며, 글과 스팬은 스팬 기능 없이 그려지고, 옆의 올바른 글은 영향을 받지 않고, 다시 그려도 보고가 늘지 않으며, 올바른 표를 다시 보내면 적용됩니다 (`fr88_malformed_span_font_features_handled_gracefully`, Rust `fr88_a_malformed_table_reads_back_as_no_features`).
 6. 기능을 지정한 스팬이 없는 `Text`(스팬이 없는 글, 스팬만 있는 글, 빈 기능 목록만 준 글)는 `SpanFontFeatures` 레코드를 하나도 보내지 않습니다. 표가 없어지면 속성이 지워지고 스팬 기능도 사라지며, 같은 표는 다시 보내지 않습니다 (Rust `fr88_span_font_features_writes_one_property_only_when_set`, `fr88_span_font_features_clear_and_are_not_resent`, `fr88_runs_without_features_make_no_table`, Kotlin `fr88_span_font_features_are_cleared_with_the_property`).
 7. 정상 상태 할당: 글자만 바뀌는 프레임에서 스팬 기능이 있는 글은 없는 글과 같은 횟수만 할당하고(Host), 렌더러는 표가 도착했을 때 만든 맵을 그대로 읽습니다 (Rust와 Kotlin의 `fr88_span_font_features_do_not_allocate_in_steady_state`).
+8. [leader, provisional] (darkpyonix leader, 2026-11-15) **측정도 런의 기능으로(#823).** 측정 요청(`MeasureText`)은 `SpanFontFeatures`와 같은 런 기능 표를 함께 싣고(레코드 80→88바이트, `font_features`처럼 위치와 길이 한 쌍), 렌더러의 측정은 그 표를 런마다 적용한다. 그래서 `tnum` 런 하나가 있는 Text는 그려지는 폭과 같은 폭으로 측정된다. 검증: Rust와 Kotlin 양쪽 테스트(`fr88_measure_record_carries_span_font_features`, `fr88_measured_span_font_features_match_drawn_text`), 그리고 C 스모크 호스트(`renderer/desktop/c/smoke_host.c`)와 그 레코드 길이 스크립트 테스트가 통과한다.
 
 ### FR-85 포커스를 가진 상자가 자기 키를 받는다 (`Done`, [리더, 잠정 2026-11-13], 이슈 #101)
 
@@ -5394,6 +5433,8 @@ compose_rust_host_dispatch_event: click 1
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
   - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
 - macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
+- Windows에서 `launch`는 Host가 만든 스레드 하나(`compose-rust-ui`, 스택 64 MB 예약)에서 `compose_rust_renderer_run`을 호출하고, 호출한 스레드는 그 스레드가 끝나기를 기다립니다([leader, provisional] (darkpyonix leader, 2026-11-16)). Windows 메인 스레드의 스택은 실행 파일의 링크가 정하며 기본 1 MB라서 Compose의 재귀(조합, 측정, 그리기)를 담지 못합니다. Renderer UI 스레드는 여전히 하나이고 Host는 그 스레드에서만 돕니다(PR-1). `launch` 없이 루프를 직접 돌리는 애플리케이션은 스택을 스스로 마련합니다.
+  - 수용 기준: Windows에서 1 MB 스택이 담지 못하는 첫 깊이의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다. 그 깊이는 같은 단계가 재서 정합니다(`check-windows-consumer.sh` 3e). **(CI 확인 전)**
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**

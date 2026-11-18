@@ -6,9 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 
-enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, LinearProgressIndicator }
+enum class WidgetKind { Column, Row, Box, Text, TextField, Button, Spacer, LazyColumn, ScrollColumn, Image, Icon, Checkbox, RadioButton, Switch, Slider, ProgressIndicator, Divider, Card, Surface, Dialog, Menu, Tabs, TopAppBar, LazyRow, Tooltip, Canvas, DatePicker, TimePicker, Dropdown, Navigation, NavigationItem, Sheet, Scaffold, ScaffoldSlot, LazyGrid, FileDropTarget, ScrollRow, Chip, FloatingAction, Badge, SelectionContainer, SplitPane, CodeEditor, AbsoluteBox, Window, FlowRow, Popover, NativeView, LinearProgressIndicator }
 
-enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, Progress }
+enum class PropertyKind { Text, Placeholder, Enabled, Multiline, OnClick, OnValueChange, OnSubmit, OnFocusLost, OnKeyDown, ItemCount, ItemKey, OnRangeRequested, TypeRole, FontSize, FontWeight, LineHeight, LetterSpacing, Color, TextAlign, MaxLines, Overflow, Arrangement, Spacing, SpaceRole, Alignment, Variant, Asset, Checked, Steps, Determinate, Circular, Vertical, Open, OnDismiss, SelectedIndex, Commands, Value, Min, Max, Icon, Slot, Columns, MinColumnWidth, Spans, OnFilesEntered, OnFilesDropped, Section, Count, Collapsible, ButtonKind, Decorations, SyntaxSpans, TabWidth, OnEditRejected, OnHover, OnSave, OnDecorationClick, Folds, GutterDecorations, OnSelectionChange, Font, WordBreak, OverflowWrap, TabSize, AbsoluteSize, SoftWrap, SpanFonts, OnVisibleRangeChange, OnEditorFocusChange, OnFoldChange, OnCompositionChange, OnPointer, PointerKinds, Cursor, UserSelect, IslandZoom, WindowTitle, WindowSize, WindowMinSize, WindowResizable, WindowChrome, WindowTitleBar, WindowIcon, WindowPosition, WindowRestoreKey, WindowZoomLevel, DragFromPointer, OnWindowCloseRequested, OnWindowFocusChanged, OnWindowMoved, OnWindowDrag, OnWindowUnavailable, OnWindowClosed, OnWindowDragOver, TearOffKey, OnFocusGained, OnKeyUp, AccessibleName, TrackColor, ThumbColor, ActiveTrackColor, ContainerColor, CheckColor, ControlSize, ReportSize, Scrim, Bare, HorizontalSpacing, VerticalSpacing, HorizontalAlignment, VerticalAlignment, MaxItemsInEachRow, Placement, Align, OffsetDp, LineNumbers, GutterMinWidthDp, GutterPaddingDp, TextInsetDp, CodeEditorColors, OnCodeMetrics, OnCodeScrolled, CompactNavigation, OnScrollChanged, CollapseBelow, Snap, MaxHeightFraction, FontFeatureSettings, OnMotionFinished, OnEditGroupResult, OnCaretRect, OnKeyPreview, OnCodePointer, RadioGroup, Minimap, ViewZones, WordWrap, ContentScale, ThumbSize, PlaceholderColor, CaretColor, IconAsset, Presentation, MaxWidth, Separator, SpanFontFeatures, ContentPaddingDp, FixedGutterColumns, NativeVisible, OnNativeViewFocus, Progress }
 
 enum class Key { Enter, Other, Escape, Tab, Backspace, Delete, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, ContextMenu }
 
@@ -662,6 +662,7 @@ data class CodeEditorColorsRecord(
     val lineNumber: ColorRole?,
     val currentLineNumber: ColorRole?,
     val currentLine: ColorRole?,
+    val currentLineGutter: ColorRole?,
 )
 
 /** Room after a line of a code editor that is not text, `heightLines` rows high, with `text` drawn dimmed in it. `afterLine` is in the document as it is when the list arrives. */
@@ -898,7 +899,9 @@ object CodeEditorRecords {
         val currentLineNumber = if (currentLineNumberTag == 0) null else colorRoleOrNull(currentLineNumberTag) ?: run { onError("record $index has an unknown currentLineNumber ${currentLineNumberTag}"); return null }
         val currentLineTag = buffer.getShort(offset + 8).toInt() and 0xffff
         val currentLine = if (currentLineTag == 0) null else colorRoleOrNull(currentLineTag) ?: run { onError("record $index has an unknown currentLine ${currentLineTag}"); return null }
-        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine)
+        val currentLineGutterTag = buffer.getShort(offset + 10).toInt() and 0xffff
+        val currentLineGutter = if (currentLineGutterTag == 0) null else colorRoleOrNull(currentLineGutterTag) ?: run { onError("record $index has an unknown currentLineGutter ${currentLineGutterTag}"); return null }
+        return CodeEditorColorsRecord(container, gutter, lineNumber, currentLineNumber, currentLine, currentLineGutter)
     }
 
     const val VIEW_ZONE_LENGTH = 16
@@ -1232,7 +1235,7 @@ object SpanFontFeatureRecords {
  * the Host's, generated from its schema, so nobody counts bytes by hand on this side.
  */
 object MeasureRecords {
-    const val RECORD_LENGTH = 80
+    const val RECORD_LENGTH = 88
     const val RESULT_LENGTH = 32
     const val KIND_TEXT = 1
     const val KIND_NODE = 2
@@ -1262,6 +1265,8 @@ object MeasureRecords {
     const val TEXT_ZOOM_AT = 68
     const val TEXT_FONT_FEATURES_OFFSET_AT = 72
     const val TEXT_FONT_FEATURES_COUNT_AT = 76
+    const val TEXT_SPAN_FEATURES_OFFSET_AT = 80
+    const val TEXT_SPAN_FEATURES_LENGTH_AT = 84
     const val NODE_ID_AT = 4
     const val NODE_MIN_WIDTH_AT = 8
     const val NODE_MAX_WIDTH_AT = 12
@@ -1783,6 +1788,25 @@ sealed interface Mutation {
         override fun hashCode(): Int =
             ((nodeId * 31 + requestId) * 31 + baseVersion) * 31 + edits.contentHashCode()
     }
+
+    /**
+     * Puts the platform view [handle] (an `NSView*`, an `HWND` or an X11 window id the Host
+     * made) in the place of the `NativeView` node [nodeId], replacing any view it had. 0
+     * takes the node's view out. The view is the Host's: it is never destroyed here.
+     */
+    data class AttachNativeView(val nodeId: Int, val handle: Long) : Mutation
+
+    /** Gives keyboard focus to the platform view of [nodeId] ([focus] true), or back to the scene. */
+    data class FocusNativeView(val nodeId: Int, val focus: Boolean) : Mutation
+}
+
+/** The words of the platform view records: the kinds of window handle a view is made against. */
+object NativeViewWire {
+    const val PARENT_APPKIT = 1
+    const val PARENT_WIN32 = 2
+    const val PARENT_X11 = 3
+    const val PARENT_ANDROID = 4
+    const val PARENT_UIKIT = 5
 }
 
 /** The words of the scroll records: flag bits, target kinds and alignments. */
@@ -1875,6 +1899,8 @@ sealed interface HostEvent {
     data class FileHandles(override val nodeId: Int, override val handlerId: Long, val request: Int, val status: FileDialogStatus, val filter: Int, val delivery: FileDelivery, val firstHandle: Int, val names: String, val kinds: String) : HostEvent
     data class StorageLocation(override val nodeId: Int, override val handlerId: Long, val text: String) : HostEvent
     data class ScrollChanged(override val nodeId: Int, override val handlerId: Long, val item: Int, val flags: Int, val xPx: Double, val yPx: Double, val maxXPx: Double, val maxYPx: Double, val viewportWidthPx: Double, val viewportHeightPx: Double) : HostEvent
+    data class NativeViewParent(override val nodeId: Int, override val handlerId: Long, val handle: Long, val kind: Int, val scale: kotlin.Float) : HostEvent
+    data class NativeViewFocus(override val nodeId: Int, override val handlerId: Long, val focused: Boolean) : HostEvent
     data class CodeMetrics(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class CodeScrolled(override val nodeId: Int, override val handlerId: Long, val value: Double) : HostEvent
     data class MotionFinished(override val nodeId: Int, override val handlerId: Long, val widthDp: kotlin.Float, val heightDp: kotlin.Float) : HostEvent
@@ -1900,7 +1926,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -3703353098688398090L
+    const val SCHEMA_HASH: Long = -7259639446471370L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -1940,6 +1966,8 @@ object Protocol {
     private const val TAG_RELEASE_FILE_HANDLE = 34
     private const val TAG_SCROLL_TO = 35
     private const val TAG_SCROLL_INTO_VIEW = 36
+    private const val TAG_ATTACH_NATIVE_VIEW = 37
+    private const val TAG_FOCUS_NATIVE_VIEW = 38
     private const val TAG_QUERY_POSITION_RECT = 39
     private const val TAG_INSERT_SNIPPET = 40
     private const val TAG_SET_SELECTIONS = 41
@@ -2197,6 +2225,35 @@ object Protocol {
                             rectYPx = Double.fromBits(readU64(batch, base, available, offset + 28)),
                             rectWidthPx = Double.fromBits(readU64(batch, base, available, offset + 36)),
                             rectHeightPx = Double.fromBits(readU64(batch, base, available, offset + 44)),
+                        )
+                    }
+                    TAG_ATTACH_NATIVE_VIEW -> {
+                        requireRecordLength(length, 24, offset)
+                        // Two reserved words between the node and the handle, which keep the
+                        // handle on an eight byte boundary. A record that sets either is one
+                        // the sides disagree on.
+                        for (reserved in intArrayOf(offset + 8, offset + 12)) {
+                            if (readU32(batch, base, available, reserved) != 0L) {
+                                throw ProtocolException("reserved word is not zero", reserved)
+                            }
+                        }
+                        Mutation.AttachNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            handle = readU64(batch, base, available, offset + 16),
+                        )
+                    }
+                    TAG_FOCUS_NATIVE_VIEW -> {
+                        requireRecordLength(length, 16, offset)
+                        val focus = readU32(batch, base, available, offset + 8)
+                        if (focus != 0L && focus != 1L) {
+                            throw ProtocolException("invalid focus word $focus", offset + 8)
+                        }
+                        if (readU32(batch, base, available, offset + 12) != 0L) {
+                            throw ProtocolException("reserved word is not zero", offset + 12)
+                        }
+                        Mutation.FocusNativeView(
+                            nodeId = readU32(batch, base, available, offset + 4).toInt(),
+                            focus = focus == 1L,
                         )
                     }
                     TAG_EDIT_CODE_GROUP -> {
@@ -2568,6 +2625,8 @@ object Protocol {
                 is HostEvent.FileHandles -> event.names.toByteArray(StandardCharsets.UTF_8) + event.kinds.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.StorageLocation -> event.text.toByteArray(StandardCharsets.UTF_8)
                 is HostEvent.ScrollChanged -> null
+                is HostEvent.NativeViewParent -> null
+                is HostEvent.NativeViewFocus -> null
                 is HostEvent.CodeMetrics -> null
                 is HostEvent.CodeScrolled -> null
                 is HostEvent.MotionFinished -> null
@@ -2628,6 +2687,8 @@ object Protocol {
                 is HostEvent.FileHandles -> 52
                 is HostEvent.StorageLocation -> 24
                 is HostEvent.ScrollChanged -> 72
+                is HostEvent.NativeViewParent -> 32
+                is HostEvent.NativeViewFocus -> 24
                 is HostEvent.CodeMetrics -> 24
                 is HostEvent.CodeScrolled -> 24
                 is HostEvent.MotionFinished -> 24
@@ -2692,6 +2753,8 @@ object Protocol {
                 is HostEvent.FileHandles -> 58
                 is HostEvent.StorageLocation -> 59
                 is HostEvent.ScrollChanged -> 60
+                is HostEvent.NativeViewParent -> 61
+                is HostEvent.NativeViewFocus -> 62
                 is HostEvent.CodeMetrics -> 54
                 is HostEvent.CodeScrolled -> 55
                 is HostEvent.MotionFinished -> 63
@@ -2930,6 +2993,16 @@ object Protocol {
                     out.putDouble(event.viewportWidthPx)
                     out.putDouble(event.viewportHeightPx)
                 }
+                is HostEvent.NativeViewParent -> {
+                    out.putLong(event.handle)
+                    out.putShort(event.kind.toShort())
+                    out.putShort(0)
+                    out.putFloat(event.scale)
+                }
+                is HostEvent.NativeViewFocus -> {
+                    out.putInt(if (event.focused) 1 else 0)
+                    out.putInt(0)
+                }
                 is HostEvent.CodeMetrics -> out.putDouble(event.value)
                 is HostEvent.CodeScrolled -> out.putDouble(event.value)
                 is HostEvent.MotionFinished -> {
@@ -3062,6 +3135,7 @@ object Protocol {
         45 -> WidgetKind.Window
         46 -> WidgetKind.FlowRow
         47 -> WidgetKind.Popover
+        48 -> WidgetKind.NativeView
         100 -> WidgetKind.LinearProgressIndicator
         else -> throw ProtocolException("unknown widget tag $tag", offset)
     }
@@ -3213,6 +3287,10 @@ object Protocol {
         207 -> PropertyKind.MaxWidth
         208 -> PropertyKind.Separator
         209 -> PropertyKind.SpanFontFeatures
+        210 -> PropertyKind.ContentPaddingDp
+        211 -> PropertyKind.FixedGutterColumns
+        190 -> PropertyKind.NativeVisible
+        191 -> PropertyKind.OnNativeViewFocus
         27 -> PropertyKind.Progress
         else -> throw ProtocolException("unknown property tag $tag", offset)
     }

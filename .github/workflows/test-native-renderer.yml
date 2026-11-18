@@ -49,7 +49,14 @@ on:
   push:
     tags:
     - v*
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      windows_kit_built:
+        # ci.yml builds the Windows renderer kit once for the whole run and sets this, so this
+        # workflow uses that kit instead of building its own copy of the same commit.
+        description: The Windows renderer kit is already an artifact of this run
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -343,7 +350,7 @@ jobs:
   # on Linux first and the two halves are two jobs; windows-static.yml says why.
   windows-static:
     needs: changed
-    if: needs.changed.outputs.renderer == 'true'
+    if: needs.changed.outputs.renderer == 'true' && !inputs.windows_kit_built
     uses: ./.github/workflows/windows-static.yml
 
   # iOS is Kotlin/Native, not native-image, so it shares nothing with the jobs above

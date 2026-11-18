@@ -98,6 +98,14 @@ private const val MODIFIER_CTRL = 2
 private const val MODIFIER_ALT = 4
 private const val MODIFIER_META = 8
 
+/**
+ * Told when a node of the application consumed a press that asks for a context menu, which is
+ * how an application puts up a menu of its own. Filled in by a platform whose window puts up a
+ * text menu itself on that same press, so that the window's can stand back for it; left alone
+ * everywhere else.
+ */
+var platformContextMenuTaken: () -> Unit = {}
+
 /** How many pointers can be down at once before the oldest capture is forgotten. */
 private const val MAX_POINTERS = 16
 
@@ -728,7 +736,10 @@ internal class PointerRouter(val alive: (Int) -> Boolean) {
                 break
             }
         }
-        if (consumed) change.consume()
+        if (consumed) {
+            change.consume()
+            if (menu) platformContextMenuTaken()
+        }
         if (!mouse && newPointer) armLongPress(top, pointer, change)
     }
 

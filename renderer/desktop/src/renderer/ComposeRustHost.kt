@@ -64,6 +64,7 @@ import dev.darkpyonix.composerust.design.CaptionSide
 import dev.darkpyonix.composerust.design.LocalDesignTheme
 import dev.darkpyonix.composerust.design.LocalReduceTransparency
 import dev.darkpyonix.composerust.design.detectHostPlatform
+import dev.darkpyonix.composerust.design.platformCaption
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.design.themeFontChains
 import dev.darkpyonix.composerust.design.themeFonts
@@ -779,7 +780,10 @@ private fun ComposeRustTree(
     // application on a device in dark mode otherwise gets white icons on its own white
     // bar.
     LaunchedEffect(theme.dark) { systemChrome?.setDarkIcons(!theme.dark) }
-    val captionStyle = theme.rules.caption(theme)
+    // The operating system's buttons in this theme's colours, never the design system's own
+    // shape: the application lays its bar out around what is drawn here, and on Windows the
+    // native hit test answers for the same three cells.
+    val captionStyle = remember(theme) { platformCaption(theme) }
     val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
@@ -817,9 +821,9 @@ private fun ComposeRustTree(
             with(density) { reporter.report(size.width.toDp().value, size.height.toDp().value, host, safeArea, reportEveryDp) }
         }
     }
-    // How much room the buttons take and at which end. The platform's own are at the
-    // leading edge and the renderer's are wherever this design system puts them, so the
-    // bar cannot assume either.
+    // How much room the buttons take and at which end. The macOS system's own are at the
+    // leading edge and the renderer's are at the trailing edge, as wide as the operating
+    // system's buttons are, so the bar cannot assume either.
     // The bar is given the strip above it as well as the caption's own height. The two
     // are not the same shape: window buttons sit on the bar's row and a status bar sits
     // above it, so they are handed over separately.
@@ -841,6 +845,8 @@ private fun ComposeRustTree(
     val overlayFocusStack = remember(host, windowNodeId) { dev.darkpyonix.composerust.foundation.OverlayFocusStack() }
     val dragWindow = LocalWindowDrag.current
     val dragExclusion = remember { WindowDragExclusion() }
+    // The platform views of this window, and the surfaces drawn above them.
+    val nativeViews = dev.darkpyonix.composerust.foundation.rememberNativeViews(host.table, windowNodeId, host)
     val dragStrip = if (caption.fullSize && caption.height > 0.dp) Modifier.pointerInput(caption.height, dragWindow) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Final)
@@ -860,6 +866,7 @@ private fun ComposeRustTree(
     CompositionLocalProvider(
         dev.darkpyonix.composerust.foundation.LocalSidebarShortcuts provides sidebarShortcuts,
         dev.darkpyonix.composerust.foundation.LocalOverlayFocusStack provides overlayFocusStack,
+        dev.darkpyonix.composerust.foundation.LocalNativeViews provides nativeViews,
         LocalWindowDragExclusion provides dragExclusion,
         LocalDesignTheme provides theme,
         LocalReduceTransparency provides reduceTransparency,

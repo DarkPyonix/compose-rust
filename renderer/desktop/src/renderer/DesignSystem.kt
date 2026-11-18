@@ -580,8 +580,14 @@ interface ComponentRules {
      * looking native. Everywhere else the window is undecorated, so these three are the
      * only way to minimise, maximise or close it: they are not decoration.
      *
-     * The Host has no say here, deliberately. The colour, the position and the shape of a
-     * window button belong to the design system and the platform.
+     * A window is not asked this of the application's design system. It asks the design
+     * system of the operating system it is on, with the application's palette for the
+     * colours (see [platformCaption]): Fluent's answer is what every window on Windows
+     * draws, and the desktop's system answers on Linux. A system's own answer is what it
+     * draws on the platform it belongs to.
+     *
+     * The Host has no say here, deliberately. The position and the shape of a window
+     * button belong to the platform, and its colours to the design system.
      *
      * The default is a plain set at the trailing edge with a tinted hover, which is what
      * most of these systems do. A system overrides what it actually differs about.
@@ -883,9 +889,9 @@ enum class CaptionTitleAlignment { Start, Center }
  * the pointer is on close, a grey circle, a bare glyph. What none of them disagree about
  * is that there are three buttons and what each one does.
  *
- * Nothing here crosses the boundary. A window button is the design system's and the
- * platform's, and an application that could recolour one would be deciding for whichever
- * platform it ended up on.
+ * Nothing here crosses the boundary. A window button's shape is the platform's and its
+ * colours the design system's, and an application that could recolour one would be
+ * deciding for whichever platform it ended up on.
  */
 data class CaptionStyle(
     val side: CaptionSide,
@@ -929,6 +935,63 @@ data class CaptionStyle(
     /** The fill under close while it is held, where the system reddens close on hover. */
     val closePressed: Color = Color.Transparent,
 )
+
+/**
+ * The design system whose window buttons a window on [platform] draws, or null where the
+ * renderer draws no window buttons of its own.
+ *
+ * Windows draws Windows 11's, and a Linux session the desktop's: Adwaita under GNOME,
+ * Breeze under KDE, Deepin elsewhere, the same three `Theme::adaptive` picks there. macOS
+ * is null because the system draws its own traffic lights, and the phones and the browser
+ * because their windows are not the renderer's.
+ */
+internal fun captionSystemFor(platform: HostPlatform): DesignSystem? = when (platform) {
+    HostPlatform.Windows -> DesignSystem.Fluent
+    HostPlatform.LinuxGnome -> DesignSystem.Gnome
+    HostPlatform.LinuxKde -> DesignSystem.Breeze
+    HostPlatform.LinuxOther -> DesignSystem.Deepin
+    else -> null
+}
+
+/**
+ * The window buttons a window drawn under [theme] actually gets: the operating system's, in
+ * the application's colours.
+ *
+ * A window button belongs to the operating system the window is on, not to the language
+ * the application chose. An Apple application on Windows that drew the traffic lights at the
+ * left was a window whose visible buttons could not be pressed: the native window hit tests
+ * the three 46 dip cells at the right as the buttons, and opens Snap Layouts only from the
+ * middle one. So which end, how big, what shape and how far apart come from the platform's
+ * own design system, measured in that system's own tokens. The fills and the glyph colours
+ * are that system's rules applied to the application's palette, which is how a Fluent
+ * application and a Material one already differed on Windows. Where the title goes is the
+ * bar's business and stays the application's design system's.
+ *
+ * Where the renderer draws no buttons (see [captionSystemFor]) this is the design system's
+ * own answer, unchanged.
+ */
+fun platformCaption(theme: ResolvedTheme, titleBar: TitleBar = TitleBar.Normal): CaptionStyle {
+    val own = theme.rules.caption(theme, titleBar)
+    val system = captionSystemFor(theme.platform) ?: return own
+    val rules = rulesFor(system)
+    // The platform's system under its own tokens, for everything that is a measurement.
+    val native = ResolvedTheme(system, DesignTokens.of(system), rules, theme.dark, platform = theme.platform)
+    val geometry = rules.caption(native, titleBar)
+    // The same rules under the application's palette, for everything that is a colour.
+    val colours = rules.caption(theme, titleBar)
+    return geometry.copy(
+        minimiseContainer = colours.minimiseContainer,
+        maximiseContainer = colours.maximiseContainer,
+        closeContainer = colours.closeContainer,
+        hover = colours.hover,
+        closeHover = colours.closeHover,
+        glyph = colours.glyph,
+        closeHoverGlyph = colours.closeHoverGlyph,
+        pressed = colours.pressed,
+        closePressed = colours.closePressed,
+        titleAlignment = own.titleAlignment,
+    )
+}
 
 /**
  * What marks the selected destination.

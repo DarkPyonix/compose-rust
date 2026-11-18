@@ -3,12 +3,13 @@
 //! and back here; what a Dioxus component sends is tested in the adapter.
 
 use compose_rust::code::{
-    CODE_EDIT_LEN, CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CaretRect, CodeChange,
-    CodeEditorColors, CodePointer, CodeRange, CodeRect, DECORATION_LEN, DECORATION_RECORD,
-    Decoration, Decorations, EditGroupResult, FOLD_LEN, FOLD_RECORD, Fold, Folds,
-    GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration, GutterDecorations, Position,
-    PositionAnswer, RecordFieldType, SYNTAX_SPAN_LEN, SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans,
-    byte_offset, decode_edit_group, encode_edit_group, position_query,
+    CODE_EDIT_LEN, CODE_EDITOR_COLORS_LEN, CODE_EDITOR_COLORS_RECORD, CONTENT_PADDING_LEN,
+    CaretRect, CodeChange, CodeEditorColors, CodePointer, CodeRange, CodeRect, ContentPadding,
+    DECORATION_LEN, DECORATION_RECORD, Decoration, Decorations, EditGroupResult, FOLD_LEN,
+    FOLD_RECORD, Fold, Folds, GUTTER_DECORATION_LEN, GUTTER_DECORATION_RECORD, GutterDecoration,
+    GutterDecorations, Position, PositionAnswer, RecordFieldType, SYNTAX_SPAN_LEN,
+    SYNTAX_SPAN_RECORD, SyntaxSpan, SyntaxSpans, byte_offset, decode_edit_group, encode_edit_group,
+    position_query,
 };
 use compose_rust::protocol::{
     BatchEncoder, HostEvent, Mutation, PropertyValue, ProtocolError, decode_batch, decode_event,
@@ -909,7 +910,7 @@ fn fr38_editor_type_and_line_height_round_trip_as_properties() {
     );
 }
 
-/// The colour record is twelve bytes, one role in each of five halves and a reserved pair,
+/// The colour record is twelve bytes, one role in each of its six halves,
 /// at the offsets the schema the Renderer's decoder is written from gives. A slot nobody
 /// set is zero, which is how it stays the design system's.
 #[test]
@@ -930,6 +931,7 @@ fn fr38_editor_colors_override_the_design_system_on_the_wire() {
             "lineNumber" => 0,
             "currentLineNumber" => ColorRole::Primary as u16,
             "currentLine" => 0,
+            "currentLineGutter" => 0,
             other => panic!("the colour schema has a field this test does not know: {other}"),
         };
         assert_eq!(value, expected, "{}", field.name);
@@ -941,6 +943,7 @@ fn fr38_editor_colors_override_the_design_system_on_the_wire() {
             }
         );
     }
+    // The current line's gutter is the last pair, and nothing set leaves it zero.
     assert_eq!(&bytes[10..], &[0, 0]);
     assert_eq!(CodeEditorColors::from_bytes(&bytes), Some(colors));
     assert!(CodeEditorColors::new().is_empty());
@@ -968,6 +971,109 @@ fn fr38_editor_colors_override_the_design_system_on_the_wire() {
             PropertyKind::CodeEditorColors,
             Value::Bytes(bytes.to_vec())
         )]
+    );
+}
+
+/// The new look properties keep the tags they were given, and the descriptor spells them.
+#[test]
+fn fr38_editor_padding_and_fixed_gutter_keep_their_assigned_tags() {
+    assert_eq!(PropertyKind::ContentPaddingDp as u16, 210);
+    assert_eq!(PropertyKind::FixedGutterColumns as u16, 211);
+    assert_eq!(
+        PropertyKind::from_name("content_padding_dp"),
+        Ok(PropertyKind::ContentPaddingDp)
+    );
+    assert_eq!(
+        PropertyKind::from_name("fixed_gutter_columns"),
+        Ok(PropertyKind::FixedGutterColumns)
+    );
+}
+
+/// The content padding travels as eight bytes, top then bottom, each a little-endian f32
+/// of dp, and a side below zero or not a number is refused whole.
+#[test]
+fn fr38_editor_content_padding_on_the_wire() {
+    let padding = ContentPadding::new(8.0, 24.0);
+    let bytes = padding.to_bytes();
+    assert_eq!(bytes.len(), CONTENT_PADDING_LEN);
+    assert_eq!(&bytes[0..4], &8.0_f32.to_le_bytes());
+    assert_eq!(&bytes[4..8], &24.0_f32.to_le_bytes());
+    assert_eq!(ContentPadding::from_bytes(&bytes), Some(padding));
+    assert!(ContentPadding::default().is_empty());
+    assert!(!padding.is_empty());
+    assert!(!ContentPadding::new(8.0, 0.0).is_empty());
+
+    assert_eq!(
+        ContentPadding::from_bytes(&ContentPadding::new(-1.0, 0.0).to_bytes()),
+        None
+    );
+    assert_eq!(
+        ContentPadding::from_bytes(&ContentPadding::new(0.0, f32::NAN).to_bytes()),
+        None
+    );
+    assert_eq!(
+        ContentPadding::from_bytes(&ContentPadding::new(f32::INFINITY, 0.0).to_bytes()),
+        None
+    );
+    assert_eq!(ContentPadding::from_bytes(&bytes[..4]), None);
+
+    let mut encoder = BatchEncoder::default();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::ContentPaddingDp,
+            value: PropertyValue::Bytes(&bytes),
+        })
+        .unwrap();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 2,
+            property: PropertyKind::FixedGutterColumns,
+            value: PropertyValue::Bool(true),
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap().to_vec();
+    assert_eq!(
+        records(&batch),
+        vec![
+            Record::Prop(
+                2,
+                PropertyKind::ContentPaddingDp,
+                Value::Bytes(bytes.to_vec())
+            ),
+            Record::Prop(2, PropertyKind::FixedGutterColumns, Value::Bool(true)),
+        ]
+    );
+}
+
+/// The current line's gutter takes the last pair of the colour record, offset 10, and reads
+/// back as the role it was given.
+#[test]
+fn fr38_editor_current_line_gutter_color_at_offset_ten() {
+    let colors = CodeEditorColors::new()
+        .current_line(ColorRole::SurfaceVariant)
+        .current_line_gutter(ColorRole::SurfaceVariant)
+        .current_line_number(ColorRole::OnSurface);
+    let field = CODE_EDITOR_COLORS_RECORD
+        .fields
+        .iter()
+        .find(|field| field.name == "currentLineGutter")
+        .expect("the colour record names the current line's gutter");
+    assert_eq!(field.offset, 10);
+    let bytes = colors.to_bytes();
+    assert_eq!(
+        u16::from_le_bytes([bytes[10], bytes[11]]),
+        ColorRole::SurfaceVariant as u16
+    );
+    assert_eq!(
+        u16::from_le_bytes([bytes[6], bytes[7]]),
+        ColorRole::OnSurface as u16
+    );
+    assert_eq!(CodeEditorColors::from_bytes(&bytes), Some(colors));
+    assert!(
+        !CodeEditorColors::new()
+            .current_line_gutter(ColorRole::Surface)
+            .is_empty()
     );
 }
 
@@ -1569,7 +1675,7 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1775);
+    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
     assert_eq!(&events[1623..1659], wire.as_slice());
 }
 
@@ -1855,7 +1961,7 @@ fn fr38_selections_round_trip_on_the_wire() {
 
     // The selections of the mutation vector's editor, the record before the vector's last.
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1775);
+    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
     let last = decode_event(&events[1679..1755]).unwrap();
     assert_eq!((last.node_id, last.handler_id), (12, 33));
     assert_eq!(
