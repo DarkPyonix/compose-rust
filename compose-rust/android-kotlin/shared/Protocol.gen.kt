@@ -1335,6 +1335,7 @@ sealed interface Modifier {
     data class Overlay(val paint: Paint) : Modifier
     data object Sticky : Modifier
     data object UnboundedWidth : Modifier
+    data class BorderDash(val dashDp: kotlin.Float, val gapDp: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1926,7 +1927,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -7259639446471370L
+    const val SCHEMA_HASH: Long = 4894512559412188281L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -4220,6 +4221,7 @@ object Protocol {
         39 -> 0
         41 -> 0
         40 -> 0
+        42 -> 0
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4267,6 +4269,7 @@ object Protocol {
             39 -> Modifier.Overlay(paint(first, offset))
             41 -> Modifier.Sticky
             40 -> Modifier.UnboundedWidth
+            42 -> Modifier.BorderDash(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

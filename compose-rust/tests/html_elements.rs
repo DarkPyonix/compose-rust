@@ -183,6 +183,10 @@ fn every_modifier() -> Vec<Modifier> {
         Modifier::Overlay(Paint::Literal(Color::argb(0x1f00_0000))),
         Modifier::Sticky,
         Modifier::UnboundedWidth,
+        Modifier::BorderDash {
+            dash_dp: 4.0,
+            gap_dp: 4.0,
+        },
     ]
 }
 
