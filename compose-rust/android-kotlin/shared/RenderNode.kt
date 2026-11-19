@@ -1283,20 +1283,27 @@ private class WeightedStackPolicy(
     }
 
     private fun IntrinsicMeasureScope.crossIntrinsic(children: List<IntrinsicMeasurable>, main: Int, min: Boolean): Int {
-        val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
-        val fixed = children.indices.filter { weights[it] == null }.map { index ->
-            val child = children[index]
-            intrinsic(index) { if (horizontal) child.maxIntrinsicWidth(Constraints.Infinity) else child.maxIntrinsicHeight(Constraints.Infinity) }
-        }.fold(0L) { sum, value -> sum + value }
-        val remaining = if (main == Constraints.Infinity) Constraints.Infinity else (main.toLong() - fixed - gap).coerceAtLeast(0).toInt()
         val total = weights.filterNotNull().sum()
+        val remaining = if (main == Constraints.Infinity || total <= 0f) {
+            Constraints.Infinity
+        } else {
+            val gap = spacing(this) * (children.size - 1).coerceAtLeast(0)
+            val fixed = children.indices.filter { weights[it] == null }.map { index ->
+                val child = children[index]
+                intrinsic(index) { if (horizontal) child.maxIntrinsicWidth(Constraints.Infinity) else child.maxIntrinsicHeight(Constraints.Infinity) }
+            }.fold(0L) { sum, value -> sum + value }
+            (main.toLong() - fixed - gap).coerceAtLeast(0).toInt()
+        }
         return children.indices.maxOfOrNull { index ->
             val child = children[index]
             val weight = weights[index]
-            val available = if (weight == null || remaining == Constraints.Infinity) Constraints.Infinity
-                else (remaining * weight / total).roundToInt()
-            val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
-            val size = if (weight == null) available else maxOf(available, minimum)
+            val size = if (weight == null || remaining == Constraints.Infinity) {
+                Constraints.Infinity
+            } else {
+                val available = (remaining * weight / total).roundToInt()
+                val minimum = intrinsic(index) { if (horizontal) child.minIntrinsicWidth(Constraints.Infinity) else child.minIntrinsicHeight(Constraints.Infinity) }
+                maxOf(available, minimum)
+            }
             intrinsic(index) { if (horizontal) {
                 if (min) child.minIntrinsicHeight(size) else child.maxIntrinsicHeight(size)
             } else {

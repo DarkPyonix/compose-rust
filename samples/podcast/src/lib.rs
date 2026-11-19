@@ -1698,9 +1698,7 @@ mod tests {
         let tile = screen.parent_of(search).expect("the search stands alone");
         let modifiers = screen.modifiers_of(tile);
         assert!(
-            modifiers
-                .iter()
-                .any(|modifier| *modifier == WireModifier::ShapeRole(ShapeRole::Large)),
+            modifiers.contains(&WireModifier::ShapeRole(ShapeRole::Large)),
             "the search tile is not the covers' shape: {modifiers:?}"
         );
         assert!(
