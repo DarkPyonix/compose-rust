@@ -2521,6 +2521,9 @@ object Protocol {
         }
     }
 
+    /** A paint that may be absent: a zero word is none, because no paint kind is zero. */
+    private fun optionalPaint(bits: Long, offset: Int): Paint? = if (bits == 0L) null else paint(bits, offset)
+
     /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
     private fun flag(word: Long, offset: Int): Boolean = when (word) {
         0L -> false
@@ -4982,6 +4985,7 @@ fn kotlin_type(ty: FieldType) -> String {
         FieldType::Role(name) => format!("{KOTLIN_PACKAGE}.{name}"),
         FieldType::Bool => "Boolean".to_owned(),
         FieldType::FiniteFloat => "kotlin.Float".to_owned(),
+        FieldType::OptionalPaint => "Paint?".to_owned(),
     }
 }
 
@@ -5013,6 +5017,7 @@ fn modifier_decode_expression(field: &FieldSchema) -> String {
         FieldType::Role(name) => format!("{}({narrow}, offset)", lower_camel(name)),
         FieldType::Bool => format!("flag({word}, offset)"),
         FieldType::FiniteFloat => format!("finite(kotlin.Float.fromBits({narrow}), offset)"),
+        FieldType::OptionalPaint => format!("optionalPaint({word}, offset)"),
     }
 }
 

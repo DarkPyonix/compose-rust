@@ -384,6 +384,7 @@ mod tests {
                         FieldType::Role(_) => 5,
                         FieldType::Bool => 6,
                         FieldType::FiniteFloat => 7,
+                        FieldType::OptionalPaint => 8,
                     }],
                 );
                 if let FieldType::Role(role) = field.ty {
@@ -444,7 +445,7 @@ mod tests {
         );
         assert_eq!(
             MODIFIER_SCHEMA.len(),
-            41,
+            44,
             "the number of modifiers moved: {on_purpose}"
         );
         assert_eq!(

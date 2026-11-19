@@ -357,6 +357,86 @@ pub enum Side {
     Start,
 }
 
+/// How a pressable node looks while a mouse is over it, for [`Modifier::hover_style`].
+///
+/// Built as `HoverStyle::fill(paint, alpha).border(paint).content_alpha(a)`, or from
+/// `HoverStyle::default()`, which changes nothing: the default hover layer, the node's own
+/// border colour and its full opacity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HoverStyle {
+    /// The hover layer's paint. None keeps the default `OnSurface` layer.
+    pub fill: Option<Paint>,
+    /// The opacity the hover layer is laid over the node at, from 0 to 1.
+    pub fill_alpha: f32,
+    /// The colour the node's border takes while the mouse is over it. None keeps it.
+    pub border: Option<Paint>,
+    /// What the whole node's opacity is multiplied by while the mouse is over it.
+    pub content_alpha: f32,
+}
+
+impl Default for HoverStyle {
+    fn default() -> Self {
+        Self {
+            fill: None,
+            fill_alpha: 0.0,
+            border: None,
+            content_alpha: 1.0,
+        }
+    }
+}
+
+impl HoverStyle {
+    /// A hover layer of `paint` laid over the node at `alpha`.
+    pub fn fill(paint: impl Into<Paint>, alpha: f32) -> Self {
+        Self {
+            fill: Some(paint.into()),
+            fill_alpha: alpha,
+            ..Self::default()
+        }
+    }
+
+    /// The border colour while the mouse is over the node.
+    pub fn border(mut self, paint: impl Into<Paint>) -> Self {
+        self.border = Some(paint.into());
+        self
+    }
+
+    /// The factor the node's opacity is multiplied by while the mouse is over it.
+    pub fn content_alpha(mut self, alpha: f32) -> Self {
+        self.content_alpha = alpha;
+        self
+    }
+}
+
+/// The colour and the press-in curve of a pressed surface, for [`Modifier::press_style`].
+///
+/// `PressStyle::default()` changes nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PressStyle {
+    /// The colour laid over the surface while it is pressed, at the press tint's alpha.
+    /// None keeps the node's content colour.
+    pub tint: Option<Paint>,
+    /// The `cubic-bezier(x1, y1, x2, y2)` the press runs along. None keeps the default
+    /// ease-out. The release keeps its own curve either way.
+    pub press_easing: Option<[f32; 4]>,
+}
+
+impl PressStyle {
+    /// A press tint of `paint`.
+    pub fn tint(paint: impl Into<Paint>) -> Self {
+        Self {
+            tint: Some(paint.into()),
+            press_easing: None,
+        }
+    }
+
+    /// The press-in curve, as CSS `cubic-bezier(x1, y1, x2, y2)`.
+    pub const fn press_easing(mut self, x1: f32, y1: f32, x2: f32, y2: f32) -> Self {
+        self.press_easing = Some([x1, y1, x2, y2]);
+        self
+    }
+}
+
 /// What sits around a widget: its size, its surface, its outline, how far its content
 /// is inset, and what the Renderer reports about it. Compose's `Modifier`.
 ///
@@ -394,6 +474,9 @@ pub struct Modifier {
     elevation: Option<f32>,
     alpha: Option<f32>,
     press_feedback: Option<(f32, f32)>,
+    hover_style: Option<HoverStyle>,
+    focus_ring: Option<(Paint, f32, f32)>,
+    press_style: Option<PressStyle>,
     semantics_role: Option<SemanticsRole>,
     semantics_label: Option<Arc<str>>,
     semantics_state: SemanticsState,
@@ -448,6 +531,9 @@ impl Modifier {
             elevation: None,
             alpha: None,
             press_feedback: None,
+            hover_style: None,
+            focus_ring: None,
+            press_style: None,
             semantics_role: None,
             semantics_label: None,
             semantics_state: SemanticsState::NONE,
@@ -900,6 +986,32 @@ impl Modifier {
         self
     }
 
+    /// How this pressable node looks while a mouse is over it: its hover layer, its border
+    /// colour and its opacity. A node without it keeps the default hover layer. Hovering
+    /// sends nothing to the Host.
+    pub const fn hover_style(mut self, style: HoverStyle) -> Self {
+        self.hover_style = Some(style);
+        self
+    }
+
+    /// The ring this pressable node draws while it has keyboard focus: its paint, its
+    /// width in dp, and how far outside the node's outline it sits in dp. At 0 the ring is
+    /// drawn just inside the outline; above 0 it is drawn that far outside it, with its
+    /// corners grown by the same amount, as CSS `outline-offset` does. The ring takes no
+    /// room, so nothing around the node moves. A node without it draws a 2 dp `Primary`
+    /// ring inside its outline.
+    pub fn focus_ring(mut self, paint: impl Into<Paint>, width_dp: f32, offset_dp: f32) -> Self {
+        self.focus_ring = Some((paint.into(), width_dp, offset_dp));
+        self
+    }
+
+    /// The colour laid over this node while it is pressed, and the curve the press runs
+    /// along. The tint's alpha is still the one `press_feedback` gives, or the default.
+    pub const fn press_style(mut self, style: PressStyle) -> Self {
+        self.press_style = Some(style);
+        self
+    }
+
     /// The name assistive technology reads for this node. On a widget with a visible label
     /// it replaces that label; an empty name is the same as none.
     pub fn label(mut self, label: &str) -> Self {
@@ -1220,6 +1332,49 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
             .map_or(OwnedAttr::None, |(scale, alpha)| {
                 OwnedAttr::Bytes([scale.to_le_bytes(), alpha.to_le_bytes()].concat())
             }),
+    );
+    // Two paints, a zero word for none, and then the two alphas.
+    push(
+        false,
+        "hover_style",
+        modifier.hover_style.map_or(OwnedAttr::None, |style| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&style.fill.map_or(0, Paint::to_bits).to_le_bytes());
+            bytes.extend_from_slice(&style.border.map_or(0, Paint::to_bits).to_le_bytes());
+            bytes.extend_from_slice(&style.fill_alpha.to_le_bytes());
+            bytes.extend_from_slice(&style.content_alpha.to_le_bytes());
+            OwnedAttr::Bytes(bytes)
+        }),
+    );
+    push(
+        false,
+        "focus_ring",
+        modifier
+            .focus_ring
+            .map_or(OwnedAttr::None, |(paint, width, offset)| {
+                let mut bytes = Vec::with_capacity(16);
+                bytes.extend_from_slice(&paint.to_bits().to_le_bytes());
+                bytes.extend_from_slice(&width.to_le_bytes());
+                bytes.extend_from_slice(&offset.to_le_bytes());
+                OwnedAttr::Bytes(bytes)
+            }),
+    );
+    // The tint, a zero word for none, and then the four curve points, the first NaN for
+    // no curve.
+    push(
+        false,
+        "press_style",
+        modifier.press_style.map_or(OwnedAttr::None, |style| {
+            let mut bytes = Vec::with_capacity(24);
+            bytes.extend_from_slice(&style.tint.map_or(0, Paint::to_bits).to_le_bytes());
+            for point in style
+                .press_easing
+                .unwrap_or([f32::NAN, 0.0, 0.0, 0.0])
+            {
+                bytes.extend_from_slice(&point.to_le_bytes());
+            }
+            OwnedAttr::Bytes(bytes)
+        }),
     );
     // The role and state travel as one integer, the role in the low 16 bits; the name is a
     // property of the node because a string does not fit in a modifier's words.
