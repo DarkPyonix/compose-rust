@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -76,24 +77,24 @@ private fun DrawScope.draw(
     fun x(value: Float): Float = if (scaled) value * scaleX else dp(value)
     fun y(value: Float): Float = if (scaled) value * scaleY else dp(value)
     fun r(value: Float): Float = if (scaled) value * minOf(scaleX, scaleY) else dp(value)
-    val color = theme.color(command.paint)
+    val brush = theme.brush(command.paint) ?: SolidColor(theme.color(command.paint))
     when (command) {
         is DrawCommand.Line -> drawLine(
-            color = color,
+            brush = brush,
             start = Offset(x(command.x1), y(command.y1)),
             end = Offset(x(command.x2), y(command.y2)),
             strokeWidth = dp(command.strokeWidth),
         )
 
         is DrawCommand.Rect -> drawRect(
-            color = color,
+            brush = brush,
             topLeft = Offset(x(command.x), y(command.y)),
             size = Size(x(command.width), y(command.height)),
             style = strokeOrFill(command.strokeWidth, this),
         )
 
         is DrawCommand.RoundRect -> drawRoundRect(
-            color = color,
+            brush = brush,
             topLeft = Offset(x(command.x), y(command.y)),
             size = Size(x(command.width), y(command.height)),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(r(command.radius)),
@@ -101,7 +102,7 @@ private fun DrawScope.draw(
         )
 
         is DrawCommand.Circle -> drawCircle(
-            color = color,
+            brush = brush,
             radius = r(command.radius),
             center = Offset(x(command.centerX), y(command.centerY)),
             style = strokeOrFill(command.strokeWidth, this),
@@ -110,7 +111,7 @@ private fun DrawScope.draw(
         is DrawCommand.Arc -> {
             val radius = r(command.radius)
             drawArc(
-                color = color,
+                brush = brush,
                 startAngle = command.startDegrees,
                 sweepAngle = command.sweepDegrees,
                 useCenter = command.strokeWidth <= 0f,
@@ -134,7 +135,7 @@ private fun DrawScope.draw(
                 text = if (bytes == null) "" else DrawCommands.textOf(bytes, command),
                 topLeft = Offset(x(command.x), y(command.y)),
                 style = TextStyle(
-                    color = color,
+                    brush = brush,
                     fontSize = token.size.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight(token.weight),
                     lineHeight = token.lineHeight.sp,
