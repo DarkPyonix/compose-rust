@@ -3774,6 +3774,53 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::BorderDash { dash_dp, gap_dp } => {
             (42, two_words(pack_floats(*dash_dp, *gap_dp), 0))
         }
+        Modifier::HoverStyle {
+            fill,
+            fill_alpha,
+            border,
+            content_alpha,
+        } => (
+            43,
+            [
+                optional_paint_word(*fill),
+                optional_paint_word(*border),
+                pack_floats(*fill_alpha, *content_alpha),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::FocusRing {
+            paint,
+            width_dp,
+            offset_dp,
+        } => (
+            44,
+            two_words(paint.to_bits(), pack_floats(*width_dp, *offset_dp)),
+        ),
+        Modifier::PressStyle { tint, press_easing } => {
+            // A NaN first point is no curve, the one value a curve can never start at.
+            let [x1, y1, x2, y2] = press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]);
+            (
+                45,
+                [
+                    optional_paint_word(*tint),
+                    pack_floats(x1, y1),
+                    pack_floats(x2, y2),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+            )
+        }
         Modifier::Transform {
             a,
             b,
@@ -3828,6 +3875,19 @@ fn decode_role<T: TryFrom<u16, Error = ()>>(first: u64) -> Result<T, ProtocolErr
 
 fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
     Paint::from_bits(bits).ok_or(ProtocolError::InvalidModifier(0))
+}
+
+/// A paint that may be absent: a zero word is none, because no paint kind is zero.
+fn decode_optional_paint(bits: u64) -> Result<Option<Paint>, ProtocolError> {
+    if bits == 0 {
+        Ok(None)
+    } else {
+        decode_paint(bits).map(Some)
+    }
+}
+
+fn optional_paint_word(paint: Option<Paint>) -> u64 {
+    paint.map_or(0, Paint::to_bits)
 }
 
 fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
@@ -4073,6 +4133,30 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         42 => Ok(Modifier::BorderDash {
             dash_dp: unpack_low(first),
             gap_dp: unpack_high(first),
+        }),
+        43 => Ok(Modifier::HoverStyle {
+            fill: decode_optional_paint(first)?,
+            fill_alpha: unpack_low(third),
+            border: decode_optional_paint(second)?,
+            content_alpha: unpack_high(third),
+        }),
+        44 => Ok(Modifier::FocusRing {
+            paint: decode_paint(first)?,
+            width_dp: unpack_low(second),
+            offset_dp: unpack_high(second),
+        }),
+        45 => Ok(Modifier::PressStyle {
+            tint: decode_optional_paint(first)?,
+            press_easing: if unpack_low(second).is_nan() {
+                None
+            } else {
+                Some([
+                    unpack_low(second),
+                    unpack_high(second),
+                    unpack_low(third),
+                    unpack_high(third),
+                ])
+            },
         }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }

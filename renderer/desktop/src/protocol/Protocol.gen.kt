@@ -1338,6 +1338,9 @@ sealed interface Modifier {
     data object Sticky : Modifier
     data object UnboundedWidth : Modifier
     data class BorderDash(val dashDp: kotlin.Float, val gapDp: kotlin.Float) : Modifier
+    data class HoverStyle(val fill: Paint?, val fillAlpha: kotlin.Float, val border: Paint?, val contentAlpha: kotlin.Float) : Modifier
+    data class FocusRing(val paint: Paint, val widthDp: kotlin.Float, val offsetDp: kotlin.Float) : Modifier
+    data class PressStyle(val tint: Paint?, val easingX1: kotlin.Float, val easingY1: kotlin.Float, val easingX2: kotlin.Float, val easingY2: kotlin.Float) : Modifier
 }
 
 /** How the segment from one keyframe to the next is timed. */
@@ -1929,7 +1932,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 8641334324465743513L
+    const val SCHEMA_HASH: Long = 512433268632026667L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -4169,6 +4172,9 @@ object Protocol {
         }
     }
 
+    /** A paint that may be absent: a zero word is none, because no paint kind is zero. */
+    private fun optionalPaint(bits: Long, offset: Int): Paint? = if (bits == 0L) null else paint(bits, offset)
+
     /** A word that says yes or no. Any value but 0 and 1 is a record the sides disagree on. */
     private fun flag(word: Long, offset: Int): Boolean = when (word) {
         0L -> false
@@ -4226,6 +4232,9 @@ object Protocol {
         41 -> 0
         40 -> 0
         42 -> 0
+        43 -> 1
+        44 -> 0
+        45 -> 1
         else -> throw ProtocolException("unknown modifier tag $tag", offset)
     }
 
@@ -4274,6 +4283,9 @@ object Protocol {
             41 -> Modifier.Sticky
             40 -> Modifier.UnboundedWidth
             42 -> Modifier.BorderDash(kotlin.Float.fromBits(first.toInt()), kotlin.Float.fromBits((first ushr 32).toInt()))
+            43 -> Modifier.HoverStyle(optionalPaint(first, offset), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), optionalPaint(second, offset), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
+            44 -> Modifier.FocusRing(paint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()))
+            45 -> Modifier.PressStyle(optionalPaint(first, offset), kotlin.Float.fromBits(second.toInt()), kotlin.Float.fromBits((second ushr 32).toInt()), kotlin.Float.fromBits(readU64(batch, base, available, at + 16).toInt()), kotlin.Float.fromBits((readU64(batch, base, available, at + 16) ushr 32).toInt()))
             else -> throw ProtocolException("unknown modifier tag $tag", offset)
         }
     }

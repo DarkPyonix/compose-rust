@@ -131,6 +131,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     val shape = resolvedShape(theme)
     val pressShape = containerShape ?: shape
     val feedback = lastOrNull { it is ProtocolModifier.PressFeedback } as? ProtocolModifier.PressFeedback
+    val hoverStyle = lastOrNull { it is ProtocolModifier.HoverStyle } as? ProtocolModifier.HoverStyle
+    val focusRing = lastOrNull { it is ProtocolModifier.FocusRing } as? ProtocolModifier.FocusRing
+    val pressStyle = lastOrNull { it is ProtocolModifier.PressStyle } as? ProtocolModifier.PressStyle
     val borderDash = (lastOrNull { it is ProtocolModifier.BorderDash } as? ProtocolModifier.BorderDash)
         ?.takeIf { it.dashDp > 0f && it.gapDp > 0f && it.dashDp.isFinite() && it.gapDp.isFinite() }
     // What this node's surface is made of is its surface, so it is drawn round the whole
@@ -177,6 +180,9 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             pressShape,
             feedback,
             pressColor,
+            hoverStyle,
+            focusRing,
+            pressStyle,
         )
     }
     // A paint laid over the node, in the same outline its background fills. It goes in
@@ -224,7 +230,15 @@ internal fun List<ProtocolModifier>.toComposeModifier(
     } else {
         indexOfLast { it is ProtocolModifier.Transform || it is ProtocolModifier.Transform3D }
     }
-    val outermost = if (pointerEvents != null && pointerAfter < 0) pointerEvents.then(surface) else surface
+    // A hover that fades the node fades all of it, its surface included, so it goes
+    // outside everything else this node draws.
+    val hoverFade = hoverStyle?.contentAlpha
+        ?.takeIf { it.isFinite() && it != 1f }
+        ?.let { alpha -> Modifier.hoverFade(containerEnabled, alpha.coerceIn(0f, 1f)) }
+        ?: Modifier
+    val outermost = hoverFade.then(
+        if (pointerEvents != null && pointerAfter < 0) pointerEvents.then(surface) else surface,
+    )
     val folded = foldIndexed(outermost) { index, chain, value ->
         val next = when (value) {
             is ProtocolModifier.WindowDrag -> chain.composed {
@@ -254,6 +268,11 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                 }
             }
             is ProtocolModifier.PressFeedback -> chain
+            // Read through `hoverStyle`, `focusRing` and `pressStyle` above: they change how
+            // the press, the hover and the focus are drawn, and on their own draw nothing.
+            is ProtocolModifier.HoverStyle -> chain
+            is ProtocolModifier.FocusRing -> chain
+            is ProtocolModifier.PressStyle -> chain
             // Applied with the node's accessible name in one place, `accessibility`.
             is ProtocolModifier.Semantics -> chain
             // Read through `shape` and `curve` above: it bends the corners the other
@@ -298,7 +317,14 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Clickable -> {
                 pressableAttached = true
-                if (allowPress) chain.pressable(nodeId, value.handlerId, containerEnabled, dispatcher, theme, shape, feedback, pressColor) else chain
+                if (allowPress) {
+                    chain.pressable(
+                        nodeId, value.handlerId, containerEnabled, dispatcher, theme, shape, feedback, pressColor,
+                        hoverStyle, focusRing, pressStyle,
+                    )
+                } else {
+                    chain
+                }
             }
 
             is ProtocolModifier.PaddingEach ->
@@ -320,10 +346,10 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
                 val holder = if (!borderSeen) animated?.invoke() else null
                 borderSeen = true
-                when {
-                    borderDash != null -> chain.dashedBorder(
+                fun drawn(base: Modifier, paint: Brush): Modifier = when {
+                    borderDash != null -> base.dashedBorder(
                         value.width.dp,
-                        brush,
+                        paint,
                         shape,
                         borderDash.dashDp.dp,
                         borderDash.gapDp.dp,
@@ -332,8 +358,20 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     // Compose's own border until an animation first plays on this one, then the
                     // layer that can repaint it in the draw phase.
                     holder != null && holder.borderAnimated.value ->
-                        chain.animatedBorder(value.width.dp, brush, shape, holder)
-                    else -> chain.border(value.width.dp, brush, shape)
+                        base.animatedBorder(value.width.dp, paint, shape, holder)
+                    else -> base.border(value.width.dp, paint, shape)
+                }
+                // A hover style that names a border colour swaps this border's paint while
+                // the mouse is over the node, and gives it back when the mouse leaves.
+                val hoverBrush = hoverStyle?.border?.let { theme.brush(it) }
+                if (hoverBrush == null) {
+                    drawn(chain, brush)
+                } else {
+                    chain.composed {
+                        val source = remember { MutableInteractionSource() }
+                        val hovered by source.collectIsHoveredAsState()
+                        drawn(Modifier.hoverable(source, containerEnabled), if (hovered && containerEnabled) hoverBrush else brush)
+                    }
                 }
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
             is ProtocolModifier.Elevation ->
@@ -1046,8 +1084,46 @@ internal fun Modifier.pressable(
     shape: Shape,
     feedback: ProtocolModifier.PressFeedback? = null,
     pressColor: Color = theme.color(ColorRole.OnSurface),
+    hoverStyle: ProtocolModifier.HoverStyle? = null,
+    focusRing: ProtocolModifier.FocusRing? = null,
+    pressStyle: ProtocolModifier.PressStyle? = null,
 ): Modifier = composed {
     val source = remember(nodeId, handlerId) { MutableInteractionSource() }
+    val overlayFocusStack = LocalOverlayFocusStack.current
+    val focusRequester = remember(nodeId) { FocusRequester() }
+    this
+        .focusRequester(focusRequester)
+        .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
+        .pressFeedback(source, enabled, theme, shape, pressColor, feedback, pressStyle)
+        .hoverable(source, enabled)
+        .clickable(
+            interactionSource = source,
+            indication = null,
+            enabled = enabled,
+            role = Role.Button,
+        ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
+        .hoverAndFocusRing(source, enabled, theme, shape, hoverStyle, focusRing)
+}
+
+/**
+ * Draws the hover layer and the keyboard focus ring of a pressable surface over its
+ * content, from the interactions [source] reports. The toolkit `Button` and every pressable
+ * container draw through this one function, so they follow the same rules.
+ *
+ * The hover layer is `OnSurface` at 8%, or the [hoverStyle]'s fill at its alpha. The ring is
+ * drawn only for focus that did not come with a press, which is keyboard or programmatic
+ * focus: 2 dp of `Primary` just inside the outline, or what [focusRing] asks for. A ring
+ * with a positive offset is drawn that far outside the outline, its corners grown by the
+ * same amount, and it takes no room, so a clip further out in the chain cuts it.
+ */
+internal fun Modifier.hoverAndFocusRing(
+    source: MutableInteractionSource,
+    enabled: Boolean,
+    theme: ResolvedTheme,
+    shape: Shape,
+    hoverStyle: ProtocolModifier.HoverStyle? = null,
+    focusRing: ProtocolModifier.FocusRing? = null,
+): Modifier = composed {
     val hovered by source.collectIsHoveredAsState()
     var keyboardFocused by remember(source) { mutableStateOf(false) }
     LaunchedEffect(source) {
@@ -1073,34 +1149,38 @@ internal fun Modifier.pressable(
             }
         }
     }
-    val ink = theme.color(ColorRole.OnSurface)
-    val ring = theme.color(ColorRole.Primary)
-    val overlayFocusStack = LocalOverlayFocusStack.current
-    val focusRequester = remember(nodeId) { FocusRequester() }
-    this
-        .focusRequester(focusRequester)
-        .onFocusChanged { state -> overlayFocusStack.noteFocused(focusRequester, state.isFocused) }
-        .pressFeedback(source, enabled, theme, shape, pressColor, feedback)
-        .hoverable(source, enabled)
-        .clickable(
-            interactionSource = source,
-            indication = null,
-            enabled = enabled,
-            role = Role.Button,
-        ) { dispatcher.dispatch(HostEvent.Clicked(nodeId, handlerId)) }
-        .drawWithContent {
-            drawContent()
-            if (!enabled) return@drawWithContent
-            val layer = when {
-                hovered -> HOVER_LAYER
-                else -> 0f
-            }
-            if (layer > 0f) {
-                val outline = shape.createOutline(size, layoutDirection, this)
-                drawOutline(outline, ink.copy(alpha = layer))
-            }
-            if (keyboardFocused) {
-                val stroke = FOCUS_RING_WIDTH.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
+    val hoverColor = hoverStyle?.let { style ->
+        style.fill?.let { fill ->
+            val color = theme.color(fill)
+            color.copy(alpha = color.alpha * (style.fillAlpha.takeIf { it.isFinite() } ?: 0f).coerceIn(0f, 1f))
+        }
+    } ?: theme.color(ColorRole.OnSurface).copy(alpha = HOVER_LAYER)
+    val ring = focusRing?.let { theme.color(it.paint) } ?: theme.color(ColorRole.Primary)
+    val ringWidth = focusRing?.widthDp?.takeIf { it.isFinite() && it >= 0f }?.dp ?: FOCUS_RING_WIDTH
+    val ringOffset = focusRing?.offsetDp?.takeIf { it.isFinite() && it > 0f }?.dp ?: 0.dp
+    drawWithContent {
+        drawContent()
+        if (!enabled) return@drawWithContent
+        if (hovered && hoverColor.alpha > 0f) {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            drawOutline(outline, hoverColor)
+        }
+        if (keyboardFocused) {
+            val offset = ringOffset.toPx()
+            if (offset > 0f) {
+                val stroke = ringWidth.toPx()
+                if (stroke > 0f) {
+                    // The stroke is centred on its path, so the path runs half a stroke
+                    // further out than the offset for the ring to start at the offset.
+                    val grow = offset + stroke / 2f
+                    drawOutline(
+                        grownOutline(shape.createOutline(size, layoutDirection, this), grow, size, shape, layoutDirection, this),
+                        ring,
+                        style = Stroke(stroke),
+                    )
+                }
+            } else {
+                val stroke = ringWidth.toPx().coerceIn(0f, minOf(size.width, size.height) / 2f)
                 if (stroke > 0f) {
                     val half = stroke / 2f
                     val inner = Size(
@@ -1114,6 +1194,67 @@ internal fun Modifier.pressable(
                 }
             }
         }
+    }
+}
+
+/**
+ * [outline] moved [grow] pixels outwards on every side, its corner radii grown by the same
+ * amount, as CSS draws an outline with an `outline-offset`. A shape that is neither a
+ * rectangle nor a rounded rectangle is drawn at the grown size instead, centred on the node.
+ */
+private fun grownOutline(
+    outline: Outline,
+    grow: Float,
+    size: Size,
+    shape: Shape,
+    layoutDirection: LayoutDirection,
+    density: Density,
+): Outline {
+    fun grown(radius: CornerRadius) = if (radius.x <= 0f && radius.y <= 0f) {
+        CornerRadius.Zero
+    } else {
+        CornerRadius(radius.x + grow, radius.y + grow)
+    }
+    return when (outline) {
+        is Outline.Rectangle -> Outline.Rectangle(outline.rect.inflate(grow))
+        is Outline.Rounded -> {
+            val box = outline.roundRect
+            Outline.Rounded(
+                RoundRect(
+                    left = box.left - grow,
+                    top = box.top - grow,
+                    right = box.right + grow,
+                    bottom = box.bottom + grow,
+                    topLeftCornerRadius = grown(box.topLeftCornerRadius),
+                    topRightCornerRadius = grown(box.topRightCornerRadius),
+                    bottomRightCornerRadius = grown(box.bottomRightCornerRadius),
+                    bottomLeftCornerRadius = grown(box.bottomLeftCornerRadius),
+                ),
+            )
+        }
+        is Outline.Generic -> {
+            val bigger = shape.createOutline(
+                Size(size.width + 2f * grow, size.height + 2f * grow),
+                layoutDirection,
+                density,
+            )
+            val path = Path().apply {
+                addOutline(bigger)
+                translate(androidx.compose.ui.geometry.Offset(-grow, -grow))
+            }
+            Outline.Generic(path)
+        }
+    }
+}
+
+/**
+ * Multiplies the node's opacity by [alpha] while a mouse is over it. It listens for the
+ * hover on its own, so it works the same on a node whatever draws its press.
+ */
+private fun Modifier.hoverFade(enabled: Boolean, alpha: Float): Modifier = composed {
+    val source = remember { MutableInteractionSource() }
+    val hovered by source.collectIsHoveredAsState()
+    hoverable(source, enabled).graphicsLayer { this.alpha = if (hovered && enabled) alpha else 1f }
 }
 
 
@@ -1139,6 +1280,24 @@ internal fun pressFeedbackTarget(
     tint = if (enabled && visible) (feedback?.tintAlpha ?: if (dark) PRESS_TINT_DARK else PRESS_TINT_LIGHT).coerceIn(0f, 1f) else 0f,
 )
 
+/**
+ * The curve a press runs along: the press style's `cubic-bezier`, or the default ease-out
+ * when it names none or names one that is not four finite numbers.
+ */
+internal fun pressInEasing(pressStyle: ProtocolModifier.PressStyle?): androidx.compose.animation.core.Easing {
+    if (pressStyle == null) return PRESS_IN_EASING
+    val points = listOf(pressStyle.easingX1, pressStyle.easingY1, pressStyle.easingX2, pressStyle.easingY2)
+    if (points.any { !it.isFinite() }) return PRESS_IN_EASING
+    // CSS keeps the x of both control points between 0 and 1, so the curve is a function
+    // of time.
+    return CubicBezierEasing(
+        pressStyle.easingX1.coerceIn(0f, 1f),
+        pressStyle.easingY1,
+        pressStyle.easingX2.coerceIn(0f, 1f),
+        pressStyle.easingY2,
+    )
+}
+
 internal fun pressReleaseDelay(elapsedMillis: Long): Long = (PRESS_MIN_MILLIS - elapsedMillis).coerceAtLeast(0)
 
 internal fun Modifier.pressFeedback(
@@ -1148,6 +1307,7 @@ internal fun Modifier.pressFeedback(
     shape: Shape,
     ink: Color,
     feedback: ProtocolModifier.PressFeedback?,
+    pressStyle: ProtocolModifier.PressStyle? = null,
 ): Modifier = composed {
     var visible by remember(source) { mutableStateOf(false) }
     LaunchedEffect(source, enabled) {
@@ -1177,19 +1337,23 @@ internal fun Modifier.pressFeedback(
     }
     val state = pressFeedbackTarget(visible, enabled, dev.darkpyonix.composerust.ui.node.platformReducedMotion(), theme.dark, feedback)
     val target = state.scale.takeIf { it.isFinite() }?.coerceIn(0.5f, 1.5f) ?: 1f
+    val pressIn = remember(pressStyle) { pressInEasing(pressStyle) }
     val scale by animateFloatAsState(
         targetValue = target,
         animationSpec = tween(
             durationMillis = if (target == 1f) PRESS_OUT_MILLIS else PRESS_IN_MILLIS,
-            easing = if (target == 1f) PRESS_OUT_EASING else PRESS_IN_EASING,
+            easing = if (target == 1f) PRESS_OUT_EASING else pressIn,
         ),
     )
     val tint = state.tint
+    // A press style's tint takes the place of the content colour; its alpha is still the
+    // press feedback's.
+    val tintColor = pressStyle?.tint?.let { theme.color(it) } ?: ink
     this.graphicsLayer { scaleX = scale; scaleY = scale }
         .drawWithContent {
             drawContent()
             if (enabled && visible && tint > 0f) {
-                drawOutline(shape.createOutline(size, layoutDirection, this), ink.copy(alpha = tint.coerceIn(0f, 1f)))
+                drawOutline(shape.createOutline(size, layoutDirection, this), tintColor.copy(alpha = tint.coerceIn(0f, 1f)))
             }
         }
 }

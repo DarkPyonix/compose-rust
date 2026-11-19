@@ -3885,6 +3885,8 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 `Modifier::PressFeedback { scale: f32, tint_alpha: f32 }`(수정자 태그는 추가 전용으로 맨 끝에 더합니다). `scale = 1.0`이고 `tint_alpha = 0.0`이면 피드백이 없습니다. 이 수정자가 없는 눌림 면은 51.1의 기본값을 씁니다. 텍스트 입력과 끌기 핸들은 대상이 아닙니다. `Enabled`가 거짓이면 피드백도 꺼집니다.
 
+**눌림 색과 곡선**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::press_style(PressStyle)`(수정자 `PressStyle`, 끝에 더하는 새 수정자 태그, `PressFeedback`의 와이어 배치는 그대로). `PressStyle { tint: Option<Paint>, press_easing: Option<[f32; 4]> }`. `tint`가 있으면 덮는 색이 그 색이고 알파는 `PressFeedback`의 `tint_alpha`(없으면 51.1의 값)입니다. 없으면 51.1대로 노드의 글자 색입니다. 잉크 채움 위의 면은 이 `tint`로 밝은 색을 줍니다. `Box`, `Row`, `Column`에 글자 색 속성은 더하지 않습니다. `press_easing`은 누르는 동안의 곡선(51.1의 ease-out)을 `cubic-bezier(x1, y1, x2, y2)`로 바꾸고, 놓는 곡선은 그대로입니다. 수용 기준: `tint`가 `OnPrimary`인 컨테이너를 누르면 눌린 픽셀이 `OnPrimary` 쪽으로 가고(fr51_press_style_tint), `press_easing(.2, 0, 0, 1)`이면 180ms의 중간 지점 크기가 기본 곡선과 다르며 수정자 없는 면은 기본 곡선입니다(fr51_press_style_easing).
+
 `Timing::Spring`은 이 항목의 값에 쓰이지 않습니다(목업이 베지어 곡선입니다). 이슈 #305가 함께 적은 `Timing::Spring { stiffness, damping }`은 별도 요청으로 남기고 이 항목은 베지어 곡선만 다룹니다.
 
 수용 기준:
@@ -4976,6 +4978,10 @@ pub mod storage {
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
 **최소 누름 영역**(이슈 #472, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::min_touch_target(dp)`(수정자 `MinTouchTarget`, 수정자 태그 38, 기본 꺼짐). 누르는 노드의 적중 영역을 그린 크기 둘레로 최소 그 크기까지 넓히고, 배치와 그림은 바꾸지 않습니다(Compose의 minimumInteractiveComponentSize와 같습니다). 수용 기준: 26x32dp 버튼에 `min_touch_target(44)`이면 그림 밖 9dp 지점 누르기가 그 버튼의 클릭이 되고 이웃 배치는 그대로입니다(fr55_min_touch_target_grows_the_hit_area_only).
+
+**호버 모습**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::hover_style(HoverStyle)`(수정자 `HoverStyle`, 끝에 더하는 새 수정자 태그). `HoverStyle { fill: Option<Paint>, fill_alpha: f32, border: Option<Paint>, content_alpha: f32 }`이고 빌더는 `HoverStyle::fill(paint, alpha)`, `.border(paint)`, `.content_alpha(a)`입니다. 누를 수 있는 모든 면(`OnClick` 컨테이너, `Clickable` 수정자 노드, toolkit `Button`)에 적용됩니다. 마우스를 올린 동안 상태 층은 `OnSurface` 8% 대신 `fill`을 `fill_alpha`로 덮고(`fill`이 없으면 기본 층 그대로), `border`가 있으면 노드의 `Border` 색이 그 색으로 바뀌었다가 마우스가 나가면 돌아오고, `content_alpha`(1.0이면 그대로)가 노드 전체의 알파에 곱해집니다. 이 수정자가 없는 면은 지금과 같습니다. toolkit `Button`도 이제 호버를 가지며, 이 수정자가 없으면 기본 `OnSurface` 8% 층입니다. 호버는 Host에 이벤트를 보내지 않습니다. 수용 기준: 호버한 픽셀이 준 색과 알파를 보이고(fr55_hover_style_fills_the_hovered_surface), 테두리 색이 호버 동안 바뀌었다 돌아오며(fr55_hover_style_swaps_the_border_colour), `content_alpha(0.88)`이 픽셀에서 재어지고(fr55_hover_style_content_alpha), 수정자 없는 면과 `Button`의 기본 호버가 기본 층입니다(fr55_button_has_the_default_hover).
+
+**포커스 링**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::focus_ring(paint, width_dp, offset_dp)`(수정자 `FocusRing`, 끝에 더하는 새 수정자 태그). 기본은 지금과 같이 `Primary` 2dp, 오프셋 0(노드 모양 안쪽)입니다. 오프셋이 양수이면 링이 노드 모양 밖으로 그만큼 떨어져, 모서리 반지름도 그만큼 커진 모양을 따라 그려지고(CSS `outline-offset`), 배치는 바뀌지 않습니다. 링은 지금과 같이 키보드나 프로그래밍 방식 포커스에서만 그려지고 포인터로 얻은 포커스에서는 그려지지 않습니다. toolkit `Button`도 누르는 컨테이너와 같은 규칙으로 키보드 포커스 링을 그립니다. 수용 기준: 키보드 포커스를 받은 `Button`에 링이 그려지고 포인터 포커스에는 없으며(fr55_button_draws_the_keyboard_focus_ring), 오프셋 2dp이면 링 픽셀이 경계 밖 2dp에 있고 색과 폭이 준 대로입니다(fr55_focus_ring_offset_and_colour).
 
 ### FR-61 `Row`와 `Column`의 교차축 내재 크기 맞춤 (`Agreed`, 이슈 #389)
 
