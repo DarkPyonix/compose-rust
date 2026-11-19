@@ -19,7 +19,6 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toPixelMap
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.swipeUp
@@ -1054,12 +1053,15 @@ class SheetTest {
                 }
             }
             waitForIdle()
+            // The open sheet is in a root of its own, so the sheet node is captured and the
+            // handle is found inside it.
+            val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
             val handle = onNodeWithTag(sheetHandleTestTag(SHEET)).getBoundsInRoot()
-            val pixels = onRoot().captureToImage().toPixelMap()
-            val x = ((handle.left + handle.right) / 2).value.toInt()
-            val y = ((handle.top + handle.bottom) / 2).value.toInt()
+            val pixels = onNodeWithTag(sheetTestTag(SHEET)).captureToImage().toPixelMap()
+            val x = ((handle.left + handle.right) / 2 - sheet.left).value.toInt()
+            val y = ((handle.top + handle.bottom) / 2 - sheet.top).value.toInt()
             // 24 dp to the side of the handle is the sheet's own surface.
-            result = pixels[x, y] to pixels[(handle.right.value + 24f).toInt(), y]
+            result = pixels[x, y] to pixels[(handle.right - sheet.left).value.toInt() + 24, y]
         }
         return result
     }
