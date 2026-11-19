@@ -10,6 +10,7 @@
 //! escape while `string.special` is still a string, and a name nothing here recognises gives
 //! `None`. A token without a role is left in the body ink rather than painted a guess.
 
+use crate::code::SyntaxFontStyle;
 use crate::schema::{ColorRole, Paint};
 use crate::spans::TextSpan;
 
@@ -87,6 +88,22 @@ pub fn role_for_highlight(name: &str) -> Option<ColorRole> {
         .map(|(_, role)| *role)
 }
 
+/// The default font style for a code colour role: italic for comments, medium (500) for types,
+/// and normal (inherited) for every other role.
+pub const fn style_for_role(role: ColorRole) -> SyntaxFontStyle {
+    match role {
+        ColorRole::SyntaxComment => SyntaxFontStyle::NORMAL.italic(),
+        ColorRole::SyntaxType => SyntaxFontStyle::NORMAL.weight(500),
+        _ => SyntaxFontStyle::NORMAL,
+    }
+}
+
+/// The default font style for a highlight capture name, or [`SyntaxFontStyle::NORMAL`] where
+/// the name has no role or the role uses the editor's base style.
+pub fn style_for_highlight(name: &str) -> SyntaxFontStyle {
+    role_for_highlight(name).map_or(SyntaxFontStyle::NORMAL, style_for_role)
+}
+
 /// A span painting `length` bytes from `start` in the role a highlight name maps to, or
 /// None where the name has no role and the run is left in the body ink.
 pub fn highlight_span(start: u32, length: u32, name: &str) -> Option<TextSpan> {
@@ -142,6 +159,28 @@ mod tests {
         assert_eq!(role_for_highlight("spell"), None);
         assert_eq!(role_for_highlight("keywords"), None);
         assert!(highlight_span(0, 3, "none").is_none());
+    }
+
+    #[test]
+    fn fr38_syntax_role_default_font_styles() {
+        assert_eq!(
+            style_for_highlight("comment"),
+            SyntaxFontStyle::NORMAL.italic()
+        );
+        assert_eq!(
+            style_for_highlight("comment.documentation"),
+            SyntaxFontStyle::NORMAL.italic()
+        );
+        assert_eq!(
+            style_for_highlight("type"),
+            SyntaxFontStyle::NORMAL.weight(500)
+        );
+        assert_eq!(
+            style_for_highlight("type.builtin"),
+            SyntaxFontStyle::NORMAL.weight(500)
+        );
+        assert_eq!(style_for_highlight("keyword"), SyntaxFontStyle::NORMAL);
+        assert_eq!(style_for_highlight("unknown"), SyntaxFontStyle::NORMAL);
     }
 
     /// Highlighting a Rust snippet into a `Text` sends every coloured run as a colour role on

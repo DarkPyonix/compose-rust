@@ -1,6 +1,6 @@
 {
   "format": "compose-rust protocol vectors v1",
-  "schemaHashUnsigned": "4894512559412188281",
+  "schemaHashUnsigned": "8641334324465743513",
   "byteOrder": "little-endian",
   "mutations": {
     "file": "mutations.bin",

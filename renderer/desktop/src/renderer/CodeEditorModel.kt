@@ -113,8 +113,22 @@ data class CodeRectDp(val x: Float, val y: Float, val width: Float, val height: 
 /** Where the caret is drawn: the place it stands at and its rectangle. */
 data class CaretReport(val position: CodePosition, val rect: CodeRectDp)
 
-/** One colour run of the syntax as it stands in the current version of the document. */
-class LiveSpan(var start: CodePosition, var end: CodePosition, val paint: Paint)
+/**
+ * One colour run of the syntax as it stands in the current version of the document.
+ *
+ * [style] packs optional font weight in the low 16 bits (0 = inherit, 1..1000), italic in
+ * bit 16, and underline in bit 17.
+ */
+class LiveSpan(
+    var start: CodePosition,
+    var end: CodePosition,
+    val paint: Paint,
+    val style: Int = 0,
+) {
+    val fontWeight: Int get() = style and 0xFFFF
+    val italic: Boolean get() = (style and (1 shl 16)) != 0
+    val underline: Boolean get() = (style and (1 shl 17)) != 0
+}
 
 /** Something the editor has to tell the Host, in the order it happened. */
 sealed interface EditorOutput {
@@ -519,7 +533,7 @@ class CodeEditorModel(
                 record.endColumn,
             ) ?: continue
             if (start == end) continue
-            spanList += LiveSpan(start, end, record.paint)
+            spanList += LiveSpan(start, end, record.paint, record.style)
             longestSpanLines = maxOf(longestSpanLines, end.line - start.line)
         }
         spanList.sortWith(compareBy { it.start })

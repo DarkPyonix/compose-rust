@@ -1165,7 +1165,7 @@ internal class EditorDisplay(
             val shownTo = window.toShown(to, asEnd = true)
             // A run that lies wholly in a hidden stretch has nothing left to colour.
             if (shownTo <= shownFrom) continue
-            addStyle(SpanStyle(color = look.paint(span.paint)), shownFrom, shownTo)
+            addStyle(syntaxSpanStyle(span, look), shownFrom, shownTo)
         }
         // Letters the first family of the application's font list lacks are set in the next
         // family that has them, over the text as it is shown.
@@ -1176,6 +1176,22 @@ internal class EditorDisplay(
 }
 
 private fun Color.takeOrElse(other: Color): Color = if (this == Color.Unspecified) other else this
+
+/**
+ * Turns one syntax span into its Compose [SpanStyle]: always its colour, and when set in
+ * [LiveSpan.style], its font weight, italic slant and underline.
+ */
+internal fun syntaxSpanStyle(span: LiveSpan, look: CodeEditorLook): SpanStyle {
+    val weight = span.fontWeight.takeIf { it in 1..1000 }?.let { androidx.compose.ui.text.font.FontWeight(it) }
+    val slant = if (span.italic) androidx.compose.ui.text.font.FontStyle.Italic else null
+    val decoration = if (span.underline) androidx.compose.ui.text.style.TextDecoration.Underline else null
+    return SpanStyle(
+        color = look.paint(span.paint),
+        fontWeight = weight,
+        fontStyle = slant,
+        textDecoration = decoration,
+    )
+}
 
 /** How tall an editor is where nothing above it says. */
 internal val DEFAULT_EDITOR_HEIGHT = 320.dp

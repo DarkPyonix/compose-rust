@@ -635,6 +635,7 @@ data class SyntaxSpanRecord(
     val endLine: Int,
     val endColumn: Int,
     val paint: Paint,
+    val style: Int,
 )
 
 /** One stretch of a code editor's lines that can be folded. Folding keeps `startLine` and hides the lines after it up to `endLine`; both are in the document at `version`. */
@@ -782,7 +783,7 @@ object CodeEditorRecords {
         return DecorationRecord(version, kind, severity, color, startLine, startColumn, endLine, endColumn, id, text)
     }
 
-    const val SYNTAX_SPAN_LENGTH = 28
+    const val SYNTAX_SPAN_LENGTH = 32
 
     fun decodeSyntaxSpans(bytes: ByteArray, onError: (String) -> Unit): List<SyntaxSpanRecord> {
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
@@ -808,7 +809,8 @@ object CodeEditorRecords {
         val endLine = buffer.getInt(offset + 12)
         val endColumn = buffer.getInt(offset + 16)
         val paint = paintOrNull(buffer.getLong(offset + 20)) ?: run { onError("record $index has an unreadable paint"); return null }
-        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint)
+        val style = buffer.getInt(offset + 28)
+        return SyntaxSpanRecord(version, startLine, startColumn, endLine, endColumn, paint, style)
     }
 
     const val FOLD_LENGTH = 16
@@ -1927,7 +1929,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = 4894512559412188281L
+    const val SCHEMA_HASH: Long = 8641334324465743513L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
