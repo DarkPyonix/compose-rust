@@ -2851,7 +2851,19 @@ Notification::new("세션이 끝났습니다")
 
 ### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
 
-> **현황(2026-10-04).** develop에는 이 API가 없습니다. 런타임과 Host 배선은 초안 PR #112(`feature/compose-api`)에 있고 병합되지 않았습니다(#64). 소유자 결정의 기록은 #23, 이름 조회와 재전송 비용은 #65가 추적합니다.
+> **현황(2026-11-20, [leader, 2026-11-20]).** 런타임과 작성 API가 develop에 있습니다. 슬롯 테이블 런타임은 `compose-rust/src/runtime/`(composer, state, effects, host, seam)에, `#[Composable]`과 호출 매크로는 `compose-rust/macros`에 있고, compose-rust는 `dioxus-*`에 의존하지 않습니다(`scripts/tests/core-has-no-dioxus.test.sh`). 저장소의 샘플은 이 API로 쓰여 있습니다. 기준별 증거는 다음과 같습니다.
+> - 39.4.1 Dioxus 없이: `core-has-no-dioxus.test.sh`, `fr39_the_boundary_drives_a_runtime_that_is_not_dioxus`, `fr39_a_message_action_runs_without_dioxus`.
+> - 39.4.2 건너뜀: `fr39_a_state_change_runs_only_the_scope_that_read_it`(Mutation은 `SetProp Text` 1건), `fr39_a_composable_whose_parameters_are_unchanged_is_skipped`, `fr39_a_static_string_parameter_is_compared_and_skipped`, `fr39_an_unchanged_frame_sends_nothing`.
+> - 39.4.3 위치 기반 기억: `fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears`, `fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh`, `fr39_a_match_arm_that_changes_takes_its_state_with_it`, 대조군 `fr39_without_branch_groups_a_call_site_is_handed_another_ones_state`, `fr39_groups_close_on_return_continue_break_question_mark_and_unwind`, `fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered`.
+> - 39.4.4 상태: `fr39_writes_from_a_worker_are_one_recomposition_on_the_next_frame`, `fr39_a_write_in_a_handler_is_recomposed_in_the_same_call`, `fr39_a_write_during_composition_waits_for_the_next_frame`, `fr39_work_handed_to_a_worker_resumes_on_the_ui_thread_and_recomposes`.
+> - 39.4.5 effect: `fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_they_leave`.
+> - 39.4.6 같은 와이어: `fr39_a_composable_application_runs_through_the_unchanged_boundary`. 렌더러 아티팩트 하나가 두 경로를 그리는 것은 dioxus-compose의 CI가 같은 렌더러로 돌기 때문이고, 이 저장소에 그것을 묻는 시험은 없습니다.
+> - 39.4.7 `rsx!`와 같은 표현력: **확인 안 됨.** 샘플의 `rsx!` 판은 dioxus-compose에 있고, 두 판의 노드 트리를 비교하는 시험이 없습니다.
+> - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다.
+> - 39.5.1 함수 형태: `fr39_function_form_takes_every_argument_and_no_defaults`가 함수 형태를 확인합니다. **어긋남:** develop의 공개 API에는 빌더 체인 메서드가 있습니다(`on_click`, `TextFieldScope::read_only`, `ModalScope::handle` 등). 이 기준을 코드에 맞출지 기준을 고칠지는 소유자에게 물었습니다(#23).
+> - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다.
+>
+> 이름 조회와 재전송 비용은 #65가 추적합니다.
 
 **2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
 
