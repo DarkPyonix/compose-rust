@@ -439,4 +439,50 @@ class MacosAccessibilityTest {
             spinLoop()
         }
     }
+
+    @Test
+    fun fr71_named_button_exposes_one_ax_element_on_macos() {
+        NSApplication.sharedApplication()
+        val initial = listOf(
+            Mutation.Create(1, WidgetKind.Column),
+            Mutation.Insert(0, 1, APPEND_CHILD),
+            Mutation.Create(2, WidgetKind.Button),
+            Mutation.SetProp(2, PropertyKind.Text, PropertyValue.Text("CreateLabel")),
+            Mutation.SetProp(2, PropertyKind.AccessibleName, PropertyValue.Text("CreateAction")),
+            Mutation.SetProp(2, PropertyKind.OnClick, PropertyValue.Integer(7L)),
+            Mutation.Insert(1, 2, APPEND_CHILD),
+        )
+        val connection = AccessibilityScriptedHost(initial)
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+
+        val backend = MacosWindowBackend(scene = { _, _, _, _ ->
+            { ComposeRustContent(host) }
+        })
+        val opened = assertNotNull(
+            backend.open(
+                PlatformWindowConfig(nodeId = 0, title = "ax named button", width = 320f, height = 200f),
+                NoopWindowListener,
+            ),
+        )
+        try {
+            val platformWindow = opened as dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
+            val nsWindow: NSWindow = platformWindow.nativeWindow
+            spinLoopUntil {
+                findAxElements(nsWindow.contentView).any { it.accessibilityLabel() == "CreateAction" }
+            }
+            val elements = findAxElements(nsWindow.contentView)
+            val buttons = elements.filter { it.accessibilityRole() == MacosAx.BUTTON && it.accessibilityLabel() == "CreateAction" }
+            assertEquals(1, buttons.size, "named button must expose one AXButton; found: ${elements.map { it.accessibilityRole() to it.accessibilityLabel() }}")
+            val leakedLabel = elements.filter { it.accessibilityLabel() == "CreateLabel" }
+            assertEquals(
+                emptyList<Any?>(),
+                leakedLabel.map { it.accessibilityRole() to it.accessibilityLabel() },
+                "named button's visible label must not appear as a separate AX element",
+            )
+        } finally {
+            opened.close()
+            spinLoop()
+        }
+    }
 }
