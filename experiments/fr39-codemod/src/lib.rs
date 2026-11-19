@@ -155,13 +155,21 @@ enum Arg {
 #[derive(Debug)]
 struct Chain {
     range: Range,
-    /// The macro's path, `Text!` or `ui::Text!`.
+    /// The macro's name, `Text`.
     path: String,
+    /// For a call through a path (`compose_rust::ui::Text(..)`), the `use` the macro
+    /// needs: it calls its function by bare name in the caller's scope, so the rewrite is
+    /// a block that brings the name in and calls `Text!` there.
+    import: Option<String>,
     args: Vec<Arg>,
 }
 
 fn render(chain: &Chain, chains: &[Chain], source: &str) -> String {
-    let mut out = format!("{}!(", chain.path);
+    let mut out = String::new();
+    if let Some(import) = &chain.import {
+        out.push_str(&format!("{{ use {import}; "));
+    }
+    out.push_str(&format!("{}!(", chain.path));
     for (index, arg) in chain.args.iter().enumerate() {
         if index > 0 {
             out.push_str(", ");
@@ -169,6 +177,9 @@ fn render(chain: &Chain, chains: &[Chain], source: &str) -> String {
         render_arg(arg, chains, source, &mut out);
     }
     out.push(')');
+    if chain.import.is_some() {
+        out.push_str(" }");
+    }
     out
 }
 
@@ -318,8 +329,16 @@ fn widget_name(path: &ExprPath) -> Option<String> {
         return None;
     }
     let name = last.ident.to_string();
-    if name == "asset" && segments.len() >= 2 && segments[segments.len() - 2].ident == "Icon" {
-        return Some("IconAsset".to_owned());
+    if segments.len() >= 2 {
+        let qualifier = segments[segments.len() - 2].ident.to_string();
+        if name == "asset" && qualifier == "Icon" {
+            return Some("IconAsset".to_owned());
+        }
+        // `Value::Text(..)` and `WordWrap::Column(40)` are enum variants, not widgets: only
+        // a path through `ui` (or `ui::next`) names one.
+        if qualifier != "ui" && qualifier != "next" {
+            return None;
+        }
     }
     table::is_widget(&name).then_some(name)
 }
@@ -498,7 +517,9 @@ impl Finder<'_> {
         args.extend(block);
         Ok(Chain {
             range,
-            path: path_text(parts.path, widget),
+            path: widget.to_owned(),
+            import: (parts.path.path.segments.len() > 1 && widget != "IconAsset")
+                .then(|| format!("{}::ui::next::{widget}", self.options.crate_path)),
             args,
         })
     }
@@ -588,28 +609,6 @@ impl Finder<'_> {
 fn range_of(offsets: &Offsets<'_>, spanned: &impl Spanned) -> std::ops::Range<usize> {
     let (start, end) = offsets.range(spanned);
     start..end
-}
-
-/// The macro's path: the call's path with the widget's name at the end, so `ui::Text`
-/// stays `ui::Text!` and `Icon::asset` becomes `IconAsset!`.
-fn path_text(path: &ExprPath, widget: &str) -> String {
-    let mut out = String::new();
-    if path.path.leading_colon.is_some() {
-        out.push_str("::");
-    }
-    let mut names: Vec<String> = path
-        .path
-        .segments
-        .iter()
-        .map(|segment| segment.ident.to_string())
-        .collect();
-    names.pop();
-    if widget == "IconAsset" {
-        names.pop();
-    }
-    names.push(widget.to_owned());
-    out.push_str(&names.join("::"));
-    out
 }
 
 /// The source between a method's receiver and its `.`: where a comment about that method
