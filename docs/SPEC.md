@@ -1651,6 +1651,15 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
 2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
 
+#### 20.9.1 아래 안전 영역 (`Agreed`, 이슈 #843, [leader, provisional, 2026-11-19])
+
+`WindowSafeArea`에 `bottom: f32`(dp)가 더해지고, `WindowSizeChanged` 이벤트의 값 끝에 `safe_area_bottom: f32`가 붙습니다(앞 필드의 위치는 그대로). Renderer는 이 값을 `WindowInsets.safeDrawing`의 아래 값으로 잽니다: Android의 탐색 막대나 제스처 영역, iOS의 홈 표시기입니다. 데스크톱 창은 0입니다. 아래 값만 바뀌어도 클래스가 같으면 19.9의 규칙대로 `WindowSizeChanged`가 한 번 옵니다.
+
+수용 기준:
+
+1. 아래 안전 영역만 바뀌어도 `WindowSizeChanged`가 한 번 오고, 그 값의 `safe_area_bottom`이 새 값입니다(fr19_9_safe_area_change_alone_resends를 아래 값까지 넓힘).
+2. 데스크톱 창은 `safe_area_bottom = 0`을 보냅니다(fr19_9_desktop_reports_no_bottom_safe_area).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -1740,6 +1749,18 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 4. 내용이 창보다 높으면 시트 안이 스크롤되고 시트 자체는 창을 넘지 않습니다(`fr21_centered_sheet_scrolls_taller_content`).
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
+
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, [leader, provisional, 2026-11-19])
+
+- **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
+- **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
+
+수용 기준:
+
+1. Material3의 밝은 테마와 어두운 테마에서 손잡이 픽셀과 시트 표면의 대비가 1.5:1 이상입니다(fr21_sheet_handle_is_visible_in_both_themes).
+2. `handle(false)`인 시트에는 손잡이가 없습니다(fr21_sheet_handle_can_be_hidden).
+3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
+4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 

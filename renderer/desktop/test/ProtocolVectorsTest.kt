@@ -240,7 +240,7 @@ class ProtocolVectorsTest {
             activated,
         )
         assertEquals(37, length)
-        assertEquals(bytes.copyOfRange(254, 291).toList(), activated.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(258, 295).toList(), activated.array().copyOf(length).toList())
 
         val changed = ByteBuffer.allocate(32)
         val changedLength = Protocol.encodeEvent(
@@ -252,7 +252,7 @@ class ProtocolVectorsTest {
             changed,
         )
         assertEquals(20, changedLength)
-        assertEquals(bytes.copyOfRange(291, 311).toList(), changed.array().copyOf(changedLength).toList())
+        assertEquals(bytes.copyOfRange(295, 315).toList(), changed.array().copyOf(changedLength).toList())
     }
 
     /** The clipboard write, read from the bytes the Host wrote: one string reference. */
@@ -289,7 +289,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(51, length)
-        assertEquals(bytes.copyOfRange(1042, 1042 + 51).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(1046, 1046 + 51).toList(), out.array().copyOf(length).toList())
     }
 
     /** The wrapping row and its five layout properties, decoded from the bytes the Host wrote. */
@@ -369,7 +369,7 @@ class ProtocolVectorsTest {
         )
         val answerLength = Protocol.encodeEvent(answer, out)
         assertEquals(37, answerLength)
-        assertEquals(bytes.copyOfRange(1093, 1093 + 37).toList(), out.array().copyOf(answerLength).toList())
+        assertEquals(bytes.copyOfRange(1097, 1097 + 37).toList(), out.array().copyOf(answerLength).toList())
         assertTrue("length=5" in answer.toString(), "the answer prints its length, not its bytes")
 
         out.clear()
@@ -382,7 +382,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(82, locationLength)
-        assertEquals(bytes.copyOfRange(1237, 1237 + 82).toList(), out.array().copyOf(locationLength).toList())
+        assertEquals(bytes.copyOfRange(1241, 1241 + 82).toList(), out.array().copyOf(locationLength).toList())
 
         // An operation this side does not know is a record the two sides disagree on, which
         // the decoder refuses instead of guessing.
@@ -455,7 +455,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(72, length)
-        assertEquals(bytes.copyOfRange(1319, 1319 + 72).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(1323, 1323 + 72).toList(), out.array().copyOf(length).toList())
     }
 
     /**
@@ -480,7 +480,7 @@ class ProtocolVectorsTest {
         assertTrue(Mutation.SetProp(25, PropertyKind.OnNativeViewFocus, PropertyValue.Integer(301L)) in mutations)
 
         val bytes = vectorFile("events.bin").readBytes()
-        assertEquals(1807 + 24, bytes.size, "the two events are the last in the vector")
+        assertEquals(1811 + 24, bytes.size, "the two events are the last in the vector")
         val out = ByteBuffer.allocate(64)
         val parentLength = Protocol.encodeEvent(
             HostEvent.NativeViewParent(
@@ -493,11 +493,11 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(32, parentLength)
-        assertEquals(bytes.copyOfRange(1775, 1775 + 32).toList(), out.array().copyOf(parentLength).toList())
+        assertEquals(bytes.copyOfRange(1779, 1779 + 32).toList(), out.array().copyOf(parentLength).toList())
         out.clear()
         val focusLength = Protocol.encodeEvent(HostEvent.NativeViewFocus(nodeId = 25, handlerId = 301L, focused = true), out)
         assertEquals(24, focusLength)
-        assertEquals(bytes.copyOfRange(1807, 1807 + 24).toList(), out.array().copyOf(focusLength).toList())
+        assertEquals(bytes.copyOfRange(1811, 1811 + 24).toList(), out.array().copyOf(focusLength).toList())
     }
 
     /** A platform view record whose reserved words are set, or whose focus word is not 0 or 1, is a protocol error. */
@@ -566,7 +566,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(73, length)
-        assertEquals(bytes.copyOfRange(969, 969 + 73).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(973, 973 + 73).toList(), out.array().copyOf(length).toList())
     }
 
     /** A kind the Renderer does not know is a decode error, which the host reports instead of crashing. */
@@ -767,12 +767,12 @@ class ProtocolVectorsTest {
             HostEvent.IoAnswer(0, 0, 0x8000_0011.toInt(), IoStatus.Ok, byteArrayOf(0x00, 0xff.toByte(), 0x7f, 0x80.toByte())),
         )
         assertEquals(36, answer.size)
-        assertEquals(events.copyOfRange(1130, 1130 + 36).toList(), answer.toList())
+        assertEquals(events.copyOfRange(1134, 1134 + 36).toList(), answer.toList())
         val handles = encoded(
             HostEvent.FileHandles(0, 0, 7, FileDialogStatus.Chosen, 1, FileDelivery.Handle, 3, "문서.txt\u0000사진", "fd"),
         )
         assertEquals(71, handles.size)
-        assertEquals(events.copyOfRange(1166, 1166 + 71).toList(), handles.toList())
+        assertEquals(events.copyOfRange(1170, 1170 + 71).toList(), handles.toList())
 
         // An operation outside the four, and a create flag that is neither 0 nor 1.
         for ((at, values) in listOf(8 to listOf(0, 5, 9), 10 to listOf(2, 7))) {
@@ -999,14 +999,14 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(40, length)
-        assertEquals(bytes.copyOfRange(487, 527).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(491, 531).toList(), out.array().copyOf(length).toList())
         val motion = ByteBuffer.allocate(32)
         val motionLength = Protocol.encodeEvent(
             HostEvent.ReducedMotionChanged(0, 0, dev.darkpyonix.composerust.protocol.ReducedMotion.On),
             motion,
         )
         assertEquals(20, motionLength)
-        assertEquals(bytes.copyOfRange(527, 547).toList(), motion.array().copyOf(motionLength).toList())
+        assertEquals(bytes.copyOfRange(531, 551).toList(), motion.array().copyOf(motionLength).toList())
     }
 
     /**
@@ -1022,8 +1022,8 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(20, length)
-        assertEquals(bytes.copyOfRange(1659, 1679).toList(), out.array().copyOf(length).toList())
-        assertEquals(1755 + 20 + 32 + 24, bytes.size)
+        assertEquals(bytes.copyOfRange(1663, 1683).toList(), out.array().copyOf(length).toList())
+        assertEquals(1759 + 20 + 32 + 24, bytes.size)
         val light = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         assertEquals(
             20,
@@ -1047,8 +1047,8 @@ class ProtocolVectorsTest {
         val out = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.DensityChanged(0, 0, 2f), out)
         assertEquals(20, length)
-        assertEquals(1755 + 20 + 32 + 24, bytes.size)
-        assertEquals(bytes.copyOfRange(1755, 1775).toList(), out.array().copyOf(length).toList())
+        assertEquals(1759 + 20 + 32 + 24, bytes.size)
+        assertEquals(bytes.copyOfRange(1759, 1779).toList(), out.array().copyOf(length).toList())
         assertEquals(53, out.getShort(0).toInt())
         assertEquals(20, out.getShort(2).toInt())
         assertEquals(0, out.getInt(4))
@@ -1086,7 +1086,7 @@ class ProtocolVectorsTest {
             out,
         )
         assertEquals(72, length)
-        assertEquals(bytes.copyOfRange(547, 619).toList(), out.array().copyOf(length).toList())
+        assertEquals(bytes.copyOfRange(551, 623).toList(), out.array().copyOf(length).toList())
     }
 
     /** The theme record carries the palette behind it, and both sides read the same entries. */
@@ -1206,35 +1206,35 @@ class ProtocolVectorsTest {
             return buffer.array().copyOf(length)
         }
         val expected = listOf(
-            311 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
-            359 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
-            403 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
-            439 to HostEvent.CodeSaveRequested(12, 21L, 2),
-            463 to HostEvent.DecorationActivated(12, 22L, 41L),
-            619 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
-            655 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
-            683 to HostEvent.EditorFocusChanged(12, 25L, true),
-            707 to HostEvent.FoldChanged(12, 26L, 0, true),
-            731 to HostEvent.CompositionChanged(12, 27L, true),
+            315 to HostEvent.CodeChanged(12, 18L, 1, 1, 8, 1, 8, "mut "),
+            363 to HostEvent.CodeEditRejected(12, 19L, 7, 0, 2, 1, 8, 1, 9),
+            407 to HostEvent.CodeHovered(12, 20L, 42L, 0, 4, HoverPhase.Rest),
+            443 to HostEvent.CodeSaveRequested(12, 21L, 2),
+            467 to HostEvent.DecorationActivated(12, 22L, 41L),
+            623 to HostEvent.SelectionChanged(12, 23L, 2, 1, 12, 0, 3),
+            659 to HostEvent.VisibleRangeChanged(12, 24L, 2, 0, 3),
+            687 to HostEvent.EditorFocusChanged(12, 25L, true),
+            711 to HostEvent.FoldChanged(12, 26L, 0, true),
+            735 to HostEvent.CompositionChanged(12, 27L, true),
             // The row height and the scroll offset, after everything that was here before.
-            1391 to HostEvent.CodeMetrics(12, 28L, 40.0),
-            1415 to HostEvent.CodeScrolled(12, 29L, 1234.5),
+            1395 to HostEvent.CodeMetrics(12, 28L, 40.0),
+            1419 to HostEvent.CodeScrolled(12, 29L, 1234.5),
             // Where the caret is drawn and the answer to the position query, after them.
-            1463 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
-            1503 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
+            1467 to HostEvent.CaretRect(12, 30L, 1, 8, 120.5f, 64.25f, 2f, 20f),
+            1507 to HostEvent.PositionRect(12, 0L, 17, true, 88.75f, 64.25f, 2f, 20f),
             // A Cmd-click over the second line, with the place in the text under it.
-            1543 to HostEvent.CodePointer(
+            1547 to HostEvent.CodePointer(
                 12, 31L, dev.darkpyonix.composerust.protocol.PointerKind.Down, 1,
                 dev.darkpyonix.composerust.protocol.PointerType.Mouse, 96.5f, 30.25f, 1, 1, 8, 1, 0f, 0f,
                 dev.darkpyonix.composerust.protocol.WheelDeltaMode.Pixel, 123_456_789_000L, 1, 13,
             ),
             // What became of the grouped edit in the mutation vector: both edits went in.
-            1623 to HostEvent.CodeEditGroupResult(
+            1627 to HostEvent.CodeEditGroupResult(
                 12, 32L, 8, dev.darkpyonix.composerust.protocol.EditGroupStatus.Applied, 1, 3, 2,
             ),
             // Every selection of the editor, a caret last and a selection made backwards in
             // the middle, the four numbers of each behind the record.
-            1679 to HostEvent.SelectionsChanged(12, 33L, 4, intArrayOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0)),
+            1683 to HostEvent.SelectionsChanged(12, 33L, 4, intArrayOf(0, 3, 0, 7, 1, 12, 1, 8, 2, 0, 2, 0)),
         )
         for ((offset, event) in expected) {
             val wire = encoded(event)
@@ -1244,7 +1244,7 @@ class ProtocolVectorsTest {
             )
         }
         // The platform view events follow the density report, two records of 32 and 24 bytes.
-        assertEquals(1755 + 20 + 32 + 24, bytes.size)
+        assertEquals(1759 + 20 + 32 + 24, bytes.size)
     }
 
     /**
@@ -1258,8 +1258,8 @@ class ProtocolVectorsTest {
         val buffer = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
         val length = Protocol.encodeEvent(HostEvent.MotionFinished(14, 30L, 240.5f, 0f), buffer)
         assertEquals(24, length)
-        assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1439, 1463)))
-        assertEquals(1755 + 20 + 32 + 24, bytes.size)
+        assertTrue(buffer.array().copyOf(length).contentEquals(bytes.copyOfRange(1443, 1467)))
+        assertEquals(1759 + 20 + 32 + 24, bytes.size)
 
         // A SetProp of the handler, written by hand: the record header, the node, the
         // property tag 193 and an integer value holding the handler id.

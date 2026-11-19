@@ -563,7 +563,9 @@ interface ComponentRules {
         shape = theme.shape(ShapeRole.Large),
         elevation = 6.dp,
         scrim = Color.Black.copy(alpha = 0.32f),
-        handle = theme.color(ColorRole.OutlineVariant),
+        // Material's drag handle colour: OutlineVariant is too close to the sheet's surface to
+        // see in a light theme, under 1.5:1.
+        handle = theme.color(ColorRole.OnSurfaceVariant).copy(alpha = SHEET_HANDLE_ALPHA),
         widthFraction = 0.4f,
         heightFraction = 0.5f,
         padding = theme.space(SpaceRole.Lg),
@@ -1908,3 +1910,6 @@ internal fun rulesFor(system: DesignSystem): ComponentRules = when (system) {
 val LocalDesignTheme = staticCompositionLocalOf {
     resolveTheme(theme = null, platform = HostPlatform.Unknown, systemDark = false)
 }
+
+/** How strongly a Material sheet's drag handle shows: `OnSurfaceVariant` at this alpha. */
+internal const val SHEET_HANDLE_ALPHA = 0.4f

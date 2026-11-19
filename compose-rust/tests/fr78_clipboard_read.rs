@@ -154,7 +154,7 @@ fn fr78_read_clipboard_round_trips() {
     let mutations = std::fs::read(format!("{vectors}/mutations.bin")).unwrap();
     assert_eq!(reads(&mutations), vec![9]);
     let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
-    assert_eq!(&events[1042..1042 + 51], encoded.as_slice());
+    assert_eq!(&events[1046..1046 + 51], encoded.as_slice());
 
     // Through a Host: a press asks, the answer reaches the callback once.
     let mut session = Session::start();

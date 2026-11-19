@@ -743,7 +743,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_VALUE_CHANGED if record_len == 24 => {
             crate::schema::EventPayload::ValueChanged(f64::from_bits(read_u64(bytes, 16)?))
         }
-        EVENT_WINDOW_SIZE_CHANGED if record_len == 44 => {
+        EVENT_WINDOW_SIZE_CHANGED if record_len == 48 => {
             let raw_class = read_u32(bytes, 24)?;
             let class = u16::try_from(raw_class)
                 .ok()
@@ -762,6 +762,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 safe_area_top: f32::from_bits(read_u32(bytes, 32)?),
                 safe_area_leading: f32::from_bits(read_u32(bytes, 36)?),
                 safe_area_trailing: f32::from_bits(read_u32(bytes, 40)?),
+                safe_area_bottom: f32::from_bits(read_u32(bytes, 44)?),
             }
         }
         EVENT_DESIGN_SYSTEM_RESOLVED if record_len == 20 => {
@@ -1365,10 +1366,11 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         safe_area_top,
         safe_area_leading,
         safe_area_trailing,
+        safe_area_bottom,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
-        output.extend_from_slice(&44_u16.to_le_bytes());
+        output.extend_from_slice(&48_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
@@ -1378,6 +1380,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&safe_area_top.to_bits().to_le_bytes());
         output.extend_from_slice(&safe_area_leading.to_bits().to_le_bytes());
         output.extend_from_slice(&safe_area_trailing.to_bits().to_le_bytes());
+        output.extend_from_slice(&safe_area_bottom.to_bits().to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::DesignSystemResolved(system) = event.payload {
@@ -4690,11 +4693,15 @@ mod tests {
                 safe_area_top: 28.5,
                 safe_area_leading: 72.0,
                 safe_area_trailing: 13.0,
+                safe_area_bottom: 34.0,
             },
         };
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(bytes.len(), 44);
+        assert_eq!(bytes.len(), 48);
+        // The bottom comes last, so every field before it keeps its offset.
+        assert_eq!(&bytes[40..44], &13.0_f32.to_bits().to_le_bytes());
+        assert_eq!(&bytes[44..48], &34.0_f32.to_bits().to_le_bytes());
         assert_eq!(decode_event(&bytes).unwrap(), event);
     }
 
@@ -4745,6 +4752,12 @@ mod tests {
         assert!(decode_event(&bytes).is_err());
         bytes[2..4].copy_from_slice(&44_u16.to_le_bytes());
         assert!(decode_event(&bytes).is_err());
+        // A record of the old length, without the bottom side, is refused rather than
+        // read as a zero bottom.
+        let mut old = vec![0; 44];
+        old[0..2].copy_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
+        old[2..4].copy_from_slice(&44_u16.to_le_bytes());
+        assert!(decode_event(&old).is_err());
     }
 
     #[test]
@@ -4760,6 +4773,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();
@@ -4784,6 +4798,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();
