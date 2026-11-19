@@ -415,10 +415,10 @@ internal fun HostTextField(
                             node.contentPadding(theme, frame.horizontalPadding, frame.verticalPadding)
                         },
                     ),
-                // A bare field is as tall as its text, so the placeholder and the text share
-                // the first line's baseline from the top edge rather than being centred in
-                // a minimum height the field no longer has.
-                contentAlignment = if (multiline || bare) Alignment.TopStart else Alignment.CenterStart,
+                // Single-line fields centre their text vertically in whatever height they are
+                // given (including bare fields inside a taller search pill or composer); multiline
+                // fields start at the top.
+                contentAlignment = if (multiline) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (value.text.isEmpty() && placeholder.isNotEmpty()) {
                     val placeholderColor = node.paintProp(PropertyKind.PlaceholderColor)?.let { theme.color(it) }
