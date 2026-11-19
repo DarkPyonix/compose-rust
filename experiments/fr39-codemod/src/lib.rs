@@ -148,6 +148,8 @@ enum Arg {
     Named(String, Piece),
     /// The trailing `{ .. }` block: the range of a closure body's block.
     Block(Range),
+    /// Comments that sat before the method this argument came from, kept in front of it.
+    Commented(String, Box<Arg>),
 }
 
 #[derive(Debug)]
@@ -164,18 +166,28 @@ fn render(chain: &Chain, chains: &[Chain], source: &str) -> String {
         if index > 0 {
             out.push_str(", ");
         }
-        match arg {
-            Arg::Positional(piece) => out.push_str(&piece_text(piece, chains, source)),
-            Arg::Named(name, piece) => {
-                out.push_str(name);
-                out.push_str(" = ");
-                out.push_str(&piece_text(piece, chains, source));
-            }
-            Arg::Block(range) => out.push_str(&spliced(*range, chains, source)),
-        }
+        render_arg(arg, chains, source, &mut out);
     }
     out.push(')');
     out
+}
+
+fn render_arg(arg: &Arg, chains: &[Chain], source: &str, out: &mut String) {
+    match arg {
+        Arg::Positional(piece) => out.push_str(&piece_text(piece, chains, source)),
+        Arg::Named(name, piece) => {
+            out.push_str(name);
+            out.push_str(" = ");
+            out.push_str(&piece_text(piece, chains, source));
+        }
+        Arg::Block(range) => out.push_str(&spliced(*range, chains, source)),
+        Arg::Commented(comments, inner) => {
+            out.push('\n');
+            out.push_str(comments);
+            out.push('\n');
+            render_arg(inner, chains, source, out);
+        }
+    }
 }
 
 fn piece_text(piece: &Piece, chains: &[Chain], source: &str) -> String {
@@ -389,7 +401,10 @@ impl Finder<'_> {
         let range = self.offsets.range(expr);
         let source = self.offsets.source;
         if has_comment_between_methods(source, range, parts, self.offsets) {
-            return Err("a comment sits between the chain's methods; move it first".into());
+            return Err(
+                "a comment sits inside the chain where no argument can carry it; move it first"
+                    .into(),
+            );
         }
 
         let mut args: Vec<Arg> = parts
@@ -402,12 +417,17 @@ impl Finder<'_> {
         let main_handler = table::main_handler(widget);
         let data_method = table::data_method(widget);
         let mut seen: Vec<String> = Vec::new();
-        let mut main: Option<Piece> = None;
-        let mut data: Option<Piece> = None;
+        let mut main: Option<Arg> = None;
+        let mut data: Option<Arg> = None;
         let mut named: Vec<Arg> = Vec::new();
         let mut block: Option<Arg> = None;
         for method in &parts.methods {
             let name = method.method.to_string();
+            let lead = comments_in(source, gap(self.offsets, method));
+            let commented = |arg: Arg| match &lead {
+                Some(comments) => Arg::Commented(comments.clone(), Box::new(arg)),
+                None => arg,
+            };
             if method.turbofish.is_some() {
                 return Err(format!("`{name}` has explicit type arguments"));
             }
@@ -428,7 +448,7 @@ impl Finder<'_> {
             }
             seen.push(parameter.clone());
             if name == "content" {
-                block = Some(match one()? {
+                block = Some(commented(match one()? {
                     Expr::Closure(closure)
                         if closure.inputs.is_empty()
                             && closure.capture.is_none()
@@ -439,19 +459,22 @@ impl Finder<'_> {
                         Arg::Block(self.offsets.range(&closure.body))
                     }
                     other => Arg::Named("content".into(), piece_of(other)),
-                });
+                }));
                 continue;
             }
             if main_handler.is_some_and(|main| main.method == name) {
-                main = Some(piece_of(one()?));
+                main = Some(commented(Arg::Positional(piece_of(one()?))));
                 continue;
             }
             if data_method.is_some_and(|(data, _)| data == name) {
-                data = Some(piece_of(one()?));
+                data = Some(commented(Arg::Positional(piece_of(one()?))));
                 continue;
             }
             if table::is_optional(widget, &name) {
-                named.push(Arg::Named(parameter, self.optional(&name, method)?));
+                named.push(commented(Arg::Named(
+                    parameter,
+                    self.optional(&name, method)?,
+                )));
                 continue;
             }
             let piece = match method.args.len() {
@@ -462,18 +485,14 @@ impl Finder<'_> {
                 1 => piece_of(&method.args[0]),
                 _ => Piece::Tuple(method.args.iter().map(piece_of).collect()),
             };
-            named.push(Arg::Named(parameter, piece));
+            named.push(commented(Arg::Named(parameter, piece)));
         }
 
         if let Some((_, empty)) = data_method {
-            args.push(Arg::Positional(
-                data.unwrap_or_else(|| Piece::Text(empty.into())),
-            ));
+            args.push(data.unwrap_or_else(|| Arg::Positional(Piece::Text(empty.into()))));
         }
         if let Some(handler) = main_handler {
-            args.push(Arg::Positional(
-                main.unwrap_or_else(|| Piece::Text(handler.empty.into())),
-            ));
+            args.push(main.unwrap_or_else(|| Arg::Positional(Piece::Text(handler.empty.into()))));
         }
         args.extend(named);
         args.extend(block);
@@ -593,7 +612,42 @@ fn path_text(path: &ExprPath, widget: &str) -> String {
     out
 }
 
-/// Whether a `//` or `/*` comment sits in the chain outside every argument.
+/// The source between a method's receiver and its `.`: where a comment about that method
+/// sits in a chain laid out one method per line.
+fn gap(offsets: &Offsets<'_>, method: &ExprMethodCall) -> Range {
+    (
+        offsets.range(&*method.receiver).1,
+        offsets.offset(method.dot_token.span.start()),
+    )
+}
+
+/// The comments in `range`, one per line as written, or `None` if there are none.
+fn comments_in(source: &str, range: Range) -> Option<String> {
+    let text = &source[range.0..range.1];
+    let mut comments = Vec::new();
+    let mut rest = text;
+    loop {
+        let line = rest.find("//");
+        let block = rest.find("/*");
+        match (line, block) {
+            (Some(at), block) if block.is_none_or(|block| at < block) => {
+                let end = rest[at..].find('\n').map_or(rest.len(), |end| at + end);
+                comments.push(rest[at..end].trim_end().to_owned());
+                rest = &rest[end..];
+            }
+            (_, Some(at)) => {
+                let end = rest[at..].find("*/").map_or(rest.len(), |end| at + end + 2);
+                comments.push(rest[at..end].to_owned());
+                rest = &rest[end..];
+            }
+            _ => break,
+        }
+    }
+    (!comments.is_empty()).then(|| comments.join("\n"))
+}
+
+/// Whether a `//` or `/*` comment sits in the chain outside every argument and outside
+/// the gaps before each method, where it is carried along.
 fn has_comment_between_methods(
     source: &str,
     range: Range,
@@ -608,6 +662,7 @@ fn has_comment_between_methods(
         .collect();
     for method in &parts.methods {
         arguments.extend(method.args.iter().map(|arg| offsets.range(arg)));
+        arguments.push(gap(offsets, method));
     }
     let text = &source[range.0..range.1];
     for marker in ["//", "/*"] {
