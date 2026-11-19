@@ -120,7 +120,7 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # which already sends a scroll where the last pointer event was, and the macOS renderer goes
 # through the fork's scene, so nothing here changes with it. The new scene code is Kotlin the
 # window build already compiles; the Windows C keeps its symbols.
-WINDOW_REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
+WINDOW_REVISION="146d920bf428db556f4a6e7e09f9bfd86ec67777"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
@@ -128,7 +128,7 @@ WINDOW_REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # pin's commit, the one the v1.11.1-ext.5 tag goes on, as the window pin is.
 # The name stays so the Windows pin can move apart again. compose-fork-mingw.changes lists
 # what this commit must hold, and scripts/tests/compose-fork.test.sh checks both pins.
-MINGW_REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
+MINGW_REVISION="146d920bf428db556f4a6e7e09f9bfd86ec67777"
 # What the pinned commit publishes as: its gradle.properties gives every library line a version
 # of the form <upstream version>-ext.<N>. The renderer modules ask for these by name, and
 # scripts/tests/fork-versions.test.sh checks that they do; this script checks the pinned

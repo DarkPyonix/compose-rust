@@ -1538,7 +1538,6 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
 4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 끌어서 크기를 바꾸는 동안 창이 그 크기로 Skia 래스터 그리기를 DIB에 마치고 `BitBlt`으로 창의 리디렉션 표면에 옮긴 뒤에 크기 변경 메시지(`WM_SIZE`)를 돌려줍니다. 끌기가 끝나면(`WM_EXITSIZEMOVE`) 다시 GPU 스왑체인으로 그립니다.
-    - Windows에서 이 기준을 지키는 CI 관문의 잠정 허용치([leader, provisional] (darkpyonix leader, 2026-11-16)): 리사이즈 프로브가 실제 입력으로 네 가장자리를 세 가지 속도로, 100%와 200%에서 끕니다(CPU 경로 끌기 24회). windows-2025에서는 결함이 보인 끌기가 10%를 넘으면(24회 가운데 3회 이상) 실패하고, 그 수를 항상 찍습니다. 0이 아닌 까닭은 포크의 창이 끄는 도중 마커 사이에 틈이 있는 프레임을 드물게 보이기 때문입니다(compose-multiplatform-core-extended#245). 같은 창 핀에서 windows-2025는 한 실행에서 24회 가운데 0회, 다음 실행에서 1회(한 프레임)였으므로, 0을 요구하면 이 저장소가 고칠 수 없는 결함으로 실행이 무작위로 실패합니다. 10%는 창 상태 전환(최대화, 복원, 왼쪽 절반, 되돌리기)에 이미 쓰는 비율과 같습니다. windows-2022에서는 같은 결함이 흔해서(24회 가운데 15회와 12회) 그 끌기를 알려진 결함으로 보고하고 작업을 실패시키지 않습니다. 대조군, 창 상태 전환, 증명 줄은 두 러너 모두에서 그대로 실패시킵니다. #245가 고쳐지면 두 러너 모두 0으로 되돌립니다. 이 허용치는 기준 자체("비율 = 0")를 바꾸지 않습니다. 기준은 그대로이고, Windows에서는 #245가 닫힐 때까지 충족되지 않은 상태입니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -5061,6 +5060,8 @@ pub mod storage {
 **한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
 
 **모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 39): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
+
+**점선 테두리**(이슈 #817, [leader, provisional] (darkpyonix leader, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Modifier::border_dashed(width_dp: f32, paint: impl Into<Paint>, dash_dp: f32, gap_dp: f32)`: 기존 `Border(width_dp, paint)` 수정자에 더해 `BorderDash { dash_dp: f32, gap_dp: f32 }`(수정자 태그 42, 첫 64비트 워드에 `dash_dp`와 `gap_dp` 두 `f32` 패킹)를 보냅니다. 실선 테두리(`border`, `border_each`, `border_side`)만 쓴 노드는 `BorderDash`를 보내지 않습니다. 렌더러는 `Border`와 함께 양수인 `BorderDash`가 있으면 노드의 모양(`Shape`, `CornerEach`, `CornerCurve`) 외곽선을 따라 `PathEffect.dashPathEffect([dash_px, gap_px], 0f)`로 점선 스트로크를 그리고, `dash_dp <= 0` 또는 `gap_dp <= 0`이면 실선 테두리로 그립니다. 수용 기준: `border_dashed(1.5, paint, 4.0, 4.0)`인 둥근 상자는 `Border`와 `BorderDash(4.0, 4.0)`를 보내고, 테두리 경로에 채워진 구간과 배경색 그대로인 빈 구간이 번갈아 나타나며, 실선 `border`를 다시 부르면 `BorderDash` 슬롯이 비워집니다(`fr60_border_dashed_round_trips_and_clears_when_replaced_by_solid`, `fr60_border_dashed_draws_alternating_stroke_and_gaps`).
 
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 

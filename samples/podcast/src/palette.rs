@@ -34,6 +34,13 @@ pub const OUTLINE: Paint = Paint::Literal(Color::rgb(0xe5_e5e5));
 /// The part of a waveform that has not been played yet.
 pub const WAVE: Paint = Paint::Literal(Color::rgb(0x9a_9a9a));
 
+/// White let through a little, laid on the orange: the follow button on the recommended
+/// row, which the reference draws as a paler orange pill rather than a white outline.
+pub const ON_ACCENT_SOFT: Paint = Paint::Literal(Color::argb(0x33_ffffff));
+
+/// The edge of a square button standing on the orange artwork of the player.
+pub const ON_ACCENT_EDGE: Paint = Paint::Literal(Color::argb(0x66_ffffff));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,13 +61,25 @@ mod tests {
         assert_eq!(argb(TILE), 0xfff1_f1f1);
         assert_eq!(argb(OUTLINE), 0xffe5_e5e5);
         assert_eq!(argb(WAVE), 0xff9a_9a9a);
+        assert_eq!(argb(ON_ACCENT_SOFT), 0x33ff_ffff);
+        assert_eq!(argb(ON_ACCENT_EDGE), 0x66ff_ffff);
     }
 
     /// Nothing in the hub is blue, which is the fault this palette exists to fix. The
     /// reference has one accent and it is the orange above.
     #[test]
     fn fr22_no_colour_in_the_palette_is_the_theme_blue() {
-        for paint in [PAGE, INK, MUTED, ACCENT, TILE, OUTLINE, WAVE] {
+        for paint in [
+            PAGE,
+            INK,
+            MUTED,
+            ACCENT,
+            TILE,
+            OUTLINE,
+            WAVE,
+            ON_ACCENT_SOFT,
+            ON_ACCENT_EDGE,
+        ] {
             let value = argb(paint);
             let (red, green, blue) = ((value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
             assert!(

@@ -210,3 +210,44 @@ fn nfr_17_a_list_that_grows_and_a_text_that_streams_do_not_leave_memory_behind()
         "live memory grew by {grown} bytes over 300 replies of 40 chunks"
     );
 }
+
+#[test]
+fn nfr_17_batch_encoder_shrinks_after_a_large_asset_batch() {
+    use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue};
+    use compose_rust::schema::AssetKind;
+
+    let mut encoder = BatchEncoder::with_capacity(16 * 1024, 4 * 1024, 256);
+    let large_font = vec![0x42u8; 4 * 1024 * 1024];
+    encoder
+        .encode(&Mutation::RegisterAsset {
+            asset_id: 1,
+            kind: AssetKind::Font,
+            bytes: &large_font,
+        })
+        .unwrap();
+    let batch = encoder.finish().unwrap();
+    assert!(
+        batch.len() > 4 * 1024 * 1024,
+        "large batch carries the asset bytes"
+    );
+    assert!(
+        encoder.capacity() >= 8 * 1024 * 1024,
+        "strings and arena both grew to hold the 4 MiB asset"
+    );
+
+    encoder.clear();
+    encoder
+        .encode(&Mutation::SetProp {
+            node_id: 1,
+            property: PropertyKind::Text,
+            value: PropertyValue::String("after startup"),
+        })
+        .unwrap();
+    encoder.finish().unwrap();
+
+    assert!(
+        encoder.capacity() <= 512 * 1024,
+        "encoder retained {} bytes after a small batch followed the 4 MiB registration",
+        encoder.capacity()
+    );
+}
