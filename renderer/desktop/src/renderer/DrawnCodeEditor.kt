@@ -253,7 +253,7 @@ private class DrawnState(
         for (span in model.spansInLines(line, line + 1)) {
             val from = if (span.start.line < line) 0 else span.start.column.coerceAtMost(source.length)
             val to = if (span.end.line > line) source.length else span.end.column.coerceAtMost(source.length)
-            if (to > from) builder.addStyle(SpanStyle(color = look.paint(span.paint)), charAt[from], caretAt[to])
+            if (to > from) builder.addStyle(syntaxSpanStyle(span, look), charAt[from], caretAt[to])
         }
         look.fontFallback?.let { fallback ->
             for (piece in fallback(builder.toAnnotatedString().text)) builder.addStyle(piece.item, piece.start, piece.end)
