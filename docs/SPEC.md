@@ -4270,6 +4270,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 2. `text_align`, `font_size`를 부르지 않으면 두 속성이 나가지 않고 렌더러 결과가 바뀌지 않습니다.
 3. 자식으로 `Icon`, `Text`, `Spacer.weight(1.0)`, 개수 `Text`를 가진 Button에서 개수가 Button의 오른쪽 안쪽 가장자리에 붙고, Button 전체를 누르면 `on_click`이 한 번 옵니다.
 4. `Button("커밋").type_role(TypeRole::Caption)`의 라벨이 `Caption`의 크기와 굵기로 그려지고, `font_weight(500)`을 더하면 굵기만 500이 됩니다. 둘 다 부르지 않으면 두 속성이 나가지 않습니다(fr66_button_type_role_and_weight).
+5. `Button`에 지정한 `type_role`과 `font_weight`는 자식 `Text`가 자기 값을 따로 지정하지 않았을 때 자식 `Text`에도 상속됩니다(local text style과 같은 방식). 자식 `Text`가 자기 `type_role`이나 `font_weight`를 지정하면 자식의 값이 이깁니다(`fr66_button_type_role_and_weight_reach_child_text`).
 
 ### FR-67 Switch, Slider, Checkbox의 색과 크기 (`Done`, 이슈 #426, #428)
 

@@ -707,6 +707,14 @@ fun RenderNode(
  */
 val LocalInheritedTextColor = compositionLocalOf<ColorProducer?> { null }
 
+/** Type role and font weight inherited from an enclosing Button when a child Text sets neither. */
+internal data class InheritedTextStyle(
+    val typeRole: dev.darkpyonix.composerust.protocol.TypeRole? = null,
+    val fontWeight: Int? = null,
+)
+
+internal val LocalInheritedTextStyle = compositionLocalOf<InheritedTextStyle?> { null }
+
 val LocalScrollState = compositionLocalOf<ScrollState?> { null }
 val LocalScrollIsHorizontal = compositionLocalOf { true }
 
