@@ -19,7 +19,7 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 const RED: Paint = Paint::Literal(Color::argb(0xffff_0000));
 
 /// Encodes one record and returns its tag, its length and what it decodes back to.
-fn wire(modifier: compose_rust::Modifier) -> (u16, u16, Vec<Mutation>) {
+fn wire(modifier: compose_rust::Modifier) -> (u16, u16, Vec<Mutation<'static>>) {
     let expected = Mutation::SetModifier {
         node_id: 3,
         index: 0,
@@ -27,10 +27,11 @@ fn wire(modifier: compose_rust::Modifier) -> (u16, u16, Vec<Mutation>) {
     };
     let mut encoder = BatchEncoder::default();
     encoder.encode(&expected).unwrap();
-    let bytes = encoder.finish().unwrap().to_vec();
+    // Leaked so the decoded records can outlive this call.
+    let bytes: &'static [u8] = std::boxed::Box::leak(encoder.finish().unwrap().to_vec().into_boxed_slice());
     let tag = u16::from_le_bytes([bytes[22], bytes[23]]);
     let len = u16::from_le_bytes([bytes[14], bytes[15]]);
-    let decoded = decode_batch(&bytes).unwrap();
+    let decoded = decode_batch(bytes).unwrap();
     assert_eq!(decoded, [expected]);
     (tag, len, decoded)
 }
