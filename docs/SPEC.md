@@ -2656,7 +2656,7 @@ Notification::new("세션이 끝났습니다")
 
   나머지는 기존 태그입니다. 처음 내용은 `Text`(1), 변경 이벤트의 핸들러는 `OnValueChange`(6)입니다.
 - 장식 레코드, 44바이트: `version: u32`, `kind: u16`(`Underline=1`, `CodeLens=2`, `HoverAnchor=3`, `GhostText=4`), `severity: u16`(`Error=1`, `Warning=2`, `Information=3`, `Hint=4`, 밑줄이 아니면 0), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), 예약 `u16`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `id: u64`(앱이 고른 장식 id. 0이면 누를 수 없고 활성, 호버 이벤트에 실리지 않음), `text: (offset: u32, len: u32)`(CodeLens와 고스트 텍스트의 글자, 블롭 끝에 놓임. `Canvas`의 글자 명령과 같은 방식).
-- 구문 스팬 레코드, 28바이트: `version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `paint: Paint`(u64).
+- 구문 스팬 레코드, 32바이트: `version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `paint: Paint`(u64), `style: u32`(하위 16비트는 글꼴 굵기 0=상속 또는 1-1000, 비트 16은 기울임, 비트 17은 밑줄. 0이면 편집기 기본 글꼴 스타일을 그대로 씁니다. 이슈 #863).
 - 명령(Mutation), FR-36의 16 뒤에 덧붙입니다:
 
 | 태그 | 명령 | 레코드 |
