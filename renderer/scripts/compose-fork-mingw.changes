@@ -16,7 +16,7 @@
 dee8e7436ece6a67d53200f30b486e90d673673e .github/actions/fork-compose/action.yml
 33bec65349ecb3651bcfd5353b49308d023273e6 .github/workflows/check-public-api.yml
 301bcea81c70b8af7f5e387ee2b53ea44ce65a58 .github/workflows/check-release-notes.yml
-6a1235f0c38db5d9202e4bb41305f27353586508 .github/workflows/ci.yml
+2df1b23f3ce6931e249a4467b0e27a2972f64be9 .github/workflows/ci.yml
 0e89d9ae271e5eceedbc201a205957b96e9eb3e7 .github/workflows/compose-publish-dry-run.yml
 89d9382f383c927253f80326e52520c30644f10e .github/workflows/compose-tests.yml
 379e1c459b3f161ac85c76d4207afac9e02afd76 .github/workflows/design-systems.yml
@@ -40,8 +40,8 @@ e9db76d08dff66123369f4b043fd3fa8a89ba0ab .github/workflows/extended-window-graal
 2fac5519405d6fc0a81eea367e69028b8910ed2b .github/workflows/extended-window-macos.yml
 86f9abc8171b116c14e519af69f67c3b1bffa552 .github/workflows/extended-window-publish.yml
 086af95a00e0f8304aadbcd923b3d7c30fa022e5 .github/workflows/extended-window-scene.yml
-f5f79e3e11dbdc89e31b9861317a85b9bedff100 .github/workflows/extended-window-windows-shared.yml
-1ca515cfaa700754a998e2eb219a0b7ae90f2ae7 AGENTS.md
+bf1e478bea4a302d8e4c7766b51853bd668f9acf .github/workflows/extended-window-windows-shared.yml
+13625de4b94aff8fd3cfb9fceeae9375177019cb AGENTS.md
 eafdb386d17a3c1f9fae636f15d3c5029ac1fd85 buildSrc-tests/src/test/java/androidx/build/VersionTest.kt
 031817243c3ab9f48394ae288aceea3c2999bb0f buildSrc-tests/src/test/java/org/jetbrains/androidx/build/JetBrainsPublicationTest.kt
 04c6e5b91c0e7ee81cb294a72cd4cf3178495869 buildSrc/private/src/main/kotlin/org/jetbrains/androidx/build/JetBrainsCapabilityRule.kt
@@ -195,8 +195,8 @@ bc40e3295a52eb28baa931e79a34d6780cb75442 compose/ui/ui/src/mingwMain/kotlin/andr
 90836b3cb58d0690ee195ec62eaebf2f4562d3ab compose/ui/ui/src/mingwMain/kotlin/androidx/compose/ui/viewinterop/InteropView.mingw.kt
 ba3c1e00f09aad1f8c4ff93e3a39f96f4bc2cb96 compose/ui/ui/src/nativeMain/kotlin/androidx/compose/ui/platform/GlobalSnapshotManager.native.kt
 bcf2202586cfd254460a0ea9f1a7e215bf0414fc compose/ui/ui/src/nonJvmMain/kotlin/androidx/compose/ui/Actuals.nonJvm.kt
-d654143cb418b5810a2f6276733d0cf38b563f0d extended/CHANGELOG.md
-8456ab67e27cb195ffe6d691e79b578464341e7b extended/CHANGELOG_ko.md
+336e9e46502f8edfc49b07609a4ce7ad1a1b99b8 extended/CHANGELOG.md
+bbb4722f9281ff8d5e03427906ad82a542fc4ea7 extended/CHANGELOG_ko.md
 d25a7938208b2f001917fdb68e2cbbb6ad0798ee extended/COORDINATES.md
 e6b2a5bb4b24f69417abebe9e8b761113f417590 extended/README.md
 ad73fbce4d8018ae5e18f70b301af7fed30e0a46 extended/README_ko.md
@@ -555,9 +555,9 @@ bdd8cf701f7760dfe2aedcfb5f19aa4555bfe4ce extended/window/scripts/atspi-readback.
 b646e29fe190e7224021959be43a306402a6e364 extended/window/scripts/publish-native-linux.sh
 56f6c882d49dd3ad0076b4874be1f2d1f7de1287 extended/window/scripts/wm-chrome.sh
 08c769cce69203591ed8425029673201beadcc03 extended/window/scripts/wm-drag.sh
-8cdbc1a0c17eeffc19fccb4a9b2b05e0c6e71981 extended/window/windows-shared/README.md
+9f78c87efb065d723e8bd54b1df6d3959762ff53 extended/window/windows-shared/README.md
 5bbcc5fa99f970df259f95f6dbfbd93f20c0a00b extended/window/windows-shared/c/test/win32_resize_probe.c
-155a7cde1e3a2676fba50b2decd3a25c6ce4d0d8 extended/window/windows-shared/c/test/win32_shared_test.c
+4726249f9e4a15edfac897eae3ef3a653591a8a6 extended/window/windows-shared/c/test/win32_shared_test.c
 8e3318cdaa8fe4ab456876872533a2b66d8703ae extended/window/windows-shared/c/win32_buttons.h
 6fc14067085a1709480823e1f7023a052da7e22a extended/window/windows-shared/c/win32_caption.h
 b25b14c25e0a15c30c910eab3cf6d914f9973aae extended/window/windows-shared/c/win32_edit_menu.h
@@ -568,10 +568,10 @@ cf6e2fc0b0964f0ba01f35a95477595ca520e8a6 extended/window/windows-shared/c/win32_
 ef581a4499b9f64ad57cce9ca1612b30c4f6621a extended/window/windows-shared/c/win32_multi.h
 d6d1612142eeced256204f49974ddff3d70bb6cd extended/window/windows-shared/c/win32_notifications.c
 2cc7800aebc8aaef1b72e672b377dda16aff6357 extended/window/windows-shared/c/win32_placement.h
-8da30866701b6af99d9c6cc456c501d48bc55f92 extended/window/windows-shared/c/win32_resize.h
+51f6e08140c087aaf12d5e7293947b7b5321b633 extended/window/windows-shared/c/win32_resize.h
 a652f02cf11fed421da823fedb0e881c2707fabd extended/window/windows-shared/c/win32_scheme.h
 043cc9f8274427b6c3e012e5f0e53594e67a9653 extended/window/windows-shared/c/win32_wheel.h
-ca6b15d13ce9011caa2149079ea1d119365f2ebe extended/window/windows-shared/c/win32_window.c
+8b09cfa5b7f2318619a197c7e3171b6d537be233 extended/window/windows-shared/c/win32_window.c
 e00fe1432bf9ffd771dd81d1b7829b6a217ee4d1 extended/window/windows-shared/cinterop/include/win32_window.h
 6c82f1b64382eb13f3a4c47b477117b658bbc7f0 extended/window/windows-shared/cinterop/win32_window.def
 ce420d8f11cd76de7c3172ec696621d5389aeeeb extended/window/windows-shared/module.yaml
