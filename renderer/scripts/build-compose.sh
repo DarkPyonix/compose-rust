@@ -120,7 +120,7 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # which already sends a scroll where the last pointer event was, and the macOS renderer goes
 # through the fork's scene, so nothing here changes with it. The new scene code is Kotlin the
 # window build already compiles; the Windows C keeps its symbols.
-WINDOW_REVISION="146d920bf428db556f4a6e7e09f9bfd86ec67777"
+WINDOW_REVISION="07ab59ebfc580dda12c0f296372c09794bf8a0f8"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles

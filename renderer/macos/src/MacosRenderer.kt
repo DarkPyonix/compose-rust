@@ -17,12 +17,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalCursorBlinkEnabled
+import androidx.compose.ui.semantics.getOrNull
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.runtime.LocalSystemDarkObserver
+import dev.darkpyonix.composerust.ui.DeclaredRole
 import dev.darkpyonix.composerust.ui.node.Asset
 import kotlinx.coroutines.delay
 import org.thisisthepy.compose.window.DockIcon
+import org.thisisthepy.compose.window.ElementRole
 import org.thisisthepy.compose.window.SystemDarkMonitor
 import org.thisisthepy.compose.window.contentMinimum
+import org.thisisthepy.compose.window.macos.DeclaredElementRoles
 import org.thisisthepy.compose.window.macos.MacosWindow
 import org.thisisthepy.compose.window.macos.observeSystemAppearance
 import org.thisisthepy.compose.window.macos.systemIsDark
@@ -85,6 +90,7 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
     ComposeFoundationFlags.isNewContextMenuEnabled = true
 
     declareWindowBackdrop()
+    installMacosDeclaredElementRoles()
     // The accessibility setting a page's `prefers-reduced-motion` answers to, asked at start
     // and whenever the window comes back into use.
     dev.darkpyonix.composerust.ui.node.platformReducedMotionSetting = {
@@ -244,6 +250,31 @@ internal fun runRenderer(connection: () -> HostConnection): Int {
 
 /** How often the single-window scene takes a turn on the main run loop. */
 private const val SINGLE_WINDOW_TURN_SECONDS = 1.0 / 60.0
+
+/**
+ * Connects the Host's declared semantics roles ([DeclaredRole]) to the macOS window's
+ * accessibility bridge ([DeclaredElementRoles]) so that roles Compose has no enum for
+ * (group, list, tab list, tree, menu, navigation, etc.) reach NSAccessibility as their
+ * platform roles rather than falling back to `AXStaticText`.
+ */
+internal fun installMacosDeclaredElementRoles() {
+    DeclaredElementRoles.of = { config ->
+        when (config.getOrNull(DeclaredRole)) {
+            SemanticsRole.TabList -> ElementRole.TAB_GROUP
+            SemanticsRole.Tree -> ElementRole.OUTLINE
+            SemanticsRole.TreeItem -> ElementRole.OUTLINE_ROW
+            SemanticsRole.Menu -> ElementRole.MENU
+            SemanticsRole.MenuItem -> ElementRole.MENU_ITEM
+            SemanticsRole.TextBox -> ElementRole.FIELD
+            SemanticsRole.Heading -> ElementRole.HEADING
+            SemanticsRole.Navigation -> ElementRole.NAVIGATION
+            SemanticsRole.List -> ElementRole.LIST
+            SemanticsRole.ListItem -> ElementRole.LIST_ITEM
+            SemanticsRole.Group -> ElementRole.GROUP
+            else -> null
+        }
+    }
+}
 
 /**
  * Starts the run-loop turns and accessibility updates for the single-window Kotlin/Native

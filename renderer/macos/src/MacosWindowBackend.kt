@@ -158,6 +158,7 @@ class MacosWindowBackend(
     override fun open(config: PlatformWindowConfig, listener: PlatformWindowListener): PlatformWindow? {
         NSApplication.sharedApplication()
         installMacosApplicationDelegate()
+        installMacosDeclaredElementRoles()
         val chrome = MacosWindowChrome.of(config.chrome, config.titleBar)
         val x = config.x
         val y = config.y
