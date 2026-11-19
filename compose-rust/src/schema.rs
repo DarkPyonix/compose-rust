@@ -4222,6 +4222,9 @@ pub enum EventPayload<'a> {
         safe_area_top: f32,
         safe_area_leading: f32,
         safe_area_trailing: f32,
+        /// The room the system keeps at the bottom edge, after every other field so the
+        /// fields before it keep their offsets. Zero on a desktop window.
+        safe_area_bottom: f32,
     },
     /// Files are over a node that said it would take them. Nothing about what they are:
     /// the platforms disagree about what is knowable before a drop, and a screen that

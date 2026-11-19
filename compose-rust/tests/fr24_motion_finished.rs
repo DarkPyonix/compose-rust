@@ -16,7 +16,7 @@ use support::Tree;
 const EVENTS: &[u8] = include_bytes!("vectors/events.bin");
 
 /// Where the report sits in the event vector, and how long it is.
-const REPORT_AT: usize = 1439;
+const REPORT_AT: usize = 1443;
 const REPORT_LEN: usize = 24;
 
 fn vector_report() -> HostEvent<'static> {

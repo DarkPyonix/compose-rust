@@ -17,11 +17,16 @@ use std::sync::Arc;
 /// draws its traffic lights, and `trailing` on Windows (three 46 dp buttons, 138 dp) and on
 /// a Linux window whose buttons the Renderer draws (the desktop's own set). `top` is the
 /// caption's height. All three are zero where the window has no caption to share.
+///
+/// `bottom` is the room the system keeps at the bottom edge: the navigation bar or gesture
+/// handle on Android and the home indicator on iOS. A desktop window has none, so it is
+/// zero there.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WindowSafeArea {
     pub top: f32,
     pub leading: f32,
     pub trailing: f32,
+    pub bottom: f32,
 }
 
 /// The window's size, as the Renderer last measured it.
@@ -55,6 +60,7 @@ impl WindowSize {
                 top: 0.0,
                 leading: 0.0,
                 trailing: 0.0,
+                bottom: 0.0,
             },
         }
     }
@@ -129,7 +135,7 @@ thread_local! {
         height_dp: 0.0,
         class: WindowSizeClass::Compact,
         height_class: WindowHeightClass::Compact,
-        safe_area: WindowSafeArea { top: 0.0, leading: 0.0, trailing: 0.0 },
+        safe_area: WindowSafeArea { top: 0.0, leading: 0.0, trailing: 0.0, bottom: 0.0 },
     }) };
     static SUBSCRIBERS: RefCell<Vec<Subscriber>> = const { RefCell::new(Vec::new()) };
     /// What each window of a multi-window application last measured, by the id of its
@@ -464,12 +470,22 @@ mod tests {
             top: 28.0,
             leading: 70.0,
             trailing: 0.0,
+            bottom: 0.0,
         });
         assert!(publish(size));
         assert_eq!(window_size(), size);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(!publish(size));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        // The bottom side alone is a change as well: a navigation bar that appears or
+        // goes away moves nothing else.
+        let bottom = size.with_safe_area(WindowSafeArea {
+            bottom: 24.0,
+            ..size.safe_area
+        });
+        assert!(publish(bottom));
+        assert_eq!(window_size().safe_area.bottom, 24.0);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
     #[test]

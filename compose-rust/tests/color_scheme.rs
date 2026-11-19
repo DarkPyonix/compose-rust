@@ -55,9 +55,9 @@ fn fr44_color_scheme_event_round_trips() {
     assert_eq!(u16::from(SystemColorScheme::Dark), 1);
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
     assert_eq!(
-        decode_event(&events[1659..1679]),
+        decode_event(&events[1663..1683]),
         Ok(scheme_changed(SystemColorScheme::Dark))
     );
 
