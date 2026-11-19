@@ -299,13 +299,13 @@ class HoverFocusPressStyleTest {
             }
             return seen
         }
-        val default = widths(null)
-        val given = widths(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
-        assertTrue(default.last() in 36..44, "the default press ends at half the width: $default")
-        assertTrue(given.last() in 36..44, "the given press ends at half the width: $given")
+        val defaultWidths = widths(null)
+        val givenWidths = widths(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
+        assertTrue(defaultWidths.last() in 36..44, "the default press ends at half the width: $defaultWidths")
+        assertTrue(givenWidths.last() in 36..44, "the given press ends at half the width: $givenWidths")
         assertTrue(
-            given.sum() < default.sum() - 20,
-            "the given curve is further along through the press: $given against $default",
+            givenWidths.sum() < defaultWidths.sum() - 20,
+            "the given curve is further along through the press: $givenWidths against $defaultWidthsWidths",
         )
     }
 }
