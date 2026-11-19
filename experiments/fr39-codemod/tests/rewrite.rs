@@ -120,10 +120,10 @@ fn a_str_parameter_takes_a_literal_as_it_is_and_anything_else_as_ref() {
 }
 
 #[test]
-fn a_path_call_keeps_its_path() {
+fn a_call_through_a_path_brings_the_name_into_scope() {
     same(
-        "fn f() { ui::Text(\"a\").max_lines(2); }",
-        "fn f() { ui::Text!(\"a\", max_lines = 2); }",
+        "fn f() { compose_rust::ui::Text(\"a\").max_lines(2); }",
+        "fn f() { { use ::compose_rust::ui::next::Text; Text!(\"a\", max_lines = 2) }; }",
     );
 }
 
@@ -209,4 +209,13 @@ fn non_ascii_text_keeps_its_offsets() {
         "fn f() { Text(\"한국어 ✓\").max_lines(1); Text(\"b\"); }",
         "fn f() { Text!(\"한국어 ✓\", max_lines = 1); Text!(\"b\"); }",
     );
+}
+
+#[test]
+fn an_enum_variant_named_like_a_widget_is_not_a_widget() {
+    let source =
+        "fn f() { let v = Value::Text(s); let w = WordWrap::Column(40); g(Value::Text(t)); }";
+    let (got, flags) = run(source);
+    assert_eq!(got, source);
+    assert!(flags.is_empty(), "{flags:?}");
 }
