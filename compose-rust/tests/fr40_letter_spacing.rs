@@ -8,7 +8,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 /// The letter spacing values one node was given, in order.
 fn spacings(mutations: &[Mutation<'_>], node: u32) -> Vec<Option<f32>> {
@@ -45,15 +45,15 @@ fn texts(mutations: &[Mutation<'_>]) -> Vec<u32> {
 /// 0 is unset, 1 is an explicit 0, 2 is 1.5sp.
 #[Composable]
 fn Spaced(spacing: MutableState<u8>) {
-    Column().content(|| {
-        let text = Text("A");
-        match spacing.get() {
-            1 => text.letter_spacing(0.0),
-            2 => text.letter_spacing(1.5),
-            _ => text,
+    Column!({
+        let letter_spacing = match spacing.get() {
+            1 => Some(0.0),
+            2 => Some(1.5),
+            _ => None,
         };
-        Text("zero").letter_spacing(0.0);
-        Text("plain");
+        Text!("A", letter_spacing = letter_spacing);
+        Text!("zero", letter_spacing = 0.0);
+        Text!("plain");
     });
 }
 

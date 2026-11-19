@@ -11,7 +11,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 /// What one node was given for `property`, in order: `Some(value)` for an integer, `None`
@@ -67,18 +67,23 @@ fn serif() -> FontRefs {
 
 #[Composable]
 fn Texts() {
-    Column().content(|| {
-        Text("A")
-            .type_role(TypeRole::None)
-            .font(serif())
-            .font_size(14.0);
-        Text("plain");
-        Text("body").type_role(TypeRole::Body);
-        TextField()
-            .placeholder("own fonts")
-            .type_role(TypeRole::None)
-            .font(serif());
-        TextField().placeholder("plain");
+    Column!({
+        Text!(
+            "A",
+            type_role = TypeRole::None,
+            font = serif(),
+            font_size = 14.0
+        );
+        Text!("plain");
+        Text!("body", type_role = TypeRole::Body);
+        TextField!(
+            "",
+            |_| {},
+            placeholder = "own fonts",
+            type_role = TypeRole::None,
+            font = serif()
+        );
+        TextField!("", |_| {}, placeholder = "plain");
     });
 }
 
@@ -124,13 +129,13 @@ fn fr40_type_role_none_is_sent_and_an_unset_role_is_not() {
 /// 0 is no role set, 1 is `TypeRole::None`, 2 is `TypeRole::Body`.
 #[Composable]
 fn Switching(role: MutableState<u8>) {
-    Column().content(|| {
-        let text = Text("A").font(serif());
-        match role.get() {
-            1 => text.type_role(TypeRole::None),
-            2 => text.type_role(TypeRole::Body),
-            _ => text,
+    Column!({
+        let type_role = match role.get() {
+            1 => Some(TypeRole::None),
+            2 => Some(TypeRole::Body),
+            _ => None,
         };
+        Text!("A", font = serif(), type_role = type_role);
     });
 }
 

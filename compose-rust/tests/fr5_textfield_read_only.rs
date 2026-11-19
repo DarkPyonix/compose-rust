@@ -2,13 +2,11 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, PropertyKind, Theme};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 #[Composable]
 fn ReadOnlyField() {
-    TextField()
-        .text("https://example.invalid/invite")
-        .read_only(true);
+    TextField!("https://example.invalid/invite", |_| {}, read_only = true);
 }
 
 #[test]

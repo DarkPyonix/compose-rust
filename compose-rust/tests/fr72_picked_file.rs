@@ -17,7 +17,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDelivery, FileDialogStatus, FileOp, IoStatus,
     PropertyKind, Theme,
 };
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{Delivery, FileDialog, FileDialogResult, FileError, PickedFile};
 use std::cell::RefCell;
 use std::future::Future;
@@ -40,7 +40,7 @@ fn results() -> Vec<FileDialogResult> {
 
 #[Composable]
 fn Opener() {
-    Button("open").on_click(|| {
+    Button!("open", || {
         FileDialog::open_files()
             .filter("Text", &["txt"])
             .show(|result| RESULTS.with_borrow_mut(|results| results.push(result)));
