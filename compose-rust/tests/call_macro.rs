@@ -229,6 +229,33 @@ fn fr39_call_macro_limits_generics_are_inferred_like_the_function_form() {
 }
 
 #[Composable]
+fn Repeated<const N: usize>(
+    cells: [u8; N],
+    label: impl Into<String> + Clone + PartialEq + 'static,
+) {
+    let label: String = label.into();
+    note(format!("Repeated {N} {cells:?} {label}"));
+}
+
+#[test]
+fn fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form() {
+    take_log();
+    compose(|| {
+        Repeated([1, 2], "f");
+        Repeated!([7, 8, 9], "m");
+        Repeated!([], label = String::from("named"));
+    });
+    assert_eq!(
+        take_log(),
+        vec![
+            "Repeated 2 [1, 2] f",
+            "Repeated 3 [7, 8, 9] m",
+            "Repeated 0 [] named"
+        ]
+    );
+}
+
+#[Composable]
 fn Leaf(text: String) {
     let clicks = remember(|| mutable_state_of(0));
     Text(format!("{text}:{}", clicks.get()));

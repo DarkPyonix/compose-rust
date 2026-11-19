@@ -1,0 +1,5 @@
+error: argument `content` of Panel! is given twice
+ --> tests/ui/fail_content_twice.rs:9:29
+  |
+9 |     Panel!(content = || {}, { let _ = 1; });
+  |                             ^^^^^^^^^^^^^^
