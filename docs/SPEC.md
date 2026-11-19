@@ -193,7 +193,7 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - **세 컨테이너끼리는 구분을 요구하지 않습니다.** Material 3의 기준 배색에서 primary와 secondary 컨테이너는 한 팔레트의 이웃한 톤이라 10단계 남짓 떨어져 있고, 그것은 공개된 배색이지 실수가 아닙니다. 한눈에 갈라지는 채움 세 개가 필요한 호출자는 tertiary 쌍을 씁니다.
 - 수용 기준: 6개 디자인 시스템 × 2개 명암 전부에서 컨테이너 3쌍이 4.5:1을 넘고, `Tertiary`가 3:1을 넘으며, 컨테이너 3개가 `Background`와 구분됩니다. **(2026-09-21 통과: `tokens.rs`의 `fr14_on_roles_stay_readable`, `fr14_surface_variant_is_visible_against_the_page_and_the_surface`)**
 
-#### 13.1-3 코드 색 역할 (`Draft`)
+#### 13.1-3 코드 색 역할 (`Done`)
 
 대화 화면은 코드를 보여 줍니다. 코드 블록과 diff입니다. 지금 Host 쪽 강조기(tree-sitter 같은)가 토큰을 칠하려면 `Paint::Literal`밖에 없고, 그러면 같은 색이 일곱 시스템과 두 명암에 똑같이 박힙니다. 다크 모드에서 라이트용 주석 회색이 사라지는 일이 정확히 그것입니다.
 
@@ -253,9 +253,9 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 
 수용 기준:
 1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_code_colours_hold_their_contrast_in_every_system`]
-2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`). [**일부 증명**: 라이트와 다크에서 다르게 그려지는 것은 `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`. 와이어에 리터럴 색이 없다는 것은 하이라이터가 이름을 색 역할로만 접는다는 `fr13_1_3_highlight_names_fold_into_the_code_roles`로 간접적으로만 보이고, 와이어를 직접 확인하는 시험은 없습니다]
+2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`). [**증명됨**: 라이트와 다크에서 다르게 그려지는 것은 `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`. 강조한 Rust 코드의 배치를 디코드해 스팬의 `Paint`가 전부 `Role`이고 리터럴이 없음을 `fr13_1_3_highlighted_rust_text_carries_no_literal_colour_on_the_wire`가 와이어에서 직접 확인합니다]
 3. 같은 코드 블록이 최소 두 시스템에서 다른 키워드 색으로 그려집니다. 일곱 번 같은 색이면 실패입니다. [**증명됨**: `fr13_1_3_keyword_colour_differs_between_systems`, `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`]
-4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사). [**시험 없음**: 역할을 더해도 위젯 정의와 속성·Modifier 스키마가 그대로라는 회귀 검사가 없습니다]
+4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사). [**증명됨**: `fr13_1_3_code_roles_leave_widget_property_and_modifier_schemas_unchanged`(위젯, 속성, Modifier 스키마의 수와 해시를 기록해 두고 비교)]
 5. Material 3와 Deepin의 코드 역할 값이 위의 유도 규칙으로 그 시스템의 기반 역할에서 다시 계산한 값과 같습니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_derived_code_colours_follow_the_rule`(Material 3와 Deepin, 두 명암)]
 
 #### 13.2 타이포그래피
