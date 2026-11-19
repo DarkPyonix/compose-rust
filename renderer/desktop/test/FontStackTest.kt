@@ -22,16 +22,22 @@ import dev.darkpyonix.composerust.tooling.FakeHostConnection
 import dev.darkpyonix.composerust.ui.node.Asset
 import dev.darkpyonix.composerust.ui.node.AssetCache
 import dev.darkpyonix.composerust.ui.node.DeclaredFaceStyle
+import dev.darkpyonix.composerust.ui.node.decodeFontAsset
 import dev.darkpyonix.composerust.ui.node.declaredFaceStyle
+import dev.darkpyonix.composerust.ui.node.parseCmapRanges
 import dev.darkpyonix.composerust.ui.node.TableError
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import org.jetbrains.skia.Data
+import org.jetbrains.skia.FontMgr
 
 /**
  * The fonts an application ships, used for every piece of text and not swapped for the
@@ -344,6 +350,46 @@ class FontStackTest {
         // Only the Hangul letter goes to the second family.
         val spans = chain.spans("AA가A")
         assertEquals(listOf(2 to 3), spans.map { it.start to it.end })
+    }
+
+    @Test
+    fun nfr17_decoded_font_keeps_glyph_ranges_without_retaining_skia_typeface() {
+        val decoded = assertNotNull(decodeFontAsset(latin))
+        val face = assertNotNull(decoded.face)
+        // `hasGlyph` is bound to `GlyphRanges`, not a closure capturing a Skia `Typeface`.
+        for (field in face.hasGlyph.javaClass.declaredFields) {
+            assertFalse(
+                org.jetbrains.skia.Typeface::class.java.isAssignableFrom(field.type),
+                "hasGlyph must not retain a Skia Typeface (${field.name}: ${field.type})",
+            )
+        }
+        assertTrue(face.hasGlyph('A'.code))
+        assertTrue(face.hasGlyph(0xEA60))
+        assertFalse(face.hasGlyph('B'.code))
+        assertFalse(face.hasGlyph(0xAC00))
+
+        // Verify `parseCmapRanges` matches Skia's own glyph lookup across the bundled fonts.
+        var dir: File? = File(System.getProperty("user.dir")).absoluteFile
+        while (dir != null && !File(dir, "renderer/web/resources/fonts").isDirectory) {
+            dir = dir.parentFile
+        }
+        val fontsDir = assertNotNull(dir).resolve("renderer/web/resources/fonts")
+        for (name in listOf("Roboto-Regular.ttf", "NotoSansSymbols2-Subset.ttf")) {
+            val bytes = File(fontsDir, name).readBytes()
+            val ranges = assertNotNull(parseCmapRanges(bytes), name)
+            val skia = assertNotNull(FontMgr.default.makeFromData(Data.makeFromBytes(bytes)), name)
+            try {
+                for (cp in listOf(0x20, 'A'.code, '0'.code, 0x00D7, 0x2212, 0x232B, 0x25B6, 0x25BE, 0xAC00, 0x1F600)) {
+                    assertEquals(
+                        skia.getUTF32Glyph(cp) != 0.toShort(),
+                        ranges.contains(cp),
+                        "$name U+${cp.toString(16)}",
+                    )
+                }
+            } finally {
+                skia.close()
+            }
+        }
     }
 
     private companion object {
