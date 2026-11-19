@@ -3,9 +3,11 @@
 package dev.darkpyonix.composerust.test
 
 import dev.darkpyonix.composerust.protocol.HostEvent
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.SemanticsRole
 import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.ComposeRustHost
@@ -351,6 +353,85 @@ class MacosAccessibilityTest {
             assertTrue(item.accessibilityPerformPress())
             assertEquals(
                 listOf<HostEvent>(HostEvent.Clicked(nodeId = 1, handlerId = 30L)),
+                connection.events.filterIsInstance<HostEvent.Clicked>(),
+            )
+        } finally {
+            opened.close()
+            spinLoop()
+        }
+    }
+
+    @Test
+    fun nfr8_declared_semantics_roles_reach_macos_ax_tree() {
+        NSApplication.sharedApplication()
+        val cases = listOf(
+            Triple(SemanticsRole.TabList, "TabsX", MacosAx.TAB_GROUP),
+            Triple(SemanticsRole.Tree, "TreeX", MacosAx.OUTLINE),
+            Triple(SemanticsRole.TreeItem, "TreeItemX", MacosAx.ROW),
+            Triple(SemanticsRole.Menu, "MenuX", MacosAx.MENU),
+            Triple(SemanticsRole.MenuItem, "MenuItemX", MacosAx.MENU_ITEM),
+            Triple(SemanticsRole.TextBox, "FieldX", MacosAx.TEXT_FIELD),
+            Triple(SemanticsRole.Heading, "HeadingX", MacosAx.HEADING),
+            Triple(SemanticsRole.Navigation, "NavX", MacosAx.GROUP),
+            Triple(SemanticsRole.List, "ListX", MacosAx.LIST),
+            Triple(SemanticsRole.ListItem, "ListItemX", MacosAx.GROUP),
+            Triple(SemanticsRole.Group, "TrustCard", MacosAx.GROUP),
+        )
+        val initial = buildList {
+            add(Mutation.Create(1, WidgetKind.Column))
+            add(Mutation.Insert(0, 1, APPEND_CHILD))
+            cases.forEachIndexed { index, (role, label, _) ->
+                val id = 10 + index
+                add(Mutation.Create(id, WidgetKind.Column))
+                add(Mutation.SetProp(id, PropertyKind.AccessibleName, PropertyValue.Text(label)))
+                add(Mutation.SetModifier(id, 0, ProtocolModifier.Semantics(role, 0)))
+                add(Mutation.Insert(1, id, APPEND_CHILD))
+                if (role == SemanticsRole.Group) {
+                    add(Mutation.Create(100, WidgetKind.Button))
+                    add(Mutation.SetProp(100, PropertyKind.Text, PropertyValue.Text("TrustBtn")))
+                    add(Mutation.SetProp(100, PropertyKind.OnClick, PropertyValue.Integer(99L)))
+                    add(Mutation.Insert(id, 100, APPEND_CHILD))
+                }
+            }
+        }
+        val connection = AccessibilityScriptedHost(initial)
+        val host = ComposeRustHost(connection)
+        host.start(FrameRequestSource())
+
+        val backend = MacosWindowBackend(scene = { _, _, _, _ ->
+            { ComposeRustContent(host) }
+        })
+        val opened = assertNotNull(
+            backend.open(
+                PlatformWindowConfig(nodeId = 0, title = "ax declared roles", width = 420f, height = 400f),
+                NoopWindowListener,
+            ),
+        )
+        try {
+            val platformWindow = opened as dev.darkpyonix.composerust.ui.platform.MacosPlatformWindow
+            val nsWindow: NSWindow = platformWindow.nativeWindow
+            spinLoopUntil {
+                findAxElements(nsWindow.contentView).any { it.accessibilityLabel() == "TrustCard" }
+            }
+            val elements = findAxElements(nsWindow.contentView)
+            for ((declaredRole, label, expectedAxRole) in cases) {
+                val found = assertNotNull(
+                    elements.firstOrNull { it.accessibilityLabel() == label },
+                    "declared role $declaredRole ($label) must appear in the AX tree; found: ${elements.map { it.accessibilityRole() to it.accessibilityLabel() }}",
+                )
+                assertEquals(
+                    expectedAxRole,
+                    found.accessibilityRole(),
+                    "declared role $declaredRole ($label) must map to $expectedAxRole, not ${found.accessibilityRole()}",
+                )
+            }
+            val trustButton = assertNotNull(
+                elements.firstOrNull { it.accessibilityRole() == MacosAx.BUTTON && it.accessibilityLabel() == "TrustBtn" },
+                "Button inside declared Group (TrustCard) must be reachable in the AX tree",
+            )
+            assertTrue(trustButton.accessibilityPerformPress())
+            assertEquals(
+                listOf<HostEvent>(HostEvent.Clicked(nodeId = 100, handlerId = 99L)),
                 connection.events.filterIsInstance<HostEvent.Clicked>(),
             )
         } finally {
