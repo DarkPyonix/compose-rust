@@ -17,6 +17,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.swipeUp
@@ -1035,6 +1038,46 @@ class SheetTest {
      * `SheetHandle = false` takes the handle away and nothing else: Material 3 draws one on
      * a bottom sheet by default, the property removes it, and the sheet still drags shut.
      */
+    /** The handle's colour and the sheet surface beside it, in a light or dark Material3 theme. */
+    private fun handleAndSurface(scheme: ColorScheme): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+        var result = androidx.compose.ui.graphics.Color.Unspecified to androidx.compose.ui.graphics.Color.Unspecified
+        runDesktopComposeUiTest(400, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, adaptive = false)),
+            ) + sheetBatch(open = true).drop(1)
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.requiredSize(400.dp, 800.dp))
+                }
+            }
+            waitForIdle()
+            val handle = onNodeWithTag(sheetHandleTestTag(SHEET)).getBoundsInRoot()
+            val pixels = onRoot().captureToImage().toPixelMap()
+            val x = ((handle.left + handle.right) / 2).value.toInt()
+            val y = ((handle.top + handle.bottom) / 2).value.toInt()
+            // 24 dp to the side of the handle is the sheet's own surface.
+            result = pixels[x, y] to pixels[(handle.right.value + 24f).toInt(), y]
+        }
+        return result
+    }
+
+    private fun contrast(a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color): Float {
+        val (light, dark) = listOf(a.luminance(), b.luminance()).sortedDescending()
+        return (light + 0.05f) / (dark + 0.05f)
+    }
+
+    @Test
+    fun fr21_sheet_handle_is_visible_in_both_themes() {
+        for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
+            val (handle, surface) = handleAndSurface(scheme)
+            val ratio = contrast(handle, surface)
+            assertTrue(ratio >= 1.5f, "$scheme: the handle ($handle) stands out from the sheet ($surface) by only $ratio:1")
+        }
+    }
+
     @Test
     fun fr21_sheet_handle_can_be_hidden() {
         assertEquals(1, handleCount(null), "a bottom sheet draws its handle by default")
