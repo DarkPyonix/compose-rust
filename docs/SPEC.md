@@ -2861,7 +2861,7 @@ Notification::new("세션이 끝났습니다")
 > - 39.4.7 `rsx!`와 같은 표현력: **확인 안 됨.** 샘플의 `rsx!` 판은 dioxus-compose에 있고, 두 판의 노드 트리를 비교하는 시험이 없습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
 > - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다.
 > - 39.5.1 함수 형태: `fr39_function_form_takes_every_argument_and_no_defaults`가 함수 형태를 확인합니다. **어긋남:** develop의 공개 API에는 빌더 체인 메서드가 있습니다(`on_click`, `TextFieldScope::read_only`, `ModalScope::handle` 등). 소유자는 빌더를 1.0 전에 없애기로 정했습니다(2026-11-20, 39.5.1 아래).
-> - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다.
+> - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다. 내용 클로저를 두 번 준 호출(`fail_content_twice`)과 const 제네릭, `impl Trait` 인자의 composable(`fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form`)은 2026-11-20에 더했습니다.
 >
 > 이름 조회와 재전송 비용은 #65가 추적합니다.
 
