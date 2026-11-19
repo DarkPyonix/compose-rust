@@ -496,7 +496,7 @@ impl NodeWriter {
             "press_style" => Some(PRESS_STYLE),
             "elevation" => Some(ELEVATION),
             "onclickable" => Some(CLICKABLE),
-            "padding" | "padding_role" => Some(PADDING),
+            "padding" | "padding_role" | "padding_each" => Some(PADDING),
             "content_padding" => Some(CONTENT_PADDING),
             "observe_size" | "observe_size_every_dp" => Some(OBSERVE_SIZE),
             "motion" => Some(MOTION),
@@ -604,6 +604,25 @@ impl NodeWriter {
                     crate::SpaceRole::try_from(u16::try_from(integer(value)?).ok()?).ok()?,
                 ),
             ))),
+            "padding_each" => {
+                let AttrValue::Bytes(bytes) = value else {
+                    return Some(None);
+                };
+                let mut words = [0.0_f32; 4];
+                for (index, word) in words.iter_mut().enumerate() {
+                    *word =
+                        f32::from_le_bytes(bytes.get(index * 4..index * 4 + 4)?.try_into().ok()?);
+                }
+                Some(Some((
+                    PADDING,
+                    Modifier::PaddingEach {
+                        start: words[0],
+                        top: words[1],
+                        end: words[2],
+                        bottom: words[3],
+                    },
+                )))
+            }
             // Two words in dp: the room at each side of the content, then the room above
             // and below it. They go out as the four-sided padding, the record a control
             // reads as the room inside it.
