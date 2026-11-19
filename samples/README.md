@@ -59,9 +59,9 @@ under it inside a pale pill, and the others are icons alone.
 ## The pictures
 
 Five of the unified samples carry artwork, in each one's `assets/` directory: the shop's
-eight garments and its banner, the check-in's four faces, the podcast's three covers, the
-meditation app's three scenes and the drum school's four subject marks. Twenty-two files,
-about eighty kilobytes in total.
+eight garments and its banner, the check-in's four faces, the podcast's three covers and its
+welcome picture, the meditation app's three scenes and the drum school's subject marks.
+Twenty-four files, about sixteen kilobytes in total.
 
 **All of them are original drawings made for this repository**, hand-written SVG rather
 than exported from a tool, which is why they are a few hundred bytes each and why they are

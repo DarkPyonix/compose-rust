@@ -784,12 +784,16 @@ private fun ComposeRustTree(
     // shape: the application lays its bar out around what is drawn here, and on Windows the
     // native hit test answers for the same three cells.
     val captionStyle = remember(theme) { platformCaption(theme) }
-    val safeArea = if (caption.height <= 0.dp) WindowSafeArea() else {
+    // The bottom is the system's strip at the bottom edge, measured where the top strip is
+    // and with the keyboard left out, so it is the navigation bar or the home indicator
+    // whether or not a keyboard is up. A desktop window has no such strip and sends 0.
+    val safeBottom = safeBars.bottom.value
+    val safeArea = if (caption.height <= 0.dp) WindowSafeArea(bottom = safeBottom) else {
         val width = if (LocalWindowActions.current == null) caption.buttonsWidth else
             captionStyle.buttonWidth * 3 + captionStyle.spacing * 2 + captionStyle.edgePadding * 2
         val atStart = if (LocalWindowActions.current == null) caption.buttonsAtStart else
             captionStyle.side == CaptionSide.Start
-        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value)
+        WindowSafeArea(caption.height.value, if (atStart) width.value else 0f, if (atStart) 0f else width.value, safeBottom)
     }
     // Read through a derived state so a recomposition does not repeat the map lookup (which
     // boxes the node id) and the read only runs again when the property itself changes.

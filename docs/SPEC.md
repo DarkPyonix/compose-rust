@@ -1546,7 +1546,6 @@ INTENT D19가 Compose 자체를 고치는 일을 `thisisthepy/compose-multiplatf
 2. 그 확인을 화면 배율 100%와 200%에서 각각 하고, 각 배율의 스크린숏을 기록합니다.
 3. 옮긴 뒤 compose-rust의 샘플이 포크의 창으로 같은 검사를 통과하고, 이 저장소의 창 사본이 지워집니다.
 4. **크기를 바꾸는 동안 화면에 나오는 프레임은 모두 그 순간의 창 크기로 Skia가 그린 프레임입니다.** 측정 기준은 "현재 창 크기와 다른 크기로 그려진 프레임의 비율 = 0"입니다. 배경색으로 빈 곳을 가리는 것, 이전 프레임을 늘리는 것, 이전 프레임을 그대로 보여 주는 것은 모두 실패입니다. 이 기준은 macOS, Linux, Windows의 Kotlin/Native 경로와 GraalVM 경로 모두에 같게 적용되고, 일치 시험(`parity/`)의 리사이즈 항목도 이 비율로 판정합니다. Windows에서는 끌어서 크기를 바꾸는 동안 창이 그 크기로 Skia 래스터 그리기를 DIB에 마치고 `BitBlt`으로 창의 리디렉션 표면에 옮긴 뒤에 크기 변경 메시지(`WM_SIZE`)를 돌려줍니다. 끌기가 끝나면(`WM_EXITSIZEMOVE`) 다시 GPU 스왑체인으로 그립니다.
-    - Windows에서 이 기준을 지키는 CI 관문의 잠정 허용치([leader, provisional] (darkpyonix leader, 2026-11-16)): 리사이즈 프로브가 실제 입력으로 네 가장자리를 세 가지 속도로, 100%와 200%에서 끕니다(CPU 경로 끌기 24회). windows-2025에서는 결함이 보인 끌기가 10%를 넘으면(24회 가운데 3회 이상) 실패하고, 그 수를 항상 찍습니다. 0이 아닌 까닭은 포크의 창이 끄는 도중 마커 사이에 틈이 있는 프레임을 드물게 보이기 때문입니다(compose-multiplatform-core-extended#245). 같은 창 핀에서 windows-2025는 한 실행에서 24회 가운데 0회, 다음 실행에서 1회(한 프레임)였으므로, 0을 요구하면 이 저장소가 고칠 수 없는 결함으로 실행이 무작위로 실패합니다. 10%는 창 상태 전환(최대화, 복원, 왼쪽 절반, 되돌리기)에 이미 쓰는 비율과 같습니다. windows-2022에서는 같은 결함이 흔해서(24회 가운데 15회와 12회) 그 끌기를 알려진 결함으로 보고하고 작업을 실패시키지 않습니다. 대조군, 창 상태 전환, 증명 줄은 두 러너 모두에서 그대로 실패시킵니다. #245가 고쳐지면 두 러너 모두 0으로 되돌립니다. 이 허용치는 기준 자체("비율 = 0")를 바꾸지 않습니다. 기준은 그대로이고, Windows에서는 #245가 닫힐 때까지 충족되지 않은 상태입니다.
 
 ### FR-20 반응형 레이아웃 기반 (창 크기 클래스) (`Done`)
 
@@ -1660,6 +1659,15 @@ if window.class == WindowSizeClass::Expanded { /* 사이드바 */ }
 1. 안전 영역만 바뀌어도 클래스가 같으면 `WindowSizeChanged`가 한 번 옵니다(`fr19_9_safe_area_change_alone_resends`).
 2. macOS에서 `Chrome::FullSize`로 390x844 크기로 연 창이 크기를 바꾸지 않아도 곧 `top>0, leading>0`인 안전 영역을 받습니다. 사람 손으로 확인하는 항목입니다(창 코드는 포크에서 시험합니다).
 
+#### 20.9.1 아래 안전 영역 (`Agreed`, 이슈 #843, [leader, provisional, 2026-11-19])
+
+`WindowSafeArea`에 `bottom: f32`(dp)가 더해지고, `WindowSizeChanged` 이벤트의 값 끝에 `safe_area_bottom: f32`가 붙습니다(앞 필드의 위치는 그대로). Renderer는 이 값을 `WindowInsets.safeDrawing`의 아래 값으로 잽니다: Android의 탐색 막대나 제스처 영역, iOS의 홈 표시기입니다. 데스크톱 창은 0입니다. 아래 값만 바뀌어도 클래스가 같으면 19.9의 규칙대로 `WindowSizeChanged`가 한 번 옵니다.
+
+수용 기준:
+
+1. 아래 안전 영역만 바뀌어도 `WindowSizeChanged`가 한 번 오고, 그 값의 `safe_area_bottom`이 새 값입니다(fr19_9_safe_area_change_alone_resends를 아래 값까지 넓힘).
+2. 데스크톱 창은 `safe_area_bottom = 0`을 보냅니다(fr19_9_desktop_reports_no_bottom_safe_area).
+
 ### FR-21 탐색, 시트, 일시 메시지 (`Agreed`)
 
 FR-15.2의 코어 어휘 29개로는 애플리케이션이 세 가지를 말할 수 없습니다. 화면을 목적지로 나누는 것(탐색), 화면 위에 임시로 무언가를 덮는 것(시트), 그리고 "했습니다"라고 알리는 것(일시 메시지)입니다. 셋 다 없어서는 안 되는 부류이고, 셋 다 FR-15.3에서 한 번 제외됐거나 아예 논의되지 않았습니다.
@@ -1749,6 +1757,18 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 4. 내용이 창보다 높으면 시트 안이 스크롤되고 시트 자체는 창을 넘지 않습니다(`fr21_centered_sheet_scrolls_taller_content`).
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
+
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, [leader, provisional, 2026-11-19])
+
+- **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
+- **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
+
+수용 기준:
+
+1. Material3의 밝은 테마와 어두운 테마에서 손잡이 픽셀과 시트 표면의 대비가 1.5:1 이상입니다(fr21_sheet_handle_is_visible_in_both_themes).
+2. `handle(false)`인 시트에는 손잡이가 없습니다(fr21_sheet_handle_can_be_hidden).
+3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
+4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
@@ -2664,7 +2684,7 @@ Notification::new("세션이 끝났습니다")
 
   나머지는 기존 태그입니다. 처음 내용은 `Text`(1), 변경 이벤트의 핸들러는 `OnValueChange`(6)입니다.
 - 장식 레코드, 44바이트: `version: u32`, `kind: u16`(`Underline=1`, `CodeLens=2`, `HoverAnchor=3`, `GhostText=4`), `severity: u16`(`Error=1`, `Warning=2`, `Information=3`, `Hint=4`, 밑줄이 아니면 0), `color: u16`(`ColorRole`, 0이면 디자인 시스템이 고름), 예약 `u16`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `id: u64`(앱이 고른 장식 id. 0이면 누를 수 없고 활성, 호버 이벤트에 실리지 않음), `text: (offset: u32, len: u32)`(CodeLens와 고스트 텍스트의 글자, 블롭 끝에 놓임. `Canvas`의 글자 명령과 같은 방식).
-- 구문 스팬 레코드, 28바이트: `version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `paint: Paint`(u64).
+- 구문 스팬 레코드, 32바이트: `version: u32`, `start_line`, `start_column`, `end_line`, `end_column`(각 `u32`), `paint: Paint`(u64), `style: u32`(하위 16비트는 글꼴 굵기 0=상속 또는 1-1000, 비트 16은 기울임, 비트 17은 밑줄. 0이면 편집기 기본 글꼴 스타일을 그대로 씁니다. 이슈 #863).
 - 명령(Mutation), FR-36의 16 뒤에 덧붙입니다:
 
 | 태그 | 명령 | 레코드 |
@@ -3873,6 +3893,8 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 
 `Modifier::PressFeedback { scale: f32, tint_alpha: f32 }`(수정자 태그는 추가 전용으로 맨 끝에 더합니다). `scale = 1.0`이고 `tint_alpha = 0.0`이면 피드백이 없습니다. 이 수정자가 없는 눌림 면은 51.1의 기본값을 씁니다. 텍스트 입력과 끌기 핸들은 대상이 아닙니다. `Enabled`가 거짓이면 피드백도 꺼집니다.
 
+**눌림 색과 곡선**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::press_style(PressStyle)`(수정자 `PressStyle`, 끝에 더하는 새 수정자 태그, `PressFeedback`의 와이어 배치는 그대로). `PressStyle { tint: Option<Paint>, press_easing: Option<[f32; 4]> }`. `tint`가 있으면 덮는 색이 그 색이고 알파는 `PressFeedback`의 `tint_alpha`(없으면 51.1의 값)입니다. 없으면 51.1대로 노드의 글자 색입니다. 잉크 채움 위의 면은 이 `tint`로 밝은 색을 줍니다. `Box`, `Row`, `Column`에 글자 색 속성은 더하지 않습니다. `press_easing`은 누르는 동안의 곡선(51.1의 ease-out)을 `cubic-bezier(x1, y1, x2, y2)`로 바꾸고, 놓는 곡선은 그대로입니다. 수용 기준: `tint`가 `OnPrimary`인 컨테이너를 누르면 눌린 픽셀이 `OnPrimary` 쪽으로 가고(fr51_press_style_tint), `press_easing(.2, 0, 0, 1)`이면 180ms의 중간 지점 크기가 기본 곡선과 다르며 수정자 없는 면은 기본 곡선입니다(fr51_press_style_easing).
+
 `Timing::Spring`은 이 항목의 값에 쓰이지 않습니다(목업이 베지어 곡선입니다). 이슈 #305가 함께 적은 `Timing::Spring { stiffness, damping }`은 별도 요청으로 남기고 이 항목은 베지어 곡선만 다룹니다.
 
 수용 기준:
@@ -4294,7 +4316,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **1단계 범위(이 저장소의 렌더러만)**:
 
 - **역할 열거**: FR-68의 `None, Button, Checkbox, Switch, RadioButton, Tab, Image, DropdownList` 뒤에 `TabList, Tree, TreeItem, Menu, MenuItem, TextBox, Heading, Navigation, List, ListItem, Group`을 이어 붙입니다(값 9부터 19까지).
-- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`, `has_popup`(비트 13, `1 << 13`: 노드가 팝업을 여는 기준점임을 나타냄, 이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15))을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. `has_popup`은 자체 속성이 있는 플랫폼에서는 그 속성으로 내보내고(`AppKitAccessibility`의 `AccessibleState.EXPANDABLE`, 웹 DOM 경로의 `aria-haspopup`), 자체 속성이 없는 경로에서는 `stateDescription`에 `"has popup"`으로 내보내어 두 번 읽히지 않게 합니다(한국어 앱의 화면 낭독기에서 영어 구절이 그대로 읽히지 않도록 현지화 문구를 두는 일은 후속으로 다룹니다). 상태: 데스크톱(`AppKitAccessibility`의 `EXPANDABLE`과 공용 `stateDescription`)만 구현되었습니다. 웹의 `aria-haspopup`, Android와 iOS의 고유 매핑과 그 시험은 아직 없으며 이슈 #810이 추적합니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
+- **상태 비트**: FR-68의 `checked`, `selected`는 그대로 두고 `expanded`(두 비트 세 값: 미지정, 닫힘, 열림), `disabled`, `focused`, `hidden`, `has_popup`(비트 13, `1 << 13`: 노드가 팝업을 여는 기준점임을 나타냄, 이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15))을 더합니다. 지정하지 않은 상태는 접근성 트리에 나가지 않습니다. `hidden`인 노드는 접근성 트리에서 빠집니다. `has_popup`은 자체 속성이 있는 플랫폼에서는 그 속성으로 내보내고(`AppKitAccessibility`의 `AccessibleState.EXPANDABLE`, 웹 DOM 경로의 `aria-haspopup`), 자체 속성이 없는 경로에서는 `stateDescription`에 `"has popup"`으로 내보내어 두 번 읽히지 않게 합니다(한국어 앱의 화면 낭독기에서 영어 구절이 그대로 읽히지 않도록 현지화 문구를 두는 일은 후속으로 다룹니다). 상태: 데스크톱은 `AppKitAccessibility`의 `EXPANDABLE`과 공용 `stateDescription`으로 구현되었습니다. Android와 iOS에는 팝업을 여는 컨트롤을 나타내는 고유 속성이 없으므로 공용 `stateDescription`이 그 매핑이고, Compose가 이를 TalkBack에는 상태 설명으로, VoiceOver에는 요소의 값으로 넘깁니다(시험 이름 fr71_has_popup_reaches_the_ios_state_description, Android는 같은 공용 코드를 시험하는 fr71_state_bits_reach_the_accessibility_node). 웹의 `aria-haspopup`은 아직 없으며 이슈 #871이 추적합니다. 모르는 비트가 오면 FR-68과 같이 `ProtocolError`입니다.
 - **동작 비트**: `click`(눌러 활성화)과 `focus`(포커스 이동). `click`은 그 노드의 기존 `OnClick` 또는 `Clickable` 핸들러에게 `Clicked`를 그대로 보냅니다. 핸들러가 없는 노드의 `click`은 아무 일도 하지 않습니다. `focus`는 노드의 포커스 요청과 같은 길(FR-65)을 탑니다.
 - **플랫폼 표현**: Compose가 가진 역할(`Button`, `Checkbox`, `Switch`, `RadioButton`, `Tab`, `Image`, `DropdownList`)은 그대로 씁니다. `Heading`은 제목 속성으로, `TextBox`는 편집 가능 텍스트로 내보냅니다. Compose에 대응이 없는 나머지 역할은 1단계에서는 가장 가까운 표현(`Button`이나 이름 없는 그룹)에 접근성 이름 끝에 역할 이름을 붙이지 않고 `stateDescription`에 역할 이름을 싣습니다. 플랫폼 고유의 역할(macOS의 탭 그룹, 아웃라인, 메뉴)은 2단계입니다.
 - **빈 이름**: 이름이 비어 있으면 자식 `Text`를 합치는 플랫폼 기본을 그대로 씁니다.
@@ -4902,6 +4924,7 @@ pub mod storage {
 14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
 15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
     - 측정값(2026-11-16, macOS arm64, 창 핀 a187dd1e, 디버그 빌드, 다섯 번 실행): 뷰가 없을 때 프레임 시간 1.34~1.43ms, 뷰 넷일 때 1.47~1.51ms입니다. 뷰 넷의 비용은 프레임당 0.08~0.14ms이고, 허용치(뷰 없는 값의 10% + 0.05ms)까지 가장 가까웠던 실행의 여유는 0.04ms입니다. 여유가 얇으므로 이 시험이 다시 실패하면 잡음이 아니라 비용이 늘어난 것으로 읽습니다. 같은 기기가 평소 부하를 받는 상태에서(2026-11-16, 두 커밋에서 서른 쌍) 뷰 넷의 비용은 프레임당 평균 0.166ms이고, 이때 뷰 없는 프레임 시간은 평균 1.92ms, 허용치는 0.242ms입니다. 한 쌍의 차이는 약 0.3ms씩 흔들리고, 두 화면을 재는 순서에 따른 차이는 없습니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
+    - #855의 비교(2026-11-19, macOS arm64, 디버그 빌드, 같은 기기와 같은 세션, 부하가 큰 상태): 고치기 전(창 핀 146d920b)의 뷰 넷 비용은 프레임당 0.132ms(표준오차 0.025ms), 뷰 없는 프레임 시간 1.757ms, 허용치 0.225ms입니다. 고친 뒤(창 핀 07ab59eb, 위치만 바뀐 뷰는 `setFrameOrigin:`으로 옮기고 위에 가린 것이 없으면 구멍 목록을 만들지 않음)는 0.138ms(표준오차 0.025ms), 1.732ms, 허용치 0.223ms입니다. 차이는 잡음 안에 있어 줄었다고 볼 수 없습니다. 포크의 측정에서 줄어든 몫은 뷰 넷에 프레임당 10~15µs로, 이 방법의 표준오차보다 작습니다. 뷰마다 드는 비용의 대부분은 뷰의 frame이 바뀔 때 AppKit이 창의 드래그 여백을 다시 계산하는 일(`_resetDragMarginsIfNeeded`)과 그에 따른 Core Animation 반영입니다. 레이어 위치만 옮기면 프레임당 29~33µs로 더 싸지만, NSView의 frame이 그려진 자리와 달라져 히트 테스트와 접근성 frame이 어긋나므로 쓰지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-19)).
     - 재는 방법: 뷰가 없는 화면을 재고 바로 이어서 뷰 넷인 화면을 재는 한 쌍을 열두 번 되풀이합니다. 비용은 쌍마다 잰 차이(뷰 넷 빼기 뷰 없음)의 평균이고, 허용치는 뷰 없는 값 평균의 10% + 0.05ms입니다. 비용에서 그 평균의 표준오차 두 배를 뺀 값이 허용치보다 크면 실패합니다. 이 방법은 기준을 프레임당 약 0.3ms의 분해능으로 확인합니다. 허용치를 그보다 적게 넘는 비용은 감당할 수 있는 표본에서 잡음과 구별되지 않습니다. 구별하려면 약 65쌍, 10분 가량의 측정이 필요합니다. 방법이 실제 비용에서 실패한다는 것은 따로 시험합니다: 뷰 넷인 화면의 스크롤 프레임마다 뷰 없는 화면만큼(0.5ms 이상)의 시간을 일부러 더하면 판정이 예산 초과로 나와야 하고, 이 시험은 CI에서도 판정합니다(시험 이름 fr81_the_frame_budget_method_catches_an_added_cost). 판정 규칙 자체는 창 없이 시험합니다(fr81_frame_budget_does_not_tell_an_overrun_inside_the_noise_from_noise_by_design 등). 어느 측정이든 프레임이 서른 장에 못 미치면 실패합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
     - CI 러너에서는 두 값을 "budget not judged on CI"라는 말과 함께 찍고 판정하지 않습니다(환경 변수 `CI`가 `true`일 때). 공유 러너의 프레임 시간은 예산의 10%보다 크게 흔들립니다. 프레임이 모자라면 CI에서도 실패합니다. 예산은 개발자 기기와 병합 게이트에서 판정합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
 
@@ -4963,6 +4986,10 @@ pub mod storage {
 5. (Rust) 눌린 컨테이너의 클로저가 재조합을 거듭해도 매번 한 번씩 돕니다.
 
 **최소 누름 영역**(이슈 #472, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::min_touch_target(dp)`(수정자 `MinTouchTarget`, 수정자 태그 38, 기본 꺼짐). 누르는 노드의 적중 영역을 그린 크기 둘레로 최소 그 크기까지 넓히고, 배치와 그림은 바꾸지 않습니다(Compose의 minimumInteractiveComponentSize와 같습니다). 수용 기준: 26x32dp 버튼에 `min_touch_target(44)`이면 그림 밖 9dp 지점 누르기가 그 버튼의 클릭이 되고 이웃 배치는 그대로입니다(fr55_min_touch_target_grows_the_hit_area_only).
+
+**호버 모습**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::hover_style(HoverStyle)`(수정자 `HoverStyle`, 끝에 더하는 새 수정자 태그). `HoverStyle { fill: Option<Paint>, fill_alpha: f32, border: Option<Paint>, content_alpha: f32 }`이고 빌더는 `HoverStyle::fill(paint, alpha)`, `.border(paint)`, `.content_alpha(a)`입니다. 누를 수 있는 모든 면(`OnClick` 컨테이너, `Clickable` 수정자 노드, toolkit `Button`)에 적용됩니다. 마우스를 올린 동안 상태 층은 `OnSurface` 8% 대신 `fill`을 `fill_alpha`로 덮고(`fill`이 없으면 기본 층 그대로), `border`가 있으면 노드의 `Border` 색이 그 색으로 바뀌었다가 마우스가 나가면 돌아오고, `content_alpha`(1.0이면 그대로)가 노드 전체의 알파에 곱해집니다. 이 수정자가 없는 면은 지금과 같습니다. toolkit `Button`도 이제 호버를 가지며, 이 수정자가 없으면 기본 `OnSurface` 8% 층입니다. 호버는 Host에 이벤트를 보내지 않습니다. 수용 기준: 호버한 픽셀이 준 색과 알파를 보이고(fr55_hover_style_fills_the_hovered_surface), 테두리 색이 호버 동안 바뀌었다 돌아오며(fr55_hover_style_swaps_the_border_colour), `content_alpha(0.88)`이 픽셀에서 재어지고(fr55_hover_style_content_alpha), 수정자 없는 면과 `Button`의 기본 호버가 기본 층입니다(fr55_button_has_the_default_hover).
+
+**포커스 링**(이슈 #822, [leader, provisional, 2026-11-19]). `Modifier::focus_ring(paint, width_dp, offset_dp)`(수정자 `FocusRing`, 끝에 더하는 새 수정자 태그). 기본은 지금과 같이 `Primary` 2dp, 오프셋 0(노드 모양 안쪽)입니다. 오프셋이 양수이면 링이 노드 모양 밖으로 그만큼 떨어져, 모서리 반지름도 그만큼 커진 모양을 따라 그려지고(CSS `outline-offset`), 배치는 바뀌지 않습니다. 링은 지금과 같이 키보드나 프로그래밍 방식 포커스에서만 그려지고 포인터로 얻은 포커스에서는 그려지지 않습니다. toolkit `Button`도 누르는 컨테이너와 같은 규칙으로 키보드 포커스 링을 그립니다. 수용 기준: 키보드 포커스를 받은 `Button`에 링이 그려지고 포인터 포커스에는 없으며(fr55_button_draws_the_keyboard_focus_ring), 오프셋 2dp이면 링 픽셀이 경계 밖 2dp에 있고 색과 폭이 준 대로입니다(fr55_focus_ring_offset_and_colour).
 
 ### FR-61 `Row`와 `Column`의 교차축 내재 크기 맞춤 (`Agreed`, 이슈 #389)
 
@@ -5069,6 +5096,8 @@ pub mod storage {
 **한 변 테두리**(이슈 #464, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `ui::Modifier`에 `border_each(top, right, bottom, left)`(각 변의 `(폭, Paint)`)와 `border_side(Side, width, paint)`가 있습니다. 기존 `BorderEach` 수정자를 씁니다(와이어 변경 없음). 한 변만 준 노드는 나머지 변의 폭이 0입니다. 같은 행의 카드들이 가장 큰 높이를 나누는 것은 FR-61의 `Row::equal_height(true)`입니다. 수용 기준: `border_side(Side::Start, 1.0, …)`인 노드의 왼쪽 1dp만 그 색이고 나머지 가장자리는 배경색입니다(fr60_border_side_draws_one_side).
 
 **모양을 따르는 덮개**(이슈 #431, [leader, provisional] (darkpyonix leader, 2026-11-13; owner delegated mockup-matching toolkit SPEC)). `Modifier::overlay(Paint)`(수정자 `Overlay`, 수정자 태그 39): 노드의 그려진 경계와 모양(`Shape`, `CornerEach`, `CornerCurve`)을 그대로 따라 그 위에 칠을 덮습니다. 크기를 바꾸지 않습니다. 수용 기준: 반지름 12인 둥근 노드에 덮은 칠이 모서리 밖을 칠하지 않고, 내용 크기 노드를 늘리지 않습니다(fr60_overlay_follows_bounds_and_shape).
+
+**점선 테두리**(이슈 #817, [leader, provisional] (darkpyonix leader, 2026-11-15; owner delegated mockup-matching toolkit SPEC)). `Modifier::border_dashed(width_dp: f32, paint: impl Into<Paint>, dash_dp: f32, gap_dp: f32)`: 기존 `Border(width_dp, paint)` 수정자에 더해 `BorderDash { dash_dp: f32, gap_dp: f32 }`(수정자 태그 42, 첫 64비트 워드에 `dash_dp`와 `gap_dp` 두 `f32` 패킹)를 보냅니다. 실선 테두리(`border`, `border_each`, `border_side`)만 쓴 노드는 `BorderDash`를 보내지 않습니다. 렌더러는 `Border`와 함께 양수인 `BorderDash`가 있으면 노드의 모양(`Shape`, `CornerEach`, `CornerCurve`) 외곽선을 따라 `PathEffect.dashPathEffect([dash_px, gap_px], 0f)`로 점선 스트로크를 그리고, `dash_dp <= 0` 또는 `gap_dp <= 0`이면 실선 테두리로 그립니다. 수용 기준: `border_dashed(1.5, paint, 4.0, 4.0)`인 둥근 상자는 `Border`와 `BorderDash(4.0, 4.0)`를 보내고, 테두리 경로에 채워진 구간과 배경색 그대로인 빈 구간이 번갈아 나타나며, 실선 `border`를 다시 부르면 `BorderDash` 슬롯이 비워집니다(`fr60_border_dashed_round_trips_and_clears_when_replaced_by_solid`, `fr60_border_dashed_draws_alternating_stroke_and_gaps`).
 
 ### FR-65 노드 포커스 요청과 TextField 조합 상태 알림 (`Agreed`, 이슈 #410)
 

@@ -497,6 +497,9 @@ internal fun regionOf(frame: NativeRect, clip: NativeRect, above: List<NativeOve
     if (above.any { it is NativeOverlayShape.Window }) {
         return NativeViewRegion(bounds, listOf(NativeHole(bounds, 0)))
     }
+    // A page with nothing above its views is the common case, and a scroll asks this for every
+    // view on every frame: no list is made for it.
+    if (above.isEmpty()) return NativeViewRegion(bounds, emptyList())
     val holes = above.mapNotNull { (it as? NativeOverlayShape.Hole)?.hole }
         .filter { it.rect.intersects(bounds) }
     return NativeViewRegion(bounds, holes)

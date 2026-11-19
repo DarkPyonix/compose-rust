@@ -70,11 +70,11 @@ fn fr43_density_event_round_trips() {
     }
 
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
-    assert_eq!(decode_event(&events[1755..1775]), Ok(density_changed(2.0)));
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    assert_eq!(decode_event(&events[1759..1779]), Ok(density_changed(2.0)));
     let mut encoded = Vec::new();
     encode_event(&density_changed(2.0), &mut encoded).unwrap();
-    assert_eq!(encoded.as_slice(), &events[1755..1775]);
+    assert_eq!(encoded.as_slice(), &events[1759..1779]);
 
     for bad in [0.0_f32, -0.0, -1.0, f32::NEG_INFINITY, f32::NAN] {
         let mut patched = encoded.clone();

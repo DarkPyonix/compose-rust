@@ -385,6 +385,9 @@ impl Batch {
             }),
             Err(error) => self.fail(error),
         }
+        if blob.capacity() > 64 * 1024 {
+            blob.shrink_to(64 * 1024);
+        }
         self.edit_group = blob;
     }
 

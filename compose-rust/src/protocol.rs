@@ -743,7 +743,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
         EVENT_VALUE_CHANGED if record_len == 24 => {
             crate::schema::EventPayload::ValueChanged(f64::from_bits(read_u64(bytes, 16)?))
         }
-        EVENT_WINDOW_SIZE_CHANGED if record_len == 44 => {
+        EVENT_WINDOW_SIZE_CHANGED if record_len == 48 => {
             let raw_class = read_u32(bytes, 24)?;
             let class = u16::try_from(raw_class)
                 .ok()
@@ -762,6 +762,7 @@ pub fn decode_event(bytes: &[u8]) -> Result<HostEvent<'_>, ProtocolError> {
                 safe_area_top: f32::from_bits(read_u32(bytes, 32)?),
                 safe_area_leading: f32::from_bits(read_u32(bytes, 36)?),
                 safe_area_trailing: f32::from_bits(read_u32(bytes, 40)?),
+                safe_area_bottom: f32::from_bits(read_u32(bytes, 44)?),
             }
         }
         EVENT_DESIGN_SYSTEM_RESOLVED if record_len == 20 => {
@@ -1365,10 +1366,11 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         safe_area_top,
         safe_area_leading,
         safe_area_trailing,
+        safe_area_bottom,
     } = event.payload
     {
         output.extend_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
-        output.extend_from_slice(&44_u16.to_le_bytes());
+        output.extend_from_slice(&48_u16.to_le_bytes());
         output.extend_from_slice(&event.node_id.to_le_bytes());
         output.extend_from_slice(&event.handler_id.to_le_bytes());
         output.extend_from_slice(&width_dp.to_bits().to_le_bytes());
@@ -1378,6 +1380,7 @@ pub fn encode_event(event: &HostEvent<'_>, output: &mut Vec<u8>) -> Result<(), P
         output.extend_from_slice(&safe_area_top.to_bits().to_le_bytes());
         output.extend_from_slice(&safe_area_leading.to_bits().to_le_bytes());
         output.extend_from_slice(&safe_area_trailing.to_bits().to_le_bytes());
+        output.extend_from_slice(&safe_area_bottom.to_bits().to_le_bytes());
         return Ok(());
     }
     if let crate::schema::EventPayload::DesignSystemResolved(system) = event.payload {
@@ -2080,6 +2083,15 @@ impl fmt::Display for ProtocolError {
 impl std::error::Error for ProtocolError {}
 
 /// Reusable encoder. Once capacities are warmed, `clear` and `finish` allocate no memory.
+///
+/// The caps below bound what the encoder holds onto after a one-off spike such as the first
+/// batch carrying several megabytes of font or picture assets. Steady frames fit well inside
+/// them, so normal frames still allocate nothing.
+const MAX_RETAINED_RECORDS: usize = 64 * 1024;
+const MAX_RETAINED_STRINGS: usize = 64 * 1024;
+const MAX_RETAINED_FIXUPS: usize = 1024;
+const MAX_RETAINED_ARENA: usize = MAX_RETAINED_RECORDS + MAX_RETAINED_STRINGS;
+
 pub struct BatchEncoder {
     records: Vec<u8>,
     strings: Vec<u8>,
@@ -2109,9 +2121,21 @@ impl BatchEncoder {
 
     pub fn clear(&mut self) {
         self.records.clear();
+        if self.records.capacity() > MAX_RETAINED_RECORDS {
+            self.records.shrink_to(MAX_RETAINED_RECORDS);
+        }
         self.strings.clear();
+        if self.strings.capacity() > MAX_RETAINED_STRINGS {
+            self.strings.shrink_to(MAX_RETAINED_STRINGS);
+        }
         self.string_fixups.clear();
+        if self.string_fixups.capacity() > MAX_RETAINED_FIXUPS {
+            self.string_fixups.shrink_to(MAX_RETAINED_FIXUPS);
+        }
         self.arena.clear();
+        if self.arena.capacity() > MAX_RETAINED_ARENA {
+            self.arena.shrink_to(MAX_RETAINED_ARENA);
+        }
         self.record_count = 0;
         self.begin_record(TAG_ENVELOPE, 8);
         self.put_u32(0);
@@ -2663,7 +2687,10 @@ impl BatchEncoder {
     }
 
     pub fn capacity(&self) -> usize {
-        self.records.capacity() + self.strings.capacity() + self.arena.capacity()
+        self.records.capacity()
+            + self.strings.capacity()
+            + self.string_fixups.capacity() * std::mem::size_of::<usize>()
+            + self.arena.capacity()
     }
 
     /// Writes a `StartAnimation`: the 52 byte head, then each keyframe with its value.
@@ -3744,6 +3771,56 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
         Modifier::Sticky => (41, two_words(0, 0)),
         Modifier::UnboundedWidth => (40, two_words(0, 0)),
+        Modifier::BorderDash { dash_dp, gap_dp } => {
+            (42, two_words(pack_floats(*dash_dp, *gap_dp), 0))
+        }
+        Modifier::HoverStyle {
+            fill,
+            fill_alpha,
+            border,
+            content_alpha,
+        } => (
+            43,
+            [
+                optional_paint_word(*fill),
+                optional_paint_word(*border),
+                pack_floats(*fill_alpha, *content_alpha),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            ],
+        ),
+        Modifier::FocusRing {
+            paint,
+            width_dp,
+            offset_dp,
+        } => (
+            44,
+            two_words(paint.to_bits(), pack_floats(*width_dp, *offset_dp)),
+        ),
+        Modifier::PressStyle { tint, press_easing } => {
+            // A NaN first point is no curve, the one value a curve can never start at.
+            let [x1, y1, x2, y2] = press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]);
+            (
+                45,
+                [
+                    optional_paint_word(*tint),
+                    pack_floats(x1, y1),
+                    pack_floats(x2, y2),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+            )
+        }
         Modifier::Transform {
             a,
             b,
@@ -3798,6 +3875,19 @@ fn decode_role<T: TryFrom<u16, Error = ()>>(first: u64) -> Result<T, ProtocolErr
 
 fn decode_paint(bits: u64) -> Result<Paint, ProtocolError> {
     Paint::from_bits(bits).ok_or(ProtocolError::InvalidModifier(0))
+}
+
+/// A paint that may be absent: a zero word is none, because no paint kind is zero.
+fn decode_optional_paint(bits: u64) -> Result<Option<Paint>, ProtocolError> {
+    if bits == 0 {
+        Ok(None)
+    } else {
+        decode_paint(bits).map(Some)
+    }
+}
+
+fn optional_paint_word(paint: Option<Paint>) -> u64 {
+    paint.map_or(0, Paint::to_bits)
 }
 
 fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifier, ProtocolError> {
@@ -4040,6 +4130,34 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         39 => Ok(Modifier::Overlay(decode_paint(first)?)),
         41 => Ok(Modifier::Sticky),
         40 => Ok(Modifier::UnboundedWidth),
+        42 => Ok(Modifier::BorderDash {
+            dash_dp: unpack_low(first),
+            gap_dp: unpack_high(first),
+        }),
+        43 => Ok(Modifier::HoverStyle {
+            fill: decode_optional_paint(first)?,
+            fill_alpha: unpack_low(third),
+            border: decode_optional_paint(second)?,
+            content_alpha: unpack_high(third),
+        }),
+        44 => Ok(Modifier::FocusRing {
+            paint: decode_paint(first)?,
+            width_dp: unpack_low(second),
+            offset_dp: unpack_high(second),
+        }),
+        45 => Ok(Modifier::PressStyle {
+            tint: decode_optional_paint(first)?,
+            press_easing: if unpack_low(second).is_nan() {
+                None
+            } else {
+                Some([
+                    unpack_low(second),
+                    unpack_high(second),
+                    unpack_low(third),
+                    unpack_high(third),
+                ])
+            },
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }
@@ -4575,11 +4693,15 @@ mod tests {
                 safe_area_top: 28.5,
                 safe_area_leading: 72.0,
                 safe_area_trailing: 13.0,
+                safe_area_bottom: 34.0,
             },
         };
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
-        assert_eq!(bytes.len(), 44);
+        assert_eq!(bytes.len(), 48);
+        // The bottom comes last, so every field before it keeps its offset.
+        assert_eq!(&bytes[40..44], &13.0_f32.to_bits().to_le_bytes());
+        assert_eq!(&bytes[44..48], &34.0_f32.to_bits().to_le_bytes());
         assert_eq!(decode_event(&bytes).unwrap(), event);
     }
 
@@ -4630,6 +4752,12 @@ mod tests {
         assert!(decode_event(&bytes).is_err());
         bytes[2..4].copy_from_slice(&44_u16.to_le_bytes());
         assert!(decode_event(&bytes).is_err());
+        // A record of the old length, without the bottom side, is refused rather than
+        // read as a zero bottom.
+        let mut old = vec![0; 44];
+        old[0..2].copy_from_slice(&EVENT_WINDOW_SIZE_CHANGED.to_le_bytes());
+        old[2..4].copy_from_slice(&44_u16.to_le_bytes());
+        assert!(decode_event(&old).is_err());
     }
 
     #[test]
@@ -4645,6 +4773,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();
@@ -4669,6 +4798,7 @@ mod tests {
                 safe_area_top: 0.0,
                 safe_area_leading: 0.0,
                 safe_area_trailing: 0.0,
+                safe_area_bottom: 0.0,
             },
         };
         let mut bytes = Vec::new();

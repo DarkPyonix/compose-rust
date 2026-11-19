@@ -17,6 +17,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.swipeUp
@@ -38,7 +40,15 @@ import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.darkpyonix.composerust.foundation.platformBackHandler
+import dev.darkpyonix.composerust.foundation.ModalOverlayPositionProvider
+import dev.darkpyonix.composerust.foundation.platformModalOverlayWindow
+import dev.darkpyonix.composerust.foundation.sheetHandleTestTag
 import dev.darkpyonix.composerust.foundation.sheetScrimTestTag
+import dev.darkpyonix.composerust.runtime.LocalSystemBars
+import dev.darkpyonix.composerust.runtime.SystemBars
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import dev.darkpyonix.composerust.foundation.sheetTestTag
 import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
@@ -1000,5 +1010,164 @@ class SheetTest {
         waitForIdle()
         val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
         assertEquals(1, dismissals.size, "drag down dismisses the fallback sheet once")
+    }
+
+    /** A bottom sheet in a compact window, with or without its handle. */
+    private fun handleCount(handle: Boolean?): Int {
+        var count = -1
+        runDesktopComposeUiTest(400, 800) {
+            val batch = sheetBatch(open = true) +
+                listOfNotNull(handle?.let { Mutation.SetProp(SHEET, PropertyKind.SheetHandle, PropertyValue.Bool(it)) })
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.requiredSize(400.dp, 800.dp))
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(sheetTestTag(SHEET)).assertExists()
+            count = onAllNodesWithTag(sheetHandleTestTag(SHEET)).fetchSemanticsNodes().size
+        }
+        return count
+    }
+
+    /**
+     * `SheetHandle = false` takes the handle away and nothing else: Material 3 draws one on
+     * a bottom sheet by default, the property removes it, and the sheet still drags shut.
+     */
+    /** The handle's colour and the sheet surface beside it, in a light or dark Material3 theme. */
+    private fun handleAndSurface(scheme: ColorScheme): Pair<androidx.compose.ui.graphics.Color, androidx.compose.ui.graphics.Color> {
+        var result = androidx.compose.ui.graphics.Color.Unspecified to androidx.compose.ui.graphics.Color.Unspecified
+        runDesktopComposeUiTest(400, 800) {
+            val batch = listOf(
+                Mutation.SetTheme(Theme(DesignSystem.Material3, DesignSystem.Material3, scheme, adaptive = false)),
+            ) + sheetBatch(open = true).drop(1)
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.requiredSize(400.dp, 800.dp))
+                }
+            }
+            waitForIdle()
+            // The open sheet is in a root of its own, so the sheet node is captured and the
+            // handle is found inside it.
+            val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+            val handle = onNodeWithTag(sheetHandleTestTag(SHEET)).getBoundsInRoot()
+            val pixels = onNodeWithTag(sheetTestTag(SHEET)).captureToImage().toPixelMap()
+            val x = ((handle.left + handle.right) / 2 - sheet.left).value.toInt()
+            val y = ((handle.top + handle.bottom) / 2 - sheet.top).value.toInt()
+            // 24 dp to the side of the handle is the sheet's own surface.
+            result = pixels[x, y] to pixels[(handle.right - sheet.left).value.toInt() + 24, y]
+        }
+        return result
+    }
+
+    private fun contrast(a: androidx.compose.ui.graphics.Color, b: androidx.compose.ui.graphics.Color): Float {
+        val (light, dark) = listOf(a.luminance(), b.luminance()).sortedDescending()
+        return (light + 0.05f) / (dark + 0.05f)
+    }
+
+    @Test
+    fun fr21_sheet_handle_is_visible_in_both_themes() {
+        for (scheme in listOf(ColorScheme.Light, ColorScheme.Dark)) {
+            val (handle, surface) = handleAndSurface(scheme)
+            val ratio = contrast(handle, surface)
+            assertTrue(ratio >= 1.5f, "$scheme: the handle ($handle) stands out from the sheet ($surface) by only $ratio:1")
+        }
+    }
+
+    @Test
+    fun fr21_sheet_handle_can_be_hidden() {
+        assertEquals(1, handleCount(null), "a bottom sheet draws its handle by default")
+        assertEquals(1, handleCount(true), "asking for the handle keeps it")
+        assertEquals(0, handleCount(false), "a sheet told not to draw its handle drew one")
+
+        runDesktopComposeUiTest(400, 800) {
+            val connection = FakeHostConnection(
+                sheetBatch(open = true) + Mutation.SetProp(SHEET, PropertyKind.SheetHandle, PropertyValue.Bool(false)),
+            )
+            setContent {
+                CompositionLocalProvider(
+                    LocalFrameRequests provides frames,
+                    LocalDensity provides Density(1f),
+                ) {
+                    ComposeRustContent(rememberComposeRustHost(connection), Modifier.requiredSize(400.dp, 800.dp))
+                }
+            }
+            waitForIdle()
+            onNodeWithTag(sheetTestTag(SHEET)).performTouchInput { swipeDown() }
+            waitForIdle()
+            val dismissals = connection.events.filterIsInstance<HostEvent.Clicked>()
+            assertEquals(1, dismissals.size, "a sheet without its handle still drags shut once")
+        }
+    }
+
+    /**
+     * Where the sheet's last row ends and where its surface ends, in a compact window whose
+     * overlay is told there is a [bottomInset] strip at the bottom edge. The last row is a
+     * box that fills what is left of the sheet's height, so it ends where the content does.
+     */
+    private fun bottomSheetEdges(bottomInset: Dp): Triple<Dp, Dp, Dp> {
+        val filler = 3
+        val previous = platformModalOverlayWindow
+        platformModalOverlayWindow = { onDismissRequest, _, content ->
+            Popup(
+                popupPositionProvider = ModalOverlayPositionProvider,
+                properties = PopupProperties(focusable = true),
+                onDismissRequest = onDismissRequest,
+            ) {
+                CompositionLocalProvider(LocalSystemBars provides SystemBars(bottom = bottomInset)) { content() }
+            }
+        }
+        var edges = Triple(0.dp, 0.dp, 0.dp)
+        try {
+            runDesktopComposeUiTest(400, 800) {
+                val batch = sheetBatch(open = true) + listOf(
+                    Mutation.Create(filler, WidgetKind.Box),
+                    Mutation.SetModifier(filler, 0, ProtocolModifier.FillMaxWidth),
+                    Mutation.SetModifier(filler, 1, ProtocolModifier.FillMaxHeight),
+                    Mutation.Insert(SHEET, filler, 1),
+                )
+                setContent {
+                    CompositionLocalProvider(
+                        LocalFrameRequests provides frames,
+                        LocalDensity provides Density(1f),
+                    ) {
+                        ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)), Modifier.requiredSize(400.dp, 800.dp))
+                    }
+                }
+                waitForIdle()
+                val scrim = onNodeWithTag(sheetScrimTestTag(SHEET)).getBoundsInRoot()
+                val sheet = onNodeWithTag(sheetTestTag(SHEET)).getBoundsInRoot()
+                val last = onNodeWithTag(nodeTestTag(filler)).getBoundsInRoot()
+                edges = Triple(scrim.bottom, sheet.bottom, last.bottom)
+            }
+        } finally {
+            platformModalOverlayWindow = previous
+        }
+        return edges
+    }
+
+    /**
+     * A bottom sheet's content ends above the strip the system keeps at the bottom edge,
+     * and its surface still runs to that edge underneath it.
+     */
+    @Test
+    fun fr21_bottom_sheet_clears_the_bottom_safe_area() {
+        val inset = 48.dp
+        val (window, surface, last) = bottomSheetEdges(inset)
+        assertNear(window, surface, "the sheet's surface stops short of the bottom edge")
+        assertTrue(
+            last.value <= (window - inset).value + 1f,
+            "the last row ends at $last, inside the ${inset.value}dp strip that starts at ${window - inset}",
+        )
+        // Without the strip the same row reaches further down, so it is the strip that
+        // moved it and not the design system's own padding.
+        val (_, _, lastWithout) = bottomSheetEdges(0.dp)
+        assertNear(lastWithout - inset, last, "the last row with the strip")
     }
 }
