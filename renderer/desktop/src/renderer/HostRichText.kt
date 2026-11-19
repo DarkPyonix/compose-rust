@@ -136,7 +136,7 @@ internal fun HostRichText(
     /** The colour an animation shows in the draw phase, or the style's own where none does. */
     color: androidx.compose.ui.graphics.ColorProducer? = null,
 ) {
-    val input = node.textInput()
+    val input = node.textInput(dev.darkpyonix.composerust.ui.node.LocalInheritedTextStyle.current)
     val density = textDensity(input, LocalDensity.current)
     val fontResolver = LocalFontFamilyResolver.current
     val resolved = resolveText(
