@@ -37,7 +37,7 @@ import org.thisisthepy.compose.window.WindowEvent
  * platform's scene measures in, so nothing is converted here beyond naming which kind of
  * event it was.
  */
-private var lastPointerPosition: Offset = Offset.Zero
+private val lastPointerPositions = java.util.WeakHashMap<ComposeScene, Offset>()
 
 /**
  * Hands one window event to the scene. Answers whether a key was consumed by something in
@@ -81,19 +81,21 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
         }
 
         WindowEvent.POINTER_MOVE -> {
-            lastPointerPosition = Offset(event.x, event.y)
+            val pos = Offset(event.x, event.y)
+            lastPointerPositions[this] = pos
             sendPointerEvent(
                 eventType = PointerEventType.Move,
-                position = lastPointerPosition,
+                position = pos,
                 buttons = PointerButtons(isPrimaryPressed = event.buttons and 1 != 0),
             )
         }
 
         WindowEvent.POINTER_DOWN -> {
-            lastPointerPosition = Offset(event.x, event.y)
+            val pos = Offset(event.x, event.y)
+            lastPointerPositions[this] = pos
             sendPointerEvent(
                 eventType = PointerEventType.Press,
-                position = lastPointerPosition,
+                position = pos,
                 button = pressedButton(event),
                 buttons = PointerButtons(
                     isPrimaryPressed = !event.isSecondary,
@@ -103,20 +105,21 @@ internal fun ComposeScene.receive(event: WindowEvent, win32: Boolean = false): B
         }
 
         WindowEvent.POINTER_UP -> {
-            lastPointerPosition = Offset(event.x, event.y)
+            val pos = Offset(event.x, event.y)
+            lastPointerPositions[this] = pos
             sendPointerEvent(
                 eventType = PointerEventType.Release,
-                position = lastPointerPosition,
+                position = pos,
                 button = pressedButton(event),
                 buttons = PointerButtons(isPrimaryPressed = false),
             )
         }
 
         // The wheel's travel arrives where a position usually is, because a scroll
-        // happens wherever the pointer already was.
+        // happens wherever the pointer already was in this window.
         WindowEvent.SCROLL -> sendPointerEvent(
             eventType = PointerEventType.Scroll,
-            position = lastPointerPosition,
+            position = lastPointerPositions[this] ?: Offset.Zero,
             scrollDelta = Offset(event.x, event.y),
         )
     }
