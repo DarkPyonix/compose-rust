@@ -1,4 +1,4 @@
-//! Rewrites compose-rust widget builder chains into the FR-39 call macro form.
+//! Rewrites compose-rust widget builder chains into calls of the macros `#[Composable]` generates.
 //!
 //! ```text
 //! Column().modifier(m).spacing(8.0).content(|| { Text("a").font_size(14.0); });
