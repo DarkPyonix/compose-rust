@@ -1394,6 +1394,7 @@ Renderer가 AOT 컴파일된 바이너리이므로 Host가 그리기 코드를 �
   - 수용 기준: `fr19_the_android_activity_resizes_for_the_keyboard`, `fr19_an_existing_pan_becomes_a_resize_and_keeps_its_state`, `fr19_the_build_applies_the_keyboard_resize_to_the_manifest` (생성되는 Android 매니페스트가 `adjustResize`를 쓰고, 이미 있던 `adjustPan`은 상태 플래그를 지킨 채 `adjustResize`로 바뀌며, 빌드가 그것을 매니페스트에 적용합니다).
   - 수용 기준: `fr19_the_page_ends_above_the_keyboard`, `fr19_the_keyboard_leaves_the_top_of_the_page_alone`, `fr19_a_navigation_along_the_bottom_still_stops_above_the_keyboard`, `fr19_with_no_keyboard_nothing_changes`, `fr19_the_page_shrinks_by_the_keyboard_and_the_bar_keeps_its_place`, `fr19_a_sheet_rises_above_the_keyboard_and_its_scrim_still_covers_the_window`, `fr19_a_dialog_is_centred_above_the_keyboard` (`KeyboardInsetTest`).
   - 수용 기준(수동 검사): Android 휴대폰에서 chat, notepad, todo의 텍스트 필드를 눌러 키보드를 연 화면을 캡처해, 위쪽 바가 제자리에 있고 페이지가 키보드 위에서 끝나며 시트의 스크림이 창 전체를 덮는지 **손으로 확인합니다.** 실제 기기의 IME 창 동작은 JVM 테스트가 재현하지 못합니다.
+    - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, develop의 샘플 APK, 삼성 키보드): chat과 notepad는 위쪽 바가 그대로이고 입력 줄과 상태 줄이 키보드 바로 위에서 끝납니다. todo의 작업 추가 시트에서 필드를 누르면 시트가 키보드 위로 올라가고 스크림이 상태 표시줄까지 창 전체를 덮습니다. 캡처는 `.scratch/pr-captures/android-2026-11-20/`에 있습니다.
 
 #### 19.3 Host가 정할 수 있는 것
 
@@ -5560,6 +5561,7 @@ compose_rust_host_dispatch_event: click 1
   - `scripts/build-sample-apks.sh`는 이제 `dx build --platform android`를 돕니다. minimal 샘플로 다시 확인했습니다. Activity도 manifest도 없는 상태에서 APK가 나오고 에뮬레이터에서 같은 화면을 그립니다.
   - 크레이트가 실어 나르는 Kotlin에는 Activity도 manifest도 없어야 합니다. `pr5_no_application_of_ours_travels_with_the_renderer`가 그것을 봅니다.
 - **수용 기준 3은 2026-09-22 API 36 에뮬레이터에서 통과했습니다.** 화면 회전, 다크모드 전환, 홈에서 복귀는 모두 크래시 없이 **같은 프로세스가 유지**되었고(위 생명주기 항목이 규정한 대로 Compose만 재구성되고 노드 테이블은 남습니다), 백그라운드로 보낸 뒤 `am kill`한 다음 다시 띄운 것도 새 프로세스로 정상 동작했습니다. `FATAL EXCEPTION`은 한 건도 없습니다. 다크모드는 실제로 팔레트가 바뀌는 것까지 화면으로 확인했고, 그 동안 Rust 워커의 스트리밍이 끊기지 않았으므로 워커의 프레임 요청이 JNI 경계를 계속 넘어온다는 것도 같이 확인됩니다.
+  - 실기기(2026-11-20, Galaxy Z Flip 4 SM-F721N, chat 샘플, develop): 홈에서 복귀는 같은 프로세스(pid 6326)로 돌아오고, 백그라운드에서 `am kill`한 뒤 다시 띄운 것은 새 프로세스로 화면을 그대로 그립니다. logcat에 `FATAL EXCEPTION`이 없습니다. 화면 회전과 다크모드 전환은 기기 설정을 바꿔야 하므로 실기기에서 하지 않았습니다.
 - **이 검증에서 결함이 하나 나왔습니다.** Rust cdylib이 `compose_rust_renderer_run`을 선언하고 있어서 `dlopen`이 실패하고 `onCreate`에서 매번 죽었습니다. 빌드 스크립트가 타깃을 데스크톱과 그 외로만 갈라서 Android를 iOS와 같이 취급했기 때문입니다. iOS는 Xcode가 그 심벌을 실제로 링크하지만 Android의 렌더러는 ART 안의 Kotlin이라 그런 네이티브 심벌이 없습니다. Android는 `JNI_OnLoad`에서 진입점을 설치하므로 브라우저와 같은 갈래입니다. 빌드 스크립트는 테스트로 컴파일되지 않아 이 규칙이 어디에서도 검증되지 않고 있었고, 지금은 테스트가 닿는 모듈로 나와 있습니다.
 - **수용 기준 1은 2026-09-22 API 36 에뮬레이터에서 쟀습니다.** 빈 shim을 워밍업 20만 번 뒤 200만 번씩 불러서 전환 비용만 뽑은 값입니다.
 
