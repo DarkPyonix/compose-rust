@@ -1200,7 +1200,7 @@ private class SvgBuilder(private val ids: Map<String, SvgElement>, private val v
     private fun geometry(element: SvgElement): Path? = when (element.name) {
         "path" -> element.attributes["d"]?.let { data ->
             try {
-                PathParser().parsePathString(data).toPath()
+                PathParser().parsePathString(separateArcFlags(data)).toPath()
             } catch (error: IllegalArgumentException) {
                 null
             } catch (error: IndexOutOfBoundsException) {
@@ -1511,3 +1511,68 @@ private class SvgBuilder(private val ids: Map<String, SvgElement>, private val v
     }
 }
 
+/**
+ * [data] with a separator after each arc flag. A flag is a single `0` or `1` and needs none,
+ * so `a3 3 0 100-6` is large-arc 1, sweep 0, then the point (0, -6). The path parser Android
+ * ships reads `100` as one number there and draws a different shape; spelled `1 0 0` it
+ * reads the same on every platform.
+ */
+internal fun separateArcFlags(data: String): String {
+    if (data.none { it == 'a' || it == 'A' }) return data
+    val out = StringBuilder(data.length + 16)
+    var i = 0
+    var inArc = false
+    var argument = 0
+    while (i < data.length) {
+        val c = data[i]
+        when {
+            c.isLetter() && c != 'e' && c != 'E' -> {
+                inArc = c == 'a' || c == 'A'
+                argument = 0
+                out.append(c)
+                i++
+            }
+            !inArc || c == ',' || c.isWhitespace() -> {
+                out.append(c)
+                i++
+            }
+            argument % 7 == 3 || argument % 7 == 4 -> {
+                out.append(c).append(' ')
+                i++
+                argument++
+            }
+            else -> {
+                val end = svgNumberEnd(data, i)
+                if (end == i) {
+                    out.append(c)
+                    i++
+                } else {
+                    out.append(data, i, end).append(' ')
+                    i = end
+                    argument++
+                }
+            }
+        }
+    }
+    return out.toString()
+}
+
+/** Where the number that starts at [start] ends: a sign, digits, one point, an exponent. */
+private fun svgNumberEnd(data: String, start: Int): Int {
+    var i = start
+    if (i < data.length && (data[i] == '-' || data[i] == '+')) i++
+    while (i < data.length && data[i].isDigit()) i++
+    if (i < data.length && data[i] == '.') {
+        i++
+        while (i < data.length && data[i].isDigit()) i++
+    }
+    if (i > start && i < data.length && (data[i] == 'e' || data[i] == 'E')) {
+        var j = i + 1
+        if (j < data.length && (data[j] == '-' || data[j] == '+')) j++
+        if (j < data.length && data[j].isDigit()) {
+            while (j < data.length && data[j].isDigit()) j++
+            i = j
+        }
+    }
+    return i
+}

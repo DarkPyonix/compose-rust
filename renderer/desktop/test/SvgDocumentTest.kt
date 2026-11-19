@@ -13,10 +13,12 @@ import dev.darkpyonix.composerust.ui.node.SvgDocument
 import dev.darkpyonix.composerust.ui.node.decodeVectorAsset
 import dev.darkpyonix.composerust.ui.node.drawSvgDocument
 import dev.darkpyonix.composerust.ui.node.drawVectorDocument
+import dev.darkpyonix.composerust.ui.node.separateArcFlags
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -39,6 +41,26 @@ import kotlin.test.fail
  * A missing shape, a wrong colour or a wrong placement each moves far more than that.
  */
 class SvgDocumentTest {
+    /**
+     * An arc flag is one character and needs no separator. Android's path parser reads
+     * `100-6` in `a3 3 0 100-6` as one number, so the renderer spells the flags out before
+     * any platform parses the path.
+     */
+    @Test
+    fun fr16_svg_packed_arc_flags_are_read_as_single_flags() {
+        fun tokens(data: String) = separateArcFlags(data).split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+        assertEquals(listOf("a3", "3", "0", "1", "0", "0", "-6"), tokens("a3 3 0 100-6"))
+        assertEquals(
+            listOf("M16", "19a4", "4", "0", "0", "0", "-8", "0", "M12", "12a3", "3", "0", "1", "0", "0", "-6", "3", "3", "0", "0", "0", "0", "6", "z"),
+            tokens("M16 19a4 4 0 00-8 0M12 12a3 3 0 100-6 3 3 0 000 6z"),
+        )
+        assertEquals(listOf("a.75", ".75", "0", "1", "1", "-1.5", "0"), tokens("a.75.75 0 1 1-1.5 0"))
+        assertEquals(listOf("A1e2", "2", "0", "1", "1", "3", "4"), tokens("A1e2 2 0 1 1 3 4"))
+        // A path without arcs is handed on unchanged.
+        val plain = "M9 9.5h.01M15 9.5h.01"
+        assertTrue(separateArcFlags(plain) === plain)
+    }
+
     @Test
     fun fr16_svg_asset_decodes_the_same_on_every_platform() {
         val pictures = sampleSvgs() + emberStyleSvgs()
