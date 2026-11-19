@@ -40,7 +40,7 @@ compose-rust는 네 가지를 합친 것입니다.
 0.0.2 크레이트에 있는 것:
 
 - **작성 API.** `#[Composable]`, `remember`, 상태와 effect, `Recomposer`, `launch`, 그리고
-  위젯마다 하나씩인 함수입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
+  위젯마다 하나씩인 함수와 호출 매크로입니다([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#64](https://github.com/DarkPyonix/compose-rust/issues/64)).
   0.0.2에서 새로 들어왔고, 애니메이션도 함께 있습니다. `Modifier.graphics_layer`, `Modifier.alpha`,
   그리고 `animate_float_as_state`, `animate_color_as_state`, `animate_offset_as_state` 이며, 그 값은
   `Modifier.animated_alpha`, `animated_background`, `animated_offset` 에 줍니다. 목표값이 바뀔 때마다
@@ -73,10 +73,10 @@ use compose_rust::ui::*;
 #[Composable]
 fn counter() {
     let count = remember(|| mutable_state_of(0));
-    Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
-        Text(format!("Count: {}", count.get())).type_role(TypeRole::Title);
+    Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
+        Text!(format!("Count: {}", count.get()), type_role = TypeRole::Title);
         let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+        Button!("Increment", move || more.update(|count| *count += 1));
     });
 }
 
@@ -85,8 +85,9 @@ fn main() {
 }
 ```
 
-위젯은 문장 하나입니다. `Text("Hello")`가 위젯을 기술하고, 그 메서드들이 Compose가 이름 붙은
-인자로 받는 것을 정하며, 컨테이너의 자식은 `content`에 넘긴 클로저입니다. `#[Composable]`이 그룹을
+위젯은 문장 하나입니다. `Text!("Hello")`는 호출이 놓인 자리에 글을 구성합니다. 위젯마다 함수와
+같은 이름의 호출 매크로가 있습니다. 매크로는 위젯이 없으면 안 되는 것과 핸들러를 위치로, Compose가
+이름 붙은 인자로 받는 것을 `name = value`로, 컨테이너의 자식을 끝의 `{ ... }` 블록으로 받습니다. `#[Composable]`이 그룹을
 넣으므로 그룹을 손으로 쓰지 않으며, 분기, 조기 `return`, `?`, 되감기를 지나도 그룹이 맞게 닫힙니다.
 이름은 Compose를 따릅니다. 위젯 어휘는 스키마에 있는 그것 하나이고, 두 번 정의하지 않습니다. 나머지는
 [가이드](https://darkpyonix.dev/compose-rust/ko/writing-ui.html)에 있습니다.

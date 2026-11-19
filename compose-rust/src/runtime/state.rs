@@ -277,8 +277,8 @@ impl<T> fmt::Debug for MutableState<T> {
 ///
 /// ```ignore
 /// let count = remember(|| mutable_state_of(0));
-/// Text(format!("{}", count.get()));
-/// Button("More").on_click(move || count.update(|count| *count += 1));
+/// Text!(format!("{}", count.get()));
+/// Button!("More", move || count.update(|count| *count += 1));
 /// ```
 ///
 /// Made inside `remember`, the state belongs to that call. Made anywhere else, it is not
@@ -538,7 +538,7 @@ impl<T> PartialEq for DerivedState<T> {
 ///
 /// ```ignore
 /// let empty = remember(move || derived_state_of(move || tasks.with(Vec::is_empty)));
-/// if empty.get() { Text("Nothing to do") }
+/// if empty.get() { Text!("Nothing to do"); }
 /// ```
 pub fn derived_state_of<T: Clone + PartialEq + 'static>(
     calculation: impl Fn() -> T + 'static,
