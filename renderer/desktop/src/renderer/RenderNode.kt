@@ -136,6 +136,8 @@ import dev.darkpyonix.composerust.foundation.HostLazyColumn
 import dev.darkpyonix.composerust.foundation.HostLazyRow
 import dev.darkpyonix.composerust.foundation.HostMenu
 import dev.darkpyonix.composerust.foundation.HostPopover
+import dev.darkpyonix.composerust.foundation.HostNativeView
+import dev.darkpyonix.composerust.foundation.LocalMenuKeyboard
 import dev.darkpyonix.composerust.foundation.HostNavigation
 import dev.darkpyonix.composerust.foundation.HostNavigationItem
 import dev.darkpyonix.composerust.foundation.HostSheet
@@ -291,7 +293,13 @@ fun RenderNode(
     // It is also ahead of the focus target a key listener is given, and behind the key
     // handlers. That target is then the one a request focuses, so the node keeps a single
     // focus target that reports it is focused and whose keys pass the node's handlers.
-    val requested = (if (focusRequester == null) keyed else keyed.focusRequester(focusRequester))
+    val menuKeyboard = LocalMenuKeyboard.current
+    val menuEntry = if (menuKeyboard != null && nodeId in menuKeyboard.entries) {
+        keyed.then(menuKeyboard.entry(nodeId))
+    } else {
+        keyed
+    }
+    val requested = (if (focusRequester == null) menuEntry else menuEntry.focusRequester(focusRequester))
         .let { if (keyFocusTarget) it.focusable() else it }
     // A popover's material is what its floating box is made of, and the popover draws it
     // in that box's own corner. Left in the chain it would be drawn a second time, square.
@@ -542,6 +550,9 @@ fun RenderNode(
             // node; the node's own modifiers are the floating box's.
             WidgetKind.Popover ->
                 HostPopover(node, parentModifier, modifier, table, dispatcher, theme)
+            // A place for a platform view the Host made. The window puts the view over the
+            // node; the node itself is only the box it is placed by.
+            WidgetKind.NativeView -> HostNativeView(node, modifier)
             WidgetKind.Tabs -> Unselectable { HostTabs(node, modifier, table, dispatcher, theme) }
             WidgetKind.Tooltip -> HostTooltip(node, modifier, table, dispatcher, theme)
             WidgetKind.LazyRow -> HostLazyRow(node, modifier, table, dispatcher)

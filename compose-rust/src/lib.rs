@@ -42,6 +42,7 @@ pub mod highlight;
 pub mod input;
 pub mod measure;
 pub mod message;
+pub mod native_view;
 pub mod notification;
 pub mod palette;
 pub mod picked_file;
@@ -74,9 +75,10 @@ pub use boundary::{
 pub use brush::{Brush, Stop, brush, release_brush};
 pub use code::{
     CaretRect, CodeChange, CodeEditorColors, CodeHover, CodeMetrics, CodePointer, CodeRange,
-    CodeRect, CodeScroll, Decoration, Decorations, EditGroupResult, EditRejected, Fold, FoldChange,
-    Folds, GutterDecoration, GutterDecorations, Position, SaveRequest, SelectionChange,
-    SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange, WordWrap,
+    CodeRect, CodeScroll, ContentPadding, Decoration, Decorations, EditGroupResult, EditRejected,
+    Fold, FoldChange, Folds, GutterDecoration, GutterDecorations, Position, SaveRequest,
+    SelectionChange, SelectionsChange, SyntaxSpan, SyntaxSpans, ViewZone, ViewZones, VisibleRange,
+    WordWrap,
 };
 #[doc(hidden)]
 pub use compose_rust_macros::__compose_call_check;
@@ -116,6 +118,7 @@ pub use schema::{
 };
 pub use schema::{Cursor, PointerKind, PointerType, UserSelect, WheelDeltaMode};
 pub use schema::{MinimapSide, WordWrapMode};
+pub use schema::{NativeHandle, NativeParentKind};
 pub use theme::{
     ThemeHandle, resolved_color_scheme, subscribe_system_color_scheme, system_color_scheme,
 };

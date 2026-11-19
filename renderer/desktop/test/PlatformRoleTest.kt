@@ -1,6 +1,11 @@
 package dev.darkpyonix.composerust.test
 
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ComposeUiTest
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.runComposeUiTest
@@ -13,6 +18,7 @@ import dev.darkpyonix.composerust.protocol.WidgetKind
 import dev.darkpyonix.composerust.runtime.ComposeRustContent
 import dev.darkpyonix.composerust.runtime.rememberComposeRustHost
 import dev.darkpyonix.composerust.tooling.FakeHostConnection
+import dev.darkpyonix.composerust.ui.DeclaredRole
 import dev.darkpyonix.composerust.ui.node.nodeTestTag
 import dev.darkpyonix.composerust.ui.platform.describe
 import dev.darkpyonix.composerust.ui.platform.elementRole
@@ -24,10 +30,14 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 private const val BOX = 1
+private const val COLUMN = 10
+private val ROWS = listOf("새 파일", "열기", "저장")
 private const val EXPANDED_OPEN = 2 shl 4
 private const val EXPANDED_CLOSED = 1 shl 4
+private const val HAS_POPUP = 1 shl 13
 private const val EXPANDABLE_AND_EXPANDED = AccessibleState.EXPANDABLE or AccessibleState.EXPANDED
 
 /** What the window hands the platform for one Box carrying [role] and [state], and maybe [label]. */
@@ -103,8 +113,10 @@ class PlatformRoleTest {
     @Test
     fun fr71_expanded_state_reaches_the_platform() {
         assertEquals(0, expandedStates(null))
+        assertEquals(AccessibleState.EXPANDABLE, expandedStates(null, hasPopup = true))
         assertEquals(AccessibleState.EXPANDABLE, expandedStates(false))
         assertEquals(EXPANDABLE_AND_EXPANDED, expandedStates(true))
+        assertEquals(EXPANDABLE_AND_EXPANDED, expandedStates(true, hasPopup = true))
 
         runComposeUiTest {
             val element = assertNotNull(described(SemanticsRole.TreeItem, EXPANDED_OPEN, label = "src"))
@@ -118,6 +130,12 @@ class PlatformRoleTest {
             assertEquals(AccessibleState.EXPANDABLE, element.states and EXPANDABLE_AND_EXPANDED)
         }
         runComposeUiTest {
+            val element = assertNotNull(described(SemanticsRole.Button, HAS_POPUP, label = "IDE"))
+            assertEquals(ElementRole.BUTTON, element.role)
+            assertEquals(AccessibleState.EXPANDABLE, element.states and EXPANDABLE_AND_EXPANDED)
+            assertNull(element.value)
+        }
+        runComposeUiTest {
             // Open or closed with no role and no name is still something to announce.
             val element = assertNotNull(described(SemanticsRole.None, EXPANDED_OPEN))
             assertEquals(ElementRole.GROUP, element.role)
@@ -127,6 +145,80 @@ class PlatformRoleTest {
             // Saying nothing about it is not the same as closed.
             val element = assertNotNull(described(SemanticsRole.Tree, label = "Files"))
             assertEquals(0, element.states and EXPANDABLE_AND_EXPANDED)
+        }
+    }
+
+    /** A Column carrying [role] (or no Semantics modifier at all) holding one Text row per [ROWS]. */
+    private fun ComposeUiTest.showColumn(role: SemanticsRole?) {
+        val mutations = buildList {
+            add(Mutation.Create(COLUMN, WidgetKind.Column))
+            if (role != null) add(Mutation.SetModifier(COLUMN, 0, ProtocolModifier.Semantics(role, 0)))
+            ROWS.forEachIndexed { index, word ->
+                val row = COLUMN + 1 + index
+                add(Mutation.Create(row, WidgetKind.Text))
+                add(Mutation.SetProp(row, PropertyKind.Text, PropertyValue.Text(word)))
+                add(Mutation.Insert(COLUMN, row, index))
+            }
+        }
+        setContent { ComposeRustContent(rememberComposeRustHost(FakeHostConnection(mutations))) }
+        waitForIdle()
+    }
+
+    /** The elements a window describes below [node], each attached to the nearest kept ancestor. */
+    private fun describedBelow(node: SemanticsNode, parentId: Int): List<AccessibleElement> =
+        node.children.flatMap { child ->
+            val element = child.describe(parentId, 1f)
+            listOfNotNull(element) + describedBelow(child, element?.id ?: parentId)
+        }
+
+    @Test
+    fun fr71_a_container_role_keeps_its_children_as_separate_nodes() {
+        val expected = mapOf(
+            SemanticsRole.Menu to ElementRole.MENU,
+            SemanticsRole.List to ElementRole.LIST,
+            SemanticsRole.Group to ElementRole.GROUP,
+        )
+        for ((role, platformRole) in expected) {
+            runComposeUiTest {
+                showColumn(role)
+                // The merged tree is the one a reader walks, so it is the one asked here.
+                val column = onNodeWithTag(nodeTestTag(COLUMN)).fetchSemanticsNode()
+                assertEquals(role, column.config.getOrNull(DeclaredRole), "$role")
+                assertEquals(true, column.config.getOrNull(SemanticsProperties.IsTraversalGroup), "$role is not a group to walk into")
+                assertNull(column.config.getOrNull(SemanticsProperties.Text), "$role took its rows' text as its own")
+                for (word in ROWS) onAllNodes(hasText(word)).assertCountEquals(1)
+                if (role != SemanticsRole.Group) {
+                    assertEquals(ROWS.size, column.config.getOrNull(SemanticsProperties.CollectionInfo)?.rowCount, "$role")
+                }
+                // What the window hands the platform: the role of its own, and rows beneath it.
+                val element = assertNotNull(column.describe(-1, 1f))
+                assertEquals(platformRole, element.role, "$role")
+                val rows = describedBelow(column, element.id)
+                assertEquals(ROWS, rows.map { it.label }, "$role")
+                for (row in rows) {
+                    assertEquals(ElementRole.TEXT, row.role)
+                    assertEquals(element.id, row.parentId, "a row of $role is not its child")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun fr71_a_column_without_a_container_role_is_unchanged() {
+        runComposeUiTest {
+            showColumn(null)
+            val column = onNodeWithTag(nodeTestTag(COLUMN)).fetchSemanticsNode()
+            assertNull(column.config.getOrNull(SemanticsProperties.IsTraversalGroup))
+            assertNull(column.config.getOrNull(SemanticsProperties.CollectionInfo))
+            assertNull(column.describe(-1, 1f), "a column that says nothing is not an element")
+            for (word in ROWS) onAllNodes(hasText(word)).assertCountEquals(1)
+        }
+        runComposeUiTest {
+            // A role that holds nothing to walk into is not made a group.
+            showColumn(SemanticsRole.MenuItem)
+            val column = onNodeWithTag(nodeTestTag(COLUMN)).fetchSemanticsNode()
+            assertNull(column.config.getOrNull(SemanticsProperties.IsTraversalGroup))
+            assertTrue(column.config.getOrNull(SemanticsProperties.CollectionInfo) == null)
         }
     }
 }

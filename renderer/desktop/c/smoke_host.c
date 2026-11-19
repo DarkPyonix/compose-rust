@@ -257,9 +257,10 @@ static void build_label_update(const char *label) {
  * renderer's own layout.
  */
 /* The length of one measure request record, MEASURE_RECORD_LEN in compose-rust/src/measure.rs.
- * The records here are zeroed first, so a field added at the end (the font features at 72)
- * reads as absent. scripts/tests/smoke-host-measure-record.test.sh holds the two lengths equal. */
-#define MEASURE_RECORD 80
+ * The records here are zeroed first, so a field added at the end (the font features at 72, the
+ * runs' font feature table at 80) reads as absent: its length or count is zero.
+ * scripts/tests/smoke-host-measure-record.test.sh holds the two lengths equal. */
+#define MEASURE_RECORD 88
 #define MEASURE_WIDTH 1000.0f
 #define HTML_NODE 6
 #define HTML_TEXT "Measured as CSS text"

@@ -1,9 +1,7 @@
-# macOS packaging: the packager's tests.
-#
-# Direct distribution is packaged and updated with Velopack, so nothing here builds an
-# update feed.
+# Desktop packaging: the macOS packager's tests, and Velopack packages and self-update on
+# macOS, Linux and Windows. Called by ci.yml, which only the leader dispatches.
 
-name: macOS packaging
+name: Desktop packaging
 
 on:
   workflow_call: {}
@@ -31,3 +29,102 @@ jobs:
 
       - name: Run the packager's tests
         run: python -m unittest discover -s scripts/packager-macos/tests -v
+
+  # Velopack direct distribution, one job per OS. Each builds the Velopack fixture app
+  # (scripts/tests/velopack-fixture) as 1.0.0 and 1.0.1, packs both with
+  # scripts/package-velopack.py, installs 1.0.0 the way a person would, lets it update
+  # itself from the 1.0.1 feed and runs it again; scripts/tests/fr22-velopack.test.sh says
+  # what each step checks. vpk is pinned to the velopack crate the fixture uses, because
+  # Velopack wants the two at the same version.
+  velopack-macos:
+    name: Velopack packaging and self-update (macos-latest)
+    runs-on: macos-latest
+    env:
+      VPK_VERSION: '1.2.161'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install vpk
+        run: |
+          dotnet tool install -g vpk --version "$VPK_VERSION"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Pack, install from the .dmg and update the ad hoc signed app
+        run: ./scripts/tests/fr22-velopack.test.sh macos
+
+  velopack-linux:
+    name: Velopack packaging and self-update (ubuntu-latest)
+    runs-on: ubuntu-latest
+    env:
+      VPK_VERSION: '1.2.161'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install squashfs-tools and libfuse2
+        # vpk builds the AppImage's file system with mksquashfs, and the AppImage runtime
+        # vpk uses (AppImageKit's) mounts itself through libfuse2, which Ubuntu 24.04 ships
+        # as libfuse2t64. libfuse2 mounts by running fusermount, which fuse3 provides.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools libfuse2t64 fuse3
+
+      - name: Install vpk
+        run: |
+          dotnet tool install -g vpk --version "$VPK_VERSION"
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Pack, run the AppImage and let it replace itself with the update
+        run: ./scripts/tests/fr22-velopack.test.sh linux
+
+  velopack-windows:
+    name: Velopack packaging and self-update (windows-latest)
+    runs-on: windows-latest
+    env:
+      VPK_VERSION: '1.2.161'
+      PYTHON: python
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Install vpk
+        run: |
+          dotnet tool install -g vpk --version "$VPK_VERSION"
+          echo "$USERPROFILE\.dotnet\tools" >> "$GITHUB_PATH"
+
+      - name: Pack, install with Setup.exe and take a delta update
+        run: ./scripts/tests/fr22-velopack.test.sh windows

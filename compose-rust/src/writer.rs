@@ -1134,6 +1134,7 @@ pub(crate) fn event_property(name: &str) -> Option<PropertyKind> {
         "pointer" | "onpointer" => Some(PropertyKind::OnPointer),
         "scrollchanged" | "onscrollchanged" => Some(PropertyKind::OnScrollChanged),
         "motionfinished" | "onmotionfinished" => Some(PropertyKind::OnMotionFinished),
+        "nativeviewfocus" | "onnativeviewfocus" => Some(PropertyKind::OnNativeViewFocus),
         "windowclose" | "onwindowclose" => Some(PropertyKind::OnWindowCloseRequested),
         "windowfocus" | "onwindowfocus" => Some(PropertyKind::OnWindowFocusChanged),
         "windowmoved" | "onwindowmoved" => Some(PropertyKind::OnWindowMoved),
@@ -1202,9 +1203,9 @@ mod tests {
         let mut writer = NodeWriter::new();
         let role = i64::from(u16::from(crate::SemanticsRole::Group));
         let accepted =
-            writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 12))));
+            writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 13))));
         assert!(matches!(accepted, Some(Some(_))));
-        let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 13))));
+        let refused = writer.modifier_for(1, "semantics", &AttrValue::Int(role | (1 << (16 + 14))));
         assert!(matches!(refused, Some(None)));
     }
 }

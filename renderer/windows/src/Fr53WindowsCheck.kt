@@ -8,10 +8,13 @@ import dev.darkpyonix.composerust.protocol.ColorScheme
 import dev.darkpyonix.composerust.protocol.DesignSystem
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.LastWindowClosed
+import dev.darkpyonix.composerust.protocol.Modifier as ProtocolModifier
 import dev.darkpyonix.composerust.protocol.Mutation
+import dev.darkpyonix.composerust.protocol.Paint
 import dev.darkpyonix.composerust.protocol.PointerKind
 import dev.darkpyonix.composerust.protocol.PropertyKind
 import dev.darkpyonix.composerust.protocol.PropertyValue
+import dev.darkpyonix.composerust.protocol.ScrollWire
 import dev.darkpyonix.composerust.protocol.Theme
 import dev.darkpyonix.composerust.protocol.TitleBar
 import dev.darkpyonix.composerust.protocol.WidgetKind
@@ -21,14 +24,22 @@ import dev.darkpyonix.composerust.runtime.ComposeRustHost
 import dev.darkpyonix.composerust.runtime.HostConnection
 import java.lang.System
 import kotlin.math.abs
+import kotlinx.cinterop.UIntVar
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.value
 import kotlin.time.TimeSource
 import kotlinx.cinterop.COpaquePointer
 import kotlinx.cinterop.reinterpret
 import org.thisisthepy.compose.window.windows.Win32Loop
 import org.thisisthepy.compose.window.windows.Win32System
+import platform.windows.ClientToScreen
+import platform.windows.POINT
 
 // The checks of several windows in one process on Windows, run by the renderer itself against real
-// windows, and named after the requirement like the tests of the other platforms.
+// windows, and named after the requirement like the tests of the other platforms. The wheel check
+// rides along: it needs a real window the same way, and this is the one place that has them.
 //
 // They are here and not in a test source set because a Kotlin/Native test executable for
 // mingwX64 is a MinGW link, and the Win32 window is C that only an MSVC link has (see
@@ -57,6 +68,11 @@ internal val FR53_WINDOWS_CHECK_NAMES = listOf(
     "fr53_windows_window_theme_sets_the_color_scheme_of_one_window",
     "fr53_windows_window_color_scheme_darkens_its_own_caption",
     "fr53_windows_zoom_level_reaches_its_window_and_reports_its_node",
+    "fr13_windows_a_wheel_turned_forward_scrolls_toward_the_top",
+    // The text edit menu, which these windows are the place to check: a focused field turns
+    // the window's own menu on, and an application that draws its own keeps it off.
+    "fr33_1_windows_focused_field_turns_the_system_edit_menu_on",
+    "fr33_1_windows_drawn_menu_leaves_the_system_edit_menu_off",
     // Last: a quit that was posted stays posted for the process.
     "fr53_windows_last_window_removed_exits_the_loop",
 )
@@ -82,6 +98,9 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
         ::windowThemeSetsTheColorSchemeOfOneWindow,
         ::windowColorSchemeDarkensItsOwnCaption,
         ::zoomLevelReachesItsWindowAndReportsItsNode,
+        ::wheelTurnedForwardScrollsTowardTheTop,
+        ::focusedFieldTurnsTheSystemEditMenuOn,
+        ::drawnMenuLeavesTheSystemEditMenuOff,
         ::lastWindowRemovedExitsTheLoop,
     )
     check(bodies.size == FR53_WINDOWS_CHECK_NAMES.size) {
@@ -107,6 +126,58 @@ internal fun runFr53WindowsChecksIfAsked(): Boolean? {
 }
 
 // ---- the checks ------------------------------------------------------------------------
+
+/** A text field holding [value] in window [windowId]. */
+private fun textFieldIn(windowId: Int, id: Int, value: String): List<Mutation> = listOf(
+    Mutation.Create(id, WidgetKind.TextField),
+    Mutation.SetProp(id, PropertyKind.Text, text(value)),
+    Mutation.Insert(windowId, id, APPEND),
+)
+
+private fun focusedFieldTurnsTheSystemEditMenuOn() {
+    val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + textFieldIn(1, 10, "hello"))
+    try {
+        h.forMillis(200)
+        val window = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        window.focus()
+        check(window.editMenuFlags == 0) { "the edit menu is on with no field focused (flags ${window.editMenuFlags})" }
+        h.batch(Mutation.RequestFocus(10))
+        h.until("the text field to take the keyboard") { window.textFieldFocused }
+        // The caret stands in the text and nothing is selected: Paste and Select All can run,
+        // Cut and Copy cannot, and the window is told so.
+        val expected = Win32EditMenu.flagsFor(FocusedTextField(hasSelection = false, editable = true, hasText = true))
+        h.until("the window's edit menu to come on as $expected") { window.editMenuFlags == expected }
+        h.batch(Mutation.Remove(10))
+        h.until("the window's edit menu to go off once the field is gone") { window.editMenuFlags == 0 }
+    } finally {
+        h.close()
+    }
+}
+
+private fun drawnMenuLeavesTheSystemEditMenuOff() {
+    val before = Win32EditMenu.systemMenu
+    // What DXC_MENU_OVERRIDE=drawn says: the application draws its menu, so the window must not
+    // put up its own beside it. Read when a window opens, so it is set before the harness opens one.
+    Win32EditMenu.systemMenu = false
+    try {
+        val h = Fr53Harness(listOf(setWindow()) + windowNode(1) + textFieldIn(1, 10, "hello"))
+        try {
+            h.forMillis(200)
+            val window = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+            window.focus()
+            h.batch(Mutation.RequestFocus(10))
+            h.until("the text field to take the keyboard") { window.textFieldFocused }
+            h.forMillis(300)
+            check(window.editMenuFlags == 0) {
+                "the window's edit menu is on (flags ${window.editMenuFlags}) where the application draws its own"
+            }
+        } finally {
+            h.close()
+        }
+    } finally {
+        Win32EditMenu.systemMenu = before
+    }
+}
 
 private fun twoWindowNodesOpenTwoHwndsAndCloseOne() {
     val h = Fr53Harness(listOf(setWindow()) + windowNode(1, PropertyKind.WindowTitle to text("One")) + windowNode(2))
@@ -580,6 +651,108 @@ private fun zoomLevelReachesItsWindowAndReportsItsNode() {
     }
 }
 
+/**
+ * The mouse wheel scrolls a scroll column and a lazy column the way it turns, each as far as a
+ * desktop Compose application on Windows scrolls: a notch turned forward (away from the reader,
+ * `WM_MOUSEWHEEL` with +120) goes toward the top, one turned back toward the end, each by the
+ * lines the system's mouse settings give a notch, a line a twentieth of the container's height.
+ *
+ * The containers start in the middle of what they hold, so a scroll the wrong way is seen as
+ * one instead of stopping at the top, and a box that does not scroll is at the window's top
+ * left corner, so a scroll that reached the scene there and not under the pointer moves
+ * nothing. A wheel message carries no place the scene reads: the scene scrolls what is under
+ * the last move, so the pointer is moved over each container first, the real one as well as a
+ * posted move, because a move of the real pointer over the window would put it elsewhere.
+ */
+private fun wheelTurnedForwardScrollsTowardTheTop() {
+    val list = 20
+    val lazy = 21
+    val items = 100
+    val itemHeight = 40f
+    val page = buildList {
+        add(Mutation.Create(10, WidgetKind.Row))
+        add(Mutation.SetModifier(10, 0, ProtocolModifier.FillMaxWidth))
+        add(Mutation.SetModifier(10, 1, ProtocolModifier.FillMaxHeight))
+        add(Mutation.Insert(1, 10, APPEND))
+        addAll(sized(11, 100f, 320f))
+        add(Mutation.Insert(10, 11, APPEND))
+        add(Mutation.Create(list, WidgetKind.ScrollColumn))
+        add(Mutation.SetModifier(list, 0, ProtocolModifier.Size(150f, 260f)))
+        add(Mutation.SetProp(list, PropertyKind.OnScrollChanged, handler(81)))
+        add(Mutation.Insert(10, list, APPEND))
+        addAll(sized(12, 150f, 3000f))
+        add(Mutation.Insert(list, 12, APPEND))
+        add(Mutation.Create(lazy, WidgetKind.LazyColumn))
+        add(Mutation.SetModifier(lazy, 0, ProtocolModifier.Size(150f, 260f)))
+        add(Mutation.SetProp(lazy, PropertyKind.ItemCount, PropertyValue.Integer(items.toLong())))
+        add(Mutation.SetProp(lazy, PropertyKind.OnScrollChanged, handler(82)))
+        add(Mutation.Insert(10, lazy, APPEND))
+        for (index in 0 until items) {
+            addAll(sized(100 + index, 150f, itemHeight))
+            add(Mutation.SetProp(100 + index, PropertyKind.ItemKey, text("item-$index")))
+            add(Mutation.Insert(lazy, 100 + index, APPEND))
+        }
+        // Applied once each container has been measured: the middle of what each holds.
+        add(Mutation.ScrollTo(list, 0, ScrollWire.TO_Y, 0.0, 600.0))
+        add(Mutation.ScrollTo(lazy, 20, ScrollWire.TO_Y, 0.0, 0.0))
+    }
+    val h = Fr53Harness(
+        listOf(setWindow()) +
+            windowNode(
+                1,
+                PropertyKind.WindowChrome to SYSTEM_CHROME,
+                PropertyKind.WindowSize to PropertyValue.Bytes(floats(480f, 320f)),
+            ) + page,
+    )
+    try {
+        val window = checkNotNull(h.backend.find(1)) { "no window for node 1" }
+        val scale = window.pixelsPerPoint
+        fun reports(node: Int) = h.connection.events.filterIsInstance<HostEvent.ScrollChanged>().filter { it.nodeId == node }
+
+        /** Where [node] is once it has stopped moving, in pixels from the top of its content. */
+        fun settled(node: Int): Double {
+            h.until("node $node to report where it is") { reports(node).isNotEmpty() }
+            var seen = reports(node).size
+            var still = 0
+            h.waitFor(3000) {
+                val now = reports(node)
+                val done = now.last().flags and ScrollWire.CHANGED_SETTLED != 0
+                if (now.size == seen && done) still++ else still = 0
+                seen = now.size
+                still >= 20
+            }
+            val report = reports(node).last()
+            return if (node == lazy) report.item * itemHeight * scale + report.yPx else report.yPx
+        }
+        val lines = wheelScrollLines()
+        for ((node, centreX) in listOf(list to 175f, lazy to 325f)) {
+            val other = if (node == list) lazy else list
+            val start = settled(node)
+            val otherStart = settled(other)
+            val x = (centreX * scale).toInt()
+            val y = (130f * scale).toInt()
+            movePointer(window.handle, x, y)
+            h.forMillis(150)
+            // A twentieth of the container's height a line, for the lines a notch moves.
+            val notch = lines * reports(node).last().viewportHeightPx / 20
+
+            postWheel(window.handle, WHEEL_DELTA, x, y)
+            val forward = settled(node) - start
+            check(forward < 0 && abs(forward + notch) <= maxOf(2.0, notch / 10)) {
+                "a notch turned forward over node $node moved it by $forward pixels; it should go toward the " +
+                    "top by $notch pixels ($lines lines of a twentieth of its height)"
+            }
+            postWheel(window.handle, -WHEEL_DELTA, x, y)
+            val back = settled(node) - start
+            check(abs(back) <= 2.0) { "a notch forward and a notch back left node $node $back pixels from where it started" }
+            val otherMoved = settled(other) - otherStart
+            check(abs(otherMoved) <= 2.0) { "node $other, not under the pointer, moved by $otherMoved pixels" }
+        }
+    } finally {
+        h.close()
+    }
+}
+
 private fun lastWindowRemovedExitsTheLoop() {
     val h = Fr53Harness(listOf(setWindow(LastWindowClosed.Exit)) + windowNode(1) + windowNode(2))
     try {
@@ -763,6 +936,58 @@ private fun postButton(handle: COpaquePointer, down: Boolean, x: Int, y: Int) {
     )
     check(posted != 0) { "the button message could not be posted to the window" }
 }
+
+/**
+ * Puts the pointer at ([x], [y]) of the window's client area, in pixels: the real pointer, so
+ * that the system's own moves say the same, and a posted move, which the window hears now.
+ */
+private fun movePointer(handle: COpaquePointer, x: Int, y: Int) {
+    memScoped {
+        val point = alloc<POINT>()
+        point.x = x
+        point.y = y
+        if (ClientToScreen(handle.reinterpret(), point.ptr) != 0) platform.windows.SetCursorPos(point.x, point.y)
+    }
+    val where = ((y and 0xFFFF) shl 16) or (x and 0xFFFF)
+    val posted = platform.windows.PostMessageW(handle.reinterpret(), WM_MOUSEMOVE, 0uL, where.toLong())
+    check(posted != 0) { "the move could not be posted to the window" }
+}
+
+/**
+ * Posts what the system posts for a turn of the wheel by [delta] (120 a notch, positive away
+ * from the reader) with the pointer at ([x], [y]) of the client area; the message carries the
+ * place on the screen.
+ */
+private fun postWheel(handle: COpaquePointer, delta: Int, x: Int, y: Int) {
+    val screen = memScoped {
+        val point = alloc<POINT>()
+        point.x = x
+        point.y = y
+        ClientToScreen(handle.reinterpret(), point.ptr)
+        ((point.y and 0xFFFF) shl 16) or (point.x and 0xFFFF)
+    }
+    val wParam = ((delta and 0xFFFF) shl 16).toUInt().toULong()
+    val posted = platform.windows.PostMessageW(handle.reinterpret(), WM_MOUSEWHEEL, wParam, screen.toLong())
+    check(posted != 0) { "the wheel message could not be posted to the window" }
+}
+
+/** The lines the system's mouse settings move for a notch of the wheel; 3 unless changed. */
+private fun wheelScrollLines(): Int = memScoped {
+    val lines = alloc<UIntVar>()
+    if (platform.windows.SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0u, lines.ptr, 0u) != 0) lines.value.toInt() else 3
+}
+
+private const val WM_MOUSEMOVE = 0x0200u
+private const val WM_MOUSEWHEEL = 0x020Au
+private const val WHEEL_DELTA = 120
+private const val SPI_GETWHEELSCROLLLINES = 0x0068u
+
+/** A box of [width] by [height] dp with a colour, so it is drawn. */
+private fun sized(id: Int, width: Float, height: Float): List<Mutation> = listOf(
+    Mutation.Create(id, WidgetKind.Box),
+    Mutation.SetModifier(id, 0, ProtocolModifier.Size(width, height)),
+    Mutation.SetModifier(id, 1, ProtocolModifier.Background(Paint.Literal(if (id % 2 == 0) 0xFF0000E0.toInt() else 0xFF8080FF.toInt()))),
+)
 
 /** The thick frame and the maximize box of a window's style, as the system has them now. */
 private fun resizeFrame(handle: COpaquePointer): Long =

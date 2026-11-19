@@ -14,6 +14,9 @@ import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.runComposeUiTest
 import dev.darkpyonix.composerust.protocol.HostEvent
 import dev.darkpyonix.composerust.protocol.IconRole
@@ -243,6 +246,37 @@ class AccessibilityModifierTest {
     }
 
     @Test
+    fun fr68_a_button_with_its_own_name_is_read_once_by_that_name() {
+        val button = 1
+        fun labelled(vararg extra: Mutation) = listOf(
+            Mutation.Create(button, WidgetKind.Button),
+            Mutation.SetProp(button, PropertyKind.Text, name("만들기")),
+            Mutation.SetProp(button, PropertyKind.OnClick, PropertyValue.Integer(SOME_HANDLER)),
+        ) + extra
+        val isButton = SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)
+        runComposeUiTest {
+            show(labelled(Mutation.SetProp(button, PropertyKind.AccessibleName, name("새 파일 만들기"))))
+            onAllNodes(isButton and hasContentDescription("새 파일 만들기"), useUnmergedTree = true)
+                .assertCountEquals(1)
+            // The merged tree is the one a reader walks. A cleared label still sits in the
+            // unmerged tree, which keeps every node whatever its ancestors cleared, so that
+            // tree cannot say whether a reader meets it.
+            onAllNodes(hasText("만들기", substring = true)).assertCountEquals(0)
+            val merged = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode().config
+            assertEquals(listOf("새 파일 만들기"), merged.getOrNull(SemanticsProperties.ContentDescription))
+            assertEquals(null, merged.getOrNull(SemanticsProperties.Text), "the label is still read beside the name")
+            assertTrue(merged.contains(SemanticsActions.OnClick), "the named button lost its press action")
+        }
+        runComposeUiTest {
+            // A button without a name of its own is still read by its label.
+            show(labelled())
+            onAllNodes(hasText("만들기"), useUnmergedTree = true).assertCountEquals(1)
+            val merged = onNodeWithTag(nodeTestTag(button)).fetchSemanticsNode().config
+            assertEquals(listOf("만들기"), merged.getOrNull(SemanticsProperties.Text)?.map { it.text })
+        }
+    }
+
+    @Test
     fun fr68_a_named_switch_says_its_name_and_that_it_is_on() {
         val switch = 1
         runComposeUiTest {
@@ -427,6 +461,16 @@ class AccessibilityModifierTest {
             val config = configOf((1 shl 6) or (1 shl 10), SemanticsRole.Group)
             assertTrue(!config.contains(SemanticsProperties.Disabled))
             assertTrue(config.contains(SemanticsProperties.HideFromAccessibility))
+        }
+        runComposeUiTest {
+            // Has-popup on a button that opens a menu.
+            val config = configOf(1 shl 13, SemanticsRole.Button)
+            assertEquals("has popup", config.getOrNull(SemanticsProperties.StateDescription))
+        }
+        runComposeUiTest {
+            // Role, expanded state and has-popup together.
+            val config = configOf((1 shl 4) or (1 shl 13), SemanticsRole.Menu)
+            assertEquals("menu, collapsed, has popup", config.getOrNull(SemanticsProperties.StateDescription))
         }
     }
 
@@ -649,8 +693,8 @@ class AccessibilityModifierTest {
     @Test
     fun fr71_removing_semantics_restores_the_defaults() {
         val text = 1
-        // Expanded on, disabled off, focused off, with both actions.
-        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION
+        // Expanded on, disabled off, focused off, with both actions and has-popup.
+        val state = (2 shl 4) or (1 shl 6) or (1 shl 8) or (1 shl 11) or FOCUS_ACTION or (1 shl 13)
         runComposeUiTest {
             val frames = FrameRequestSource()
             val connection = FakeHostConnection(
@@ -668,7 +712,7 @@ class AccessibilityModifierTest {
             }
             waitForIdle()
             fun config() = onNodeWithTag(nodeTestTag(text)).fetchSemanticsNode().config
-            assertEquals("treeitem, expanded", config().getOrNull(SemanticsProperties.StateDescription))
+            assertEquals("treeitem, expanded, has popup", config().getOrNull(SemanticsProperties.StateDescription))
             assertEquals(false, config().getOrNull(SemanticsProperties.Focused))
             assertTrue(config().contains(SemanticsActions.OnClick))
             assertTrue(config().contains(SemanticsActions.RequestFocus))
@@ -692,12 +736,12 @@ class AccessibilityModifierTest {
     fun nfr7_unknown_semantics_bit_is_a_protocol_error() {
         val box = 1
         runComposeUiTest {
-            // Bit 13 is the first one above the two action bits.
+            // Bit 14 is the first one above the has-popup bit.
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
                     Mutation.SetProp(box, PropertyKind.AccessibleName, name("Files")),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 13)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, 1 shl 14)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }
@@ -715,7 +759,7 @@ class AccessibilityModifierTest {
             val connection = FakeHostConnection(
                 listOf(
                     Mutation.Create(box, WidgetKind.Box),
-                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 13) - 1)),
+                    Mutation.SetModifier(box, 0, ProtocolModifier.Semantics(SemanticsRole.Tab, (1 shl 14) - 1)),
                 ),
             )
             setContent { ComposeRustContent(rememberComposeRustHost(connection)) }

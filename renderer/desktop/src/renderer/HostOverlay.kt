@@ -146,6 +146,7 @@ internal fun ModalOverlayFocus(
     nodeId: Int,
     surfaceRequester: FocusRequester,
     onEscape: () -> Unit,
+    focusSurface: Boolean = true,
 ) {
     val stack = LocalOverlayFocusStack.current
     SideEffect { stack.update(nodeId, onEscape) }
@@ -153,10 +154,12 @@ internal fun ModalOverlayFocus(
         stack.push(nodeId, onEscape)
         onDispose { stack.pop(nodeId) }
     }
-    LaunchedEffect(nodeId) {
-        try {
-            surfaceRequester.requestFocus()
-        } catch (_: IllegalStateException) {
+    if (focusSurface) {
+        LaunchedEffect(nodeId) {
+            try {
+                surfaceRequester.requestFocus()
+            } catch (_: IllegalStateException) {
+            }
         }
     }
 }
@@ -236,7 +239,12 @@ internal fun HostDialog(
         // leaves, so a field inside it is not under the keyboard.
         val keyboard = overlayKeyboardInset()
         Box(
-            Modifier.fillMaxSize().background(scrim).testTag(dialogTestTag(node.id)),
+            Modifier
+                .fillMaxSize()
+                // A scrim that dims the window dims a platform view too: it is covered.
+                .nativeViewOverlay(coversWindow = scrim.alpha > 0f)
+                .background(scrim)
+                .testTag(dialogTestTag(node.id)),
             contentAlignment = Alignment.Center,
         ) {
             Box(Modifier.fillMaxSize().padding(bottom = keyboard), contentAlignment = Alignment.Center) {
@@ -356,8 +364,8 @@ internal class MenuKeyboard(private val table: NodeTable) {
      */
     var chosen: Int? = null
 
-    /** What Escape does: the same as a press outside the menu. */
-    var onEscape: () -> Unit = {}
+    /** What Escape does: the same as a press outside the menu, or null when the overlay handles Escape itself. */
+    var onEscape: (() -> Unit)? = null
     private val requesters = mutableMapOf<Int, FocusRequester>()
 
     /** The entry that has focus now, set by a move made here or by focus arriving another way. */
@@ -401,7 +409,8 @@ internal class MenuKeyboard(private val table: NodeTable) {
         if (event.type != KeyEventType.KeyDown) return false
         // Android delivers its back button to a focused popup as Key.Back.
         if (event.key == Key.Escape || event.key == Key.Back) {
-            onEscape()
+            val escape = onEscape ?: return false
+            escape()
             return true
         }
         val count = entries.size
@@ -429,7 +438,7 @@ internal fun rememberMenuKeyboard(
     entries: List<Int>,
     table: NodeTable,
     chosen: Int? = null,
-    onEscape: () -> Unit,
+    onEscape: (() -> Unit)? = null,
 ): MenuKeyboard {
     val keys = remember(table) { MenuKeyboard(table) }
     keys.entries = entries
@@ -441,6 +450,12 @@ internal fun rememberMenuKeyboard(
 
 /** Moves focus among the entries for the keys a menu answers, after the focused entry declined them. */
 internal fun Modifier.menuKeys(keys: MenuKeyboard): Modifier = onKeyEvent { keys.handle(it) }
+
+/**
+ * The [MenuKeyboard] of an enclosing popover whose content is a menu, so entries nested
+ * inside layout containers receive their focus requesters when drawn.
+ */
+internal val LocalMenuKeyboard = staticCompositionLocalOf<MenuKeyboard?> { null }
 
 /**
  * Whether what is being drawn is inside a menu's popup.
