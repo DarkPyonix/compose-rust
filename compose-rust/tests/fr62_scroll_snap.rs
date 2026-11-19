@@ -8,7 +8,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, PropertyKind, Theme, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::Cell;
 
 thread_local! {

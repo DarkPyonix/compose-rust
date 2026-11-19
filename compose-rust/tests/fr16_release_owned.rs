@@ -6,7 +6,7 @@ use compose_rust::asset::{register_owned, release_owned};
 use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 
 #[Composable]
 fn Empty() {

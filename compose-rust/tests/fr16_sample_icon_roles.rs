@@ -2,7 +2,7 @@
 
 mod support;
 
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, IconRole};
 use support::Tree;
 

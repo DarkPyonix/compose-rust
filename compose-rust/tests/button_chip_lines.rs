@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::schema::TextOverflow;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 fn dump(content: impl Fn() + Send + Sync + 'static) -> String {

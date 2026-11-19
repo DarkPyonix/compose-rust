@@ -6,7 +6,7 @@
 //! shop draws its mark.
 
 use crate::palette;
-use compose_rust::ui::next::{Brush, DrawList, DrawListBuilder, Paint, Stop, brush};
+use compose_rust::ui::{Brush, DrawList, DrawListBuilder, Paint, Stop, brush};
 
 /// The hero's second disc: black on its left, where it overlaps the solid one, fading to
 /// a light grey on its right.
