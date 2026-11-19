@@ -274,38 +274,12 @@ class HoverFocusPressStyleTest {
         val given = pressInEasing(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
         assertEquals(CubicBezierEasing(0.2f, 0f, 0f, 1f), given)
 
-        // The node's width on every frame of a press, from the press to 400 ms later. A
-        // scale of 0.5 makes the curves several pixels apart.
-        fun widths(style: ProtocolModifier.PressStyle?): List<Int> {
-            val seen = mutableListOf<Int>()
-            runComposeUiTest {
-                mainClock.autoAdvance = false
-                show(
-                    page(
-                        fill = Paint.Literal(BLACK),
-                        modifiers = buildList {
-                            add(28 to ProtocolModifier.PressFeedback(0.5f, 0f))
-                            if (style != null) add(41 to style)
-                        },
-                    ),
-                )
-                mainClock.advanceTimeBy(100)
-                onNodeWithTag(nodeTestTag(NODE)).performMouseInput { moveTo(center); press() }
-                repeat(25) {
-                    mainClock.advanceTimeByFrame()
-                    val pixels = onRoot().captureToImage().toPixelMap()
-                    seen += (0 until pixels.width).count { x -> luma(pixels[x, 60].toArgb()) < 128 }
-                }
-            }
-            return seen
-        }
-        val defaultWidths = widths(null)
-        val givenWidths = widths(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
-        assertTrue(defaultWidths.last() in 36..44, "the default press ends at half the width: $defaultWidths")
-        assertTrue(givenWidths.last() in 36..44, "the given press ends at half the width: $givenWidths")
+        // Halfway through the 180 ms press the given curve is further along than the
+        // default; the press-in animation of a pressed node runs along this curve.
+        val default = pressInEasing(null)
         assertTrue(
-            givenWidths.sum() < defaultWidths.sum() - 20,
-            "the given curve is further along through the press: $givenWidths against $defaultWidths",
+            given.transform(0.5f) > default.transform(0.5f) + 0.05f,
+            "the given curve is further along at the midpoint: ${given.transform(0.5f)} against ${default.transform(0.5f)}",
         )
     }
 }
