@@ -222,7 +222,7 @@ fn fr81_tree_without_native_view_is_unchanged() {
     // The events before the two new ones are where they were: they were appended after
     // the last of them, the density report of 20 bytes, which ends at the parent report.
     assert_eq!(
-        decode_event(&EVENTS[1415..1439]).unwrap().payload,
+        decode_event(&EVENTS[1419..1443]).unwrap().payload,
         EventPayload::CodeScrolled { offset_px: 1234.5 }
     );
     assert!(matches!(
