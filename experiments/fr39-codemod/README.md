@@ -42,7 +42,9 @@ copied from the source unchanged; only the chain around them changes.
 
 - a builder whose value is used: bound with `let`, returned, or a match arm;
 - the same parameter set twice on one chain;
-- a comment between the chain's methods, which a rewrite would lose;
+- a comment inside a method's parentheses but outside its argument, which a rewrite would
+  lose (a comment on the line before a method is carried in front of that method's
+  argument);
 - an optional handler whose closure has an untyped argument the table has no type for.
 
 Chains inside other macros' token streams (`vec![..]`, `format!(..)`) are not parsed and

@@ -428,4 +428,35 @@ class WindowCaptionTest {
             "the title starts at ${title.top}, inside the ${CAPTION.height} caption",
         )
     }
+
+    /**
+     * A material mounted after the first frame must not turn an opaque window's page
+     * translucent when the window was created without a platform backdrop.
+     */
+    @Test
+    fun fr19_material_mounted_after_first_frame_keeps_window_opaque() = runComposeUiTest {
+        val previous = dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial
+        dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = { true }
+        try {
+            val connection = FakeHostConnection(TREE_PAINTED_BY_THE_APPLICATION)
+            lateinit var host: dev.darkpyonix.composerust.runtime.ComposeRustHost
+            setContent {
+                CompositionLocalProvider(LocalFrameRequests provides frames) {
+                    host = rememberComposeRustHost(connection)
+                    ComposeRustContent(host, caption = CAPTION)
+                }
+            }
+            waitForIdle()
+            assertTrue(!host.table.asksForWindowMaterial(host.roots))
+
+            // Mount a Material modifier after the window has already opened without a backdrop.
+            host.table.apply(Mutation.SetModifier(ROOT, 1, ProtocolModifier.Material(MaterialRole.Chrome)))
+            waitForIdle()
+            assertTrue(host.table.asksForWindowMaterial(host.roots))
+            val fill = host.table.windowFill(host.roots, glassTheme(), hasWindowBackdrop = false)
+            assertEquals(1f, fill.alpha, "a late-mounted material must keep the window fill opaque")
+        } finally {
+            dev.darkpyonix.composerust.runtime.platformBacksWindowWithMaterial = previous
+        }
+    }
 }
