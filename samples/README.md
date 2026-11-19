@@ -79,7 +79,7 @@ An application registers a picture by drawing it:
 ```rust
 static HERO: &[u8] = include_bytes!("../assets/hero.svg");
 
-Image(asset(AssetKind::Svg, HERO)).modifier(Modifier.fill_max_width().height(240.0));
+Image!(asset(AssetKind::Svg, HERO), modifier = Modifier.fill_max_width().height(240.0));
 ```
 
 The bytes cross the boundary once. Everything after that is the id, so drawing the same

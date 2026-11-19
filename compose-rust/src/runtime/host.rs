@@ -275,7 +275,7 @@ impl crate::LaunchBuilder {
     /// ```ignore
     /// #[Composable]
     /// fn app() {
-    ///     Text("Hello");
+    ///     Text!("Hello");
     /// }
     ///
     /// fn main() {
@@ -305,7 +305,7 @@ impl crate::LaunchBuilder {
 /// fn counter() {
 ///     let count = remember(|| mutable_state_of(0));
 ///     let more = count.clone();
-///     Button(format!("{}", count.get())).on_click(move || more.update(|count| *count += 1));
+///     Button!(format!("{}", count.get()), move || more.update(|count| *count += 1));
 /// }
 ///
 /// fn main() {
