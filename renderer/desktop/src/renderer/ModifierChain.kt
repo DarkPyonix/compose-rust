@@ -1436,6 +1436,7 @@ internal class EveryDpReport {
                 safeAreaTop = 0f,
                 safeAreaLeading = 0f,
                 safeAreaTrailing = 0f,
+                safeAreaBottom = 0f,
             ),
         )
     }
@@ -1499,6 +1500,7 @@ private fun Modifier.reportSizeTo(nodeId: Int, dispatcher: EventDispatcher): Mod
                         safeAreaTop = 0f,
                         safeAreaLeading = 0f,
                         safeAreaTrailing = 0f,
+                        safeAreaBottom = 0f,
                     ),
                 )
             }

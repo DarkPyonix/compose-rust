@@ -985,6 +985,7 @@ impl Host {
             safe_area_top,
             safe_area_leading,
             safe_area_trailing,
+            safe_area_bottom,
         } = event.payload
         {
             // Node id zero is the window; anything else is one of its nodes. One event
@@ -995,6 +996,7 @@ impl Host {
                     top: safe_area_top,
                     leading: safe_area_leading,
                     trailing: safe_area_trailing,
+                    bottom: safe_area_bottom,
                 });
             // A window's report names the window's node, and that is not an
             // observed node: it is the same fact for a window of its own.

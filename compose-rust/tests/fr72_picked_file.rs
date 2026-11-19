@@ -316,8 +316,8 @@ fn fr72_web_file_records_round_trip() {
     // The vectors both sides test against hold the same bytes.
     let vectors = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/vectors");
     let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
-    assert_eq!(&events[1130..1130 + 36], answer_bytes.as_slice());
-    assert_eq!(&events[1166..1166 + 71], chosen_bytes.as_slice());
+    assert_eq!(&events[1134..1134 + 36], answer_bytes.as_slice());
+    assert_eq!(&events[1170..1170 + 71], chosen_bytes.as_slice());
     let mutations = std::fs::read(format!("{vectors}/mutations.bin")).unwrap();
     let in_vector: Vec<Mutation<'_>> = decode_batch(&mutations)
         .unwrap()

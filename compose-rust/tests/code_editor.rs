@@ -1491,7 +1491,7 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
         &mut expected,
     )
     .unwrap();
-    assert_eq!(&events[1543..1623], expected.as_slice());
+    assert_eq!(&events[1547..1627], expected.as_slice());
 }
 
 /// The two backgrounds are decoration kinds 5 and 6, after the four there were, in the
@@ -1680,8 +1680,8 @@ fn fr38_edit_group_round_trips_on_the_wire() {
         )]
     );
     let events = compose_rust::codegen::generate_event_vector().unwrap();
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
-    assert_eq!(&events[1623..1659], wire.as_slice());
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    assert_eq!(&events[1627..1663], wire.as_slice());
 }
 
 /// An empty group is no request at all, so nothing is written for it.
@@ -1966,8 +1966,8 @@ fn fr38_selections_round_trip_on_the_wire() {
 
     // The selections of the mutation vector's editor, the record before the vector's last.
     let events = include_bytes!("vectors/events.bin");
-    assert_eq!(events.len(), 1755 + 20 + 32 + 24);
-    let last = decode_event(&events[1679..1755]).unwrap();
+    assert_eq!(events.len(), 1759 + 20 + 32 + 24);
+    let last = decode_event(&events[1683..1759]).unwrap();
     assert_eq!((last.node_id, last.handler_id), (12, 33));
     assert_eq!(
         SelectionsChange::from_payload(&last.payload),

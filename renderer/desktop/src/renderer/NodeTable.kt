@@ -1842,6 +1842,8 @@ class NodeTable {
                 // The presentation of a sheet: edge drawer or centered modal, and its max width.
                 PropertyKind.Presentation,
                 PropertyKind.MaxWidth,
+                // Whether a bottom sheet draws its drag handle.
+                PropertyKind.SheetHandle,
                 -> widget == WidgetKind.Sheet
 
                 // How a picture is laid into its box. An icon takes its design system's

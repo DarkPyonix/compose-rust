@@ -309,6 +309,26 @@ class WindowSizeTest {
         reporter.report(300f, 300f, dispatcher, WindowSafeArea())
         assertEquals(2, dispatcher.events.size)
         assertEquals(0f, (dispatcher.events.last() as HostEvent.WindowSizeChanged).safeAreaTop)
+        // The bottom side alone resends as well, carrying the new value: a navigation bar
+        // that appears or goes away moves nothing else.
+        reporter.report(300f, 300f, dispatcher, WindowSafeArea(bottom = 24f))
+        assertEquals(3, dispatcher.events.size)
+        assertEquals(24f, (dispatcher.events.last() as HostEvent.WindowSizeChanged).safeAreaBottom)
+        // The same bottom again is no change.
+        reporter.report(300f, 300f, dispatcher, WindowSafeArea(bottom = 24f))
+        assertEquals(3, dispatcher.events.size)
+    }
+
+    /**
+     * A desktop window has no strip at the bottom edge for the system's own controls, so
+     * its report says 0 there, with a caption or without one.
+     */
+    @Test
+    fun fr19_9_desktop_reports_no_bottom_safe_area() {
+        val withCaption = reportedSafeArea(1f, WindowCaption(height = 32.dp), renderedButtons = true)
+        assertEquals(0f, withCaption.safeAreaBottom)
+        val without = reportedSafeArea(1f, WindowCaption.None, renderedButtons = false)
+        assertEquals(0f, without.safeAreaBottom)
     }
 
     @Test
