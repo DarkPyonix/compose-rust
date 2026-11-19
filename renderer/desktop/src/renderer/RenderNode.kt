@@ -425,7 +425,7 @@ fun RenderNode(
                     if (horizontal) laidOut.height(IntrinsicSize.Min) else laidOut.width(IntrinsicSize.Min)
                 } else laidOut
                 val weights = node.children.map { table.node(it)?.modifiers?.weightOf() }
-                val intrinsicSafe = node.children.map { child -> !table.hasScrollingDescendant(child) }
+                val intrinsicSafe = node.children.map { child -> !table.hasUnboundedScrollingDescendant(child, horizontal) }
                 if (weights.any { it != null }) {
                     WeightedStack(
                         node, table, dispatcher, sizedModifier, horizontal, weights, intrinsicSafe,
@@ -1327,10 +1327,23 @@ private class WeightedStackPolicy(
     }
 }
 
-private fun NodeTable.hasScrollingDescendant(id: Int): Boolean {
+private fun List<ProtocolModifier>.hasDefiniteCrossAxisSize(horizontal: Boolean): Boolean = any {
+    if (horizontal) {
+        (it is ProtocolModifier.Height && it.value >= 0f && it.value.isFinite()) ||
+            (it is ProtocolModifier.Size && it.height >= 0f && it.height.isFinite()) ||
+            (it is ProtocolModifier.RequiredSize && it.height >= 0f && it.height.isFinite())
+    } else {
+        (it is ProtocolModifier.Width && it.value >= 0f && it.value.isFinite()) ||
+            (it is ProtocolModifier.Size && it.width >= 0f && it.width.isFinite()) ||
+            (it is ProtocolModifier.RequiredSize && it.width >= 0f && it.width.isFinite())
+    }
+}
+
+private fun NodeTable.hasUnboundedScrollingDescendant(id: Int, horizontal: Boolean): Boolean {
     val node = node(id) ?: return false
+    if (node.modifiers.hasDefiniteCrossAxisSize(horizontal)) return false
     if (node.widget in setOf(WidgetKind.LazyColumn, WidgetKind.LazyRow, WidgetKind.LazyGrid, WidgetKind.ScrollColumn, WidgetKind.ScrollRow)) return true
-    return node.children.any { hasScrollingDescendant(it) }
+    return node.children.any { hasUnboundedScrollingDescendant(it, horizontal) }
 }
 
 /**
