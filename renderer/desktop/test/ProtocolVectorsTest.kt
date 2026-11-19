@@ -1188,8 +1188,8 @@ class ProtocolVectorsTest {
         )
         assertEquals(
             listOf(
-                SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary)),
-                SyntaxSpanRecord(0, 1, 12, 1, 16, Paint.Role(ColorRole.Tertiary)),
+                SyntaxSpanRecord(0, 0, 0, 0, 2, Paint.Role(ColorRole.Primary), 0),
+                SyntaxSpanRecord(0, 1, 12, 1, 16, Paint.Role(ColorRole.Tertiary), 0),
             ),
             spans,
         )
