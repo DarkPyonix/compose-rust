@@ -161,8 +161,16 @@ fn the_same_parameter_twice_is_left_alone() {
 }
 
 #[test]
-fn a_comment_between_methods_is_left_alone() {
-    let source = "fn f() {\n    Text(\"a\")\n        // why\n        .max_lines(1);\n}";
+fn a_comment_between_methods_goes_in_front_of_its_argument() {
+    same(
+        "fn f() {\n    Button(\"b\")\n        .modifier(m)\n        // why it is off\n        .enabled(false)\n        // what it does\n        .on_click(go);\n}",
+        "fn f() {\n    Button!(\"b\", \n// what it does\ngo, modifier = m, \n// why it is off\nenabled = false);\n}",
+    );
+}
+
+#[test]
+fn a_comment_inside_a_methods_parentheses_is_left_alone() {
+    let source = "fn f() { Text(\"a\").max_lines(/* one */ 1); }";
     let (got, flags) = run(source);
     assert_eq!(got, source);
     assert!(flags[0].contains("comment"), "{flags:?}");
