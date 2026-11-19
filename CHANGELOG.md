@@ -79,6 +79,14 @@ In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixe
 
 `IconRole::Settings` draws an eight-tooth gear with a hub. Before, at bar size, it read as a crosshair ([#537](https://github.com/DarkPyonix/compose-rust/issues/537)).
 
+### Seventeen more icon roles
+
+`IconRole` gains `Lock`, `Favorite`, `Book`, `Play`, `Shuffle`, `ExpandMore`, `Person`, `Clock`, `Tune`, `Chat`, `Star`, `Bag`, `Bell`, `Share`, `Language`, `CompactOverlay` and `Calculator` (tags 22 to 38, the ones already reserved for them). Each has drawn artwork on desktop and Android and a system symbol on iOS, and works in an icon-only button. The schema hash changes ([#539](https://github.com/DarkPyonix/compose-rust/issues/539), [#602](https://github.com/DarkPyonix/compose-rust/issues/602)).
+
+### The design-system parity test says where to fetch from
+
+When `design_system_parity` cannot find the design systems, its failure now names the checkout it looked in and tells you to run `scripts/fetch-design-systems.sh` there ([#495](https://github.com/DarkPyonix/compose-rust/issues/495)).
+
 ## v0.0.11
 
 ### Known issues
