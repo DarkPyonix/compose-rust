@@ -1556,23 +1556,3 @@ internal fun separateArcFlags(data: String): String {
     }
     return out.toString()
 }
-
-/** Where the number that starts at [start] ends: a sign, digits, one point, an exponent. */
-private fun svgNumberEnd(data: String, start: Int): Int {
-    var i = start
-    if (i < data.length && (data[i] == '-' || data[i] == '+')) i++
-    while (i < data.length && data[i].isDigit()) i++
-    if (i < data.length && data[i] == '.') {
-        i++
-        while (i < data.length && data[i].isDigit()) i++
-    }
-    if (i > start && i < data.length && (data[i] == 'e' || data[i] == 'E')) {
-        var j = i + 1
-        if (j < data.length && (data[j] == '-' || data[j] == '+')) j++
-        if (j < data.length && data[j].isDigit()) {
-            while (j < data.length && data[j].isDigit()) j++
-            i = j
-        }
-    }
-    return i
-}
