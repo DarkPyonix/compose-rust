@@ -305,7 +305,7 @@ class HoverFocusPressStyleTest {
         assertTrue(givenWidths.last() in 36..44, "the given press ends at half the width: $givenWidths")
         assertTrue(
             givenWidths.sum() < defaultWidths.sum() - 20,
-            "the given curve is further along through the press: $givenWidths against $defaultWidthsWidths",
+            "the given curve is further along through the press: $givenWidths against $defaultWidths",
         )
     }
 }
