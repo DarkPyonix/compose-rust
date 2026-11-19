@@ -81,8 +81,7 @@ fn counter() {
     let count = remember(|| mutable_state_of(0));
     Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
         Text!(format!("Count: {}", count.get()), type_role = TypeRole::Title);
-        let more = count.clone();
-        Button!("Increment", move || more.update(|count| *count += 1));
+        Button!("Increment", move || count.update(|count| *count += 1));
     });
 }
 

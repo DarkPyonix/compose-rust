@@ -86,8 +86,7 @@
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column!</span>(modifier = <span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>(), {
         <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
-        <span class="k">let</span> more = count.<span class="f">clone</span>();
-        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
+        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || count.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -258,8 +257,8 @@
       </table>
     </div>
     <ul>
-      <li><strong>A state is a handle.</strong> Cloning it gives a second handle to the same value,
-        which is how a <code>move</code> closure takes it: clone first, then move the clone.</li>
+      <li><strong>A state is a <code>Copy</code> handle.</strong> Copying it gives another handle to the same value,
+        so a <code>move</code> closure captures it directly without cloning.</li>
       <li><strong>Equal writes are free.</strong> The default policy compares with
         <code>PartialEq</code>. <code>mutable_state_of_with_policy(value, never_equal_policy())</code>
         treats every write as a change, for a value that is expensive to compare, such as a long
@@ -325,11 +324,10 @@
     <figure class="codeblock" data-copy="Copy" data-copied="Copied">
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> seconds = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-<span class="k">let</span> tick = seconds.<span class="f">clone</span>();
 <span class="f">launched_effect</span>((), <span class="k">move</span> || <span class="k">async move</span> {
     <span class="k">loop</span> {
         <span class="f">delay</span>(<span class="ty">Duration</span>::<span class="f">from_secs</span>(<span class="n">1</span>)).<span class="k">await</span>;
-        tick.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
+        seconds.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
     }
 });
 <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
@@ -405,7 +403,7 @@
       data, such as a <code>Button</code>'s <code>on_click</code> and a <code>Slider</code>'s
       <code>on_change</code>, and the others are named parameters such as
       <code>on_submit</code>. A handler has to be <code>'static</code>,
-      so it owns what it uses: clone a state, then move the clone in.
+      so it owns what it uses: a <code>MutableState</code> is <code>Copy</code> and moves straight in.
     </p>
     <p>
       Handlers run <em>synchronously</em>. The renderer calls into the Host on its UI thread, your

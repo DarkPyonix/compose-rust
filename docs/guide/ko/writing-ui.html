@@ -86,8 +86,7 @@
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
     <span class="f">Column!</span>(modifier = <span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>(), {
         <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
-        <span class="k">let</span> more = count.<span class="f">clone</span>();
-        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
+        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || count.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -251,8 +250,8 @@
       </table>
     </div>
     <ul>
-      <li><strong>상태는 핸들입니다.</strong> 복제하면 같은 값을 가리키는 두 번째 핸들이 생깁니다.
-        <code>move</code> 클로저는 이렇게 상태를 가져갑니다. 먼저 복제하고, 복제본을 옮깁니다.</li>
+      <li><strong>상태는 <code>Copy</code> 핸들입니다.</strong> 복사하면 같은 값을 가리키는 또 다른 핸들이 생기므로,
+        <code>move</code> 클로저가 복제 없이 바로 가져갑니다.</li>
       <li><strong>같은 값을 쓰는 데는 비용이 없습니다.</strong> 기본 정책은
         <code>PartialEq</code> 로 비교합니다.
         <code>mutable_state_of_with_policy(value, never_equal_policy())</code> 는 모든 쓰기를 변화로
@@ -317,11 +316,10 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> seconds = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-<span class="k">let</span> tick = seconds.<span class="f">clone</span>();
 <span class="f">launched_effect</span>((), <span class="k">move</span> || <span class="k">async move</span> {
     <span class="k">loop</span> {
         <span class="f">delay</span>(<span class="ty">Duration</span>::<span class="f">from_secs</span>(<span class="n">1</span>)).<span class="k">await</span>;
-        tick.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
+        seconds.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
     }
 });
 <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
@@ -394,7 +392,7 @@
       핸들러는 평범한 Rust 클로저입니다. 위젯의 주 핸들러는 데이터 다음 인자이고
       (<code>Button</code> 의 <code>on_click</code>, <code>Slider</code> 의 <code>on_change</code>),
       나머지는 <code>on_submit</code> 같은 이름 있는 매개변수입니다. 핸들러는 <code>'static</code> 이어야 하므로 쓰는
-      것을 직접 가집니다. 상태를 복제하고, 복제본을 옮겨 넣습니다.
+      것을 직접 가집니다. <code>MutableState</code> 는 <code>Copy</code> 이므로 복제 없이 바로 옮겨 넣습니다.
     </p>
     <p>
       핸들러는 <em>동기로</em> 실행됩니다. 렌더러가 자기 UI 스레드에서 Host를 부르고, 핸들러가
