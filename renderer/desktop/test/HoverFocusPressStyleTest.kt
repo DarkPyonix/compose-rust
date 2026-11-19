@@ -232,11 +232,7 @@ class HoverFocusPressStyleTest {
             assertEquals(WHITE, pagePixel(19, row), "the ring starts 2 dp out")
             assertEquals(WHITE, pagePixel(21, row), "nothing is drawn inside the node")
             // The ring takes no room: the node is where it was.
-            assertEquals(
-                20f,
-                onNodeWithTag(nodeTestTag(NODE)).fetchSemanticsNode().boundsInRoot.left -
-                    onNodeWithTag(nodeTestTag(PAGE)).fetchSemanticsNode().boundsInRoot.left,
-            )
+            assertEquals(20f, onNodeWithTag(nodeTestTag(NODE)).fetchSemanticsNode().boundsInRoot.left)
         }
     }
 
@@ -278,11 +274,10 @@ class HoverFocusPressStyleTest {
         val given = pressInEasing(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
         assertEquals(CubicBezierEasing(0.2f, 0f, 0f, 1f), given)
 
-        // Halfway through the 180 ms press, the node pressed along the given curve is
-        // smaller than the one pressed along the default curve. A scale of 0.5 makes the
-        // difference several pixels wide.
-        fun widthAtMidpoint(style: ProtocolModifier.PressStyle?): Int {
-            var width = 0
+        // The node's width on every frame of a press, from the press to 400 ms later. A
+        // scale of 0.5 makes the curves several pixels apart.
+        fun widths(style: ProtocolModifier.PressStyle?): List<Int> {
+            val seen = mutableListOf<Int>()
             runComposeUiTest {
                 mainClock.autoAdvance = false
                 show(
@@ -296,16 +291,21 @@ class HoverFocusPressStyleTest {
                 )
                 mainClock.advanceTimeBy(100)
                 onNodeWithTag(nodeTestTag(NODE)).performMouseInput { moveTo(center); press() }
-                mainClock.advanceTimeByFrame()
-                mainClock.advanceTimeBy(90)
-                val pixels = onRoot().captureToImage().toPixelMap()
-                width = (0 until pixels.width).count { x -> luma(pixels[x, 60].toArgb()) < 128 }
+                repeat(25) {
+                    mainClock.advanceTimeByFrame()
+                    val pixels = onRoot().captureToImage().toPixelMap()
+                    seen += (0 until pixels.width).count { x -> luma(pixels[x, 60].toArgb()) < 128 }
+                }
             }
-            return width
+            return seen
         }
-        val defaultWidth = widthAtMidpoint(null)
-        val givenWidth = widthAtMidpoint(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
-        assertTrue(defaultWidth in 41..79, "the default press is part way at the midpoint: $defaultWidth")
-        assertTrue(givenWidth < defaultWidth - 3, "the given curve is further along: $givenWidth against $defaultWidth")
+        val default = widths(null)
+        val given = widths(ProtocolModifier.PressStyle(null, 0.2f, 0f, 0f, 1f))
+        assertTrue(default.last() in 36..44, "the default press ends at half the width: $default")
+        assertTrue(given.last() in 36..44, "the given press ends at half the width: $given")
+        assertTrue(
+            given.sum() < default.sum() - 20,
+            "the given curve is further along through the press: $given against $default",
+        )
     }
 }
