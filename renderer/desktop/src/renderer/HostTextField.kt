@@ -19,6 +19,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -369,11 +371,14 @@ internal fun HostTextField(
     val frameShape = if (ownShape) node.modifiers.resolvedShape(theme) else frame.shape.withCornerCurve(node.modifiers.cornerCurve())
     val caretColor = node.paintProp(PropertyKind.CaretColor)?.let { theme.color(it) } ?: frame.cursor
 
+    val readOnly = node.flag(PropertyKind.ReadOnly, default = false)
+
     BasicTextField(
         value = value,
         onValueChange = applyValueChange,
-        modifier = inputModifier,
+        modifier = if (readOnly) inputModifier.semantics { isEditable = false } else inputModifier,
         enabled = enabled,
+        readOnly = readOnly,
         singleLine = !multiline,
         textStyle = textStyle,
         visualTransformation = fieldText,
