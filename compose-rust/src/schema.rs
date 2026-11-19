@@ -1134,6 +1134,23 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     Sidebar = 19,
     Compose = 20,
     Collapse = 21,
+    Lock = 22,
+    Favorite = 23,
+    Book = 24,
+    Play = 25,
+    Shuffle = 26,
+    ExpandMore = 27,
+    Person = 28,
+    Clock = 29,
+    Tune = 30,
+    Chat = 31,
+    Star = 32,
+    Bag = 33,
+    Bell = 34,
+    Share = 35,
+    Language = 36,
+    CompactOverlay = 37,
+    Calculator = 38,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
