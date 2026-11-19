@@ -28,6 +28,7 @@
 
 pub(crate) mod focus;
 mod lazy;
+pub mod next;
 mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
