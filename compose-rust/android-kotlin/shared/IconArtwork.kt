@@ -71,12 +71,21 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
     // A dial: a ring with the spokes that read as a gear at small sizes.
     IconRole.Settings -> IconGeometry(
         strokes = listOf(
-            listOf(Offset(0.50f, 0.06f), Offset(0.50f, 0.22f)),
-            listOf(Offset(0.50f, 0.78f), Offset(0.50f, 0.94f)),
-            listOf(Offset(0.06f, 0.50f), Offset(0.22f, 0.50f)),
-            listOf(Offset(0.78f, 0.50f), Offset(0.94f, 0.50f)),
+            // 4 cardinal teeth (N, S, W, E)
+            listOf(Offset(0.50f, 0.08f), Offset(0.50f, 0.21f)),
+            listOf(Offset(0.50f, 0.79f), Offset(0.50f, 0.92f)),
+            listOf(Offset(0.08f, 0.50f), Offset(0.21f, 0.50f)),
+            listOf(Offset(0.79f, 0.50f), Offset(0.92f, 0.50f)),
+            // 4 diagonal teeth (NW, NE, SW, SE) so the icon reads as a gear, not a crosshair
+            listOf(Offset(0.20f, 0.20f), Offset(0.29f, 0.29f)),
+            listOf(Offset(0.80f, 0.20f), Offset(0.71f, 0.29f)),
+            listOf(Offset(0.20f, 0.80f), Offset(0.29f, 0.71f)),
+            listOf(Offset(0.80f, 0.80f), Offset(0.71f, 0.71f)),
         ),
-        dots = listOf(IconDot(Offset(0.50f, 0.50f), 0.28f, filled = false)),
+        dots = listOf(
+            IconDot(Offset(0.50f, 0.50f), 0.29f, filled = false),
+            IconDot(Offset(0.50f, 0.50f), 0.12f, filled = false),
+        ),
     )
 
     IconRole.More -> IconGeometry(
