@@ -10,6 +10,7 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
@@ -85,9 +86,13 @@ class HoverFocusPressStyleTest {
         waitForIdle()
     }
 
-    /** A pixel of the page, in page coordinates. */
+    /**
+     * A pixel of the page, in page coordinates. The page fills the root from its top left
+     * corner; the root is captured, because a capture of the page's own node leaves out its
+     * padding, and with it the ring drawn outside the node and the node's press scale.
+     */
     private fun ComposeUiTest.pagePixel(x: Int, y: Int): Int =
-        onNodeWithTag(nodeTestTag(PAGE)).captureToImage().toPixelMap()[x, y].toArgb()
+        onRoot().captureToImage().toPixelMap()[x, y].toArgb()
 
     private fun ComposeUiTest.hover() {
         onNodeWithTag(nodeTestTag(NODE)).performMouseInput { moveTo(center) }
@@ -293,7 +298,7 @@ class HoverFocusPressStyleTest {
                 onNodeWithTag(nodeTestTag(NODE)).performMouseInput { moveTo(center); press() }
                 mainClock.advanceTimeByFrame()
                 mainClock.advanceTimeBy(90)
-                val pixels = onNodeWithTag(nodeTestTag(PAGE)).captureToImage().toPixelMap()
+                val pixels = onRoot().captureToImage().toPixelMap()
                 width = (0 until pixels.width).count { x -> luma(pixels[x, 60].toArgb()) < 128 }
             }
             return width
