@@ -70,6 +70,7 @@ Host 상태가 변경되면 변경분만 전송하고, Renderer는 해당 노드
 - Renderer는 변경을 알림 이벤트(`TextChanged`, 디바운스 적용)와 확정 이벤트(`TextSubmitted`, `FocusLost`)로 보냅니다.
 - Host가 값을 바꿀 때는 명시적 명령 `SetText(node_id, text, selection)`을 씁니다. Renderer는 IME 조합이 진행 중이면 조합이 끝날 때까지 적용을 미룹니다.
 - 수용 기준: §6 IME 체크리스트를 통과합니다. **핵심 5개 항목은 2026-09-21 native-image 빌드에서 확인했습니다.** 나머지 4개(멀티라인 Enter 처리, 한글 혼합 붙여넣기, 일본어/중국어 후보창 위치, TextChanged 중 조합 유지)는 미확인이므로 `Done`이 아닙니다.
+- 읽기 전용(`read_only`, `PropertyKind::ReadOnly = 215`, Bool) `[leader, provisional, 2026-11-20]`: `read_only(true)`인 `TextField`는 포커스, 캐럿 이동, 텍스트 선택과 복사를 유지하되 타이핑·삭제·붙여넣기 등 편집을 적용하지 않으며, 접근성 트리에 읽기 전용으로 노출됩니다. 수용 기준: `read_only(true)`인 필드에서 타이핑해도 값이 바뀌지 않고 `TextChanged`가 발생하지 않으며, 캐럿·선택·복사와 읽기 전용 접근성 상태가 동작합니다(Rust + 데스크톱 렌더러 테스트).
 
 ### FR-6 Dioxus 렌더러 (`Done`)
 `dioxus-core` VirtualDom의 `Mutations`를 프로토콜 Mutation으로 변환하는 렌더러를 제공합니다.
