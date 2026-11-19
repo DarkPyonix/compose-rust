@@ -2873,9 +2873,9 @@ Notification::new("세션이 끝났습니다")
 #[Composable]
 fn Counter() {
     let count = remember(|| mutable_state_of(0));
-    Column(Modifier::new().fill_max_width(), || {
-        Text(format!("{}", count.get()));
-        Button("+1", move || count.set(count.get() + 1));
+    Column!(modifier = Modifier::new().fill_max_width(), {
+        Text!(format!("{}", count.get()));
+        Button!("+1", move || count.set(count.get() + 1));
     });
 }
 
@@ -2895,6 +2895,13 @@ fn main() {
 3. **`#[Composable]`이 같은 이름의 호출 매크로도 만듭니다.** 함수와 매크로는 이름 공간이 달라서 `TextField(..)`와 `TextField!(..)`가 함께 있습니다. 사용자 composable에도 똑같이 적용되며, 위젯만의 특별 대우가 없습니다. 매크로 형태는 이름 있는 인자와 기본값을 받습니다(39.1.1, 39.1.2).
 4. **기본값은 `#[default(expr)]`로 선언합니다.** 이 속성이 없는 매개변수는 필수입니다. 기본값은 매크로 형태에서만 적용됩니다.
 5. **속성 이름은 `#[Composable]`입니다.** 함수 이름과 같은 PascalCase이고, 이름이 같은 호출 매크로와 한 덩어리로 읽힙니다. 2026-10-25에 소유자가 앞서 정한 `#[composable]`을 이 이름으로 바꿨습니다. 위젯 이름은 FR-15의 Compose 이름(PascalCase)을 그대로 씁니다.
+
+**위젯의 매개변수와 실제 호출([leader, 2026-11-20, from the owner's builder-removal decision]).** 위젯은 속성이 많아서(`Text`는 열여섯, `TextField`는 서른 가까이) 모든 인자를 받는 함수 형태는 길고, 실제 코드는 매크로 형태로 씁니다. 위 예시가 매크로 형태인 이유입니다. 1번의 `Column(modifier, || { .. })`, `Button(label, on_click)`와 39.5.1의 `(modifier, content)`, `(label, on_click)`는 그 매개변수들의 **순서**이고, 매개변수 목록 전체가 아닙니다. 함수 형태는 39.1.3대로 모든 인자를 받습니다.
+
+- **선언.** 위젯은 `#[Composable(widget)]`로 선언합니다. 호출 매크로와 그 문서는 다른 composable과 같이 만들고, 본문은 건드리지 않습니다. 위젯은 이미 자기 그룹을 열고 자기 노드를 쓰므로, 그룹을 하나 더 두거나 매개변수 비교를 감싸면 슬롯 테이블과 할당 수가 바뀝니다.
+- **매개변수의 모양.** 빌더 메서드가 하던 일은 같은 이름의 매개변수가 합니다. 생성자 인자는 같은 자리의 필수 매개변수이고, 위젯의 주 핸들러(`Button`의 `on_click`, `Slider`의 `on_change`, `TextField`의 `on_value_change` 등)는 데이터 바로 뒤의 필수 `impl FnMut(..)`입니다. `modifier`의 기본값은 `Modifier::new()`입니다. "정하지 않음"이 와이어에서 값과 다른 속성(`font_size`, `color`, `spacing` 등)은 `impl Into<Option<T>>`(기본값 `None`)라서 `font_size = 14.0`처럼 값을 그대로 씁니다. 진짜 기본값이 있는 속성(`enabled`, `multiline`)은 `T`이고, 인자 없는 깃발 메서드(`bare()`)는 `bool`(기본 `false`), 인자가 여럿인 메서드(`range(min, max)`)는 튜플 하나입니다. 선택 핸들러와 슬롯(컨테이너의 `on_click`, `on_key_down`, `Scaffold`의 `top_bar`)은 `Option<impl FnMut(..)>`이고 기본값은 `None`입니다. 핸들러가 없는 것과 빈 핸들러는 와이어에서 다르기 때문입니다(`on_click`이 없는 컨테이너는 컨트롤이 아닙니다). `Some(..)` 안에서는 rustc가 클로저 인자 타입을 추론하지 않으므로, 인자가 있는 선택 핸들러는 `Some(move |event: KeyEvent| ..)`처럼 타입을 적습니다. `color_if` 같은 `Option`을 받는 쌍둥이 메서드는 `impl Into<Option<T>>`가 대신하므로 없습니다. 내용 클로저는 마지막의 `content`이고 기본값은 `|| {}`입니다.
+- **빌더가 아닌 것.** 체인으로 만든 뒤 인자로 넘기는 값 타입(`Modifier`, `TextSpans`, `DrawListBuilder`, `HoverStyle`, `PressStyle`, `Shadow`, `LaunchBuilder`)과 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)은 빌더 체인이 아니고 남습니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 39.5.1의 검사가 이 타입들을 이름으로 적으므로, 새로 더하는 것은 의도한 수정이 됩니다.
+- **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 빌더가 남아 있는 동안 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험합니다.
 
 #### 39.1.1 호출 매크로
 
@@ -3010,7 +3017,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 #### 39.5 호출 모양과 상태 핸들의 수용 기준
 
 1. **함수 형태.** 모든 위젯이 위치 인자 함수로 불리고, 빌더 체인 메서드(`.on_click(..)`, `.modifier(..)`, `.content(..)`)가 공개 API에 없습니다. 위치 인자 순서가 39.1의 규칙(필수 데이터, 핸들러, `modifier`, 선택, 내용)을 따르고, `Column`, `Row`, `Box`, `LazyColumn`, `LazyRow`는 `(modifier, content)`, `Button`은 `(label, on_click)` 순서입니다. 이름 패턴 `fr39_function_form_*`.
-   - 소유자 결정(2026-11-20): 이 기준은 그대로이고, develop의 위젯 빌더(`TextScope`, `ButtonScope` 같은 `*Scope`의 `.on_click(..)`, `.modifier(..)`, `.content(..)` 등)를 1.0 전에 없애서 맞춥니다. 이날부터 새 위젯 옵션은 빌더 메서드가 아니라 함수 형태의 매개변수로 더합니다. 위젯이 아닌 값 타입(`Modifier`, `TextSpan`, `DrawList`, `Palette`처럼 값을 만들어 넘기는 것)의 연쇄 생성자는 이 기준의 빌더 체인이 아닙니다. Compose의 `Modifier`와 `SpanStyle`도 그렇게 만듭니다.
+   - 소유자 결정(2026-11-20): 이 기준은 그대로이고, develop의 위젯 빌더(`TextScope`, `ButtonScope` 같은 `*Scope`의 `.on_click(..)`, `.modifier(..)`, `.content(..)` 등)를 1.0 전에 없애서 맞춥니다. 이날부터 새 위젯 옵션은 빌더 메서드가 아니라 함수 형태의 매개변수로 더합니다. 빌더 체인이 아닌 값 타입과 핸들은 39.1의 "빌더가 아닌 것"에 있습니다. 확인: 공개 `ui`의 PascalCase 함수는 값을 돌려주지 않고, 그 목록의 값 타입 밖에서 `self`를 받아 `Self`를 돌려주는 공개 메서드가 없습니다(이름 패턴 `fr39_function_form_*`).
 2. **호출 매크로와 함수의 동치.** 모든 `#[Composable]`(위젯과 사용자 composable)에 같은 이름의 호출 매크로가 있고, 매크로 형태와 함수 형태가 같은 Mutation과 같은 슬롯 그룹 키를 만듭니다. 같은 호출 자리에서 두 형태가 같은 그룹 키를 얻는 것을 확인합니다. 이름 패턴 `fr39_call_macro_*`.
 3. **`Copy` 핸들.** `MutableState<T>`가 `Copy`입니다(컴파일 시점 확인). 한 핸들을 `.clone()` 없이 `move` 클로저 둘에 넘기는 코드가 컴파일되고, 둘 다 같은 값을 바꿉니다. 이름 패턴 `fr39_state_handle_is_copy_*`.
 4. **해제.** 그룹이 사라진 recomposition이 적용된 뒤 값의 `Drop`이 한 번 실행됩니다. 같은 recomposition 안에서 다시 나타난 그룹과 키 있는 항목의 이동은 값을 유지합니다. 이름 패턴 `fr39_state_released_*`.
