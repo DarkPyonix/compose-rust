@@ -366,11 +366,11 @@ object DrawCommands {
             if (length != COMMAND_LENGTH) break
             val paintBits = buffer.getLong(offset + 4)
             val kind = (paintBits ushr 32).toInt()
-            if (kind != 1 && kind != 2) break
-            val paint = if (kind == 1) {
-                Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
-            } else {
-                Paint.Literal(paintBits.toInt())
+            val paint = when (kind) {
+                1 -> Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
+                2 -> Paint.Literal(paintBits.toInt())
+                3 -> Paint.Asset(paintBits.toInt())
+                else -> break
             }
             fun word(index: Int): Int = buffer.getInt(offset + 12 + index * 4)
             fun real(index: Int): kotlin.Float = kotlin.Float.fromBits(word(index))
