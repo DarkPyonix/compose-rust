@@ -343,7 +343,12 @@ internal fun List<ProtocolModifier>.toComposeModifier(
             is ProtocolModifier.ShapeRole -> chain.clip(shape)
             // Read through `borderDash` above; on its own it draws nothing.
             is ProtocolModifier.BorderDash -> chain
-            is ProtocolModifier.Border -> theme.brush(value.paint)?.let { brush ->
+            // Compose treats 0.dp in Modifier.border as Dp.Hairline (1 px); a non-positive
+            // width means no border.
+            is ProtocolModifier.Border -> if (value.width <= 0f || !value.width.isFinite()) {
+                chain
+            } else {
+                theme.brush(value.paint)?.let { brush ->
                 val holder = if (!borderSeen) animated?.invoke() else null
                 borderSeen = true
                 fun drawn(base: Modifier, paint: Brush): Modifier = when {
@@ -374,6 +379,7 @@ internal fun List<ProtocolModifier>.toComposeModifier(
                     }
                 }
             } ?: chain.composed { reportUnknownBrush(nodeId, value.paint, dispatcher) }
+            }
             is ProtocolModifier.Elevation ->
                 theme.rules.elevation(chain, value.value.dp, shape, theme)
 
