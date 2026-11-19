@@ -62,7 +62,8 @@ fn pinned_revision() -> String {
 /// The design systems project at the pinned commit, as `fetch-design-systems.sh` left it.
 fn design_systems() -> PathBuf {
     let revision = pinned_revision();
-    let root = repo()
+    let worktree = repo();
+    let root = worktree
         .join(".scratch/design-systems")
         .join(&revision)
         .join("extended/design-systems");
@@ -71,8 +72,9 @@ fn design_systems() -> PathBuf {
         "{} is missing. The design systems these tables are compared with live in \
          thisisthepy/compose-multiplatform-core-extended under extended/design-systems, at \
          the commit renderer/scripts/build-compose.sh pins ({revision}). Run \
-         scripts/fetch-design-systems.sh to fetch that directory, then run this test again.",
-        root.display()
+         scripts/fetch-design-systems.sh in {} to fetch that directory, then run this test again.",
+        root.display(),
+        worktree.display()
     );
     root
 }
