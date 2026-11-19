@@ -193,7 +193,7 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 - **세 컨테이너끼리는 구분을 요구하지 않습니다.** Material 3의 기준 배색에서 primary와 secondary 컨테이너는 한 팔레트의 이웃한 톤이라 10단계 남짓 떨어져 있고, 그것은 공개된 배색이지 실수가 아닙니다. 한눈에 갈라지는 채움 세 개가 필요한 호출자는 tertiary 쌍을 씁니다.
 - 수용 기준: 6개 디자인 시스템 × 2개 명암 전부에서 컨테이너 3쌍이 4.5:1을 넘고, `Tertiary`가 3:1을 넘으며, 컨테이너 3개가 `Background`와 구분됩니다. **(2026-09-21 통과: `tokens.rs`의 `fr14_on_roles_stay_readable`, `fr14_surface_variant_is_visible_against_the_page_and_the_surface`)**
 
-#### 13.1-3 코드 색 역할 (`Draft`)
+#### 13.1-3 코드 색 역할 (`Done`)
 
 대화 화면은 코드를 보여 줍니다. 코드 블록과 diff입니다. 지금 Host 쪽 강조기(tree-sitter 같은)가 토큰을 칠하려면 `Paint::Literal`밖에 없고, 그러면 같은 색이 일곱 시스템과 두 명암에 똑같이 박힙니다. 다크 모드에서 라이트용 주석 회색이 사라지는 일이 정확히 그것입니다.
 
@@ -253,9 +253,9 @@ Modifier는 값 리스트로 직렬화합니다. 예: `[Padding(16), FillMaxWidt
 
 수용 기준:
 1. 일곱 시스템 × 두 명암에서 문법 역할 열다섯이 `SurfaceContainer` 위에서 4.5:1을 넘고, diff 잉크가 자기 컨테이너 위에서 4.5:1을 넘으며, `*Emphasis`가 같은 줄의 컨테이너와 구분됩니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_code_colours_hold_their_contrast_in_every_system`]
-2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`). [**일부 증명**: 라이트와 다크에서 다르게 그려지는 것은 `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`. 와이어에 리터럴 색이 없다는 것은 하이라이터가 이름을 색 역할로만 접는다는 `fr13_1_3_highlight_names_fold_into_the_code_roles`로 간접적으로만 보이고, 와이어를 직접 확인하는 시험은 없습니다]
+2. Rust 코드 한 토막을 강조해 보낸 `Text`가 라이트와 다크에서 서로 다른 색으로 그려지고, 와이어에는 리터럴 색이 하나도 없습니다(스팬의 `Paint` 종류가 전부 `Role`). [**증명됨**: 라이트와 다크에서 다르게 그려지는 것은 `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`. 강조한 Rust 코드의 배치를 디코드해 스팬의 `Paint`가 전부 `Role`이고 리터럴이 없음을 `fr13_1_3_highlighted_rust_text_carries_no_literal_colour_on_the_wire`가 와이어에서 직접 확인합니다]
 3. 같은 코드 블록이 최소 두 시스템에서 다른 키워드 색으로 그려집니다. 일곱 번 같은 색이면 실패입니다. [**증명됨**: `fr13_1_3_keyword_colour_differs_between_systems`, `fr13_1_3_a_keyword_is_drawn_differently_by_scheme_and_by_system`]
-4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사). [**시험 없음**: 역할을 더해도 위젯 정의와 속성·Modifier 스키마가 그대로라는 회귀 검사가 없습니다]
+4. 역할을 추가해도 위젯 정의와 속성·Modifier 스키마가 바뀌지 않습니다(FR-14.1 회귀 검사). [**증명됨**: `fr13_1_3_code_roles_leave_widget_property_and_modifier_schemas_unchanged`(위젯, 속성, Modifier 스키마의 수와 해시를 기록해 두고 비교)]
 5. Material 3와 Deepin의 코드 역할 값이 위의 유도 규칙으로 그 시스템의 기반 역할에서 다시 계산한 값과 같습니다. Rust 표 테스트로 확인합니다. [**증명됨**: `fr13_1_3_derived_code_colours_follow_the_rule`(Material 3와 Deepin, 두 명암)]
 
 #### 13.2 타이포그래피
@@ -4931,21 +4931,21 @@ pub mod storage {
   - `android-kotlin/shared`의 `NodeTable`. Android 구현은 뒤따르지만, 표는 같은 레코드를 받아 `NATIVE_VIEW_UNSUPPORTED`로 답합니다.
 
 수용 기준. 시험은 웹뷰 없이 평범한 플랫폼 뷰(macOS에서는 단색 `NSView`와 `NSTextField`)로 합니다.
-1. `AttachNativeView`, `FocusNativeView`가 `mutations.bin`에, `NativeViewParent`, `NativeViewFocus`가 `events.bin`에 레코드로 더해지고, Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr81_native_view_records_round_trip_through_the_protocol_vectors).
-2. `NativeView`가 없는 트리의 배치 바이트와 이벤트는 이 항목 전과 같습니다(시험 이름 fr81_tree_without_native_view_is_unchanged).
-3. macOS Kotlin/Native에서 `NativeView`가 처음 들어온 창은 `NativeViewParent`를 한 번 보내고, 핸들은 0이 아니며 `kind`는 `AppKit`, `scale`은 창의 backing scale입니다(시험 이름 fr81_parent_handle_is_reported_once_per_window).
-4. 붙인 `NSView`의 frame은 노드의 `boundsInWindow`와 같습니다. 부모 `ScrollColumn`을 100px 스크롤한 프레임에 frame의 y도 100px 움직입니다(시험 이름 fr81_view_follows_layout_and_scroll_in_the_same_frame).
-5. 절반이 스크롤 밖으로 나간 노드의 뷰는 보이는 절반만 그려지고, 완전히 나가면 숨습니다(창 이미지 읽기, 시험 이름 fr81_view_is_clipped_by_its_ancestors).
-6. 뷰 위로 연 둥근 `Popover`는 구멍을 만들고, 창 이미지에서 그 자리(모서리 포함)에 `Popover`가 보입니다. 닫으면 구멍이 사라집니다(시험 이름 fr81_overlay_above_the_view_shows_through_a_rounded_hole).
-7. `NativeVisible=false`는 뷰를 숨기고 떼지 않습니다. `NSTextField`에 친 글자가 참으로 돌린 뒤에도 남아 있습니다(시험 이름 fr81_hidden_view_keeps_its_state).
-8. 뷰를 누르면 `NativeViewFocus(1)`이 오고 포커스를 가졌던 Compose `TextField`는 포커스를 잃습니다. `FocusNativeView(0)`은 포커스를 장면에 돌려주고 `NativeViewFocus(0)`이 옵니다(시험 이름 fr81_focus_moves_between_the_view_and_the_scene).
-9. 포커스를 가진 뷰의 노드를 지우거나 숨기면 `NativeViewFocus(0)`이 오고 장면이 포커스를 받습니다. 창의 비활성화와 재활성화는 0과 1을 보냅니다(시험 이름 fr81_focus_returns_to_the_scene_on_remove_hide_and_deactivate).
-10. 포인터가 hover 중인 Compose 노드에서 뷰로 들어가면 그 노드에 `Exit`가 오고, 뷰 안에서는 장면이 포인터 이벤트를 받지 않으며, 장면의 커서 갱신이 뷰의 커서를 덮지 않습니다(시험 이름 fr81_pointer_inside_the_view_belongs_to_the_view).
-11. 겹친 두 `NativeView`는 나중에 붙인 쪽이 위에 그려집니다(시험 이름 fr81_later_attached_view_is_above).
-12. `handle=0`이나 노드 삭제 뒤에 뷰는 창에서 빠지고 파괴되지 않습니다(Host가 쥔 `NSView`가 살아 있음, 시험 이름 fr81_detach_removes_without_destroying).
-13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors).
-14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다.
-15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget).
+1. `AttachNativeView`, `FocusNativeView`가 `mutations.bin`에, `NativeViewParent`, `NativeViewFocus`가 `events.bin`에 레코드로 더해지고, Rust와 Kotlin이 같은 바이트로 왕복합니다(시험 이름 fr81_native_view_records_round_trip_through_the_protocol_vectors). [**증명됨**: `fr81_native_view_records_round_trip_through_the_protocol_vectors`, macOS Kotlin/Native, #698]
+2. `NativeView`가 없는 트리의 배치 바이트와 이벤트는 이 항목 전과 같습니다(시험 이름 fr81_tree_without_native_view_is_unchanged). [**증명됨**: `fr81_tree_without_native_view_is_unchanged`, macOS Kotlin/Native, #698]
+3. macOS Kotlin/Native에서 `NativeView`가 처음 들어온 창은 `NativeViewParent`를 한 번 보내고, 핸들은 0이 아니며 `kind`는 `AppKit`, `scale`은 창의 backing scale입니다(시험 이름 fr81_parent_handle_is_reported_once_per_window). [**증명됨**: `fr81_parent_handle_is_reported_once_per_window`, macOS Kotlin/Native, #698]
+4. 붙인 `NSView`의 frame은 노드의 `boundsInWindow`와 같습니다. 부모 `ScrollColumn`을 100px 스크롤한 프레임에 frame의 y도 100px 움직입니다(시험 이름 fr81_view_follows_layout_and_scroll_in_the_same_frame). [**증명됨**: `fr81_view_follows_layout_and_scroll_in_the_same_frame`, macOS Kotlin/Native, #698]
+5. 절반이 스크롤 밖으로 나간 노드의 뷰는 보이는 절반만 그려지고, 완전히 나가면 숨습니다(창 이미지 읽기, 시험 이름 fr81_view_is_clipped_by_its_ancestors). [**증명됨**: `fr81_view_is_clipped_by_its_ancestors`, macOS Kotlin/Native, #698]
+6. 뷰 위로 연 둥근 `Popover`는 구멍을 만들고, 창 이미지에서 그 자리(모서리 포함)에 `Popover`가 보입니다. 닫으면 구멍이 사라집니다(시험 이름 fr81_overlay_above_the_view_shows_through_a_rounded_hole). [**증명됨**: `fr81_overlay_above_the_view_shows_through_a_rounded_hole`, macOS Kotlin/Native, #698]
+7. `NativeVisible=false`는 뷰를 숨기고 떼지 않습니다. `NSTextField`에 친 글자가 참으로 돌린 뒤에도 남아 있습니다(시험 이름 fr81_hidden_view_keeps_its_state). [**증명됨**: `fr81_hidden_view_keeps_its_state`, macOS Kotlin/Native, #698]
+8. 뷰를 누르면 `NativeViewFocus(1)`이 오고 포커스를 가졌던 Compose `TextField`는 포커스를 잃습니다. `FocusNativeView(0)`은 포커스를 장면에 돌려주고 `NativeViewFocus(0)`이 옵니다(시험 이름 fr81_focus_moves_between_the_view_and_the_scene). [**증명됨**: `fr81_focus_moves_between_the_view_and_the_scene`, macOS Kotlin/Native, #698]
+9. 포커스를 가진 뷰의 노드를 지우거나 숨기면 `NativeViewFocus(0)`이 오고 장면이 포커스를 받습니다. 창의 비활성화와 재활성화는 0과 1을 보냅니다(시험 이름 fr81_focus_returns_to_the_scene_on_remove_hide_and_deactivate). [**증명됨**: `fr81_focus_returns_to_the_scene_on_remove_hide_and_deactivate`, macOS Kotlin/Native, #698]
+10. 포인터가 hover 중인 Compose 노드에서 뷰로 들어가면 그 노드에 `Exit`가 오고, 뷰 안에서는 장면이 포인터 이벤트를 받지 않으며, 장면의 커서 갱신이 뷰의 커서를 덮지 않습니다(시험 이름 fr81_pointer_inside_the_view_belongs_to_the_view). [**증명됨**: `fr81_pointer_inside_the_view_belongs_to_the_view`, macOS Kotlin/Native, #698]
+11. 겹친 두 `NativeView`는 나중에 붙인 쪽이 위에 그려집니다(시험 이름 fr81_later_attached_view_is_above). [**증명됨**: `fr81_later_attached_view_is_above`, macOS Kotlin/Native, #698]
+12. `handle=0`이나 노드 삭제 뒤에 뷰는 창에서 빠지고 파괴되지 않습니다(Host가 쥔 `NSView`가 살아 있음, 시험 이름 fr81_detach_removes_without_destroying). [**증명됨**: `fr81_detach_removes_without_destroying`, macOS Kotlin/Native, #698]
+13. 없는 노드는 `UNKNOWN_NODE`, `Box`에 온 명령은 `NOT_NATIVE_VIEW`, 이미 붙은 핸들은 `NATIVE_VIEW_REJECTED`, GraalVM macOS의 `AttachNativeView`는 `NATIVE_VIEW_UNSUPPORTED`로 보고되고, 같은 배치의 나머지 레코드는 적용되며 프로세스는 계속 돕니다(시험 이름 fr81_native_view_errors_are_protocol_errors). [**증명됨**: `fr81_native_view_errors_are_protocol_errors`, macOS Kotlin/Native, #698]
+14. 손으로 하는 확인(§6과 같이 자동화할 수 없음): 붙인 `NSTextField`에 한국어 IME로 조합하면 조합과 후보 창이 그 필드에 나타나고 Compose의 필드에는 아무것도 들어가지 않습니다. 포커스를 장면에 돌리면 Compose 필드의 IME가 그대로 동작합니다. [**손 확인 대기**: 소유자 확인 항목(darkpyonix#141)]
+15. 성능: `NativeView` 넷을 둔 창에서 스크롤하는 동안의 프레임 시간이 그것이 없는 같은 창보다 NFR-9의 예산(10%) 안에서 늘고, 측정값을 이 항목 옆에 적습니다(시험 이름 fr81_native_views_stay_inside_the_frame_budget). [**증명됨**: `fr81_native_views_stay_inside_the_frame_budget`, macOS Kotlin/Native, #698]
     - 측정값(2026-11-16, macOS arm64, 창 핀 a187dd1e, 디버그 빌드, 다섯 번 실행): 뷰가 없을 때 프레임 시간 1.34~1.43ms, 뷰 넷일 때 1.47~1.51ms입니다. 뷰 넷의 비용은 프레임당 0.08~0.14ms이고, 허용치(뷰 없는 값의 10% + 0.05ms)까지 가장 가까웠던 실행의 여유는 0.04ms입니다. 여유가 얇으므로 이 시험이 다시 실패하면 잡음이 아니라 비용이 늘어난 것으로 읽습니다. 같은 기기가 평소 부하를 받는 상태에서(2026-11-16, 두 커밋에서 서른 쌍) 뷰 넷의 비용은 프레임당 평균 0.166ms이고, 이때 뷰 없는 프레임 시간은 평균 1.92ms, 허용치는 0.242ms입니다. 한 쌍의 차이는 약 0.3ms씩 흔들리고, 두 화면을 재는 순서에 따른 차이는 없습니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
     - #855의 비교(2026-11-19, macOS arm64, 디버그 빌드, 같은 기기와 같은 세션, 부하가 큰 상태): 고치기 전(창 핀 146d920b)의 뷰 넷 비용은 프레임당 0.132ms(표준오차 0.025ms), 뷰 없는 프레임 시간 1.757ms, 허용치 0.225ms입니다. 고친 뒤(창 핀 07ab59eb, 위치만 바뀐 뷰는 `setFrameOrigin:`으로 옮기고 위에 가린 것이 없으면 구멍 목록을 만들지 않음)는 0.138ms(표준오차 0.025ms), 1.732ms, 허용치 0.223ms입니다. 차이는 잡음 안에 있어 줄었다고 볼 수 없습니다. 포크의 측정에서 줄어든 몫은 뷰 넷에 프레임당 10~15µs로, 이 방법의 표준오차보다 작습니다. 뷰마다 드는 비용의 대부분은 뷰의 frame이 바뀔 때 AppKit이 창의 드래그 여백을 다시 계산하는 일(`_resetDragMarginsIfNeeded`)과 그에 따른 Core Animation 반영입니다. 레이어 위치만 옮기면 프레임당 29~33µs로 더 싸지만, NSView의 frame이 그려진 자리와 달라져 히트 테스트와 접근성 frame이 어긋나므로 쓰지 않습니다([leader, provisional] (darkpyonix leader, 2026-11-19)).
     - 재는 방법: 뷰가 없는 화면을 재고 바로 이어서 뷰 넷인 화면을 재는 한 쌍을 열두 번 되풀이합니다. 비용은 쌍마다 잰 차이(뷰 넷 빼기 뷰 없음)의 평균이고, 허용치는 뷰 없는 값 평균의 10% + 0.05ms입니다. 비용에서 그 평균의 표준오차 두 배를 뺀 값이 허용치보다 크면 실패합니다. 이 방법은 기준을 프레임당 약 0.3ms의 분해능으로 확인합니다. 허용치를 그보다 적게 넘는 비용은 감당할 수 있는 표본에서 잡음과 구별되지 않습니다. 구별하려면 약 65쌍, 10분 가량의 측정이 필요합니다. 방법이 실제 비용에서 실패한다는 것은 따로 시험합니다: 뷰 넷인 화면의 스크롤 프레임마다 뷰 없는 화면만큼(0.5ms 이상)의 시간을 일부러 더하면 판정이 예산 초과로 나와야 하고, 이 시험은 CI에서도 판정합니다(시험 이름 fr81_the_frame_budget_method_catches_an_added_cost). 판정 규칙 자체는 창 없이 시험합니다(fr81_frame_budget_does_not_tell_an_overrun_inside_the_noise_from_noise_by_design 등). 어느 측정이든 프레임이 서른 장에 못 미치면 실패합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
