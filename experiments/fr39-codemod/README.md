@@ -1,6 +1,6 @@
 # fr39-codemod
 
-Rewrites compose-rust widget builder chains into the FR-39 call macro form, for the move
+Rewrites compose-rust widget builder chains into calls of the widget macros, for the move
 off the builders before 1.0 (owner decision 2026-11-20).
 
 ```text
@@ -16,6 +16,11 @@ cargo build --release
 ./target/release/fr39-codemod <dir or file>...           # rewrites in place
 cargo fmt
 ```
+
+Imports stay as they are: once the builders are gone the macros are `compose_rust::ui`
+itself, so `use compose_rust::ui::*` brings them in. `--imports next` moves widget imports
+to `ui::next` instead, for a crate built against a compose-rust from the migration, when
+the macros lived there beside the builders.
 
 `--crate-path crate` writes `crate::KeyEvent` instead of `::compose_rust::KeyEvent` in
 the closure types it adds, for call sites inside compose-rust itself. The same binary
@@ -36,7 +41,11 @@ copied from the source unchanged; only the chain around them changes.
 - `.content(|| { .. })` becomes the trailing `{ .. }` block; a content closure with
   arguments (lazy lists) stays a named `content = ..`.
 - `x_if(opt)` becomes `x = opt`, and the renames in `src/table.rs` apply.
-- `use compose_rust::ui::*` and widget imports move to `ui::next`.
+- A widget called through a path (`compose_rust::ui::Text(..)`) becomes a block that
+  brings the name into scope, because the macro calls its function by bare name:
+  `{ use ::compose_rust::ui::Text; Text!(..) }`. A path through anything but `ui`, `ui::next` or a
+  name the file gives `ui` (`use compose_rust::ui as cu;`) is not a widget: an enum variant
+  such as `Value::Text` stays as it is.
 
 ## What it leaves alone and reports
 

@@ -123,15 +123,29 @@ fn a_str_parameter_takes_a_literal_as_it_is_and_anything_else_as_ref() {
 fn a_call_through_a_path_brings_the_name_into_scope() {
     same(
         "fn f() { compose_rust::ui::Text(\"a\").max_lines(2); }",
-        "fn f() { { use ::compose_rust::ui::next::Text; Text!(\"a\", max_lines = 2) }; }",
+        "fn f() { { use ::compose_rust::ui::Text; Text!(\"a\", max_lines = 2) }; }",
     );
 }
 
 #[test]
-fn imports_of_widgets_move_to_next() {
+fn imports_stay_as_they_are_by_default() {
     same(
-        "use compose_rust::ui::*;\nuse compose_rust::ui::{Column, Text};\nuse compose_rust::ui::Modifier;\nuse compose_rust::ui::{self, Text as T};\n",
-        "use compose_rust::ui::next::*;\nuse compose_rust::ui::next::{Column, Text};\nuse compose_rust::ui::Modifier;\nuse compose_rust::ui::{self, Text as T};\n",
+        "use compose_rust::ui::*;\nuse compose_rust::ui::{Column, Text};\n",
+        "use compose_rust::ui::*;\nuse compose_rust::ui::{Column, Text};\n",
+    );
+}
+
+#[test]
+fn imports_of_widgets_move_to_next_when_asked() {
+    let options = Options {
+        next_imports: true,
+        ..Options::default()
+    };
+    let source = "use compose_rust::ui::*;\nuse compose_rust::ui::{Column, Text};\nuse compose_rust::ui::Modifier;\nuse compose_rust::ui::{self, Text as T};\nfn f() { compose_rust::ui::Text(\"a\"); }\n";
+    let outcome = rewrite(source, &options).expect("parses");
+    assert_eq!(
+        outcome.source,
+        "use compose_rust::ui::next::*;\nuse compose_rust::ui::next::{Column, Text};\nuse compose_rust::ui::Modifier;\nuse compose_rust::ui::{self, Text as T};\nfn f() { { use ::compose_rust::ui::next::Text; Text!(\"a\") }; }\n"
     );
 }
 
@@ -218,4 +232,12 @@ fn an_enum_variant_named_like_a_widget_is_not_a_widget() {
     let (got, flags) = run(source);
     assert_eq!(got, source);
     assert!(flags.is_empty(), "{flags:?}");
+}
+
+#[test]
+fn a_call_through_an_alias_of_ui_is_a_widget() {
+    same(
+        "use compose_rust::ui as cu;\nfn f() { cu::Image(id).modifier(m); }",
+        "use compose_rust::ui as cu;\nfn f() { { use ::compose_rust::ui::Image; Image!(id, modifier = m) }; }",
+    );
 }

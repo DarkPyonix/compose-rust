@@ -51,12 +51,17 @@ pub struct Options {
     /// The path call sites use for compose-rust, written in front of the handler argument
     /// types the codemod adds (`::compose_rust`, or `crate` inside the crate itself).
     pub crate_path: String,
+    /// Moves widget imports from `ui::` to `ui::next::`, for a crate built against a
+    /// compose-rust that still has the builders in `ui` and the call macros in `ui::next`.
+    /// Off by default: once the builders are gone the macros are `ui` itself.
+    pub next_imports: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             crate_path: "::compose_rust".to_owned(),
+            next_imports: false,
         }
     }
 }
@@ -72,6 +77,7 @@ pub fn rewrite(source: &str, options: &Options) -> Result<Outcome, syn::Error> {
         flags: Vec::new(),
         statement: None,
         imports: Vec::new(),
+        ui_aliases: Vec::new(),
     };
     finder.visit_file(&file);
     let Finder {
@@ -309,6 +315,9 @@ struct Finder<'a> {
     statement: Option<Range>,
     /// Where `next::` goes into a `use` path.
     imports: Vec<usize>,
+    /// Names `compose_rust::ui` is brought in under (`use compose_rust::ui as cu;`), which
+    /// qualify a widget call as `ui` does.
+    ui_aliases: Vec<String>,
 }
 
 /// A chain taken apart: the root call and the methods on it, first to last.
@@ -319,7 +328,7 @@ struct Parts<'e> {
 }
 
 /// The widget a call's path names: `Text`, `ui::Text`, or `Icon::asset` for `IconAsset`.
-fn widget_name(path: &ExprPath) -> Option<String> {
+fn widget_name(path: &ExprPath, aliases: &[String]) -> Option<String> {
     if path.qself.is_some() {
         return None;
     }
@@ -336,14 +345,14 @@ fn widget_name(path: &ExprPath) -> Option<String> {
         }
         // `Value::Text(..)` and `WordWrap::Column(40)` are enum variants, not widgets: only
         // a path through `ui` (or `ui::next`) names one.
-        if qualifier != "ui" && qualifier != "next" {
+        if qualifier != "ui" && qualifier != "next" && !aliases.contains(&qualifier) {
             return None;
         }
     }
     table::is_widget(&name).then_some(name)
 }
 
-fn parts(expr: &Expr) -> Option<Parts<'_>> {
+fn parts<'e>(expr: &'e Expr, aliases: &[String]) -> Option<Parts<'e>> {
     let mut methods = Vec::new();
     let mut at = expr;
     loop {
@@ -356,7 +365,7 @@ fn parts(expr: &Expr) -> Option<Parts<'_>> {
                 let Expr::Path(path) = &*root.func else {
                     return None;
                 };
-                widget_name(path)?;
+                widget_name(path, aliases)?;
                 methods.reverse();
                 return Some(Parts {
                     root,
@@ -394,7 +403,7 @@ impl Finder<'_> {
     }
 
     fn chain(&mut self, expr: &Expr, parts: &Parts<'_>) {
-        let widget = widget_name(parts.path).expect("parts checked the name");
+        let widget = widget_name(parts.path, &self.ui_aliases).expect("parts checked the name");
         let widget = widget.as_str();
         let range = self.offsets.range(expr);
         let in_statement = self.statement == Some(range);
@@ -518,8 +527,14 @@ impl Finder<'_> {
         Ok(Chain {
             range,
             path: widget.to_owned(),
-            import: (parts.path.path.segments.len() > 1 && widget != "IconAsset")
-                .then(|| format!("{}::ui::next::{widget}", self.options.crate_path)),
+            import: (parts.path.path.segments.len() > 1 && widget != "IconAsset").then(|| {
+                let module = if self.options.next_imports {
+                    "ui::next"
+                } else {
+                    "ui"
+                };
+                format!("{}::{module}::{widget}", self.options.crate_path)
+            }),
             args,
         })
     }
@@ -695,6 +710,25 @@ fn imports_widgets(tree: &syn::UseTree) -> bool {
 }
 
 impl Finder<'_> {
+    /// Records `compose_rust::ui as name` (or `crate::ui as name` inside the crate).
+    fn aliases(&mut self, tree: &syn::UseTree, parent: Option<String>) {
+        let root = self.options.crate_path.trim_start_matches("::").to_owned();
+        match tree {
+            syn::UseTree::Path(path) => self.aliases(&path.tree, Some(path.ident.to_string())),
+            syn::UseTree::Group(group) => {
+                for item in &group.items {
+                    self.aliases(item, parent.clone());
+                }
+            }
+            syn::UseTree::Rename(rename)
+                if rename.ident == "ui" && parent.as_deref() == Some(root.as_str()) =>
+            {
+                self.ui_aliases.push(rename.rename.to_string());
+            }
+            _ => {}
+        }
+    }
+
     /// Finds `compose_rust::ui::<widgets>` in a `use` tree (or `crate::ui::` inside the
     /// crate) and records where `next::` goes.
     fn use_tree(&mut self, tree: &syn::UseTree, parent: Option<String>) {
@@ -720,7 +754,10 @@ impl Finder<'_> {
 
 impl<'ast> Visit<'ast> for Finder<'_> {
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-        self.use_tree(&item.tree, None);
+        self.aliases(&item.tree, None);
+        if self.options.next_imports {
+            self.use_tree(&item.tree, None);
+        }
     }
 
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
@@ -735,7 +772,7 @@ impl<'ast> Visit<'ast> for Finder<'_> {
     }
 
     fn visit_expr(&mut self, expr: &'ast Expr) {
-        if let Some(parts) = parts(expr) {
+        if let Some(parts) = parts(expr, &self.ui_aliases) {
             self.chain(expr, &parts);
             return;
         }
