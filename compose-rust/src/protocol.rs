@@ -3744,6 +3744,9 @@ fn modifier_fields(modifier: &Modifier) -> (u16, [u64; MAX_MODIFIER_WORDS]) {
         Modifier::Overlay(paint) => (39, two_words(paint.to_bits(), 0)),
         Modifier::Sticky => (41, two_words(0, 0)),
         Modifier::UnboundedWidth => (40, two_words(0, 0)),
+        Modifier::BorderDash { dash_dp, gap_dp } => {
+            (42, two_words(pack_floats(*dash_dp, *gap_dp), 0))
+        }
         Modifier::Transform {
             a,
             b,
@@ -4040,6 +4043,10 @@ fn decode_modifier(tag: u16, words: &[u64; MAX_MODIFIER_WORDS]) -> Result<Modifi
         39 => Ok(Modifier::Overlay(decode_paint(first)?)),
         41 => Ok(Modifier::Sticky),
         40 => Ok(Modifier::UnboundedWidth),
+        42 => Ok(Modifier::BorderDash {
+            dash_dp: unpack_low(first),
+            gap_dp: unpack_high(first),
+        }),
         other => Err(ProtocolError::InvalidModifier(other)),
     }
 }

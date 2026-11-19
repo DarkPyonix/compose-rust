@@ -123,4 +123,61 @@ class OverlayModifierTest {
         assertEquals(Color(pageArgb), pixels[60, 12], "the overlay stops at the node's edge")
         assertEquals(Color(pageArgb), pixels[20, 50], "the overlay stops at the node's edge")
     }
+
+    @Test
+    fun fr60_border_dashed_draws_alternating_stroke_and_gaps() = runComposeUiTest {
+        val strokeArgb = 0xFFFF0000.toInt()
+        val stroke = Paint.Literal(strokeArgb)
+        val batch = listOf(
+            theme(),
+            Mutation.Create(1, WidgetKind.Box),
+            Mutation.SetModifier(1, 0, ProtocolModifier.Size(100f, 40f)),
+            Mutation.SetModifier(1, 14, ProtocolModifier.Background(fill)),
+            Mutation.SetModifier(1, 19, ProtocolModifier.Border(4f, stroke)),
+            Mutation.SetModifier(1, 38, ProtocolModifier.BorderDash(10f, 10f)),
+        )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)))
+            }
+        }
+        waitForIdle()
+        val pixels = onNodeWithTag(nodeTestTag(1)).captureToImage().toPixelMap()
+        var painted = 0
+        var gaps = 0
+        for (x in 6 until 94) {
+            when (pixels[x, 1]) {
+                Color(strokeArgb) -> painted++
+                Color(fillArgb) -> gaps++
+            }
+        }
+        kotlin.test.assertTrue(
+            painted >= 20 && gaps >= 20,
+            "expected alternating stroke and gap pixels along top edge, got painted=$painted gaps=$gaps",
+        )
+    }
+
+    @Test
+    fun fr60_border_dashed_with_zero_or_negative_gap_draws_solid_border() = runComposeUiTest {
+        val strokeArgb = 0xFFFF0000.toInt()
+        val stroke = Paint.Literal(strokeArgb)
+        val batch = listOf(
+            theme(),
+            Mutation.Create(1, WidgetKind.Box),
+            Mutation.SetModifier(1, 0, ProtocolModifier.Size(100f, 40f)),
+            Mutation.SetModifier(1, 14, ProtocolModifier.Background(fill)),
+            Mutation.SetModifier(1, 19, ProtocolModifier.Border(4f, stroke)),
+            Mutation.SetModifier(1, 38, ProtocolModifier.BorderDash(10f, 0f)),
+        )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                ComposeRustContent(rememberComposeRustHost(FakeHostConnection(batch)))
+            }
+        }
+        waitForIdle()
+        val pixels = onNodeWithTag(nodeTestTag(1)).captureToImage().toPixelMap()
+        for (x in 6 until 94) {
+            assertEquals(Color(strokeArgb), pixels[x, 1], "pixel ($x, 1) must be solid stroke")
+        }
+    }
 }
