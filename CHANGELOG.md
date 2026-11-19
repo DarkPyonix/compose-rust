@@ -7,6 +7,10 @@
 - On Windows 10 and Windows Server 2022, a window resized by dragging an edge can show a gap at the moving edge for one to five frames of a drag. In the resize check 15 of 24 drags showed it on Windows Server 2022, and none of 24 on Windows Server 2025, the Windows 11 generation. Nothing is black, torn or stale, and the window is right once the drag stops. v0.0.10 has the same Windows window code, so this is not new in v0.0.11; it was found by a check that ran to its end for the first time. It is the Compose fork's window ([compose-multiplatform-core-extended#245](https://github.com/thisisthepy/compose-multiplatform-core-extended/issues/245)).
 - A Windows window does not keep its size in dp when the display scale changes while it is open: it ends a few pixels off (398 by 297 pixels where 400 by 300 was right, going from 200 % to 125 %). Fixed in the fork's window after this release's pin.
 
+### A sheet's handle can be turned off, and a bottom sheet clears the bottom safe area
+
+`Sheet::handle(false)` removes a bottom sheet's drag handle. It travels as the `SheetHandle` property (tag 214, a boolean, only on a `Sheet`), sent only to turn the handle off, so a sheet that keeps it writes no record. The sheet still drags shut the same way. A bottom sheet now pads its content by the larger of the bottom safe area and the keyboard, so its last row ends above the gesture handle or the navigation bar while its surface still runs to the bottom edge. The schema hash changes.
+
 ### The window size event carries the bottom safe area
 
 `WindowSafeArea` has a `bottom` side in dp: the room the system keeps at the bottom edge, which is the navigation bar or gesture handle on Android and the home indicator on iOS. The renderer measures it from `WindowInsets.safeDrawing` with the keyboard left out, and a desktop window sends 0. It travels as `safe_area_bottom`, appended to the end of the `WindowSizeChanged` record, which grows from 44 to 48 bytes; every field before it keeps its offset. A change of the bottom side alone sends the event again, as the other sides do. The schema hash changes, so a renderer and a crate from before this change no longer agree.

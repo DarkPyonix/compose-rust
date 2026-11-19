@@ -305,6 +305,17 @@ internal fun HostSheet(
             },
         ) {
             val top = LocalSystemBars.current.top
+            // A sheet along the bottom keeps its content clear of the system's strip there
+            // (the gesture handle or the navigation bar), by the larger of that strip and
+            // the keyboard. The keyboard already lifts the whole surface, and while it is
+            // up the strip is under it and reads 0, so what is left to pad inside the
+            // surface is only the part of the strip the keyboard does not already clear.
+            // The surface itself still runs to the bottom edge.
+            val clearBottom = if (bottom && !isCentered) {
+                (LocalSystemBars.current.bottom - keyboard).coerceAtLeast(0.dp)
+            } else {
+                0.dp
+            }
             // A sheet along the bottom is given its height here, against the whole window
             // and before the keyboard is taken off, so the keyboard moves it rather than
             // shrinking it. The keyboard's strip is part of what is measured here and is
@@ -452,12 +463,15 @@ internal fun HostSheet(
                     // swallowed here rather than reaching the scrim behind.
                     .pointerInput(Unit) { detectTapGestures { } },
             ) {
-                Column(modifier.fillMaxWidth().then(sheetPadding)) {
-                    if (!isCentered) {
+                Column(modifier.fillMaxWidth().then(sheetPadding).padding(bottom = clearBottom)) {
+                    // The application can turn the handle off; the drag above is the
+                    // surface's, so the sheet drags the same either way.
+                    if (!isCentered && node.flag(PropertyKind.SheetHandle, default = true)) {
                         style.handle?.let { handle ->
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                 Box(
                                     Modifier
+                                        .testTag(sheetHandleTestTag(node.id))
                                         .width(if (bottom) HANDLE_LENGTH else HANDLE_THICKNESS)
                                         .height(if (bottom) HANDLE_THICKNESS else HANDLE_LENGTH)
                                         .clip(theme.shape(ShapeRole.Full))
@@ -500,6 +514,9 @@ internal fun HostSheet(
 
 /** Test tag of the scrolling content of a sheet that has a tallest height. */
 fun sheetContentTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet-content"
+
+/** Test tag of a bottom or side sheet's drag handle, where one is drawn. */
+fun sheetHandleTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet-handle"
 
 /** Test tag of the sheet's own surface, which is its own window, not part of the tree. */
 fun sheetTestTag(nodeId: Int): String = "${nodeTestTag(nodeId)}-sheet"
