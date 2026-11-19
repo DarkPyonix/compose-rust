@@ -5,7 +5,6 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
-use compose_rust::runtime::*;
 use compose_rust::ui::*;
 use support::Tree;
 
@@ -28,7 +27,8 @@ fn wire(modifier: compose_rust::Modifier) -> (u16, u16, Vec<Mutation<'static>>) 
     let mut encoder = BatchEncoder::default();
     encoder.encode(&expected).unwrap();
     // Leaked so the decoded records can outlive this call.
-    let bytes: &'static [u8] = std::boxed::Box::leak(encoder.finish().unwrap().to_vec().into_boxed_slice());
+    let bytes: &'static [u8] =
+        std::boxed::Box::leak(encoder.finish().unwrap().to_vec().into_boxed_slice());
     let tag = u16::from_le_bytes([bytes[22], bytes[23]]);
     let len = u16::from_le_bytes([bytes[14], bytes[15]]);
     let decoded = decode_batch(bytes).unwrap();

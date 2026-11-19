@@ -1367,10 +1367,7 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
         modifier.press_style.map_or(OwnedAttr::None, |style| {
             let mut bytes = Vec::with_capacity(24);
             bytes.extend_from_slice(&style.tint.map_or(0, Paint::to_bits).to_le_bytes());
-            for point in style
-                .press_easing
-                .unwrap_or([f32::NAN, 0.0, 0.0, 0.0])
-            {
+            for point in style.press_easing.unwrap_or([f32::NAN, 0.0, 0.0, 0.0]) {
                 bytes.extend_from_slice(&point.to_le_bytes());
             }
             OwnedAttr::Bytes(bytes)
