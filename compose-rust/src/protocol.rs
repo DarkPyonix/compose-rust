@@ -2080,6 +2080,15 @@ impl fmt::Display for ProtocolError {
 impl std::error::Error for ProtocolError {}
 
 /// Reusable encoder. Once capacities are warmed, `clear` and `finish` allocate no memory.
+///
+/// The caps below bound what the encoder holds onto after a one-off spike such as the first
+/// batch carrying several megabytes of font or picture assets. Steady frames fit well inside
+/// them, so normal frames still allocate nothing.
+const MAX_RETAINED_RECORDS: usize = 64 * 1024;
+const MAX_RETAINED_STRINGS: usize = 64 * 1024;
+const MAX_RETAINED_FIXUPS: usize = 1024;
+const MAX_RETAINED_ARENA: usize = MAX_RETAINED_RECORDS + MAX_RETAINED_STRINGS;
+
 pub struct BatchEncoder {
     records: Vec<u8>,
     strings: Vec<u8>,
@@ -2109,9 +2118,21 @@ impl BatchEncoder {
 
     pub fn clear(&mut self) {
         self.records.clear();
+        if self.records.capacity() > MAX_RETAINED_RECORDS {
+            self.records.shrink_to(MAX_RETAINED_RECORDS);
+        }
         self.strings.clear();
+        if self.strings.capacity() > MAX_RETAINED_STRINGS {
+            self.strings.shrink_to(MAX_RETAINED_STRINGS);
+        }
         self.string_fixups.clear();
+        if self.string_fixups.capacity() > MAX_RETAINED_FIXUPS {
+            self.string_fixups.shrink_to(MAX_RETAINED_FIXUPS);
+        }
         self.arena.clear();
+        if self.arena.capacity() > MAX_RETAINED_ARENA {
+            self.arena.shrink_to(MAX_RETAINED_ARENA);
+        }
         self.record_count = 0;
         self.begin_record(TAG_ENVELOPE, 8);
         self.put_u32(0);
@@ -2663,7 +2684,10 @@ impl BatchEncoder {
     }
 
     pub fn capacity(&self) -> usize {
-        self.records.capacity() + self.strings.capacity() + self.arena.capacity()
+        self.records.capacity()
+            + self.strings.capacity()
+            + self.string_fixups.capacity() * std::mem::size_of::<usize>()
+            + self.arena.capacity()
     }
 
     /// Writes a `StartAnimation`: the 52 byte head, then each keyframe with its value.
