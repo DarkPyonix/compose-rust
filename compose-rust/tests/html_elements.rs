@@ -187,6 +187,31 @@ fn every_modifier() -> Vec<Modifier> {
             dash_dp: 4.0,
             gap_dp: 4.0,
         },
+        Modifier::HoverStyle {
+            fill: Some(Paint::Role(ColorRole::Primary)),
+            fill_alpha: 0.12,
+            border: Some(Paint::Literal(Color::argb(0xff44_5566))),
+            content_alpha: 0.88,
+        },
+        Modifier::HoverStyle {
+            fill: None,
+            fill_alpha: 0.0,
+            border: None,
+            content_alpha: 1.0,
+        },
+        Modifier::FocusRing {
+            paint: Paint::Literal(Color::argb(0xffff_0000)),
+            width_dp: 3.0,
+            offset_dp: 2.0,
+        },
+        Modifier::PressStyle {
+            tint: Some(Paint::Role(ColorRole::OnPrimary)),
+            press_easing: Some([0.2, 0.0, 0.1, 1.0]),
+        },
+        Modifier::PressStyle {
+            tint: None,
+            press_easing: None,
+        },
     ]
 }
 
