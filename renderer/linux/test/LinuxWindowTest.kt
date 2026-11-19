@@ -2,7 +2,11 @@
 
 package dev.darkpyonix.composerust.ui.platform
 
+import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.scene.CanvasLayersComposeScene
+import dev.darkpyonix.composerust.runtime.LocalWindowDrag
 import kotlin.test.Test
+import kotlin.test.assertNotSame
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlinx.cinterop.toKString
@@ -69,6 +73,33 @@ class LinuxWindowTest {
             )
         } finally {
             if (display != null) setenv("DISPLAY", display, 1)
+        }
+    }
+
+    /**
+     * A node the application made a drag region moves a Linux window: content in a
+     * [LinuxWindow] is given a window drag that hands the press to the window manager
+     * (`X11Window.startMove`, then `_NET_WM_MOVERESIZE`), not the composition local's default,
+     * which does nothing. The move itself needs a window manager and a real press, and is the
+     * hand check on darkpyonix#141.
+     */
+    @OptIn(InternalComposeUiApi::class)
+    @Test
+    fun fr19_9_content_in_a_linux_window_can_move_it() {
+        if (getenv("DISPLAY")?.toKString().isNullOrEmpty()) return
+        var unprovided: (() -> Unit)? = null
+        val bare = CanvasLayersComposeScene()
+        bare.setContent { unprovided = LocalWindowDrag.current }
+        bare.close()
+        val window = assertNotNull(LinuxWindow.open(title = "drag", width = 320, height = 240))
+        try {
+            var provided: (() -> Unit)? = null
+            window.setContent { provided = LocalWindowDrag.current }
+            assertNotNull(unprovided, "the bare scene composed")
+            assertNotNull(provided, "the window composed its content")
+            assertNotSame(unprovided, provided, "the window gives its content a drag that moves it")
+        } finally {
+            window.close()
         }
     }
 }
