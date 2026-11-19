@@ -1,11 +1,15 @@
 # Changelog
 
-## v0.0.11
+## v0.0.12
 
 ### Known issues
 
-- On Windows 10 and Windows Server 2022, a window resized by dragging an edge can show a gap at the moving edge for one to five frames of a drag. In the resize check 15 of 24 drags showed it on Windows Server 2022, and none of 24 on Windows Server 2025, the Windows 11 generation. Nothing is black, torn or stale, and the window is right once the drag stops. v0.0.10 has the same Windows window code, so this is not new in v0.0.11; it was found by a check that ran to its end for the first time. It is the Compose fork's window ([compose-multiplatform-core-extended#245](https://github.com/thisisthepy/compose-multiplatform-core-extended/issues/245)).
-- A Windows window does not keep its size in dp when the display scale changes while it is open: it ends a few pixels off (398 by 297 pixels where 400 by 300 was right, going from 200 % to 125 %). Fixed in the fork's window after this release's pin.
+- On Android a `Shadow` draws a weaker, narrower blur than the same shadow on the desktop. Tracked in [#843](https://github.com/DarkPyonix/compose-rust/issues/843).
+- On macOS each window a process opens and closes leaves the next one slower: in one test process the frame time of the same page rose from 1.10 to 1.66 ms over twelve windows. The fix is in the Compose fork's window ([compose-multiplatform-core-extended#249](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/249)) and is not in this release's pin. Tracked in [#857](https://github.com/DarkPyonix/compose-rust/issues/857).
+
+### Fixed from v0.0.11's known issues
+
+The Windows window pin moves to `146d920b`. A window resized by dragging an edge on Windows 10 and Windows Server 2022 no longer shows a gap at the moving edge: the resize check measured 0 of 24 faulty drags on both Windows Server 2022 and 2025, and that check is strict again. A Windows window also keeps its size in dp when the display scale changes while it is open.
 
 ### A sheet's handle can be turned off, and a bottom sheet clears the bottom safe area
 
@@ -14,6 +18,49 @@
 ### The window size event carries the bottom safe area
 
 `WindowSafeArea` has a `bottom` side in dp: the room the system keeps at the bottom edge, which is the navigation bar or gesture handle on Android and the home indicator on iOS. The renderer measures it from `WindowInsets.safeDrawing` with the keyboard left out, and a desktop window sends 0. It travels as `safe_area_bottom`, appended to the end of the `WindowSizeChanged` record, which grows from 44 to 48 bytes; every field before it keeps its offset. A change of the bottom side alone sends the event again, as the other sides do. The schema hash changes, so a renderer and a crate from before this change no longer agree.
+
+### Dashed borders
+
+`Modifier::border_dashed(width_dp, paint, dash_dp, gap_dp)` draws a uniform border around the node's outline as repeating dashes of `dash_dp` and gaps of `gap_dp` in dp, following the node's corner shape (`Shape`, `ShapeRole`, `CornerEach`, `CornerCurve`). It writes `Border` together with the new `BorderDash` modifier (tag 42, two `f32` in the first word) and clears any previous `border_each` or `border_side`, while calling `border`, `border_each` or `border_side` clears `BorderDash`. A non-positive dash or gap falls back to a solid border. The new modifier moves the schema hash ([#817](https://github.com/DarkPyonix/compose-rust/issues/817)).
+
+### Hover style, focus ring and press style
+
+`Modifier::hover_style(HoverStyle)` sets how a pressable node (a container with `on_click`, a `Clickable` node, or a toolkit `Button`) looks while a mouse is over it: `HoverStyle::fill(paint, alpha)` lays that paint at that alpha in place of the default `OnSurface` 8% layer, `.border(paint)` swaps the node's border colour until the mouse leaves, and `.content_alpha(a)` multiplies the whole node's opacity. Hovering still sends nothing to the Host. `Modifier::focus_ring(paint, width_dp, offset_dp)` sets the keyboard focus ring; a positive offset draws it that far outside the node's outline with its corners grown by the same amount, as CSS `outline-offset` does, and it takes no room. Focus a pointer gave still draws no ring. `Modifier::press_style(PressStyle)` sets the press tint's colour (`PressStyle::tint(paint)`, at the alpha `press_feedback` gives or the default) and the press-in curve (`.press_easing(x1, y1, x2, y2)`); the release keeps its curve. The toolkit `Button` now has the default hover layer and draws the keyboard focus ring by the same rules as a pressable container. These are the new modifiers `HoverStyle` (tag 43), `FocusRing` (tag 44) and `PressStyle` (tag 45), whose optional paints use a zero word for none, and they move the schema hash. A node without them looks and behaves as before ([#822](https://github.com/DarkPyonix/compose-rust/issues/822)).
+
+### Syntax roles have a font style
+
+A `CodeEditor` syntax span can carry a font weight, italic and underline as well as a colour: `SyntaxSpan::italic`, `bold`, `with_weight`, `underline` and `with_style`. `style_for_role` and `style_for_highlight` give the defaults: comments are italic, types weight 500, and everything else keeps the editor's font. `SyntaxSpanRecord` grows from 28 to 32 bytes with a `style` field at offset 28, so the schema hash changes ([#863](https://github.com/DarkPyonix/compose-rust/issues/863)).
+
+### SVG arcs with packed flags draw right on Android
+
+An SVG path writes an arc's two flags as single digits that need no separator, as in `a3 3 0 100-6`. Android's path parser read `100` as one number and drew such a path wrong. The renderer now separates the flags before the path is parsed, on every platform ([#842](https://github.com/DarkPyonix/compose-rust/issues/842)).
+
+### Declared roles reach VoiceOver in the Kotlin/Native macOS window
+
+A group, list, tab list or other declared role now reaches `NSAccessibility` in the Kotlin/Native macOS window, where before it read as static text. A `Button` with its own accessible name exposes one element, not its visible label as well ([#782](https://github.com/DarkPyonix/compose-rust/issues/782), [#838](https://github.com/DarkPyonix/compose-rust/issues/838)). `has_popup` reaches TalkBack and VoiceOver on Android and iOS as the state description "has popup" ([#810](https://github.com/DarkPyonix/compose-rust/issues/810)).
+
+### A drag region moves a Kotlin/Native Linux window
+
+`WindowDrag(true)` content moves a Kotlin/Native Linux window, as it does on macOS ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)).
+
+### Deeply nested rows and columns measure in linear time
+
+Alternating `Column` and `Row` levels with a child that fills the width no longer make the intrinsic measurement grow exponentially with depth. A tree 100 levels deep measures at once, where before it hung ([#846](https://github.com/DarkPyonix/compose-rust/issues/846)).
+
+### Less memory after large batches and registered fonts
+
+The Host's batch encoder gives back its buffers after a batch larger than its retained caps (64 KiB of records and strings, 128 KiB of arena), such as one that registers fonts; ordinary frames still allocate nothing. The renderer keeps one Skia typeface per registered font instead of two ([#862](https://github.com/DarkPyonix/compose-rust/issues/862)).
+
+### A macOS native view costs less per frame
+
+A `NativeView` that only moves or only resizes while scrolling updates just that part of its frame, and a view with nothing drawn above it makes no hole list. The saving is small, below what the frame budget test resolves ([#855](https://github.com/DarkPyonix/compose-rust/issues/855)).
+
+## v0.0.11
+
+### Known issues
+
+- On Windows 10 and Windows Server 2022, a window resized by dragging an edge can show a gap at the moving edge for one to five frames of a drag. In the resize check 15 of 24 drags showed it on Windows Server 2022, and none of 24 on Windows Server 2025, the Windows 11 generation. Nothing is black, torn or stale, and the window is right once the drag stops. v0.0.10 has the same Windows window code, so this is not new in v0.0.11; it was found by a check that ran to its end for the first time. It is the Compose fork's window ([compose-multiplatform-core-extended#245](https://github.com/thisisthepy/compose-multiplatform-core-extended/issues/245)).
+- A Windows window does not keep its size in dp when the display scale changes while it is open: it ends a few pixels off (398 by 297 pixels where 400 by 300 was right, going from 200 % to 125 %). Fixed in the fork's window after this release's pin.
 
 ### Compose fork moved to 1.11.1-ext.5: the wheel scrolls on every desktop
 
@@ -61,14 +108,6 @@ A `MeasureText` request now carries the text's run font feature table, the same 
 ### Menu keyboard navigation inside a `Popover` and `has_popup` semantics
 
 A `Popover` whose content is a menu (declaring `Role::Menu` on the popover or its content container, or holding `Role::MenuItem` rows) now runs the same keyboard loop as `Menu`: opening focuses the item marked `selected(true)` (or the first focusable item when none is selected), `ArrowDown` and `ArrowUp` move between focusable items and wrap at the ends while skipping non-focusable headers and disabled rows, `Home` and `End` jump to the first and last items, `Enter` and `Space` activate the focused item once, and `Escape` dispatches `OnDismiss` once and restores focus to the anchor without leaking navigation keys to the Host. `Modifier::has_popup(true)` and `SemanticsState::has_popup(true)` add bit 13 (`1 << 13`) to the `Semantics` modifier state word (included in `SCHEMA_HASH`), exposed as `AccessibleState.EXPANDABLE` on AppKit and `"has popup"` in `stateDescription` where the platform has no native popup-trigger attribute ([#810](https://github.com/DarkPyonix/compose-rust/issues/810)).
-
-### Dashed borders
-
-`Modifier::border_dashed(width_dp, paint, dash_dp, gap_dp)` draws a uniform border around the node's outline as repeating dashes of `dash_dp` and gaps of `gap_dp` in dp, following the node's corner shape (`Shape`, `ShapeRole`, `CornerEach`, `CornerCurve`). It writes `Border` together with the new `BorderDash` modifier (tag 42, two `f32` in the first word) and clears any previous `border_each` or `border_side`, while calling `border`, `border_each` or `border_side` clears `BorderDash`. A non-positive dash or gap falls back to a solid border. The new modifier moves the schema hash ([#817](https://github.com/DarkPyonix/compose-rust/issues/817)).
-
-### Hover style, focus ring and press style
-
-`Modifier::hover_style(HoverStyle)` sets how a pressable node (a container with `on_click`, a `Clickable` node, or a toolkit `Button`) looks while a mouse is over it: `HoverStyle::fill(paint, alpha)` lays that paint at that alpha in place of the default `OnSurface` 8% layer, `.border(paint)` swaps the node's border colour until the mouse leaves, and `.content_alpha(a)` multiplies the whole node's opacity. Hovering still sends nothing to the Host. `Modifier::focus_ring(paint, width_dp, offset_dp)` sets the keyboard focus ring; a positive offset draws it that far outside the node's outline with its corners grown by the same amount, as CSS `outline-offset` does, and it takes no room. Focus a pointer gave still draws no ring. `Modifier::press_style(PressStyle)` sets the press tint's colour (`PressStyle::tint(paint)`, at the alpha `press_feedback` gives or the default) and the press-in curve (`.press_easing(x1, y1, x2, y2)`); the release keeps its curve. The toolkit `Button` now has the default hover layer and draws the keyboard focus ring by the same rules as a pressable container. These are the new modifiers `HoverStyle` (tag 43), `FocusRing` (tag 44) and `PressStyle` (tag 45), whose optional paints use a zero word for none, and they move the schema hash. A node without them looks and behaves as before ([#822](https://github.com/DarkPyonix/compose-rust/issues/822)).
 
 ### Releasing bytes registered at run time
 
