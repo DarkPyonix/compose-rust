@@ -165,6 +165,44 @@ class IconButtonTest {
         }
     }
 
+    @Test
+    fun fr16_sample_icon_buttons_draw_and_have_accessible_names() {
+        val roles = listOf(
+            IconRole.Lock,
+            IconRole.Favorite,
+            IconRole.Book,
+            IconRole.Play,
+            IconRole.Shuffle,
+            IconRole.ExpandMore,
+            IconRole.Person,
+            IconRole.Clock,
+            IconRole.Tune,
+            IconRole.Chat,
+            IconRole.Star,
+            IconRole.Bag,
+            IconRole.Bell,
+            IconRole.Share,
+            IconRole.Language,
+            IconRole.CompactOverlay,
+            IconRole.Calculator,
+        )
+        for (system in DesignSystem.entries) {
+            val empty = pixels(system, icon = null, text = "")
+            for (role in roles) {
+                val actual = drawn(system, role, text = "") { node ->
+                    node.assertContentDescriptionEquals(role.name)
+                    val image = node.captureToImage().toAwtImage()
+                    buildList {
+                        for (y in 0 until image.height) {
+                            for (x in 0 until image.width) add(image.getRGB(x, y))
+                        }
+                    }
+                }
+                assertNotEquals(empty, actual, "$system $role drew nothing")
+            }
+        }
+    }
+
     private companion object {
         /** How much wider than tall a wordless button may be before it is a pill. */
         val SQUARE_ENOUGH = 8.dp

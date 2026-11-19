@@ -323,4 +323,147 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
         ),
         dots = emptyList(),
     )
+
+    IconRole.Lock -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.25f, 0.45f), Offset(0.25f, 0.85f), Offset(0.75f, 0.85f), Offset(0.75f, 0.45f), Offset(0.25f, 0.45f)),
+            listOf(Offset(0.34f, 0.45f), Offset(0.34f, 0.29f), Offset(0.39f, 0.18f), Offset(0.50f, 0.14f), Offset(0.61f, 0.18f), Offset(0.66f, 0.29f), Offset(0.66f, 0.45f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Favorite -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.82f), Offset(0.20f, 0.54f), Offset(0.14f, 0.38f), Offset(0.18f, 0.25f), Offset(0.28f, 0.18f), Offset(0.40f, 0.19f), Offset(0.50f, 0.30f), Offset(0.60f, 0.19f), Offset(0.72f, 0.18f), Offset(0.82f, 0.25f), Offset(0.86f, 0.38f), Offset(0.80f, 0.54f), Offset(0.50f, 0.82f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Book -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.82f), Offset(0.35f, 0.74f), Offset(0.14f, 0.74f), Offset(0.14f, 0.20f), Offset(0.35f, 0.20f), Offset(0.50f, 0.28f), Offset(0.65f, 0.20f), Offset(0.86f, 0.20f), Offset(0.86f, 0.74f), Offset(0.65f, 0.74f), Offset(0.50f, 0.82f)),
+            listOf(Offset(0.50f, 0.28f), Offset(0.50f, 0.82f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Play -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.30f, 0.18f), Offset(0.80f, 0.50f), Offset(0.30f, 0.82f), Offset(0.30f, 0.18f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Shuffle -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.12f, 0.24f), Offset(0.29f, 0.24f), Offset(0.71f, 0.76f), Offset(0.88f, 0.76f)),
+            listOf(Offset(0.72f, 0.62f), Offset(0.88f, 0.76f), Offset(0.72f, 0.90f)),
+            listOf(Offset(0.12f, 0.76f), Offset(0.29f, 0.76f), Offset(0.71f, 0.24f), Offset(0.88f, 0.24f)),
+            listOf(Offset(0.72f, 0.10f), Offset(0.88f, 0.24f), Offset(0.72f, 0.38f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.ExpandMore -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.20f, 0.35f), Offset(0.50f, 0.65f), Offset(0.80f, 0.35f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Person -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.18f, 0.84f), Offset(0.20f, 0.72f), Offset(0.30f, 0.62f), Offset(0.50f, 0.58f), Offset(0.70f, 0.62f), Offset(0.80f, 0.72f), Offset(0.82f, 0.84f)),
+        ),
+        dots = listOf(IconDot(Offset(0.50f, 0.32f), 0.16f, filled = false)),
+    )
+
+    IconRole.Clock -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.24f), Offset(0.50f, 0.50f), Offset(0.68f, 0.62f)),
+        ),
+        dots = listOf(IconDot(Offset(0.50f, 0.50f), 0.40f, filled = false)),
+    )
+
+    IconRole.Tune -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.18f, 0.18f), Offset(0.18f, 0.82f)),
+            listOf(Offset(0.50f, 0.18f), Offset(0.50f, 0.82f)),
+            listOf(Offset(0.82f, 0.18f), Offset(0.82f, 0.82f)),
+            listOf(Offset(0.08f, 0.35f), Offset(0.28f, 0.35f)),
+            listOf(Offset(0.40f, 0.64f), Offset(0.60f, 0.64f)),
+            listOf(Offset(0.72f, 0.42f), Offset(0.92f, 0.42f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Chat -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.14f, 0.16f), Offset(0.86f, 0.16f), Offset(0.86f, 0.68f), Offset(0.48f, 0.68f), Offset(0.28f, 0.84f), Offset(0.28f, 0.68f), Offset(0.14f, 0.68f), Offset(0.14f, 0.16f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Star -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.10f), Offset(0.61f, 0.36f), Offset(0.90f, 0.38f), Offset(0.68f, 0.57f), Offset(0.75f, 0.86f), Offset(0.50f, 0.70f), Offset(0.25f, 0.86f), Offset(0.32f, 0.57f), Offset(0.10f, 0.38f), Offset(0.39f, 0.36f), Offset(0.50f, 0.10f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Bag -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.18f, 0.32f), Offset(0.82f, 0.32f), Offset(0.78f, 0.86f), Offset(0.22f, 0.86f), Offset(0.18f, 0.32f)),
+            listOf(Offset(0.35f, 0.34f), Offset(0.35f, 0.23f), Offset(0.41f, 0.15f), Offset(0.50f, 0.12f), Offset(0.59f, 0.15f), Offset(0.65f, 0.23f), Offset(0.65f, 0.34f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Bell -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.17f, 0.72f), Offset(0.25f, 0.62f), Offset(0.25f, 0.40f), Offset(0.30f, 0.25f), Offset(0.40f, 0.18f), Offset(0.50f, 0.15f), Offset(0.60f, 0.18f), Offset(0.70f, 0.25f), Offset(0.75f, 0.40f), Offset(0.75f, 0.62f), Offset(0.83f, 0.72f), Offset(0.17f, 0.72f)),
+            listOf(Offset(0.40f, 0.80f), Offset(0.45f, 0.86f), Offset(0.55f, 0.86f), Offset(0.60f, 0.80f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Share -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.50f, 0.65f), Offset(0.50f, 0.12f)),
+            listOf(Offset(0.28f, 0.34f), Offset(0.50f, 0.12f), Offset(0.72f, 0.34f)),
+            listOf(Offset(0.20f, 0.48f), Offset(0.16f, 0.48f), Offset(0.16f, 0.86f), Offset(0.84f, 0.86f), Offset(0.84f, 0.48f), Offset(0.80f, 0.48f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Language -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.10f, 0.50f), Offset(0.90f, 0.50f)),
+            listOf(Offset(0.50f, 0.10f), Offset(0.35f, 0.22f), Offset(0.28f, 0.50f), Offset(0.35f, 0.78f), Offset(0.50f, 0.90f)),
+            listOf(Offset(0.50f, 0.10f), Offset(0.65f, 0.22f), Offset(0.72f, 0.50f), Offset(0.65f, 0.78f), Offset(0.50f, 0.90f)),
+            listOf(Offset(0.18f, 0.27f), Offset(0.82f, 0.27f)),
+            listOf(Offset(0.18f, 0.73f), Offset(0.82f, 0.73f)),
+        ),
+        dots = listOf(IconDot(Offset(0.50f, 0.50f), 0.40f, filled = false)),
+    )
+
+    IconRole.CompactOverlay -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.10f, 0.18f), Offset(0.90f, 0.18f), Offset(0.90f, 0.82f), Offset(0.10f, 0.82f), Offset(0.10f, 0.18f)),
+            listOf(Offset(0.50f, 0.48f), Offset(0.80f, 0.48f), Offset(0.80f, 0.73f), Offset(0.50f, 0.73f), Offset(0.50f, 0.48f)),
+        ),
+        dots = emptyList(),
+    )
+
+    IconRole.Calculator -> IconGeometry(
+        strokes = listOf(
+            listOf(Offset(0.20f, 0.10f), Offset(0.80f, 0.10f), Offset(0.80f, 0.90f), Offset(0.20f, 0.90f), Offset(0.20f, 0.10f)),
+            listOf(Offset(0.30f, 0.20f), Offset(0.70f, 0.20f), Offset(0.70f, 0.37f), Offset(0.30f, 0.37f), Offset(0.30f, 0.20f)),
+            listOf(Offset(0.32f, 0.54f), Offset(0.39f, 0.54f)),
+            listOf(Offset(0.61f, 0.54f), Offset(0.68f, 0.54f)),
+            listOf(Offset(0.32f, 0.70f), Offset(0.39f, 0.70f)),
+            listOf(Offset(0.61f, 0.70f), Offset(0.68f, 0.70f)),
+        ),
+        dots = emptyList(),
+    )
 }
