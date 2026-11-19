@@ -87,6 +87,10 @@ In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixe
 
 When `design_system_parity` cannot find the design systems, its failure now names the checkout it looked in and tells you to run `scripts/fetch-design-systems.sh` there ([#495](https://github.com/DarkPyonix/compose-rust/issues/495)).
 
+### `Canvas` draws with any brush
+
+A `Canvas` draw command whose paint is a registered brush (a gradient or an image brush) now draws with that brush: lines, rectangles, rounded rectangles, circles, arcs and text alike. Before, the generated decoder read a brush paint as a plain colour, so the shape came out in a single colour. The wire format is unchanged; the generated Kotlin decoder changes, so a renderer and a crate should both be at this version ([#584](https://github.com/DarkPyonix/compose-rust/issues/584)).
+
 ## v0.0.11
 
 ### Known issues
