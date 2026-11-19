@@ -1245,6 +1245,7 @@ pub struct TextFieldScope {
     on_motion_finished: Option<Box<dyn FnMut(MotionFinished)>>,
     focus_handle: Option<super::FocusHandle>,
     bare: bool,
+    read_only: bool,
     done: bool,
 }
 
@@ -1280,6 +1281,7 @@ pub fn TextField() -> TextFieldScope {
         on_motion_finished: None,
         focus_handle: None,
         bare: false,
+        read_only: false,
         done: false,
     }
 }
@@ -1452,12 +1454,19 @@ impl TextFieldScope {
         self
     }
 
+    /// Keeps the field focusable and selectable (including copy) while rejecting edits and
+    /// announcing it as read-only.
+    pub fn read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
     fn compose(&mut self, content: impl FnOnce()) {
         let modifier = std::mem::take(&mut self.modifier);
         let text = std::mem::take(&mut self.text);
         let placeholder = std::mem::take(&mut self.placeholder);
         let (enabled, multiline, type_role) = (self.enabled, self.multiline, self.type_role);
-        let bare = self.bare;
+        let (bare, read_only) = (self.bare, self.read_only);
         let (font_size, font_weight, line_height) =
             (self.font_size, self.font_weight, self.line_height);
         let (letter_spacing, color) = (self.letter_spacing, self.color);
@@ -1507,6 +1516,9 @@ impl TextFieldScope {
                 attrs.push(("placeholder", OwnedAttr::Text(placeholder)));
                 attrs.push(("enabled", OwnedAttr::Bool(enabled)));
                 attrs.push(("multiline", OwnedAttr::Bool(multiline)));
+                if read_only {
+                    attrs.push(("read_only", OwnedAttr::Bool(true)));
+                }
                 // An explicit `TypeRole::None` is a 0 on the wire, an unset role nothing,
                 // as for `Text`.
                 attrs.push(("type_role", super::role(type_role)));

@@ -460,6 +460,7 @@ pub struct Modifier {
     height: Option<f32>,
     padding: Option<f32>,
     padding_role: Option<SpaceRole>,
+    padding_each: Option<[f32; 4]>,
     background: Option<Paint>,
     shape_role: Option<ShapeRole>,
     corner_radius: Option<f32>,
@@ -517,6 +518,7 @@ impl Modifier {
             height: None,
             padding: None,
             padding_role: None,
+            padding_each: None,
             background: None,
             shape_role: None,
             corner_radius: None,
@@ -712,13 +714,30 @@ impl Modifier {
     /// The same inset on every side, in dp.
     pub const fn padding(mut self, dp: f32) -> Self {
         self.padding = Some(dp);
+        self.padding_role = None;
+        self.padding_each = None;
         self
     }
 
     /// An inset from the design system's spacing ladder. Wins over `padding`.
     pub const fn padding_role(mut self, role: SpaceRole) -> Self {
         self.padding_role = Some(role);
+        self.padding = None;
+        self.padding_each = None;
         self
+    }
+
+    /// Insets each side of the node's content in dp (start, top, end, bottom).
+    pub const fn padding_each(mut self, start: f32, top: f32, end: f32, bottom: f32) -> Self {
+        self.padding_each = Some([start, top, end, bottom]);
+        self.padding = None;
+        self.padding_role = None;
+        self
+    }
+
+    /// Insets the horizontal and vertical sides of the node's content in dp.
+    pub const fn padding_xy(self, horizontal: f32, vertical: f32) -> Self {
+        self.padding_each(horizontal, vertical, horizontal, vertical)
     }
 
     /// The same, when the inset may be unset.
@@ -1239,6 +1258,18 @@ pub(crate) fn push_modifiers(modifier: &Modifier, mods: Mods, out: &mut Attrs) {
     push(chip, "height", float(modifier.height));
     push(chip, "padding", float(modifier.padding));
     push(chip, "padding_role", role(modifier.padding_role));
+    push(
+        false,
+        "padding_each",
+        modifier.padding_each.map_or(OwnedAttr::None, |values| {
+            OwnedAttr::Bytes(
+                values
+                    .iter()
+                    .flat_map(|value| value.to_le_bytes())
+                    .collect(),
+            )
+        }),
+    );
     // An animated background owns the background's slot while it is set.
     push(
         standard || scaffold,
