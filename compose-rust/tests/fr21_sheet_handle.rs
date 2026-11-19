@@ -74,7 +74,10 @@ fn fr21_sheet_handle_false_travels_on_the_wire() {
         PropertyKind::from_name("sheet_handle"),
         Ok(PropertyKind::SheetHandle)
     );
-    assert_eq!(handle_records(Some(false)), vec![(WidgetKind::Sheet, false)]);
+    assert_eq!(
+        handle_records(Some(false)),
+        vec![(WidgetKind::Sheet, false)]
+    );
 }
 
 /// The default is a handle, so a sheet that never asked and one that asked for the handle
