@@ -1759,7 +1759,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
 
-#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, [leader, provisional, 2026-11-19])
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Done`, 이슈 #843, [leader, provisional, 2026-11-19])
 
 - **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
 - **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
@@ -1770,6 +1770,7 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 2. `handle(false)`인 시트에는 손잡이가 없습니다(fr21_sheet_handle_can_be_hidden).
 3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
 4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
+   - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, 1080x2640, 밀도 3, develop, Material3): 손잡이와 시트 표면의 대비는 밝은 테마 1.98:1, 어두운 테마 2.69:1입니다. 시트 내용의 마지막 행은 y 2474에서 끝나고, 시스템의 아래 제스처 영역은 y 2544부터라서 내용이 그보다 23dp 위에서 끝납니다. 시트 표면은 화면 아래 끝까지 닿습니다. 캡처는 이슈 #843에 있습니다.
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
