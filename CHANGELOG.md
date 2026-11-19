@@ -55,6 +55,30 @@ The Host's batch encoder gives back its buffers after a batch larger than its re
 
 A `NativeView` that only moves or only resizes while scrolling updates just that part of its frame, and a view with nothing drawn above it makes no hole list. The saving is small, below what the frame budget test resolves ([#855](https://github.com/DarkPyonix/compose-rust/issues/855)).
 
+### A bare single-line `TextField` centres its text vertically
+
+A bare single-line `TextField` now centres its text in the height it is given, as a decorated one does; before, a bare field put its text at the top. This changes how bare fields given a height look, for example a 48 dp search field. Multiline fields still start at the top. Padding set with `padding_each` sits inside the field, so a click in it still focuses the field ([#771](https://github.com/DarkPyonix/compose-rust/issues/771)).
+
+### A read-only `TextField`
+
+`TextFieldScope::read_only(true)` keeps a field's text selectable and copyable but not editable, and accessibility reads it as not editable. It travels as the `ReadOnly` property (tag 215, a boolean), so the schema hash changes ([#826](https://github.com/DarkPyonix/compose-rust/issues/826)).
+
+### `padding_each` and `padding_xy`
+
+`Modifier::padding_each(start, top, end, bottom)` sets each side's padding in dp, and `Modifier::padding_xy(horizontal, vertical)` sets the two axes. No schema change ([#826](https://github.com/DarkPyonix/compose-rust/issues/826)).
+
+### A border of width 0 draws nothing
+
+`Modifier::border` with a width of 0 or less now draws no border. Before, Compose read 0 dp as a hairline and drew a 1 pixel line ([#770](https://github.com/DarkPyonix/compose-rust/issues/770)).
+
+### `equal_height` rows with a scrolling child
+
+In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixed height now measures at that height. Before, it measured 0 and the row collapsed ([#766](https://github.com/DarkPyonix/compose-rust/issues/766)).
+
+### The settings icon is a gear
+
+`IconRole::Settings` draws an eight-tooth gear with a hub. Before, at bar size, it read as a crosshair ([#537](https://github.com/DarkPyonix/compose-rust/issues/537)).
+
 ## v0.0.11
 
 ### Known issues
