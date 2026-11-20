@@ -3,7 +3,7 @@
 //! A brush does not fit where a colour fits. A `Paint` is two words on the wire and a
 //! gradient is a list of stops, so the brush travels the way a picture does: registered
 //! before anything draws it, kept by the Renderer, and named by id after that. That is
-//! the road [`crate::asset`] already built, and this is a second kind of traffic on it
+//! the road [`crate::asset`](mod@crate::asset) already built, and this is a second kind of traffic on it
 //! rather than a second road.
 //!
 //! The bytes are this module's own fixed layout and not a file format. No platform stores

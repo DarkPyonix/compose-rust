@@ -17,7 +17,7 @@ use support::Tree;
 
 #[Composable]
 fn App() {
-    Text("scheme");
+    Text!("scheme");
 }
 
 fn start() -> (ComposeHost, Tree) {

@@ -71,13 +71,14 @@ fn fr13_shape_role_schema_lists_full_last() {
 #[test]
 fn fr13_modifier_shape_role_builder_sends_full() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.height(40.0).shape_role(ShapeRole::Full))
-            .content(|| {
-                Text("pill");
-            });
-        Box().content(|| {
-            Text("square");
+        Box!(
+            modifier = Modifier.height(40.0).shape_role(ShapeRole::Full),
+            {
+                Text!("pill");
+            }
+        );
+        Box!({
+            Text!("square");
         });
     });
     let dump = tree.dump();

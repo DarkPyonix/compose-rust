@@ -27,17 +27,17 @@ fn dispatch(host: &mut ComposeHost, tree: &mut Tree, event: &HostEvent<'_>) {
 fn fr62_scroll_state_sends_target_and_updates_offset_from_range_report() {
     let (mut host, mut tree) = start(|| {
         let state = remember_scroll_state();
-        Column().content(|| {
-            Text(format!(
+        Column!({
+            Text!(format!(
                 "offset={:.0}/max={:.0}",
                 state.offset(),
                 state.max_offset()
             ));
             let to_zero = state.clone();
-            Button("Top").on_click(move || to_zero.scroll_to(0.0));
+            Button!("Top", move || to_zero.scroll_to(0.0));
             let to_far = state.clone();
-            Button("Bottom").on_click(move || to_far.animate_scroll_to(120.0));
-            ScrollColumn().scroll_state(&state).content(|| {});
+            Button!("Bottom", move || to_far.animate_scroll_to(120.0));
+            ScrollColumn!(scroll_state = &state, {});
         });
     });
 

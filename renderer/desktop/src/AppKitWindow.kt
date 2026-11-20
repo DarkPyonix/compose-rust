@@ -401,6 +401,7 @@ internal fun runAppKitWindow(autoExitMillis: Long? = null) {
     } finally {
         Win32Frames.paint = null
         forgetAppKitFrameCallback()
+        scene.forgetPointer()
         scene.close()
         context.close()
         host.shutdown()

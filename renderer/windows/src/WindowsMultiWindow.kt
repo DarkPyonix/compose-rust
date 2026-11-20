@@ -155,7 +155,10 @@ private fun windowContent(
     )
     return {
         ForWindow(nodeId) {
-            CompositionLocalProvider(LocalWindowActions provides actions) {
+            CompositionLocalProvider(
+                LocalWindowActions provides actions,
+                dev.darkpyonix.composerust.runtime.LocalWindowDrag provides { window.beginDrag() },
+            ) {
                 WindowContent(host, caption = WindowCaption(height = CAPTION_HEIGHT, fullSize = config.chrome == Chrome.FullSize))
             }
         }

@@ -39,18 +39,17 @@ fn wire(modifier: compose_rust::Modifier) -> (u16, u16, Vec<Mutation<'static>>) 
 #[test]
 fn fr55_hover_style_builder_reaches_the_wire() {
     let (_host, tree) = start(|| {
-        Row().content(|| {
-            Box()
-                .modifier(
-                    Modifier.hover_style(
-                        HoverStyle::fill(ColorRole::Primary, 0.12)
-                            .border(RED)
-                            .content_alpha(0.88),
-                    ),
-                )
-                .on_click(|| {})
-                .content(|| {});
-            Box().on_click(|| {}).content(|| {});
+        Row!({
+            Box!(
+                modifier = Modifier.hover_style(
+                    HoverStyle::fill(ColorRole::Primary, 0.12)
+                        .border(RED)
+                        .content_alpha(0.88),
+                ),
+                on_click = Some(|| {}),
+                {}
+            );
+            Box!(on_click = Some(|| {}), {});
         });
     });
     let dump = tree.dump();
@@ -89,10 +88,11 @@ fn fr55_hover_style_default_changes_nothing_and_round_trips() {
 #[test]
 fn fr55_focus_ring_builder_reaches_the_wire() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.focus_ring(RED, 3.0, 2.0))
-            .on_click(|| {})
-            .content(|| {});
+        Box!(
+            modifier = Modifier.focus_ring(RED, 3.0, 2.0),
+            on_click = Some(|| {}),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(
@@ -113,17 +113,19 @@ fn fr55_focus_ring_builder_reaches_the_wire() {
 #[test]
 fn fr51_press_style_builder_reaches_the_wire() {
     let (_host, tree) = start(|| {
-        Row().content(|| {
-            Box()
-                .modifier(Modifier.press_style(
+        Row!({
+            Box!(
+                modifier = Modifier.press_style(
                     PressStyle::tint(ColorRole::OnPrimary).press_easing(0.2, 0.0, 0.0, 1.0),
-                ))
-                .on_click(|| {})
-                .content(|| {});
-            Box()
-                .modifier(Modifier.press_style(PressStyle::default()))
-                .on_click(|| {})
-                .content(|| {});
+                ),
+                on_click = Some(|| {}),
+                {}
+            );
+            Box!(
+                modifier = Modifier.press_style(PressStyle::default()),
+                on_click = Some(|| {}),
+                {}
+            );
         });
     });
     let dump = tree.dump();
@@ -148,7 +150,7 @@ fn fr51_press_style_builder_reaches_the_wire() {
 #[test]
 fn fr55_a_node_without_the_new_modifiers_sends_none_of_them() {
     let (_host, tree) = start(|| {
-        Box().on_click(|| {}).content(|| {});
+        Box!(on_click = Some(|| {}), {});
     });
     let dump = tree.dump();
     for name in ["HoverStyle", "FocusRing", "PressStyle"] {

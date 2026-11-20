@@ -28,14 +28,14 @@ extern "C" fn request_frame() {
 fn sweep() {
     let count = remember(|| mutable_state_of(0_u64));
     let slots = SLOTS.load(Ordering::Relaxed);
-    Column().content(|| {
+    Column!({
         for slot in 0..slots {
             key(slot, || {
-                Text(format!("{}-{slot}", count.get()));
+                Text!(format!("{}-{slot}", count.get()));
             });
         }
         let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+        Button!("Increment", move || more.update(|count| *count += 1));
     });
 }
 

@@ -179,17 +179,16 @@ fn face_button(
     if let Some(edge) = edge {
         outline = outline.border(1.0, edge);
     }
-    Box()
-        .modifier(outline)
-        .alignment(Alignment::Center)
-        .content(|| {
-            face();
-            Button("")
-                .accessible_name(name)
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || on_click());
-        });
+    Box!(modifier = outline, alignment = Alignment::Center, {
+        face();
+        Button!(
+            "",
+            move || on_click(),
+            accessible_name = name,
+            variant = ButtonVariant::Text,
+            modifier = Modifier.fill_max_size()
+        );
+    });
 }
 
 /// A button that is one of the closed set of meanings, tinted, with nothing written on it.
@@ -200,23 +199,25 @@ fn icon_button(
     modifier: Modifier,
     on_click: impl FnMut() + 'static,
 ) {
-    Button("")
-        .icon(role)
-        .accessible_name(name)
-        .variant(ButtonVariant::Text)
-        .color(tint)
-        .modifier(modifier)
-        .on_click(on_click);
+    Button!(
+        "",
+        on_click,
+        icon = role,
+        accessible_name = name,
+        variant = ButtonVariant::Text,
+        color = tint,
+        modifier = modifier
+    );
 }
 
 /// One registered meaning, tinted.
 fn icon_face(picture: &'static [u8], tint: Paint) {
-    Icon(asset(AssetKind::VectorIcon, picture)).color(tint);
+    Icon!(asset(AssetKind::VectorIcon, picture), color = tint);
 }
 
 /// One drawn mark, at the size the controls use.
 fn mark_face(mark: DrawList) {
-    Canvas(mark).modifier(Modifier.size(MARK, MARK));
+    Canvas!(mark, modifier = Modifier.size(MARK, MARK));
 }
 
 /// A show's cover at some size, with its corners rounded.
@@ -233,32 +234,31 @@ fn cover_shaped(size: f32, show: &Show, shape: Option<ShapeRole>) {
     if let Some(shape) = shape {
         modifier = modifier.shape_role(shape);
     }
-    Image(asset(AssetKind::Svg, show.cover)).modifier(modifier);
+    Image!(asset(AssetKind::Svg, show.cover), modifier = modifier);
 }
 
 /// One thing that can be done to an episode: the mark in its outlined circle, and, on the
 /// player, how many people have done it. The card under "New Episodes" shows the circles
 /// alone, which is where the reference keeps its counts off.
 fn action(name: &'static str, face: impl FnOnce(), count: Option<u32>, on_press: Rc<dyn Fn()>) {
-    Row()
-        .space_role(SpaceRole::Xs)
-        .alignment(Alignment::Center)
-        .content(|| {
-            face_button(
-                ACTION,
-                ShapeRole::Full,
-                None,
-                Some(palette::OUTLINE),
-                name,
-                face,
-                on_press,
+    Row!(space_role = SpaceRole::Xs, alignment = Alignment::Center, {
+        face_button(
+            ACTION,
+            ShapeRole::Full,
+            None,
+            Some(palette::OUTLINE),
+            name,
+            face,
+            on_press,
+        );
+        if let Some(count) = count {
+            Text!(
+                short_count(count),
+                type_role = TypeRole::Label,
+                color = palette::INK
             );
-            if let Some(count) = count {
-                Text(short_count(count))
-                    .type_role(TypeRole::Label)
-                    .color(palette::INK);
-            }
-        });
+        }
+    });
 }
 
 /// The heart, the bubble and the arrow, with or without their counts.
@@ -303,59 +303,63 @@ fn not_here(what: &'static str) -> Rc<dyn Fn()> {
 /// way in.
 #[Composable]
 fn welcome_page(on_listen: Rc<dyn Fn()>) {
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_size()
-                .background(palette::PAGE)
-                .padding_role(SpaceRole::Lg),
-        )
-        .space_role(SpaceRole::Lg)
-        .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_size()
+            .background(palette::PAGE)
+            .padding_role(SpaceRole::Lg),
+        space_role = SpaceRole::Lg,
+        {
             // Three segments with the first one in the accent: the first of three steps.
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     for step in 0..WELCOME_STEPS {
                         let fill = if step == 0 {
                             palette::ACCENT
                         } else {
                             palette::TILE
                         };
-                        Box()
-                            .modifier(
-                                Modifier
-                                    .weight(1.0)
-                                    .height(SEGMENT)
-                                    .background(fill)
-                                    .shape_role(ShapeRole::Full),
-                            )
-                            .content(|| {});
+                        Box!(
+                            modifier = Modifier
+                                .weight(1.0)
+                                .height(SEGMENT)
+                                .background(fill)
+                                .shape_role(ShapeRole::Full),
+                            {}
+                        );
                     }
-                });
-            Box()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .weight(1.0)
-                        .corner_radius(ART_CORNER)
-                        .clip(true),
-                )
-                .content(|| {
-                    Image(asset(AssetKind::Svg, WELCOME)).modifier(Modifier.fill_max_size());
-                });
-            Text("The Best Podcast\nof the Year")
-                .type_role(TypeRole::Display)
-                .font_weight(600)
-                .color(palette::INK)
-                .text_align(TextAlign::Center)
-                .modifier(Modifier.fill_max_width());
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| listen_pill(on_listen));
-        });
+                }
+            );
+            Box!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .weight(1.0)
+                    .corner_radius(ART_CORNER)
+                    .clip(true),
+                {
+                    Image!(
+                        asset(AssetKind::Svg, WELCOME),
+                        modifier = Modifier.fill_max_size()
+                    );
+                }
+            );
+            Text!(
+                "The Best Podcast\nof the Year",
+                type_role = TypeRole::Display,
+                font_weight = 600,
+                color = palette::INK,
+                text_align = TextAlign::Center,
+                modifier = Modifier.fill_max_width()
+            );
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                content = || listen_pill(on_listen)
+            );
+        }
+    );
 }
 
 /// The way in: an orange pill with a play disc at its start, the words in the middle and
@@ -363,48 +367,54 @@ fn welcome_page(on_listen: Rc<dyn Fn()>) {
 fn listen_pill(on_listen: Rc<dyn Fn()>) {
     let inset = 6.0;
     let disc = PILL.1 - 2.0 * inset;
-    Box()
-        .modifier(
-            Modifier
-                .size(PILL.0, PILL.1)
-                .background(palette::ACCENT)
-                .shape_role(ShapeRole::Full),
-        )
-        .alignment(Alignment::Center)
-        .content(|| {
-            Text(name::LISTEN)
-                .type_role(TypeRole::BodyStrong)
-                .color(palette::PAGE);
-            Box()
-                .modifier(Modifier.fill_max_size().padding(inset))
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Box()
-                        .modifier(
-                            Modifier
-                                .size(disc, disc)
-                                .background(palette::PAGE)
-                                .shape_role(ShapeRole::Full),
-                        )
-                        .alignment(Alignment::Center)
-                        .content(|| {
+    Box!(
+        modifier = Modifier
+            .size(PILL.0, PILL.1)
+            .background(palette::ACCENT)
+            .shape_role(ShapeRole::Full),
+        alignment = Alignment::Center,
+        {
+            Text!(
+                name::LISTEN,
+                type_role = TypeRole::BodyStrong,
+                color = palette::PAGE
+            );
+            Box!(
+                modifier = Modifier.fill_max_size().padding(inset),
+                alignment = Alignment::CenterStart,
+                {
+                    Box!(
+                        modifier = Modifier
+                            .size(disc, disc)
+                            .background(palette::PAGE)
+                            .shape_role(ShapeRole::Full),
+                        alignment = Alignment::Center,
+                        {
                             // A character rather than an icon: the closed set of meanings
                             // has no play yet.
-                            Text("\u{25b6}")
-                                .type_role(TypeRole::Label)
-                                .color(palette::ACCENT);
-                        });
-                });
-            Box()
-                .modifier(Modifier.fill_max_size().padding_role(SpaceRole::Md))
-                .alignment(Alignment::CenterEnd)
-                .content(|| icon_face(&icon::ONWARD, palette::ON_ACCENT_EDGE));
-            Button("")
-                .accessible_name(name::LISTEN)
-                .variant(ButtonVariant::Text)
-                .modifier(Modifier.fill_max_size())
-                .on_click(move || on_listen());
-        });
+                            Text!(
+                                "\u{25b6}",
+                                type_role = TypeRole::Label,
+                                color = palette::ACCENT
+                            );
+                        }
+                    );
+                }
+            );
+            Box!(
+                modifier = Modifier.fill_max_size().padding_role(SpaceRole::Md),
+                alignment = Alignment::CenterEnd,
+                content = || icon_face(&icon::ONWARD, palette::ON_ACCENT_EDGE)
+            );
+            Button!(
+                "",
+                move || on_listen(),
+                accessible_name = name::LISTEN,
+                variant = ButtonVariant::Text,
+                modifier = Modifier.fill_max_size()
+            );
+        }
+    );
 }
 
 /// One episode as a card: the title over the artwork, a waveform either side of it, and
@@ -412,85 +422,91 @@ fn listen_pill(on_listen: Rc<dyn Fn()>) {
 fn episode_card(found: &Episode, on_play: &Handler<u32>) {
     let show = show_of(found);
     let id = found.id;
-    Column()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(palette::PAGE)
-                .shape_role(ShapeRole::Large)
-                .border(1.0, palette::OUTLINE)
-                .padding_role(SpaceRole::Md),
-        )
-        .space_role(SpaceRole::Sm)
-        .content(|| {
-            Text(format!(
-                "S{}E{}: {}",
-                found.season, found.number, found.title
-            ))
-            .type_role(TypeRole::Subtitle)
-            .color(palette::INK)
-            .text_align(TextAlign::Center)
-            .modifier(Modifier.fill_max_width());
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
+    Column!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(palette::PAGE)
+            .shape_role(ShapeRole::Large)
+            .border(1.0, palette::OUTLINE)
+            .padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Sm,
+        {
+            Text!(
+                format!("S{}E{}: {}", found.season, found.number, found.title),
+                type_role = TypeRole::Subtitle,
+                color = palette::INK,
+                text_align = TextAlign::Center,
+                modifier = Modifier.fill_max_width()
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
                     // The part that has been played is in the accent and the rest is grey,
                     // so the two halves either side of the cover are one waveform with the
                     // playhead behind the artwork. The cover is the card's largest thing,
                     // as it is in the reference.
-                    Canvas(waveform(
-                        WAVE_SMALL.0 / 2.0,
-                        WAVE_SMALL.1,
-                        WAVE_COLUMNS / 2,
-                        found.seed,
-                        CARD_PLAYED,
-                        palette::ACCENT,
-                        palette::WAVE,
-                    ))
-                    .modifier(Modifier.weight(1.0).height(WAVE_SMALL.1));
+                    Canvas!(
+                        waveform(
+                            WAVE_SMALL.0 / 2.0,
+                            WAVE_SMALL.1,
+                            WAVE_COLUMNS / 2,
+                            found.seed,
+                            CARD_PLAYED,
+                            palette::ACCENT,
+                            palette::WAVE,
+                        ),
+                        modifier = Modifier.weight(1.0).height(WAVE_SMALL.1)
+                    );
                     cover(COVER_CARD, show);
-                    Canvas(waveform(
-                        WAVE_SMALL.0 / 2.0,
-                        WAVE_SMALL.1,
-                        WAVE_COLUMNS / 2,
-                        found.seed.wrapping_add(1),
-                        0.0,
-                        palette::ACCENT,
-                        palette::WAVE,
-                    ))
-                    .modifier(Modifier.weight(1.0).height(WAVE_SMALL.1));
-                });
-            Text(found.blurb)
-                .type_role(TypeRole::Body)
-                .color(palette::MUTED)
-                .max_lines(3)
-                .overflow(TextOverflow::Ellipsis);
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
+                    Canvas!(
+                        waveform(
+                            WAVE_SMALL.0 / 2.0,
+                            WAVE_SMALL.1,
+                            WAVE_COLUMNS / 2,
+                            found.seed.wrapping_add(1),
+                            0.0,
+                            palette::ACCENT,
+                            palette::WAVE,
+                        ),
+                        modifier = Modifier.weight(1.0).height(WAVE_SMALL.1)
+                    );
+                }
+            );
+            Text!(
+                found.blurb,
+                type_role = TypeRole::Body,
+                color = palette::MUTED,
+                max_lines = 3,
+                overflow = TextOverflow::Ellipsis
+            );
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
                     engagement(found, false);
-                    Spacer().modifier(Modifier.weight(1.0));
+                    Spacer!(modifier = Modifier.weight(1.0));
                     more_action();
                     // The one filled control on the card, and the only orange circle on
                     // the page that is not a destination. A character rather than an
                     // icon: the closed set of meanings has no play yet.
                     let play = Rc::clone(on_play);
-                    Button("\u{25b6}")
-                        .variant(ButtonVariant::Text)
-                        .color(palette::PAGE)
-                        .modifier(
-                            Modifier
-                                .size(ACTION, ACTION)
-                                .background(palette::ACCENT)
-                                .shape_role(ShapeRole::Full),
-                        )
-                        .on_click(move || play(id));
-                });
-        });
+                    Button!(
+                        "\u{25b6}",
+                        move || play(id),
+                        variant = ButtonVariant::Text,
+                        color = palette::PAGE,
+                        modifier = Modifier
+                            .size(ACTION, ACTION)
+                            .background(palette::ACCENT)
+                            .shape_role(ShapeRole::Full)
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// A show as a row, with a follow button.
@@ -517,28 +533,30 @@ fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn
         palette::PAGE
     };
     let edge = if recommended { 0.0 } else { 1.0 };
-    Row()
-        .modifier(
-            Modifier
-                .fill_max_width()
-                .background(fill)
-                .border(edge, palette::OUTLINE)
-                .shape_role(ShapeRole::Full)
-                .padding_role(SpaceRole::Sm),
-        )
-        .space_role(SpaceRole::Sm)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
+    Row!(
+        modifier = Modifier
+            .fill_max_width()
+            .background(fill)
+            .border(edge, palette::OUTLINE)
+            .shape_role(ShapeRole::Full)
+            .padding_role(SpaceRole::Sm),
+        space_role = SpaceRole::Sm,
+        alignment = Alignment::CenterStart,
+        {
             cover_shaped(COVER_ROW, show, Some(ShapeRole::Full));
-            Column().modifier(Modifier.weight(1.0)).content(|| {
-                Text(show.name)
-                    .type_role(TypeRole::BodyStrong)
-                    .color(ink)
-                    .max_lines(1)
-                    .overflow(TextOverflow::Ellipsis);
-                Text(format!("{} followers", short_count(show.followers)))
-                    .type_role(TypeRole::Caption)
-                    .color(quiet);
+            Column!(modifier = Modifier.weight(1.0), {
+                Text!(
+                    show.name,
+                    type_role = TypeRole::BodyStrong,
+                    color = ink,
+                    max_lines = 1,
+                    overflow = TextOverflow::Ellipsis
+                );
+                Text!(
+                    format!("{} followers", short_count(show.followers)),
+                    type_role = TypeRole::Caption,
+                    color = quiet
+                );
             });
             // On the recommended row the button is white let through onto the row's own
             // orange, and on the others it is the one filled thing on a white row.
@@ -547,22 +565,25 @@ fn show_row(show: &Show, followed: bool, recommended: bool, on_toggle: Rc<dyn Fn
             } else {
                 palette::ACCENT
             };
-            Button(if followed { "Following" } else { "Follow" })
-                .variant(ButtonVariant::Text)
-                .color(palette::PAGE)
-                .modifier(Modifier.shape_role(ShapeRole::Full).background(button))
-                .on_click(move || on_toggle());
-        });
+            Button!(
+                if followed { "Following" } else { "Follow" },
+                move || on_toggle(),
+                variant = ButtonVariant::Text,
+                color = palette::PAGE,
+                modifier = Modifier.shape_role(ShapeRole::Full).background(button)
+            );
+        }
+    );
 }
 
 /// The two outlined squares above the headline: everything laid out on the left, what is
 /// new for you on the right.
 fn top_row() {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .arrangement(Arrangement::SpaceBetween)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        arrangement = Arrangement::SpaceBetween,
+        alignment = Alignment::Center,
+        {
             face_button(
                 SQUARE,
                 ShapeRole::Medium,
@@ -581,7 +602,8 @@ fn top_row() {
                 || mark_face(library::bell(MARK, palette::INK)),
                 not_here("Notifications"),
             );
-        });
+        }
+    );
 }
 
 /// The two squares, the headline and the shelf, then the newest episode in full, then who
@@ -589,33 +611,33 @@ fn top_row() {
 #[Composable]
 fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: Handler<u32>) {
     let following = followed.get();
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
             top_row();
 
-            Text("New Episodes")
-                .type_role(TypeRole::Headline)
-                .font_weight(500)
-                .color(palette::INK);
+            Text!(
+                "New Episodes",
+                type_role = TypeRole::Headline,
+                font_weight = 500,
+                color = palette::INK
+            );
 
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::Center)
-                .content(|| {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::Center,
+                {
                     // The shelf begins with an orange tile the shape of a cover, which is
                     // how the reference separates "look for something" from "here is what
                     // is new".
-                    Box()
-                        .modifier(
-                            Modifier
-                                .size(COVER_SMALL, COVER_SMALL)
-                                .background(palette::ACCENT)
-                                .shape_role(ShapeRole::Large),
-                        )
-                        .content(|| {
+                    Box!(
+                        modifier = Modifier
+                            .size(COVER_SMALL, COVER_SMALL)
+                            .background(palette::ACCENT)
+                            .shape_role(ShapeRole::Large),
+                        {
                             let search = not_here("Search");
                             icon_button(
                                 IconRole::Search,
@@ -624,52 +646,58 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                                 Modifier.fill_max_size(),
                                 move || search(),
                             );
-                        });
+                        }
+                    );
                     // The shelf across, windowed. A cover that is not on screen is a
                     // picture nobody has asked the Renderer to draw.
                     let on_open = Rc::clone(&on_open);
-                    LazyRow()
-                        .modifier(Modifier.weight(1.0).height(COVER_SMALL + 16.0))
-                        .content(move |list| {
+                    LazyRow!(
+                        modifier = Modifier.weight(1.0).height(COVER_SMALL + 16.0),
+                        content = move |list| {
                             list.items_keyed(
                                 EPISODES.len(),
                                 |position| EPISODES[position].id.to_string(),
                                 move |position| {
                                     let found = EPISODES[position];
                                     let open = Rc::clone(&on_open);
-                                    Box()
-                                        .modifier(Modifier.padding_role(SpaceRole::Xs))
-                                        .content(|| {
-                                            // The inner box is measured, not wrapped. A
-                                            // child that fills its parent inside a box
-                                            // with no size of its own takes the whole
-                                            // width the shelf was offered, and the strip
-                                            // becomes one cover per screen.
-                                            Box()
-                                                .modifier(Modifier.size(COVER_SMALL, COVER_SMALL))
-                                                .alignment(Alignment::Center)
-                                                .content(|| {
-                                                    cover(COVER_SMALL, &SHOWS[found.show]);
-                                                    Button("")
-                                                        .variant(ButtonVariant::Text)
-                                                        .modifier(Modifier.fill_max_size())
-                                                        .on_click(move || open(found.id));
-                                                });
-                                        });
+                                    Box!(modifier = Modifier.padding_role(SpaceRole::Xs), {
+                                        // The inner box is measured, not wrapped. A
+                                        // child that fills its parent inside a box
+                                        // with no size of its own takes the whole
+                                        // width the shelf was offered, and the strip
+                                        // becomes one cover per screen.
+                                        Box!(
+                                            modifier = Modifier.size(COVER_SMALL, COVER_SMALL),
+                                            alignment = Alignment::Center,
+                                            {
+                                                cover(COVER_SMALL, &SHOWS[found.show]);
+                                                Button!(
+                                                    "",
+                                                    move || open(found.id),
+                                                    variant = ButtonVariant::Text,
+                                                    modifier = Modifier.fill_max_size()
+                                                );
+                                            }
+                                        );
+                                    });
                                 },
                             );
-                        });
-                });
+                        }
+                    );
+                }
+            );
 
             episode_card(&EPISODES[0], &on_play);
 
-            Text("Podcasts You May Like")
-                .type_role(TypeRole::Subtitle)
-                .color(palette::INK);
-            Column()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .content(|| {
+            Text!(
+                "Podcasts You May Like",
+                type_role = TypeRole::Subtitle,
+                color = palette::INK
+            );
+            Column!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                {
                     let order = std::iter::once(RECOMMENDED)
                         .chain((0..SHOWS.len()).filter(|index| *index != RECOMMENDED));
                     for index in order {
@@ -694,8 +722,10 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
                             );
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// Every episode, shortest first, as a plain list.
@@ -703,22 +733,22 @@ fn new_page(followed: MutableState<Vec<usize>>, on_play: Handler<u32>, on_open: 
 fn shows_page(on_play: Handler<u32>) {
     let mut ordered: Vec<&'static Episode> = EPISODES.iter().collect();
     ordered.sort_by_key(|found| found.seconds);
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("Shows")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::PAGE)
-                        .border(1.0, palette::OUTLINE)
-                        .shape_role(ShapeRole::Large),
-                )
-                .content(|| {
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!(
+                "Shows",
+                type_role = TypeRole::Headline,
+                color = palette::INK
+            );
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::PAGE)
+                    .border(1.0, palette::OUTLINE)
+                    .shape_role(ShapeRole::Large),
+                {
                     for (index, found) in ordered.iter().copied().enumerate() {
                         let last = index + 1 == EPISODES.len();
                         let play = Rc::clone(&on_play);
@@ -726,48 +756,55 @@ fn shows_page(on_play: Handler<u32>) {
                             shows_row(found, last, play);
                         });
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// One row of the plain list, with the hairline under every row but the last.
 #[Composable]
 fn shows_row(found: &'static Episode, last: bool, on_play: Handler<u32>) {
-    Column().modifier(Modifier.fill_max_width()).content(|| {
-        Row()
-            .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-            .space_role(SpaceRole::Sm)
-            .alignment(Alignment::CenterStart)
-            .content(|| {
+    Column!(modifier = Modifier.fill_max_width(), {
+        Row!(
+            modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+            space_role = SpaceRole::Sm,
+            alignment = Alignment::CenterStart,
+            {
                 cover(44.0, &SHOWS[found.show]);
-                Column().modifier(Modifier.weight(1.0)).content(|| {
-                    Text(found.title)
-                        .type_role(TypeRole::Body)
-                        .color(palette::INK)
-                        .max_lines(1)
-                        .overflow(TextOverflow::Ellipsis);
-                    Text(format!(
-                        "{} \u{00b7} {}",
-                        SHOWS[found.show].name,
-                        clock(found.seconds)
-                    ))
-                    .type_role(TypeRole::Caption)
-                    .color(palette::MUTED);
+                Column!(modifier = Modifier.weight(1.0), {
+                    Text!(
+                        found.title,
+                        type_role = TypeRole::Body,
+                        color = palette::INK,
+                        max_lines = 1,
+                        overflow = TextOverflow::Ellipsis
+                    );
+                    Text!(
+                        format!(
+                            "{} \u{00b7} {}",
+                            SHOWS[found.show].name,
+                            clock(found.seconds)
+                        ),
+                        type_role = TypeRole::Caption,
+                        color = palette::MUTED
+                    );
                 });
                 let id = found.id;
-                Button("\u{25b6}")
-                    .variant(ButtonVariant::Text)
-                    .color(palette::PAGE)
-                    .modifier(
-                        Modifier
-                            .height(ACTION + 8.0)
-                            .background(palette::ACCENT)
-                            .shape_role(ShapeRole::Full),
-                    )
-                    .on_click(move || on_play(id));
-            });
+                Button!(
+                    "\u{25b6}",
+                    move || on_play(id),
+                    variant = ButtonVariant::Text,
+                    color = palette::PAGE,
+                    modifier = Modifier
+                        .height(ACTION + 8.0)
+                        .background(palette::ACCENT)
+                        .shape_role(ShapeRole::Full)
+                );
+            }
+        );
         if !last {
-            Separator(Some(palette::OUTLINE));
+            Separator!(Some(palette::OUTLINE));
         }
     });
 }
@@ -776,51 +813,57 @@ fn shows_row(found: &'static Episode, last: bool, on_play: Handler<u32>) {
 #[Composable]
 fn you_page(followed: usize) {
     let listened: u32 = EPISODES.iter().map(|found| found.seconds).sum();
-    Column()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-        .space_role(SpaceRole::Md)
-        .content(|| {
-            Text("You")
-                .type_role(TypeRole::Headline)
-                .color(palette::INK);
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Md)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .weight(1.0)
-                                .background(palette::ACCENT)
-                                .shape_role(ShapeRole::Large)
-                                .padding_role(SpaceRole::Md),
-                        )
-                        .content(|| {
-                            Text(format!("{followed}"))
-                                .type_role(TypeRole::Display)
-                                .color(palette::PAGE);
-                            Text("shows followed")
-                                .type_role(TypeRole::Label)
-                                .color(palette::PAGE);
-                        });
-                    Column()
-                        .modifier(
-                            Modifier
-                                .weight(1.0)
-                                .background(palette::TILE)
-                                .shape_role(ShapeRole::Large)
-                                .padding_role(SpaceRole::Md),
-                        )
-                        .content(|| {
-                            Text(clock(listened))
-                                .type_role(TypeRole::Display)
-                                .color(palette::INK);
-                            Text("in the queue")
-                                .type_role(TypeRole::Label)
-                                .color(palette::MUTED);
-                        });
-                });
-        });
+    Column!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+        space_role = SpaceRole::Md,
+        {
+            Text!("You", type_role = TypeRole::Headline, color = palette::INK);
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Md,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .weight(1.0)
+                            .background(palette::ACCENT)
+                            .shape_role(ShapeRole::Large)
+                            .padding_role(SpaceRole::Md),
+                        {
+                            Text!(
+                                format!("{followed}"),
+                                type_role = TypeRole::Display,
+                                color = palette::PAGE
+                            );
+                            Text!(
+                                "shows followed",
+                                type_role = TypeRole::Label,
+                                color = palette::PAGE
+                            );
+                        }
+                    );
+                    Column!(
+                        modifier = Modifier
+                            .weight(1.0)
+                            .background(palette::TILE)
+                            .shape_role(ShapeRole::Large)
+                            .padding_role(SpaceRole::Md),
+                        {
+                            Text!(
+                                clock(listened),
+                                type_role = TypeRole::Display,
+                                color = palette::INK
+                            );
+                            Text!(
+                                "in the queue",
+                                type_role = TypeRole::Label,
+                                color = palette::MUTED
+                            );
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The player: the artwork full bleed across the top, then who and what, the counts, the
@@ -836,32 +879,28 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
     let played = at as f32 / found.seconds.max(1) as f32;
     let length = found.seconds;
 
-    ScrollColumn()
-        .modifier(Modifier.fill_max_size().background(palette::PAGE))
-        .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .fill_max_width()
-                        .background(palette::ACCENT)
-                        .corner_radii([0.0, 0.0, ART_CORNER, ART_CORNER])
-                        .clip(true)
-                        .padding_role(SpaceRole::Md),
-                )
-                .space_role(SpaceRole::Sm)
-                .content(|| {
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .alignment(Alignment::Center)
-                        .content(|| {
-                            Box()
-                                .modifier(
-                                    Modifier
-                                        .size(SQUARE, SQUARE)
-                                        .shape_role(ShapeRole::Medium)
-                                        .border(1.0, palette::ON_ACCENT_EDGE),
-                                )
-                                .content(|| {
+    ScrollColumn!(
+        modifier = Modifier.fill_max_size().background(palette::PAGE),
+        {
+            Column!(
+                modifier = Modifier
+                    .fill_max_width()
+                    .background(palette::ACCENT)
+                    .corner_radii([0.0, 0.0, ART_CORNER, ART_CORNER])
+                    .clip(true)
+                    .padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Sm,
+                {
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        alignment = Alignment::Center,
+                        {
+                            Box!(
+                                modifier = Modifier
+                                    .size(SQUARE, SQUARE)
+                                    .shape_role(ShapeRole::Medium)
+                                    .border(1.0, palette::ON_ACCENT_EDGE),
+                                {
                                     let back = Rc::clone(&on_back);
                                     icon_button(
                                         IconRole::Back,
@@ -870,12 +909,15 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                         Modifier.fill_max_size(),
                                         move || back(),
                                     );
-                                });
-                            Spacer().modifier(Modifier.weight(1.0));
-                            Text(show.name)
-                                .type_role(TypeRole::BodyStrong)
-                                .color(palette::PAGE);
-                            Spacer().modifier(Modifier.weight(1.0));
+                                }
+                            );
+                            Spacer!(modifier = Modifier.weight(1.0));
+                            Text!(
+                                show.name,
+                                type_role = TypeRole::BodyStrong,
+                                color = palette::PAGE
+                            );
+                            Spacer!(modifier = Modifier.weight(1.0));
                             face_button(
                                 SQUARE,
                                 ShapeRole::Medium,
@@ -885,92 +927,112 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                 || mark_face(library::share(MARK, palette::PAGE)),
                                 not_here("Sharing"),
                             );
-                        });
+                        }
+                    );
                     // The cover square on the orange, unrounded, so it reads as the
                     // picture the orange belongs to rather than a tile laid on it.
-                    Box()
-                        .modifier(Modifier.fill_max_width())
-                        .alignment(Alignment::Center)
-                        .content(|| cover_shaped(COVER_LARGE, show, None));
-                });
+                    Box!(
+                        modifier = Modifier.fill_max_width(),
+                        alignment = Alignment::Center,
+                        content = || cover_shaped(COVER_LARGE, show, None)
+                    );
+                }
+            );
 
-            Column()
-                .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                .space_role(SpaceRole::Sm)
-                .content(|| {
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
+            Column!(
+                modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                space_role = SpaceRole::Sm,
+                {
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::CenterStart,
+                        {
                             // The host's picture is the show's own cover in a circle: the
                             // sample carries no photographs of people.
                             cover_shaped(AVATAR, show, Some(ShapeRole::Full));
-                            Text(show.host)
-                                .type_role(TypeRole::Label)
-                                .color(palette::INK)
-                                .modifier(Modifier.weight(1.0));
+                            Text!(
+                                show.host,
+                                type_role = TypeRole::Label,
+                                color = palette::INK,
+                                modifier = Modifier.weight(1.0)
+                            );
                             // A character rather than an icon: the closed set of meanings
                             // has no star yet.
-                            Text("\u{2605}")
-                                .type_role(TypeRole::Label)
-                                .color(palette::ACCENT);
-                            Text("4.7").type_role(TypeRole::Label).color(palette::INK);
-                        });
-                    Text(found.title)
-                        .type_role(TypeRole::Title)
-                        .color(palette::INK);
-                    Text(found.blurb)
-                        .type_role(TypeRole::Body)
-                        .color(palette::MUTED)
-                        .max_lines(3)
-                        .overflow(TextOverflow::Ellipsis);
+                            Text!(
+                                "\u{2605}",
+                                type_role = TypeRole::Label,
+                                color = palette::ACCENT
+                            );
+                            Text!("4.7", type_role = TypeRole::Label, color = palette::INK);
+                        }
+                    );
+                    Text!(
+                        found.title,
+                        type_role = TypeRole::Title,
+                        color = palette::INK
+                    );
+                    Text!(
+                        found.blurb,
+                        type_role = TypeRole::Body,
+                        color = palette::MUTED,
+                        max_lines = 3,
+                        overflow = TextOverflow::Ellipsis
+                    );
 
                     // The counts live here rather than on the card, as they do in the
                     // reference.
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .space_role(SpaceRole::Sm)
-                        .alignment(Alignment::Center)
-                        .content(|| {
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        space_role = SpaceRole::Sm,
+                        alignment = Alignment::Center,
+                        {
                             engagement(found, true);
-                            Spacer().modifier(Modifier.weight(1.0));
+                            Spacer!(modifier = Modifier.weight(1.0));
                             more_action();
-                        });
+                        }
+                    );
 
-                    Canvas(waveform(
-                        WAVE.0,
-                        WAVE.1,
-                        WAVE_COLUMNS,
-                        found.seed,
-                        played,
-                        palette::ACCENT,
-                        palette::WAVE,
-                    ))
-                    .modifier(Modifier.fill_max_width().height(WAVE.1));
-                    Row()
-                        .modifier(Modifier.fill_max_width())
-                        .alignment(Alignment::CenterStart)
-                        .content(|| {
-                            Text(clock(at))
-                                .type_role(TypeRole::Caption)
-                                .color(palette::ACCENT)
-                                .modifier(Modifier.weight(1.0));
-                            Text(clock(length))
-                                .type_role(TypeRole::Caption)
-                                .color(palette::INK);
-                        });
+                    Canvas!(
+                        waveform(
+                            WAVE.0,
+                            WAVE.1,
+                            WAVE_COLUMNS,
+                            found.seed,
+                            played,
+                            palette::ACCENT,
+                            palette::WAVE,
+                        ),
+                        modifier = Modifier.fill_max_width().height(WAVE.1)
+                    );
+                    Row!(
+                        modifier = Modifier.fill_max_width(),
+                        alignment = Alignment::CenterStart,
+                        {
+                            Text!(
+                                clock(at),
+                                type_role = TypeRole::Caption,
+                                color = palette::ACCENT,
+                                modifier = Modifier.weight(1.0)
+                            );
+                            Text!(
+                                clock(length),
+                                type_role = TypeRole::Caption,
+                                color = palette::INK
+                            );
+                        }
+                    );
 
                     // The transport. Skipping is the back and forward meanings; play is a
                     // character, because the closed set has no play, pause or shuffle yet,
                     // and the shuffle and sleep timer the reference puts at either end
                     // are left off rather than drawn as something they are not.
-                    Row()
-                        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Md))
-                        .space_role(SpaceRole::Lg)
-                        .alignment(Alignment::Center)
-                        .arrangement(Arrangement::Center)
-                        .content(|| {
+                    Row!(
+                        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Md),
+                        space_role = SpaceRole::Lg,
+                        alignment = Alignment::Center,
+                        arrangement = Arrangement::Center,
+                        {
                             let back = position;
                             icon_button(
                                 IconRole::Back,
@@ -980,16 +1042,16 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                 move || back.set(back.get_untracked().saturating_sub(SKIP_SECONDS)),
                             );
                             let play = not_here("Playback");
-                            Button("\u{25b6}")
-                                .variant(ButtonVariant::Text)
-                                .color(palette::PAGE)
-                                .modifier(
-                                    Modifier
-                                        .size(ROUND, ROUND)
-                                        .background(palette::ACCENT)
-                                        .shape_role(ShapeRole::Full),
-                                )
-                                .on_click(move || play());
+                            Button!(
+                                "\u{25b6}",
+                                move || play(),
+                                variant = ButtonVariant::Text,
+                                color = palette::PAGE,
+                                modifier = Modifier
+                                    .size(ROUND, ROUND)
+                                    .background(palette::ACCENT)
+                                    .shape_role(ShapeRole::Full)
+                            );
                             let ahead = position;
                             icon_button(
                                 IconRole::Forward,
@@ -1000,9 +1062,12 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
                                     ahead.set((ahead.get_untracked() + SKIP_SECONDS).min(length))
                                 },
                             );
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The destinations: three round buttons floating on the page.
@@ -1014,12 +1079,12 @@ fn player_page(found: &'static Episode, position: MutableState<u32>, on_back: Rc
 /// design system would be right to give a set of destinations.
 #[Composable]
 fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
-    Row()
-        .modifier(Modifier.fill_max_width().padding_role(SpaceRole::Sm))
-        .space_role(SpaceRole::Sm)
-        .arrangement(Arrangement::Center)
-        .alignment(Alignment::Center)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width().padding_role(SpaceRole::Sm),
+        space_role = SpaceRole::Sm,
+        arrangement = Arrangement::Center,
+        alignment = Alignment::Center,
+        {
             for choice in Destination::STRIP {
                 let selected = choice == destination;
                 let fill = if selected {
@@ -1045,25 +1110,26 @@ fn bottom_bar(destination: Destination, on_go: Handler<Destination>) {
                     );
                 });
             }
-        });
+        }
+    );
 }
 
 /// A screen that covers the whole window, the bar included, laid out in the phone's
 /// measure when the window is wider than a phone.
 fn whole_window(measure: Option<f32>, content: impl FnOnce()) {
-    Box()
-        .modifier(Modifier.fill_max_size().background(palette::PAGE))
-        .alignment(Alignment::TopCenter)
-        .content(|| {
-            Column()
-                .modifier(
-                    Modifier
-                        .width_if(measure)
-                        .fill_max_width_if(measure.is_none())
-                        .fill_max_height(),
-                )
-                .content(content);
-        });
+    Box!(
+        modifier = Modifier.fill_max_size().background(palette::PAGE),
+        alignment = Alignment::TopCenter,
+        {
+            Column!(
+                modifier = Modifier
+                    .width_if(measure)
+                    .fill_max_width_if(measure.is_none())
+                    .fill_max_height(),
+                content = content
+            );
+        }
+    );
 }
 
 #[Composable]
@@ -1108,41 +1174,44 @@ pub fn app() {
     // The frame is named rather than built. Whether the bar runs across the bottom, stands
     // down the leading edge or opens as a drawer is the frame's answer from the width it
     // was given, and the page is laid out clear of whatever it took.
-    Scaffold()
-        .modifier(Modifier.background(palette::PAGE))
-        .bottom_bar(|| {
-            Box()
-                .modifier(Modifier.fill_max_width())
-                .alignment(Alignment::Center)
-                .content(|| {
-                    Column()
-                        .modifier(
-                            Modifier
-                                .width_if(measure)
-                                .fill_max_width_if(measure.is_none()),
-                        )
-                        .content(|| {
+    Scaffold!(
+        modifier = Modifier.background(palette::PAGE),
+        bottom_bar = Some(|| {
+            Box!(
+                modifier = Modifier.fill_max_width(),
+                alignment = Alignment::Center,
+                {
+                    Column!(
+                        modifier = Modifier
+                            .width_if(measure)
+                            .fill_max_width_if(measure.is_none()),
+                        {
                             let go = destination;
                             bottom_bar(current, Rc::new(move |choice| go.set(choice)));
-                        });
-                });
-        })
-        .content(|| {
-            Box()
-                .modifier(Modifier.weight(1.0))
-                .alignment(Alignment::TopCenter)
-                .content(|| {
-                    ScrollColumn()
-                        .modifier(Modifier.width_if(measure))
-                        .content(|| match current {
+                        }
+                    );
+                }
+            );
+        }),
+        {
+            Box!(
+                modifier = Modifier.weight(1.0),
+                alignment = Alignment::TopCenter,
+                {
+                    ScrollColumn!(
+                        modifier = Modifier.width_if(measure),
+                        content = || match current {
                             Destination::New => {
                                 new_page(followed, Rc::clone(&on_play), Rc::clone(&on_play))
                             }
                             Destination::Shows => shows_page(Rc::clone(&on_play)),
                             Destination::You => you_page(followed.with(Vec::len)),
-                        });
-                });
-        });
+                        }
+                    );
+                }
+            );
+        }
+    );
 }
 
 /// The design this sample draws, named once.

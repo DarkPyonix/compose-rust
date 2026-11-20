@@ -101,23 +101,31 @@ const TNUM: &[u8] = b"tnum\x01\0\0\0";
 
 #[Composable]
 fn Texts() {
-    Column().content(|| {
-        Text("12:04").font_feature_settings(&[FontFeature::TABULAR_NUMS]);
-        Text("plain");
-        Text("empty").font_feature_settings(&[]);
-        Text("body")
-            .type_role(TypeRole::Body)
-            .font_feature_settings(&[FontFeature::TABULAR_NUMS]);
+    Column!({
+        Text!(
+            "12:04",
+            font_feature_settings = &[FontFeature::TABULAR_NUMS]
+        );
+        Text!("plain");
+        Text!("empty", font_feature_settings = &[]);
+        Text!(
+            "body",
+            type_role = TypeRole::Body,
+            font_feature_settings = &[FontFeature::TABULAR_NUMS]
+        );
     });
 }
 
 #[Composable]
 fn Fields() {
-    Column().content(|| {
-        TextField()
-            .placeholder("0.00")
-            .font_feature_settings(&[FontFeature::TABULAR_NUMS]);
-        TextField().placeholder("plain");
+    Column!({
+        TextField!(
+            "",
+            |_| {},
+            placeholder = "0.00",
+            font_feature_settings = &[FontFeature::TABULAR_NUMS]
+        );
+        TextField!("", |_| {}, placeholder = "plain");
     });
 }
 
@@ -163,8 +171,8 @@ fn Toggled(on: MutableState<bool>, count: MutableState<i32>) {
     } else {
         &[]
     };
-    Column().content(|| {
-        Text(format!("{}", count.get())).font_feature_settings(features);
+    Column!({
+        Text!(format!("{}", count.get()), font_feature_settings = features);
     });
 }
 
@@ -250,8 +258,11 @@ fn Counter(count: MutableState<i32>, featured: MutableState<bool>) {
     } else {
         &[]
     };
-    Column().content(|| {
-        Text(format!("{:04}", count.get())).font_feature_settings(features);
+    Column!({
+        Text!(
+            format!("{:04}", count.get()),
+            font_feature_settings = features
+        );
     });
 }
 

@@ -16,19 +16,14 @@ thread_local! {
 
 #[Composable]
 fn Pictures() {
-    let image = Image(7).modifier(Modifier.size(64.0, 32.0));
-    let icon = Icon(8);
+    let scale = CHOICE.with(Cell::get);
+    Image!(
+        7,
+        modifier = Modifier.size(64.0, 32.0),
+        content_scale = scale
+    );
     // An icon takes its design system's optical size, so it is never sent a scale.
-    match CHOICE.with(Cell::get) {
-        Some(scale) => {
-            drop(image.content_scale(scale));
-            drop(icon.content_scale(scale));
-        }
-        None => {
-            drop(image);
-            drop(icon);
-        }
-    }
+    Icon!(8, content_scale = scale);
 }
 
 /// The `ContentScale` records the first frame wrote, with the widget each was written on,

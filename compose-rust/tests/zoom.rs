@@ -14,7 +14,7 @@ use support::Tree;
 
 #[Composable]
 fn App() {
-    Button("in twice").on_click(|| {
+    Button!("in twice", || {
         let handle = ZoomHandle::default();
         handle.zoom_in();
         handle.zoom_in();

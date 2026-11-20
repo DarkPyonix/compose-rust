@@ -17,17 +17,12 @@ thread_local! {
 #[Composable]
 fn Modals() {
     let fraction = FRACTION.with(Cell::get);
-    let mut sheet = Sheet(true);
-    let mut dialog = Dialog(true);
-    if let Some(fraction) = fraction {
-        sheet = sheet.max_height_fraction(fraction);
-        dialog = dialog.max_height_fraction(fraction);
-    }
-    sheet.content(|| {
-        Text("in the sheet");
+    Sheet!(true, || {}, max_height_fraction = fraction, {
+        Text!("in the sheet");
     });
-    dialog.content(|| {
-        Text("in the dialog");
+    // A dialog sizes itself to its content, so it does not take the parameter.
+    Dialog!(true, || {}, {
+        Text!("in the dialog");
     });
 }
 

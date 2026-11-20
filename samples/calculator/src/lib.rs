@@ -206,37 +206,41 @@ fn keypad_shape(reference: Reference, wide: bool) -> (usize, usize) {
 
 /// One key of the pad.
 fn pad_key(label: &'static str, modifier: Modifier, press: Press) {
-    Button(label)
-        .modifier(modifier)
-        .variant(variant_for(label))
-        .kind(ButtonKind::ActionKey)
-        .color_if(color_for(label))
-        .on_click(move || press(label));
+    Button!(
+        label,
+        move || press(label),
+        modifier = modifier,
+        variant = variant_for(label),
+        kind = ButtonKind::ActionKey,
+        color = color_for(label)
+    );
 }
 
 /// Rows of keys, each row sharing the height and each key sharing its row.
 #[Composable]
 fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, press: Press) {
-    Column()
-        .modifier(Modifier.weight(weight).fill_max_height())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
+    Column!(
+        modifier = Modifier.weight(weight).fill_max_height(),
+        space_role = SpaceRole::Xs,
+        {
             for (index, row) in rows.iter().enumerate() {
                 key(format!("row-{index}"), || {
-                    Row()
-                        .modifier(Modifier.fill_max_width().weight(1.0))
-                        .space_role(SpaceRole::Xs)
-                        .content(|| {
+                    Row!(
+                        modifier = Modifier.fill_max_width().weight(1.0),
+                        space_role = SpaceRole::Xs,
+                        {
                             for label in row.iter().copied() {
                                 let press = Rc::clone(&press);
                                 key(label, || {
                                     pad_key(label, Modifier.weight(1.0).fill_max_height(), press);
                                 });
                             }
-                        });
+                        }
+                    );
                 });
             }
-        });
+        }
+    );
 }
 
 /// The keypad, in the shape this platform's calculator has.
@@ -247,18 +251,18 @@ fn key_rows(rows: Vec<[&'static str; 4]>, weight: f32, press: Press) {
 /// stretching every key across it.
 #[Composable]
 fn keypad(reference: Reference, wide: bool, press: Press) {
-    Row()
-        .modifier(Modifier.fill_max_width().fill_max_height())
-        .space_role(SpaceRole::Xs)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width().fill_max_height(),
+        space_role = SpaceRole::Xs,
+        {
             if wide {
                 let functions = function_keys(reference.pad());
                 for (index, column) in functions.chunks(WIDE_ROWS).enumerate() {
                     key(format!("functions-{index}"), || {
-                        Column()
-                            .modifier(Modifier.weight(1.0).fill_max_height())
-                            .space_role(SpaceRole::Xs)
-                            .content(|| {
+                        Column!(
+                            modifier = Modifier.weight(1.0).fill_max_height(),
+                            space_role = SpaceRole::Xs,
+                            {
                                 for label in column.iter().copied() {
                                     let press = Rc::clone(&press);
                                     key(label, || {
@@ -269,7 +273,8 @@ fn keypad(reference: Reference, wide: bool, press: Press) {
                                         );
                                     });
                                 }
-                            });
+                            }
+                        );
                     });
                 }
                 key_rows(
@@ -284,58 +289,67 @@ fn keypad(reference: Reference, wide: bool, press: Press) {
                     Rc::clone(&press),
                 );
             }
-        });
+        }
+    );
 }
 
 /// The memory keys, as the row the Windows and Deepin references give them.
 #[Composable]
 fn memory_row(reference: Reference, memory_set: bool, press: Press) {
-    Row()
-        .modifier(Modifier.fill_max_width())
-        .space_role(SpaceRole::Xs)
-        .alignment(Alignment::CenterStart)
-        .content(|| {
+    Row!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Xs,
+        alignment = Alignment::CenterStart,
+        {
             for label in engine::MEMORY_KEYS {
                 let press = Rc::clone(&press);
                 key(label, || {
-                    Button(label)
-                        .modifier(Modifier.weight(1.0))
-                        .variant(reference.memory_variant())
+                    Button!(
+                        label,
+                        move || press(label),
+                        modifier = Modifier.weight(1.0),
+                        variant = reference.memory_variant(),
                         // Recalling, clearing and listing act on what is stored, so they
                         // are dead keys until something is. Both references grey them.
-                        .enabled(memory_set || !matches!(label, "MC" | "MR" | "M\u{25be}"))
-                        .on_click(move || press(label));
+                        enabled = memory_set || !matches!(label, "MC" | "MR" | "M\u{25be}")
+                    );
                 });
             }
-        });
+        }
+    );
 }
 
 /// The readout: what is being worked out, and what it comes to.
 #[Composable]
 fn readout(reference: Reference, status: String, display: String) {
-    Box().modifier(Modifier.fill_max_width()).content(|| {
-        Column()
-            .modifier(Modifier.fill_max_width())
-            .space_role(SpaceRole::Xs)
-            .content(|| {
+    Box!(modifier = Modifier.fill_max_width(), {
+        Column!(
+            modifier = Modifier.fill_max_width(),
+            space_role = SpaceRole::Xs,
+            {
                 // The pending operation is a line only while there is one.
                 if !status.is_empty() {
-                    Text(status.clone())
-                        .modifier(Modifier.fill_max_width())
-                        .text_align(TextAlign::End)
-                        .type_role(reference.expression_role())
-                        .color(Paint::Role(ColorRole::OnSurfaceVariant))
-                        .max_lines(1)
-                        .overflow(TextOverflow::Ellipsis);
+                    Text!(
+                        status.clone(),
+                        modifier = Modifier.fill_max_width(),
+                        text_align = TextAlign::End,
+                        type_role = reference.expression_role(),
+                        color = Paint::Role(ColorRole::OnSurfaceVariant),
+                        max_lines = 1,
+                        overflow = TextOverflow::Ellipsis
+                    );
                 }
-                Text(display.clone())
-                    .modifier(Modifier.fill_max_width())
-                    .text_align(TextAlign::End)
-                    .type_role(TypeRole::Display)
-                    .color(Paint::Role(ColorRole::OnSurface))
-                    .max_lines(1)
-                    .overflow(TextOverflow::Ellipsis);
-            });
+                Text!(
+                    display.clone(),
+                    modifier = Modifier.fill_max_width(),
+                    text_align = TextAlign::End,
+                    type_role = TypeRole::Display,
+                    color = Paint::Role(ColorRole::OnSurface),
+                    max_lines = 1,
+                    overflow = TextOverflow::Ellipsis
+                );
+            }
+        );
     });
 }
 
@@ -354,57 +368,66 @@ const TAPE_LABEL: &str = "History";
 /// The tape: what has been worked out, newest at the top.
 #[Composable]
 fn tape(entries: Vec<TapeEntry>, recall: Rc<dyn Fn(f64)>, clear: Rc<dyn Fn()>) {
-    Column()
-        .modifier(Modifier.fill_max_width().fill_max_height())
-        .space_role(SpaceRole::Sm)
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width())
-                .space_role(SpaceRole::Sm)
-                .alignment(Alignment::CenterStart)
-                .content(|| {
-                    Text(TAPE_LABEL)
-                        .type_role(TypeRole::Subtitle)
-                        .modifier(Modifier.weight(1.0));
+    Column!(
+        modifier = Modifier.fill_max_width().fill_max_height(),
+        space_role = SpaceRole::Sm,
+        {
+            Row!(
+                modifier = Modifier.fill_max_width(),
+                space_role = SpaceRole::Sm,
+                alignment = Alignment::CenterStart,
+                {
+                    Text!(
+                        TAPE_LABEL,
+                        type_role = TypeRole::Subtitle,
+                        modifier = Modifier.weight(1.0)
+                    );
                     // Throwing the tape away is the one destructive thing here, so it is
                     // the error ink and it offers the tape back afterwards.
                     let clear = Rc::clone(&clear);
-                    Button("Clear")
-                        .variant(ButtonVariant::Text)
-                        .color(Paint::Role(ColorRole::Error))
-                        .enabled(!entries.is_empty())
-                        .on_click(move || clear());
-                });
-            Separator(None);
+                    Button!(
+                        "Clear",
+                        move || clear(),
+                        variant = ButtonVariant::Text,
+                        color = Paint::Role(ColorRole::Error),
+                        enabled = !entries.is_empty()
+                    );
+                }
+            );
+            Separator!(None);
             if entries.is_empty() {
-                Box()
-                    .modifier(Modifier.fill_max_width().weight(1.0))
-                    .alignment(Alignment::Center)
-                    .content(|| {
-                        Text("Nothing worked out yet. Press equals and it lands here.")
-                            .type_role(TypeRole::Body)
-                            .text_align(TextAlign::Center)
-                            .color(Paint::Role(ColorRole::OnSurfaceVariant));
-                    });
+                Box!(
+                    modifier = Modifier.fill_max_width().weight(1.0),
+                    alignment = Alignment::Center,
+                    {
+                        Text!(
+                            "Nothing worked out yet. Press equals and it lands here.",
+                            type_role = TypeRole::Body,
+                            text_align = TextAlign::Center,
+                            color = Paint::Role(ColorRole::OnSurfaceVariant)
+                        );
+                    }
+                );
             } else {
                 // Newest first: the thing most likely wanted back is the last one.
-                ScrollColumn()
-                    .modifier(Modifier.fill_max_width().weight(1.0))
-                    .content(|| {
-                        for entry in entries.iter().rev() {
-                            let recall = Rc::clone(&recall);
-                            let value = entry.value;
-                            key(entry.id, || {
-                                Button(format!("{} = {}", entry.expression, entry.result))
-                                    .modifier(Modifier.fill_max_width())
-                                    .variant(ButtonVariant::Text)
-                                    .color(Paint::Role(ColorRole::OnSurface))
-                                    .on_click(move || recall(value));
-                            });
-                        }
-                    });
+                ScrollColumn!(modifier = Modifier.fill_max_width().weight(1.0), {
+                    for entry in entries.iter().rev() {
+                        let recall = Rc::clone(&recall);
+                        let value = entry.value;
+                        key(entry.id, || {
+                            Button!(
+                                format!("{} = {}", entry.expression, entry.result),
+                                move || recall(value),
+                                modifier = Modifier.fill_max_width(),
+                                variant = ButtonVariant::Text,
+                                color = Paint::Role(ColorRole::OnSurface)
+                            );
+                        });
+                    }
+                });
             }
-        });
+        }
+    );
 }
 
 /// How the reading area and the keypad share the instrument's height while the keys are
@@ -536,99 +559,102 @@ pub fn app() {
         })
     };
 
-    Scaffold()
-        .top_bar(|| {
-            TopAppBar().modifier(Modifier.fill_max_width()).content(|| {
+    Scaffold!(
+        top_bar = Some(|| {
+            TopAppBar!(modifier = Modifier.fill_max_width(), {
                 // Each reference's own bar. Windows has its navigation button and the
                 // mode's name; macOS has the sidebar the tape lives in; Deepin keeps its
                 // menu in the window's title bar and puts nothing above the reading area.
                 if reference == Reference::Windows {
-                    Button("")
-                        .icon(IconRole::Menu)
-                        .variant(ButtonVariant::Text)
-                        .on_click(|| {});
-                    Text("Standard").type_role(TypeRole::Title);
+                    Button!(
+                        "",
+                        || {},
+                        icon = IconRole::Menu,
+                        variant = ButtonVariant::Text
+                    );
+                    Text!("Standard", type_role = TypeRole::Title);
                 } else if reference == Reference::Apple && !tape_beside {
                     let open = tape_open;
-                    Button("")
-                        .icon(IconRole::Sidebar)
-                        .variant(ButtonVariant::Text)
-                        .on_click(move || open.set(true));
+                    Button!(
+                        "",
+                        move || open.set(true),
+                        icon = IconRole::Sidebar,
+                        variant = ButtonVariant::Text
+                    );
                 }
-                Spacer().modifier(Modifier.weight(1.0));
+                Spacer!(modifier = Modifier.weight(1.0));
                 if reference != Reference::Apple && !tape_beside {
                     let open = tape_open;
-                    Button("")
-                        .icon(IconRole::History)
-                        .variant(ButtonVariant::Text)
-                        .on_click(move || open.set(true));
+                    Button!(
+                        "",
+                        move || open.set(true),
+                        icon = IconRole::History,
+                        variant = ButtonVariant::Text
+                    );
                 }
             });
-        })
-        .content(|| {
-            Row()
-                .modifier(Modifier.fill_max_width().fill_max_height())
-                .content(|| {
-                    Box()
-                        .modifier(Modifier.weight(INSTRUMENT_SHARE).fill_max_height())
-                        .alignment(Alignment::TopCenter)
-                        .content(|| {
-                            Column()
-                                .modifier(
-                                    Modifier
-                                        .fill_max_width_if(layout.width.is_none())
-                                        .width_if(layout.width)
-                                        .fill_max_height()
-                                        .padding_role(SpaceRole::Md),
-                                )
-                                .space_role(SpaceRole::Md)
-                                .content(|| {
-                                    // The reading area takes what the keys leave, and
-                                    // the keys sit on the bottom edge of the window.
-                                    Box()
-                                        .modifier(Modifier.fill_max_width().weight(READING_SHARE))
-                                        .alignment(Alignment::BottomCenter)
-                                        .content(|| {
-                                            readout(reference, status.clone(), display.clone())
-                                        });
-                                    if reference.has_memory_row() {
-                                        memory_row(reference, memory_set, Rc::clone(&press));
-                                    }
-                                    Box()
-                                        .modifier(
-                                            Modifier.fill_max_width().weight(layout.keypad_share),
-                                        )
-                                        .alignment(Alignment::BottomCenter)
-                                        .content(|| keypad(reference, wide, Rc::clone(&press)));
-                                });
-                        });
-                    if tape_beside {
-                        Divider().vertical(true);
-                        Column()
-                            .modifier(
-                                Modifier
-                                    .weight(TAPE_SHARE)
-                                    .fill_max_height()
-                                    .padding_role(SpaceRole::Md),
-                            )
-                            .content(|| {
-                                tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape))
-                            });
+        }),
+        {
+            Row!(modifier = Modifier.fill_max_width().fill_max_height(), {
+                Box!(
+                    modifier = Modifier.weight(INSTRUMENT_SHARE).fill_max_height(),
+                    alignment = Alignment::TopCenter,
+                    {
+                        Column!(
+                            modifier = Modifier
+                                .fill_max_width_if(layout.width.is_none())
+                                .width_if(layout.width)
+                                .fill_max_height()
+                                .padding_role(SpaceRole::Md),
+                            space_role = SpaceRole::Md,
+                            {
+                                // The reading area takes what the keys leave, and
+                                // the keys sit on the bottom edge of the window.
+                                Box!(
+                                    modifier = Modifier.fill_max_width().weight(READING_SHARE),
+                                    alignment = Alignment::BottomCenter,
+                                    { readout(reference, status.clone(), display.clone()) }
+                                );
+                                if reference.has_memory_row() {
+                                    memory_row(reference, memory_set, Rc::clone(&press));
+                                }
+                                Box!(
+                                    modifier =
+                                        Modifier.fill_max_width().weight(layout.keypad_share),
+                                    alignment = Alignment::BottomCenter,
+                                    content = || keypad(reference, wide, Rc::clone(&press))
+                                );
+                            }
+                        );
                     }
-                });
+                );
+                if tape_beside {
+                    Divider!(vertical = true);
+                    Column!(
+                        modifier = Modifier
+                            .weight(TAPE_SHARE)
+                            .fill_max_height()
+                            .padding_role(SpaceRole::Md),
+                        { tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape)) }
+                    );
+                }
+            });
 
             // The same tape, arriving from an edge, for windows with no room beside the
             // keys.
             let close = tape_open;
-            Sheet(tape_open.get() && !tape_beside)
-                .on_dismiss(move || close.set(false))
-                .modifier(Modifier.fill_max_width())
-                .content(|| {
+            Sheet!(
+                tape_open.get() && !tape_beside,
+                move || close.set(false),
+                modifier = Modifier.fill_max_width(),
+                {
                     if !tape_beside {
                         tape(entries.get(), Rc::clone(&recall), Rc::clone(&clear_tape));
                     }
-                });
-        });
+                }
+            );
+        }
+    );
 }
 
 /// Runs the sample as a program of its own.

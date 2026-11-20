@@ -10,7 +10,7 @@ use compose_rust::ui::*;
 
 #[Composable]
 fn Empty() {
-    Row().content(|| {});
+    Row!({});
 }
 
 /// The asset records of a batch: (registered id, bytes) and released ids.

@@ -108,14 +108,13 @@ thread_local! {
 #[Composable]
 fn Layered() {
     let layers = LAYERS.with(|cell| cell.borrow().clone());
-    Box()
-        .modifier(
-            Modifier
-                .size(200.0, 100.0)
-                .background(Paint::Literal(Color::rgb(0x202020)))
-                .background_brushes(layers),
-        )
-        .content(|| {});
+    Box!(
+        modifier = Modifier
+            .size(200.0, 100.0)
+            .background(Paint::Literal(Color::rgb(0x202020)))
+            .background_brushes(layers),
+        {}
+    );
 }
 
 /// The `BackgroundBrush` records the first frame wrote, with their chain positions, and the

@@ -18,9 +18,9 @@ fn start(content: impl Fn() + Send + Sync + 'static) -> (ComposeHost, Tree) {
 #[test]
 fn fr15_2_12_collapse_below_writes_its_property() {
     let (_host, tree) = start(|| {
-        SplitPane().collapse_below(720.0).content(|| {
-            Text("Sessions");
-            Text("The conversation");
+        SplitPane!(|_| {}, collapse_below = 720.0, {
+            Text!("Sessions");
+            Text!("The conversation");
         });
     });
     let dump = tree.dump();
@@ -30,9 +30,9 @@ fn fr15_2_12_collapse_below_writes_its_property() {
 #[test]
 fn fr15_2_12_a_split_pane_without_collapse_below_sends_none() {
     let (_host, tree) = start(|| {
-        SplitPane().content(|| {
-            Text("Sessions");
-            Text("The conversation");
+        SplitPane!(|_| {}, {
+            Text!("Sessions");
+            Text!("The conversation");
         });
     });
     let dump = tree.dump();

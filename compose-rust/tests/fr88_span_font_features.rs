@@ -315,23 +315,29 @@ fn fr88_a_malformed_table_reads_back_as_no_features() {
 
 #[Composable]
 fn Texts() {
-    Column().content(|| {
-        Text("12345678").spans(TextSpans::new_with_features([
-            (TextSpan::new(0, 4), vec![]),
-            (TextSpan::new(4, 4), vec![FontFeature::TABULAR_NUMS]),
-        ]));
-        Text("87654321").spans(TextSpans::new([TextSpan::new(0, 8)]));
-        Text("no runs at all");
-        Text("runs with empty lists").spans(TextSpans::new_with_features([(
-            TextSpan::new(0, 4),
-            Vec::<FontFeature>::new(),
-        )]));
-        Text("12:04 pm")
-            .type_role(TypeRole::Body)
-            .spans(TextSpans::new_with_features([(
+    Column!({
+        Text!(
+            "12345678",
+            spans = TextSpans::new_with_features([
+                (TextSpan::new(0, 4), vec![]),
+                (TextSpan::new(4, 4), vec![FontFeature::TABULAR_NUMS]),
+            ])
+        );
+        Text!("87654321", spans = TextSpans::new([TextSpan::new(0, 8)]));
+        Text!("no runs at all");
+        Text!(
+            "runs with empty lists",
+            spans =
+                TextSpans::new_with_features([(TextSpan::new(0, 4), Vec::<FontFeature>::new(),)])
+        );
+        Text!(
+            "12:04 pm",
+            type_role = TypeRole::Body,
+            spans = TextSpans::new_with_features([(
                 TextSpan::new(0, 5),
                 vec![FontFeature::TABULAR_NUMS],
-            )]));
+            )])
+        );
     });
 }
 
@@ -383,8 +389,8 @@ fn Toggled(on: MutableState<bool>, count: MutableState<i32>) {
         Vec::new()
     };
     let spans = TextSpans::new_with_features([(TextSpan::new(0, 4), features)]);
-    Column().content(|| {
-        Text(format!("{:04}", count.get())).spans(spans.clone());
+    Column!({
+        Text!(format!("{:04}", count.get()), spans = spans.clone());
     });
 }
 
@@ -442,8 +448,8 @@ fn Counter(count: MutableState<i32>, featured: MutableState<bool>) {
     } else {
         PLAIN_RUNS.with(TextSpans::clone)
     };
-    Column().content(|| {
-        Text(format!("{:04}", count.get())).spans(spans.clone());
+    Column!({
+        Text!(format!("{:04}", count.get()), spans = spans.clone());
     });
 }
 

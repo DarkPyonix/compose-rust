@@ -44,11 +44,11 @@ fn flow_row_props(batch: &[u8]) -> (u32, Vec<(PropertyKind, PropertyValue<'_>)>,
 #[test]
 fn fr76_flow_row_wraps_by_measured_width() {
     let mut host = ComposeHost::with_content(|| {
-        FlowRow()
-            .horizontal_spacing(8.0)
-            .vertical_spacing(8.0)
-            .modifier(Modifier.width(390.0))
-            .content(|| {
+        FlowRow!(
+            horizontal_spacing = 8.0,
+            vertical_spacing = 8.0,
+            modifier = Modifier.width(390.0),
+            {
                 for label in [
                     "전체",
                     "읽지 않음",
@@ -59,9 +59,10 @@ fn fr76_flow_row_wraps_by_measured_width() {
                     "이번 주",
                     "스팸",
                 ] {
-                    Chip(label);
+                    Chip!(label, || {});
                 }
-            });
+            }
+        );
     });
     let batch = host.rebuild().expect("the first batch encodes").to_vec();
     let (_, props, children) = flow_row_props(&batch);
@@ -86,15 +87,16 @@ fn fr76_flow_row_wraps_by_measured_width() {
 #[test]
 fn fr76_flow_row_spacing() {
     let mut host = ComposeHost::with_content(|| {
-        FlowRow()
-            .horizontal_spacing(6.0)
-            .vertical_spacing(12.0)
-            .horizontal_alignment(HorizontalAlignment::End)
-            .vertical_alignment(VerticalAlignment::Center)
-            .max_items_in_each_row(3)
-            .content(|| {
-                Text("a");
-            });
+        FlowRow!(
+            horizontal_spacing = 6.0,
+            vertical_spacing = 12.0,
+            horizontal_alignment = HorizontalAlignment::End,
+            vertical_alignment = VerticalAlignment::Center,
+            max_items_in_each_row = 3,
+            {
+                Text!("a");
+            }
+        );
     });
     let batch = host.rebuild().expect("the first batch encodes").to_vec();
     let (flow, props, _) = flow_row_props(&batch);

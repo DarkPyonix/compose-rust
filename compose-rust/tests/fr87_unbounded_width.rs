@@ -39,32 +39,29 @@ fn fr87_unbounded_width_round_trips() {
 #[test]
 fn fr87_modifier_unbounded_width_builder() {
     let (_host, tree) = start(|| {
-        Box().modifier(Modifier.unbounded_width()).content(|| {});
+        Box!(modifier = Modifier.unbounded_width(), {});
     });
     let dump = tree.dump();
     assert!(dump.contains("m37=UnboundedWidth"), "{dump}");
 
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.wrap_content_width(true))
-            .content(|| {});
+        Box!(modifier = Modifier.wrap_content_width(true), {});
     });
     let dump = tree.dump();
     assert!(dump.contains("m37=UnboundedWidth"), "{dump}");
 
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.wrap_content_width(false))
-            .content(|| {});
+        Box!(modifier = Modifier.wrap_content_width(false), {});
     });
     let dump = tree.dump();
     assert!(!dump.contains("UnboundedWidth"), "{dump}");
 
     // The last call decides, in either order.
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.unbounded_width().wrap_content_width(false))
-            .content(|| {});
+        Box!(
+            modifier = Modifier.unbounded_width().wrap_content_width(false),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(!dump.contains("UnboundedWidth"), "{dump}");
@@ -75,9 +72,10 @@ fn fr87_modifier_unbounded_width_builder() {
 #[test]
 fn fr87_unbounded_width_keeps_its_own_slot_beside_observe_size_and_sticky() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(Modifier.observe_size_every_dp(7).sticky().unbounded_width())
-            .content(|| {});
+        Box!(
+            modifier = Modifier.observe_size_every_dp(7).sticky().unbounded_width(),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(dump.contains("m23=ObserveSize"), "{dump}");

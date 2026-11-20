@@ -16,21 +16,18 @@ thread_local! {
 fn CenteredModals() {
     let presentation = PRESENTATION.with(Cell::get);
     let max_width = MAX_WIDTH.with(Cell::get);
-    let mut sheet = Sheet(true);
-    let mut dialog = Dialog(true);
-    if let Some(pres) = presentation {
-        sheet = sheet.presentation(pres);
-        dialog = dialog.presentation(pres);
-    }
-    if let Some(w) = max_width {
-        sheet = sheet.max_width(w);
-        dialog = dialog.max_width(w);
-    }
-    sheet.content(|| {
-        Text("in the sheet");
-    });
-    dialog.content(|| {
-        Text("in the dialog");
+    Sheet!(
+        true,
+        || {},
+        presentation = presentation.unwrap_or(SheetPresentation::Edge),
+        max_width = max_width,
+        {
+            Text!("in the sheet");
+        }
+    );
+    // A dialog is always centered and sized by its content: it takes neither parameter.
+    Dialog!(true, || {}, {
+        Text!("in the dialog");
     });
 }
 

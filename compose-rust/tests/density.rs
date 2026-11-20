@@ -15,7 +15,7 @@ use support::Tree;
 
 #[Composable]
 fn App() {
-    Text("density");
+    Text!("density");
 }
 
 fn start() -> (ComposeHost, Tree) {

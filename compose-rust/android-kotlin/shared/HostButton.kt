@@ -58,7 +58,9 @@ import dev.darkpyonix.composerust.design.ButtonStyle
 import dev.darkpyonix.composerust.design.ResolvedTheme
 import dev.darkpyonix.composerust.runtime.EventDispatcher
 import dev.darkpyonix.composerust.ui.node.Children
+import dev.darkpyonix.composerust.ui.node.InheritedTextStyle
 import dev.darkpyonix.composerust.ui.node.LocalInheritedTextColor
+import dev.darkpyonix.composerust.ui.node.LocalInheritedTextStyle
 import dev.darkpyonix.composerust.ui.node.Node
 import dev.darkpyonix.composerust.ui.node.NodeTable
 import dev.darkpyonix.composerust.ui.hoverAndFocusRing
@@ -299,7 +301,14 @@ internal fun HostButton(
         if (node.children.isNotEmpty()) {
             // Children replace the label. They are laid out as a Row centred vertically, so
             // a weighted Spacer pushes whatever follows it to the button's inner edge.
-            CompositionLocalProvider(LocalInheritedTextColor provides ColorProducer { tint }) {
+            val inheritedStyle = InheritedTextStyle(
+                typeRole = node.role(PropertyKind.TypeRole, dev.darkpyonix.composerust.protocol.TypeRole.entries.toTypedArray()),
+                fontWeight = node.intProp(PropertyKind.FontWeight)?.toInt(),
+            )
+            CompositionLocalProvider(
+                LocalInheritedTextColor provides ColorProducer { tint },
+                LocalInheritedTextStyle provides inheritedStyle,
+            ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Children(node, table, dispatcher)
                 }

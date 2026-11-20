@@ -9,10 +9,10 @@ use compose_rust::ui::*;
 
 #[Composable]
 fn Aligned() {
-    Column().content(|| {
-        Text("left").text_align(TextAlign::Left);
-        Text("right").text_align(TextAlign::Right);
-        Text("start").text_align(TextAlign::Start);
+    Column!({
+        Text!("left", text_align = TextAlign::Left);
+        Text!("right", text_align = TextAlign::Right);
+        Text!("start", text_align = TextAlign::Start);
     });
 }
 

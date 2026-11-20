@@ -29,9 +29,10 @@ fn fr50_corner_curve_clamps_out_of_range() {
 
     for (given, sent) in [(-3.0, "0.0"), (4.0, "1.0"), (f32::NAN, "0.0")] {
         let (_host, tree) = start(move || {
-            Box()
-                .modifier(Modifier.corner_radius(16.0).corner_curve(given))
-                .content(|| {});
+            Box!(
+                modifier = Modifier.corner_radius(16.0).corner_curve(given),
+                {}
+            );
         });
         let dump = tree.dump();
         assert!(
@@ -44,13 +45,12 @@ fn fr50_corner_curve_clamps_out_of_range() {
 #[test]
 fn fr50_corner_curve_combines_with_corner_each() {
     let (_host, tree) = start(|| {
-        Box()
-            .modifier(
-                Modifier
-                    .corner_radii([4.0, 8.0, 12.0, 16.0])
-                    .corner_curve(0.6),
-            )
-            .content(|| {});
+        Box!(
+            modifier = Modifier
+                .corner_radii([4.0, 8.0, 12.0, 16.0])
+                .corner_curve(0.6),
+            {}
+        );
     });
     let dump = tree.dump();
     assert!(dump.contains("CornerCurve { smoothing: 0.6 }"), "{dump}");
@@ -67,11 +67,12 @@ fn fr50_corner_curve_change_sends_one_modifier() {
     let smoothing = mutable_state_of(0.6_f32);
     let state = smoothing;
     let (mut host, mut tree) = start(move || {
-        Box()
-            .modifier(Modifier.corner_radius(16.0).corner_curve(state.get()))
-            .content(|| {
-                Text("child");
-            });
+        Box!(
+            modifier = Modifier.corner_radius(16.0).corner_curve(state.get()),
+            {
+                Text!("child");
+            }
+        );
     });
     smoothing.set(0.2);
     let batch = host.render_frame(0).expect("the frame encodes").to_vec();

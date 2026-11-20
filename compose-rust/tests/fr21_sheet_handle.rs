@@ -17,17 +17,12 @@ thread_local! {
 #[Composable]
 fn Modals() {
     let handle = HANDLE.with(Cell::get);
-    let mut sheet = Sheet(true);
-    let mut dialog = Dialog(true);
-    if let Some(handle) = handle {
-        sheet = sheet.handle(handle);
-        dialog = dialog.handle(handle);
-    }
-    sheet.content(|| {
-        Text("in the sheet");
+    Sheet!(true, || {}, handle = handle.unwrap_or(true), {
+        Text!("in the sheet");
     });
-    dialog.content(|| {
-        Text("in the dialog");
+    // A dialog has no handle, so it does not take the parameter.
+    Dialog!(true, || {}, {
+        Text!("in the dialog");
     });
 }
 
