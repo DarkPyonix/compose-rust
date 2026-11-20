@@ -466,4 +466,27 @@ fun iconGeometry(role: IconRole): IconGeometry = when (role) {
         ),
         dots = emptyList(),
     )
+
+    IconRole.Refresh -> IconGeometry(
+        strokes = listOf(
+            // Clockwise open loop from 2 o'clock around the bottom and left back to 1 o'clock.
+            listOf(
+                Offset(0.84f, 0.50f),
+                Offset(0.80f, 0.67f),
+                Offset(0.67f, 0.80f),
+                Offset(0.50f, 0.84f),
+                Offset(0.33f, 0.80f),
+                Offset(0.20f, 0.67f),
+                Offset(0.16f, 0.50f),
+                Offset(0.20f, 0.33f),
+                Offset(0.33f, 0.20f),
+                Offset(0.50f, 0.16f),
+                Offset(0.68f, 0.21f),
+                Offset(0.80f, 0.32f),
+            ),
+            // Arrowhead at the top-right end of the loop.
+            listOf(Offset(0.80f, 0.14f), Offset(0.80f, 0.32f), Offset(0.62f, 0.32f)),
+        ),
+        dots = emptyList(),
+    )
 }
