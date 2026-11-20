@@ -3051,7 +3051,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
 
-### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #23)
+### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #933, #23)
 
 > **출처([leader, 2026-11-21]).** FR-39의 수용 기준 39.4.7을 그대로 옮긴 항목입니다. 소유자는 이 기준의 확인을 1.0 뒤로 미뤘습니다(2026-11-20, INTENT D2의 "1.0 전의 세 결정" (3), 소유자의 선택은 "1.0 이후로 미루기"). 그래서 이 항목은 1.0의 조건이 아니고, FR-39는 이 기준 없이 닫힙니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
 >
@@ -3063,6 +3063,8 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
 > **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
+>
+> **1.0 뒤([leader, 2026-11-21]).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어가지 않습니다. 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -3811,6 +3813,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 ### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
+> **1.0 뒤([leader, 2026-11-21]).** `Mask`는 1.0에 들어가지 않습니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
+
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
 번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
@@ -3952,6 +3956,8 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 5. `Enabled`가 거짓인 면과 `TextField`는 반응하지 않습니다.
 
 ### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
+
+> **1.0 뒤([leader, 2026-11-21]).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어가지 않습니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
 
 소유자 지시(2026-10-26, 원문):
 
@@ -4914,6 +4920,8 @@ pub mod storage {
 15. Host 디코더는 `ScrollChanged`의 여덟 칸을 그대로 읽고, 모르는 플래그 비트나 72바이트가 아닌 길이를 `ProtocolError`로 돌립니다(시험 이름 fr80_scroll_changed_decodes_every_field).
 
 ### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
+
+> **1.0 뒤([leader, 2026-11-21]).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어가지 않습니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
 
 요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
 
