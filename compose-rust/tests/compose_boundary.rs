@@ -61,11 +61,7 @@ fn fr39_a_composable_application_runs_through_the_unchanged_boundary() {
         let (node_id, handler_id) = tree.find("Button", Some("More"), 0, PropertyKind::OnClick);
         let mut event = Vec::new();
         encode_event(
-            &HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            },
+            &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
             &mut event,
         )
         .unwrap();

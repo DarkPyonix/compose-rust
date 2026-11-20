@@ -1098,10 +1098,10 @@ mod tests {
         }
 
         fn resize(&mut self, width_dp: f32) {
-            self.send(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            self.send(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 860.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1111,7 +1111,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
         }
 
         fn send(&mut self, event: HostEvent<'_>) {
@@ -1223,11 +1223,7 @@ mod tests {
             let mut at = Some(node);
             while let Some(next) = at {
                 if let Some(handler_id) = self.handler_of(next) {
-                    self.send(HostEvent {
-                        node_id: next,
-                        handler_id,
-                        payload: EventPayload::Clicked,
-                    });
+                    self.send(HostEvent::new(next, handler_id, EventPayload::Clicked));
                     return true;
                 }
                 at = self.parent_of(next);
@@ -1439,11 +1435,7 @@ mod tests {
         let Some((node_id, handler_id)) = found else {
             return false;
         };
-        screen.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        screen.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 

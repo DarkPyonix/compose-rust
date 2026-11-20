@@ -29,11 +29,7 @@ fn start() -> (ComposeHost, Tree) {
 }
 
 fn scheme_changed(scheme: SystemColorScheme) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ColorSchemeChanged(scheme),
-    }
+    HostEvent::new(0, 0, EventPayload::ColorSchemeChanged(scheme))
 }
 
 /// The record is 20 bytes, the header and one word, and both values come back as they went.

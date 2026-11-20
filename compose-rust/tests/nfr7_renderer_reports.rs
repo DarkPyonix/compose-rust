@@ -78,14 +78,14 @@ fn nfr7_a_renderer_report_is_refused_reaches_no_handler_and_leaves_the_host_work
     host.rebuild().expect("the first batch encodes");
 
     // The report a picture with no decodable asset sends at its first frame.
-    let report = encoded(&HostEvent {
-        node_id: IMAGE,
-        handler_id: 0,
-        payload: EventPayload::ProtocolError {
+    let report = encoded(&HostEvent::new(
+        IMAGE,
+        0,
+        EventPayload::ProtocolError {
             code: 5,
             message: "asset 7 is not registered, so node 5 drew nothing",
         },
-    });
+    ));
     let handled_before = HANDLED.load(Ordering::SeqCst);
     assert_eq!(
         host.dispatch_event(&report).map(|(_, result)| result),
@@ -99,11 +99,7 @@ fn nfr7_a_renderer_report_is_refused_reaches_no_handler_and_leaves_the_host_work
     );
 
     // The refusal changes nothing: the next event is answered as it would have been.
-    let click = encoded(&HostEvent {
-        node_id: BUTTON,
-        handler_id: ON_CLICK,
-        payload: EventPayload::Clicked,
-    });
+    let click = encoded(&HostEvent::new(BUTTON, ON_CLICK, EventPayload::Clicked));
     assert_eq!(
         host.dispatch_event(&click).map(|(_, result)| result),
         Ok(0),

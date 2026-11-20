@@ -829,11 +829,7 @@ mod tests {
         let Some((node_id, handler_id)) = found else {
             return false;
         };
-        screen.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        screen.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 
@@ -893,11 +889,7 @@ mod tests {
             };
             let (batch, _) = self
                 .host
-                .dispatch(HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                })
+                .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
                 .expect("the click failed");
             if !batch.is_empty() {
                 let batch = batch.to_vec();
@@ -933,11 +925,7 @@ mod tests {
             };
             let (batch, _) = self
                 .host
-                .dispatch(HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                })
+                .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
                 .expect("the click failed");
             if !batch.is_empty() {
                 let batch = batch.to_vec();

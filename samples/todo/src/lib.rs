@@ -1538,15 +1538,15 @@ mod tests {
 
     /// What the storage says back, as the event the Renderer sends.
     fn storage_answer(request: u32, status: IoStatus, data: &[u8]) -> HostEvent<'_> {
-        HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::IoAnswer {
+        HostEvent::new(
+            0,
+            0,
+            EventPayload::IoAnswer {
                 request,
                 status,
                 data,
             },
-        }
+        )
     }
 
     fn task_title(index: usize) -> String {
@@ -1947,31 +1947,31 @@ mod tests {
                 .filter(|(node, _)| self.mock.widgets.contains_key(node))
                 .min()
                 .expect("the screen has no field to add a task with");
-            self.dispatch(HostEvent {
+            self.dispatch(HostEvent::new(
                 node_id,
                 handler_id,
-                payload: EventPayload::TextSubmitted(title),
-            })
+                EventPayload::TextSubmitted(title),
+            ))
         }
 
         /// Submits a field, as pressing Enter in it does.
         fn submit(&mut self, node_id: u32, text: &str) -> Vec<OwnedRecord> {
             let handler_id = self.mock.submit_handlers[&node_id];
-            self.dispatch(HostEvent {
+            self.dispatch(HostEvent::new(
                 node_id,
                 handler_id,
-                payload: EventPayload::TextSubmitted(text),
-            })
+                EventPayload::TextSubmitted(text),
+            ))
         }
 
         /// Types into a field, as each keystroke reports the field's whole text.
         fn type_into(&mut self, node_id: u32, text: &str) -> Vec<OwnedRecord> {
             let handler_id = self.mock.value_handlers[&node_id];
-            self.dispatch(HostEvent {
+            self.dispatch(HostEvent::new(
                 node_id,
                 handler_id,
-                payload: EventPayload::TextChanged(text),
-            })
+                EventPayload::TextChanged(text),
+            ))
         }
 
         /// Answers every write that is on its way, so the next save is handed over.
@@ -2000,10 +2000,10 @@ mod tests {
         fn at(width_dp: f32) -> Self {
             compose_rust::window::reset_window_size();
             let mut screen = Self::new();
-            screen.dispatch(HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            screen.dispatch(HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 900.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -2013,7 +2013,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            });
+            ));
             compose_rust::window::reset_window_size();
             screen
         }
@@ -2026,11 +2026,7 @@ mod tests {
                 .click_handlers
                 .get(&node_id)
                 .unwrap_or_else(|| panic!("node {node_id} has no click handler"));
-            self.dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            self.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         }
 
         /// Sends one event and applies the batch that comes back.
@@ -2091,14 +2087,14 @@ mod tests {
         fn request_range(&mut self, start: usize, count: usize) -> usize {
             let (list, handler) = self.list.expect("the screen has no LazyColumn");
             encode_event(
-                &HostEvent {
-                    node_id: list,
-                    handler_id: handler,
-                    payload: EventPayload::RangeRequested {
+                &HostEvent::new(
+                    list,
+                    handler,
+                    EventPayload::RangeRequested {
                         start: start as u32,
                         count: count as u32,
                     },
-                },
+                ),
                 &mut self.event,
             )
             .expect("the range request did not encode");
@@ -2160,11 +2156,7 @@ mod tests {
         let Some(handler_id) = screen.handler_of(node_id, PropertyKind::OnClick) else {
             return false;
         };
-        screen.dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        });
+        screen.dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
         true
     }
 
@@ -2270,10 +2262,10 @@ mod tests {
         compose_rust::window::reset_window_size();
         let mut host = ComposeHost::new(app);
         host.rebuild().expect("the first frame failed to encode");
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
+        let event = HostEvent::new(
+            0,
+            0,
+            EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
@@ -2283,7 +2275,7 @@ mod tests {
                 safe_area_trailing: 0.0,
                 safe_area_bottom: 0.0,
             },
-        };
+        );
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).expect("the resize did not encode");
         let (batch, _) = host.dispatch_event(&bytes).expect("the resize failed");
@@ -2641,11 +2633,7 @@ mod tests {
         );
 
         // The action names no node, because the message owns none.
-        screen.dispatch(HostEvent {
-            node_id: 0,
-            handler_id: *handler_id,
-            payload: EventPayload::Clicked,
-        });
+        screen.dispatch(HostEvent::new(0, *handler_id, EventPayload::Clicked));
         assert_eq!(screen.mock.item_count, Some(SAVED_TASKS as i64));
     }
 

@@ -1437,11 +1437,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1452,11 +1448,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id: node,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node, handler_id, EventPayload::Clicked));
             true
         }
 
@@ -1521,11 +1513,7 @@ mod tests {
             let Some(handler_id) = self.handler_of(node_id) else {
                 return false;
             };
-            self.send(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            });
+            self.send(HostEvent::new(node_id, handler_id, EventPayload::Clicked));
             true
         }
 
