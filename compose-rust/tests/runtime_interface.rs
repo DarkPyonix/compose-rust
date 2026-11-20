@@ -150,11 +150,7 @@ fn records(output: &MutationBatch) -> Vec<String> {
 fn click(node_id: u32, handler_id: u64, output: &mut MutationBatch) -> i32 {
     let mut bytes = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        },
+        &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
         &mut bytes,
     )
     .unwrap();
@@ -269,15 +265,7 @@ fn fr39_a_resync_builds_a_fresh_runtime_from_the_registered_factory() {
         let before = FACTORY_CALLS.load(Ordering::SeqCst);
 
         let mut bytes = Vec::new();
-        encode_event(
-            &HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::Resync,
-            },
-            &mut bytes,
-        )
-        .unwrap();
+        encode_event(&HostEvent::new(0, 0, EventPayload::Resync), &mut bytes).unwrap();
         // SAFETY: the event bytes and the output storage are live for the whole call.
         let status = unsafe {
             compose_rust_host_dispatch_event(bytes.as_ptr(), bytes.len() as u32, &mut output)

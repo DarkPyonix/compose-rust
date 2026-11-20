@@ -17,7 +17,7 @@ mod marks;
 mod palette;
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 /// How wide the page may grow past a phone, in dp. A phone sheet in a desktop window is
@@ -812,11 +812,7 @@ mod tests {
             };
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload: EventPayload::Clicked,
-                },
+                &HostEvent::new(node_id, handler_id, EventPayload::Clicked),
                 &mut bytes,
             )
             .expect("the click did not encode");
@@ -1226,10 +1222,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -1239,7 +1235,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");

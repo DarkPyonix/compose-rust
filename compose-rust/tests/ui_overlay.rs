@@ -7,7 +7,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::MODIFIER_SCHEMA;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 const WASH: Paint = Paint::Literal(Color::argb(0x1f00_0000));

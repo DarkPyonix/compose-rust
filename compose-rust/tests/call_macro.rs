@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -278,18 +278,148 @@ fn fr39_call_macro_expands_to_the_same_tree_as_the_function_form() {
     assert_eq!(function_form.dump(), macro_form.dump());
 }
 
+thread_local! {
+    static KEPT: RefCell<Vec<(String, MutableState<i32>)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A text with a remembered count, which hands its state out the first time it is made.
+#[Composable]
+fn Kept(label: String, round: i32) {
+    let count = remember(|| {
+        let count = mutable_state_of(0);
+        KEPT.with_borrow_mut(|kept| kept.push((label.clone(), count)));
+        count
+    });
+    Text!(format!("{label}:{round}:{}", count.get()));
+}
+
+/// The state `Kept` made for `label`.
+fn kept(label: &str) -> MutableState<i32> {
+    KEPT.with_borrow(|kept| {
+        kept.iter()
+            .find(|(made_for, _)| made_for == label)
+            .map(|(_, count)| *count)
+            .unwrap_or_else(|| panic!("no state was remembered for {label}"))
+    })
+}
+
+/// Applies the next frame to `tree`, and returns the batch.
+fn frame(host: &mut ComposeHost, tree: &mut Tree) -> Vec<u8> {
+    let batch = host.render_frame(0).expect("the frame encodes").to_vec();
+    tree.apply(&batch);
+    batch
+}
+
+#[Composable]
+fn Mixed(round: MutableState<i32>) {
+    let now = round.get();
+    Column!({
+        Kept("fn".into(), now);
+        Kept!("macro".into(), now);
+    });
+}
+
 #[test]
 fn fr39_call_macro_expands_mixed_with_the_function_form_keeps_each_calls_state() {
     // The slot key is made inside the function, so a call through the macro and a call
     // through the function share one position and one identity. Mixing the two forms in one
     // parent and recomposing must keep each call's remembered state apart and intact.
-    let mut host = ComposeHost::with_content(|| {
-        Column!({
-            Leaf("fn".into());
-            Leaf!("macro".into());
-        });
-    });
+    KEPT.with_borrow_mut(Vec::clear);
+    let round = mutable_state_of(0);
+    let mut host = ComposeHost::with_content(move || Mixed(round));
     let mut tree = Tree::default();
     tree.apply(host.rebuild().expect("the first batch encodes"));
-    assert_eq!(tree.texts(), vec!["fn:0", "macro:0"]);
+    assert_eq!(tree.texts(), vec!["fn:0:0", "macro:0:0"]);
+
+    kept("fn").set(1);
+    kept("macro").set(2);
+    round.set(1);
+    frame(&mut host, &mut tree);
+    assert_eq!(
+        tree.texts(),
+        vec!["fn:1:1", "macro:1:2"],
+        "the parent recomposed and each call kept its own count"
+    );
+
+    round.set(2);
+    frame(&mut host, &mut tree);
+    assert_eq!(tree.texts(), vec!["fn:2:1", "macro:2:2"]);
+    assert_eq!(
+        KEPT.with_borrow(Vec::len),
+        2,
+        "no call remembered a new state while recomposing"
+    );
+    assert!(!kept("fn").is_released() && !kept("macro").is_released());
+}
+
+/// The same screen twice, differing only in the form of the `Kept` call between the two
+/// texts.
+#[Composable]
+fn ThroughTheFunction(round: MutableState<i32>) {
+    let now = round.get();
+    Column!({
+        Text!("before");
+        Kept("site".into(), now);
+        Text!("after");
+    });
+}
+
+#[Composable]
+fn ThroughTheMacro(round: MutableState<i32>) {
+    let now = round.get();
+    Column!({
+        Text!("before");
+        Kept!("site".into(), now);
+        Text!("after");
+    });
+}
+
+/// The batches a program sends: the first composition, then a frame after its own state
+/// and its parent's changed.
+fn batches_of(program: fn(MutableState<i32>)) -> (Vec<u8>, Vec<u8>, Vec<String>) {
+    KEPT.with_borrow_mut(Vec::clear);
+    let round = mutable_state_of(0);
+    let mut host = ComposeHost::with_content(move || program(round));
+    let mut tree = Tree::default();
+    let first = host.rebuild().expect("the first batch encodes").to_vec();
+    tree.apply(&first);
+    kept("site").set(5);
+    round.set(1);
+    let second = frame(&mut host, &mut tree);
+    (first, second, tree.texts())
+}
+
+#[test]
+fn fr39_call_macro_one_call_site_has_the_same_key_in_both_forms() {
+    // One call site written in either form makes the same group: the two programs send the
+    // same records with the same node ids, both when they first compose and when the state
+    // at that site and its parent's change.
+    let (function_first, function_second, function_texts) = batches_of(ThroughTheFunction);
+    let (macro_first, macro_second, macro_texts) = batches_of(ThroughTheMacro);
+    assert_eq!(function_first, macro_first, "the first composition");
+    assert_eq!(function_second, macro_second, "the recomposition");
+    assert!(
+        !function_second.is_empty(),
+        "the recomposition sent something"
+    );
+    assert_eq!(function_texts, vec!["before", "site:1:5", "after"]);
+    assert_eq!(macro_texts, function_texts);
+}
+
+#[test]
+fn fr39_call_macro_docs_widget_reexport_is_inlined() {
+    // `ui` re-exports the widgets from a private module. rustdoc follows a re-export to the
+    // hidden macro behind it, so this re-export has to ask to be inlined as well, or the
+    // documentation lists no widget macro.
+    let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ui/mod.rs"))
+        .expect("the ui module's source is readable");
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with("pub use functions::"))
+        .expect("ui re-exports the widget functions");
+    assert!(
+        at > 0 && lines[at - 1].trim() == "#[doc(inline)]",
+        "the widget re-export in src/ui/mod.rs needs `#[doc(inline)]` on the line above it"
+    );
 }

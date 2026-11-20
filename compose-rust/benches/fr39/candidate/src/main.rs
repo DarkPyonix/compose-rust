@@ -5,7 +5,7 @@ use compose_rust::ComposeHost as Host;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, WindowHeightClass, WindowSizeClass};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{RendererApi, install_renderer_api};
 use fr39_scenarios::{App, Batch, Event, Path, Payload, Record, SLOT_SWEEP, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -95,11 +95,7 @@ impl Path for ComposePath {
                 safe_area_bottom: 0.0,
             },
         };
-        let event = HostEvent {
-            node_id: event.node,
-            handler_id: event.handler,
-            payload,
-        };
+        let event = HostEvent::new(event.node, event.handler, payload);
         let host = self.host();
         let started = Instant::now();
         let (bytes, _) = host.dispatch(event).expect("the event is accepted");

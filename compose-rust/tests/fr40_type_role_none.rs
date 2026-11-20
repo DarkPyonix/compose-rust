@@ -11,7 +11,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 /// What one node was given for `property`, in order: `Some(value)` for an integer, `None`

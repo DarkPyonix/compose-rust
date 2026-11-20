@@ -22,7 +22,7 @@
 #![allow(dead_code)]
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Set before launch for the scripted run.

@@ -21,10 +21,10 @@ const REPORT_AT: usize = 1323;
 const REPORT_LEN: usize = 72;
 
 fn vector_report() -> HostEvent<'static> {
-    HostEvent {
-        node_id: 10,
-        handler_id: 21,
-        payload: EventPayload::ScrollChanged {
+    HostEvent::new(
+        10,
+        21,
+        EventPayload::ScrollChanged {
             item: 3,
             settled: true,
             can_scroll_backward: true,
@@ -36,7 +36,7 @@ fn vector_report() -> HostEvent<'static> {
             viewport_width_px: 320.0,
             viewport_height_px: 300.0,
         },
-    }
+    )
 }
 
 fn scroll_records(batch: &[u8]) -> Vec<Mutation<'_>> {
@@ -113,10 +113,10 @@ fn fr80_scroll_records_round_trip_through_the_protocol_vectors() {
 
 #[test]
 fn fr80_scroll_changed_decodes_every_field() {
-    let event = HostEvent {
-        node_id: 7,
-        handler_id: 0x1_0000_0002,
-        payload: EventPayload::ScrollChanged {
+    let event = HostEvent::new(
+        7,
+        0x1_0000_0002,
+        EventPayload::ScrollChanged {
             item: 500,
             settled: false,
             can_scroll_backward: false,
@@ -128,7 +128,7 @@ fn fr80_scroll_changed_decodes_every_field() {
             viewport_width_px: 5.5,
             viewport_height_px: 6.5,
         },
-    };
+    );
     let mut bytes = Vec::new();
     encode_event(&event, &mut bytes).expect("the report encodes");
     assert_eq!(bytes.len(), 72);
@@ -358,10 +358,10 @@ fn fr80_a_scroll_report_reaches_the_runtime_that_owns_the_handler() {
 
     let mut bytes = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: LIST,
-            handler_id: ON_SCROLL,
-            payload: EventPayload::ScrollChanged {
+        &HostEvent::new(
+            LIST,
+            ON_SCROLL,
+            EventPayload::ScrollChanged {
                 item: 0,
                 settled: true,
                 can_scroll_backward: true,
@@ -373,7 +373,7 @@ fn fr80_a_scroll_report_reaches_the_runtime_that_owns_the_handler() {
                 viewport_width_px: 200.0,
                 viewport_height_px: 300.0,
             },
-        },
+        ),
         &mut bytes,
     )
     .unwrap();

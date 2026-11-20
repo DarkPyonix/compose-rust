@@ -7,7 +7,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use support::{Tree, kinds};
@@ -57,11 +57,7 @@ fn frame(host: &mut ComposeHost, tree: &mut Tree) -> Vec<String> {
 fn click(host: &mut ComposeHost, tree: &mut Tree, label: &str, nth: usize) -> Vec<String> {
     let (node_id, handler_id) = tree.find("Button", Some(label), nth, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -643,11 +639,11 @@ fn Rows(count: usize) {
 fn request_range(host: &mut ComposeHost, tree: &mut Tree, start: u32, count: u32) -> Vec<String> {
     let (node_id, handler_id) = tree.find("LazyColumn", None, 0, PropertyKind::OnRangeRequested);
     let (batch, _) = host
-        .dispatch(HostEvent {
+        .dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::RangeRequested { start, count },
-        })
+            EventPayload::RangeRequested { start, count },
+        ))
         .unwrap();
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -716,11 +712,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
     let (mut host, mut tree) = start(Deleter);
     let (node_id, handler_id) = tree.find("Button", Some("Delete"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .unwrap();
     let action = decode_batch(batch)
         .unwrap()
@@ -735,11 +727,7 @@ fn fr39_a_message_action_runs_without_dioxus() {
     assert_eq!(tree.texts(), vec!["gone", "Delete"]);
 
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id: 0,
-            handler_id: action,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(0, action, EventPayload::Clicked))
         .unwrap();
     let batch = batch.to_vec();
     tree.apply(&batch);
@@ -768,11 +756,7 @@ fn fr21_message_placement_rides_out_on_the_batch() {
     let (mut host, tree) = start(Copier);
     let (node_id, handler_id) = tree.find("Button", Some("Copy"), 0, PropertyKind::OnClick);
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .unwrap();
     let said: Vec<_> = decode_batch(batch)
         .unwrap()
@@ -890,11 +874,11 @@ fn fr5_a_text_field_starts_with_its_text_and_typing_is_not_sent_back() {
     // The user types. The screen runs again, and the field is told nothing.
     let (node_id, handler_id) = tree.find("TextField", None, 0, PropertyKind::OnValueChange);
     let (batch, _) = host
-        .dispatch(HostEvent {
+        .dispatch(HostEvent::new(
             node_id,
             handler_id,
-            payload: EventPayload::TextChanged("Buy oat milk"),
-        })
+            EventPayload::TextChanged("Buy oat milk"),
+        ))
         .expect("the change is accepted");
     let batch = batch.to_vec();
     tree.apply(&batch);

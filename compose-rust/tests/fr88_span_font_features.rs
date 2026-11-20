@@ -13,7 +13,7 @@ use compose_rust::spans::{
     SPAN_FEATURE_COUNT_AT, SPAN_FEATURE_ENTRY_LEN, SPAN_FEATURE_OFFSET_AT, SPAN_FEATURE_SPAN_AT,
     TextSpan, TextSpans, encode_feature_table,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

@@ -6,7 +6,7 @@ mod support;
 use compose_rust::protocol::{HostEvent, ProtocolError, decode_event, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EVENT_SCHEMA, EventPayload, EventPayloadType};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, density};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,11 +27,7 @@ fn start() -> (ComposeHost, Tree) {
 }
 
 fn density_changed(scale: f32) -> HostEvent<'static> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::DensityChanged { scale },
-    }
+    HostEvent::new(0, 0, EventPayload::DensityChanged { scale })
 }
 
 /// The record is 20 bytes, the header and one `f32`, under event tag 53, and a scale comes
@@ -163,15 +159,15 @@ fn fr43_density_is_independent_of_the_zoom() {
     let (mut host, _tree) = start();
     host.dispatch(density_changed(2.0)).unwrap();
     assert_eq!(compose_rust::zoom().k, 1.0);
-    host.dispatch(HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::ZoomChanged {
+    host.dispatch(HostEvent::new(
+        0,
+        0,
+        EventPayload::ZoomChanged {
             k: 1.2,
             os: 1.0,
             level: 1,
         },
-    })
+    ))
     .unwrap();
     assert_eq!(density(), 2.0);
 }

@@ -14,7 +14,7 @@
 //! so the message growing at the bottom does not disturb the ones above it.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 mod assistant;
@@ -1335,11 +1335,7 @@ mod tests {
 
         fn encode(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) {
             encode_event(
-                &HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                },
+                &HostEvent::new(node_id, handler_id, payload),
                 &mut self.event,
             )
             .expect("the event did not encode");
@@ -1592,10 +1588,10 @@ mod tests {
         compose_rust::window::reset_window_size();
         let mut host = ComposeHost::new(app);
         host.rebuild().expect("the first frame failed to encode");
-        let event = HostEvent {
-            node_id: 0,
-            handler_id: 0,
-            payload: EventPayload::WindowSizeChanged {
+        let event = HostEvent::new(
+            0,
+            0,
+            EventPayload::WindowSizeChanged {
                 width_dp,
                 height_dp: 900.0,
                 class: WindowSizeClass::from_width_dp(width_dp),
@@ -1605,7 +1601,7 @@ mod tests {
                 safe_area_trailing: 0.0,
                 safe_area_bottom: 0.0,
             },
-        };
+        );
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).expect("the resize did not encode");
         let (batch, _) = host.dispatch_event(&bytes).expect("the resize failed");
@@ -1924,10 +1920,10 @@ mod tests {
                 .rebuild()
                 .expect("the first frame failed to encode")
                 .to_vec();
-            let event = HostEvent {
-                node_id: 0,
-                handler_id: 0,
-                payload: EventPayload::WindowSizeChanged {
+            let event = HostEvent::new(
+                0,
+                0,
+                EventPayload::WindowSizeChanged {
                     width_dp,
                     height_dp: 900.0,
                     class: WindowSizeClass::from_width_dp(width_dp),
@@ -1937,7 +1933,7 @@ mod tests {
                     safe_area_trailing: 0.0,
                     safe_area_bottom: 0.0,
                 },
-            };
+            );
             let mut bytes = Vec::new();
             encode_event(&event, &mut bytes).expect("the resize did not encode");
             let resized = host
@@ -2342,11 +2338,7 @@ mod tests {
         let mut event = Vec::new();
         let mut press = |host: &mut ComposeHost, tab: usize| {
             encode_event(
-                &HostEvent {
-                    node_id: children[tab],
-                    handler_id: handlers[tab],
-                    payload: EventPayload::Clicked,
-                },
+                &HostEvent::new(children[tab], handlers[tab], EventPayload::Clicked),
                 &mut event,
             )
             .expect("the press did not encode");

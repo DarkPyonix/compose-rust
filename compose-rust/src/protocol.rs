@@ -514,11 +514,33 @@ pub enum ProtocolError {
     MisplacedWindow,
 }
 
+/// One event the Renderer sent the Host: the node it happened on, the handler that hears
+/// it and what happened.
+///
+/// It is non-exhaustive so that a field can be added without breaking code outside this
+/// crate. Build one with [`HostEvent::new`] rather than a struct literal, and destructure it
+/// with `..` at the end of the pattern.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct HostEvent<'a> {
     pub node_id: u32,
     pub handler_id: u64,
     pub payload: crate::schema::EventPayload<'a>,
+}
+
+impl<'a> HostEvent<'a> {
+    /// An event for `handler_id` on `node_id`, carrying `payload`.
+    pub const fn new(
+        node_id: u32,
+        handler_id: u64,
+        payload: crate::schema::EventPayload<'a>,
+    ) -> Self {
+        Self {
+            node_id,
+            handler_id,
+            payload,
+        }
+    }
 }
 
 const EVENT_CLICK: u16 = 1;
@@ -5419,7 +5441,7 @@ mod tests {
         let calls_for_root = Arc::clone(&calls);
         let mut host = crate::ComposeHost::with_content(move || {
             let calls_inner = Arc::clone(&calls_for_root);
-            crate::ui::TextField().on_composition_change(move |composing| {
+            crate::ui::widgets::TextField().on_composition_change(move |composing| {
                 calls_inner.fetch_add(if composing { 10 } else { 1 }, Ordering::SeqCst);
             });
         });
@@ -5471,7 +5493,7 @@ mod tests {
         let mut host = crate::ComposeHost::with_content(move || {
             let gained_trace = Arc::clone(&trace_for_root);
             let lost_trace = Arc::clone(&trace_for_root);
-            crate::ui::TextField()
+            crate::ui::widgets::TextField()
                 .on_focus_gained(move || {
                     gained_trace.lock().unwrap().push("gained");
                 })
@@ -5543,7 +5565,7 @@ mod tests {
         let mut host = crate::ComposeHost::with_content(move || {
             let down_trace = Arc::clone(&trace_for_root);
             let up_trace = Arc::clone(&trace_for_root);
-            crate::ui::TextField()
+            crate::ui::widgets::TextField()
                 .on_key_down(move |event| {
                     down_trace.lock().unwrap().push((
                         "down",
@@ -5644,8 +5666,8 @@ mod tests {
     #[test]
     fn fr45_unregistered_nodes_get_no_events() {
         let mut host = crate::ComposeHost::with_content(|| {
-            crate::ui::TextField();
-            crate::ui::Box().content(|| {});
+            crate::ui::widgets::TextField();
+            crate::ui::widgets::Box().content(|| {});
         });
         let init = host.rebuild().unwrap().to_vec();
         let mutations = decode_batch(&init).unwrap();
@@ -5773,7 +5795,7 @@ mod tests {
         let seen_for_root = Arc::clone(&seen);
         let mut host = crate::ComposeHost::with_content(move || {
             let seen = Arc::clone(&seen_for_root);
-            crate::ui::Column()
+            crate::ui::widgets::Column()
                 .on_key_down(move |event| {
                     seen.lock()
                         .unwrap()
@@ -5783,7 +5805,7 @@ mod tests {
                     }
                 })
                 .content(|| {
-                    crate::ui::Text("session list");
+                    crate::ui::widgets::Text("session list");
                 });
         });
         let init = host.rebuild().unwrap().to_vec();

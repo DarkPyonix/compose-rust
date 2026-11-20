@@ -165,11 +165,7 @@ fn records(batch: &[u8]) -> Vec<Record> {
 }
 
 fn round_trip(payload: EventPayload<'_>) -> (usize, HostEvent<'static>) {
-    let event = HostEvent {
-        node_id: 3,
-        handler_id: 9,
-        payload,
-    };
+    let event = HostEvent::new(3, 9, payload);
     let mut wire = Vec::new();
     encode_event(&event, &mut wire).unwrap();
     let length = wire.len();
@@ -287,16 +283,16 @@ fn fr38_the_five_code_events_round_trip_at_their_lengths() {
 fn fr38_an_unknown_hover_phase_is_a_protocol_error() {
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 1,
-            handler_id: 2,
-            payload: EventPayload::CodeHovered {
+        &HostEvent::new(
+            1,
+            2,
+            EventPayload::CodeHovered {
                 decoration: 0,
                 line: 0,
                 column: 0,
                 phase: HoverPhase::Rest,
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -653,11 +649,7 @@ fn fr38_selection_change_reaches_the_host_at_its_lengths() {
 fn fr38_composition_signal_carries_no_text() {
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 1,
-            handler_id: 2,
-            payload: EventPayload::CompositionChanged { composing: true },
-        },
+        &HostEvent::new(1, 2, EventPayload::CompositionChanged { composing: true }),
         &mut wire,
     )
     .unwrap();
@@ -689,15 +681,7 @@ fn fr38_an_unknown_focus_composition_or_fold_flag_is_a_protocol_error() {
     ];
     for (payload, at) in cases {
         let mut wire = Vec::new();
-        encode_event(
-            &HostEvent {
-                node_id: 1,
-                handler_id: 2,
-                payload,
-            },
-            &mut wire,
-        )
-        .unwrap();
+        encode_event(&HostEvent::new(1, 2, payload), &mut wire).unwrap();
         wire[at] = 2;
         assert_eq!(decode_event(&wire), Err(ProtocolError::InvalidValueKind(2)));
         wire.truncate(20);
@@ -1100,13 +1084,13 @@ fn fr38_editor_reports_line_height_on_the_wire() {
     // A record of another length under the same tag is refused, not read short.
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: EventPayload::CodeMetrics {
+        &HostEvent::new(
+            3,
+            9,
+            EventPayload::CodeMetrics {
                 line_height_px: 20.0,
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -1199,15 +1183,15 @@ fn fr38_editor_reports_the_caret_rect_on_the_wire() {
 
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: EventPayload::CaretRect {
+        &HostEvent::new(
+            3,
+            9,
+            EventPayload::CaretRect {
                 line: 0,
                 column: 0,
                 rect,
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -1226,7 +1210,7 @@ thread_local! {
 
 #[compose_rust::runtime::Composable]
 fn Nothing() {
-    use compose_rust::ui::next::Text;
+    use compose_rust::ui::Text;
     Text!("editor");
 }
 
@@ -1279,14 +1263,14 @@ fn fr38_editor_answers_position_rects_on_the_wire() {
     // The word is 0 or 1, and anything else is a record the two sides disagree on.
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 4,
-            handler_id: 0,
-            payload: EventPayload::PositionRect {
+        &HostEvent::new(
+            4,
+            0,
+            EventPayload::PositionRect {
                 request: far,
                 rect: Some(rect),
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -1303,10 +1287,8 @@ fn fr38_editor_answers_position_rects_on_the_wire() {
     // Made after the Host, which forgets every query a Host before it left waiting.
     let near = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("near", answer))));
     let far = position_query(|answer| ANSWERS.with_borrow_mut(|all| all.push(("far", answer))));
-    let answer = |request: u32, rect: Option<CodeRect>| HostEvent {
-        node_id: 4,
-        handler_id: 0,
-        payload: EventPayload::PositionRect { request, rect },
+    let answer = |request: u32, rect: Option<CodeRect>| {
+        HostEvent::new(4, 0, EventPayload::PositionRect { request, rect })
     };
     host.dispatch(answer(far, None))
         .expect("the answer dispatches");
@@ -1320,14 +1302,14 @@ fn fr38_editor_answers_position_rects_on_the_wire() {
     );
     // An answer is addressed to no handler.
     assert!(
-        host.dispatch(HostEvent {
-            node_id: 4,
-            handler_id: 7,
-            payload: EventPayload::PositionRect {
+        host.dispatch(HostEvent::new(
+            4,
+            7,
+            EventPayload::PositionRect {
                 request: far,
                 rect: None
-            },
-        })
+            }
+        ))
         .is_err()
     );
 }
@@ -1413,21 +1395,13 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
 
     // The first 72 bytes are what a pointer event of the same fields writes.
     let mut wire = Vec::new();
-    encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: over,
-        },
-        &mut wire,
-    )
-    .unwrap();
+    encode_event(&HostEvent::new(3, 9, over), &mut wire).unwrap();
     let mut pointer = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: EventPayload::Pointer {
+        &HostEvent::new(
+            3,
+            9,
+            EventPayload::Pointer {
                 kind: compose_rust::PointerKind::Down,
                 pointer_id: 1,
                 pointer_type: compose_rust::PointerType::Mouse,
@@ -1442,7 +1416,7 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
                 delta_mode: compose_rust::WheelDeltaMode::Pixel,
                 timestamp_nanos: 123_456_789_000,
             },
-        },
+        ),
         &mut pointer,
     )
     .unwrap();
@@ -1461,11 +1435,7 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
     );
     let mut nowhere = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: code_pointer(compose_rust::PointerKind::Move, None),
-        },
+        &HostEvent::new(3, 9, code_pointer(compose_rust::PointerKind::Move, None)),
         &mut nowhere,
     )
     .unwrap();
@@ -1484,11 +1454,11 @@ fn fr38_editor_pointer_reports_text_position_on_the_wire() {
     let events = std::fs::read(format!("{vectors}/events.bin")).unwrap();
     let mut expected = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 12,
-            handler_id: 31,
-            payload: code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13))),
-        },
+        &HostEvent::new(
+            12,
+            31,
+            code_pointer(compose_rust::PointerKind::Down, Some(Position::new(1, 13))),
+        ),
         &mut expected,
     )
     .unwrap();
@@ -1622,17 +1592,17 @@ fn fr38_edit_group_round_trips_on_the_wire() {
     // A status this side does not know is a protocol error, not a guess.
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 12,
-            handler_id: 32,
-            payload: EventPayload::CodeEditGroupResult {
+        &HostEvent::new(
+            12,
+            32,
+            EventPayload::CodeEditGroupResult {
                 request_id: 8,
                 status: EditGroupStatus::Applied,
                 base_version: 1,
                 current_version: 3,
                 index: 2,
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
@@ -1952,14 +1922,14 @@ fn fr38_selections_round_trip_on_the_wire() {
     assert_eq!(decode_selections(&blob[..20]), None);
     let mut wire = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 3,
-            handler_id: 9,
-            payload: EventPayload::SelectionsChanged {
+        &HostEvent::new(
+            3,
+            9,
+            EventPayload::SelectionsChanged {
                 version: 9,
                 selections: &blob[..20],
             },
-        },
+        ),
         &mut wire,
     )
     .unwrap();
