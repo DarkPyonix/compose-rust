@@ -28,7 +28,7 @@ pub fn Dialog(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Dialog(open)
+    let mut scope = crate::ui::widgets::Dialog(open)
         .modifier(modifier)
         .on_dismiss(on_dismiss);
     set!(scope; scrim);
@@ -71,7 +71,7 @@ pub fn Sheet(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Sheet(open)
+    let mut scope = crate::ui::widgets::Sheet(open)
         .modifier(modifier)
         .on_dismiss(on_dismiss);
     set!(scope; scrim, max_height_fraction);
@@ -104,7 +104,7 @@ pub fn Menu<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Menu(expanded)
+    let mut scope = crate::ui::widgets::Menu(expanded)
         .modifier(modifier)
         .on_dismiss(on_dismiss);
     set!(scope; scrim);
@@ -152,7 +152,7 @@ pub fn Popover<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Popover(open)
+    let mut scope = crate::ui::widgets::Popover(open)
         .modifier(modifier)
         .on_dismiss(on_dismiss);
     set!(scope; placement, align, offset);
@@ -177,7 +177,7 @@ pub fn Tooltip(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Tooltip(text).modifier(modifier);
+    let mut scope = crate::ui::widgets::Tooltip(text).modifier(modifier);
     set_some!(scope; on_motion_finished);
     scope.content(content);
 }
@@ -208,7 +208,7 @@ pub fn NativeView(
     #[default(true)] visible: bool,
     #[default(None::<fn(bool)>)] on_focus_change: Option<impl FnMut(bool) + 'static>,
 ) {
-    let mut scope = crate::ui::NativeView(handle).modifier(modifier);
+    let mut scope = crate::ui::widgets::NativeView(handle).modifier(modifier);
     scope = scope.visible(visible);
     set_some!(scope; on_focus_change);
     drop(scope);
@@ -232,7 +232,7 @@ pub fn FileDropTarget(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::FileDropTarget()
+    let mut scope = crate::ui::widgets::FileDropTarget()
         .modifier(modifier)
         .on_files_dropped(on_files_dropped);
     set!(scope; alignment);

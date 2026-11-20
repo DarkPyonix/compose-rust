@@ -5,7 +5,7 @@
 //! and measuring `ColorRole::Background` across the seven design systems gives seven
 //! answers that all land within a few percent of white. There is no role for cream.
 
-use compose_rust::ui::next::{Color, Paint};
+use compose_rust::ui::{Color, Paint};
 
 /// The page. Cream, which is what the reference sets every light screen on.
 pub const PAGE: Paint = Paint::Literal(Color::rgb(0xFDF3E7));

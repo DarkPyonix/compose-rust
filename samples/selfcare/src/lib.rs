@@ -23,7 +23,7 @@ mod palette;
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use mood::{Mood, OPEN_WORRY, SESSIONS, Session, WORRIES, week_line};
 use std::rc::Rc;
 

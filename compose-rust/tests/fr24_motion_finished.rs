@@ -9,7 +9,7 @@ use compose_rust::protocol::{
     HostEvent, Mutation, ProtocolError, decode_batch, decode_event, encode_event,
 };
 use compose_rust::schema::{EVENT_SCHEMA, EventPayload, PropertyKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::sync::{Arc, Mutex};
 use support::Tree;
 
