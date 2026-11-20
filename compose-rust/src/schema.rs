@@ -1151,6 +1151,7 @@ define_wire_enum!(ICON_ROLE_SCHEMA, IconRole {
     Language = 36,
     CompactOverlay = 37,
     Calculator = 38,
+    Refresh = 39,
 });
 
 // How long a transient message stays on screen. Closed, and deliberately short: a message
