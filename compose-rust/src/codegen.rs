@@ -6862,7 +6862,7 @@ fn wasm_section(id: u8, payload: &[u8], output: &mut Vec<u8>) {
 /// cannot declare an imported table, so it cannot call through one itself. This module
 /// can: it imports `env.table`, and for every call exports a function of the call's own
 /// type that passes its arguments on with `call_indirect` through the call's slot, which is
-/// its place in [`web_calls`]. Kotlin imports these, and the Renderer's `main` fills the
+/// its place in `web_calls`. Kotlin imports these, and the Renderer's `main` fills the
 /// slots with the Host's exports once the Host exists. A call is then one wasm `call` and
 /// one `call_indirect`.
 ///

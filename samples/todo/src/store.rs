@@ -18,7 +18,7 @@
 use compose_rust::IconRole;
 use compose_rust::runtime::CoroutineScope;
 use compose_rust::storage::{self, StorageError};
-use compose_rust::ui::next::{Message, MessageDuration};
+use compose_rust::ui::{Message, MessageDuration};
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
 

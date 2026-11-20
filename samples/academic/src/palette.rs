@@ -10,7 +10,7 @@
 //! The values were read off the reference picture. They live here rather than beside the
 //! widgets that use them so that the school has one place to change.
 
-use compose_rust::ui::next::{Color, Paint};
+use compose_rust::ui::{Color, Paint};
 
 /// The page, under everything.
 pub const PAGE: Paint = Paint::Literal(Color::rgb(0x00_0000));

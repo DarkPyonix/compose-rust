@@ -8,10 +8,10 @@
 //! #[Composable]
 //! fn Counter() {
 //!     let count = remember(|| mutable_state_of(0));
-//!     Column().content(|| {
-//!         Text(format!("Count: {}", count.get()));
+//!     Column!({
+//!         Text!(format!("Count: {}", count.get()));
 //!         let more = count.clone();
-//!         Button("Increment").on_click(move || more.update(|count| *count += 1));
+//!         Button!("Increment", move || more.update(|count| *count += 1));
 //!     });
 //! }
 //!

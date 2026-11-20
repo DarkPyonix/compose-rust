@@ -23,7 +23,7 @@ pub fn Tabs(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Tabs(selected_index).modifier(modifier);
+    let mut scope = crate::ui::widgets::Tabs(selected_index).modifier(modifier);
     set!(scope; color);
     set_some!(scope; on_motion_finished);
     scope.content(content);
@@ -51,7 +51,7 @@ pub fn TopAppBar<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::TopAppBar().modifier(modifier);
+    let mut scope = crate::ui::widgets::TopAppBar().modifier(modifier);
     set!(scope; title, hairline, separator);
     set_some!(scope; on_motion_finished);
     scope.content(content);
@@ -77,7 +77,7 @@ pub fn Scaffold<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Scaffold().modifier(modifier);
+    let mut scope = crate::ui::widgets::Scaffold().modifier(modifier);
     set_some!(scope; top_bar, bottom_bar, floating_action, on_motion_finished);
     scope.content(content);
 }
@@ -111,7 +111,7 @@ pub fn Navigation<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Navigation(selected_index)
+    let mut scope = crate::ui::widgets::Navigation(selected_index)
         .modifier(modifier)
         .compact(compact);
     set_some!(scope; head, foot, on_motion_finished);
@@ -140,7 +140,7 @@ pub fn NavigationItem<'a>(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::NavigationItem(text)
+    let mut scope = crate::ui::widgets::NavigationItem(text)
         .modifier(modifier)
         .on_click(on_click);
     set!(scope; icon, color);
@@ -187,7 +187,7 @@ pub fn SplitPane<'a>(
     >,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::SplitPane()
+    let mut scope = crate::ui::widgets::SplitPane()
         .modifier(modifier)
         .on_change(on_change);
     set!(scope; value, min, max);

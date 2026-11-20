@@ -30,7 +30,7 @@ pub fn LazyColumn(
     >,
     content: impl FnOnce(&mut LazyListScope),
 ) {
-    let mut scope = crate::ui::LazyColumn().modifier(modifier);
+    let mut scope = crate::ui::lazy::LazyColumn().modifier(modifier);
     set_some!(scope; on_motion_finished);
     scope.content(content);
 }
@@ -45,7 +45,7 @@ pub fn LazyRow(
     >,
     content: impl FnOnce(&mut LazyListScope),
 ) {
-    let mut scope = crate::ui::LazyRow().modifier(modifier);
+    let mut scope = crate::ui::lazy::LazyRow().modifier(modifier);
     set_some!(scope; on_motion_finished);
     scope.content(content);
 }
@@ -65,7 +65,7 @@ pub fn LazyGrid(
     >,
     content: impl FnOnce(&mut LazyListScope),
 ) {
-    let mut scope = crate::ui::LazyGrid().modifier(modifier);
+    let mut scope = crate::ui::lazy::LazyGrid().modifier(modifier);
     set!(scope; columns, min_column_width);
     set_some!(scope; on_motion_finished);
     scope.content(content);

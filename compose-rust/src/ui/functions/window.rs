@@ -71,7 +71,7 @@ pub fn Window<'a>(
     #[default(None::<fn()>)] on_closed: Option<impl FnMut() + 'static>,
     #[default(|| {})] content: impl FnOnce(),
 ) {
-    let mut scope = crate::ui::Window(on_close_request);
+    let mut scope = crate::ui::widgets::Window(on_close_request);
     if let Some((width, height)) = size.into() {
         scope = scope.size(width, height);
     }

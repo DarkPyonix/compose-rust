@@ -1831,7 +1831,7 @@ fn fr26_bold_and_link_runs_encode_distinct_styles_and_only_the_link_carries_a_ha
             .with_color(Paint::Role(ColorRole::Primary));
         link.on_click = Some(7);
         let spans = TextSpans::new([TextSpan::new(0, 4).bold(), link]);
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("bold link", spans = spans);
     });
     let wire = host.rebuild().expect("the batch encodes").to_vec();
@@ -1903,7 +1903,7 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
     let content = mutable_state_of("hello".to_owned());
     let state = content;
     let mut host = ComposeHost::with_content(move || {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!(state.get());
     });
     let initial = host.rebuild().expect("the initial batch encodes").to_vec();
@@ -1926,7 +1926,7 @@ fn fr26_a_text_with_no_spans_keeps_its_record_size_and_path() {
     assert_eq!(records_of(&initial, PropertyKind::Spans), 0);
 
     let mut empty_host = ComposeHost::with_content(|| {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("hello", spans = TextSpans::new(Vec::<TextSpan>::new()));
     });
     let empty_initial = empty_host
