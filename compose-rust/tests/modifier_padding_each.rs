@@ -2,16 +2,15 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, Modifier as ProtocolModifier, Theme};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 #[Composable]
 fn PaddingBoxes() {
-    Box()
-        .modifier(Modifier::new().padding_each(16.0, 20.0, 12.0, 8.0))
-        .content(|| {});
-    Box()
-        .modifier(Modifier::new().padding_xy(16.0, 20.0))
-        .content(|| {});
+    Box!(
+        modifier = Modifier::new().padding_each(16.0, 20.0, 12.0, 8.0),
+        {}
+    );
+    Box!(modifier = Modifier::new().padding_xy(16.0, 20.0), {});
 }
 
 #[test]

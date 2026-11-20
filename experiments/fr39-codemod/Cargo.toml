@@ -1,0 +1,13 @@
+[package]
+name = "fr39-codemod"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Rewrites compose-rust widget builder chains into the FR-39 call macro form"
+
+# Its own workspace: a migration tool, not part of the crate's build.
+[workspace]
+
+[dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = { version = "2", features = ["full", "visit", "extra-traits"] }

@@ -16,7 +16,7 @@ use compose_rust::runtime::*;
 use compose_rust::schema::{
     EventPayload, NativeHandle, NativeParentKind, PropertyKind, WidgetKind,
 };
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{Batch, codegen};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -197,9 +197,9 @@ fn fr81_native_view_record_layout_is_fixed() {
 fn fr81_tree_without_native_view_is_unchanged() {
     let (mut host, mut tree, first) = start(|| {
         let count = remember(|| mutable_state_of(0));
-        Column().content(|| {
-            Text(format!("{}", count.get()));
-            Button("Bump").on_click(move || count.update(|count| *count += 1));
+        Column!({
+            Text!(format!("{}", count.get()));
+            Button!("Bump", move || count.update(|count| *count += 1));
         });
     });
     let second = click(&mut host, &mut tree, "Bump");
@@ -244,12 +244,15 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
     let (mut host, mut tree, first) = start(|| {
         let handle = remember(|| mutable_state_of(0x1000_u64));
         let bump = remember(|| mutable_state_of(0));
-        Column().content(|| {
-            Text(format!("{}", bump.get()));
-            Button("Bump").on_click(move || bump.update(|count| *count += 1));
-            Button("Swap").on_click(move || handle.set(0x2000));
-            Button("Detach").on_click(move || handle.set(0));
-            NativeView(NativeHandle(handle.get())).modifier(Modifier::new().size(200.0, 100.0));
+        Column!({
+            Text!(format!("{}", bump.get()));
+            Button!("Bump", move || bump.update(|count| *count += 1));
+            Button!("Swap", move || handle.set(0x2000));
+            Button!("Detach", move || handle.set(0));
+            NativeView!(
+                NativeHandle(handle.get()),
+                modifier = Modifier::new().size(200.0, 100.0)
+            );
         });
     });
     assert!(tree.widgets().iter().any(|widget| widget == "NativeView"));
@@ -307,7 +310,10 @@ fn fr81_native_view_writes_its_node_and_its_handle_once() {
 #[test]
 fn fr81_native_view_with_no_handle_writes_no_command() {
     let (_host, _tree, first) = start(|| {
-        NativeView(NativeHandle::NONE).modifier(Modifier::new().size(10.0, 10.0));
+        NativeView!(
+            NativeHandle::NONE,
+            modifier = Modifier::new().size(10.0, 10.0)
+        );
     });
     assert!(native_records(&first).is_empty());
     assert!(
@@ -328,9 +334,9 @@ fn fr81_native_view_with_no_handle_writes_no_command() {
 fn fr81_hidden_native_view_writes_native_visible_false() {
     let (mut host, mut tree, _) = start(|| {
         let shown = remember(|| mutable_state_of(false));
-        Column().content(|| {
-            Button("Show").on_click(move || shown.set(true));
-            NativeView(NativeHandle(0x1000)).visible(shown.get());
+        Column!({
+            Button!("Show", move || shown.set(true));
+            NativeView!(NativeHandle(0x1000), visible = shown.get());
         });
     });
     assert!(
@@ -363,10 +369,13 @@ fn fr81_focus_report_reaches_the_handler() {
     static FOCUSED: AtomicBool = AtomicBool::new(false);
     static HEARD: AtomicUsize = AtomicUsize::new(0);
     let (mut host, tree, _) = start(|| {
-        NativeView(NativeHandle(0x1000)).on_focus_change(|focused| {
-            FOCUSED.store(focused, Ordering::SeqCst);
-            HEARD.fetch_add(1, Ordering::SeqCst);
-        });
+        NativeView!(
+            NativeHandle(0x1000),
+            on_focus_change = Some(|focused: bool| {
+                FOCUSED.store(focused, Ordering::SeqCst);
+                HEARD.fetch_add(1, Ordering::SeqCst);
+            })
+        );
     });
     let (node_id, handler_id) = tree.handled("NativeView", PropertyKind::OnNativeViewFocus)[0];
     for focused in [true, false] {
@@ -384,7 +393,7 @@ fn fr81_focus_report_reaches_the_handler() {
 #[test]
 fn fr81_parent_report_is_kept_per_window_and_wakes_subscribers() {
     let (mut host, _tree, _) = start(|| {
-        NativeView(NativeHandle::NONE);
+        NativeView!(NativeHandle::NONE);
     });
     assert_eq!(native_parent(0), None);
     let woken = Arc::new(AtomicUsize::new(0));

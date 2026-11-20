@@ -99,6 +99,12 @@ private external fun nativeFollowStart(anchorX: Float, anchorY: Float): Int
 @SymbolName("dxc_native_take_follow_end")
 private external fun nativeTakeFollowEnd(cancelled: CPointer<IntVar>?): Int
 
+@SymbolName("dxc_native_window_configure_app_caption")
+private external fun nativeConfigureAppCaption(enabled: Int)
+
+@SymbolName("dxc_native_window_begin_drag")
+private external fun nativeBeginDrag(edge: Int)
+
 /** Chooses the window the calls that name none run for. */
 internal fun selectWindow(window: COpaquePointer?) = nativeWindowSelect(window)
 
@@ -176,3 +182,7 @@ internal fun readPointerOnScreen(
 internal fun startFollow(anchorX: Float, anchorY: Float): Boolean = nativeFollowStart(anchorX, anchorY) != 0
 
 internal fun takeFollowEnd(cancelled: CPointer<IntVar>?): Boolean = nativeTakeFollowEnd(cancelled) != 0
+
+internal fun configureAppCaption(enabled: Boolean) = nativeConfigureAppCaption(if (enabled) 1 else 0)
+
+internal fun beginWindowDrag() = nativeBeginDrag(0)

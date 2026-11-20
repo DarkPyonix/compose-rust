@@ -5,19 +5,22 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{ColorRole, PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 const LITERAL_GREEN: Paint = Paint::Literal(Color::rgb(0x12_3456));
 const PRIMARY_ROLE: Paint = Paint::Role(ColorRole::Primary);
 
 #[Composable]
 fn ConfiguredFields() {
-    Column().content(|| {
-        TextField()
-            .placeholder("Search")
-            .placeholder_color(LITERAL_GREEN)
-            .caret_color(PRIMARY_ROLE);
-        TextField().placeholder("Default");
+    Column!({
+        TextField!(
+            "",
+            |_| {},
+            placeholder = "Search",
+            placeholder_color = LITERAL_GREEN,
+            caret_color = PRIMARY_ROLE
+        );
+        TextField!("", |_| {}, placeholder = "Default");
     });
 }
 

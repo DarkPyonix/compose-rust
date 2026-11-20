@@ -12,7 +12,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::HostEvent;
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use support::Tree;
@@ -63,11 +63,11 @@ fn live_bytes() -> isize {
 
 #[Composable]
 fn Busy(count: MutableState<i32>) {
-    Column().content(|| {
+    Column!({
         for row in 0..40 {
-            Row().content(|| {
-                Text(format!("row {row} count {}", count.get()));
-                Button("More");
+            Row!({
+                Text!(format!("row {row} count {}", count.get()));
+                Button!("More", || {});
             });
         }
     });
@@ -101,12 +101,12 @@ fn nfr_17_live_memory_does_not_grow_with_the_frames_drawn() {
 
 #[Composable]
 fn Toggled(shown: MutableState<bool>) {
-    Column().content(|| {
+    Column!({
         if shown.get() {
             for _ in 0..40 {
                 // A size gives the node a Modifier slot, which the writer remembers per
                 // node for as long as the node stands.
-                Box().modifier(Modifier.size(40.0, 40.0)).content(|| {});
+                Box!(modifier = Modifier.size(40.0, 40.0), {});
             }
         }
     });
@@ -148,19 +148,21 @@ fn nfr_17_the_writer_keeps_nothing_for_nodes_that_were_removed() {
 
 #[Composable]
 fn Chat(count: MutableState<usize>, tail: MutableState<usize>) {
-    LazyColumn().content(move |list| {
-        let rows = count.get();
-        let tail = tail.get();
-        list.items(rows, move |index| {
-            // The last row is the one being streamed into: its text only ever grows.
-            let text = if index + 1 == rows {
-                "word ".repeat(tail)
-            } else {
-                "an earlier reply".to_owned()
-            };
-            Text(text);
-        });
-    });
+    LazyColumn!(
+        content = move |list| {
+            let rows = count.get();
+            let tail = tail.get();
+            list.items(rows, move |index| {
+                // The last row is the one being streamed into: its text only ever grows.
+                let text = if index + 1 == rows {
+                    "word ".repeat(tail)
+                } else {
+                    "an earlier reply".to_owned()
+                };
+                Text!(text);
+            });
+        }
+    );
 }
 
 #[test]

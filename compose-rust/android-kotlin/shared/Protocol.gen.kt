@@ -50,7 +50,7 @@ enum class ColorScheme { Light, Dark, FollowSystem }
 
 enum class AssetKind { Png, Jpeg, Svg, VectorIcon, Font, Brush }
 
-enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator }
+enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh }
 
 enum class MessageDuration { Short, Long }
 
@@ -366,11 +366,11 @@ object DrawCommands {
             if (length != COMMAND_LENGTH) break
             val paintBits = buffer.getLong(offset + 4)
             val kind = (paintBits ushr 32).toInt()
-            if (kind != 1 && kind != 2) break
-            val paint = if (kind == 1) {
-                Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
-            } else {
-                Paint.Literal(paintBits.toInt())
+            val paint = when (kind) {
+                1 -> Paint.Role(colorRoleOrNull(paintBits.toInt()) ?: break)
+                2 -> Paint.Literal(paintBits.toInt())
+                3 -> Paint.Asset(paintBits.toInt())
+                else -> break
             }
             fun word(index: Int): Int = buffer.getInt(offset + 12 + index * 4)
             fun real(index: Int): kotlin.Float = kotlin.Float.fromBits(word(index))
@@ -1932,7 +1932,7 @@ class ProtocolException(message: String, val offset: Int) :
     IllegalArgumentException("$message at byte offset $offset")
 
 object Protocol {
-    const val SCHEMA_HASH: Long = -599462438208860210L
+    const val SCHEMA_HASH: Long = -8231975907812482968L
     const val PROTOCOL_VERSION: Int = 1
 
     private const val TAG_ENVELOPE = 0
@@ -3748,6 +3748,7 @@ object Protocol {
         36 -> IconRole.Language
         37 -> IconRole.CompactOverlay
         38 -> IconRole.Calculator
+        39 -> IconRole.Refresh
         else -> throw ProtocolException("unknown IconRole tag $tag", offset)
     }
 

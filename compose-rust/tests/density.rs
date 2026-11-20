@@ -6,7 +6,7 @@ mod support;
 use compose_rust::protocol::{HostEvent, ProtocolError, decode_event, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EVENT_SCHEMA, EventPayload, EventPayloadType};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{ComposeHost, density};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -15,7 +15,7 @@ use support::Tree;
 
 #[Composable]
 fn App() {
-    Text("density");
+    Text!("density");
 }
 
 fn start() -> (ComposeHost, Tree) {

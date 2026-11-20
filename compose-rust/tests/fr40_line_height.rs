@@ -8,7 +8,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 /// The line height values one node was given, in order.
 fn line_heights(mutations: &[Mutation<'_>], node: u32) -> Vec<Option<f32>> {
@@ -45,16 +45,16 @@ fn texts(mutations: &[Mutation<'_>]) -> Vec<u32> {
 /// 0 is normal (NaN), 1 is 24sp, 2 is plain (unset: 0.0).
 #[Composable]
 fn LineHeighted(height_mode: MutableState<u8>) {
-    Column().content(|| {
-        let text = Text("A");
-        match height_mode.get() {
-            0 => text.line_height(f32::NAN),
-            1 => text.line_height(24.0),
-            _ => text,
+    Column!({
+        let line_height = match height_mode.get() {
+            0 => Some(f32::NAN),
+            1 => Some(24.0),
+            _ => None,
         };
-        Text("normal").line_height(f32::NAN);
-        Text("explicit").line_height(18.0);
-        Text("plain");
+        Text!("A", line_height = line_height);
+        Text!("normal", line_height = f32::NAN);
+        Text!("explicit", line_height = 18.0);
+        Text!("plain");
     });
 }
 
