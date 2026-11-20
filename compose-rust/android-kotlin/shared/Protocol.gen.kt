@@ -50,7 +50,7 @@ enum class ColorScheme { Light, Dark, FollowSystem }
 
 enum class AssetKind { Png, Jpeg, Svg, VectorIcon, Font, Brush }
 
-enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh }
+enum class IconRole { Back, Forward, Close, Search, Add, Check, Settings, More, Home, List, Inbox, Menu, History, Send, Mic, Image, Video, Library, Sidebar, Compose, Collapse, Lock, Favorite, Book, Play, Shuffle, ExpandMore, Person, Clock, Tune, Chat, Star, Bag, Bell, Share, Language, CompactOverlay, Calculator, Refresh, Delete }
 
 enum class MessageDuration { Short, Long }
 
@@ -3749,6 +3749,7 @@ object Protocol {
         37 -> IconRole.CompactOverlay
         38 -> IconRole.Calculator
         39 -> IconRole.Refresh
+        40 -> IconRole.Delete
         else -> throw ProtocolException("unknown IconRole tag $tag", offset)
     }
 

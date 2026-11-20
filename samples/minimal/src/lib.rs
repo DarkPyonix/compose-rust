@@ -247,8 +247,7 @@ fn panel_and_delete() {
                     );
                 }
             );
-            // A word rather than the reference's bin, because no icon role means
-            // deleting yet (#593).
+            // The reference's white bin on its red square.
             Box!(
                 modifier = Modifier
                     .width(DELETE_WIDTH)
@@ -257,17 +256,13 @@ fn panel_and_delete() {
                     .corner_radius(CARD_CORNER),
                 alignment = Alignment::Center,
                 {
-                    Text!(
-                        "Delete",
-                        type_role = TypeRole::Label,
-                        font_weight = BOLD,
-                        color = palette::PAGE
-                    );
                     Button!(
                         "",
                         || {},
+                        icon = IconRole::Delete,
                         accessible_name = "Delete",
                         variant = ButtonVariant::Text,
+                        color = palette::PAGE,
                         modifier = Modifier.match_parent_size()
                     );
                 }
@@ -1121,6 +1116,33 @@ mod tests {
     fn fr22_the_delete_action_is_the_reference_red() {
         let screen = Screen::new();
         assert_eq!(screen.fill_behind("Delete"), Some(palette::DELETE));
+        compose_rust::window::reset_window_size();
+    }
+
+    /// The delete action is the white bin of the delete icon, not the word "Delete".
+    #[test]
+    fn fr16_the_delete_action_draws_the_delete_icon() {
+        let screen = Screen::new();
+        let control = screen
+            .named("Delete")
+            .expect("the sheet has no delete action");
+        let icon = screen
+            .live()
+            .iter()
+            .rev()
+            .find_map(|mutation| match mutation {
+                Mutation::SetProp {
+                    node_id,
+                    property: PropertyKind::Icon,
+                    value: PropertyValue::Integer(tag),
+                } if *node_id == control => Some(*tag),
+                _ => None,
+            });
+        assert_eq!(icon, Some(i64::from(u16::from(IconRole::Delete))));
+        assert!(
+            !screen.texts().iter().any(|text| text == "Delete"),
+            "the delete action still writes the word"
+        );
         compose_rust::window::reset_window_size();
     }
 
