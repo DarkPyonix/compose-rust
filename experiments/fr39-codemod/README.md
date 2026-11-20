@@ -40,7 +40,16 @@ copied from the source unchanged; only the chain around them changes.
   a type gets the type the handler passes (rustc does not infer it inside `Some`).
 - `.content(|| { .. })` becomes the trailing `{ .. }` block; a content closure with
   arguments (lazy lists) stays a named `content = ..`.
-- `x_if(opt)` becomes `x = opt`, and the renames in `src/table.rs` apply.
+- `x_if(opt)` becomes `x = opt`, and the renames in `src/table.rs` apply. One of them changes
+  the name: `.equal_height(x)` on a `Row` and `.equal_width(x)` on a `Column` are both
+  `intrinsic_size = x`.
+- A call through an alias of `ui` is a widget call, written `use compose_rust::ui as cu;`
+  or `use compose_rust::ui::{self as cu, ..};`.
+- A bare name is a widget unless the file defines it (`fn Badge(..)`) or imports it from
+  somewhere other than `ui` (`use super::components::Select`, alacritty's `Column`). Next
+  to a glob import from outside compose-rust (`use super::compat::*`) at the file's top, a bare widget name not
+  imported from `ui` by name is left alone and reported, since the glob may bring in a
+  function of that name.
 - A widget called through a path (`compose_rust::ui::Text(..)`) becomes a block that
   brings the name into scope, because the macro calls its function by bare name:
   `{ use ::compose_rust::ui::Text; Text!(..) }`. A path through anything but `ui`, `ui::next` or a

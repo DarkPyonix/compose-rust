@@ -241,3 +241,71 @@ fn a_call_through_an_alias_of_ui_is_a_widget() {
         "use compose_rust::ui as cu;\nfn f() { { use ::compose_rust::ui::Image; Image!(id, modifier = m) }; }",
     );
 }
+
+#[test]
+fn a_call_through_a_grouped_alias_of_ui_is_a_widget() {
+    same(
+        "use compose_rust::ui::{self as cu, Modifier};\nfn f() { cu::Image(id).modifier(m); }",
+        "use compose_rust::ui::{self as cu, Modifier};\nfn f() { { use ::compose_rust::ui::Image; Image!(id, modifier = m) }; }",
+    );
+}
+
+#[test]
+fn a_widget_name_the_file_defines_is_not_a_widget() {
+    same(
+        "fn Badge(text: &str, tone: Tone) {}\nfn f() { Badge(\"a\", tone); Text(\"b\"); }",
+        "fn Badge(text: &str, tone: Tone) {}\nfn f() { Badge(\"a\", tone); Text!(\"b\"); }",
+    );
+}
+
+#[test]
+fn a_widget_name_imported_from_elsewhere_is_not_a_widget() {
+    // Ember's own `Select`, and alacritty's grid `Column`, which is bound with `let` and
+    // would otherwise be reported as a builder to rewrite by hand.
+    same(
+        "use super::components::Select;\nuse alacritty_terminal::index::Column;\nfn f() { Select(a, b, 0, w, pick); let c = Column(3); }",
+        "use super::components::Select;\nuse alacritty_terminal::index::Column;\nfn f() { Select(a, b, 0, w, pick); let c = Column(3); }",
+    );
+}
+
+#[test]
+fn a_widget_name_imported_from_ui_stays_a_widget() {
+    same(
+        "use compose_rust::ui::{Text, Modifier};\nfn f() { Text(\"a\").max_lines(1); }",
+        "use compose_rust::ui::{Text, Modifier};\nfn f() { Text!(\"a\", max_lines = 1); }",
+    );
+}
+
+#[test]
+fn a_bare_widget_name_next_to_a_glob_from_elsewhere_is_left_alone() {
+    // gallery.rs: `Badge` is Ember's own, brought in by `use super::compat::*`.
+    let source = "use super::compat::*;\nfn f() { Badge(\"a\", tone); }";
+    let (got, flags) = run(source);
+    assert_eq!(got, source);
+    assert_eq!(flags.len(), 1, "{flags:?}");
+    assert!(flags[0].contains("glob import from outside compose-rust"), "{flags:?}");
+}
+
+#[test]
+fn a_widget_imported_from_ui_by_name_is_a_widget_next_to_a_foreign_glob() {
+    same(
+        "use super::*;\nuse compose_rust::ui::Text;\nfn f() { Text(\"a\").max_lines(1); }",
+        "use super::*;\nuse compose_rust::ui::Text;\nfn f() { Text!(\"a\", max_lines = 1); }",
+    );
+}
+
+#[test]
+fn a_glob_inside_a_test_module_does_not_hold_back_the_files_widgets() {
+    same(
+        "fn f() { Text(\"a\").max_lines(1); }\nmod tests { use super::*; }",
+        "fn f() { Text!(\"a\", max_lines = 1); }\nmod tests { use super::*; }",
+    );
+}
+
+#[test]
+fn a_glob_from_compose_rust_itself_does_not_hold_back_widgets() {
+    same(
+        "use compose_rust::runtime::*;\nuse compose_rust::ui::*;\nfn f() { Text(\"a\").max_lines(1); }",
+        "use compose_rust::runtime::*;\nuse compose_rust::ui::*;\nfn f() { Text!(\"a\", max_lines = 1); }",
+    );
+}
