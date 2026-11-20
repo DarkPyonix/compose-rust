@@ -98,6 +98,10 @@ In a `Row` with `equal_height(true)`, a child holding a scrolling column of fixe
 
 `IconRole::Settings` draws an eight-tooth gear with a hub. Before, at bar size, it read as a crosshair ([#537](https://github.com/DarkPyonix/compose-rust/issues/537)).
 
+### A refresh icon
+
+`IconRole::Refresh` (tag 39) draws a clockwise arrow on desktop and Android and the `arrow.clockwise` system symbol on iOS. The schema hash changes ([#908](https://github.com/DarkPyonix/compose-rust/issues/908)).
+
 ### Seventeen more icon roles
 
 `IconRole` gains `Lock`, `Favorite`, `Book`, `Play`, `Shuffle`, `ExpandMore`, `Person`, `Clock`, `Tune`, `Chat`, `Star`, `Bag`, `Bell`, `Share`, `Language`, `CompactOverlay` and `Calculator` (tags 22 to 38, the ones already reserved for them). Each has drawn artwork on desktop and Android and a system symbol on iOS, and works in an icon-only button. The schema hash changes ([#539](https://github.com/DarkPyonix/compose-rust/issues/539), [#602](https://github.com/DarkPyonix/compose-rust/issues/602)).
