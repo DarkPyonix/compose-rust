@@ -13,7 +13,7 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, EventPayload, PropertyKind, Theme};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::RefCell;
 use support::Tree;
 

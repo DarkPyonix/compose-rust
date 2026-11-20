@@ -7,7 +7,7 @@ use compose_rust::protocol::HostEvent;
 use compose_rust::schema::{
     EventPayload, POPOVER_ALIGN_SCHEMA, POPOVER_PLACEMENT_SCHEMA, PropertyKind, WidgetKind,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use support::Tree;
 

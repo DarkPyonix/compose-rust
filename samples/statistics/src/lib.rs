@@ -17,7 +17,7 @@ mod spending;
 use charts::Bar;
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use spending::{
     ALL_TIME_CENTS, MOBILE_SHARE, RETURNING_SHARE, SOURCES, Source, TODAY, WEEK, YESTERDAY, cost,
     dearest, peak, whole_cost,

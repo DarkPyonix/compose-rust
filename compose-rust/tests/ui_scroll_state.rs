@@ -4,7 +4,7 @@ mod support;
 
 use compose_rust::protocol::{HostEvent, encode_event};
 use compose_rust::schema::PropertyKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, EventPayload};
 use support::Tree;
 

@@ -11,7 +11,7 @@ use compose_rust::clipboard::{self, ClipboardError, MAX_TEXT_BYTES};
 use compose_rust::protocol::{BatchEncoder, HostEvent, Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, EventPayload, PropertyKind, Theme};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::cell::RefCell;
 use support::Tree;
 

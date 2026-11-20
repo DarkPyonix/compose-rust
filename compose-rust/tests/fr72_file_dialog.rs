@@ -16,7 +16,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDialogKind, FileDialogStatus, PropertyKind,
     Theme,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FileDialog, FileDialogResult, FileDialogSender};
 use std::cell::RefCell;
 use std::sync::Mutex;

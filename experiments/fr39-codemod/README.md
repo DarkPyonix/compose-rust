@@ -1,6 +1,6 @@
 # fr39-codemod
 
-Rewrites compose-rust widget builder chains into the FR-39 call macro form, for the move
+Rewrites compose-rust widget builder chains into calls of the widget macros, for the move
 off the builders before 1.0 (owner decision 2026-11-20).
 
 ```text
@@ -16,6 +16,11 @@ cargo build --release
 ./target/release/fr39-codemod <dir or file>...           # rewrites in place
 cargo fmt
 ```
+
+Imports stay as they are: once the builders are gone the macros are `compose_rust::ui`
+itself, so `use compose_rust::ui::*` brings them in. `--imports next` moves widget imports
+to `ui::next` instead, for a crate built against a compose-rust from the migration, when
+the macros lived there beside the builders.
 
 `--crate-path crate` writes `crate::KeyEvent` instead of `::compose_rust::KeyEvent` in
 the closure types it adds, for call sites inside compose-rust itself. The same binary
@@ -35,8 +40,21 @@ copied from the source unchanged; only the chain around them changes.
   a type gets the type the handler passes (rustc does not infer it inside `Some`).
 - `.content(|| { .. })` becomes the trailing `{ .. }` block; a content closure with
   arguments (lazy lists) stays a named `content = ..`.
-- `x_if(opt)` becomes `x = opt`, and the renames in `src/table.rs` apply.
-- `use compose_rust::ui::*` and widget imports move to `ui::next`.
+- `x_if(opt)` becomes `x = opt`, and the renames in `src/table.rs` apply. One of them changes
+  the name: `.equal_height(x)` on a `Row` and `.equal_width(x)` on a `Column` are both
+  `intrinsic_size = x`.
+- A call through an alias of `ui` is a widget call, written `use compose_rust::ui as cu;`
+  or `use compose_rust::ui::{self as cu, ..};`.
+- A bare name is a widget unless the file defines it (`fn Badge(..)`) or imports it from
+  somewhere other than `ui` (`use super::components::Select`, alacritty's `Column`). Next
+  to a glob import from outside compose-rust (`use super::compat::*`) at the file's top, a bare widget name not
+  imported from `ui` by name is left alone and reported, since the glob may bring in a
+  function of that name.
+- A widget called through a path (`compose_rust::ui::Text(..)`) becomes a block that
+  brings the name into scope, because the macro calls its function by bare name:
+  `{ use ::compose_rust::ui::Text; Text!(..) }`. A path through anything but `ui`, `ui::next` or a
+  name the file gives `ui` (`use compose_rust::ui as cu;`) is not a widget: an enum variant
+  such as `Value::Text` stays as it is.
 
 ## What it leaves alone and reports
 

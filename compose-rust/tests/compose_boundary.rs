@@ -10,7 +10,7 @@ use compose_rust::boundary::{
 use compose_rust::protocol::{HostEvent, Mutation, decode_batch, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, LoopMode, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use support::Tree;
 
 #[Composable]

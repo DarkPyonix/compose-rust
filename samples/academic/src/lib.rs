@@ -15,7 +15,7 @@ mod school;
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use school::{
     LESSONS, Lesson, STAGES, SUBJECTS, Subject, ordinal, overall_progress, reached, stage,
 };

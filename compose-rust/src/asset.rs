@@ -38,7 +38,7 @@ thread_local! {
 /// names it by.
 pub type AssetId = u32;
 
-/// Registers one picture and returns the id an [`crate::Image`] draws it by.
+/// Registers one picture and returns the id an [`Image`](fn@crate::ui::Image) draws it by.
 ///
 /// ```ignore
 /// static HERO: &[u8] = include_bytes!("../assets/hero.svg");

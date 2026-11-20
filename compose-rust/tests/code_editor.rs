@@ -1210,7 +1210,7 @@ thread_local! {
 
 #[compose_rust::runtime::Composable]
 fn Nothing() {
-    use compose_rust::ui::next::Text;
+    use compose_rust::ui::Text;
     Text!("editor");
 }
 

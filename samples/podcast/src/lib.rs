@@ -20,7 +20,7 @@ mod palette;
 
 use compose_rust::AssetKind;
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use library::{
     EPISODES, Episode, SHOWS, Show, WELCOME, clock, episode, short_count, show_of, waveform,
 };

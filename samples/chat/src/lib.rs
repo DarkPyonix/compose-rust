@@ -14,7 +14,7 @@
 //! so the message growing at the bottom does not disturb the ones above it.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 mod assistant;

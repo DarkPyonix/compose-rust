@@ -14,7 +14,7 @@ mod palette;
 
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use courses::{Course, Palette, Shelf, Slot, course, meta_label, on, sessions_label};
 use std::rc::Rc;
 

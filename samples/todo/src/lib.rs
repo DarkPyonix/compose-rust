@@ -17,7 +17,7 @@
 //! row therefore composes that row again and leaves its neighbours alone.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 mod store;

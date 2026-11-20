@@ -17,7 +17,7 @@ use compose_rust::schema::{
     Chrome, ColorScheme, DesignSystem, EventPayload, LastWindowClosed, PropertyKind, Theme,
     TitleBar, WidgetKind, Window as WindowSettings, WindowHeightClass, WindowMode, WindowSizeClass,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, zoom};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};

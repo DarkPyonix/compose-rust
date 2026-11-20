@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use compose_rust::runtime::*;
 use compose_rust::storage;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Delivery, FileDialog, FileDialogResult, FileError, PickedFile};
 
 mod document;

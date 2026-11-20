@@ -71,7 +71,7 @@ fn fr36_a_worker_notification_sender_queues_requests_a_frame_and_rides_the_next_
     reset_notifications();
 
     let mut host = ComposeHost::with_content(|| {
-        use compose_rust::ui::next::Text;
+        use compose_rust::ui::Text;
         Text!("idle");
     });
     host.rebuild().expect("the initial tree builds");

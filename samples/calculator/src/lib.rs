@@ -17,7 +17,7 @@
 //! calculator does.
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::window::WindowSize;
 use std::rc::Rc;
 

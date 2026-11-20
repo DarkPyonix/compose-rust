@@ -16,7 +16,7 @@ use compose_rust::runtime::*;
 use compose_rust::schema::{
     EventPayload, NativeHandle, NativeParentKind, PropertyKind, WidgetKind,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Batch, codegen};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

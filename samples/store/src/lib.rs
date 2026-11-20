@@ -20,7 +20,7 @@ use catalogue::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::rc::Rc;
 
 /// How wide the page is once the window is wider than a phone. A phone design in a desktop
