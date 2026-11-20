@@ -1,7 +1,7 @@
 //! How the day felt, what is worrying you, and the faces that stand for both.
 
 use crate::palette;
-use compose_rust::ui::next::{DrawList, DrawListBuilder, Paint, TypeRole};
+use compose_rust::ui::{DrawList, DrawListBuilder, Paint, TypeRole};
 
 /// The four answers to "how do you feel today".
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
