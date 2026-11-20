@@ -1518,7 +1518,9 @@ private fun Modifier.minTouchTarget(node: Node, dispatcher: EventDispatcher): Mo
         !enabled -> null
         node.widget == WidgetKind.Checkbox || node.widget == WidgetKind.Switch -> valueHandler?.let { id ->
             {
-                val checked = node.flag(PropertyKind.Checked, default = false)
+                // A press on a mixed box asks for checked, as the box itself does.
+                val checked = node.flag(PropertyKind.Checked, default = false) &&
+                    !node.flag(PropertyKind.Indeterminate, default = false)
                 dispatcher.dispatch(HostEvent.ValueChanged(node.id, id, if (checked) 0.0 else 1.0))
             }
         }

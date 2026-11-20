@@ -432,3 +432,58 @@ fn fr68_repeated_labels_do_not_allocate_in_steady_state() {
         "repeated labels allocated {with_labels} where without took {without_labels}"
     );
 }
+
+#[Composable]
+fn Mixed() {
+    Column!({
+        Box!(
+            modifier = Modifier.semantics(Role::Checkbox, "Staged", SemanticsState::mixed()),
+            {}
+        );
+        // Mixed wins over a checked value given beside it.
+        Box!(
+            modifier = Modifier.semantics(
+                Role::Checkbox,
+                "Partly staged",
+                SemanticsState {
+                    checked: Some(true),
+                    ..SemanticsState::mixed()
+                },
+            ),
+            {}
+        );
+    });
+}
+
+/// The checked field's fourth value, 3, is mixed: `SemanticsState::mixed()` writes it,
+/// and it comes back from the encoded batch as written, inside the mask.
+#[test]
+fn fr68_semantics_checked_mixed_round_trips() {
+    use compose_rust::protocol::{Mutation, decode_batch};
+    use compose_rust::schema::{
+        Modifier as Wire, SEMANTICS_CHECKED_MIXED, SEMANTICS_CHECKED_SHIFT, SEMANTICS_STATE_MASK,
+        SemanticsRole,
+    };
+
+    assert_eq!(SEMANTICS_CHECKED_MIXED, 3);
+    let mut host = ComposeHost::with_content(Mixed);
+    let batch = host.rebuild().expect("the first batch encodes").to_vec();
+    let states: Vec<u32> = decode_batch(&batch)
+        .expect("the batch decodes")
+        .into_iter()
+        .filter_map(|mutation| match mutation {
+            Mutation::SetModifier {
+                modifier:
+                    Wire::Semantics {
+                        role: SemanticsRole::Checkbox,
+                        state,
+                    },
+                ..
+            } => Some(state),
+            _ => None,
+        })
+        .collect();
+    let mixed = SEMANTICS_CHECKED_MIXED << SEMANTICS_CHECKED_SHIFT;
+    assert_eq!(states, [mixed, mixed]);
+    assert_eq!(mixed & !SEMANTICS_STATE_MASK, 0);
+}
