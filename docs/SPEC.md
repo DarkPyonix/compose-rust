@@ -2853,14 +2853,14 @@ Notification::new("세션이 끝났습니다")
 >
 > 위젯은 `compose-rust/src/ui/functions/`의 공개 함수와 같은 이름의 호출 매크로입니다. 그 함수들이 채우는 `*Scope` 빌더는 `compose-rust/src/ui/widgets.rs`에 `pub(crate)`로 남아 있어 공개 API에 없습니다. PR #906(`9ef0d722`)이 소유자의 빌더 제거 결정(2026-11-20, 39.5.1 아래)대로 그렇게 바꿨습니다. 함수 형태의 위젯은 v0.0.12에서 `ui::next` 모듈로 먼저 나왔고(`3ca9e223`), 같은 PR이 그것을 `ui`로 옮기면서 `ui::next`는 없어졌습니다. 저장소의 샘플, 크레이트의 테스트, 가이드와 README는 이 API로 쓰여 있습니다.
 >
-> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정이고(이슈 #23), 39.4.7은 소유자 결정으로 1.0 뒤에 확인합니다. 기준별 증거는 다음과 같습니다.
+> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정입니다(이슈 #23). 39.4.7은 소유자 결정으로 1.0 뒤의 FR-90으로 옮겼습니다. 기준별 증거는 다음과 같습니다.
 > - 39.4.1 Dioxus 없이: `core-has-no-dioxus.test.sh`, `fr39_the_boundary_drives_a_runtime_that_is_not_dioxus`, `fr39_a_message_action_runs_without_dioxus`.
 > - 39.4.2 건너뜀: `fr39_a_state_change_runs_only_the_scope_that_read_it`(Mutation은 `SetProp Text` 1건), `fr39_a_composable_whose_parameters_are_unchanged_is_skipped`, `fr39_a_static_string_parameter_is_compared_and_skipped`, `fr39_an_unchanged_frame_sends_nothing`.
 > - 39.4.3 위치 기반 기억: `fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears`, `fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh`, `fr39_a_match_arm_that_changes_takes_its_state_with_it`, 대조군 `fr39_without_branch_groups_a_call_site_is_handed_another_ones_state`, `fr39_groups_close_on_return_continue_break_question_mark_and_unwind`, `fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered`.
 > - 39.4.4 상태: `fr39_writes_from_a_worker_are_one_recomposition_on_the_next_frame`, `fr39_a_write_in_a_handler_is_recomposed_in_the_same_call`, `fr39_a_write_during_composition_waits_for_the_next_frame`, `fr39_work_handed_to_a_worker_resumes_on_the_ui_thread_and_recomposes`.
 > - 39.4.5 effect: `fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_they_leave`.
 > - 39.4.6 같은 와이어: `fr39_a_composable_application_runs_through_the_unchanged_boundary`. 렌더러 아티팩트 하나가 두 경로를 그리는 것은 dioxus-compose의 CI가 같은 렌더러로 돌기 때문이고, 이 저장소에 그것을 묻는 시험은 없습니다.
-> - 39.4.7 `rsx!`와 같은 표현력: **확인 안 됨.** 샘플의 `rsx!` 판은 dioxus-compose에 있고, 두 판의 노드 트리를 비교하는 시험이 없습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
+> - 39.4.7 `rsx!`와 같은 표현력: FR-90으로 옮겼습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
 > - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다. `compose-rust/benches/baseline.json`이 아직 없습니다. 남은 일은 빌더 제거 뒤의 벤치를 다시 빌드하고, 한가한 기계에서 `parity.sh`와 `run.sh`를 돌려 결과를 남기고, 다른 세션이 같은 벤치로 같은 결과를 확인하는 것입니다(39.4.8의 7, 8, 이슈 #23).
 > - 39.5.1 함수 형태: `fr39_function_form_no_public_method_chains_outside_the_value_types`가 39.1의 값 타입 밖에 `self`를 받아 `Self`를 돌려주는 공개 메서드가 없음을, `fr39_function_form_every_widget_function_returns_nothing`이 공개 위젯 함수가 값을 돌려주지 않음을 확인합니다. `fr39_function_form_takes_every_argument_and_no_defaults`와 위젯 종류마다의 `fr39_function_form_*_composes_with_every_parameter`가 함수 형태로 모든 인자를 줍니다. 첫 검사는 지금 `compose-rust/src/ui` 아래의 파일만 읽어서, `ui`가 다른 파일에서 다시 내보내는 타입은 보지 않습니다.
 > - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다. 내용 클로저를 두 번 준 호출(`fail_content_twice`)과 const 제네릭, `impl Trait` 인자의 composable(`fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form`)은 2026-11-20에 더했습니다.
@@ -3007,8 +3007,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 4. **상태.** UI 스레드의 쓰기와 워커 스레드의 쓰기가 모두 다음 프레임에 반영되고, 한 프레임 안의 여러 쓰기가 recomposition 한 번이 됩니다. 사용자 코드에 경계 함수 호출이 없습니다.
 5. **effect.** 적용 후 효과는 적용된 composition마다 한 번 실행되고, 키 있는 효과는 키가 바뀔 때 취소 후 다시 시작하며, composition을 떠난 스코프의 효과는 취소되고 정리 함수가 한 번 실행됩니다.
 6. **같은 와이어, 같은 렌더러.** 경계 진입점과 스키마 해시가 바뀌지 않고, 체크인된 프로토콜 벡터가 그대로 통과하며, 같은 렌더러 아티팩트가 compose-rust 애플리케이션과 dioxus-compose 애플리케이션을 모두 그립니다.
-7. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
-   - 소유자 결정(2026-11-20): 이 기준의 확인은 1.0 뒤로 미룹니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
+7. **`rsx!`와 같은 표현력.** FR-90으로 옮겼습니다(소유자 결정 2026-11-20, [leader, 2026-11-21]). 뒤의 번호가 바뀌지 않도록 이 번호는 비워 둡니다.
 8. **성능: Dioxus 경로보다 10배.** 소유자가 정한 목표이고, 측정이 숫자에 맞춰 바뀌지 않도록 아래 규칙을 함께 정합니다.
 
    > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
@@ -3047,6 +3046,15 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 #### 39.6 이행
 
 이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+
+### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #23)
+
+> **출처([leader, 2026-11-21]).** FR-39의 수용 기준 39.4.7을 그대로 옮긴 항목입니다. 소유자는 이 기준의 확인을 1.0 뒤로 미뤘습니다(2026-11-20, INTENT D2의 "1.0 전의 세 결정" (3), 소유자의 선택은 "1.0 이후로 미루기"). 그래서 이 항목은 1.0의 조건이 아니고, FR-39는 이 기준 없이 닫힙니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
+>
+> **현황(2026-11-21).** 확인되지 않았습니다. `compose-rust/benches/fr39/parity.sh`가 compose-rust API로 옮긴 샘플 열한 개의 Renderer 쪽 노드 트리를 고정된 `rsx!` 원본(dioxus-compose `dd1af76b`, `scripts/bench/fr39-baseline.env`)과 비교합니다. 이 비교는 기록된 실행이 없고 CI에서 돌지 않습니다. 원본은 2026년 10월의 샘플이라, 그 뒤에 다시 쓴 compose-rust 샘플과는 다를 수 있습니다.
+
+1. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
+   - 소유자 결정(2026-11-20): 이 기준의 확인은 1.0 뒤로 미룹니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
