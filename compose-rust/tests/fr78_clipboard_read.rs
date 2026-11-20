@@ -13,7 +13,7 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{DesignSystem, EventPayload, PropertyKind, Theme};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -31,9 +31,9 @@ fn results() -> Vec<(&'static str, ReadResult)> {
 
 #[Composable]
 fn Pasters() {
-    Button("paste").on_click(|| clipboard::read_text(record("paste")));
+    Button!("paste", || clipboard::read_text(record("paste")));
     let scope = remember_coroutine_scope();
-    Button("await").on_click(move || {
+    Button!("await", move || {
         scope.launch(async {
             let result = clipboard::use_clipboard().read_text().await;
             RESULTS.with_borrow_mut(|results| results.push(("await", result)));

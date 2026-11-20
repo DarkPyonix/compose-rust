@@ -9,7 +9,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{CompactNavigation, DesignSystem, PropertyKind, Theme, WidgetKind};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::cell::Cell;
 
 thread_local! {
@@ -18,10 +18,10 @@ thread_local! {
 
 #[Composable]
 fn Destinations() {
-    Navigation(0).compact(CHOICE.with(Cell::get)).content(|| {
-        NavigationItem("Tasks").icon(IconRole::List);
-        NavigationItem("Done").icon(IconRole::Check);
-        Text("the screen");
+    Navigation!(0, compact = CHOICE.with(Cell::get), {
+        NavigationItem!("Tasks", || {}, icon = IconRole::List);
+        NavigationItem!("Done", || {}, icon = IconRole::Check);
+        Text!("the screen");
     });
 }
 

@@ -6,11 +6,11 @@ use compose_rust::asset::{register_owned, release_owned};
 use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::AssetKind;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 
 #[Composable]
 fn Empty() {
-    Row().content(|| {});
+    Row!({});
 }
 
 /// The asset records of a batch: (registered id, bytes) and released ids.

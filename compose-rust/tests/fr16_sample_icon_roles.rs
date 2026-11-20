@@ -2,7 +2,7 @@
 
 mod support;
 
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{ComposeHost, IconRole};
 use support::Tree;
 
@@ -32,7 +32,7 @@ fn fr16_sample_icon_roles_have_stable_tags_and_reach_buttons() {
         assert_eq!(u16::from(role), tag);
         assert_eq!(IconRole::try_from(tag), Ok(role));
         let mut host = ComposeHost::with_content(move || {
-            Button("").icon(role).accessible_name("sample action");
+            Button!("", || {}, icon = role, accessible_name = "sample action");
         });
         let mut tree = Tree::default();
         tree.apply(host.rebuild().expect("encode icon button"));

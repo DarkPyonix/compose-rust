@@ -1226,7 +1226,8 @@ thread_local! {
 
 #[compose_rust::runtime::Composable]
 fn Nothing() {
-    compose_rust::ui::Text("editor");
+    use compose_rust::ui::next::Text;
+    Text!("editor");
 }
 
 /// The query is a 20 byte command written with the request number a callback was given,

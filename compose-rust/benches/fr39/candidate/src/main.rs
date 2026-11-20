@@ -5,7 +5,7 @@ use compose_rust::ComposeHost as Host;
 use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, WindowHeightClass, WindowSizeClass};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{RendererApi, install_renderer_api};
 use fr39_scenarios::{App, Batch, Event, Path, Payload, Record, SLOT_SWEEP, Value};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -28,14 +28,14 @@ extern "C" fn request_frame() {
 fn sweep() {
     let count = remember(|| mutable_state_of(0_u64));
     let slots = SLOTS.load(Ordering::Relaxed);
-    Column().content(|| {
+    Column!({
         for slot in 0..slots {
             key(slot, || {
-                Text(format!("{}-{slot}", count.get()));
+                Text!(format!("{}-{slot}", count.get()));
             });
         }
         let more = count.clone();
-        Button("Increment").on_click(move || more.update(|count| *count += 1));
+        Button!("Increment", move || more.update(|count| *count += 1));
     });
 }
 
