@@ -1805,8 +1805,10 @@ Snackbar를 위젯 태그로 만들면 Host가 **자기 소멸 타이머를 모�
 메시지는 **수명을 가진 사건**이지 트리의 일부가 아닙니다. 그래서 새 **Mutation 태그 12 `ShowMessage`** 하나를 더합니다. Host는 "이 말을 전하라"고 한 번 말하고 잊습니다.
 
 ```
-tag 12, 32바이트: handler_id: u64, text: (offset, len), action: (offset, len), duration: u16, reserved: u16
+tag 12, 40바이트: handler_id: u64, text: (offset, len), action: (offset, len), duration: u16, vertical: u16, horizontal: u16, reserved: u16, offset_dp: f32
 ```
+
+처음 정한 레코드는 32바이트였습니다. 일시 메시지의 자리와 거리(이슈 #577, 아래)가 PR #721(`5802be7e`)로 `vertical`, `horizontal`, `offset_dp`를 더해 40바이트가 되었습니다([leader, 2026-11-21]). `vertical`과 `horizontal`이 0이면 디자인 시스템이 정한 자리이고, 둘은 함께 0이거나 함께 0이 아닙니다. `offset_dp`가 NaN이면 거리를 정하지 않은 것입니다.
 
 - `handler_id`는 동작 라벨을 눌렀을 때 보낼 핸들러 id입니다. 동작이 없으면 0이고, 그때 `action`은 빈 문자열입니다. 누르면 기존 `Clicked`(이벤트 태그 1)를 `node_id = 0`으로 보냅니다. 메시지에는 노드가 없기 때문입니다.
 - `duration`은 `Short=1`, `Long=2`인 닫힌 열거형입니다. 실제 밀리초는 디자인 시스템이 정합니다. 반드시 확인을 받아야 하는 메시지는 일시 메시지가 아니라 `Dialog`이므로 "무기한"은 두지 않습니다.
@@ -2254,6 +2256,8 @@ FR-20은 창의 크기를 답합니다. 이것은 특정 노드의 크기를 답
 ### FR-30 플랫폼 고유 동작 표면과 제목 배치 (`Agreed`, 진행 중, 이슈 #57, #79)
 
 > **현황(2026-10-04).** develop에는 30.1과 30.2 모두 없습니다. 30.1 동작 키(속성 태그 75)는 PR #76(`feat/fr30-action-keys`, #57)에 있습니다. 30.2 제목을 플랫폼 캡션에 맡기는 일은 #79가 추적하며 작업 브랜치가 없습니다.
+>
+> **1.0 뒤([leader, 2026-11-21]).** 30.2(제목을 플랫폼 캡션에)는 1.0에 들어가지 않습니다. `titlePlacement`와 `SystemCaption`이 아직 코드에 없습니다(이슈 #79).
 
 적응형 애플리케이션은 디자인 시스템의 이름을 묻지 않고 자기가 놓는 것이 무엇인지 말합니다.
 렌더러의 `ComponentRules`가 그 뜻을 현재 디자인 시스템의 모양과 배치로 바꿉니다.
@@ -2851,21 +2855,25 @@ Notification::new("세션이 끝났습니다")
 
 ### FR-39 compose-rust 작성 API와 recomposition 런타임 (`Agreed`, 진행 중, 이슈 #23, #64)
 
-> **현황(2026-11-20, [leader, 2026-11-20]).** 런타임과 작성 API가 develop에 있습니다. 슬롯 테이블 런타임은 `compose-rust/src/runtime/`(composer, state, effects, host, seam)에, `#[Composable]`과 호출 매크로는 `compose-rust/macros`에 있고, compose-rust는 `dioxus-*`에 의존하지 않습니다(`scripts/tests/core-has-no-dioxus.test.sh`). 저장소의 샘플은 이 API로 쓰여 있습니다. 기준별 증거는 다음과 같습니다.
+> **현황(2026-11-21, [leader, 2026-11-21]).** 런타임과 작성 API가 develop에 있습니다. 슬롯 테이블 런타임은 `compose-rust/src/runtime/`(composer, state, effects, host, seam)에, `#[Composable]`과 호출 매크로는 `compose-rust/macros`에 있고, compose-rust는 `dioxus-*`에 의존하지 않습니다(`scripts/tests/core-has-no-dioxus.test.sh`).
+>
+> 위젯은 `compose-rust/src/ui/functions/`의 공개 함수와 같은 이름의 호출 매크로입니다. 그 함수들이 채우는 `*Scope` 빌더는 `compose-rust/src/ui/widgets.rs`에 `pub(crate)`로 남아 있어 공개 API에 없습니다. PR #906(`9ef0d722`)이 소유자의 빌더 제거 결정(2026-11-20, 39.5.1 아래)대로 그렇게 바꿨습니다. 함수 형태의 위젯은 v0.0.12에서 `ui::next` 모듈로 먼저 나왔고(`3ca9e223`), 같은 PR이 그것을 `ui`로 옮기면서 `ui::next`는 없어졌습니다. 저장소의 샘플, 크레이트의 테스트, 가이드와 README는 이 API로 쓰여 있습니다.
+>
+> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정입니다(이슈 #23). 잰 값은 결과가 어떻든 39.4.8 옆에 그대로 적고 1.0을 냅니다(소유자 결정 2026-11-20, "측정값 그대로 적고 1.0 출시", [leader, 2026-11-21]). 10배 기준을 넘으면 그 값을 적는 변경에서 FR-39가 `Done`이 됩니다. 10배에 못 미치면 39.4.8의 9대로 FR-39는 잰 값과 함께 1.0에서 `Agreed`로 남습니다. 39.4.7은 소유자 결정으로 1.0 뒤의 FR-90으로 옮겼습니다. 기준별 증거는 다음과 같습니다.
 > - 39.4.1 Dioxus 없이: `core-has-no-dioxus.test.sh`, `fr39_the_boundary_drives_a_runtime_that_is_not_dioxus`, `fr39_a_message_action_runs_without_dioxus`.
 > - 39.4.2 건너뜀: `fr39_a_state_change_runs_only_the_scope_that_read_it`(Mutation은 `SetProp Text` 1건), `fr39_a_composable_whose_parameters_are_unchanged_is_skipped`, `fr39_a_static_string_parameter_is_compared_and_skipped`, `fr39_an_unchanged_frame_sends_nothing`.
 > - 39.4.3 위치 기반 기억: `fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears`, `fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh`, `fr39_a_match_arm_that_changes_takes_its_state_with_it`, 대조군 `fr39_without_branch_groups_a_call_site_is_handed_another_ones_state`, `fr39_groups_close_on_return_continue_break_question_mark_and_unwind`, `fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered`.
 > - 39.4.4 상태: `fr39_writes_from_a_worker_are_one_recomposition_on_the_next_frame`, `fr39_a_write_in_a_handler_is_recomposed_in_the_same_call`, `fr39_a_write_during_composition_waits_for_the_next_frame`, `fr39_work_handed_to_a_worker_resumes_on_the_ui_thread_and_recomposes`.
 > - 39.4.5 effect: `fr39_effects_run_after_composition_restart_on_a_new_key_and_clean_up_when_they_leave`.
 > - 39.4.6 같은 와이어: `fr39_a_composable_application_runs_through_the_unchanged_boundary`. 렌더러 아티팩트 하나가 두 경로를 그리는 것은 dioxus-compose의 CI가 같은 렌더러로 돌기 때문이고, 이 저장소에 그것을 묻는 시험은 없습니다.
-> - 39.4.7 `rsx!`와 같은 표현력: **확인 안 됨.** 샘플의 `rsx!` 판은 dioxus-compose에 있고, 두 판의 노드 트리를 비교하는 시험이 없습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
-> - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다.
-> - 39.5.1 함수 형태: `fr39_function_form_takes_every_argument_and_no_defaults`가 함수 형태를 확인합니다. **어긋남:** develop의 공개 API에는 빌더 체인 메서드가 있습니다(`on_click`, `TextFieldScope::read_only`, `ModalScope::handle` 등). 소유자는 빌더를 1.0 전에 없애기로 정했습니다(2026-11-20, 39.5.1 아래).
+> - 39.4.7 `rsx!`와 같은 표현력: FR-90으로 옮겼습니다. 소유자 결정으로 1.0 뒤에 확인합니다(2026-11-20).
+> - 39.4.8 성능 10배: **측정 안 됨.** 벤치(`compose-rust/benches/fr39`: baseline, candidate, scenarios, `parity.sh`, `run.sh`)는 있고, 기록된 결과가 없습니다. `compose-rust/benches/baseline.json`이 아직 없습니다. 남은 일은 빌더 제거 뒤의 벤치를 다시 빌드하고, 한가한 기계에서 `parity.sh`와 `run.sh`를 돌려 결과를 남기고, 다른 세션이 같은 벤치로 같은 결과를 확인하는 것입니다(39.4.8의 7, 8, 이슈 #23).
+> - 39.5.1 함수 형태: `fr39_function_form_no_public_method_chains_outside_the_value_types`가 39.1의 값 타입 밖에 `self`를 받아 `Self`를 돌려주는 공개 메서드가 없음을, `fr39_function_form_every_widget_function_returns_nothing`이 공개 위젯 함수가 값을 돌려주지 않음을 확인합니다. `fr39_function_form_takes_every_argument_and_no_defaults`와 위젯 종류마다의 `fr39_function_form_*_composes_with_every_parameter`가 함수 형태로 모든 인자를 줍니다. 첫 검사는 지금 `compose-rust/src/ui` 아래의 파일만 읽어서, `ui`가 다른 파일에서 다시 내보내는 타입은 보지 않습니다.
 > - 39.5.2에서 39.5.13: `fr39_call_macro_*`, `fr39_state_*`, `fr39_default_*` 시험과 `compose-rust/macros/tests/ui`의 trybuild 고정 출력이 증거입니다. 내용 클로저를 두 번 준 호출(`fail_content_twice`)과 const 제네릭, `impl Trait` 인자의 composable(`fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_function_form`)은 2026-11-20에 더했습니다.
 >
 > 이름 조회와 재전송 비용은 #65가 추적합니다.
 
-**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-14)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜입니다.
+**2026-10-03 소유자 결정(INTENT D2).** compose-rust는 Dioxus 없이 쓸 수 있는 자기 작성 API를 가집니다. 모양은 Compose이고, 그 아래는 슬롯 테이블 위의 recomposition 런타임입니다. dioxus-compose는 이 위에 얹힙니다. compose-rust 1.0.0(2026-11-28)의 범위입니다. 날짜는 2026-10-04 소유자 결정으로 2026-10-20에서 2026-11-14로 옮겼습니다. 창 코드를 포크로 옮기는 일이 끝나는 2026-10-31에 안정화 2주(하드웨어 확인, 동등성 테스트, 릴리스 후보)를 더한 날짜였습니다. 그 뒤 소유자가 2026-11-14에 2026-11-23으로, 2026-11-21에 2026-11-28로 옮겼습니다([leader, 2026-11-21]).
 
 #### 39.1 모양
 
@@ -2900,8 +2908,8 @@ fn main() {
 
 - **선언.** 위젯은 `#[Composable(widget)]`로 선언합니다. 호출 매크로와 그 문서는 다른 composable과 같이 만들고, 본문은 건드리지 않습니다. 위젯은 이미 자기 그룹을 열고 자기 노드를 쓰므로, 그룹을 하나 더 두거나 매개변수 비교를 감싸면 슬롯 테이블과 할당 수가 바뀝니다.
 - **매개변수의 모양.** 빌더 메서드가 하던 일은 같은 이름의 매개변수가 합니다. 생성자 인자는 같은 자리의 필수 매개변수이고, 위젯의 주 핸들러(`Button`의 `on_click`, `Slider`의 `on_change`, `TextField`의 `on_value_change` 등)는 데이터 바로 뒤의 필수 `impl FnMut(..)`입니다. `modifier`의 기본값은 `Modifier::new()`입니다. "정하지 않음"이 와이어에서 값과 다른 속성(`font_size`, `color`, `spacing` 등)은 `impl Into<Option<T>>`(기본값 `None`)라서 `font_size = 14.0`처럼 값을 그대로 씁니다. 진짜 기본값이 있는 속성(`enabled`, `multiline`)은 `T`이고, 인자 없는 깃발 메서드(`bare()`)는 `bool`(기본 `false`), 인자가 여럿인 메서드(`range(min, max)`)는 튜플 하나입니다. 선택 핸들러와 슬롯(컨테이너의 `on_click`, `on_key_down`, `Scaffold`의 `top_bar`)은 `Option<impl FnMut(..)>`이고 기본값은 `None`입니다. 핸들러가 없는 것과 빈 핸들러는 와이어에서 다르기 때문입니다(`on_click`이 없는 컨테이너는 컨트롤이 아닙니다). `Some(..)` 안에서는 rustc가 클로저 인자 타입을 추론하지 않으므로, 인자가 있는 선택 핸들러는 `Some(move |event: KeyEvent| ..)`처럼 타입을 적습니다. `color_if` 같은 `Option`을 받는 쌍둥이 메서드는 `impl Into<Option<T>>`가 대신하므로 없습니다. 내용 클로저는 마지막의 `content`이고 기본값은 `|| {}`입니다.
-- **빌더가 아닌 것.** 체인으로 만든 뒤 인자로 넘기는 값 타입(`Modifier`, `TextSpans`, `DrawListBuilder`, `HoverStyle`, `PressStyle`, `Shadow`, `LaunchBuilder`)과 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)은 빌더 체인이 아니고 남습니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 39.5.1의 검사가 이 타입들을 이름으로 적으므로, 새로 더하는 것은 의도한 수정이 됩니다.
-- **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 빌더가 남아 있는 동안 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험합니다.
+- **빌더가 아닌 것([leader, 2026-11-21]).** 위젯 함수는 값을 돌려주지 않으므로 위젯에는 체인이 붙지 않습니다. 체인으로 만드는 타입은 위젯이나 창이나 Host에 인자로 넘기는 값입니다. Compose의 `Modifier`, `SpanStyle`과 같습니다. 예를 들면 `Modifier`, `TextSpans`, `Shadow`이고, 이것이 목록은 아닙니다. 그런 타입은 모두 39.5.1의 검사(`compose-rust/tests/fr39_no_builder_chains.rs`의 `fr39_function_form_no_public_method_chains_outside_the_value_types`)에 이름으로 적고, 이름마다 그 타입이 무엇인지 주석을 답니다. 그래서 새 타입을 더하는 것은 그 시험을 일부러 고치는 일이 되고, SPEC과 시험이 서로 어긋나지 않습니다. 그 시험은 `compose-rust/src/ui`만이 아니라 크레이트의 공개 표면 전체를 읽습니다. `ui`가 다른 파일에서 다시 내보내는 타입도 보기 위해서입니다. 핸들(`ScrollState::scroll_to`, `FocusHandle::request`)도 빌더 체인이 아니고 남습니다.
+- **와이어는 바뀌지 않습니다.** 새 함수는 빌더와 같은 속성과 리스너 목록을 채우고, 스키마, 와이어, 렌더러는 그대로입니다. 지금 함수는 크레이트 안의 빌더(`pub(crate)`)를 채워서 씁니다([leader, 2026-11-21]). 빌더가 공개 API에 있던 동안은 위젯 종류마다 두 형태가 같은 바이트를 쓰는지 시험했습니다. 빌더가 공개 API에서 빠지면서 그 시험은 지웠습니다(`9ef0d722`). 비교할 공개 빌더가 없기 때문입니다. 지금 와이어의 내용은 호출 매크로로 옮긴 기능별 시험이 확인하고, 함수 형태와 매크로 형태가 같은 바이트를 쓰는 것은 `fr39_call_macro_layout_is_the_function_call`이 `Column`과 `Row`에 대해 확인합니다.
 
 #### 39.1.1 호출 매크로
 
@@ -2941,7 +2949,14 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 **매크로의 문서.** 생성된 매크로는 `#[doc]`을 달고 나옵니다. 내용은 함수 자신의 문서 텍스트에 이어, 매개변수마다 한 줄씩 선언 순서대로 이름, 타입, 기본값(`#[default]`의 식, `modifier`의 암묵 기본값 포함) 또는 `required`를 적은 목록입니다. rust-analyzer는 매크로를 가리켰을 때 매개변수를 펼쳐 보이지 않으므로, IDE의 호버가 서명을 보이게 하는 것은 이 문서뿐입니다. `pub use`로 다시 내보낸 이름에도 이 문서가 따라갑니다.
 
-**함수 형태와 같은 호출입니다.** 매크로는 인자를 정리한 뒤 함수 한 번의 호출로 펼쳐지고, 중간 함수, 클로저 감싸기, 동적 디스패치, 할당을 더하지 않습니다. 그래서 실행 비용이 같습니다. 슬롯 그룹 키는 호출 위치에서 정해지고(`#[track_caller]`의 `Location::caller()`, 39.2의 위치 기반 기억), 매크로 형태에서 그 위치는 매크로 호출 자리입니다. 매크로가 한 번의 호출로만 펼쳐지고 중간 함수가 없으므로 rustc가 보고하는 위치가 곧 `Name!(..)`을 쓴 자리입니다. 같은 자리에서 함수 형태로 부르든 매크로 형태로 부르든 같은 그룹 키를 얻고, `macro_rules!` 안에서 부르면 두 형태 모두 바깥 매크로의 호출 자리가 위치가 됩니다.
+**함수 형태와 같은 호출입니다.** 매크로는 인자를 정리한 뒤 함수 한 번의 호출로 펼쳐지고, 중간 함수, 클로저 감싸기, 동적 디스패치, 할당을 더하지 않습니다. 그래서 실행 비용이 같습니다.
+
+슬롯 그룹 키는 호출 위치가 아니라 불리는 함수에서 정해집니다([leader, 2026-11-21]).
+- `#[Composable]`은 함수의 그룹 키를 컴파일 시점에 정합니다. 함수가 놓인 모듈 경로와 함수 이름(`concat!(module_path!(), "::", "Name")`)의 해시입니다(`compose-rust/macros/src/lib.rs`의 `key_expression`, `runtime::__private::call_site`).
+- 본문 안의 분기 그룹은 같은 경로에 본문 안에서 차례로 매긴 번호를 더해 키를 정합니다.
+- 한 부모 그룹 안에서 같은 키가 여러 번 나오면, 런타임이 그 키가 몇 번째로 나왔는지를 키에 섞어 구별합니다(`Composer::start_group`). 같은 composable을 나란히 두 번 부르는 경우입니다.
+- 키에 호출 위치가 들어가지 않으므로, 같은 자리에서 함수 형태로 부르든 매크로 형태로 부르든 같은 그룹 키를 얻습니다. `macro_rules!` 안에서 불러도 마찬가지입니다.
+- `#[track_caller]`의 `Location::caller()`를 쓰는 것은 `remember`뿐입니다. 해제된 핸들을 읽었을 때 패닉 메시지에 값을 만든 자리를 적기 위해서입니다(39.2.1의 2). 값이 놓이는 칸은 위치가 아니라 그룹 안의 순서로 정해집니다(39.2).
 
 #### 39.1.2 기본값
 
@@ -2998,8 +3013,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 4. **상태.** UI 스레드의 쓰기와 워커 스레드의 쓰기가 모두 다음 프레임에 반영되고, 한 프레임 안의 여러 쓰기가 recomposition 한 번이 됩니다. 사용자 코드에 경계 함수 호출이 없습니다.
 5. **effect.** 적용 후 효과는 적용된 composition마다 한 번 실행되고, 키 있는 효과는 키가 바뀔 때 취소 후 다시 시작하며, composition을 떠난 스코프의 효과는 취소되고 정리 함수가 한 번 실행됩니다.
 6. **같은 와이어, 같은 렌더러.** 경계 진입점과 스키마 해시가 바뀌지 않고, 체크인된 프로토콜 벡터가 그대로 통과하며, 같은 렌더러 아티팩트가 compose-rust 애플리케이션과 dioxus-compose 애플리케이션을 모두 그립니다.
-7. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
-   - 소유자 결정(2026-11-20): 이 기준의 확인은 1.0 뒤로 미룹니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
+7. **`rsx!`와 같은 표현력.** FR-90으로 옮겼습니다(소유자 결정 2026-11-20, [leader, 2026-11-21]). 뒤의 번호가 바뀌지 않도록 이 번호는 비워 둡니다.
 8. **성능: Dioxus 경로보다 10배.** 소유자가 정한 목표이고, 측정이 숫자에 맞춰 바뀌지 않도록 아래 규칙을 함께 정합니다.
 
    > "나는 성능 목표 10배로 잡으면 하는데 니가 말한 측정 조건을 사기치는 경우가 발생할 수 있다는 우려에 동의해. 니가 잘 지시해봐 그러면" (2026-10-03)
@@ -3026,22 +3040,33 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 7. **같음.** 같은 칸의 핸들 복사본은 같고, 값이 같은 서로 다른 상태의 핸들은 같지 않습니다. 이름 패턴 `fr39_state_handle_identity_*`.
 
 8. **호출 매크로의 인자 규칙.** 위치 접두사 뒤에 이름 있는 인자가 순서와 무관하게 들어갑니다. 기본값이 있는 인자를 생략할 수 있고, 후행 `{ .. }` 블록과 `content = || { .. }`가 같은 호출입니다. 인자 식은 매개변수 순서로 평가됩니다. 이름 패턴 `fr39_call_macro_args_*`.
-9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 각 오류의 주 스팬은 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 마지막 인자, 인자가 없으면 매크로 호출)이고 `#[Composable]` 줄이 아니며, trybuild의 `.stderr`로 확인합니다. 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 CI의 stable 도구 체인으로 고정합니다. 이름 패턴 `fr39_call_macro_compile_fail_*`.
+9. **호출 매크로의 컴파일 오류.** `trybuild`로 다음 각각이 컴파일에 실패하고 메시지가 해당 매개변수 이름을 포함합니다. 모르는 이름, 필수 인자 빠짐, 같은 인자를 두 번(위치와 이름의 중복 포함), 이름 있는 인자 뒤의 위치 인자, 내용 클로저를 두 번 줌, 내용 클로저가 없는 함수에 후행 블록. 각 오류의 주 스팬은 호출 자리의 잘못된 인자 토큰(빠진 필수 인자는 마지막 인자)이고 `#[Composable]` 줄이 아니며, trybuild의 `.stderr`로 확인합니다. 인자가 하나도 없는 호출만 다릅니다 `[leader, 2026-11-21]`. 이때 메시지는 빠진 매개변수와 매크로의 이름을 말하고 그 호출을 오류가 나온 매크로 호출로 보여 주지만, 주 스팬은 `#[Composable]` 줄에 놓입니다. 인자가 없으면 호출한 쪽의 토큰이 검사에 하나도 닿지 않고, stable Rust는 매크로에게 자기 호출의 스팬을 주지 않기 때문입니다(`fail_no_arguments`). 매크로 크레이트(`compose-rust/macros`)에 `trybuild`를 dev-dependency로 더하고, 실패 사례와 기대 출력은 `compose-rust/macros/tests/ui/`에 두며, 기대 출력은 Rust 버전 하나에 고정합니다. 그 버전은 `.github/workflows/test.yml` 맨 위의 `RUST_TOOLCHAIN` 한 줄이 정하고, `stable`처럼 움직이는 이름은 쓰지 않습니다. rustc의 오류 문장이 릴리스마다 달라지기 때문입니다. 버전을 올릴 때는 그 줄을 바꾸고, 새 버전에서 `TRYBUILD=overwrite`로 사례를 다시 돌린 뒤, 바뀐 `.stderr`를 하나씩 읽어 같은 변경에 넣습니다 `[leader, 2026-11-21]`. 이름 패턴 `fr39_call_macro_compile_fail_*`.
 10. **기본값.** `#[default(expr)]`가 없는 매개변수가 필수이고, `modifier`의 기본값이 `Modifier::new()`이며, 기본값이 매크로 형태에서만 적용되고 함수 형태는 모든 인자를 받습니다. 기본값 식이 호출 위치에서 평가됩니다. 이름 패턴 `fr39_default_*`.
 11. **한계의 확인.** 제네릭(타입 인자 추론, const 제네릭)과 `impl Trait` 인자의 composable을 매크로 형태로 부를 수 있고, 메서드에 붙은 `#[Composable]`은 함수 형태만 만듭니다. 이름을 바꿔 가져온 경우 매크로가 컴파일 오류를 내는 것을 `trybuild`로 확인합니다. 이름 패턴 `fr39_call_macro_limits_*`.
 12. **생성 비용 없음.** 같은 호출의 함수 형태와 매크로 형태가 같은 함수 호출로 펼쳐지는 것(`cargo expand` 출력 비교 또는 호출 수 확인)을 보입니다. 이름 패턴 `fr39_call_macro_expands_*`.
 
 13. **매크로 문서.** 생성된 매크로의 `#[doc]`에 함수의 문서 텍스트가 들어 있고, 모든 매개변수가 선언 순서대로 이름, 타입, 기본값 또는 `required`와 함께 나옵니다. 매크로 확장 테스트나 rustdoc JSON으로 확인합니다. 이름 패턴 `fr39_call_macro_doc_*`.
 
-위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 이 기준은 구현이 들어올 때까지 `Agreed`입니다.
+위 이름 패턴은 구현과 함께 실제 테스트 이름으로 바뀝니다. 구현은 들어왔습니다([leader, 2026-11-21]). 실제 테스트 이름을 적은 것은 아직 39.5.5뿐이고, 나머지 기준의 실제 이름은 FR-39 머리의 현황에 있습니다. 39.5.8의 `fr39_call_macro_args_*`처럼 그 패턴으로 시작하는 테스트가 없는 것도 있습니다. 39.5의 기준은 FR-39와 함께 `Agreed`입니다.
 
 #### 39.6 이행
 
-이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-14) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+이 변경은 공개 API를 바꾸므로 compose-rust 1.0.0(2026-11-28, 소유자 2026-11-21) 전에, 한 릴리스 안에서 함께 끝냅니다(이슈 #278). 샘플 12개, 크레이트의 테스트, 가이드(`docs/guide/`의 영어와 한국어)와 README 예시가 같은 릴리스에서 새 모양으로 옮겨 갑니다. 속성 이름이 `#[composable]`에서 `#[Composable]`로 바뀌는 것도 같은 이행에 들어갑니다. 1.0.0 전이므로 옛 호출 모양(빌더 체인)과 옛 속성 이름의 별칭을 두지 않습니다. dioxus-compose 어댑터는 `#[Composable]`과 이 호출 모양을 쓰지 않으므로 영향이 없을 것으로 봅니다. 이것은 확인이 필요한 항목이고, 상태 핸들 구현(`Copy` 핸들)의 PR에서 확인합니다.
+
+### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #933, #23)
+
+> **출처([leader, 2026-11-21]).** FR-39의 수용 기준 39.4.7을 그대로 옮긴 항목입니다. 소유자는 이 기준의 확인을 1.0 뒤로 미뤘습니다(2026-11-20, INTENT D2의 "1.0 전의 세 결정" (3), 소유자의 선택은 "1.0 이후로 미루기"). 그래서 이 항목은 1.0의 조건이 아니고, FR-39의 상태는 이 기준 없이 39.4.8의 측정으로 정해집니다(FR-39 머리의 현황). 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
+>
+> **현황(2026-11-21).** 확인되지 않았습니다. `compose-rust/benches/fr39/parity.sh`가 compose-rust API로 옮긴 샘플 열한 개의 Renderer 쪽 노드 트리를 고정된 `rsx!` 원본(dioxus-compose `dd1af76b`, `scripts/bench/fr39-baseline.env`)과 비교합니다. 이 비교는 기록된 실행이 없고 CI에서 돌지 않습니다. 원본은 2026년 10월의 샘플이라, 그 뒤에 다시 쓴 compose-rust 샘플과는 다를 수 있습니다.
+
+1. **`rsx!`와 같은 표현력.** 오늘 `rsx!`로 말할 수 있는 것을 compose-rust API로 전부 말할 수 있습니다. FR-15의 위젯 전부와 그 속성, FR-10의 Modifier, FR-13의 프리미티브, 이벤트와 그 소비(FR-3, FR-12), 비제어 `TextField`와 `SetText`(FR-5), 윈도잉(FR-8), 스트리밍(FR-9), 디자인 시스템과 테마(FR-14), 에셋(FR-16), 커스텀 드로잉(FR-17), 창 설정(FR-19.3), 창 크기 클래스(FR-20), 탐색과 시트와 일시 메시지(FR-21), 워커 스레드의 갱신(PR-3)입니다. 저장소의 샘플을 compose-rust API로 옮긴 것과 지금의 `rsx!` 판이 같은 상호작용 뒤에 Renderer 쪽에서 같은 노드 트리를 만드는 것으로 확인합니다.
+   - 소유자 결정(2026-11-20): 이 기준의 확인은 1.0 뒤로 미룹니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
 
 ### FR-40 HTML 텍스트 속성 (`Agreed`, 진행 중, 이슈 #106)
 
 > **현황(2026-10-25).** develop에 있습니다. PR-2.1과 함께 PR #110(`feat/measure-call`)으로 병합되었습니다. 그 경로에서 나온 후속 문제는 #90, #91입니다. 속성 태그는 FR-40의 텍스트 속성이 110-116(`Font`=110, `WordBreak`=111, `OverflowWrap`=112, `TabSize`=113, `AbsoluteSize`=114, `SoftWrap`=115, `SpanFonts`=116)을 쓰고, 100-109는 `CodeEditor`(FR-38)가 가집니다.
+>
+> **1.0 뒤([leader, 2026-11-21]).** `SpanMetrics`(속성 태그 187)와 측정 요청의 `span_metrics`는 1.0에 들어가지 않습니다. 코드에 없습니다. 또 PR-2.1이 `span_metrics`에 정한 자리(72와 76)는 지금 `font_features`가 쓰고, 80과 84는 `span_features`가 써서 측정 레코드가 88바이트이므로, 새 자리를 정해야 합니다(이슈 #930).
 
 CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 데 필요한 속성입니다. 측정 호출(PR-2.1)의 값이 그려진 값과 같으려면, 그리기도 같은 칸을 같은 뜻으로 받아야 합니다. 노드 단위 글꼴은 역할이 없는 텍스트에만 엽니다(INTENT D20, 2026-10-03 소유자 결정).
 
@@ -3101,7 +3126,9 @@ CSS가 크기와 글꼴을 정하는 텍스트(HTML 경로)를 그리고 재는 
   - `AnimationEvent`는 자기 시각 칸을 그대로 갖습니다. 시작 시각은 이것과 `Ready` 이벤트로 압니다.
   - 입력 시각은 FR-18 제스처(1.1)에서 `DragStart`, `DragMove`, `DragEnd`, `Scroll` payload에 더합니다.
   - **와이어에 실리는 모든 시각은 `render_frame`의 `frame_time_nanos`와 같은 단조 나노초 시계입니다.** 플랫폼이 주는 시각은 그 시계로 바꾼 뒤 싣고, 기준점을 다시 잡지 않습니다.
-  - **Host의 이벤트 열거형(`HostEvent`, `EventPayload`)은 1.0 전에 `#[non_exhaustive]`가 됩니다.** 그래야 1.0 뒤에 이벤트나 칸을 더하는 것이 메이저 버전 변경이 되지 않습니다. 수용 기준: 두 열거형에 `#[non_exhaustive]`가 붙어 있고, 크레이트 밖의 match가 와일드카드 갈래 없이는 컴파일되지 않습니다(fr41_event_enums_are_non_exhaustive).
+  - **Host의 이벤트 타입(`HostEvent`, `EventPayload`)은 1.0 전에 `#[non_exhaustive]`가 됩니다.** 그래야 1.0 뒤에 이벤트나 칸을 더하는 것이 메이저 버전 변경이 되지 않습니다. 수용 기준: 두 타입에 `#[non_exhaustive]`가 붙어 있고, 크레이트 밖의 match가 와일드카드 갈래 없이는 컴파일되지 않습니다(fr41_event_enums_are_non_exhaustive).
+    - `EventPayload`는 열거형이고 `HostEvent`는 구조체입니다(`compose-rust/src/protocol.rs`, [leader, 2026-11-21]). 열거형의 `#[non_exhaustive]`는 크레이트 밖의 `match`에 와일드카드 갈래를 요구합니다. 구조체의 `#[non_exhaustive]`는 크레이트 밖에서 구조체 리터럴로 값을 만들지 못하게 하고, 크레이트 밖의 구조체 패턴에 `..`를 요구합니다. 그래서 `HostEvent`에 대한 위 기준은 크레이트 밖의 패턴이 `..` 없이는 컴파일되지 않는다는 뜻입니다.
+    - 크레이트 밖에서 `HostEvent`를 만드는 길은 공개 생성자 `HostEvent::new(node_id: u32, handler_id: u64, payload: EventPayload<'a>)` 하나이고, 이 생성자는 `const fn`입니다([leader, 2026-11-21]). 생성자를 두는 이유는, `#[non_exhaustive]`가 리터럴을 막아도 크레이트 밖의 테스트나 dioxus-compose 같은 층이 이벤트를 만들 수 있어야 하기 때문입니다.
 
 ### FR-41.1 `Transform` 수정자 (`Agreed`)
 
@@ -3788,6 +3815,8 @@ Host는 디스플레이 배율(밀도)을 모르고 바뀐 것도 모릅니다. 
 
 ### FR-49 `Mask` 수정자: CSS `mask-image` (`Agreed`, dioxus-compose 소유자 결정 D8, 이슈 #116)
 
+> **1.0 뒤([leader, 2026-11-21]).** `Mask`는 1.0에 들어가지 않습니다. 스키마, 수정자 태그 29의 디코더, 렌더러, 시험이 아직 없습니다(이슈 #929).
+
 요청한 쪽: dioxus-compose FR-34.5. CSS `mask-image`는 이미지나 그라데이션의 알파로 상자와 자식을 가리는 동작입니다. 자식까지 한 묶음으로 합성한 뒤에 적용해야 하므로 `Alpha`(FR-42)와 같은 종류의 수정자입니다.
 
 번호: 수정자 `Mask` 29. 26은 `Transform`(FR-41.1)이고 27은 FR-41.3, 28은 다른 항목이 가졌으므로 그 뒤를 씁니다. 속성도 명령도 이벤트도 늘지 않습니다.
@@ -3929,6 +3958,8 @@ Figma 모서리 매끄러움의 경로입니다. 모서리 하나는 **세제곱
 5. `Enabled`가 거짓인 면과 `TextField`는 반응하지 않습니다.
 
 ### FR-53 한 프로세스의 여러 창 (`Agreed`, 소유자 승인 2026-10-26, 이슈 #355)
+
+> **1.0 뒤([leader, 2026-11-21]).** Android, iOS, iPadOS의 여러 창(53.9)은 1.0에 들어가지 않습니다. 모바일 렌더러에 아직 없습니다(이슈 #931).
 
 소유자 지시(2026-10-26, 원문):
 
@@ -4911,6 +4942,8 @@ pub mod storage {
 
 ### FR-81 `NativeView`: 플랫폼 뷰를 노드의 사각형에 놓는 자리 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #680)
 
+> **1.0 뒤([leader, 2026-11-21]).** macOS 밖의 플랫폼(Windows, Linux, Android, iOS, Web)의 `NativeView`는 1.0에 들어가지 않습니다. 플랫폼 뷰를 노드에 붙이는 쪽이 지금은 macOS Kotlin/Native 렌더러에만 있습니다(이슈 #932).
+
 요청한 쪽은 darkpyonix-ember의 에디터 창입니다(ember INTENT D44, `docs/design/EDITOR-WEBVIEWS.md`, ember #823). 확장의 웹뷰 패널, 커스텀 편집기, 노트북 출력은 창 안의 자기 패널에서 플랫폼 웹뷰로 돕니다. 그러려면 Compose가 그린 창의 한 사각형에 플랫폼 뷰를 놓고, 배치를 따라 옮기고, 자르고, 겹침 순서를 맞추고, 포커스를 주고받는 자리가 필요합니다.
 
 **이 항목은 웹뷰가 아닙니다.** compose-rust는 여기서 뷰를 만들지 않고 새로 링크하는 것도 없습니다. Host나 Host가 쓰는 크레이트가 만든 뷰(NSView, HWND, X11 창, Android `View`)를 받아 놓기만 합니다. 그래서 INTENT C1과 NFR-2는 이 항목으로 바뀌지 않습니다. 웹뷰를 만드는 opt-in 크레이트는 별도 항목이고, C1 개정에 대한 소유자의 결정을 기다립니다.
@@ -4972,6 +5005,8 @@ pub mod storage {
     - CI 러너에서는 두 값을 "budget not judged on CI"라는 말과 함께 찍고 판정하지 않습니다(환경 변수 `CI`가 `true`일 때). 공유 러너의 프레임 시간은 예산의 10%보다 크게 흔들립니다. 프레임이 모자라면 CI에서도 실패합니다. 예산은 개발자 기기와 병합 게이트에서 판정합니다([leader, provisional] (darkpyonix leader, 2026-11-16)).
 
 ### FR-82 HiDPI 선명도: 장치 픽셀로 그리고, 배율이 바뀌면 새 배율로 다시 그립니다 (`Agreed`, [leader, provisional] (darkpyonix leader, 2026-11-13), 이슈 #18)
+
+> **1.0 뒤([leader, 2026-11-21]).** 아래 "지금 코드와의 차이"에 적은 빈자리(macOS 두 창의 배율 변경 알림, macOS GraalVM 창의 밀도, Linux의 두 창)와 캡처 시험(기준 1에서 8)은 1.0에 들어가지 않습니다(이슈 #18).
 
 소유자 보고(2026-09-23/24): Windows에서 주 모니터 200%, 보조 모니터 125% 둘 다 흐릿하고, macOS에서는 둥근 도형이 계단처럼 보입니다. 지금 SPEC에서 DPI를 다루는 것은 Windows 매니페스트(FR-22.6의 13번), 안전 영역이 DPI를 반영하는 것(FR-19), 밀도 보고(FR-43.1)뿐이고, 화면에 나온 픽셀이 선명한지는 어느 항목도 정하지 않습니다. 이 항목이 그것을 정합니다. 창 코드는 포크 소관이므로(FR-19.8, INTENT D19) 창 쪽 수정은 포크의 커밋으로 들어가고, 이 저장소는 렌더러의 연결부와 검사를 가집니다.
 
@@ -5180,7 +5215,7 @@ FR-40(HTML 텍스트 속성)은 역할이 `None`인 글만 다루고, FR-58은 �
 - **오류.** blob 길이가 8의 배수가 아니거나, 레코드가 16개를 넘거나, 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니면 `ProtocolError`이고 프로세스는 죽지 않으며, 그 글은 기능 없이 그려집니다.
 - **스팬 단위 기능은 이 항목에 들어 있지 않습니다.** CSS는 `font-feature-settings`를 요소마다 주므로, HTML 경로의 한 문단 안 `<span>`만 탭 숫자인 경우가 있습니다. 이것은 `Spans` 옆의 곁 표(`SpanFonts`처럼)와 속성 하나가 더 필요하며, 이슈 #702(FR-88)에서 다룹니다(리더 결정, 2026-11-13).
 - **호스트 텍스트 측정(이슈 #708).** 호스트에서 `tnum` 등 글꼴 기능이 지정된 텍스트를 측정할 때도 렌더러가 그릴 때와 같은 폭을 얻을 수 있도록, `MeasureText` 요청 레코드에 글꼴 기능 목록을 싣습니다.
-  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(레코드 80바이트: `font_features_offset@72 u32`, `font_features_count@76 u32`).
+  - `MeasureText` 요청 레코드에 `font_features: (offset, count)`를 둡니다(`font_features_offset@72 u32`, `font_features_count@76 u32`). 이 칸을 더한 PR #788(`b7482f5f`)에서 레코드는 80바이트였습니다. 그 뒤 FR-88의 PR #837(`bd540758`, 이슈 #823)이 `span_features`를 80과 84에 더해 지금 레코드는 88바이트입니다([leader, 2026-11-21]).
   - 페이로드 영역에 8바이트 고정 레코드(`tag: [u8; 4]`, `value: u32`) 목록을 싣고, 렌더러의 `Measurement.kt`는 `textInput`에서 이를 읽어 `TextInput.fontFeatures`로 전달합니다.
   - `TextStyle`에 `font_features: Vec<FontFeature>`를 둘 수 있으며, 기본값은 빈 목록입니다. 기능이 없는 텍스트는 빈 목록(count = 0)으로 보내며 기존과 동일하게 측정됩니다.
   - 오류: 태그 바이트가 출력 가능한 ASCII(0x20-0x7E)가 아니거나 16개를 넘으면 해당 레코드의 상태는 `STATUS_MALFORMED`입니다.
@@ -5499,14 +5534,14 @@ compose_rust_host_dispatch_event: click 1
 - **UI 스레드에서 도메인 작업을 금지합니다.** 네트워크, 파일 I/O, 프로세스 관리 같은 작업은 Host 워커 스레드(tokio 등)에서 돌립니다. 워커는 Dioxus signal로 상태를 갱신하고, Host가 내부에서 `request_frame`을 호출합니다. 사용자 코드는 경계 함수를 직접 부르지 않습니다.
   - **웹에서는 `with_worker`가 일을 UI 스레드에서 그 자리에서 돌립니다**. 바로 위의 금지에 대한 명시적인 예외입니다. PR-6의 메모리 모델에서 공유되지 않는 `WebAssembly.Memory` 하나를 Kotlin/Wasm이 소유하므로, Rust가 그 메모리 위에서 일을 맡길 다른 스레드가 없습니다. `with_worker`가 돌려준 future는 처음 poll될 때 일을 실행하고 그 결과로 끝납니다. 그동안 페이지는 멈추므로, 웹에서 이 예외가 감당할 수 있는 것은 짧은 일뿐입니다.
   - **애플리케이션과 샘플은 스레드를 직접 시작하지 않습니다.** 워커의 일은 언제나 `with_worker`를 거칩니다. 그래야 같은 코드가 데스크톱과 모바일에서는 워커 스레드에서, 웹에서는 UI 스레드에서 돌고, 스레드를 만들 수 없는 웹에서 스레드 생성이 실패해 패닉하는 경로가 없습니다.
-  - 수용 기준: 웹 빌드의 모든 샘플 페이지가 페이지 오류 없이 첫 화면을 그립니다. CI가 `samples-web` 페이지를 Chromium으로 열어 확인합니다(`fr22_web_every_sample_draws_without_a_page_error`). **(미구현)**
+  - 수용 기준: 웹 빌드의 모든 샘플 페이지가 페이지 오류 없이 첫 화면을 그립니다. CI가 `samples-web` 페이지를 Chromium으로 열어 확인합니다(`fr22_web_every_sample_draws_without_a_page_error`). **(구현됨: `.github/scripts/check-sample-pages.mjs`, [leader, 2026-11-21])**
 - `request_frame`은 여러 번 불러도 다음 프레임에 `render_frame` 1회로 합쳐집니다. Compose frame clock(`withFrameNanos`)이 돌고 있으면 그 안에서 실행됩니다.
 - **프레임 클록이 멈춰 있으면 Renderer가 `render_frame`을 직접 한 번 부릅니다** (2026-10-03 개정, `Draft`). 창이 최소화되거나 가려지거나 앱이 백그라운드로 가면 Compose의 프레임 클록이 멈출 수 있고, 그때 온 요청을 다음 그리기까지 미루면 워커가 낸 결과(FR-36의 알림이 대표적입니다)가 사용자가 창을 보지 않는 동안 나가지 않습니다. 그래서 그 동안 온 `request_frame`에 대해 Renderer는 UI 스레드에 작업 하나를 올리고, 그 안에서 `render_frame`을 한 번 부른 뒤 돌아온 배치를 같은 호출 스택 안에서 적용합니다. 여러 요청이 한 번으로 합쳐지는 것은 같고, `frame_time_nanos`는 프레임 클록과 같은 단조 시계의 현재 값입니다.
   - 바뀌는 것은 Renderer가 호출을 예약하는 방법뿐입니다. 경계 함수, 스레드 간 wake 신호 하나(PR-1), VirtualDom이 UI 스레드에서만 돈다는 규칙은 그대로이고, 새 진입점도 큐도 없습니다.
-  - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(미구현)**
+  - 수용 기준: 창이 최소화되어 프레임 클록이 멈춘 동안 워커가 낸 요청이 1초 안에 `render_frame` 한 번으로 처리되고, 그 배치가 적용됩니다. 클록이 다시 돌면 요청은 이전처럼 클록 안에서 처리됩니다. **(구현됨: `renderer/desktop/src/FrameRequests.kt`, `pr3_a_request_while_the_frame_clock_is_stopped_is_served_within_a_second`, `pr3_a_running_clock_serves_the_request_inside_the_frame`, [leader, 2026-11-21])**
 - macOS에서 `compose_rust_renderer_run`은 프로세스 메인 스레드에서 호출해야 합니다(AppKit 요구사항).
 - Windows에서 `launch`는 Host가 만든 스레드 하나(`compose-rust-ui`, 스택 64 MB 예약)에서 `compose_rust_renderer_run`을 호출하고, 호출한 스레드는 그 스레드가 끝나기를 기다립니다([leader, provisional] (darkpyonix leader, 2026-11-16)). Windows 메인 스레드의 스택은 실행 파일의 링크가 정하며 기본 1 MB라서 Compose의 재귀(조합, 측정, 그리기)를 담지 못합니다. Renderer UI 스레드는 여전히 하나이고 Host는 그 스레드에서만 돕니다(PR-1). `launch` 없이 루프를 직접 돌리는 애플리케이션은 스택을 스스로 마련합니다.
-  - 수용 기준: Windows에서 1 MB 스택이 담지 못하는 첫 깊이의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다. 그 깊이는 같은 단계가 재서 정합니다(`check-windows-consumer.sh` 3e). **(CI 확인 전)**
+  - 수용 기준: Windows에서 1 MB 스택이 담지 못하는 첫 깊이의 트리가 그려지고, 같은 트리가 1 MB 스택에서는 넘칩니다. 그 깊이는 같은 단계가 재서 정합니다(`check-windows-consumer.sh` 3e). **(CI 통과: 2026-11-20 실행 44692946847의 Windows 소비자 잡, [leader, 2026-11-21])**
 - Android: Host 워커 스레드는 `request_frame`을 부르기 위해 JavaVM에 **1회 영구 attach**합니다. 호출마다 attach하는 것은 금지합니다. `@FastNative`/`@CriticalNative`는 짧은 호출에만 허용합니다.
 - 프레임 예산은 NFR-9를 따릅니다.
 - 수용 기준: 여러 번의 `request_frame`이 다음 프레임의 `render_frame` 한 번으로 합쳐집니다(`pr3_frame_request_applies_exactly_one_frame_batch`). **(통과)**
@@ -5747,9 +5782,9 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-1 | JVM 불필요 | 배포물에 JRE가 없고, `java`가 없는 머신에서 실행됨 | Agreed |
 | NFR-2 | 코어 웹뷰 불필요 | 코어 크레이트는 WKWebView, WebView2, WebKitGTK에 링크하지 않음(웹뷰는 opt-in 별도 크레이트로만 제공) | Agreed |
 | NFR-3 | 데스크톱 무게 | 빈 창 physical footprint < 56MB, 배포 용량 < 100MB. 측정 기준과 근거는 §5.2 | Agreed |
-| NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다 | Done |
+| NFR-4 | 플랫폼 | macOS, Windows, Linux 데스크톱, iOS, Android, Web(wasm). Android와 Web의 경계는 PR-5, PR-6 참조. **2026-09-22 충족으로 적었던 기록**: 같은 샘플을 macOS와 iOS 시뮬레이터와 Android 에뮬레이터와 Chromium에서 띄워 같은 화면이 나오는 것을 확인했고, Linux와 Windows는 CI가 빌드하고 스모크 테스트를 돌립니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 이 기록이 스스로 적듯 Linux와 Windows는 빌드와 스모크 테스트까지이고, 같은 화면을 확인한 기록이 없습니다. 또 macOS의 확인은 데스크톱 렌더러가 Kotlin/Native 정적 렌더러로 바뀌기(NFR-14, 2026-10-04) 전의 렌더러로 한 것입니다 | Agreed |
 | NFR-5 | 개발 경험 | Renderer는 JVM 개발 셸에서 hot reload와 `@Preview`로 작업 가능. native-image 빌드는 개발 루프에 필요 없음. 새 머신의 준비 상태를 `scripts/setup-check.sh` 한 번으로 확인 가능 | Agreed |
-| NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다 | Done |
+| NFR-6 | 안정 API만 사용 | `@InternalComposeUiApi`, `@ExperimentalComposeUiApi` 의존을 금지하거나, 쓰더라도 어댑터 한 파일에 격리하고 버전 핀을 둠. **2026-09-22 충족으로 적었던 기록**: 실험 API를 쓰는 파일은 `web/src/main.kt` 하나이고 `@OptIn`이 그 자리에 붙어 있습니다. **2026-11-21에 `Done`에서 `Agreed`로 되돌렸습니다([leader, 2026-11-21]).** 지금 `renderer/desktop/src`에서만 Compose의 실험 또는 내부 API 표시(`@ExperimentalComposeUiApi`, `@ExperimentalTextApi`, `@InternalComposeUiApi`)를 쓰는 파일이 15개이고(2026-11-21에 그 세 이름으로 grep), 어댑터 한 파일에 모여 있지 않습니다. 그래서 2026-09-22의 근거는 더 이상 맞지 않습니다 | Agreed |
 | NFR-7 | 크래시 격리 | 프로토콜 오류로 프로세스가 종료되지 않고 `ProtocolError` 이벤트를 보냄 | Agreed |
 | NFR-8 | 데스크톱 접근성 | 배포 빌드(2026-10-03부터 AWT 없는 Kotlin/Native 정적 렌더러, NFR-14)의 접근성 트리가 플랫폼 접근성 API(macOS `NSAccessibility`, Linux `AT-SPI2`, Windows `UI Automation`)로 역할, 라벨, 값, 상태, 포커스, 부모·자식 계층과 컨트롤 동작(`AXPress` 등)까지 노출되고, 접근성 동작 호출이 Host 사건으로 이어져 화면을 바꿀 것. smoke test의 종료 코드 0은 근거가 되지 않습니다(접근성을 질의하지 않으므로). 규격과 수용 기준은 §7 (#418, #419) | Agreed |
 | NFR-9 | 네이티브 수준 프레임 성능 | §5.1 기준 충족 | Agreed |
@@ -5759,7 +5794,7 @@ pr6 forwarder cost: 12.15 ns/call across the boundary, 0.44 ns/call in this modu
 | NFR-13 | Windows 단일 실행 파일 | Windows 렌더러를 Kotlin/Native로 빌드해 앱 실행 파일 하나에 링크함. JVM이 없고, 앱을 빌드하는 사람에게 MinGW를 요구하지 않음. 규격과 수용 기준은 §5.6 (INTENT D18, 2026-10-03 소유자 결정) | Agreed, 진행 중: PR #119(`feature/windows-kotlin-native`)와 그 위의 PR #174가 2026-10-24에 develop에 병합됐습니다. 이슈 #24는 열려 있습니다. Windows는 이 정적 렌더러 하나만 배포합니다(§5.6) |
 | NFR-14 | AWT 없는 데스크톱 렌더러가 기본 | 배포되는 데스크톱 렌더러가 AWT도 JVM도 쓰지 않음. macOS와 Linux는 Kotlin/Native 정적 라이브러리, Windows는 NFR-13. 앱이 아무것도 고르지 않아도 이 경로가 나옴. 규격과 수용 기준은 §5.5 (INTENT D4, 2026-10-03 소유자 결정) | Agreed, 진행 중: macOS와 Linux의 기본값은 PR #113(3be2ec74, 2026-10-04 병합)으로 Kotlin/Native 정적 렌더러이고 이슈 #22는 닫혔습니다. Windows의 PR #119, #174는 2026-10-24에 병합됐고, Windows 배포는 Kotlin/Native 정적 렌더러뿐입니다(§5.6). compose-rust가 내는 길은 Kotlin/Native뿐이라는 것이 소유자의 말입니다(2026-10-17) |
 | NFR-15 | 데스크톱 애플리케이션은 실행 파일 하나 | compose-rust 애플리케이션이 macOS, Windows, Linux에서 실행 파일 하나이고, 시스템 라이브러리 외에 아무것도 불러오지 않음. 렌더러, Skia, ICU 데이터가 안에 있음. 1.0.0 요구사항. 규격과 수용 기준은 §5.7 (INTENT D17, 2026-10-03 소유자 결정) | Agreed |
-| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed |
+| NFR-16 | 렌더러를 스키마 해시로 찾음 | 같은 크레이트 버전에서 스키마가 다른 git 리비전도 빌드됨. 버전 릴리스의 스키마 해시가 크레이트와 다르면 스키마 해시로 게시된 렌더러에서 찾고, 캐시 키는 스키마 해시임. 규격과 수용 기준은 §5.3.8 (소유자 결정, 2026-10-26) | Agreed. 1.0에 들어가지 않습니다([leader, 2026-11-21]). 스키마 해시로 찾는 길이 아직 없고, 캐시는 크레이트 버전으로 나뉩니다(`compose-rust/build/renderer_dir.rs`의 `cached_renderer_dir`, 이슈 #293) |
 | NFR-17 | 메모리 안정성 | 같은 화면을 몇 천 프레임 그려도 런타임이 붙들고 있는 메모리가 늘지 않음. 규격과 수용 기준은 §5.8 (소유자 보고, 2026-10-26) | Agreed |
 
 ### 5.1 프레임 예산 (NFR-9)

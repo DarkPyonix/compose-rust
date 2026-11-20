@@ -408,7 +408,6 @@ picture! {
 picture! {
     /// An icon drawn from an SVG the application ships, registered with
     /// [`asset`](crate::asset::asset) as [`AssetKind::Svg`](crate::schema::AssetKind::Svg).
-    /// The function form of `Icon::asset`.
     ///
     /// The picture is drawn in the icon slot at the size an [`IconRole`] icon has in the
     /// design system, and in the icon's colour: every fill and every stroke takes the

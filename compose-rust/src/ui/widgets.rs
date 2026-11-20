@@ -2279,7 +2279,7 @@ pub(crate) fn Divider() -> DividerScope {
 }
 
 /// A hairline between two rows of a grouped list, in the design system's quiet edge or
-/// the given colour. The same node as `Divider().modifier(Modifier.background(color))`.
+/// the given colour. The same node as a `Divider` whose `modifier` has `background(color)`.
 pub(crate) fn Separator(color: Option<Paint>) -> DividerScope {
     Divider().modifier(Modifier::new().background_if(color))
 }
@@ -2369,7 +2369,7 @@ impl Icon {
     /// ```ignore
     /// static BELL: &[u8] = include_bytes!("../icons/bell.svg");
     ///
-    /// Icon::asset(asset(AssetKind::Svg, BELL)).color(Paint::Role(ColorRole::Primary));
+    /// IconAsset!(asset(AssetKind::Svg, BELL), color = Paint::Role(ColorRole::Primary));
     /// ```
     pub(crate) fn asset(asset_id: AssetId) -> AssetScope {
         AssetScope {
@@ -4251,8 +4251,8 @@ pub(crate) struct WindowScope {
 /// where a dialog that asks about unsaved work goes.
 ///
 /// ```ignore
-/// Window(move || open.set(false)).title("Notes").size(900.0, 600.0).content(|| {
-///     Text("Hello");
+/// Window!(move || open.set(false), title = "Notes", size = (900.0, 600.0), {
+///     Text!("Hello");
 /// });
 /// ```
 pub(crate) fn Window(on_close_request: impl FnMut() + 'static) -> WindowScope {

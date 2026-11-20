@@ -903,11 +903,7 @@ mod tests {
             let mut at = Some(node);
             while let Some(candidate) = at {
                 if let Some(handler_id) = self.handler_of(candidate) {
-                    self.send(HostEvent {
-                        node_id: candidate,
-                        handler_id,
-                        payload: EventPayload::Clicked,
-                    });
+                    self.send(HostEvent::new(candidate, handler_id, EventPayload::Clicked));
                     return true;
                 }
                 at = self.parent_of(candidate);
@@ -956,11 +952,11 @@ mod tests {
                     .collect()
             };
             for (node_id, handler_id) in lists {
-                self.send(HostEvent {
+                self.send(HostEvent::new(
                     node_id,
                     handler_id,
-                    payload: EventPayload::RangeRequested { start: 0, count },
-                });
+                    EventPayload::RangeRequested { start: 0, count },
+                ));
             }
         }
 
@@ -1331,10 +1327,10 @@ mod tests {
             host.rebuild().expect("the first frame failed");
             let mut bytes = Vec::new();
             encode_event(
-                &HostEvent {
-                    node_id: 0,
-                    handler_id: 0,
-                    payload: EventPayload::WindowSizeChanged {
+                &HostEvent::new(
+                    0,
+                    0,
+                    EventPayload::WindowSizeChanged {
                         width_dp,
                         height_dp: 780.0,
                         class: WindowSizeClass::from_width_dp(width_dp),
@@ -1344,7 +1340,7 @@ mod tests {
                         safe_area_trailing: 0.0,
                         safe_area_bottom: 0.0,
                     },
-                },
+                ),
                 &mut bytes,
             )
             .expect("the resize did not encode");
