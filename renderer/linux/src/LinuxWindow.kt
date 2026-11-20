@@ -485,6 +485,7 @@ internal class LinuxWindow private constructor(
     internal fun close() {
         if (closed) return
         closed = true
+        scene.forgetPointer()
         scene.close()
         x11.close()
     }

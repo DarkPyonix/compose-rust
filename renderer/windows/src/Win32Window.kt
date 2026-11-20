@@ -407,6 +407,7 @@ internal class Win32Window private constructor(
 
     /** Takes the scene and everything under it down after [destroy]. */
     fun release() {
+        scene.forgetPointer()
         scene.close()
         context.close()
         releaseHandle(native.window)
@@ -416,6 +417,7 @@ internal class Win32Window private constructor(
     fun close() {
         Win32Loop.setDrawCallback(null)
         resizing = null
+        scene.forgetPointer()
         scene.close()
         context.close()
     }
