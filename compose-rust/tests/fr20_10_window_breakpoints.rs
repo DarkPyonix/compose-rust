@@ -29,10 +29,10 @@ thread_local! {
 /// Renderer would send for it.
 fn report(node: u32, width_dp: f32) -> HostEvent<'static> {
     let height_dp = 700.0;
-    HostEvent {
-        node_id: node,
-        handler_id: 0,
-        payload: EventPayload::WindowSizeChanged {
+    HostEvent::new(
+        node,
+        0,
+        EventPayload::WindowSizeChanged {
             width_dp,
             height_dp,
             class: WindowSizeClass::from_width_dp(width_dp),
@@ -42,7 +42,7 @@ fn report(node: u32, width_dp: f32) -> HostEvent<'static> {
             safe_area_trailing: 0.0,
             safe_area_bottom: 0.0,
         },
-    }
+    )
 }
 
 /// A single window that reports every whole-dp change, the way an application that wants
