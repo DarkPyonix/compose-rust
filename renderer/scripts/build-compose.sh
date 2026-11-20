@@ -136,7 +136,12 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # test of a one-step height resize (fork #250), CSS half leading in skiko's paragraphs (fork
 # #251, Compose text, which this pin does not build) and CI retries (fork #252). The window's
 # exported calls and its cinterop header are unchanged.
-WINDOW_REVISION="12d04e0dfdc10c31cfcb15496ea4ba5694662918"
+# On the drag kit branch only (feat/157-drag-kit, not for develop): the pin is 56ba088, two
+# unmerged fork pull requests past 12d04e0, #255 (feat/dcomp-gpu-drag, drag steps rendered on
+# the GPU with DXC_DCOMP_GPU_DRAG=1) and #256 stacked on it (feat/dcomp-cpu-drag-guard, the
+# CPU drag's write guard behind DXC_DCOMP_CPU_GUARD=1). They change win32_window.c and
+# win32_resize.h only, with no new file and no new export.
+WINDOW_REVISION="56ba088e8b8d4543ba2f7b4c251c068e734096d4"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
