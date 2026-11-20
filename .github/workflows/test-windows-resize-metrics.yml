@@ -38,6 +38,10 @@
 # there, so nothing it says about hand-check counts) and when hand-check's CPU path shows any
 # fault. The frames it kept, and contact sheets of them, are the resize-probe-frames artifact.
 # The runners draw with WARP on the Basic Render Driver.
+#
+# What none of this can say is how a drag looks on a real graphics card. windows-drag-kit.yml
+# (ci.yml's windows_drag_kit, run only when named) packs two real samples with a launcher for
+# each of the window's routes, for a person to drag on such a machine and compare by eye.
 
 name: Resize probe and metrics
 

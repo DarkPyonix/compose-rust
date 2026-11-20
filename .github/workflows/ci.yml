@@ -8,7 +8,7 @@ on:
         # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
         # about two hours), measure (the resize timings, which test_windows_resize reports only
         # when asked), or a comma list of these and job names. scripts/ci-suites.sh says which
-        # jobs each runs.
+        # jobs each runs. windows_drag_kit runs only when named.
         description: 'all, fast, measure, or suites and job names separated by commas'
         type: string
         default: all
@@ -41,6 +41,7 @@ jobs:
       packager_macos: ${{ steps.choose.outputs.packager_macos }}
       test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
       test_samples: ${{ steps.choose.outputs.test_samples }}
+      windows_drag_kit: ${{ steps.choose.outputs.windows_drag_kit }}
       measure: ${{ steps.choose.outputs.measure }}
     steps:
       - uses: actions/checkout@v4
@@ -134,4 +135,12 @@ jobs:
     uses: ./.github/workflows/test-samples.yml
     with:
       windows_kit_built: true
+    secrets: inherit
+  # Not a gate: the Windows drag kit, two samples and a launcher per window route for a person
+  # to drag by hand on a real-GPU PC. `all` leaves it out; it runs when named, and links the
+  # renderer kit windows_static_kit built in the same run.
+  windows_drag_kit:
+    if: needs.plan.outputs.windows_drag_kit == 'true'
+    needs: [plan, windows_static_kit]
+    uses: ./.github/workflows/windows-drag-kit.yml
     secrets: inherit
