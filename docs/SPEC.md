@@ -1760,9 +1760,10 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 5. Compact 창에서는 같은 선언이 가장자리 시트로 그려집니다(`fr21_centered_sheet_falls_back_to_bottom_sheet_on_compact`).
 6. `Presentation`을 말하지 않은 시트는 지금과 같습니다(`fr21_sheet_default_presentation_is_edge`).
 
-#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Done`, 이슈 #843, [leader, provisional, 2026-11-19])
+#### 21.3.3 시트 손잡이와 아래 안전 영역 (`Agreed`, 이슈 #843, #914, [leader, provisional, 2026-11-19])
 
 - **손잡이.** 아래 시트의 손잡이(32x4dp, `ShapeRole.Full`, `OutlineVariant`)는 시트 자신의 테두리 위, 위쪽 모서리의 클립 안에 그려지며, 밝은 테마와 어두운 테마 모두에서 시트 표면과 1.5:1 이상의 대비로 보입니다. `Sheet::handle(bool)`(속성 214 `SheetHandle`, Bool, `Sheet`에만, 기본 참)로 끌 수 있습니다. 거짓이면 손잡이를 그리지 않고 끌기 동작은 그대로입니다.
+- **손잡이 아래 간격.** 손잡이를 그리는 시트는 막대 위와 아래에 간격을 두고, 시트 내용은 손잡이 아래 그 간격 다음에서 시작합니다. Material3는 Compose `BottomSheetDefaults.DragHandle`과 같이 막대 위와 아래에 각각 22dp(`DragHandleVerticalPadding`)를 둡니다. 다른 디자인 시스템에서 손잡이 위와 아래 간격은 그 시스템의 시트 내용 여백, 곧 그 시스템의 `SheetStyle`이 이미 쓰는 `SpaceRole`입니다. 시스템마다 새 숫자를 만들지 않습니다. 손잡이 위 간격이 시트의 위쪽 여백을 대신하므로 둘이 겹쳐 쌓이지 않습니다. `handle(false)`이면 손잡이도 그 간격도 없고, 내용은 시트의 여백에서 바로 시작합니다. 와이어와 스키마는 바뀌지 않습니다. 할 일 샘플에서 시트의 제목이 손잡이 바로 밑에 붙어 보였고, 원인은 샘플이 아니라 손잡이 다음에 간격을 두지 않은 Renderer였습니다. 리더의 결정입니다(2026-11-21, 이슈 #914).
 - **아래 안전 영역.** 아래 시트는 내용을 아래 안전 영역(19.9의 `bottom`)과 키보드 높이 중 큰 값만큼 띄웁니다. 시트 표면은 그대로 화면 아래 끝까지 닿고, 내용만 제스처 손잡이와 탐색 막대 위에서 끝납니다.
 
 수용 기준:
@@ -1772,6 +1773,9 @@ Fluent의 `NavigationView`가 결정적입니다. 한 컴포넌트가 폭에 따
 3. 아래 안전 영역이 있는 창에서 아래 시트의 마지막 행이 그 영역 위에서 끝납니다(fr21_bottom_sheet_clears_the_bottom_safe_area).
 4. Android 기기(Galaxy Z Flip 4)에서 손잡이가 두 테마 모두 보이고 시트 내용이 제스처 손잡이에 닿지 않는 것을 화면으로 확인합니다. 사람 손으로 확인하는 항목입니다.
    - 확인(2026-11-20, Galaxy Z Flip 4 SM-F721N, 1080x2640, 밀도 3, develop, Material3): 손잡이와 시트 표면의 대비는 밝은 테마 1.98:1, 어두운 테마 2.69:1입니다. 시트 내용의 마지막 행은 y 2474에서 끝나고, 시스템의 아래 제스처 영역은 y 2544부터라서 내용이 그보다 23dp 위에서 끝납니다. 시트 표면은 화면 아래 끝까지 닿습니다. 캡처는 이슈 #843에 있습니다.
+5. Material3 아래 시트에서 손잡이의 위 끝은 시트의 위 끝에서 22dp 아래에 있고, 첫 자식의 위 끝은 손잡이의 아래 끝에서 22dp 이상 아래에 있습니다(fr21_sheet_content_starts_below_the_handle).
+6. Material3가 아닌 디자인 시스템(Breeze)의 아래 시트에서 손잡이 아래 끝과 첫 자식 위 끝 사이의 간격이 그 시스템의 시트 내용 여백(시트의 왼쪽 끝에서 첫 자식까지의 거리)과 같습니다(fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3).
+7. `handle(false)`인 Material3 아래 시트에서 첫 자식은 시트의 위 끝에서 시트 내용 여백만큼 아래에서 시작하고, 손잡이 몫의 간격이 남지 않습니다(fr21_sheet_without_handle_leaves_no_gap).
 
 #### 21.3.2 Esc가 열린 Dialog와 Sheet를 닫으려 합니다 (`Done`, 이슈 #476)
 
