@@ -405,3 +405,21 @@ fn fr39_call_macro_one_call_site_has_the_same_key_in_both_forms() {
     assert_eq!(function_texts, vec!["before", "site:1:5", "after"]);
     assert_eq!(macro_texts, function_texts);
 }
+
+#[test]
+fn fr39_call_macro_docs_widget_reexport_is_inlined() {
+    // `ui` re-exports the widgets from a private module. rustdoc follows a re-export to the
+    // hidden macro behind it, so this re-export has to ask to be inlined as well, or the
+    // documentation lists no widget macro.
+    let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/ui/mod.rs"))
+        .expect("the ui module's source is readable");
+    let lines: Vec<&str> = source.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with("pub use functions::"))
+        .expect("ui re-exports the widget functions");
+    assert!(
+        at > 0 && lines[at - 1].trim() == "#[doc(inline)]",
+        "the widget re-export in src/ui/mod.rs needs `#[doc(inline)]` on the line above it"
+    );
+}
