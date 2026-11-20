@@ -2857,7 +2857,7 @@ Notification::new("세션이 끝났습니다")
 >
 > 위젯은 `compose-rust/src/ui/functions/`의 공개 함수와 같은 이름의 호출 매크로입니다. 그 함수들이 채우는 `*Scope` 빌더는 `compose-rust/src/ui/widgets.rs`에 `pub(crate)`로 남아 있어 공개 API에 없습니다. PR #906(`9ef0d722`)이 소유자의 빌더 제거 결정(2026-11-20, 39.5.1 아래)대로 그렇게 바꿨습니다. 함수 형태의 위젯은 v0.0.12에서 `ui::next` 모듈로 먼저 나왔고(`3ca9e223`), 같은 PR이 그것을 `ui`로 옮기면서 `ui::next`는 없어졌습니다. 저장소의 샘플, 크레이트의 테스트, 가이드와 README는 이 API로 쓰여 있습니다.
 >
-> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정입니다(이슈 #23). 39.4.7은 소유자 결정으로 1.0 뒤의 FR-90으로 옮겼습니다. 기준별 증거는 다음과 같습니다.
+> FR-39는 `Agreed`로 남습니다. 남은 것은 39.4.8의 측정입니다(이슈 #23). 잰 값은 결과가 어떻든 39.4.8 옆에 그대로 적고 1.0을 냅니다(소유자 결정 2026-11-20, "측정값 그대로 적고 1.0 출시", [leader, 2026-11-21]). 10배 기준을 넘으면 그 값을 적는 변경에서 FR-39가 `Done`이 됩니다. 10배에 못 미치면 39.4.8의 9대로 FR-39는 잰 값과 함께 1.0에서 `Agreed`로 남습니다. 39.4.7은 소유자 결정으로 1.0 뒤의 FR-90으로 옮겼습니다. 기준별 증거는 다음과 같습니다.
 > - 39.4.1 Dioxus 없이: `core-has-no-dioxus.test.sh`, `fr39_the_boundary_drives_a_runtime_that_is_not_dioxus`, `fr39_a_message_action_runs_without_dioxus`.
 > - 39.4.2 건너뜀: `fr39_a_state_change_runs_only_the_scope_that_read_it`(Mutation은 `SetProp Text` 1건), `fr39_a_composable_whose_parameters_are_unchanged_is_skipped`, `fr39_a_static_string_parameter_is_compared_and_skipped`, `fr39_an_unchanged_frame_sends_nothing`.
 > - 39.4.3 위치 기반 기억: `fr39_a_call_site_keeps_its_own_state_when_a_branch_before_it_disappears`, `fr39_a_shorter_loop_drops_the_iterations_it_lost_and_a_longer_one_starts_them_fresh`, `fr39_a_match_arm_that_changes_takes_its_state_with_it`, 대조군 `fr39_without_branch_groups_a_call_site_is_handed_another_ones_state`, `fr39_groups_close_on_return_continue_break_question_mark_and_unwind`, `fr39_a_keyed_item_that_moves_is_moved_and_keeps_what_it_remembered`.
@@ -3053,7 +3053,7 @@ TextField!(value, on_change, label = || Text("이름"), single_line = true);    
 
 ### FR-90 compose-rust API가 `rsx!`와 같은 표현력을 가집니다 (`Draft`, 1.0 뒤, 이슈 #933, #23)
 
-> **출처([leader, 2026-11-21]).** FR-39의 수용 기준 39.4.7을 그대로 옮긴 항목입니다. 소유자는 이 기준의 확인을 1.0 뒤로 미뤘습니다(2026-11-20, INTENT D2의 "1.0 전의 세 결정" (3), 소유자의 선택은 "1.0 이후로 미루기"). 그래서 이 항목은 1.0의 조건이 아니고, FR-39는 이 기준 없이 닫힙니다. 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
+> **출처([leader, 2026-11-21]).** FR-39의 수용 기준 39.4.7을 그대로 옮긴 항목입니다. 소유자는 이 기준의 확인을 1.0 뒤로 미뤘습니다(2026-11-20, INTENT D2의 "1.0 전의 세 결정" (3), 소유자의 선택은 "1.0 이후로 미루기"). 그래서 이 항목은 1.0의 조건이 아니고, FR-39의 상태는 이 기준 없이 39.4.8의 측정으로 정해집니다(FR-39 머리의 현황). 1.0의 릴리스 노트가 이 기준이 확인되지 않았다는 것을 적습니다.
 >
 > **현황(2026-11-21).** 확인되지 않았습니다. `compose-rust/benches/fr39/parity.sh`가 compose-rust API로 옮긴 샘플 열한 개의 Renderer 쪽 노드 트리를 고정된 `rsx!` 원본(dioxus-compose `dd1af76b`, `scripts/bench/fr39-baseline.env`)과 비교합니다. 이 비교는 기록된 실행이 없고 CI에서 돌지 않습니다. 원본은 2026년 10월의 샘플이라, 그 뒤에 다시 쓴 compose-rust 샘플과는 다를 수 있습니다.
 
