@@ -94,6 +94,7 @@ if ($LASTEXITCODE -ne 0) {
 $ForkWindowDir = Join-Path $RepoDir ".scratch\fork-window\$WindowRevision"
 $WindowCDir = Join-Path $ForkWindowDir "extended\window\windows-shared\c"
 $WindowSource = Join-Path $WindowCDir "win32_window.c"
+$DcompSource = Join-Path $WindowCDir "win32_dcomp.cpp"
 $NotificationsSource = Join-Path $WindowCDir "win32_notifications.c"
 $KotlinWrapper = Join-Path $ProjectDir "kotlin.bat"
 $ClasspathFile = Join-Path $BuildDir "classpath-windows.txt"
@@ -104,6 +105,11 @@ if (-not (Test-Path -LiteralPath $RendererSource -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $WindowSource -PathType Leaf)) {
     Fail "missing $WindowSource"
+}
+if (-not (Test-Path -LiteralPath $DcompSource -PathType Leaf)) {
+    Fail "missing $DcompSource" @(
+        "The pinned window commit predates the fork's DirectComposition window; pin WINDOW_REVISION in scripts\build-compose.sh to one that has it."
+    )
 }
 if (-not (Test-Path -LiteralPath $KotlinWrapper -PathType Leaf)) {
     Fail "missing $KotlinWrapper" @(
@@ -319,13 +325,24 @@ if ($LASTEXITCODE -ne 0) {
     Fail "MSVC could not compile $RendererSource"
 }
 
-# The window the renderer opens for itself, with its Direct3D 12 swapchain. Compiled as
-# C11 like the shim beside it; the Direct3D and DXGI interfaces are reached through the
-# macros the Windows SDK provides for C, so no part of this needs a C++ compiler.
+# The window the renderer opens for itself, drawn with Direct3D 12 and shown through
+# DirectComposition (DXC_DCOMP=0: the GDI surface and a swapchain). Compiled as C11 like the
+# shim beside it; the Direct3D and DXGI interfaces are reached through the macros the Windows
+# SDK provides for C. DirectComposition has no such C form, so its calls are the C++ unit below.
 $WindowObject = Join-Path $ObjDir "win32_window.obj"
 Invoke-Native { & cl.exe /nologo /c /O2 /std:c11 "/Fo$WindowObject" $WindowSource }
 if ($LASTEXITCODE -ne 0) {
     Fail "MSVC could not compile $WindowSource"
+}
+
+# The window's DirectComposition calls (win32_window.c reaches them through win32_dcomp.h), the
+# one C++ file of the window: dcomp.h declares overloaded COM methods and has no C form. Built
+# without exceptions or RTTI, as the fork builds it, so it brings no C++ runtime with it.
+# dcomp.dll is loaded at run time, so no import library is linked for it.
+$DcompObject = Join-Path $ObjDir "win32_dcomp.obj"
+Invoke-Native { & cl.exe /nologo /c /O2 /std:c++17 /GR- /EHs-c- "/Fo$DcompObject" $DcompSource }
+if ($LASTEXITCODE -ne 0) {
+    Fail "MSVC could not compile $DcompSource"
 }
 
 # Toasts, through the Windows Runtime's notification manager. C11 like the two above: the
@@ -380,6 +397,7 @@ $NativeImageArgs = @(
     "-H:ConfigurationFileDirectories=$ResourceMetadataDir",
     "-H:NativeLinkerOption=$RendererObject",
     "-H:NativeLinkerOption=$WindowObject",
+    "-H:NativeLinkerOption=$DcompObject",
     "-H:NativeLinkerOption=$NotificationsObject",
     # Named rather than left to the linker. Direct3D and DXGI resolve nowhere else, and
     # dxguid carries the interface identifiers that C code has to name as values because

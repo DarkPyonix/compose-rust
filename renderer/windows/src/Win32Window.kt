@@ -36,7 +36,8 @@ import org.thisisthepy.compose.window.windows.Win32Loop
 import org.thisisthepy.compose.window.windows.Win32NativeWindow
 
 // The window itself is the Compose fork's windows-shared module: its C
-// (`extended/window/windows-shared/c/win32_window.c`), compiled for MSVC by
+// (`extended/window/windows-shared/c/win32_window.c`, with its DirectComposition calls in
+// `win32_dcomp.cpp`), compiled for MSVC by
 // `desktop/scripts/build-windows.sh` and linked into the same executable, and the
 // Kotlin/Native layer over it (`Win32NativeWindow`, `Win32Loop`), which this links as
 // org.thisisthepy.compose.window:windows-shared. What is here is the scene: what it draws and

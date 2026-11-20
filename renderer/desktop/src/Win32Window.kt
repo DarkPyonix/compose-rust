@@ -23,8 +23,8 @@ import org.thisisthepy.compose.window.graalvm.windows.openWin32Window
 // The Compose half of the native image's window on Windows. The window itself, its calls
 // into the C, its event reader, the frame door and the upcall a resize draws through, is the
 // Compose fork's `extended/window/graalvm/graalvm-windows` module, over the C in
-// `extended/window/windows-shared/c/win32_window.c` that build-native-windows.ps1 compiles
-// into the image. What is here draws the renderer's content into it, plus the three calls the
+// `extended/window/windows-shared/c/win32_window.c` (and `win32_dcomp.cpp`, its
+// DirectComposition calls) that build-native-windows.ps1 compiles into the image. What is here draws the renderer's content into it, plus the three calls the
 // fork's window object does not make: how the next window is configured, whether it is
 // maximised, and the system's text size.
 
