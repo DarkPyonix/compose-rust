@@ -2,14 +2,33 @@
 
 ## v0.0.12
 
-### Known issues
-
-- On Android a `Shadow` draws a weaker, narrower blur than the same shadow on the desktop. Tracked in [#843](https://github.com/DarkPyonix/compose-rust/issues/843).
-- On macOS each window a process opens and closes leaves the next one slower: in one test process the frame time of the same page rose from 1.10 to 1.66 ms over twelve windows. The fix is in the Compose fork's window ([compose-multiplatform-core-extended#249](https://github.com/thisisthepy/compose-multiplatform-core-extended/pull/249)) and is not in this release's pin. Tracked in [#857](https://github.com/DarkPyonix/compose-rust/issues/857).
-
 ### Fixed from v0.0.11's known issues
 
 The Windows window pin moves to `146d920b`. A window resized by dragging an edge on Windows 10 and Windows Server 2022 no longer shows a gap at the moving edge: the resize check measured 0 of 24 faulty drags on both Windows Server 2022 and 2025, and that check is strict again. A Windows window also keeps its size in dp when the display scale changes while it is open.
+
+### Call macros: the widgets as functions in `ui::next`
+
+`compose_rust::ui::next` has every widget as one function that takes all of its parameters, plus a call macro of the same name, so `Row!(modifier = m, { .. })` replaces a `Row` builder chain. `#[Composable(widget)]` gives a function its call macro and its `#[default(..)]` values. Each function writes the same bytes as the builder chain it replaces. The samples and tests now use the call macros. This is additive: the builder API is still public in v0.0.12 and is removed before 1.0 ([#23](https://github.com/DarkPyonix/compose-rust/issues/23)).
+
+### A macOS window gives back its memory when it closes
+
+A Kotlin/Native macOS window now releases its Metal surface when it closes, and the renderer reads the VoiceOver setting once and again only when it changes, instead of on every frame. Opening and closing windows in one process no longer makes the next one slower; a test opens and closes 20 windows and checks that frame time and memory stay bounded. The Compose fork's window pin moves to `98002181` ([#857](https://github.com/DarkPyonix/compose-rust/issues/857)).
+
+### A `Material` added after the first frame keeps the window opaque
+
+Whether a window gets a material backdrop is decided once, when the window opens. A `Material` node mounted after the first frame used to make the page translucent over a window with no backdrop behind it; the page now stays opaque ([#743](https://github.com/DarkPyonix/compose-rust/issues/743)).
+
+### A `Button`'s text style reaches its child `Text`
+
+A `Button`'s `type_role` and `font_weight` now apply to a `Text` inside it, unless that `Text` sets its own. No schema change ([#500](https://github.com/DarkPyonix/compose-rust/issues/500)).
+
+### An SVG ellipse with a gradient fill draws its gradient
+
+On the desktop, iOS and the web, an SVG `<ellipse>` filled with an `objectBoundingBox` gradient drew solid black. The renderer now turns such an ellipse into an equivalent path before Skia draws it ([#678](https://github.com/DarkPyonix/compose-rust/issues/678)).
+
+### Each desktop window keeps its own pointer position
+
+The desktop renderer kept one last pointer position for the whole process, so a wheel scroll in a second window before the pointer moved there used another window's position. Each window now keeps its own ([#854](https://github.com/DarkPyonix/compose-rust/issues/854)).
 
 ### A sheet's handle can be turned off, and a bottom sheet clears the bottom safe area
 
@@ -39,9 +58,9 @@ An SVG path writes an arc's two flags as single digits that need no separator, a
 
 A group, list, tab list or other declared role now reaches `NSAccessibility` in the Kotlin/Native macOS window, where before it read as static text. A `Button` with its own accessible name exposes one element, not its visible label as well ([#782](https://github.com/DarkPyonix/compose-rust/issues/782), [#838](https://github.com/DarkPyonix/compose-rust/issues/838)). `has_popup` reaches TalkBack and VoiceOver on Android and iOS as the state description "has popup" ([#810](https://github.com/DarkPyonix/compose-rust/issues/810)).
 
-### A drag region moves a Kotlin/Native Linux window
+### A drag region moves a Kotlin/Native Linux or Windows window
 
-`WindowDrag(true)` content moves a Kotlin/Native Linux window, as it does on macOS ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)).
+`WindowDrag(true)` content moves a Kotlin/Native Linux or Windows window, as it does on macOS. On Windows, `Chrome.FullSize` now also lets the page draw under the title bar ([#345](https://github.com/DarkPyonix/compose-rust/issues/345)).
 
 ### Deeply nested rows and columns measure in linear time
 
