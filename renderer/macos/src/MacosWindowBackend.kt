@@ -520,7 +520,7 @@ internal class MacosPlatformWindow(
         onClosed(this)
         NSOperationQueue.mainQueue.addOperationWithBlock {
             window.host?.close()
-            native.close()
+            window.close()
         }
     }
 }
