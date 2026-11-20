@@ -358,10 +358,27 @@ fn container_at(lines: &[String], index: usize) -> Option<Container> {
     (!name.is_empty()).then_some(Container { name, public_trait })
 }
 
-/// The names of the types declared plainly `pub` in a file: `pub struct`, `pub enum`,
-/// `pub type` and `pub union`. A type declared `pub(crate)` or private is not here, so the
-/// `pub` methods on it are not reachable from outside the crate.
-fn public_types_in(text: &str, out: &mut HashSet<String>) {
+/// The type names a file declares, as far as its text says.
+#[derive(Default)]
+struct Types {
+    /// Declared plainly `pub`: `pub struct`, `pub enum`, `pub type` or `pub union`.
+    public: HashSet<String>,
+    /// Declared at the start of a line without `pub`, or with `pub(crate)` and the other
+    /// restricted forms.
+    hidden: HashSet<String>,
+}
+
+impl Types {
+    /// Whether the methods of `name` can be reached from outside the crate. A type that is
+    /// declared nowhere in the text was made by a macro, such as the wire enums, and is
+    /// counted as public: this errs towards checking too much.
+    fn reachable(&self, name: &str) -> bool {
+        self.public.contains(name) || !self.hidden.contains(name)
+    }
+}
+
+/// Adds the types `text` declares to `types`.
+fn types_in(text: &str, types: &mut Types) {
     for line in code_lines(text) {
         for keyword in ["pub struct ", "pub enum ", "pub type ", "pub union "] {
             let mut from = 0;
@@ -376,7 +393,26 @@ fn public_types_in(text: &str, out: &mut HashSet<String>) {
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
                 if !name.is_empty() {
-                    out.insert(name);
+                    types.public.insert(name);
+                }
+            }
+        }
+        let trimmed = line.trim_start();
+        let unrestricted = match trimmed.strip_prefix("pub(") {
+            Some(rest) => rest
+                .split_once(')')
+                .map_or("", |(_, rest)| rest.trim_start()),
+            None if trimmed.starts_with("pub ") => continue,
+            None => trimmed,
+        };
+        for keyword in ["struct ", "enum ", "type ", "union "] {
+            if let Some(rest) = unrestricted.strip_prefix(keyword) {
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if !name.is_empty() {
+                    types.hidden.insert(name);
                 }
             }
         }
@@ -421,12 +457,7 @@ fn is_chain_link(parameters: &str, returns: &str, target: &str) -> bool {
 
 /// The public methods in one file that are links of a builder chain on a public type that
 /// is not one of `allowed`, one line each.
-fn chain_methods(
-    path: &Path,
-    text: &str,
-    public_types: &HashSet<String>,
-    allowed: &[&str],
-) -> Vec<String> {
+fn chain_methods(path: &Path, text: &str, types: &Types, allowed: &[&str]) -> Vec<String> {
     let lines = code_lines(text);
     let mut found = Vec::new();
     let mut container: Option<Container> = None;
@@ -455,7 +486,7 @@ fn chain_methods(
             // A metavariable is whatever type a macro is given, so it is checked.
             let reachable = current.public_trait
                 || current.name.starts_with('$')
-                || public_types.contains(&current.name);
+                || types.reachable(&current.name);
             if reachable && !allowed.contains(&current.name.as_str()) {
                 found.push(format!(
                     "{}:{}: `{}` on `{}`",
@@ -473,13 +504,13 @@ fn chain_methods(
 #[test]
 fn fr39_function_form_no_public_method_chains_outside_the_value_types() {
     let sources = library_sources();
-    let mut public_types = HashSet::new();
+    let mut types = Types::default();
     for (_, text) in &sources {
-        public_types_in(text, &mut public_types);
+        types_in(text, &mut types);
     }
     let found: Vec<String> = sources
         .iter()
-        .flat_map(|(path, text)| chain_methods(path, text, &public_types, VALUE_TYPES))
+        .flat_map(|(path, text)| chain_methods(path, text, &types, VALUE_TYPES))
         .collect();
     assert!(
         found.is_empty(),
@@ -520,6 +551,10 @@ impl Buffer {
     pub fn push(&mut self, value: u8) -> &mut Self { self }
 }
 
+impl MadeByAMacro {
+    pub fn shade(mut self) -> Self { self }
+}
+
 macro_rules! chain {
     ($name:ident) => {
         impl $name {
@@ -532,9 +567,9 @@ pub trait Styled {
     fn bold(self) -> Self;
 }
 "#;
-    let mut public_types = HashSet::new();
-    public_types_in(source, &mut public_types);
-    let found = chain_methods(path, source, &public_types, &["Modifier"]);
+    let mut types = Types::default();
+    types_in(source, &mut types);
+    let found = chain_methods(path, source, &types, &["Modifier"]);
     let reported = |name: &str| found.iter().any(|line| line.contains(name));
     assert!(reported("fn title"), "a by-value chain: {found:#?}");
     assert!(
@@ -547,12 +582,13 @@ pub trait Styled {
         "a chain inside a macro body: {found:#?}"
     );
     assert!(reported("fn bold"), "a public trait's chain: {found:#?}");
+    assert!(reported("fn shade"), "a type no text declares: {found:#?}");
     assert!(!reported("fn hidden"), "a pub(crate) method: {found:#?}");
     assert!(!reported("in_a_comment"), "a comment: {found:#?}");
     assert!(!reported("fn reset"), "not a chain: {found:#?}");
     assert!(!reported("fn unreachable"), "a pub(crate) type: {found:#?}");
     assert!(!reported("fn padding"), "an allowed value type: {found:#?}");
-    assert_eq!(found.len(), 5, "{found:#?}");
+    assert_eq!(found.len(), 6, "{found:#?}");
 }
 
 // ----- widget functions return nothing ------------------------------------------------
