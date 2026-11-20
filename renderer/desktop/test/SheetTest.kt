@@ -1156,14 +1156,15 @@ class SheetTest {
 
     /**
      * Outside Material 3 the gap below the handle is the sheet's own content padding, the
-     * same distance the content keeps from the sheet's leading edge.
+     * same distance the content keeps from the sheet's leading edge. GNOME, because Breeze
+     * and Fluent draw no handle on a sheet at all.
      */
     @Test
     fun fr21_sheet_handle_gap_is_the_sheet_padding_outside_material3() {
-        val layout = handleLayout(DesignSystem.Breeze)
-        val handle = assertNotNull(layout.handle, "a Breeze bottom sheet draws its handle")
+        val layout = handleLayout(DesignSystem.Gnome)
+        val handle = assertNotNull(layout.handle, "a GNOME bottom sheet draws its handle")
         val padding = layout.content.left - layout.sheet.left
-        assertTrue(padding.value > 0f, "the Breeze sheet pads its content")
+        assertTrue(padding.value > 0f, "the GNOME sheet pads its content")
         assertNear(padding, layout.content.top - handle.bottom, "the gap below the handle")
         assertNear(padding, handle.top - layout.sheet.top, "the space above the handle")
     }
