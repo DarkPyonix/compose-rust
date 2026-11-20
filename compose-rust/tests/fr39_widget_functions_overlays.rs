@@ -1,5 +1,6 @@
 //! The overlay and navigation widgets as call macros: each one composes with every
-//! parameter set and with only the required ones.
+//! parameter set and with only the required ones, and the macro with every parameter set
+//! is the function call with the same arguments.
 
 use compose_rust::ComposeHost;
 
@@ -258,6 +259,197 @@ mod macros {
     }
 }
 
+/// The screens of `macros` with every parameter set, in the function form: each argument in
+/// declaration order.
+mod functions {
+    use super::child;
+    use compose_rust::ui::*;
+    use compose_rust::{FileDrop, MotionFinished, NativeHandle};
+
+    pub fn dialog() {
+        Dialog(
+            true,
+            || {},
+            Modifier.padding(8.0),
+            Paint::Role(ColorRole::Primary),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("body");
+            },
+        );
+    }
+
+    pub fn sheet() {
+        Sheet(
+            true,
+            || {},
+            Modifier.padding(8.0),
+            Paint::Role(ColorRole::Secondary),
+            0.75,
+            SheetPresentation::Centered,
+            480,
+            false,
+            Some(|_: MotionFinished| {}),
+            || {
+                child("body");
+            },
+        );
+    }
+
+    pub fn menu() {
+        Menu(
+            true,
+            || {},
+            Modifier.padding(8.0),
+            Paint::Role(ColorRole::Primary),
+            Some(|| child("anchor")),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("first");
+                child("second");
+            },
+        );
+    }
+
+    pub fn popover() {
+        Popover(
+            true,
+            || {},
+            Modifier.padding(8.0),
+            PopoverPlacement::Top,
+            PopoverAlign::End,
+            6.0,
+            true,
+            Paint::Role(ColorRole::Secondary),
+            Some(|| child("anchor")),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("body");
+            },
+        );
+    }
+
+    pub fn tooltip() {
+        Tooltip(
+            "Saves the file",
+            Modifier.padding(8.0),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("Save");
+            },
+        );
+    }
+
+    pub fn native_view() {
+        NativeView(
+            NativeHandle(42),
+            Modifier.padding(8.0),
+            false,
+            Some(|_: bool| {}),
+        );
+    }
+
+    pub fn file_drop_target() {
+        FileDropTarget(
+            |_: FileDrop| {},
+            Modifier.padding(8.0),
+            Alignment::Center,
+            Some(|| {}),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("Drop here");
+            },
+        );
+    }
+
+    pub fn tabs() {
+        Tabs(
+            1,
+            Modifier.padding(8.0),
+            Paint::Role(ColorRole::Primary),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("One");
+                child("Two");
+            },
+        );
+    }
+
+    pub fn top_app_bar() {
+        TopAppBar(
+            Modifier.padding(8.0),
+            "Inbox",
+            true,
+            false,
+            Some(|_: MotionFinished| {}),
+            || {
+                child("action");
+            },
+        );
+    }
+
+    pub fn scaffold() {
+        Scaffold(
+            Modifier.padding(8.0),
+            Some(|| child("top")),
+            Some(|| child("bottom")),
+            Some(|| child("action")),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("page");
+            },
+        );
+    }
+
+    pub fn navigation() {
+        Navigation(
+            1,
+            Modifier.padding(8.0),
+            CompactNavigation::Sidebar,
+            Some(|| child("head")),
+            Some(|| child("foot")),
+            Some(|_: MotionFinished| {}),
+            || {
+                NavigationItem!("Home", || {});
+                NavigationItem!("Settings", || {}, icon = IconRole::Settings);
+            },
+        );
+    }
+
+    pub fn navigation_item() {
+        NavigationItem(
+            "Home",
+            || {},
+            Modifier.padding(8.0),
+            IconRole::Settings,
+            Paint::Role(ColorRole::Primary),
+            false,
+            "Main",
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn split_pane() {
+        SplitPane(
+            |_| {},
+            Modifier.padding(8.0),
+            240.0,
+            120.0,
+            400.0,
+            true,
+            600.0,
+            1,
+            "Sidebar",
+            Some(|| {}),
+            Some(|_: MotionFinished| {}),
+            || {
+                child("side");
+                child("body");
+            },
+        );
+    }
+}
+
 #[test]
 fn fr39_function_form_dialog_composes_with_every_parameter() {
     assert!(!batch(macros::dialog).is_empty());
@@ -334,4 +526,75 @@ fn fr39_function_form_navigation_item_composes_with_every_parameter() {
 fn fr39_function_form_split_pane_composes_with_every_parameter() {
     assert!(!batch(macros::split_pane).is_empty());
     assert!(!batch(macros::plain_split_pane).is_empty());
+}
+
+#[test]
+fn fr39_call_macro_dialog_is_the_function_call() {
+    assert_eq!(batch(functions::dialog), batch(macros::dialog));
+}
+
+#[test]
+fn fr39_call_macro_sheet_is_the_function_call() {
+    assert_eq!(batch(functions::sheet), batch(macros::sheet));
+}
+
+#[test]
+fn fr39_call_macro_menu_is_the_function_call() {
+    assert_eq!(batch(functions::menu), batch(macros::menu));
+}
+
+#[test]
+fn fr39_call_macro_popover_is_the_function_call() {
+    assert_eq!(batch(functions::popover), batch(macros::popover));
+}
+
+#[test]
+fn fr39_call_macro_tooltip_is_the_function_call() {
+    assert_eq!(batch(functions::tooltip), batch(macros::tooltip));
+}
+
+#[test]
+fn fr39_call_macro_native_view_is_the_function_call() {
+    assert_eq!(batch(functions::native_view), batch(macros::native_view));
+}
+
+#[test]
+fn fr39_call_macro_file_drop_target_is_the_function_call() {
+    assert_eq!(
+        batch(functions::file_drop_target),
+        batch(macros::file_drop_target)
+    );
+}
+
+#[test]
+fn fr39_call_macro_tabs_is_the_function_call() {
+    assert_eq!(batch(functions::tabs), batch(macros::tabs));
+}
+
+#[test]
+fn fr39_call_macro_top_app_bar_is_the_function_call() {
+    assert_eq!(batch(functions::top_app_bar), batch(macros::top_app_bar));
+}
+
+#[test]
+fn fr39_call_macro_scaffold_is_the_function_call() {
+    assert_eq!(batch(functions::scaffold), batch(macros::scaffold));
+}
+
+#[test]
+fn fr39_call_macro_navigation_is_the_function_call() {
+    assert_eq!(batch(functions::navigation), batch(macros::navigation));
+}
+
+#[test]
+fn fr39_call_macro_navigation_item_is_the_function_call() {
+    assert_eq!(
+        batch(functions::navigation_item),
+        batch(macros::navigation_item)
+    );
+}
+
+#[test]
+fn fr39_call_macro_split_pane_is_the_function_call() {
+    assert_eq!(batch(functions::split_pane), batch(macros::split_pane));
 }

@@ -71,6 +71,157 @@ mod functions {
     use compose_rust::windows::WindowDragOver;
     use compose_rust::{KeyEvent, MotionFinished, PointerEvent, PointerKinds};
 
+    /// `macros::layout`, every call in the function form.
+    pub fn layout() {
+        Column(
+            Modifier.padding(8.0),
+            Arrangement::SpaceBetween,
+            4.0,
+            SpaceRole::Md,
+            Alignment::Center,
+            true,
+            true,
+            Some(|| {}),
+            Some((PointerKinds::DOWN, |_: PointerEvent| {})),
+            Some(|| {}),
+            Some(|| {}),
+            Some(|_: KeyEvent| {}),
+            Some(|_: KeyEvent| {}),
+            None::<&FocusHandle>,
+            Some(|_: MotionFinished| {}),
+            "pane",
+            Some(|_: WindowDragOver| {}),
+            || {
+                Row(
+                    Modifier::new(),
+                    None::<Arrangement>,
+                    2.0,
+                    None::<SpaceRole>,
+                    None::<Alignment>,
+                    None::<bool>,
+                    false,
+                    None::<fn()>,
+                    None::<(PointerKinds, fn(PointerEvent))>,
+                    None::<fn()>,
+                    None::<fn()>,
+                    None::<fn(KeyEvent)>,
+                    None::<fn(KeyEvent)>,
+                    None::<&FocusHandle>,
+                    None::<fn(MotionFinished)>,
+                    None::<&str>,
+                    None::<fn(WindowDragOver)>,
+                    || {
+                        Box(
+                            Modifier::new(),
+                            Alignment::BottomEnd,
+                            None::<fn()>,
+                            None::<(PointerKinds, fn(PointerEvent))>,
+                            None::<fn()>,
+                            None::<fn()>,
+                            None::<fn(KeyEvent)>,
+                            None::<fn(KeyEvent)>,
+                            None::<&FocusHandle>,
+                            None::<fn(MotionFinished)>,
+                            None::<&str>,
+                            None::<fn(WindowDragOver)>,
+                            || {
+                                Spacer(
+                                    Modifier.width(4.0),
+                                    None::<fn()>,
+                                    None::<(PointerKinds, fn(PointerEvent))>,
+                                    None::<fn()>,
+                                    None::<fn()>,
+                                    None::<fn(KeyEvent)>,
+                                    None::<fn(KeyEvent)>,
+                                    None::<&FocusHandle>,
+                                    None::<fn(MotionFinished)>,
+                                    || {},
+                                );
+                            },
+                        );
+                    },
+                );
+                ScrollColumn(
+                    Modifier::new(),
+                    None::<&ScrollState>,
+                    Snap::ItemStart,
+                    None::<fn()>,
+                    None::<(PointerKinds, fn(PointerEvent))>,
+                    None::<fn()>,
+                    None::<fn()>,
+                    None::<fn(KeyEvent)>,
+                    None::<fn(KeyEvent)>,
+                    None::<&FocusHandle>,
+                    None::<fn(MotionFinished)>,
+                    || {
+                        Card(
+                            Modifier::new(),
+                            Some(|| {}),
+                            None::<(PointerKinds, fn(PointerEvent))>,
+                            None::<fn()>,
+                            None::<fn()>,
+                            None::<fn(KeyEvent)>,
+                            None::<fn(KeyEvent)>,
+                            None::<&FocusHandle>,
+                            None::<fn(MotionFinished)>,
+                            || {
+                                Surface(
+                                    Modifier::new(),
+                                    None::<fn()>,
+                                    None::<(PointerKinds, fn(PointerEvent))>,
+                                    None::<fn()>,
+                                    None::<fn()>,
+                                    None::<fn(KeyEvent)>,
+                                    None::<fn(KeyEvent)>,
+                                    None::<&FocusHandle>,
+                                    None::<fn(MotionFinished)>,
+                                    || {
+                                        SelectionContainer(
+                                            Modifier::new(),
+                                            None::<fn()>,
+                                            None::<(PointerKinds, fn(PointerEvent))>,
+                                            None::<fn()>,
+                                            None::<fn()>,
+                                            None::<fn(KeyEvent)>,
+                                            None::<fn(KeyEvent)>,
+                                            None::<&FocusHandle>,
+                                            None::<fn(MotionFinished)>,
+                                            || {},
+                                        );
+                                    },
+                                );
+                            },
+                        );
+                    },
+                );
+                ScrollRow(
+                    Modifier::new(),
+                    None::<&ScrollState>,
+                    Snap::None,
+                    None::<fn()>,
+                    None::<(PointerKinds, fn(PointerEvent))>,
+                    None::<fn()>,
+                    None::<fn()>,
+                    None::<fn(KeyEvent)>,
+                    None::<fn(KeyEvent)>,
+                    None::<&FocusHandle>,
+                    None::<fn(MotionFinished)>,
+                    || {},
+                );
+                FlowRow(
+                    Modifier::new(),
+                    3.0,
+                    5.0,
+                    HorizontalAlignment::End,
+                    VerticalAlignment::Bottom,
+                    4,
+                    None::<fn(MotionFinished)>,
+                    || {},
+                );
+            },
+        );
+    }
+
     pub fn plain_layout() {
         Column(
             Modifier::new(),
@@ -125,6 +276,11 @@ fn fr39_function_form_layout_composes_with_every_parameter() {
 #[test]
 fn fr39_call_macro_layout_is_the_function_call() {
     assert_eq!(batch(functions::plain_layout), batch(macros::plain_layout));
+}
+
+#[test]
+fn fr39_call_macro_layout_with_every_parameter_is_the_function_call() {
+    assert_eq!(batch(functions::layout), batch(macros::layout));
 }
 
 #[test]
