@@ -203,6 +203,14 @@ Material 3, Apple HIG, Fluent, Liquid Glass를 비롯한 디자인 시스템 일
 cargo add compose-rust@0.0.12
 ```
 
+이 README의 프로그램은 0.0.12 다음 버전에 맞춰 쓰여 있습니다. 그 버전에서는 모든 위젯이 함수와
+호출 매크로(`Column!(..)`)입니다. 0.0.12로는 그대로 빌드되지 않습니다. 그 버전이 나오기 전까지는
+`develop` 브랜치에서 크레이트를 가져옵니다.
+
+```toml
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "develop" }
+```
+
 `cargo build`가 대상에 필요한 렌더러를 알아내고, 크레이트의 정확한 버전에 맞는 릴리스 아티팩트를
 내려받아 함께 게시된 `.sha256`으로 확인한 뒤, `target/` 바깥의 캐시에 풀고 링크합니다. 설정할 환경
 변수도, 실행할 스크립트도 없습니다. 캐시는 버전과 대상으로 구분되므로 `cargo clean` 뒤에도 남고

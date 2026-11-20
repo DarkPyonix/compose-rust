@@ -218,6 +218,14 @@ default, and `org.thisisthepy.compose.designsystem` for the contract both layers
 cargo add compose-rust@0.0.12
 ```
 
+The programs in this README are written for the version after 0.0.12, in which every widget is
+a function and a call macro (`Column!(..)`). 0.0.12 does not build them as they are. Until that
+version ships, take the crate from the `develop` branch:
+
+```toml
+compose-rust = { git = "https://github.com/DarkPyonix/compose-rust", branch = "develop" }
+```
+
 `cargo build` works out which renderer the target needs, downloads the release artifact for the
 crate's exact version, checks it against the published `.sha256`, unpacks it into a cache
 outside `target/`, and links it. There is no environment variable to set and no script to run.
