@@ -1,5 +1,6 @@
 //! `Text`, `TextField`, the lazy lists and `Window` as functions and call macros: each
-//! composes with every parameter set.
+//! composes with every parameter set, and the macro call is the function call with the
+//! same arguments.
 
 use compose_rust::ComposeHost;
 
@@ -120,6 +121,198 @@ mod macros {
     }
 }
 
+/// The screens of `macros` in the function form: each argument in declaration order, the
+/// ones the macro call leaves out given their defaults.
+mod functions {
+    use compose_rust::schema::{Chrome, TitleBar};
+    use compose_rust::ui::*;
+    use compose_rust::windows::{DragFromPointer, WindowDragEvent, WindowFrame};
+    use compose_rust::{
+        FontRefs, KeyEvent, MotionFinished, OverflowWrap, PointerEvent, PointerKinds, WordBreak,
+    };
+
+    pub fn text() {
+        Text(
+            "plain",
+            Modifier::new(),
+            TextSpans::default(),
+            None::<TypeRole>,
+            None::<f32>,
+            None::<u16>,
+            None::<f32>,
+            None::<f32>,
+            None::<Paint>,
+            None::<TextAlign>,
+            None::<u32>,
+            None::<TextOverflow>,
+            FontRefs::default(),
+            &[],
+            None::<WordBreak>,
+            None::<OverflowWrap>,
+            None::<(PointerKinds, fn(PointerEvent))>,
+            None::<fn(MotionFinished)>,
+        );
+        Text(
+            "styled",
+            Modifier.padding(2.0),
+            TextSpans::default(),
+            TypeRole::Title,
+            14.0,
+            600,
+            20.0,
+            0.5,
+            Paint::Role(ColorRole::Primary),
+            TextAlign::Center,
+            2,
+            TextOverflow::Ellipsis,
+            FontRefs::default(),
+            &[FontFeature::TABULAR_NUMS],
+            WordBreak::KeepAll,
+            OverflowWrap::Anywhere,
+            Some((PointerKinds::DOWN, |_: PointerEvent| {})),
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn text_field() {
+        TextField(
+            "",
+            |_| {},
+            Modifier::new(),
+            "",
+            true,
+            false,
+            None::<TypeRole>,
+            None::<f32>,
+            None::<u16>,
+            None::<f32>,
+            None::<f32>,
+            None::<Paint>,
+            None::<Paint>,
+            None::<Paint>,
+            FontRefs::default(),
+            &[],
+            None::<WordBreak>,
+            None::<OverflowWrap>,
+            None::<fn(String)>,
+            None::<fn()>,
+            None::<fn()>,
+            None::<fn(KeyEvent)>,
+            None::<fn(KeyEvent)>,
+            None::<fn(bool)>,
+            None::<&FocusHandle>,
+            None::<fn(MotionFinished)>,
+            false,
+            false,
+        );
+        let focus = use_focus_handle();
+        TextField(
+            "start",
+            |_| {},
+            Modifier.fill_max_width(),
+            "Name",
+            false,
+            true,
+            TypeRole::Body,
+            13.0,
+            500,
+            18.0,
+            0.25,
+            Paint::Role(ColorRole::Primary),
+            Paint::Role(ColorRole::Secondary),
+            Paint::Role(ColorRole::Error),
+            FontRefs::default(),
+            &[FontFeature::TABULAR_NUMS],
+            WordBreak::BreakAll,
+            OverflowWrap::BreakWord,
+            Some(|_: String| {}),
+            Some(|| {}),
+            Some(|| {}),
+            Some(|_: KeyEvent| {}),
+            Some(|_: KeyEvent| {}),
+            Some(|_: bool| {}),
+            &focus,
+            Some(|_: MotionFinished| {}),
+            true,
+            true,
+        );
+    }
+
+    pub fn lazy() {
+        LazyColumn(
+            Modifier.fill_max_width(),
+            Some(|_: MotionFinished| {}),
+            |list| {
+                list.item(|| {
+                    Text!("header");
+                });
+                list.items(3, |index| {
+                    Text!(format!("item {index}"));
+                });
+            },
+        );
+        LazyRow(Modifier::new(), None::<fn(MotionFinished)>, |list| {
+            list.items(2, |_| {})
+        });
+        LazyGrid(
+            Modifier::new(),
+            3,
+            120.0,
+            None::<fn(MotionFinished)>,
+            |list| list.items(2, |_| {}),
+        );
+    }
+
+    pub fn window() {
+        Window(
+            || {},
+            None::<&str>,
+            None::<(f32, f32)>,
+            None::<(f32, f32)>,
+            None::<bool>,
+            None::<bool>,
+            None::<Chrome>,
+            None::<TitleBar>,
+            None::<u32>,
+            None::<(f32, f32)>,
+            None::<&str>,
+            None::<i8>,
+            None::<DragFromPointer>,
+            None::<Theme>,
+            None::<fn(bool)>,
+            None::<fn(WindowFrame)>,
+            None::<fn(WindowDragEvent)>,
+            None::<fn()>,
+            None::<fn()>,
+            || {},
+        );
+        Window(
+            || {},
+            "Notes",
+            (900.0, 600.0),
+            (300.0, 200.0),
+            false,
+            true,
+            None::<Chrome>,
+            None::<TitleBar>,
+            7,
+            (40.0, 60.0),
+            "notes",
+            2,
+            None::<DragFromPointer>,
+            None::<Theme>,
+            Some(|_: bool| {}),
+            Some(|_: WindowFrame| {}),
+            Some(|_: WindowDragEvent| {}),
+            Some(|| {}),
+            Some(|| {}),
+            || {
+                Text!("inside");
+            },
+        );
+    }
+}
+
 #[test]
 fn fr39_function_form_text_composes_with_every_parameter() {
     assert!(!batch(macros::text).is_empty());
@@ -138,4 +331,24 @@ fn fr39_function_form_lazy_lists_composes_with_every_parameter() {
 #[test]
 fn fr39_function_form_window_composes_with_every_parameter() {
     assert!(!batch(macros::window).is_empty());
+}
+
+#[test]
+fn fr39_call_macro_text_is_the_function_call() {
+    assert_eq!(batch(functions::text), batch(macros::text));
+}
+
+#[test]
+fn fr39_call_macro_text_field_is_the_function_call() {
+    assert_eq!(batch(functions::text_field), batch(macros::text_field));
+}
+
+#[test]
+fn fr39_call_macro_lazy_is_the_function_call() {
+    assert_eq!(batch(functions::lazy), batch(macros::lazy));
+}
+
+#[test]
+fn fr39_call_macro_window_is_the_function_call() {
+    assert_eq!(batch(functions::window), batch(macros::window));
 }

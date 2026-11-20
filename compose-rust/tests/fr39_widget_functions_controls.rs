@@ -1,5 +1,6 @@
 //! The control widgets as call macros: each one composes with every parameter set and
-//! with only the required ones.
+//! with only the required ones, and the macro with every parameter set is the function
+//! call with the same arguments.
 
 use compose_rust::ComposeHost;
 use compose_rust::ui::{ColorRole, DrawList, Paint};
@@ -344,6 +345,266 @@ mod macros {
     }
 }
 
+/// The screens of `macros` with every parameter set, in the function form: each argument in
+/// declaration order, the ones the macro call leaves out given their defaults.
+mod functions {
+    use super::{ERROR, OUTLINE, PRIMARY, commands};
+    use compose_rust::MotionFinished;
+    use compose_rust::ui::*;
+
+    pub fn button() {
+        let handle = FocusHandle::new();
+        Button(
+            "Save",
+            || {},
+            Modifier.padding(4.0),
+            "Save the file",
+            TextAlign::Start,
+            15.0,
+            600,
+            TypeRole::Title,
+            (12.0, 6.0),
+            IconRole::Add,
+            false,
+            ButtonVariant::Outlined,
+            ButtonKind::ActionKey,
+            2,
+            TextOverflow::Ellipsis,
+            PRIMARY,
+            &handle,
+            Some(|_: MotionFinished| {}),
+            || {
+                Badge!(value = 1);
+            },
+        );
+    }
+
+    pub fn toggles() {
+        Switch(
+            true,
+            |_| {},
+            Modifier.padding(1.0),
+            "Wi-Fi",
+            false,
+            PRIMARY,
+            OUTLINE,
+            (52.0, 32.0),
+            Some(|_: MotionFinished| {}),
+        );
+        Checkbox(
+            true,
+            |_| {},
+            Modifier.padding(2.0),
+            "Remember me",
+            false,
+            PRIMARY,
+            OUTLINE,
+            20.0,
+            Some(|_: MotionFinished| {}),
+        );
+        RadioButton(
+            true,
+            |_| {},
+            Modifier.padding(3.0),
+            "Small",
+            false,
+            PRIMARY,
+            OUTLINE,
+            18.0,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn slider() {
+        Slider(
+            0.5,
+            |_| {},
+            Modifier.padding(4.0),
+            "Volume",
+            OUTLINE,
+            PRIMARY,
+            ERROR,
+            (0.0, 10.0),
+            4,
+            false,
+            PRIMARY,
+            12.0,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn progress() {
+        ProgressIndicator(
+            0.5,
+            Modifier.padding(1.0),
+            false,
+            true,
+            PRIMARY,
+            OUTLINE,
+            Some(|_: MotionFinished| {}),
+        );
+        IndeterminateProgressIndicator(
+            Modifier.padding(2.0),
+            true,
+            true,
+            ERROR,
+            PRIMARY,
+            Some(|_: MotionFinished| {}),
+        );
+        LinearProgressIndicator(0.25, Modifier.padding(3.0), Some(|_: MotionFinished| {}));
+    }
+
+    pub fn dividers() {
+        Divider(Modifier.padding(1.0), true, Some(|_: MotionFinished| {}));
+        Separator(
+            Some(OUTLINE),
+            Modifier.padding(2.0),
+            true,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn pictures() {
+        Image(
+            1,
+            Modifier.padding(1.0),
+            PRIMARY,
+            ContentScale::FillBounds,
+            Some(|_: MotionFinished| {}),
+        );
+        Icon(
+            2,
+            Modifier.padding(2.0),
+            OUTLINE,
+            ContentScale::FillBounds,
+            Some(|_: MotionFinished| {}),
+        );
+        IconAsset(
+            3,
+            Modifier.padding(3.0),
+            ERROR,
+            ContentScale::FillBounds,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn canvas() {
+        Canvas(
+            commands(),
+            Modifier.padding(1.0),
+            (10.0, 20.0),
+            true,
+            Some(|_: MotionFinished| {}),
+        );
+        Canvas(
+            commands(),
+            Modifier::new(),
+            (10.0, 20.0),
+            false,
+            None::<fn(MotionFinished)>,
+        );
+    }
+
+    pub fn pickers() {
+        DatePicker(
+            19_000,
+            |_| {},
+            Modifier.padding(1.0),
+            18_000,
+            20_000,
+            false,
+            Some(|_: MotionFinished| {}),
+        );
+        TimePicker(
+            600,
+            |_| {},
+            Modifier.padding(2.0),
+            60,
+            1_200,
+            false,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn dropdowns() {
+        Dropdown(
+            1,
+            |_| {},
+            Modifier.padding(1.0),
+            false,
+            true,
+            true,
+            Some(|_: MotionFinished| {}),
+            || {
+                MenuItem!("One", || {});
+                MenuItem!("Two", || {});
+            },
+        );
+        Select(
+            0,
+            |_| {},
+            Modifier.padding(2.0),
+            false,
+            false,
+            true,
+            Some(|_: MotionFinished| {}),
+            || {
+                MenuItem!("Three", || {});
+            },
+        );
+    }
+
+    pub fn menu_item() {
+        MenuItem(
+            "Delete",
+            || {},
+            Modifier.padding(1.0),
+            IconRole::Close,
+            true,
+            false,
+            ERROR,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn chip() {
+        Chip(
+            "Rust",
+            || {},
+            Modifier.padding(1.0),
+            IconRole::Check,
+            true,
+            false,
+            2,
+            TextOverflow::Ellipsis,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn floating_action() {
+        FloatingAction(
+            "New",
+            || {},
+            Modifier.padding(1.0),
+            IconRole::Add,
+            Some(|_: MotionFinished| {}),
+        );
+    }
+
+    pub fn badge() {
+        Badge(
+            Modifier.padding(1.0),
+            3,
+            "new",
+            ColorRole::Primary,
+            Some(|_: MotionFinished| {}),
+            || {
+                Icon!(2);
+            },
+        );
+    }
+}
+
 #[test]
 fn fr39_function_form_button_composes_with_every_parameter() {
     assert!(!batch(macros::button).is_empty());
@@ -420,6 +681,74 @@ fn fr39_function_form_floating_action_composes_with_every_parameter() {
 fn fr39_function_form_badge_composes_with_every_parameter() {
     assert!(!batch(macros::badge).is_empty());
     assert!(!batch(macros::plain_badge).is_empty());
+}
+
+#[test]
+fn fr39_call_macro_button_is_the_function_call() {
+    assert_eq!(batch(functions::button), batch(macros::button));
+}
+
+#[test]
+fn fr39_call_macro_toggles_is_the_function_call() {
+    assert_eq!(batch(functions::toggles), batch(macros::toggles));
+}
+
+#[test]
+fn fr39_call_macro_slider_is_the_function_call() {
+    assert_eq!(batch(functions::slider), batch(macros::slider));
+}
+
+#[test]
+fn fr39_call_macro_progress_is_the_function_call() {
+    assert_eq!(batch(functions::progress), batch(macros::progress));
+}
+
+#[test]
+fn fr39_call_macro_dividers_is_the_function_call() {
+    assert_eq!(batch(functions::dividers), batch(macros::dividers));
+}
+
+#[test]
+fn fr39_call_macro_pictures_is_the_function_call() {
+    assert_eq!(batch(functions::pictures), batch(macros::pictures));
+}
+
+#[test]
+fn fr39_call_macro_canvas_is_the_function_call() {
+    assert_eq!(batch(functions::canvas), batch(macros::canvas));
+}
+
+#[test]
+fn fr39_call_macro_pickers_is_the_function_call() {
+    assert_eq!(batch(functions::pickers), batch(macros::pickers));
+}
+
+#[test]
+fn fr39_call_macro_dropdowns_is_the_function_call() {
+    assert_eq!(batch(functions::dropdowns), batch(macros::dropdowns));
+}
+
+#[test]
+fn fr39_call_macro_menu_item_is_the_function_call() {
+    assert_eq!(batch(functions::menu_item), batch(macros::menu_item));
+}
+
+#[test]
+fn fr39_call_macro_chip_is_the_function_call() {
+    assert_eq!(batch(functions::chip), batch(macros::chip));
+}
+
+#[test]
+fn fr39_call_macro_floating_action_is_the_function_call() {
+    assert_eq!(
+        batch(functions::floating_action),
+        batch(macros::floating_action)
+    );
+}
+
+#[test]
+fn fr39_call_macro_badge_is_the_function_call() {
+    assert_eq!(batch(functions::badge), batch(macros::badge));
 }
 
 /// A background the modifier already has survives a separator without a colour of its own.

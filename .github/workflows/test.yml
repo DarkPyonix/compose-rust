@@ -28,6 +28,12 @@ env:
   # Keep the cache small and the link step quick; CI never needs a debugger.
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
+  # The one Rust version every job here builds with. The compile-fail fixtures under
+  # compose-rust/macros/tests compare rustc's error text word for word, and that text
+  # changes between releases, so "stable" would fail them on a day nobody touched the
+  # code. To move it: change this line, run the fixtures with TRYBUILD=overwrite on that
+  # version, read every .stderr that changed, and commit them in the same change.
+  RUST_TOOLCHAIN: "1.100.0"
 
 jobs:
   changed:
@@ -102,8 +108,8 @@ jobs:
 
       - name: Install the pinned Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
           rustc --version
           cargo --version
 
@@ -180,8 +186,8 @@ jobs:
 
       - name: Install the pinned Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt
-          rustup default stable
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt
+          rustup default "$RUST_TOOLCHAIN"
 
       - name: Regenerate from the schema
         run: |
@@ -335,7 +341,7 @@ jobs:
         # consumer-crate.test.sh builds a crate that depends on compose-rust, to check
         # that an application with no build script of its own links, loads the renderer
         # and starts.
-        run: rustup toolchain install stable --profile minimal && rustup default stable
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
 
       - name: Install the Linux renderer's link libraries
         # The published Linux renderer is a static archive that leaves X11, GL, fontconfig
@@ -406,7 +412,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install the pinned Rust toolchain
-        run: rustup toolchain install stable --profile minimal && rustup default stable
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
 
       # Guards the distribution plan: the Host crate must stay publishable as a
       # plain crate while the ~85MB renderer ships as a release artifact.
