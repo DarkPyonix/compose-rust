@@ -95,11 +95,7 @@ impl Path for ComposePath {
                 safe_area_bottom: 0.0,
             },
         };
-        let event = HostEvent {
-            node_id: event.node,
-            handler_id: event.handler,
-            payload,
-        };
+        let event = HostEvent::new(event.node, event.handler, payload);
         let host = self.host();
         let started = Instant::now();
         let (bytes, _) = host.dispatch(event).expect("the event is accepted");

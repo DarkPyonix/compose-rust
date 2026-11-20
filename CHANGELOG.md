@@ -15,6 +15,10 @@ Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
 
 `experiments/fr39-codemod`, on the `develop` branch, rewrites the builder chains of a crate into call macros. It reports the few call sites it leaves for a hand edit, such as a builder bound with `let`.
 
+### The event types are non-exhaustive
+
+`HostEvent` and `EventPayload` are `#[non_exhaustive]`, so a new event or a new field is not a breaking change after 1.0. This is a breaking change now for code outside the crate that matches `EventPayload` without a `_` arm, builds a `HostEvent` with a struct literal, or destructures one without `..`. Add a `_` arm to the match, build the event with `HostEvent::new(node_id, handler_id, payload)`, and end the pattern with `..`. `EventPayload` variants are still built the same way. The wire format and the schema hash do not change ([#23](https://github.com/DarkPyonix/compose-rust/issues/23), [#105](https://github.com/DarkPyonix/compose-rust/issues/105)).
+
 ### Window breakpoints the application chooses
 
 `current_window_breakpoint(&[560.0, 900.0, 1279.0])` returns which of the application's own width buckets the window is in: the number of breakpoints the width has reached, so a width exactly on a breakpoint is in the bucket above it. The composable that calls it runs again only when the bucket changes, not on every size report, and in a multi-window application it reads its own window. It does not turn on `report_size`: a window reports a resize inside one size class only when it opts in, so without it the bucket follows the width at each class change. Nothing changes on the wire ([#301](https://github.com/DarkPyonix/compose-rust/issues/301)).

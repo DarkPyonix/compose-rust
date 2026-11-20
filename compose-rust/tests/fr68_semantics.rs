@@ -211,11 +211,7 @@ fn fr68_a_widget_that_stops_naming_itself_sends_a_removal() {
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let mut batches = Vec::new();
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     batches.push(batch.to_vec());
     batches.push(host.render_frame(0).expect("the frame encodes").to_vec());
@@ -272,11 +268,7 @@ fn fr71_removing_semantics_restores_the_defaults() {
 
     let (node_id, handler_id) = tree.handled("Row", PropertyKind::OnClick)[0];
     let (batch, _) = host
-        .dispatch(HostEvent {
-            node_id,
-            handler_id,
-            payload: EventPayload::Clicked,
-        })
+        .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
         .expect("the click is accepted");
     let batches = [
         batch.to_vec(),

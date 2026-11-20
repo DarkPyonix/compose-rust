@@ -1,0 +1,10 @@
+error: missing required argument `value` for Field!
+ --> tests/ui/fail_no_arguments.rs:3:1
+  |
+3 | #[Composable]
+  | ^^^^^^^^^^^^^
+...
+9 |     Field!();
+  |     -------- in this macro invocation
+  |
+  = note: this error originates in the macro `::compose_rust::__compose_call_check` which comes from the expansion of the macro `Field` (in Nightly builds, run with -Z macro-backtrace for more info)
