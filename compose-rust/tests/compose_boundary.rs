@@ -10,16 +10,16 @@ use compose_rust::boundary::{
 use compose_rust::protocol::{HostEvent, Mutation, decode_batch, encode_event};
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, LoopMode, PROTOCOL_VERSION, PropertyKind, SCHEMA_HASH};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 #[Composable]
 fn Counter() {
     let count = remember(|| mutable_state_of(0));
-    Column().content(|| {
-        Text(format!("{}", count.get()));
+    Column!({
+        Text!(format!("{}", count.get()));
         let more = count;
-        Button("More").on_click(move || more.update(|count| *count += 1));
+        Button!("More", move || more.update(|count| *count += 1));
     });
 }
 

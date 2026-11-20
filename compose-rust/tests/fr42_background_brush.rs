@@ -5,7 +5,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{BatchEncoder, Mutation, ProtocolError, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{BackgroundRepeat, DesignSystem, Paint, Theme};
-use compose_rust::ui::{BackgroundBrush, Box, Color, Modifier};
+use compose_rust::ui::next::{BackgroundBrush, Box, Color, Modifier};
 
 fn encode(mutations: &[Mutation<'_>]) -> Vec<u8> {
     let mut encoder = BatchEncoder::default();
@@ -108,14 +108,13 @@ thread_local! {
 #[Composable]
 fn Layered() {
     let layers = LAYERS.with(|cell| cell.borrow().clone());
-    Box()
-        .modifier(
-            Modifier
-                .size(200.0, 100.0)
-                .background(Paint::Literal(Color::rgb(0x202020)))
-                .background_brushes(layers),
-        )
-        .content(|| {});
+    Box!(
+        modifier = Modifier
+            .size(200.0, 100.0)
+            .background(Paint::Literal(Color::rgb(0x202020)))
+            .background_brushes(layers),
+        {}
+    );
 }
 
 /// The `BackgroundBrush` records the first frame wrote, with their chain positions, and the

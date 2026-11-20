@@ -3,7 +3,7 @@
 mod support;
 
 use compose_rust::ComposeHost;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use support::Tree;
 
 fn start(content: impl Fn() + Send + Sync + 'static) -> Tree {
@@ -25,8 +25,8 @@ fn line<'a>(dump: &'a str, widget: &str) -> &'a str {
 #[test]
 fn fr15_progress_indicator_without_colors_sends_neither() {
     let tree = start(|| {
-        ProgressIndicator(0.5);
-        IndeterminateProgressIndicator();
+        ProgressIndicator!(0.5);
+        IndeterminateProgressIndicator!();
     });
     let dump = tree.dump();
     assert!(!dump.contains("Color="), "{dump}");
@@ -36,7 +36,7 @@ fn fr15_progress_indicator_without_colors_sends_neither() {
 #[test]
 fn fr15_progress_indicator_sends_color_and_track_color() {
     let tree = start(|| {
-        ProgressIndicator(0.5).color(INK).track_color(SURFACE);
+        ProgressIndicator!(0.5, color = INK, track_color = SURFACE);
     });
     let dump = tree.dump();
     let indicator = line(&dump, "ProgressIndicator");
@@ -47,9 +47,7 @@ fn fr15_progress_indicator_sends_color_and_track_color() {
 #[test]
 fn fr15_indeterminate_progress_indicator_sends_color_and_track_color() {
     let tree = start(|| {
-        IndeterminateProgressIndicator()
-            .color(INK)
-            .track_color(SURFACE);
+        IndeterminateProgressIndicator!(color = INK, track_color = SURFACE);
     });
     let dump = tree.dump();
     let indicator = line(&dump, "ProgressIndicator");

@@ -5,7 +5,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::{Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{OverflowWrap, PropertyKind, WordBreak};
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 const KINDS: [PropertyKind; 3] = [
@@ -30,7 +30,7 @@ fn cleared_records_of(batch: &[u8], kind: PropertyKind) -> Vec<bool> {
 
 #[Composable]
 fn PlainField() {
-    TextField();
+    TextField!("", |_| {});
 }
 
 #[test]
@@ -49,15 +49,18 @@ fn fr40_a_plain_text_field_sends_no_font_or_break_rule_records() {
 #[Composable]
 fn StyledField(on: MutableState<bool>) {
     // One TextField call and one place it is composed, so both frames are the same node.
-    let field = TextField();
-    let _field = if on.get() {
-        field
-            .font(FontRefs::new([FontRef::Generic(GenericFamily::Serif)]))
-            .word_break(WordBreak::KeepAll)
-            .overflow_wrap(OverflowWrap::Anywhere)
-    } else {
-        field
-    };
+    let on = on.get();
+    TextField!(
+        "",
+        |_| {},
+        font = if on {
+            FontRefs::new([FontRef::Generic(GenericFamily::Serif)])
+        } else {
+            FontRefs::default()
+        },
+        word_break = on.then_some(WordBreak::KeepAll),
+        overflow_wrap = on.then_some(OverflowWrap::Anywhere),
+    );
 }
 
 #[test]

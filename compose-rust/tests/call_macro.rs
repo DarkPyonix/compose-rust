@@ -5,7 +5,7 @@ mod support;
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::cell::RefCell;
 use support::Tree;
 
@@ -258,19 +258,19 @@ fn fr39_call_macro_limits_const_generics_and_impl_trait_are_inferred_like_the_fu
 #[Composable]
 fn Leaf(text: String) {
     let clicks = remember(|| mutable_state_of(0));
-    Text(format!("{text}:{}", clicks.get()));
+    Text!(format!("{text}:{}", clicks.get()));
 }
 
 #[test]
 fn fr39_call_macro_expands_to_the_same_tree_as_the_function_form() {
     let function_form = compose(|| {
-        Column().content(|| {
+        Column!({
             Leaf("a".into());
             Leaf("b".into());
         });
     });
     let macro_form = compose(|| {
-        Column().content(|| {
+        Column!({
             Leaf!("a".into());
             Leaf!("b".into());
         });
@@ -284,7 +284,7 @@ fn fr39_call_macro_expands_mixed_with_the_function_form_keeps_each_calls_state()
     // through the function share one position and one identity. Mixing the two forms in one
     // parent and recomposing must keep each call's remembered state apart and intact.
     let mut host = ComposeHost::with_content(|| {
-        Column().content(|| {
+        Column!({
             Leaf("fn".into());
             Leaf!("macro".into());
         });

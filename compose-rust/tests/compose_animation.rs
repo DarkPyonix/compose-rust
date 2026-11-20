@@ -8,7 +8,7 @@ use compose_rust::protocol::{Mutation, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::Modifier as Wire;
 use compose_rust::schema::WidgetKind;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use compose_rust::{
     AnimatedProperty, AnimationSpec, ComposeHost, GraphicsLayer, KeyframeValue,
     animate_color_as_state, animate_float_as_state, animate_offset_as_state, transition,
@@ -26,13 +26,12 @@ thread_local! {
 fn Fading(faded: MutableState<bool>) {
     COMPOSED.with(|composed| composed.set(composed.get() + 1));
     let target = if faded.get() { 0.0 } else { 1.0 };
-    Box()
-        .modifier(
-            Modifier
-                .size(40.0, 40.0)
-                .animated_alpha(animate_float_as_state(target, AnimationSpec::STANDARD)),
-        )
-        .content(|| {});
+    Box!(
+        modifier = Modifier
+            .size(40.0, 40.0)
+            .animated_alpha(animate_float_as_state(target, AnimationSpec::STANDARD)),
+        {}
+    );
 }
 
 fn owned(batch: &[u8]) -> Vec<Mutation<'static>> {
@@ -149,8 +148,8 @@ fn fr41_compose_api_animation_does_not_recompose() {
 
 #[Composable]
 fn Turned() {
-    Box()
-        .modifier(Modifier.size(40.0, 40.0).graphics_layer(GraphicsLayer {
+    Box!(
+        modifier = Modifier.size(40.0, 40.0).graphics_layer(GraphicsLayer {
             rotation_z: 90.0,
             scale_x: 2.0,
             scale_y: 3.0,
@@ -158,8 +157,9 @@ fn Turned() {
             translation_y: -1.0,
             transform_origin: (0.0, 1.0),
             alpha: 0.25,
-        }))
-        .content(|| {});
+        }),
+        {}
+    );
 }
 
 /// A graphics layer goes out as the transform and the opacity it describes: scaled, then
@@ -207,14 +207,13 @@ fn Moving(moved: MutableState<bool>) {
     } else {
         ((0.0, 0.0), Paint::Role(ColorRole::Surface))
     };
-    Box()
-        .modifier(
-            Modifier
-                .size(40.0, 40.0)
-                .animated_offset(animate_offset_as_state(offset, AnimationSpec::STANDARD))
-                .animated_background(animate_color_as_state(colour, AnimationSpec::STANDARD)),
-        )
-        .content(|| {});
+    Box!(
+        modifier = Modifier
+            .size(40.0, 40.0)
+            .animated_offset(animate_offset_as_state(offset, AnimationSpec::STANDARD))
+            .animated_background(animate_color_as_state(colour, AnimationSpec::STANDARD)),
+        {}
+    );
 }
 
 /// A translation and a background are animated the same way: one transition each, to

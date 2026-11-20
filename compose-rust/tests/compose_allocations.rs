@@ -6,7 +6,7 @@
 
 use compose_rust::ComposeHost;
 use compose_rust::runtime::*;
-use compose_rust::ui::*;
+use compose_rust::ui::next::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -68,9 +68,9 @@ impl AllocationMeasurement {
 
 #[Composable]
 fn Steady(count: MutableState<i32>) {
-    Column().content(|| {
-        Text(format!("{}", count.get()));
-        Button("More");
+    Column!({
+        Text!(format!("{}", count.get()));
+        Button!("More", || {});
     });
 }
 
