@@ -514,11 +514,33 @@ pub enum ProtocolError {
     MisplacedWindow,
 }
 
+/// One event the Renderer sent the Host: the node it happened on, the handler that hears
+/// it and what happened.
+///
+/// It is non-exhaustive so that a field can be added without breaking code outside this
+/// crate. Build one with [`HostEvent::new`] rather than a struct literal, and destructure it
+/// with `..` at the end of the pattern.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct HostEvent<'a> {
     pub node_id: u32,
     pub handler_id: u64,
     pub payload: crate::schema::EventPayload<'a>,
+}
+
+impl<'a> HostEvent<'a> {
+    /// An event for `handler_id` on `node_id`, carrying `payload`.
+    pub const fn new(
+        node_id: u32,
+        handler_id: u64,
+        payload: crate::schema::EventPayload<'a>,
+    ) -> Self {
+        Self {
+            node_id,
+            handler_id,
+            payload,
+        }
+    }
 }
 
 const EVENT_CLICK: u16 = 1;
