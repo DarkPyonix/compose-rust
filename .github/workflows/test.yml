@@ -293,13 +293,19 @@ jobs:
         # and each one deletes and recreates the same files there, so one of them fails
         # with FileAlreadyExistsException (#494). Building the app bundle alone first leaves
         # it up to date, so the build below only runs the test bundle and nothing races.
+        # Through retry-resolution.sh: Amper fetches the dependencies here, and a repository that
+        # answers "not found" for a moment runs the build again instead of failing the job.
         if: matrix.platform == 'wasmJs'
         working-directory: renderer
-        run: ./kotlin task :web:buildWasmJsAppWasmJsDebug
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/retry-resolution.log
+        run: ./scripts/retry-resolution.sh ./kotlin task :web:buildWasmJsAppWasmJsDebug
 
       - name: Build the renderer
         working-directory: renderer
-        run: ./kotlin build -p ${{ matrix.platform }}
+        env:
+          DXC_RETRY_LOG: ${{ runner.temp }}/retry-resolution.log
+        run: ./scripts/retry-resolution.sh ./kotlin build -p ${{ matrix.platform }}
 
       - name: Test the renderer
         if: matrix.test
