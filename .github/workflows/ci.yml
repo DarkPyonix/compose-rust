@@ -7,9 +7,10 @@ on:
         # all (the default, what a release check runs, every job that gates a merge), fast (the
         # Rust, JVM and script tests, the Windows C compile and the GraalVM renderer smoke,
         # about two hours), measure (the resize timings, which test_windows_resize reports only
-        # when asked), or a comma list of these and job names. scripts/ci-suites.sh says which
-        # jobs each runs.
-        description: 'all, fast, measure, or suites and job names separated by commas'
+        # when asked), owner_checks (the owner-checks sample alone, on the desktop, uploaded as
+        # owner-checks-<os> downloads), or a comma list of these and job names.
+        # scripts/ci-suites.sh says which jobs each runs.
+        description: 'all, fast, measure, owner_checks, or suites and job names separated by commas'
         type: string
         default: all
 
@@ -42,6 +43,8 @@ jobs:
       test_compose_from_fork: ${{ steps.choose.outputs.test_compose_from_fork }}
       test_samples: ${{ steps.choose.outputs.test_samples }}
       measure: ${{ steps.choose.outputs.measure }}
+      samples: ${{ steps.choose.outputs.samples }}
+      samples_desktop_only: ${{ steps.choose.outputs.samples_desktop_only }}
     steps:
       - uses: actions/checkout@v4
       - id: choose
@@ -134,4 +137,6 @@ jobs:
     uses: ./.github/workflows/test-samples.yml
     with:
       windows_kit_built: true
+      samples: ${{ needs.plan.outputs.samples }}
+      desktop_only: ${{ needs.plan.outputs.samples_desktop_only == 'true' }}
     secrets: inherit
