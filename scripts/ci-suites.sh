@@ -5,7 +5,10 @@
 #
 #   all      every job that gates a merge: what a release check runs, and the default, so a
 #            dispatch that says nothing is still complete. The window-pin probe is one of them;
-#            the resize timings beside it are not (see `measure`).
+#            the resize timings beside it are not (see `measure`), and neither are the
+#            on-request jobs, which gate nothing and run only when named: windows_drag_kit,
+#            the Windows drag kit a person unzips on a real-GPU PC to compare the window's
+#            routes by eye (.github/workflows/windows-drag-kit.yml).
 #   fast     the Rust, JVM and script tests on every system, the Windows C compile, and the
 #            GraalVM renderer built and smoke tested on macOS and Linux: an answer in about two
 #            hours instead of five, for checking a branch. Windows has no short renderer job:
@@ -41,12 +44,15 @@ jobs=(
     packager_macos
     test_compose_from_fork
     test_samples
+    windows_drag_kit
 )
 fast=(test test_windows_c test_graalvm_renderer)
 # The jobs `measure` selects: the workflow that holds the timings.
 measure=(test_windows_resize)
+# The jobs `all` leaves out: they gate nothing, so they run only when named.
+on_request=(windows_drag_kit)
 # The jobs that download the Windows renderer kit windows_static_kit builds for the run.
-needs_windows_kit=(windows_static_consumer test_windows_resize test_native_renderer package_windows_host test_samples)
+needs_windows_kit=(windows_static_consumer test_windows_resize test_native_renderer package_windows_host test_samples windows_drag_kit)
 
 asked="${1:-all}"
 asked="${asked// /}"
@@ -64,7 +70,11 @@ IFS=',' read -r -a names <<< "$asked"
 for name in "${names[@]}"; do
     case "$name" in
         "") ;;
-        all) for job in "${jobs[@]}"; do select_job "$job"; done ;;
+        all)
+            for job in "${jobs[@]}"; do
+                case " ${on_request[*]} " in *" $job "*) ;; *) select_job "$job" ;; esac
+            done
+            ;;
         fast) for job in "${fast[@]}"; do select_job "$job"; done ;;
         measure)
             measuring=true

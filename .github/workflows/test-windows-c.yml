@@ -5,8 +5,9 @@
 # run on pull requests. A C-mode compile error therefore used to surface on real hardware.
 # This job takes under a minute and fails on the pull request instead.
 #
-# The flags are the ones build-native-windows.ps1 passes to cl.exe. If that script changes
-# them or adds a source, change them here as well. The window and the toasts are the Compose
+# The flags are the ones build-native-windows.ps1 passes to cl.exe: /std:c11 for the C, and
+# /std:c++17 /GR- /EHs-c- for win32_dcomp.cpp, the window's one C++ file. If that script
+# changes them or adds a source, change them here as well. The window and the toasts are the Compose
 # fork's extended/window/windows-shared at the pinned WINDOW_REVISION, so moving the pin runs
 # this too.
 
@@ -49,6 +50,11 @@ jobs:
             & cl.exe /nologo /c /O2 /std:c11 "/Fo:obj\$name.obj" $path
             if ($LASTEXITCODE -ne 0) { $failed += $path }
           }
+          # The window's DirectComposition calls, its one C++ file, with the flags both builds
+          # and the fork compile it with.
+          $dcomp = Join-Path $env:WINDOW_C "win32_dcomp.cpp"
+          & cl.exe /nologo /c /O2 /std:c++17 /GR- /EHs-c- "/Fo:obj\win32_dcomp.obj" $dcomp
+          if ($LASTEXITCODE -ne 0) { $failed += $dcomp }
           if ($failed.Count -gt 0) {
             Write-Error "MSVC could not compile: $($failed -join ', ')"
             exit 1

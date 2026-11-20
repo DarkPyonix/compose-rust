@@ -1,0 +1,4 @@
+# The launchers are batch files, which cmd.exe misreads with bare LF line ends, and the notes
+# are for Notepad. They are committed with CRLF line ends and shipped as they are, so Git is
+# told not to convert anything here, whatever core.autocrlf a checkout has.
+* -text

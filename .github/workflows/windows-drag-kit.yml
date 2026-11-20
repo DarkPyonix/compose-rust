@@ -1,0 +1,258 @@
+# The Windows drag kit: a zip a person unzips on a Windows PC with a real graphics card, to
+# drag a real application's window edge on each of the window's three routes and compare them
+# by eye. CI runners draw with WARP (software), so how a drag looks on a real GPU, and which
+# route feels fastest there, is something only a person at such a machine can say.
+#
+# The routes are chosen by environment variables the fork's window reads when it opens
+# (extended/window/windows-shared/README.md, "How frames reach the screen" and "Switches"):
+#   DXC_DCOMP=0            the GDI route
+#   neither variable       DirectComposition, drag steps drawn on the CPU (the default)
+#   DXC_DCOMP_GPU_DRAG=1   DirectComposition, drag steps rendered on the GPU (experimental)
+# DXC_REPORT_LATENCY=1 makes the window print each drag step's timing on standard error.
+#
+# Two samples, because no one sample shows all four things a drag should carry along:
+#   store   pictures that scale with their tiles, the two-up grid and the category strip, and
+#           the bar of buttons along the bottom (samples/store/src/lib.rs: tile, carousel,
+#           catalogue_screen, onboarding_screen, bottom_bar)
+#   chat    a paragraph and streamed replies that rewrap, the message list (a LazyColumn), the
+#           composer row, and the sidebar that becomes a rail and then a toggle as the window
+#           narrows (samples/chat/src/lib.rs)
+# Every sample stops widening past a phone or a tablet width, so most of the relayout is
+# below about 600 dp; the Korean note asks for the window to be narrowed as far as it goes.
+# Both carry their pictures inside the executable (include_bytes!), so nothing travels with it.
+#
+# The kit: store\ and chat\, each with its sample and the same three launchers from
+# .github/scripts/drag-kit/ (1-gdi.cmd, 2-dcomp-cpu-drag.cmd, 3-dcomp-gpu-drag.cmd), a Korean
+# note (읽어주세요.txt, from README-ko.txt) and README.txt with the commit and the window pin
+# filled in. A launcher writes everything its sample prints to a log beside it.
+#
+# The renderer is not built here. ci.yml's windows_static_kit builds Compose and skiko for
+# mingwX64 (restored from the compose-mingwx64 cache, keyed on build-compose.sh, so a moved pin
+# builds them once, two to three hours) and the static renderer, and uploads it as the
+# windows-static-renderer-kit artifact of the run; this links the samples against that, as
+# test-windows-resize-metrics.yml and test-samples.yml do. Called without that kit, the job
+# fails at "Receive the renderer kit".
+#
+# What is checked here, cheaply, so a kit that cannot start is caught before anyone unzips it:
+# each executable needs only Windows' own DLLs (dumpbin, the rule of
+# scripts/check-windows-consumer.sh), and each launcher, run through cmd.exe exactly as a
+# double click runs it, starts its sample on the route it names (the window's own
+# "compose-rust: dcomp: route" line), and the sample draws a frame ("compose-rust: first frame
+# drawn"), with both lines in the launcher's log. That last part is what shows that the
+# redirection in the launcher reaches a window-subsystem executable's standard error. The
+# runner has no graphics card, so it draws with WARP (DXC_D3D12_WARP=1, which the launchers
+# leave alone). No drag is made here: that is the person's part.
+
+name: Windows drag kit
+
+on:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+env:
+  # The toolchain windows-static.yml builds the kit's consumer with, as the resize gate does.
+  RUST_TOOLCHAIN: 1.100.0
+
+jobs:
+  kit:
+    name: Drag kit of two samples on three window routes (Windows, x64)
+    runs-on: windows-latest
+    # Two release builds of a sample (the first compiles every dependency) and six starts of
+    # up to three minutes each.
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+
+      - name: Receive the renderer kit
+        # Built by windows-static.yml's renderer job in this run (ci.yml's windows_static_kit).
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-static-renderer-kit
+          path: renderer/build/windows
+
+      - name: Enter the Visual Studio developer environment
+        # Copied from test-windows-resize-metrics.yml: the headers clang compiles our C
+        # against, MSVC's linker ahead of Git's coreutils link, and dumpbin.
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars64.bat"
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^(INCLUDE|LIB|LIBPATH|VCToolsInstallDir|WindowsSdkDir|WindowsSDKVersion)=(.*)$') {
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          # The tools of the same toolset the headers above belong to: a cl.exe from an older
+          # toolset refuses this one's C++ library (STL1001).
+          $tools = $null
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^VCToolsInstallDir=(.*)$') { $tools = $matches[1] }
+          }
+          $bin = Join-Path $tools "bin\Hostx64\x64"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Output "MSVC tools: $bin"
+
+      - name: Report the renderer kit and the window pin
+        run: |
+          ls -la renderer/build/windows
+          grep -E '^(REVISION|WINDOW_REVISION|MINGW_REVISION)=' renderer/scripts/build-compose.sh
+
+      - name: Build the samples against the renderer
+        # Release, as the samples ship, with the feature test-samples.yml builds them with.
+        run: |
+          set -euo pipefail
+          export DXC_WINDOWS_NATIVE_LIB="$(cygpath -w "$PWD/renderer/build/windows")"
+          for app in store chat; do
+            echo "== sample-$app"
+            cargo build --release -p "sample-$app" --features compose-rust/native-renderer
+          done
+
+      - name: Lay out the kit
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/drag-kit-windows-x64"
+          src=.github/scripts/drag-kit
+          rm -rf "$kit"
+          for app in store chat; do
+            mkdir -p "$kit/$app"
+            cp "target/release/sample-$app.exe" "$kit/$app/"
+            cp "$src/1-gdi.cmd" "$src/2-dcomp-cpu-drag.cmd" "$src/3-dcomp-gpu-drag.cmd" "$kit/$app/"
+          done
+          revision="$(sed -n 's/^WINDOW_REVISION="\([0-9a-f]\{40\}\)"$/\1/p' renderer/scripts/build-compose.sh)"
+          [[ -n "$revision" ]] || { echo "renderer/scripts/build-compose.sh names no WINDOW_REVISION" >&2; exit 1; }
+          sed -e "s/@COMMIT@/$GITHUB_SHA/" -e "s/@RUN@/$GITHUB_RUN_ID/" -e "s/@FORK_REVISION@/$revision/" \
+            "$src/README.txt" > "$kit/README.txt"
+          {
+            printf '\r\nsha256\r\n'
+            (cd "$kit" && sha256sum store/sample-store.exe chat/sample-chat.exe) | sed 's/$/\r/'
+          } >> "$kit/README.txt"
+          ! grep -q '@[A-Z_]*@' "$kit/README.txt" || { echo "README.txt still has a placeholder" >&2; exit 1; }
+
+      - name: Put the Korean note in the kit
+        # As 읽어주세요.txt. The name is built from its code points rather than written here,
+        # so it does not depend on how this script's own text is decoded.
+        shell: pwsh
+        run: |
+          $kit = Join-Path $env:RUNNER_TEMP "drag-kit-windows-x64"
+          $name = (-join [char[]](0xC77D, 0xC5B4, 0xC8FC, 0xC138, 0xC694)) + ".txt"
+          Copy-Item ".github/scripts/drag-kit/README-ko.txt" (Join-Path $kit $name)
+          $bytes = [System.IO.File]::ReadAllBytes((Join-Path $kit $name))
+          if ($bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) { throw "the Korean note lost its byte order mark" }
+          Get-ChildItem -Recurse $kit | ForEach-Object { Write-Output "$($_.FullName) $($_.Length)" }
+
+      - name: Each executable needs only Windows
+        # The rule of scripts/check-windows-consumer.sh and check-single-executable.sh, copied:
+        # Windows' own DLLs and the API sets only, no Visual C++ runtime, no MinGW, no renderer.
+        run: |
+          set -euo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/drag-kit-windows-x64"
+          system="$(cygpath -u "${SystemRoot:-C:\\Windows}")/System32"
+          status=0
+          for app in store chat; do
+            exe="$kit/$app/sample-$app.exe"
+            echo "-- dumpbin -dependents sample-$app.exe"
+            dumpbin -nologo -dependents "$(cygpath -w "$exe")" | tr -d '\r' | sed -n '/Image has the following dependencies/,/Summary/p'
+            dlls="$(dumpbin -nologo -dependents "$(cygpath -w "$exe")" | tr -d '\r' |
+              sed -n 's/^ *\([A-Za-z0-9_.-]*\.[dD][lL][lL]\)$/\1/p' | sort -fu)"
+            [[ -n "$dlls" ]] || { echo "sample-$app.exe: dumpbin named no DLL at all" >&2; status=1; continue; }
+            for dll in $dlls; do
+              lower="$(echo "$dll" | tr '[:upper:]' '[:lower:]')"
+              case "$lower" in
+                vcruntime*|msvcp*|concrt*|libgcc*|libstdc++*|libwinpthread*|*mingw*|\
+                libcompose_rust_renderer*|*jvm*|*java*|awt*|skiko*|icu*)
+                  echo "sample-$app.exe needs $dll, which is not part of Windows" >&2; status=1 ;;
+                api-ms-win-*|ext-ms-win-*) ;;
+                *) [[ -f "$system/$dll" || -f "$system/$lower" ]] ||
+                     { echo "sample-$app.exe needs $dll, which Windows does not ship" >&2; status=1; } ;;
+              esac
+            done
+          done
+          exit $status
+
+      - name: Every launcher starts its sample on its route and draws
+        # On a copy of the kit, so the kit keeps no log. Each launcher is run by cmd.exe as a
+        # double click runs it, and the sample is ended once its log shows a frame drawn.
+        env:
+          DXC_D3D12_WARP: '1'
+        run: |
+          set -uo pipefail
+          kit="$(cygpath -u "$RUNNER_TEMP")/drag-kit-windows-x64"
+          check="$(cygpath -u "$RUNNER_TEMP")/drag-kit-start"
+          logs="$(cygpath -u "$RUNNER_TEMP")/drag-kit-start-logs"
+          rm -rf "$check" "$logs"
+          cp -r "$kit" "$check"
+          mkdir -p "$logs"
+          status=0
+          for app in store chat; do
+            for route in 1-gdi 2-dcomp-cpu-drag 3-dcomp-gpu-drag; do
+              dir="$check/$app"
+              rm -f "$dir"/*.log
+              echo "== $app $route"
+              MSYS_NO_PATHCONV=1 cmd.exe /c "$(cygpath -w "$dir/$route.cmd")" < /dev/null > "$logs/$app-$route.console.txt" 2>&1 &
+              launcher=$!
+              log=""
+              # Up to three minutes for the window to open and draw on WARP.
+              for _ in $(seq 360); do
+                log="$(ls "$dir"/sample-"$app"-"$route"-*.log 2>/dev/null | head -1 || true)"
+                [[ -n "$log" ]] && grep -q "compose-rust: first frame drawn" "$log" && break
+                kill -0 "$launcher" 2>/dev/null || break
+                sleep 0.5
+              done
+              MSYS_NO_PATHCONV=1 taskkill /F /IM "sample-$app.exe" > /dev/null 2>&1 || true
+              # The launcher goes on once its sample has ended, and writes its last line.
+              for _ in $(seq 60); do kill -0 "$launcher" 2>/dev/null || break; sleep 0.5; done
+              kill "$launcher" 2>/dev/null || true
+              wait "$launcher" 2>/dev/null || true
+              if [[ -z "$log" || ! -f "$log" ]]; then
+                echo "  FAULT: $route.cmd wrote no log beside sample-$app.exe"
+                cat "$logs/$app-$route.console.txt"
+                status=1
+                continue
+              fi
+              cp "$log" "$logs/"
+              case "$route" in
+                1-gdi) vars="DXC_DCOMP=[0] DXC_DCOMP_GPU_DRAG=[] DXC_REPORT_LATENCY=[1]"
+                       wanted=("compose-rust: dcomp: route gdi because DXC_DCOMP=0") ;;
+                2-dcomp-cpu-drag) vars="DXC_DCOMP=[] DXC_DCOMP_GPU_DRAG=[] DXC_REPORT_LATENCY=[1]"
+                       wanted=("compose-rust: dcomp: route dcomp" "compose-rust: dcomp: drag steps drawn on the CPU (DXC_DCOMP_GPU_DRAG=off)") ;;
+                3-dcomp-gpu-drag) vars="DXC_DCOMP=[] DXC_DCOMP_GPU_DRAG=[1] DXC_REPORT_LATENCY=[1]"
+                       wanted=("compose-rust: dcomp: route dcomp" "compose-rust: dcomp: drag steps drawn on the GPU, in WM_NCCALCSIZE (DXC_DCOMP_GPU_DRAG=wait)") ;;
+              esac
+              wanted+=("drag kit: sample-$app $route started" "$vars" "compose-rust: first frame drawn" "drag kit: sample-$app $route ended")
+              grep -E "drag kit:|compose-rust: dcomp: (route|drag steps)|compose-rust: (a window of our own|first frame drawn)" "$log" | tr -d '\r' | sed 's/^/  /'
+              for line in "${wanted[@]}"; do
+                grep -qF -- "$line" "$log" || { echo "  FAULT: the log has no '$line'"; status=1; }
+              done
+            done
+          done
+          if [[ "$status" != 0 ]]; then
+            echo "A launcher did not start its sample on its route, or the log did not get what the sample printed."
+            echo "The window code at the pin may not have the route; see WINDOW_REVISION above."
+          fi
+          exit $status
+
+      - name: Keep the start logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drag-kit-start-logs
+          path: ${{ runner.temp }}/drag-kit-start-logs/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Keep the kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: drag-kit-windows-x64
+          path: ${{ runner.temp }}/drag-kit-windows-x64/
+          if-no-files-found: error
+          retention-days: 30

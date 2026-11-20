@@ -7,10 +7,11 @@
 # - Its plan job runs scripts/ci-suites.sh, and every other job runs only when the plan says so,
 #   and so every job is named in the script and every name in the script is a job.
 # - The script's answers: `all` is every job with the resize timings off (the window-pin probe
-#   gates, so it is in), `measure` test_windows_resize and the Windows kit it resizes with the
-#   timings on, `all,measure` both, `fast` the three short ones, a list exactly the suites and
-#   jobs it names plus the Windows kit for a job that downloads it, and an unknown name is an
-#   error, not a smaller run.
+#   gates, so it is in) except the on-request ones, which gate nothing and run only when named
+#   (the Windows drag kit), `measure` test_windows_resize and the Windows kit it resizes with
+#   the timings on, `all,measure` both, `fast` the three short ones, a list exactly the suites
+#   and jobs it names plus the Windows kit for a job that downloads it, and an unknown name is
+#   an error, not a smaller run.
 # - The jobs the script brings the kit for are exactly the ci.yml jobs that need
 #   windows_static_kit, so a job that takes the kit never runs without it being built.
 set -eu
@@ -77,15 +78,24 @@ PY
 
 on() { "$suites" "$1" | grep -v '^measure=' | sed -n 's/=true$//p' | sort | tr '\n' ' '; }
 measures() { "$suites" "$1" | sed -n 's/^measure=//p'; }
+# The jobs that gate nothing and run only when named.
+on_request="windows_drag_kit"
 every_job="$("$suites" all | grep -v '^measure=' | sed 's/=.*//' | sort | tr '\n' ' ')"
-[[ "$(on all)" == "$every_job" ]] && ok "all runs every job" || fail "all ran $(on all), not $every_job"
+gating="$(tr ' ' '\n' <<< "$every_job" | grep -vxF -e "$on_request" | grep . | tr '\n' ' ')"
+[[ "$(on all)" == "$gating" ]] && ok "all runs every job but the on-request ones" || fail "all ran $(on all), not $gating"
+[[ "$(on all)" != *" windows_drag_kit "* && "$(on all)" != "windows_drag_kit "* ]] &&
+    ok "all leaves the Windows drag kit out" || fail "all ran windows_drag_kit"
+[[ "$(on windows_drag_kit)" == "windows_drag_kit windows_static_kit " && "$(measures windows_drag_kit)" == false ]] &&
+    ok "windows_drag_kit alone brings the Windows kit it links" || fail "windows_drag_kit ran $(on windows_drag_kit)"
+[[ "$(on all,windows_drag_kit)" == "$every_job" ]] &&
+    ok "all,windows_drag_kit is every job" || fail "all,windows_drag_kit ran $(on all,windows_drag_kit)"
 [[ "$(on all)" == *" test_windows_resize "* ]] && ok "all runs the window-pin probe" || fail "all did not run test_windows_resize"
 [[ "$(measures all)" == false ]] && ok "all leaves the resize timings off" || fail "all measured: $(measures all)"
-[[ "$(on '')" == "$every_job" && "$(measures '')" == false ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
+[[ "$(on '')" == "$gating" && "$(measures '')" == false ]] && ok "an empty input is all" || fail "an empty input ran $(on '')"
 [[ "$(on measure)" == "test_windows_resize windows_static_kit " && "$(measures measure)" == true ]] &&
     ok "measure runs test_windows_resize and the kit it resizes with the timings on" || fail "measure ran $(on measure), measure=$(measures measure)"
-[[ "$(on all,measure)" == "$every_job" && "$(measures all,measure)" == true ]] &&
-    ok "all,measure is every job with the timings on" || fail "all,measure ran $(on all,measure), measure=$(measures all,measure)"
+[[ "$(on all,measure)" == "$gating" && "$(measures all,measure)" == true ]] &&
+    ok "all,measure is every gating job with the timings on" || fail "all,measure ran $(on all,measure), measure=$(measures all,measure)"
 [[ "$(measures fast)" == false ]] && ok "fast leaves the resize timings off" || fail "fast measured"
 [[ "$(on fast)" == "test test_graalvm_renderer test_windows_c " ]] &&
     ok "fast is the tests, the GraalVM renderer smoke and the Windows C compile" || fail "fast ran $(on fast)"
