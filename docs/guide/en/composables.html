@@ -365,6 +365,16 @@
       one-column layout works at any width.
     </p>
     <p>
+      <strong>Your own breakpoints.</strong> When a screen changes shape at other widths than the
+      classes, <code>current_window_breakpoint(&amp;[560.0, 900.0, 1279.0])</code> returns which
+      bucket the window is in: how many of the breakpoints its width has reached, so a width
+      exactly on a breakpoint is in the bucket above it. The composable runs again only when the
+      bucket changes. It does not make the window report more often: to see a breakpoint that is
+      not a class edge as it is crossed, open the window with <code>report_size(true)</code>
+      (<code>Window::new().with_report_size(true)</code> for the single window), which costs a
+      call into Rust for every whole dp of a drag.
+    </p>
+    <p>
       <code>Navigation</code>, <code>Sheet</code> and <code>Scaffold</code> already adapt without
       being asked, by moving nodes the renderer already has. Use the window size for the decisions
       the widgets cannot make for you, such as two columns instead of one.
