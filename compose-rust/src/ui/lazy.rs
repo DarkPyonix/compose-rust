@@ -5,8 +5,8 @@
 //! more runs, and composes none of them itself.
 //!
 //! ```ignore
-//! LazyColumn().modifier(Modifier.fill_max_size()).content(|list| {
-//!     list.item(|| { Text("Header"); });
+//! LazyColumn!(modifier = Modifier.fill_max_size(), content = |list| {
+//!     list.item(|| { Text!("Header"); });
 //!     list.items_keyed(tasks.len(), move |index| ids[index].clone(), move |index| {
 //!         TaskRow(index);
 //!     });

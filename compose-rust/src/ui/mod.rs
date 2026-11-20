@@ -464,7 +464,12 @@ impl PressStyle {
 /// Written the way Compose writes it, from the empty value `Modifier`:
 ///
 /// ```ignore
-/// Card().modifier(Modifier.fill_max_width().padding(16.0).background(Paint::Role(ColorRole::Surface)))
+/// Card!(
+///     modifier = Modifier.fill_max_width().padding(16.0).background(Paint::Role(ColorRole::Surface)),
+///     {
+///         Text!("Inside");
+///     }
+/// );
 /// ```
 ///
 /// The order of the calls does not matter. Each kind of Modifier has a fixed slot in the
