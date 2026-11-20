@@ -8,7 +8,7 @@ use compose_rust::font_features::{FONT_FEATURE_LEN, MAX_FONT_FEATURES, font_feat
 use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
 use compose_rust::runtime::*;
 use compose_rust::schema::{PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

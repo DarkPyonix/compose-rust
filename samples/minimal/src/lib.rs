@@ -17,7 +17,7 @@ mod marks;
 mod palette;
 
 use compose_rust::runtime::*;
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{FontRef, FontRefs, GenericFamily};
 
 /// How wide the page may grow past a phone, in dp. A phone sheet in a desktop window is

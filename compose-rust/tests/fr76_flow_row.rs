@@ -3,7 +3,7 @@
 use compose_rust::ComposeHost;
 use compose_rust::codegen::generate_mutation_vector;
 use compose_rust::protocol::{BatchEncoder, Mutation, PropertyValue, decode_batch};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{PropertyKind, WidgetKind};
 
 fn flow_row_props(batch: &[u8]) -> (u32, Vec<(PropertyKind, PropertyValue<'_>)>, usize) {
