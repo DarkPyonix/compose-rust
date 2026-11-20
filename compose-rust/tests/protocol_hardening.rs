@@ -180,24 +180,16 @@ fn nfr7_truncated_batch_reports_protocol_error() {
 #[test]
 fn nfr7_truncated_event_reports_protocol_error() {
     let events = [
-        HostEvent {
-            node_id: 7,
-            handler_id: 11,
-            payload: EventPayload::Clicked,
-        },
-        HostEvent {
-            node_id: 8,
-            handler_id: 12,
-            payload: EventPayload::TextChanged("한글 입력"),
-        },
-        HostEvent {
-            node_id: 9,
-            handler_id: 13,
-            payload: EventPayload::ProtocolError {
+        HostEvent::new(7, 11, EventPayload::Clicked),
+        HostEvent::new(8, 12, EventPayload::TextChanged("한글 입력")),
+        HostEvent::new(
+            9,
+            13,
+            EventPayload::ProtocolError {
                 code: 3,
                 message: "bad",
             },
-        },
+        ),
     ];
     for event in &events {
         let mut bytes = Vec::new();
@@ -271,11 +263,7 @@ fn nfr7_non_utf8_string_payload_is_a_protocol_error() {
 fn nfr7_event_string_offset_inside_the_record_is_a_protocol_error() {
     let mut bytes = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 1,
-            handler_id: 2,
-            payload: EventPayload::TextChanged("abcd"),
-        },
+        &HostEvent::new(1, 2, EventPayload::TextChanged("abcd")),
         &mut bytes,
     )
     .unwrap();
@@ -292,11 +280,7 @@ fn nfr7_event_string_offset_inside_the_record_is_a_protocol_error() {
 fn nfr7_event_string_offset_past_the_buffer_is_a_protocol_error() {
     let mut bytes = Vec::new();
     encode_event(
-        &HostEvent {
-            node_id: 1,
-            handler_id: 2,
-            payload: EventPayload::TextChanged("abcd"),
-        },
+        &HostEvent::new(1, 2, EventPayload::TextChanged("abcd")),
         &mut bytes,
     )
     .unwrap();
