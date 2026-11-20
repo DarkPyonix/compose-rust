@@ -1063,6 +1063,8 @@ FR-13.8이 코어 속성 태그를 26까지 썼고, FR-11 확장 예제가 27을
 
 `RadioButton`의 선택 여부도 `Checked`를 씁니다. 와이어에서는 "켜져 있는가"라는 bool 하나입니다. `selected`라는 이름은 Compose 관례이므로 rsx 속성 이름으로만 남습니다(PR-7).
 
+`Checkbox`의 혼합 상태는 `Checked`의 세 번째 값이 아니라 Checkbox 전용 속성 `Indeterminate`(태그 216, bool)입니다. 상자의 테두리 색은 `OutlineColor`(태그 217, Paint, Checkbox 전용)입니다. 둘 다 FR-67이 정합니다 `[leader, 2026-11-21]`.
+
 변경 핸들러는 기존 `OnValueChange`(태그 6)를 그대로 씁니다.
 
 - **네 컨트롤 모두 15.2.5의 `ValueChanged`(이벤트 태그 16)를 씁니다.** 토글 셋은 새 상태를 0.0 또는 1.0으로 싣고, `Slider`는 값 자체를 싣습니다. bool을 위해 이벤트를 하나 더 만들면 같은 개념("이 컨트롤의 값이 이렇게 되었다")에 이름이 둘 생기고, 컨트롤이 늘 때마다 또 나눠야 합니다.
@@ -4289,13 +4291,32 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 
 **Slider 손잡이 크기**(이슈 #718). `Slider::thumb_size(dp)`(속성 `ThumbSize`, 속성 태그 202, f32). 지정하지 않으면 디자인 시스템의 크기입니다. 트랙 높이와 누르는 영역은 바뀌지 않습니다(누르는 영역은 최소 44dp를 지킵니다). 수용 기준: `thumb_size(12)`인 슬라이더의 손잡이 지름이 12dp이고, 손잡이를 끌면 값이 바뀝니다(fr67_slider_thumb_size).
 
+**Checkbox의 모서리, 혼합 상태, 테두리 색**(이슈 #767) `[leader, 2026-11-21]`. 요청한 쪽: darkpyonix-ember(목업 `vcs.css:68-72`, 부분 스테이징된 파일의 체크). Ember는 지금 반지름 5의 18dp 사각형을 직접 그리고 그 위에 투명한 `Checkbox`를 얹어서, 부분 상태가 화면 낭독기에 체크 안 됨으로 읽힙니다.
+
+- **모서리**: Checkbox 상자의 모양은 노드의 모서리 수정자(`Modifier::corner_radius`, `corner_radii`, `shape_role`)를 따릅니다. 색이나 크기를 주지 않아도 모든 디자인 시스템(Material 3 포함)에서 같습니다. Material 3에서 모서리 수정자만 준 Checkbox는 색이나 크기를 준 Checkbox와 같이 공용 컨트롤 드로잉이 그립니다. 새 속성은 없습니다(13.1: 같은 개념을 스키마에 두 번 넣지 않음).
+- **혼합 상태**: `Checkbox`에 `indeterminate: bool`(기본 false) 인자가 있습니다(속성 `Indeterminate`, 속성 태그 216, bool, Checkbox 전용, Compose의 `ToggleableState.Indeterminate`). 참일 때만 보내고, 참이면 `checked`와 관계없이 혼합 상태입니다. 혼합을 `checked`의 세 번째 값으로 만들지 않는 것은 지금의 호출이 모두 그대로 컴파일되게 하려는 것입니다.
+- **혼합 상태의 모양**: 기본은 채운 상자입니다. 상자는 체크된 상자와 같이 칠하고(`container_color`, 없으면 디자인 시스템의 체크된 상자 색), 체크 대신 가운데 가로 막대를 `check_color`(없으면 디자인 시스템의 체크 색)로 그립니다. Compose Material 3와 Apple의 혼합 체크박스가 이렇게 그립니다. 테두리만 있는 목업의 모양은 앱이 `container_color`와 `outline_color`로 만듭니다.
+- **혼합 상태를 누르면** `on_change(true)`가 한 번 갑니다(macOS와 HTML의 관례이고, Ember에서는 "나머지도 스테이징"입니다). 상태는 Host가 정하므로, Host가 `indeterminate`를 거두기 전까지 상자는 혼합으로 그려집니다.
+- **접근성**: 혼합 Checkbox는 접근성 트리에 혼합(mixed, `ToggleableState.Indeterminate`)으로 나갑니다. 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다. `Modifier::checked`의 의미 상태 필드에서 쓰지 않던 값 3을 혼합으로 정합니다(`SemanticsState::mixed()`, 상수 `SEMANTICS_CHECKED_MIXED`). 비트도 마스크도 그대로이고 이 값은 `schema_hash()`에 들어갑니다.
+- **테두리 색**: `Checkbox`에 `outline_color` 인자가 있습니다(색 역할 또는 `Paint`, 속성 `OutlineColor`, 속성 태그 217, Paint, Checkbox 전용). 상자의 테두리 색이고, 꺼짐, 켜짐, 혼합에 같은 색으로 적용됩니다(`track_color`와 같은 규칙). 지정하면 디자인 시스템이 테두리를 그리지 않는 상태(앱이 채운 상자)에도 그 색 테두리를 그립니다. 지정하지 않으면 보내지 않고 디자인 시스템의 테두리입니다. Material 3에서도 공용 컨트롤 드로잉이 그립니다.
+- 두 속성 모두 앱이 더는 주지 않으면 제거가 전달되고, Renderer는 혼합이 아닌 상태와 디자인 시스템의 테두리로 돌아갑니다.
+
+수용 기준.
+1. `Checkbox(true, size: 18.0, container_color: ink, modifier: Modifier::new().corner_radius(5.0))`의 상자 모서리 픽셀이 바탕색이고 안쪽은 `ink`입니다. 일곱 디자인 시스템 모두에서 그렇고, 색과 크기 없이 `corner_radius`만 준 경우에도 모서리가 둥글게 깎입니다(fr67_checkbox_corner_radius_follows_the_corner_modifier).
+2. `indeterminate: true`인 Checkbox는 `Indeterminate` 속성(태그 216, `Bool(true)`)을 보내고, 거짓이거나 생략하면 보내지 않으며, 참에서 거짓으로 바꾸면 제거가 갑니다(fr67_checkbox_sends_indeterminate_only_when_mixed).
+3. 혼합 Checkbox는 일곱 디자인 시스템 모두에서 상자 가운데에 `check_color` 가로 막대를 그리고 체크 표시는 그리지 않습니다(fr67_mixed_checkbox_draws_a_dash).
+4. 혼합 Checkbox의 접근성 노드는 `ToggleableState.Indeterminate`이고, 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다(fr68_mixed_checkbox_is_mixed_in_the_accessibility_tree). iOS 빌드의 공용 인터프리터도 의미 상태 값 3을 가진 노드에 `ToggleableState.Indeterminate`를 둡니다. VoiceOver 값으로 넘기는 것은 Compose의 iOS 브리지입니다(fr68_mixed_checkbox_reaches_the_ios_accessibility_value).
+5. 혼합 Checkbox를 누르거나 포커스한 채 Space를 누르면 `ValueChanged` 1.0이 정확히 한 번 갑니다(fr67_pressing_a_mixed_checkbox_requests_checked).
+6. `SemanticsState::mixed()`의 checked 필드는 값 3으로 인코딩되어 왕복하고(fr68_semantics_checked_mixed_round_trips), Renderer에서 `ToggleableState.Indeterminate`로 나갑니다(fr68_semantics_checked_mixed_reaches_the_tree).
+7. `outline_color: ink`인 Checkbox는 `OutlineColor` 속성(태그 217)을 보내고, 주지 않으면 보내지 않으며, 거두면 제거가 갑니다(fr67_checkbox_sends_outline_color_only_when_given). 꺼진 Checkbox의 테두리 픽셀은 일곱 디자인 시스템 모두에서 `ink`입니다(fr67_checkbox_outline_color_draws_the_border).
+
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 
 요청한 쪽: darkpyonix-ember. 누를 수 있는 `Box`, 컨테이너 `on_click`, Canvas로 그린 스위치 위의 투명 Button은 화면 낭독기에 역할도 이름도 없고, 아이콘만 있는 Button의 이름은 아이콘의 뜻("추가")이 되어 컨트롤의 목적(가져오기, 내려받기)과 다릅니다.
 
 - `Modifier`에 `semantics(role, label, state)`와, 같은 일을 나누어 하는 `label(&str)`, `role(Role)`, `checked(bool)`, `selected(bool)`, `has_popup(bool)`가 있습니다(이슈 #810, [leader, provisional] (darkpyonix leader, 2026-11-15)). 어느 노드에도 붙고, 부르지 않으면 아무것도 보내지 않습니다.
 - `Button`과 `Switch`, `Checkbox`, `RadioButton`, `Slider`에 `accessible_name(&str)`가 있습니다. 보이는 라벨이 없을 때 접근성 이름이 되고, 보이는 라벨이 있을 때는 그것을 덮어씁니다. 아이콘만 있는 Button의 이름은 아이콘의 뜻보다 `accessible_name`이 우선합니다.
-- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다.
+- `Switch`와 `Checkbox`의 `checked`는 접근성 트리에 토글 상태로 나갑니다. `indeterminate`인 `Checkbox`는 혼합(mixed)으로 나가고, `Modifier`의 의미 상태 checked 필드 값 3(`SemanticsState::mixed()`)도 혼합입니다(FR-67 "Checkbox의 모서리, 혼합 상태, 테두리 색") `[leader, 2026-11-21]`.
 - `Modifier::label(&str)`은 라벨을 소유하며 `Modifier`는 `Clone`입니다(이슈 #456, [leader, provisional] (darkpyonix leader, 2026-11-14; owner delegated mockup-matching toolkit SPEC)). 프레임마다 라벨이 바뀌는 동적 라벨이어도 누수 없이 평평한 메모리를 유지하며(임의의 cap으로 버려지지 않음), 반복되는 라벨은 정상 상태에서 할당 0회(NFR-9)를 지킵니다.
 
 수용 기준.
