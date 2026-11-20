@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Widgets are functions and call macros, not builder chains
+
+This is a breaking change. Every widget is now one function that takes all of its parameters, and the call macro of the same name, which takes them by name with defaults. The builder chains (`Column().modifier(..).content(..)`, `Button(..).on_click(..)`) are gone, so a call site written with them no longer compiles. The parameters come in one order: what the widget cannot do without, its handler, `modifier`, the optional parameters, and the content last. The macro takes the leading ones by position and the rest as `name = value`, and a container's children as a trailing `{ .. }` block. A builder method is the parameter of the same name, a method without arguments is `name = true`, and a method with several arguments is a tuple (`size = (900.0, 600.0)`). A widget's main handler is the positional argument after its data (`Button!("Save", move || ..)`, `Slider!(value, move |value| ..)`), and an optional handler or slot is `Some(closure)`, whose closure names the type of its argument because rustc does not infer it inside `Some`. A lazy list's content stays named (`LazyColumn!(content = |list| ..)`), `Icon::asset(id)` is `IconAsset!(id)`, and `color_if(opt)` is `color = opt`. `compose_rust::ui::next`, where v0.0.12 had these functions beside the builders, is gone: they are `compose_rust::ui` now, so `use compose_rust::ui::next::*` becomes `use compose_rust::ui::*`. What reaches the renderer is unchanged: each widget writes the same records it wrote before, and the schema hash does not move.
+
+```rust
+// Before
+Column().modifier(m).spacing(8.0).content(|| { Text("a").font_size(14.0); });
+// After
+Column!(modifier = m, spacing = 8.0, { Text!("a", font_size = 14.0); });
+```
+
+`experiments/fr39-codemod`, on the `develop` branch, rewrites the builder chains of a crate into call macros. It reports the few call sites it leaves for a hand edit, such as a builder bound with `let`.
+
 ### A Checkbox can be mixed, take an outline colour, and round its corners under Material 3
 
 `Checkbox!` takes `indeterminate = true` for a box that stands for a set of which only some are checked. It wins over `checked`: the box is filled as a checked box is, with a dash in the check colour instead of the check, assistive technology hears it as mixed, and a press or Space asks for `true`. It travels as the `Indeterminate` property (tag 216, a boolean, only on a `Checkbox`), sent only while it is true. `outline_color` is the box's border in every state (`OutlineColor`, tag 217, a `Paint`, only on a `Checkbox`), drawn even where the design system draws none. A Checkbox's corners now follow `Modifier::corner_radius`, `corner_radii` or `shape_role` under Material 3 as well, with no colour or size given. For `Modifier::semantics`, `SemanticsState::mixed()` gives the checked field its fourth value, 3, which reads as mixed, and `SemanticsState` gains a public `mixed` field. The schema hash changes ([#767](https://github.com/DarkPyonix/compose-rust/issues/767)).

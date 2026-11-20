@@ -1,5 +1,5 @@
-//! The widget vocabulary as composables: the same widgets, the same properties and the
-//! same Modifier slots the `rsx!` layer writes, with Compose's names and Compose's shape.
+//! The widgets as functions: every widget is one function that takes all of its
+//! parameters, and the call macro of the same name that takes them by name with defaults.
 //!
 //! ```ignore
 //! use compose_rust::runtime::*;
@@ -7,29 +7,38 @@
 //!
 //! #[Composable]
 //! fn Greeting(name: String) {
-//!     Column().modifier(Modifier.padding(16.0).fill_max_width()).content(|| {
-//!         Text(format!("Hello, {name}")).type_role(TypeRole::Title);
-//!         Button("Wave").on_click(|| show_message("Hello back"));
+//!     Column!(modifier = Modifier.padding(16.0).fill_max_width(), {
+//!         Text!(format!("Hello, {name}"), type_role = TypeRole::Title);
+//!         Button!("Wave", || show_message("Hello back"));
 //!     });
 //! }
 //! ```
 //!
-//! **A widget is written as a statement.** `Text("Hello")` creates a description and the
-//! statement's end hands it to the composition; the methods in between set what Compose
-//! would take as named arguments. A container's children are the closure given to
-//! `content`, which runs at once. Binding a widget to a variable delays it to the end of
-//! the variable's scope, so a widget is not bound.
+//! **Parameters come in one order**: what the widget cannot do without, its handler, the
+//! `modifier`, the optional parameters, and the content last. The function form takes all
+//! of them. The macro form takes the leading ones by position and the rest as
+//! `name = value` in any order, fills in the defaults, and takes the content as a trailing
+//! `{ .. }` block.
 //!
-//! **Nothing here defines a widget.** Each composable writes exactly the attributes its
+//! **An optional value is written bare.** A parameter that can be left unset takes
+//! `impl Into<Option<T>>`, so `font_size = 14.0` and `font_size = maybe_size` both work.
+//!
+//! **An optional handler is an `Option`.** A node without a handler is a different node
+//! from one with an empty handler: a `Column` without `on_click` is not a control. So the
+//! handler is `Some(closure)` or absent, and `cond.then_some(closure)` makes it depend on
+//! something. Inside `Some(..)` the compiler does not infer a closure's parameter type, so
+//! a handler that takes an event names it: `on_key_down = Some(|event: KeyEvent| ..)`.
+//!
+//! **Nothing here defines a widget.** Each function writes exactly the attributes its
 //! `rsx!` counterpart writes, through the same translation into wire records, so a screen
 //! written either way is the same tree of the same nodes for the Renderer. A Modifier the
 //! `rsx!` counterpart does not accept is still written when it is set, because the wire
 //! carries every Modifier slot on every node.
 
 pub(crate) mod focus;
+mod functions;
 mod lazy;
-pub mod next;
-mod widgets;
+pub(crate) mod widgets;
 
 pub use crate::boundary::LaunchBuilder;
 pub use crate::brush::{Brush, Stop, brush};
@@ -57,13 +66,24 @@ pub fn theme() -> ThemeHandle {
 }
 pub use crate::asset::AssetId;
 pub use crate::window::{NodeSize, WindowSafeArea, WindowSize};
+pub use crate::windows::{WindowDragEvent, WindowDragOver, WindowFrame};
 pub use crate::{
     Cursor, FileDrop, KeyEvent, PointerEvent, PointerKind, PointerKinds, RangeRequest, UserSelect,
     asset, pointer_button,
 };
+pub use crate::{MotionFinished, OverflowWrap, WordBreak};
 pub use focus::{FocusHandle, use_focus_handle};
-pub use lazy::{LazyColumn, LazyGrid, LazyList, LazyListScope, LazyRow};
-pub use widgets::*;
+pub use functions::{
+    Badge, Box, Button, Canvas, Card, Checkbox, Chip, Column, DatePicker, Dialog, Divider,
+    Dropdown, FileDropTarget, FloatingAction, FlowRow, Icon, IconAsset, Image,
+    IndeterminateProgressIndicator, LazyColumn, LazyGrid, LazyRow, LinearProgressIndicator, Menu,
+    MenuItem, NativeView, Navigation, NavigationItem, Popover, ProgressIndicator, RadioButton, Row,
+    Scaffold, ScrollColumn, ScrollRow, Select, SelectionContainer, Separator, Sheet, Slider,
+    Spacer, SplitPane, Surface, Switch, Tabs, Text, TextField, TimePicker, Tooltip, TopAppBar,
+    Window,
+};
+pub use lazy::LazyListScope;
+pub use widgets::{ScrollState, remember_scroll_state};
 
 use crate::runtime::composer::{EventCallback, OwnedAttr};
 use crate::runtime::{group_guard, with_composer, with_composer_if_idle};

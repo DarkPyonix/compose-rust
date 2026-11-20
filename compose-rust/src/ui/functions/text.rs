@@ -57,7 +57,7 @@ pub fn Text(
         impl FnMut(MotionFinished) + 'static,
     >,
 ) {
-    let mut scope = crate::ui::Text(text)
+    let mut scope = crate::ui::widgets::Text(text)
         .modifier(modifier)
         .spans(spans)
         .font(font)
@@ -144,7 +144,7 @@ pub fn TextField<'a>(
     #[default(false)] bare: bool,
     #[default(false)] read_only: bool,
 ) {
-    let mut scope = crate::ui::TextField()
+    let mut scope = crate::ui::widgets::TextField()
         .modifier(modifier)
         .text(text)
         .placeholder(placeholder)
