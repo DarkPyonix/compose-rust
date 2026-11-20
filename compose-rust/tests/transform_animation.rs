@@ -268,11 +268,7 @@ fn fr41_start_animation_round_trips() {
         },
         EventPayload::ReducedMotionChanged(ReducedMotion::Unknown),
     ] {
-        let event = HostEvent {
-            node_id: 4,
-            handler_id: 0,
-            payload,
-        };
+        let event = HostEvent::new(4, 0, payload);
         let mut bytes = Vec::new();
         encode_event(&event, &mut bytes).unwrap();
         assert_eq!(decode_event(&bytes), Ok(event));

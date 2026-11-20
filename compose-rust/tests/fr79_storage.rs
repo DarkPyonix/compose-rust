@@ -168,15 +168,15 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
         Err(ProtocolError::InvalidValueKind(9))
     );
 
-    let answer = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::IoAnswer {
+    let answer = HostEvent::new(
+        0,
+        0,
+        EventPayload::IoAnswer {
             request: 11,
             status: IoStatus::Ok,
             data: &[0xea, 0xb0, 0x92, 0x00, 0xff],
         },
-    };
+    );
     let mut encoded = Vec::new();
     encode_event(&answer, &mut encoded).unwrap();
     assert_eq!(u16::from_le_bytes([encoded[0], encoded[1]]), 57, "event 57");
@@ -198,13 +198,11 @@ fn fr79_storage_records_round_trip_and_unknown_enums_are_errors() {
         "the Host still answers"
     );
 
-    let location = HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::StorageLocation(
-            "/data/user/0/dev.darkpyonix.composerust.samples.todo/files",
-        ),
-    };
+    let location = HostEvent::new(
+        0,
+        0,
+        EventPayload::StorageLocation("/data/user/0/dev.darkpyonix.composerust.samples.todo/files"),
+    );
     encode_event(&location, &mut encoded).unwrap();
     assert_eq!(u16::from_le_bytes([encoded[0], encoded[1]]), 59, "event 59");
     assert_eq!(decode_event(&encoded).unwrap(), location);
@@ -661,15 +659,15 @@ fn calls(batch: &[u8]) -> Vec<(u32, StorageOp, String, String, Vec<u8>)> {
 }
 
 fn answer(request: u32, status: IoStatus, data: &[u8]) -> HostEvent<'_> {
-    HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::IoAnswer {
+    HostEvent::new(
+        0,
+        0,
+        EventPayload::IoAnswer {
             request,
             status,
             data,
         },
-    }
+    )
 }
 
 struct Session {
@@ -684,11 +682,7 @@ impl Session {
             .find("Button", Some(label), 0, PropertyKind::OnClick);
         let (batch, _) = self
             .host
-            .dispatch(HostEvent {
-                node_id,
-                handler_id,
-                payload: EventPayload::Clicked,
-            })
+            .dispatch(HostEvent::new(node_id, handler_id, EventPayload::Clicked))
             .expect("the press dispatches");
         let batch = batch.to_vec();
         self.tree.apply(&batch);
@@ -823,12 +817,8 @@ fn fr79_android_storage_waits_for_its_location() {
     let mut host = ComposeHost::with_content(|| {});
     host.rebuild().unwrap();
     let path = files_dir.to_string_lossy().into_owned();
-    host.dispatch(HostEvent {
-        node_id: 0,
-        handler_id: 0,
-        payload: EventPayload::StorageLocation(&path),
-    })
-    .expect("the location dispatches");
+    host.dispatch(HostEvent::new(0, 0, EventPayload::StorageLocation(&path)))
+        .expect("the location dispatches");
     assert_eq!(testing::held(), 0);
 
     assert_eq!(block_on(early_write), Ok(()));
