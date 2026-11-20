@@ -679,6 +679,17 @@ mod tests {
     use compose_rust::protocol::{HostEvent, Mutation, PropertyValue, decode_batch, encode_event};
     use compose_rust::schema::{EventPayload, Modifier as Wire, PropertyKind, WidgetKind};
 
+    /// The notification queue and the window size belong to the process, not to one Host,
+    /// so a Host in one test can write another test's post into its own batch. Every test
+    /// that drives a Host holds this for as long as it does.
+    static ONE_HOST_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn one_host_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        ONE_HOST_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// The screen, driven the way a Renderer drives it.
     ///
     /// Every batch is kept, because a batch is the change since the frame before it rather
@@ -686,16 +697,19 @@ mod tests {
     struct Screen {
         host: ComposeHost,
         frames: Vec<Vec<u8>>,
+        _alone: std::sync::MutexGuard<'static, ()>,
     }
 
     impl Screen {
         fn new() -> Self {
+            let alone = one_host_at_a_time();
             compose_rust::window::reset_window_size();
             let mut host = ComposeHost::new(app);
             let first = host.rebuild().expect("the first frame failed").to_vec();
             Self {
                 host,
                 frames: vec![first],
+                _alone: alone,
             }
         }
 
@@ -717,18 +731,28 @@ mod tests {
             sample_frames::live(self.mutations())
         }
 
-        /// The text every live node shows now: the last one each was given.
+        /// The text every live node shows now: the last one each was given, with any tail
+        /// appended to it since. A text that only grows at its end arrives as that tail.
         fn texts(&self) -> Vec<String> {
             let mut shown: Vec<(u32, String)> = Vec::new();
             for mutation in self.live() {
-                if let Mutation::SetProp {
-                    node_id,
-                    property: PropertyKind::Text,
-                    value: PropertyValue::String(text),
-                } = mutation
-                {
-                    shown.retain(|(node, _)| *node != node_id);
-                    shown.push((node_id, text.to_owned()));
+                match mutation {
+                    Mutation::SetProp {
+                        node_id,
+                        property: PropertyKind::Text,
+                        value: PropertyValue::String(text),
+                    } => {
+                        shown.retain(|(node, _)| *node != node_id);
+                        shown.push((node_id, text.to_owned()));
+                    }
+                    Mutation::AppendText { node_id, text } => {
+                        if let Some((_, whole)) =
+                            shown.iter_mut().find(|(node, _)| *node == node_id)
+                        {
+                            whole.push_str(text);
+                        }
+                    }
+                    _ => {}
                 }
             }
             shown.into_iter().map(|(_, text)| text).collect()
@@ -861,6 +885,7 @@ mod tests {
     /// up from is what decides it, so it is read off the wire.
     #[test]
     fn fr19_9_the_window_record_asks_for_full_size_chrome() {
+        let _alone = one_host_at_a_time();
         compose_rust::window::reset_window_size();
         let mut host = ComposeHost::new(app).with_window(window());
         let batch = host.rebuild().expect("the first frame failed").to_vec();
