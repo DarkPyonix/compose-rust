@@ -293,6 +293,7 @@ internal fun runWin32Window(autoExitMillis: Long? = null) {
         // be a frame drawn into it.
         Win32Frames.paint = null
         window.forgetFrameCallback()
+        scene.forgetPointer()
         scene.close()
         context.close()
         host.shutdown()
