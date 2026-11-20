@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### The Windows window shows its frames through DirectComposition
+
+The Compose fork's window pin moves to `12d04e0d`. The Windows window has no GDI surface any more: each frame, its size and its clip reach DWM in one DirectComposition commit, so a maximise, restore or snap no longer shows the new size with the old picture now and then (fork #253). This is the fork's default route. `DXC_DCOMP=0`, or a machine without a composition device, gives the previous GDI route. The window's DirectComposition calls are a C++ file, `win32_dcomp.cpp`, which the Windows builds now compile with `/std:c++17 /GR- /EHs-c-` beside the window's C; `dcomp.dll` is loaded at run time, so an application links no new library ([#157](https://github.com/DarkPyonix/compose-rust/issues/157)).
+
 ## v0.0.12
 
 ### Fixed from v0.0.11's known issues

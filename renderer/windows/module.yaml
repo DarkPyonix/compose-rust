@@ -14,9 +14,13 @@
 # startup code, and an MSVC linker doing the link.
 #
 # The window is the Compose fork's `extended/window/windows-shared`, the one the native image
-# opens too: Win32, a Direct3D 12 swapchain, IMM32 composition and UI Automation, in C that
-# `desktop/scripts/build-windows.sh` compiles for MSVC from the pinned fork commit, and the
-# Kotlin/Native layer over it, linked below as org.thisisthepy.compose.window:windows-shared.
+# opens too: Win32, Direct3D 12 frames shown through DirectComposition (`DXC_DCOMP=0`: the GDI
+# surface and a swapchain), IMM32 composition and UI Automation, in C, and one C++ file for the
+# DirectComposition calls (`win32_dcomp.cpp`), that `desktop/scripts/build-windows.sh` compiles
+# for MSVC from the pinned fork commit, and the Kotlin/Native layer over it, linked below as
+# org.thisisthepy.compose.window:windows-shared. The Kotlin/Native layer reaches the C through
+# cinterop declarations only; the objects reach the executable in dxc-windows-native.lib, which
+# the Host links whole.
 # `src/Win32Window.kt` is the scene on top of it. The toasts and the context menu are the same
 # C, reached by symbol name.
 product:

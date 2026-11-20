@@ -8,8 +8,9 @@
 #     libcompose_rust_renderer_api.h  the header Kotlin/Native generates for it
 #     gcc/                              the GCC runtime the renderer object carries: libstdc++
 #                                       (rewritten too), libgcc, libgcc_eh, winpthread
-#     native/dxc-windows-native.lib     MSVC objects: the Win32 window, its toasts, the MinGW
-#                                       bridge and the embedded ICU loader, linked whole
+#     native/dxc-windows-native.lib     MSVC objects: the Win32 window and its
+#                                       DirectComposition unit, its toasts, the MinGW bridge
+#                                       and the embedded ICU loader, linked whole
 #     native/dxc-windows-static-ucrt.lib  the bridge's import pointers, for an application that
 #                                       links the UCRT statically (+crt-static) and only then
 #     skiko/                            skiko's C++ half and the prebuilt Skia libraries, MSVC
@@ -284,6 +285,10 @@ c_dir="$("$PROJECT_DIR/../scripts/fetch-fork-window.sh")/extended/window/windows
     die "could not fetch the window modules from the Compose fork"
 [[ -f "$c_dir/win32_window.c" ]] || die "the pinned fork commit has no extended/window/windows-shared/c/win32_window.c"
 compile "$c_dir/win32_window.c" "$OUT_DIR/native/win32_window.obj" "/I$(tool_path "$c_dir")"
+# The window's DirectComposition calls, which win32_window.c makes through win32_dcomp.h. The one
+# C++ file: dcomp.h declares overloaded COM methods and has no C form. Without exceptions or RTTI,
+# as the fork builds it, so it needs nothing of the C++ runtime. dcomp.dll is loaded at run time.
+compile "$c_dir/win32_dcomp.cpp" "$OUT_DIR/native/win32_dcomp.obj" /std:c++17 /GR- /EHs-c- "/I$(tool_path "$c_dir")"
 compile "$c_dir/win32_notifications.c" "$OUT_DIR/native/win32_notifications.obj"
 compile "$c_dir/win32_file_dialog.c" "$OUT_DIR/native/win32_file_dialog.obj" "/I$(tool_path "$c_dir")"
 compile "$PROJECT_DIR/windows/native/mingw_bridge.c" "$OUT_DIR/native/mingw_bridge.obj"
@@ -302,7 +307,7 @@ rm -rf "$OUT_DIR/static-ucrt"
 # the ICU loader or the initialiser the bridge registers, and a member nothing calls is a
 # member the linker leaves out.
 (cd "$OUT_DIR/native" && "$llvm_ar" rcs dxc-windows-native.lib win32_window.obj \
-    win32_notifications.obj win32_file_dialog.obj mingw_bridge.obj embedded_icu.obj)
+    win32_dcomp.obj win32_notifications.obj win32_file_dialog.obj mingw_bridge.obj embedded_icu.obj)
 cp "$SKIKO_OUT/skiko-bridges.lib" "$OUT_DIR/skiko/"
 cp "$SKIKO_OUT"/skia/*.lib "$OUT_DIR/skiko/"
 

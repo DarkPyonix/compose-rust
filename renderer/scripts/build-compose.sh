@@ -125,7 +125,18 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # per view per frame while scrolling than a full `setFrame:` (fork #247), and the scene's
 # accessibility honours `DeclaredElementRoles` (fork #248). Both are Kotlin the window build
 # already compiles.
-WINDOW_REVISION="98002181bd6e0c719ca4fbc7bcfccd7b34a8209a"
+# At 12d04e0 the Windows window shows its frames through DirectComposition (fork #253, for
+# #223 and #245): no GDI surface (`WS_EX_NOREDIRECTIONBITMAP`), two virtual surfaces written by
+# a Direct3D 11 device of its own, and each frame, its size and its clip reaching DWM in one
+# commit. `DXC_DCOMP=0`, or a machine without a composition device, gives the GDI route it had
+# before. The DirectComposition calls are a C++ file of their own, `win32_dcomp.cpp` beside
+# `win32_window.c`, which every build here that compiles the window compiles with
+# `/std:c++17 /GR- /EHs-c-`; `dcomp.dll` and `d3d11.dll` are loaded at run time, so no link
+# line gains a library. Past it, the lag probe's prebuilt as a CI artifact (fork #254), a macOS
+# test of a one-step height resize (fork #250), CSS half leading in skiko's paragraphs (fork
+# #251, Compose text, which this pin does not build) and CI retries (fork #252). The window's
+# exported calls and its cinterop header are unchanged.
+WINDOW_REVISION="12d04e0dfdc10c31cfcb15496ea4ba5694662918"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles
