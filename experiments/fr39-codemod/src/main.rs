@@ -1,4 +1,4 @@
-//! `fr39-codemod [--check] [--crate-path PATH] <file or directory>...`
+//! `fr39-codemod [--check] [--crate-path PATH] [--imports next|keep] <file or directory>...`
 //!
 //! Rewrites every `.rs` file under the given paths in place, then prints what it changed
 //! and every chain it left alone with the reason. With `--check` it writes nothing and
@@ -15,6 +15,14 @@ fn main() -> ExitCode {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--check" => check = true,
+            "--imports" => match args.next().as_deref() {
+                Some("next") => options.next_imports = true,
+                Some("keep") => options.next_imports = false,
+                _ => {
+                    eprintln!("--imports takes next or keep");
+                    return ExitCode::from(2);
+                }
+            },
             "--crate-path" => match args.next() {
                 Some(path) => options.crate_path = path,
                 None => {
@@ -26,7 +34,9 @@ fn main() -> ExitCode {
         }
     }
     if paths.is_empty() {
-        eprintln!("usage: fr39-codemod [--check] [--crate-path PATH] <file or directory>...");
+        eprintln!(
+            "usage: fr39-codemod [--check] [--crate-path PATH] [--imports next|keep] <file or directory>..."
+        );
         return ExitCode::from(2);
     }
 
