@@ -758,9 +758,12 @@ private fun startOf(
 }
 
 /** What a `Text` node says about how it is set, read off its properties. */
-internal fun Node.textInput(): TextInput {
+internal fun Node.textInput(
+    inheritedStyle: dev.darkpyonix.composerust.ui.node.InheritedTextStyle? = null,
+): TextInput {
     val blob = (property(PropertyKind.Spans) as? PropertyValue.Bytes)?.value
     val decoded = blob?.let(::decodeRuns)
+    val noRole = (property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value == TYPE_ROLE_NONE.toLong()
     return TextInput(
         text = text(PropertyKind.Text),
         runs = decoded ?: emptyList(),
@@ -768,10 +771,10 @@ internal fun Node.textInput(): TextInput {
         // Made when the table arrived and kept on the node. Never read from the bytes here:
         // this runs on every composition, and a table that was refused stays refused.
         runFontFeatures = spanFontFeatures ?: emptyMap(),
-        noRole = (property(PropertyKind.TypeRole) as? PropertyValue.Integer)?.value == TYPE_ROLE_NONE.toLong(),
-        role = typeRole(),
+        noRole = noRole,
+        role = if (noRole) null else (typeRole() ?: inheritedStyle?.typeRole),
         fontSize = floatProp(PropertyKind.FontSize),
-        fontWeight = intProp(PropertyKind.FontWeight)?.toInt(),
+        fontWeight = intProp(PropertyKind.FontWeight)?.toInt() ?: inheritedStyle?.fontWeight,
         letterSpacing = letterSpacingProp(),
         lineHeight = lineHeightProp(),
         maxLines = maxLines(),

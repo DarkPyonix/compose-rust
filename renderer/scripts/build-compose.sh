@@ -125,7 +125,7 @@ REVISION="96ae925f7fb6a730d7af31c2c29c856f35778d25"
 # per view per frame while scrolling than a full `setFrame:` (fork #247), and the scene's
 # accessibility honours `DeclaredElementRoles` (fork #248). Both are Kotlin the window build
 # already compiles.
-WINDOW_REVISION="07ab59ebfc580dda12c0f296372c09794bf8a0f8"
+WINDOW_REVISION="98002181bd6e0c719ca4fbc7bcfccd7b34a8209a"
 # The commit the Windows build takes. It was its own pin while the Windows Compose lived on a
 # branch apart from the Compose pin; the fork's `extended` now holds mingwX64 for every Compose UI
 # module, the skiko build for mingwX64 (extended/skiko/build-skiko-mingw.sh, which also compiles

@@ -233,6 +233,10 @@ jobs:
           org.gradle.workers.max=4
           org.gradle.jvmargs=-Xmx11g -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dlint.nullness.ignore-deprecated=true -Dfile.encoding=UTF-8
           kotlin.compiler.execution.strategy=in-process
+          systemProp.org.gradle.internal.repository.max.retries=6
+          systemProp.org.gradle.internal.repository.initial.backoff=1000
+          systemProp.org.gradle.internal.http.connectionTimeout=120000
+          systemProp.org.gradle.internal.http.socketTimeout=120000
           EOF
 
       - name: Build and publish the desktop modules
@@ -240,7 +244,16 @@ jobs:
           DXC_COMPOSE_BUILD: ${{ github.workspace }}/../compose-build
         run: |
           rm -rf ~/.m2/repository
-          ./renderer/scripts/build-compose.sh --target desktop --clean
+          for attempt in 1 2 3; do
+            if ./renderer/scripts/build-compose.sh --target desktop --clean; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "build-compose.sh failed on attempt $attempt; retrying in $((attempt * 15))s..." >&2
+            sleep $((attempt * 15))
+          done
           # skiko-awt with the switch that keeps UIManager out of a toolkit-free image.
           # It is published under a version of its own, so no cache of upstream's can shadow it.
           ./scripts/publish-skiko-awt.sh "$RUNNER_TEMP/skiko-awt"
