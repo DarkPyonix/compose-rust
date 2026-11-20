@@ -70,7 +70,11 @@ pub(crate) fn text_field(placeholder: &CStr) -> NativeHandle {
             width: 0.0,
             height: 0.0,
         };
-        let field = send_rect(send(class, selector(c"alloc")), selector(c"initWithFrame:"), empty);
+        let field = send_rect(
+            send(class, selector(c"alloc")),
+            selector(c"initWithFrame:"),
+            empty,
+        );
         if field.is_null() {
             return NativeHandle::NONE;
         }

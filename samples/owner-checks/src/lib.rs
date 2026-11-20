@@ -22,8 +22,8 @@ mod native_page;
 use compose_rust::runtime::*;
 use compose_rust::ui::*;
 use compose_rust::{
-    Chrome, Notification, NotificationActivation, NotificationPermission,
-    NotificationPresentation, request_notification_permission, withdraw_notification,
+    Chrome, Notification, NotificationActivation, NotificationPermission, NotificationPresentation,
+    request_notification_permission, withdraw_notification,
 };
 
 /// The title every notification of this sample carries, and the key it is posted under.
@@ -193,7 +193,11 @@ fn caption_strip() {
         alignment = Alignment::CenterStart,
         space_role = SpaceRole::Md,
         {
-            Text!("Owner checks", type_role = TypeRole::BodyStrong, color = ink);
+            Text!(
+                "Owner checks",
+                type_role = TypeRole::BodyStrong,
+                color = ink
+            );
             Text!(
                 safe_area_line(safe),
                 type_role = TypeRole::Caption,
@@ -282,14 +286,18 @@ pub(crate) fn header(title: &str, purpose: &str) {
 
 /// A numbered list under a heading: the steps of a check, each with what must be seen.
 pub(crate) fn steps(heading: &str, lines: &[&str]) {
-    Column!(modifier = Modifier.fill_max_width(), space_role = SpaceRole::Xs, {
-        Text!(heading, type_role = TypeRole::BodyStrong);
-        for (index, line) in lines.iter().enumerate() {
-            key(index, || {
-                Text!(format!("{}. {line}", index + 1), type_role = TypeRole::Body);
-            });
+    Column!(
+        modifier = Modifier.fill_max_width(),
+        space_role = SpaceRole::Xs,
+        {
+            Text!(heading, type_role = TypeRole::BodyStrong);
+            for (index, line) in lines.iter().enumerate() {
+                key(index, || {
+                    Text!(format!("{}. {line}", index + 1), type_role = TypeRole::Body);
+                });
+            }
         }
-    });
+    );
 }
 
 /// A line of what the check reported, set apart from the instructions.
@@ -599,8 +607,14 @@ fn input_method_page(checks: Checks) {
         "Composing now: {}",
         if checks.composing.get() { "yes" } else { "no" }
     ));
-    reading(format!("One-line field reported: {}", checks.single_line.get()));
-    reading(format!("Multiline field reported: {}", checks.multiline.get()));
+    reading(format!(
+        "One-line field reported: {}",
+        checks.single_line.get()
+    ));
+    reading(format!(
+        "Multiline field reported: {}",
+        checks.multiline.get()
+    ));
 }
 
 /// The compose-rust crate's version, read from the crate's own manifest.
@@ -688,11 +702,7 @@ mod tests {
         /// The sample with `page` chosen from the list.
         fn on(page: Page) -> Self {
             let mut screen = Self::new();
-            assert!(
-                screen.press(page.name()),
-                "the list has no {}",
-                page.name()
-            );
+            assert!(screen.press(page.name()), "the list has no {}", page.name());
             screen
         }
 
@@ -902,7 +912,10 @@ mod tests {
     fn fr19_9_a_marked_box_drags_the_window_and_a_marked_chip_does_not() {
         let screen = Screen::on(Page::Caption);
         assert!(screen.drags(true), "nothing is marked to move the window");
-        assert!(screen.drags(false), "nothing is marked not to move the window");
+        assert!(
+            screen.drags(false),
+            "nothing is marked not to move the window"
+        );
         compose_rust::window::reset_window_size();
     }
 
@@ -990,7 +1003,11 @@ mod tests {
             let node = screen
                 .named(name)
                 .unwrap_or_else(|| panic!("no control is named {name:?}"));
-            assert_eq!(screen.widget_of(node), Some(kind), "{name:?} is not a {kind:?}");
+            assert_eq!(
+                screen.widget_of(node),
+                Some(kind),
+                "{name:?} is not a {kind:?}"
+            );
             let (holder, index) = screen
                 .placement(node)
                 .unwrap_or_else(|| panic!("{name:?} is not placed"));
@@ -1000,7 +1017,10 @@ mod tests {
                 "{name:?} is not in the same column as the others"
             );
             if let Some(before) = last {
-                assert!(index > before, "{name:?} stands before the control above it");
+                assert!(
+                    index > before,
+                    "{name:?} stands before the control above it"
+                );
             }
             last = Some(index);
         }
@@ -1079,7 +1099,10 @@ mod tests {
                 }
             )
         });
-        assert!(!holds, "a NativeView was placed where there is no slot for one");
+        assert!(
+            !holds,
+            "a NativeView was placed where there is no slot for one"
+        );
         compose_rust::window::reset_window_size();
     }
 

@@ -33,8 +33,7 @@ pub(crate) fn native_view_page(focused: MutableState<bool>, compose_field: Mutab
     // report arrives.
     let parent = remember(|| mutable_state_of(native_parent(0)));
     disposable_effect((), move || {
-        let subscription =
-            subscribe_native_parent(Arc::new(move || parent.set(native_parent(0))));
+        let subscription = subscribe_native_parent(Arc::new(move || parent.set(native_parent(0))));
         on_dispose(move || drop(subscription))
     });
     let reported = parent.get();
@@ -83,7 +82,10 @@ pub(crate) fn native_view_page(focused: MutableState<bool>, compose_field: Mutab
             "Attached: an AppKit text field, window scale {}",
             report.scale
         ),
-        (Some(report), true) => format!("The window reported a {:?} view; none is attached", report.kind),
+        (Some(report), true) => format!(
+            "The window reported a {:?} view; none is attached",
+            report.kind
+        ),
     });
     reading(format!(
         "Native field has keyboard focus: {}",
