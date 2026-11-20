@@ -84,10 +84,9 @@
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">counter</span>() {
     <span class="k">let</span> count = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-    <span class="f">Column</span>().<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>()).<span class="f">content</span>(|| {
-        <span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>())).<span class="f">type_role</span>(<span class="ty">TypeRole</span>::Title);
-        <span class="k">let</span> more = count.<span class="f">clone</span>();
-        <span class="f">Button</span>(<span class="s">"Increment"</span>).<span class="f">on_click</span>(<span class="k">move</span> || more.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
+    <span class="f">Column!</span>(modifier = <span class="ty">Modifier</span>.<span class="f">padding</span>(<span class="n">16.0</span>).<span class="f">fill_max_width</span>(), {
+        <span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"Count: {}"</span>, count.<span class="f">get</span>()), type_role = <span class="ty">TypeRole</span>::Title);
+        <span class="f">Button!</span>(<span class="s">"Increment"</span>, <span class="k">move</span> || count.<span class="f">update</span>(|count| *count += <span class="n">1</span>));
     });
 }
 
@@ -111,30 +110,95 @@
 
     <h2 id="widgets">위젯은 문장 하나입니다</h2>
     <p>
-      <code>Text("Hello")</code> 는 위젯의 기술(description)을 만듭니다. 문장이 끝나면 그것이
-      composition에 넘어갑니다. 그 사이의 메서드는 Compose가 이름 붙은 인자로 받는 것을 정합니다.
-      <code>Text(title).type_role(TypeRole::Title).max_lines(1)</code> 은 Compose의
+      <code>Text!("Hello")</code> 는 호출이 놓인 자리에 글을 구성합니다. Compose가 이름 붙은
+      인자로 받는 것은 여기서도 이름으로 받습니다.
+      <code>Text!(title, type_role = TypeRole::Title, max_lines = 1)</code> 은 Compose의
       <code>Text(title, style = ..., maxLines = 1)</code> 입니다.
     </p>
     <ul>
       <li><strong>위젯이 없으면 안 되는 것이 인자입니다.</strong> <code>Text</code> 는 글을,
         <code>Button</code> 은 레이블을, <code>Slider</code> 는 값을, <code>Dialog</code> 는 열려
-        있는지를 받습니다. 나머지는 모두 메서드입니다.</li>
-      <li><strong>자식은 클로저입니다.</strong> 컨테이너는 <code>content</code> 를 부를 때 자식을
-        구성하고, 클로저는 그 자리에서 바로 실행됩니다. <code>Row().content(|| { ... })</code>
-        처럼 씁니다.</li>
-      <li><strong>모든 위젯이 <code>Modifier</code> 를 받습니다.</strong> Compose처럼 값
-        <code>Modifier</code> 에서 사슬을 시작합니다.
-        <code>Modifier.fill_max_width().padding_role(SpaceRole::Md)</code> 처럼 씁니다. 수정자마다
-        노드의 사슬 안에 정해진 자리가 있으므로 부르는 순서는 상관없습니다.</li>
-      <li><strong>위젯을 변수에 묶지 않습니다.</strong> <code>let</code> 으로 묶은 위젯은 변수가
-        스코프를 벗어날 때 구성되므로, 형제들 사이의 엉뚱한 자리에 들어갑니다.</li>
+        있는지를 받습니다. 나머지는 모두 기본값이 있는 이름 있는 매개변수입니다.</li>
+      <li><strong>그다음이 위젯의 핸들러입니다.</strong> <code>Button</code> 은 클릭했을 때 할
+        일을, <code>Slider</code> 는 값이 바뀌었을 때 할 일을, <code>Dialog</code> 는 닫으라는
+        요청을 받았을 때 할 일을 받습니다. <code>Button!("Save", move || save())</code>,
+        <code>Slider!(volume, move |value| set_volume(value))</code> 처럼 씁니다.</li>
+      <li><strong>자식은 끝에 오는 블록입니다.</strong> 컨테이너는 호출 끝의
+        <code>{ ... }</code> 블록으로 자식을 받고, 블록은 그 자리에서 바로 실행됩니다.
+        <code>Row!({ ... })</code>, <code>Row!(spacing = 8.0, { ... })</code> 처럼 씁니다.</li>
+      <li><strong>모든 위젯이 <code>Modifier</code> 를 받습니다.</strong>
+        <code>modifier = ...</code> 로 넘기고, Compose처럼 값 <code>Modifier</code> 에서 사슬을
+        시작합니다. <code>Modifier.fill_max_width().padding_role(SpaceRole::Md)</code> 처럼
+        씁니다. 수정자마다 노드의 사슬 안에 정해진 자리가 있으므로 부르는 순서는 상관없습니다.</li>
+      <li><strong>위젯 호출은 아무것도 돌려주지 않습니다.</strong> 위젯은 호출 자체가 구성하고,
+        그 자리는 형제들 사이에서 호출이 놓인 자리입니다. 그래서 변수에 담거나 넘겨줄 위젯 값이
+        없습니다.</li>
     </ul>
     <p>
       위젯 어휘는 스키마의 것이고, <a href="composables.html">위젯 레퍼런스</a>에 있습니다. 작성
       API는 자기 위젯이나 속성을 따로 정의하지 않으므로, 쓸 수 있는 것과 렌더러가 그릴 수 있는 것이
       같은 목록입니다.
     </p>
+
+    <h3 id="parameters">매개변수, 매크로 형태와 함수 형태</h3>
+    <p>
+      모든 위젯은 한 가지 순서로 매개변수를 받습니다. 없으면 안 되는 것, 핸들러,
+      <code>modifier</code>, 선택 매개변수, 그리고 마지막에 내용입니다. 쓸 일이 없는 칸은
+      건너뜁니다. <code>Column</code> 은 <code>modifier</code> 에서 시작하고, <code>Text</code>
+      에는 핸들러가 없습니다.
+    </p>
+    <p>
+      위젯마다 함수와 같은 이름의 호출 매크로가 있습니다. 함수 형태 <code>Text(..)</code> 는 모든
+      매개변수를 위치로 받고 하나도 빼지 않습니다. 매크로 형태 <code>Text!(..)</code> 는 앞의
+      것들을 위치로, 나머지를 <code>name = value</code> 로 순서와 상관없이 받고, 빠뜨린 매개변수에는
+      기본값을 채우고, 내용은 끝의 <code>{ ... }</code> 블록으로 받습니다. 매크로는 함수 호출 한
+      번으로 펼쳐지고 비용이 더 들지 않습니다. 인자는 쓴 순서가 아니라 매개변수 순서로
+      평가되는데, 이 점은 Kotlin의 이름 있는 인자와 다릅니다. 위젯은 매개변수가 많아서
+      (<code>TextField</code> 는 서른 개 가까이) 실제 코드는 매크로 형태로 씁니다. 직접 만든
+      <code>#[Composable]</code> 함수도 같은 방식으로 호출 매크로를 얻습니다.
+    </p>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="c">// 매크로 형태: 호출에 필요한 것과 기본값과 다른 것만 씁니다.</span>
+<span class="f">Divider!</span>(vertical = <span class="k">true</span>);
+<span class="c">// 같은 호출의 함수 형태: 모든 매개변수를 순서대로 씁니다.</span>
+<span class="f">Divider</span>(<span class="ty">Modifier</span>::<span class="f">new</span>(), <span class="k">true</span>, <span class="ty">None</span>::&lt;<span class="k">fn</span>(<span class="ty">MotionFinished</span>)&gt;);</code></pre>
+    </figure>
+
+    <ul>
+      <li><strong>선택 값은 그대로 씁니다.</strong> <code>font_size = 14.0</code> 이 그 값을
+        정합니다. 이미 <code>Option</code> 인 값은 그대로 넣으므로, <code>color = highlight</code>
+        는 <code>highlight</code> 가 <code>None</code> 이면 색을 정하지 않은 채로 둡니다.</li>
+      <li><strong>선택 핸들러는 <code>Option</code> 입니다.</strong> 핸들러가 없는 위젯과 빈
+        핸들러가 있는 위젯은 다른 노드입니다. <code>on_click</code> 이 없는 <code>Column</code>
+        은 아예 컨트롤이 아닙니다. 그래서 선택 핸들러는 <code>Some(closure)</code> 이거나 빠지고,
+        무언가에 따라 달라지게 하려면 <code>cond.then_some(closure)</code> 를 씁니다.
+        <code>Some(..)</code> 안에서는 컴파일러가 클로저 인자의 타입을 추론하지 않으므로, 인자를
+        받는 핸들러는 그 타입을 적습니다.</li>
+      <li><strong>호출 매크로는 자기 이름의 함수가 필요합니다.</strong> 매크로는 호출한 자리의
+        이름 공간에서 자기와 이름이 같은 함수를 부릅니다. <code>use compose_rust::ui::*;</code>
+        와 <code>use compose_rust::ui::Text;</code> 는 둘을 함께 가져옵니다.
+        <code>use compose_rust::ui::Text as T;</code> 뒤에 <code>T(..)</code> 는 함수이지만
+        <code>T!(..)</code> 는 부를 수 없습니다. <code>Text</code> 라는 이름의 함수를 찾기
+        때문입니다.</li>
+    </ul>
+
+    <figure class="codeblock" data-copy="복사" data-copied="복사됨">
+      <figcaption>rust</figcaption>
+<pre><code><span class="f">Card!</span>(on_click = <span class="ty">Some</span>(<span class="k">move</span> || <span class="f">open</span>(id)), {
+    <span class="f">Text!</span>(<span class="s">"Details"</span>);
+});
+<span class="f">Column!</span>(on_click = editable.<span class="f">then_some</span>(<span class="k">move</span> || <span class="f">edit</span>(id)), {
+    <span class="f">Text!</span>(<span class="s">"Edit"</span>);
+});
+<span class="f">Column!</span>(
+    on_key_down = <span class="ty">Some</span>(<span class="k">move</span> |event: <span class="ty">KeyEvent</span>| <span class="f">handle_key</span>(event)),
+    {
+        <span class="f">Text!</span>(<span class="s">"Press a key"</span>);
+    }
+);</code></pre>
+    </figure>
 
     <h2 id="functions">직접 만드는 컴포저블</h2>
     <p>
@@ -146,14 +210,15 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">task_row</span>(title: <span class="ty">String</span>, done: <span class="ty">bool</span>, on_toggle: <span class="ty">Rc</span>&lt;<span class="k">dyn</span> <span class="ty">Fn</span>(<span class="ty">bool</span>)&gt;) {
-    <span class="f">Row</span>()
-        .<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">fill_max_width</span>())
-        .<span class="f">space_role</span>(<span class="ty">SpaceRole</span>::Sm)
-        .<span class="f">alignment</span>(<span class="ty">Alignment</span>::CenterStart)
-        .<span class="f">content</span>(|| {
-            <span class="f">Checkbox</span>(done).<span class="f">on_change</span>(<span class="k">move</span> |checked| <span class="f">on_toggle</span>(checked));
-            <span class="f">Text</span>(title).<span class="f">modifier</span>(<span class="ty">Modifier</span>.<span class="f">weight</span>(<span class="n">1.0</span>));
-        });
+    <span class="f">Row!</span>(
+        modifier = <span class="ty">Modifier</span>.<span class="f">fill_max_width</span>(),
+        space_role = <span class="ty">SpaceRole</span>::Sm,
+        alignment = <span class="ty">Alignment</span>::CenterStart,
+        {
+            <span class="f">Checkbox!</span>(done, <span class="k">move</span> |checked| <span class="f">on_toggle</span>(checked));
+            <span class="f">Text!</span>(title, modifier = <span class="ty">Modifier</span>.<span class="f">weight</span>(<span class="n">1.0</span>));
+        }
+    );
 }</code></pre>
     </figure>
 
@@ -185,8 +250,8 @@
       </table>
     </div>
     <ul>
-      <li><strong>상태는 핸들입니다.</strong> 복제하면 같은 값을 가리키는 두 번째 핸들이 생깁니다.
-        <code>move</code> 클로저는 이렇게 상태를 가져갑니다. 먼저 복제하고, 복제본을 옮깁니다.</li>
+      <li><strong>상태는 <code>Copy</code> 핸들입니다.</strong> 복사하면 같은 값을 가리키는 또 다른 핸들이 생기므로,
+        <code>move</code> 클로저가 복제 없이 바로 가져갑니다.</li>
       <li><strong>같은 값을 쓰는 데는 비용이 없습니다.</strong> 기본 정책은
         <code>PartialEq</code> 로 비교합니다.
         <code>mutable_state_of_with_policy(value, never_equal_policy())</code> 는 모든 쓰기를 변화로
@@ -251,14 +316,13 @@
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> seconds = <span class="f">remember</span>(|| <span class="f">mutable_state_of</span>(<span class="n">0</span>));
-<span class="k">let</span> tick = seconds.<span class="f">clone</span>();
 <span class="f">launched_effect</span>((), <span class="k">move</span> || <span class="k">async move</span> {
     <span class="k">loop</span> {
         <span class="f">delay</span>(<span class="ty">Duration</span>::<span class="f">from_secs</span>(<span class="n">1</span>)).<span class="k">await</span>;
-        tick.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
+        seconds.<span class="f">update</span>(|seconds| *seconds += <span class="n">1</span>);
     }
 });
-<span class="f">Text</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
+<span class="f">Text!</span>(<span class="f">format!</span>(<span class="s">"{} s"</span>, seconds.<span class="f">get</span>()));</code></pre>
     </figure>
 
     <p>
@@ -325,9 +389,10 @@
 
     <h2 id="events">이벤트 핸들러</h2>
     <p>
-      핸들러는 평범한 Rust 클로저이고, <code>on_click</code>, <code>on_change</code>,
-      <code>on_submit</code> 같은 메서드로 줍니다. 핸들러는 <code>'static</code> 이어야 하므로 쓰는
-      것을 직접 가집니다. 상태를 복제하고, 복제본을 옮겨 넣습니다.
+      핸들러는 평범한 Rust 클로저입니다. 위젯의 주 핸들러는 데이터 다음 인자이고
+      (<code>Button</code> 의 <code>on_click</code>, <code>Slider</code> 의 <code>on_change</code>),
+      나머지는 <code>on_submit</code> 같은 이름 있는 매개변수입니다. 핸들러는 <code>'static</code> 이어야 하므로 쓰는
+      것을 직접 가집니다. <code>MutableState</code> 는 <code>Copy</code> 이므로 복제 없이 바로 옮겨 넣습니다.
     </p>
     <p>
       핸들러는 <em>동기로</em> 실행됩니다. 렌더러가 자기 UI 스레드에서 Host를 부르고, 핸들러가
@@ -351,18 +416,20 @@
 
     <figure class="codeblock" data-copy="복사" data-copied="복사됨">
       <figcaption>rust</figcaption>
-<pre><code><span class="f">TextField</span>()
-    .<span class="f">multiline</span>(<span class="k">true</span>)
-    .<span class="f">placeholder</span>(<span class="s">"Message"</span>)
-    .<span class="f">on_value_change</span>(<span class="k">move</span> |text| draft.<span class="f">set</span>(text))
-    .<span class="f">on_submit</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text))
-    .<span class="f">on_key_down</span>(<span class="k">move</span> |event| {
+<pre><code><span class="f">TextField!</span>(
+    <span class="s">""</span>,
+    <span class="k">move</span> |text| draft.<span class="f">set</span>(text),
+    multiline = <span class="k">true</span>,
+    placeholder = <span class="s">"Message"</span>,
+    on_submit = <span class="ty">Some</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text)),
+    on_key_down = <span class="ty">Some</span>(<span class="k">move</span> |event: <span class="ty">KeyEvent</span>| {
         <span class="c">// Ctrl+Enter는 답이 끝나기를 기다리지 않고 바로 보냅니다.</span>
         <span class="k">if</span> event.<span class="f">key</span>() == <span class="ty">Key</span>::Enter &amp;&amp; event.<span class="f">ctrl_key</span>() {
             event.<span class="f">consume</span>();
             <span class="f">send_now</span>();
         }
-    });</code></pre>
+    })
+);</code></pre>
     </figure>
 
     <div class="note">
@@ -377,7 +444,8 @@
 
     <h2 id="textfield">비제어 TextField</h2>
     <p>
-      <code>TextField</code> 에는 값 인자가 없습니다. 편집 버퍼, 선택 영역, 조합 상태는 렌더러의
+      <code>TextField</code> 에는 붙잡아 두는 값이 없습니다. 첫 인자는 시작할 때의 텍스트일
+      뿐입니다. 편집 버퍼, 선택 영역, 조합 상태는 렌더러의
       것입니다. Rust는 이벤트로 변화를 압니다. 현재 텍스트를 주는 <code>on_value_change</code>,
       제출된 텍스트를 주는 <code>on_submit</code>, 그리고 <code>on_focus_lost</code> 입니다. 값이
       필요하면 위의 <code>draft</code> 처럼 상태에 사본을 둡니다. 이 사본은 입력창에서 올라오기만
@@ -390,7 +458,7 @@
       일어날 수 없는 일이 됩니다.
     </p>
     <p>
-      <code>text(..)</code> 는 필드가 처음에 가질 텍스트를 줍니다. 처음뿐이어서, 이미 있는 필드에
+      그 첫 인자는 필드가 처음에 가질 텍스트를 줍니다. 처음뿐이어서, 이미 있는 필드에
       나중에 다른 값을 주어도 아무것도 바뀌지 않습니다. 다른 문서처럼 다른 텍스트를 보이거나 보낸 뒤
       입력창을 비우려면 <code>key</code> 로 필드에 새 정체성을 줍니다. 새 필드는 넘긴 텍스트로
       시작합니다.
@@ -400,7 +468,7 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="c">// A new key after each send is a new, empty field.</span>
 <span class="f">key</span>(sent.<span class="f">get</span>(), || {
-    <span class="f">TextField</span>().<span class="f">text</span>(draft.<span class="f">get_untracked</span>()).<span class="f">on_submit</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text));
+    <span class="f">TextField!</span>(draft.<span class="f">get_untracked</span>(), |_| {}, on_submit = <span class="ty">Some</span>(<span class="k">move</span> |text: <span class="ty">String</span>| <span class="f">send</span>(text)));
 });</code></pre>
     </figure>
 
@@ -416,7 +484,7 @@
       <figcaption>rust</figcaption>
 <pre><code><span class="k">let</span> window = <span class="f">current_window_size</span>();
 <span class="k">if</span> window.<span class="f">is_expanded</span>() {
-    <span class="f">SplitPane</span>().<span class="f">content</span>(|| {
+    <span class="f">SplitPane!</span>(|_| {}, {
         <span class="f">document_list</span>();
         <span class="f">page</span>();
     });
@@ -496,13 +564,11 @@
 <span class="at">#[Composable]</span>
 <span class="k">fn</span> <span class="f">fading</span>(faded: <span class="ty">MutableState</span>&lt;<span class="ty">bool</span>&gt;) {
     <span class="k">let</span> target = <span class="k">if</span> faded.<span class="f">get</span>() { <span class="n">0.0</span> } <span class="k">else</span> { <span class="n">1.0</span> };
-    <span class="f">Box</span>()
-        .<span class="f">modifier</span>(
-            <span class="ty">Modifier</span>
-                .<span class="f">size</span>(<span class="n">40.0</span>, <span class="n">40.0</span>)
-                .<span class="f">animated_alpha</span>(<span class="f">animate_float_as_state</span>(target, <span class="ty">AnimationSpec</span>::<span class="ty">STANDARD</span>)),
-        )
-        .<span class="f">content</span>(|| {});
+    <span class="f">Box!</span>(
+        modifier = <span class="ty">Modifier</span>
+            .<span class="f">size</span>(<span class="n">40.0</span>, <span class="n">40.0</span>)
+            .<span class="f">animated_alpha</span>(<span class="f">animate_float_as_state</span>(target, <span class="ty">AnimationSpec</span>::<span class="ty">STANDARD</span>))
+    );
 }</code></pre>
     </figure>
 

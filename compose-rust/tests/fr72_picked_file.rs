@@ -17,7 +17,7 @@ use compose_rust::schema::{
     BOUNDARY_SCHEMA, DesignSystem, EventPayload, FileDelivery, FileDialogStatus, FileOp, IoStatus,
     PropertyKind, Theme,
 };
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{Delivery, FileDialog, FileDialogResult, FileError, PickedFile};
 use std::cell::RefCell;
 use std::future::Future;

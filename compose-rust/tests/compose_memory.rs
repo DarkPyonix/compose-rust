@@ -12,7 +12,7 @@ use compose_rust::ComposeHost;
 use compose_rust::protocol::HostEvent;
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use support::Tree;

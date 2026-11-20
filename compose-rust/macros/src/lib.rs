@@ -58,8 +58,8 @@ use syn::{
 /// #[Composable]
 /// fn Greeting(name: String) {
 ///     let clicks = remember(|| mutable_state_of(0));
-///     Text(format!("Hello, {name}: {}", clicks.get()));
-///     Button("Again").on_click(move || clicks.update(|count| *count += 1));
+///     Text!(format!("Hello, {name}: {}", clicks.get()));
+///     Button!("Again", move || clicks.update(|count| *count += 1));
 /// }
 /// ```
 ///

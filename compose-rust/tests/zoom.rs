@@ -8,7 +8,7 @@ use compose_rust::protocol::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{EventPayload, PropertyKind, WidgetKind};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use compose_rust::{ComposeHost, ZoomHandle, zoom};
 use support::Tree;
 
