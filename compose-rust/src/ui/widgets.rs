@@ -1966,9 +1966,20 @@ control_colour!(
     CheckboxScope,
     container,
     container_color,
-    "The box when it is checked."
+    "The box when it is checked or mixed."
 );
-control_colour!(CheckboxScope, check, check_color, "The check mark.");
+control_colour!(
+    CheckboxScope,
+    check,
+    check_color,
+    "The check mark, or the dash of a mixed box."
+);
+control_colour!(
+    CheckboxScope,
+    outline,
+    outline_color,
+    "The box's border, in every state alike."
+);
 
 impl CheckboxScope {
     /// The length of the box's side in dp.
@@ -1977,20 +1988,10 @@ impl CheckboxScope {
         self
     }
 
-    // The two below are set through the `Checkbox` call macro's `indeterminate` and
-    // `outline_color` arguments. They are crate-private because the builder API is on its
-    // way out, and nothing new is added to it.
-
     /// Whether the box is mixed: filled, with a dash instead of a check, whatever
     /// `checked` says.
     pub(crate) fn indeterminate(mut self, indeterminate: bool) -> Self {
         self.indeterminate = indeterminate;
-        self
-    }
-
-    /// The box's border, in every state alike.
-    pub(crate) fn outline_color(mut self, paint: Paint) -> Self {
-        self.look.outline = Some(paint);
         self
     }
 }

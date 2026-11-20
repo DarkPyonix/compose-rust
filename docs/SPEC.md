@@ -4294,7 +4294,7 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 **Checkbox의 모서리, 혼합 상태, 테두리 색**(이슈 #767) `[leader, 2026-11-21]`. 요청한 쪽: darkpyonix-ember(목업 `vcs.css:68-72`, 부분 스테이징된 파일의 체크). Ember는 지금 반지름 5의 18dp 사각형을 직접 그리고 그 위에 투명한 `Checkbox`를 얹어서, 부분 상태가 화면 낭독기에 체크 안 됨으로 읽힙니다.
 
 - **모서리**: Checkbox 상자의 모양은 노드의 모서리 수정자(`Modifier::corner_radius`, `corner_radii`, `shape_role`)를 따릅니다. 색이나 크기를 주지 않아도 모든 디자인 시스템(Material 3 포함)에서 같습니다. Material 3에서 모서리 수정자만 준 Checkbox는 색이나 크기를 준 Checkbox와 같이 공용 컨트롤 드로잉이 그립니다. 새 속성은 없습니다(13.1: 같은 개념을 스키마에 두 번 넣지 않음).
-- **혼합 상태**: `Checkbox`에 `indeterminate: bool`(기본 false) 인자가 있습니다(속성 `Indeterminate`, 속성 태그 216, bool, Checkbox 전용, Compose의 `ToggleableState.Indeterminate`). 참일 때만 보내고, 참이면 `checked`와 관계없이 혼합 상태입니다. 혼합을 `checked`의 세 번째 값으로 만들지 않는 것은 지금의 호출이 모두 그대로 컴파일되게 하려는 것입니다.
+- **혼합 상태**: `Checkbox!`에 `indeterminate` 매개변수(bool, 기본 false, `indeterminate = true`)가 있습니다(속성 `Indeterminate`, 속성 태그 216, bool, Checkbox 전용, Compose의 `ToggleableState.Indeterminate`). 참일 때만 보내고, 참이면 `checked`와 관계없이 혼합 상태입니다. 혼합을 `checked`의 세 번째 값으로 만들지 않는 것은 지금의 호출이 모두 그대로 컴파일되게 하려는 것입니다.
 - **혼합 상태의 모양**: 기본은 채운 상자입니다. 상자는 체크된 상자와 같이 칠하고(`container_color`, 없으면 디자인 시스템의 체크된 상자 색), 체크 대신 가운데 가로 막대를 `check_color`(없으면 디자인 시스템의 체크 색)로 그립니다. Compose Material 3와 Apple의 혼합 체크박스가 이렇게 그립니다. 테두리만 있는 목업의 모양은 앱이 `container_color`와 `outline_color`로 만듭니다.
 - **혼합 상태를 누르면** `on_change(true)`가 한 번 갑니다(macOS와 HTML의 관례이고, Ember에서는 "나머지도 스테이징"입니다). 상태는 Host가 정하므로, Host가 `indeterminate`를 거두기 전까지 상자는 혼합으로 그려집니다.
 - **접근성**: 혼합 Checkbox는 접근성 트리에 혼합(mixed, `ToggleableState.Indeterminate`)으로 나갑니다. 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다. `Modifier::checked`의 의미 상태 필드에서 쓰지 않던 값 3을 혼합으로 정합니다(`SemanticsState::mixed()`, 상수 `SEMANTICS_CHECKED_MIXED`). 비트도 마스크도 그대로이고 이 값은 `schema_hash()`에 들어갑니다.
@@ -4302,13 +4302,13 @@ Rust 테스트와 Kotlin 인터프리터 테스트는 CI의 "Test"에서, 창을
 - 두 속성 모두 앱이 더는 주지 않으면 제거가 전달되고, Renderer는 혼합이 아닌 상태와 디자인 시스템의 테두리로 돌아갑니다.
 
 수용 기준.
-1. `Checkbox(true, size: 18.0, container_color: ink, modifier: Modifier::new().corner_radius(5.0))`의 상자 모서리 픽셀이 바탕색이고 안쪽은 `ink`입니다. 일곱 디자인 시스템 모두에서 그렇고, 색과 크기 없이 `corner_radius`만 준 경우에도 모서리가 둥글게 깎입니다(fr67_checkbox_corner_radius_follows_the_corner_modifier).
-2. `indeterminate: true`인 Checkbox는 `Indeterminate` 속성(태그 216, `Bool(true)`)을 보내고, 거짓이거나 생략하면 보내지 않으며, 참에서 거짓으로 바꾸면 제거가 갑니다(fr67_checkbox_sends_indeterminate_only_when_mixed).
+1. `Checkbox!(true, |_| {}, modifier = Modifier.corner_radius(5.0), container_color = ink, size = 18.0)`의 상자 모서리 픽셀이 바탕색이고 안쪽은 `ink`입니다. 일곱 디자인 시스템 모두에서 그렇고, 색과 크기 없이 `corner_radius`만 준 경우에도 모서리가 둥글게 깎입니다(fr67_checkbox_corner_radius_follows_the_corner_modifier).
+2. `indeterminate = true`인 Checkbox는 `Indeterminate` 속성(태그 216, `Bool(true)`)을 보내고, 거짓이거나 생략하면 보내지 않으며, 참에서 거짓으로 바꾸면 제거가 갑니다(fr67_checkbox_sends_indeterminate_only_when_mixed).
 3. 혼합 Checkbox는 일곱 디자인 시스템 모두에서 상자 가운데에 `check_color` 가로 막대를 그리고 체크 표시는 그리지 않습니다(fr67_mixed_checkbox_draws_a_dash).
 4. 혼합 Checkbox의 접근성 노드는 `ToggleableState.Indeterminate`이고, 데스크톱 창 브리지에서는 `AccessibleState.MIXED`입니다(fr68_mixed_checkbox_is_mixed_in_the_accessibility_tree). iOS 빌드의 공용 인터프리터도 의미 상태 값 3을 가진 노드에 `ToggleableState.Indeterminate`를 둡니다. VoiceOver 값으로 넘기는 것은 Compose의 iOS 브리지입니다(fr68_mixed_checkbox_reaches_the_ios_accessibility_value).
 5. 혼합 Checkbox를 누르거나 포커스한 채 Space를 누르면 `ValueChanged` 1.0이 정확히 한 번 갑니다(fr67_pressing_a_mixed_checkbox_requests_checked).
 6. `SemanticsState::mixed()`의 checked 필드는 값 3으로 인코딩되어 왕복하고(fr68_semantics_checked_mixed_round_trips), Renderer에서 `ToggleableState.Indeterminate`로 나갑니다(fr68_semantics_checked_mixed_reaches_the_tree).
-7. `outline_color: ink`인 Checkbox는 `OutlineColor` 속성(태그 217)을 보내고, 주지 않으면 보내지 않으며, 거두면 제거가 갑니다(fr67_checkbox_sends_outline_color_only_when_given). 꺼진 Checkbox의 테두리 픽셀은 일곱 디자인 시스템 모두에서 `ink`입니다(fr67_checkbox_outline_color_draws_the_border).
+7. `outline_color = ink`인 Checkbox는 `OutlineColor` 속성(태그 217)을 보내고, 주지 않으면 보내지 않으며, 거두면 제거가 갑니다(fr67_checkbox_sends_outline_color_only_when_given). 꺼진 Checkbox의 테두리 픽셀은 일곱 디자인 시스템 모두에서 `ink`입니다(fr67_checkbox_outline_color_draws_the_border).
 
 ### FR-68 어느 노드에나 붙는 접근성 수정자 (`Agreed`, 이슈 #429, #426)
 

@@ -79,6 +79,8 @@ mod macros {
             container_color = PRIMARY,
             check_color = OUTLINE,
             size = 20.0,
+            indeterminate = true,
+            outline_color = ERROR,
             on_motion_finished = Some(|_: MotionFinished| {}),
         );
         RadioButton!(
