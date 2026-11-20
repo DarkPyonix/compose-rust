@@ -12,7 +12,7 @@ use compose_rust::boundary::{
 };
 use compose_rust::runtime::*;
 use compose_rust::schema::{LoopMode, PROTOCOL_VERSION, SCHEMA_HASH};
-use compose_rust::ui::next::*;
+use compose_rust::ui::*;
 use libfuzzer_sys::fuzz_target;
 
 #[Composable]
