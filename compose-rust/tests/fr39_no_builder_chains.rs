@@ -1,4 +1,4 @@
-//! No builder chains in the public API.
+//! No builder chains in the public API, and the widget functions keep one parameter order.
 //!
 //! These read the crate's sources as text, macro bodies included, because most of the old
 //! builder methods were written inside `macro_rules!` where a parser does not look. Each
@@ -108,6 +108,20 @@ fn ui_sources() -> Vec<(PathBuf, String)> {
         &mut out,
     );
     assert!(!out.is_empty(), "no sources were found under src/ui");
+    out
+}
+
+/// The sources of the widget functions.
+fn widget_function_sources() -> Vec<(PathBuf, String)> {
+    let mut out = Vec::new();
+    read_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/functions"),
+        &mut out,
+    );
+    assert!(
+        out.len() > 1,
+        "no widget functions were found under src/ui/functions"
+    );
     out
 }
 
@@ -597,4 +611,312 @@ pub(crate) fn Builder() -> Scope {}
     let found = widgets_that_return(Path::new("probe.rs"), source);
     assert_eq!(found.len(), 1, "{found:#?}");
     assert!(found[0].contains("fn Panel"), "{found:#?}");
+}
+
+// ----- parameter order ------------------------------------------------------------------
+
+/// Widgets with no `modifier`, each with the reason. A window is not laid out in a parent,
+/// so there is nothing for a modifier to change.
+const NO_MODIFIER: &[&str] = &["Window"];
+
+/// One parameter of a widget function as its source declares it.
+#[derive(Debug)]
+struct Parameter {
+    name: String,
+    /// It has a `#[default(..)]`, so the call macro can leave it out.
+    optional: bool,
+}
+
+/// The text inside the first balanced `open .. close` pair at the start of `text`, and
+/// what follows it.
+fn balanced(text: &str, open: char, close: char) -> Option<(&str, &str)> {
+    if !text.starts_with(open) {
+        return None;
+    }
+    let mut depth = 0;
+    for (index, character) in text.char_indices() {
+        if character == open {
+            depth += 1;
+        } else if character == close {
+            depth -= 1;
+            if depth == 0 {
+                return Some((&text[open.len_utf8()..index], &text[index + 1..]));
+            }
+        }
+    }
+    None
+}
+
+/// The parameters of a parameter list, in order.
+///
+/// A `macro_rules!` repetition, `$( .. )*`, is one entry named after it. It is optional when
+/// its parameters can carry their own attributes (`$(#[$attr])*`), since a call of the
+/// macro then gives each one a `#[default]` (`params_blocks_without_defaults` checks that),
+/// and required when they cannot.
+fn parameters(list: &str) -> Vec<Parameter> {
+    let mut out = Vec::new();
+    let mut rest = list.trim_start();
+    while !rest.is_empty() {
+        if let Some(group) = rest
+            .strip_prefix('$')
+            .filter(|group| group.starts_with('('))
+        {
+            let Some((inside, after)) = balanced(group, '(', ')') else {
+                break;
+            };
+            out.push(Parameter {
+                name: format!("$({})", inside.trim()),
+                optional: inside.contains("#[$"),
+            });
+            rest = after
+                .trim_start_matches(['*', '?', '+'])
+                .trim_start()
+                .trim_start_matches(',')
+                .trim_start();
+            continue;
+        }
+        let mut optional = false;
+        while let Some(attribute) = rest.strip_prefix('#') {
+            let Some((inside, after)) = balanced(attribute.trim_start(), '[', ']') else {
+                break;
+            };
+            if inside.trim_start().starts_with("default") {
+                optional = true;
+            }
+            rest = after.trim_start();
+        }
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+            .collect();
+        // The type runs to the next comma outside brackets. The `>` of an arrow does not
+        // close an angle bracket.
+        let bytes = rest.as_bytes();
+        let mut depth = 0i32;
+        let mut end = rest.len();
+        for (index, byte) in bytes.iter().enumerate() {
+            match byte {
+                b'(' | b'[' | b'{' | b'<' => depth += 1,
+                b'>' if index > 0 && bytes[index - 1] == b'-' => {}
+                b')' | b']' | b'}' | b'>' => depth -= 1,
+                b',' if depth == 0 => {
+                    end = index;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if !name.is_empty() {
+            out.push(Parameter { name, optional });
+        }
+        rest = rest[end..].trim_start_matches(',').trim_start();
+    }
+    out
+}
+
+/// The parameter list of the function whose signature starts at `column` on
+/// `lines[index]`: from the `(` after its name and generics to the matching `)`.
+fn parameter_list(lines: &[String], index: usize, column: usize) -> Option<(String, String)> {
+    let mut text = String::new();
+    for (offset, line) in lines[index..].iter().enumerate().take(80) {
+        let part = if offset == 0 {
+            &line[column..]
+        } else {
+            line.as_str()
+        };
+        text.push_str(part.trim());
+        text.push(' ');
+    }
+    let at = text.find("fn ")?;
+    let name: String = text[at + 3..]
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
+        .collect();
+    let after_name = text[at + 3..].trim_start()[name.len()..].trim_start();
+    let list = skip_generics(after_name);
+    let (inside, _) = balanced(list, '(', ')')?;
+    Some((name, inside.to_string()))
+}
+
+/// The widget functions in one file whose parameters are out of order, one line each.
+///
+/// The order is: the required parameters, then `modifier`, then the optional ones, with
+/// `content` last when there is one. `content` may be required (a lazy list's is) and
+/// still comes last.
+fn parameter_order_violations(path: &Path, text: &str, no_modifier: &[&str]) -> Vec<String> {
+    let lines = code_lines(text);
+    let mut found = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        for column in public_fn_starts(line) {
+            let Some((name, list)) = parameter_list(&lines, index, column) else {
+                continue;
+            };
+            if !name.starts_with(|c: char| c.is_ascii_uppercase() || c == '$') {
+                continue;
+            }
+            let params = parameters(&list);
+            let names: Vec<&str> = params.iter().map(|param| param.name.as_str()).collect();
+            let at = format!(
+                "{}:{}: `{name}` ({})",
+                path.display(),
+                index + 1,
+                names.join(", ")
+            );
+            if names
+                .iter()
+                .position(|name| *name == "content")
+                .is_some_and(|content| content + 1 != names.len())
+            {
+                found.push(format!("{at}: `content` is not the last parameter"));
+            }
+            let Some(modifier) = names.iter().position(|name| *name == "modifier") else {
+                if !no_modifier.contains(&name.as_str()) {
+                    found.push(format!("{at}: there is no `modifier` parameter"));
+                }
+                // Without a modifier the required parameters still come first.
+                if let Some(first_optional) = params.iter().position(|param| param.optional) {
+                    for param in &params[first_optional..] {
+                        if !param.optional && param.name != "content" {
+                            found.push(format!(
+                                "{at}: required `{}` comes after an optional parameter",
+                                param.name
+                            ));
+                        }
+                    }
+                }
+                continue;
+            };
+            for param in &params[..modifier] {
+                if param.optional {
+                    found.push(format!(
+                        "{at}: optional `{}` comes before `modifier`",
+                        param.name
+                    ));
+                }
+            }
+            for param in &params[modifier + 1..] {
+                if !param.optional && param.name != "content" {
+                    found.push(format!(
+                        "{at}: required `{}` comes after `modifier`",
+                        param.name
+                    ));
+                }
+            }
+        }
+    }
+    found
+}
+
+/// The `params: { .. }` blocks of the widget macro calls in one file that have a
+/// parameter without a `#[default]`, one line each. The macros put these parameters after
+/// `modifier`, so they have to be optional. A block in a macro's own rules, which names
+/// metavariables, is the pattern and not a call.
+fn params_blocks_without_defaults(path: &Path, text: &str) -> Vec<String> {
+    let lines = code_lines(text);
+    let joined = lines.join("\n");
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(found_at) = joined[from..].find("params:") {
+        let at = from + found_at;
+        from = at + "params:".len();
+        let Some((inside, _)) = balanced(joined[from..].trim_start(), '{', '}') else {
+            continue;
+        };
+        if inside.contains('$') {
+            continue;
+        }
+        let line = joined[..at].matches('\n').count() + 1;
+        for param in parameters(inside) {
+            if !param.optional {
+                found.push(format!(
+                    "{}:{line}: `{}` in a macro's `params` has no `#[default]`, but it \
+                     comes after `modifier`",
+                    path.display(),
+                    param.name
+                ));
+            }
+        }
+    }
+    found
+}
+
+#[test]
+fn fr39_function_form_parameters_are_required_then_modifier_then_optional_then_content() {
+    let mut found = Vec::new();
+    let mut functions = 0;
+    for (path, text) in widget_function_sources() {
+        functions += code_lines(&text)
+            .iter()
+            .map(|line| public_fn_starts(line).len())
+            .sum::<usize>();
+        found.extend(parameter_order_violations(&path, &text, NO_MODIFIER));
+        found.extend(params_blocks_without_defaults(&path, &text));
+    }
+    assert!(
+        functions > 20,
+        "only {functions} widget functions were read"
+    );
+    assert!(
+        found.is_empty(),
+        "a widget function takes its required parameters, then `modifier`, then the \
+         optional ones, and `content` last:\n{}",
+        found.join("\n")
+    );
+}
+
+#[test]
+fn fr39_function_form_parameter_order_check_reports_what_it_should() {
+    let path = Path::new("probe.rs");
+    let good = r#"
+pub fn Good<'a>(
+    text: impl Into<String>,
+    on_click: impl FnMut() + 'static,
+    modifier: Modifier,
+    #[default(None::<(f32, f32)>)] size: impl Into<Option<(f32, f32)>>,
+    #[default(|| {})] content: impl FnOnce(),
+) {}
+pub fn Lazy(modifier: Modifier, content: impl FnOnce(&mut Scope)) {}
+macro_rules! toggle {
+    ($name:ident($state:ident), params: { $($(#[$attr:meta])* $param:ident: $ty:ty,)* }) => {
+        pub fn $name($state: bool, modifier: Modifier, $($(#[$attr])* $param: $ty,)*
+            #[default(None::<fn()>)] on_done: Option<impl FnMut() + 'static>,
+        ) {}
+    };
+}
+toggle! { Switch(checked), params: { #[default(None::<f32>)] size: impl Into<Option<f32>>, } }
+"#;
+    assert_eq!(
+        parameter_order_violations(path, good, &[]),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        params_blocks_without_defaults(path, good),
+        Vec::<String>::new()
+    );
+
+    let bad = r#"
+pub fn Late(modifier: Modifier, text: impl Into<String>) {}
+pub fn Early(#[default(1)] size: u32, modifier: Modifier) {}
+pub fn Inside(modifier: Modifier, #[default(|| {})] content: impl FnOnce(), #[default(1)] x: u32) {}
+pub fn Bare(text: String) {}
+toggle! { Switch(checked), params: { size: f32, } }
+"#;
+    let found = parameter_order_violations(path, bad, &[]);
+    let reported = |name: &str, what: &str| {
+        found
+            .iter()
+            .any(|line| line.contains(&format!("`{name}`")) && line.contains(what))
+    };
+    assert!(reported("Late", "required `text`"), "{found:#?}");
+    assert!(reported("Early", "optional `size`"), "{found:#?}");
+    assert!(reported("Inside", "not the last"), "{found:#?}");
+    assert!(reported("Bare", "no `modifier`"), "{found:#?}");
+    assert!(
+        parameter_order_violations(path, "pub fn Bare(text: String) {}", &["Bare"]).is_empty(),
+        "a named exception is not reported"
+    );
+    let blocks = params_blocks_without_defaults(path, bad);
+    assert_eq!(blocks.len(), 1, "{blocks:#?}");
+    assert!(blocks[0].contains("`size`"), "{blocks:#?}");
 }
