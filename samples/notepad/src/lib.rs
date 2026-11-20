@@ -1309,11 +1309,7 @@ mod tests {
         fn dispatch(&mut self, node_id: u32, handler_id: u64, payload: EventPayload<'_>) {
             let (batch, _) = self
                 .host
-                .dispatch(HostEvent {
-                    node_id,
-                    handler_id,
-                    payload,
-                })
+                .dispatch(HostEvent::new(node_id, handler_id, payload))
                 .expect("the event failed");
             // The borrow of the Host's buffer has to end before the next call, so the
             // frame is copied out here.
